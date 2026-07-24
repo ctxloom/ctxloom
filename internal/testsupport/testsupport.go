@@ -44,6 +44,13 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
 	"CTXLOOM_CELL_WORKDIR",
+	// The container launch-retry budget's operator overrides (lunar-boat
+	// item 1): read via the coord.EnvLaunch* constants
+	// (os.LookupEnv(EnvLaunchMaxAttempts), not a literal "CTXLOOM_..."
+	// string), same reason as the trio above — listed here by hand.
+	"CTXLOOM_LAUNCH_MAX_ATTEMPTS",
+	"CTXLOOM_LAUNCH_BACKOFF_BASE",
+	"CTXLOOM_LAUNCH_BACKOFF_MAX",
 	// Not production state: a CI-only knob read by
 	// internal/testsupport/dockergate to turn "docker unreachable" from a
 	// skip into a failure. Listed because TestEnvKeysCoversProductionReads

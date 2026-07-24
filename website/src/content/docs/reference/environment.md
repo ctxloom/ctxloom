@@ -82,6 +82,18 @@ A child session spawned under agent delegation (`agent_run` / agentcoord) receiv
 | `CTXLOOM_RUN_ID` | The coordinator-minted run id correlating this child to the run it was spawned for |
 | `CTXLOOM_MCP_SOCKET` | The runner's local MCP-endpoint socket path; a `ctxloom mcp` shim finding this forwards the whole tool surface there over HTTP-over-unix |
 
+## Delegated Launch Retry
+
+Tunables for the bounded launch-retry budget that gates a delegated child's (`agent_run`) launch attempts. Unlike the reach-back trio above, these are operator-settable — export them yourself to tune the budget without a rebuild:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CTXLOOM_LAUNCH_MAX_ATTEMPTS` | Number of consecutive failed launch attempts tolerated for one delegated child before the coordinator gives up loudly and tells the parent. Raise it to ride out a slow/cold container daemon; lower it to fail faster. | `4` |
+| `CTXLOOM_LAUNCH_BACKOFF_BASE` | Delay (Go duration syntax, e.g. `500ms`) before the first retry; each further consecutive failure doubles it. | `200ms` |
+| `CTXLOOM_LAUNCH_BACKOFF_MAX` | Ceiling (Go duration syntax, e.g. `1m`) the doubling backoff is capped at. | `30s` |
+
+An unset or empty value keeps the default silently. A set-but-invalid value (unparseable, zero, or negative) also falls back to the default, but with a loud warning naming the variable — never silently to zero, which would reopen unbounded retry.
+
 ## Session Variables
 
 `ctxloom run` exports these into the launched backend's environment. They are set for you — listed here for debugging:

@@ -125,6 +125,18 @@ type Coordinator struct {
 	// runnerAwaitTimeout is issueStartRun's dial-home budget — see
 	// Options.RunnerAwaitTimeout / defaultRunnerAwaitTimeout (children.go).
 	runnerAwaitTimeout time.Duration
+	// maxLaunchAttempts / launchBackoffBase / launchBackoffMax are the
+	// launch-retry budget (launchgate.go) resolved ONCE here at
+	// construction — the built-in defaultMaxLaunchAttempts/
+	// defaultLaunchBackoffBase/defaultLaunchBackoffMax, or an operator's
+	// EnvLaunchMaxAttempts/EnvLaunchBackoffBase/EnvLaunchBackoffMax
+	// override (resolveLaunchTunables). Every per-attempt read
+	// (launchBackoff, nextRelaunch, giveUpLaunching) consults these fields,
+	// never the environment directly, so the retry loop's hot path is a
+	// plain field read, not a per-attempt env lookup.
+	maxLaunchAttempts int
+	launchBackoffBase time.Duration
+	launchBackoffMax  time.Duration
 	// watch is the D1 consumer broadcast hub: every AgentEvent processed on
 	// any RunChannel is teed here, live, for ConsumerService.WatchRuns
 	// subscribers (consumer.go). D2 retired the legacy per-harp agentbus
@@ -257,6 +269,10 @@ func New(opts Options) (*Coordinator, error) {
 	if runnerAwaitTimeout <= 0 {
 		runnerAwaitTimeout = defaultRunnerAwaitTimeout
 	}
+	// The launch-retry budget has no Options field (deliberately — it is an
+	// operator/env tunable, not a per-call test seam): resolved once, here,
+	// from the environment (resolveLaunchTunables), never per attempt.
+	maxLaunchAttempts, launchBackoffBase, launchBackoffMax := resolveLaunchTunables()
 	stateDir := opts.StateDir
 	var release func()
 	ephemeral := false
@@ -300,6 +316,9 @@ func New(opts Options) (*Coordinator, error) {
 		endedRunTail:       endedRunTail,
 		endedRunMaxAge:     endedRunMaxAge,
 		runnerAwaitTimeout: runnerAwaitTimeout,
+		maxLaunchAttempts:  maxLaunchAttempts,
+		launchBackoffBase:  launchBackoffBase,
+		launchBackoffMax:   launchBackoffMax,
 		watch:              newWatchHub(),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),

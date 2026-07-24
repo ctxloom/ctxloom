@@ -3,6 +3,8 @@ package coord
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -31,20 +33,111 @@ import (
 //     the whole 49-minute incident would have surfaced in seconds.
 
 const (
-	// maxLaunchAttempts bounds CONSECUTIVE failed launch attempts for one
-	// harp before the coordinator gives up and says so. Deliberately small:
-	// the failures this bounds (no image, unshared filesystem, no auth, no
-	// reachable daemon) are all structural — they do not heal by attempt
-	// N+1 — and every extra attempt costs a container prepare. An explicit
-	// new delivery (agent_send/inject) resets the count: that is an
+	// defaultMaxLaunchAttempts bounds CONSECUTIVE failed launch attempts for
+	// one harp before the coordinator gives up and says so. Deliberately
+	// small: the failures this bounds (no image, unshared filesystem, no
+	// auth, no reachable daemon) are all structural — they do not heal by
+	// attempt N+1 — and every extra attempt costs a container prepare. An
+	// explicit new delivery (agent_send/inject) resets the count: that is an
 	// operator asking again, not the loop retrying itself.
-	maxLaunchAttempts = 4
-	// launchBackoffBase is the delay before the FIRST retry; each further
-	// consecutive failure doubles it.
-	launchBackoffBase = 200 * time.Millisecond
-	// launchBackoffMax caps the doubling.
-	launchBackoffMax = 30 * time.Second
+	//
+	// This is the DEFAULT only — EnvLaunchMaxAttempts overrides it per
+	// process. Nobody signed off on "4" as exactly right (lunar-boat item 1);
+	// the env override exists so it can be tuned without a rebuild once real
+	// container-daemon behavior is observed.
+	defaultMaxLaunchAttempts = 4
+	// defaultLaunchBackoffBase is the delay before the FIRST retry; each
+	// further consecutive failure doubles it. DEFAULT only — see
+	// EnvLaunchBackoffBase.
+	defaultLaunchBackoffBase = 200 * time.Millisecond
+	// defaultLaunchBackoffMax caps the doubling. DEFAULT only — see
+	// EnvLaunchBackoffMax.
+	defaultLaunchBackoffMax = 30 * time.Second
 )
+
+// Env var names overriding the launch-retry budget's built-in defaults
+// above. Each is read ONCE, at Coordinator construction (resolveLaunchTunables,
+// called from New) — never per attempt inside the retry loop itself, which
+// only ever reads the already-resolved Coordinator fields
+// (maxLaunchAttempts/launchBackoffBase/launchBackoffMax). Matches the
+// existing CTXLOOM_* env convention (e.g. CTXLOOM_VERBOSE).
+const (
+	// EnvLaunchMaxAttempts overrides defaultMaxLaunchAttempts: the number of
+	// CONSECUTIVE failed launch attempts, as a positive integer (e.g. "8"),
+	// the coordinator tolerates for one harp before giving up loudly.
+	// Default: defaultMaxLaunchAttempts (4). Raise it to ride out a slow or
+	// cold container daemon so a transient failure gets more chances to
+	// clear before the coordinator gives up; lower it to fail faster and
+	// surface a genuinely broken launch (bad image, no auth, unreachable
+	// daemon) sooner. An unset, empty, non-positive, or unparseable value
+	// falls back to the default WITH A LOUD WARNING — never to zero, which
+	// would resurrect the pre-fix unbounded-retry spin (49 minutes at ~2
+	// launches/sec, 2026-07-24).
+	EnvLaunchMaxAttempts = "CTXLOOM_LAUNCH_MAX_ATTEMPTS"
+	// EnvLaunchBackoffBase overrides defaultLaunchBackoffBase: the delay
+	// before the FIRST retry, Go duration syntax (e.g. "500ms"); each
+	// further consecutive failure doubles it. Default:
+	// defaultLaunchBackoffBase (200ms). Raise it to space attempts out
+	// further against a daemon that is slow to recover; lower it to retry a
+	// genuinely transient failure sooner. Same non-positive/unparseable
+	// fallback as EnvLaunchMaxAttempts.
+	EnvLaunchBackoffBase = "CTXLOOM_LAUNCH_BACKOFF_BASE"
+	// EnvLaunchBackoffMax overrides defaultLaunchBackoffMax: the ceiling the
+	// doubling backoff is capped at, Go duration syntax (e.g. "1m").
+	// Default: defaultLaunchBackoffMax (30s). Raise it to let the backoff
+	// keep growing across a longer cold-daemon recovery; lower it to keep
+	// the operator-visible give-up closer to the attempt budget's floor.
+	// Same non-positive/unparseable fallback as EnvLaunchMaxAttempts.
+	EnvLaunchBackoffMax = "CTXLOOM_LAUNCH_BACKOFF_MAX"
+)
+
+// envLaunchInt resolves name from the environment as a positive integer,
+// falling back to def with a loud warning when the variable is SET but
+// unparseable or non-positive (zero included — a zero attempt budget is the
+// exact defect class this whole gate exists to prevent). An unset or
+// empty-string variable falls back to def SILENTLY: that is the ordinary,
+// unconfigured case, not an operator error.
+func envLaunchInt(name string, def int) int {
+	raw, ok := os.LookupEnv(name)
+	if !ok || raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		clidiag.Warn("ctxloom", "%s=%q is not a positive integer; using the default %d instead (a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, def)
+		return def
+	}
+	return n
+}
+
+// envLaunchDuration is envLaunchInt's Go-duration-syntax sibling (e.g.
+// "500ms", "30s").
+func envLaunchDuration(name string, def time.Duration) time.Duration {
+	raw, ok := os.LookupEnv(name)
+	if !ok || raw == "" {
+		return def
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		clidiag.Warn("ctxloom", "%s=%q is not a positive duration; using the default %s instead (a zero backoff here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, def)
+		return def
+	}
+	return d
+}
+
+// resolveLaunchTunables reads the container launch-retry budget's operator
+// overrides from the environment. Called exactly ONCE, from New, at
+// Coordinator construction — the point the policy is established — and the
+// result is cached on the Coordinator's maxLaunchAttempts/launchBackoffBase/
+// launchBackoffMax fields, which is what every per-attempt read (launchBackoff,
+// nextRelaunch, giveUpLaunching) actually consults. No env var is read inside
+// the retry loop itself.
+func resolveLaunchTunables() (maxAttempts int, backoffBase, backoffMax time.Duration) {
+	maxAttempts = envLaunchInt(EnvLaunchMaxAttempts, defaultMaxLaunchAttempts)
+	backoffBase = envLaunchDuration(EnvLaunchBackoffBase, defaultLaunchBackoffBase)
+	backoffMax = envLaunchDuration(EnvLaunchBackoffMax, defaultLaunchBackoffMax)
+	return
+}
 
 // launchState is one harp's launch/retry bookkeeping, guarded by Coordinator.mu.
 type launchState struct {
@@ -171,16 +264,18 @@ func (c *Coordinator) noteLaunchFailure(harp string) int {
 }
 
 // launchBackoff is the delay before the (fails+1)-th attempt: exponential
-// from launchBackoffBase, capped at launchBackoffMax.
-func launchBackoff(fails int) time.Duration {
+// from c.launchBackoffBase, capped at c.launchBackoffMax — the resolved
+// per-Coordinator values (defaults, or EnvLaunchBackoffBase/EnvLaunchBackoffMax
+// overrides, resolved once at construction; see resolveLaunchTunables).
+func (c *Coordinator) launchBackoff(fails int) time.Duration {
 	if fails <= 0 {
 		return 0
 	}
-	d := launchBackoffBase
+	d := c.launchBackoffBase
 	for range fails - 1 {
 		d *= 2
-		if d >= launchBackoffMax {
-			return launchBackoffMax
+		if d >= c.launchBackoffMax {
+			return c.launchBackoffMax
 		}
 	}
 	return d
@@ -188,15 +283,15 @@ func launchBackoff(fails int) time.Duration {
 
 // nextRelaunch decides whether terminateRun's leftover-mail tail may relaunch
 // harp, and after how long. It refuses once the harp has been stopped, or
-// once maxLaunchAttempts consecutive attempts have failed.
+// once c.maxLaunchAttempts consecutive attempts have failed.
 func (c *Coordinator) nextRelaunch(harp string) (time.Duration, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	st := c.launchGateLocked(harp)
-	if st.stopped || st.fails >= maxLaunchAttempts {
+	if st.stopped || st.fails >= c.maxLaunchAttempts {
 		return 0, false
 	}
-	return launchBackoff(st.fails), true
+	return c.launchBackoff(st.fails), true
 }
 
 // relaunchForLeftoverMail is terminateRun's tail: a message that raced the
@@ -234,7 +329,7 @@ func (c *Coordinator) giveUpLaunching(rec RunRecord, detail string) {
 	body := fmt.Sprintf("agent %q (session %s) failed to launch %d times in a row — giving up; "+
 		"its queued messages are still waiting. Last failure: %s. "+
 		"Fix the launch (image, runtime, auth, workspace) and agent_send again to retry.",
-		rec.Agent, rec.Harp, maxLaunchAttempts, detail)
+		rec.Agent, rec.Harp, c.maxLaunchAttempts, detail)
 	clidiag.Warn("ctxloom", "%s", body)
 	if rec.ParentHarp == "" {
 		return

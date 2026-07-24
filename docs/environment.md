@@ -42,6 +42,16 @@ ctxloom: GitHub API call: GET https://api.github.com/repos/owner/repo
 ctxloom: GitHub API status: 404 for /repos/owner/repo
 ```
 
+## Delegated child launch retry
+
+| Variable | Values | Default | Purpose |
+|----------|--------|---------|---------|
+| `CTXLOOM_LAUNCH_MAX_ATTEMPTS` | positive integer | `4` | Number of CONSECUTIVE failed launch attempts the coordinator tolerates for one delegated child (harp) before giving up loudly and telling the parent. Raise it to ride out a slow or cold container daemon; lower it to fail faster and surface a genuinely broken launch (bad image, no auth, unreachable daemon) sooner. |
+| `CTXLOOM_LAUNCH_BACKOFF_BASE` | Go duration (e.g. `500ms`) | `200ms` | Delay before the FIRST retry; each further consecutive failure doubles it. Raise it to space attempts out further against a daemon that's slow to recover. |
+| `CTXLOOM_LAUNCH_BACKOFF_MAX` | Go duration (e.g. `1m`) | `30s` | Ceiling the doubling backoff is capped at. Raise it to let the backoff keep growing across a longer cold-daemon recovery. |
+
+Each is read once, at coordinator startup. An unset or empty value falls back to the default silently (the ordinary, unconfigured case); a set-but-invalid value (unparseable, zero, or negative) falls back to the default too, but LOUDLY — a warning names the variable and its bad value — because a zero or negative override here would silently reopen the unbounded-retry bug this budget exists to close (a broken launch spun for 49 minutes at ~2 attempts/sec before this gate existed).
+
 ## Authentication
 
 | Variable | Default | Purpose |

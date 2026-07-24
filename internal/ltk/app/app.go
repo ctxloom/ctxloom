@@ -37,6 +37,21 @@ type App struct {
 	// recovered panic on the analysis path. New sets it to os.Stderr, which is
 	// where evaluate already writes its other operator-facing notes; a nil Warn
 	// discards them without changing any decision.
+	//
+	// This writes to the process's stderr stream, NOT into engine.Output.Stderr
+	// (the field an adapter's Encode could plumb into the host's own protocol).
+	// Verified against Claude Code's hook contract (code.claude.com/docs/en/hooks,
+	// 2026-07-24): on exit 0 — which is every outcome cmd/ltk/evaluate.go produces,
+	// deny included, since a deny rides stdout JSON, not a nonzero exit — a
+	// PreToolUse hook's stderr is written only to Claude Code's debug log; it
+	// reaches neither the model nor the user's terminal without --debug. So this
+	// warning is effectively invisible in normal operation today. Making it
+	// visible would mean adding a Warnings-shaped field to engine.Response and
+	// teaching every Adapter.Encode to copy it into Output.Stderr (or, for
+	// Claude Code specifically, riding a different channel — see
+	// SessionStartOutput.SystemMessage in hooks_wire.go for a precedent of a
+	// user-visible-but-not-model-visible channel on another hook event) — a
+	// public-interface change, and an escalation, not something to do unasked.
 	Warn io.Writer
 }
 

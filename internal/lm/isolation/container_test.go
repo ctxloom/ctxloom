@@ -23,11 +23,12 @@ type fakeRuntime struct {
 	available bool
 }
 
-func (f fakeRuntime) Name() string             { return f.name }
-func (f fakeRuntime) Binary() string           { return f.binary }
-func (f fakeRuntime) Available() bool          { return f.available }
-func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
-func (fakeRuntime) RemoveArgs(string) []string { return nil }
+func (f fakeRuntime) Name() string                                     { return f.name }
+func (f fakeRuntime) Binary() string                                   { return f.binary }
+func (f fakeRuntime) Available() bool                                  { return f.available }
+func (fakeRuntime) RunArgs(RunSpec) []string                           { return nil }
+func (fakeRuntime) RemoveArgs(string) []string                         { return nil }
+func (fakeRuntime) ExecArgs(string, bool, []string, []string) []string { return nil }
 
 // Spawn is never reached by the Prepare-only degrade tests (they stop at the gate
 // or the mount wiring); it errors loudly if one ever does call it.

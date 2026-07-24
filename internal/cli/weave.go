@@ -31,7 +31,9 @@ var (
 var weaveCmd = &cobra.Command{
 	Use:   "weave [flags] [task...]",
 	Short: "Fan a task across agents/profiles in parallel, then synthesize the results",
-	Long: `Run several members in parallel over one shared task (map), then pipe their
+	Long: `Experimental — interfaces and behavior may change.
+
+Run several members in parallel over one shared task (map), then pipe their
 outputs into a high-power synthesis profile that combines them into a single
 result (reduce).
 

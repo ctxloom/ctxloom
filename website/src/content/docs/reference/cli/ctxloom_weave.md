@@ -13,6 +13,8 @@ Fan a task across agents/profiles in parallel, then synthesize the results
 
 ### Synopsis
 
+Experimental — interfaces and behavior may change.
+
 Run several members in parallel over one shared task (map), then pipe their
 outputs into a high-power synthesis profile that combines them into a single
 result (reduce).

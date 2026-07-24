@@ -28,7 +28,9 @@ var mapCmd = &cobra.Command{
 	Use:        "map [flags] [task...]",
 	Short:      "Run multiple agents/profiles in parallel over one task (fan-out)",
 	Deprecated: mapDeprecation,
-	Long: `Fan one shared task out to several members in parallel, emitting each
+	Long: `Experimental — interfaces and behavior may change.
+
+Fan one shared task out to several members in parallel, emitting each
 agent's output as a labeled block.
 
 A member is either a local agent (--agents) or a bare profile (-p):

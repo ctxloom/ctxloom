@@ -157,7 +157,51 @@ const nodeFloorFragment = `RUN set -e \
     && { [ "$NODE_MAJOR" -ge 20 ] || { echo "ctxloom: this base resolves node $(node --version), below the ACP adapters' floor (>= 20); provide a newer node in the base image" >&2; exit 1; }; }
 `
 
-// adapterRunGate returns the image-time validation for an ACP adapter binary.
+// acpProbeFailurePatterns is the vocabulary of "this ACP surface did not come
+// up" — the one grep both execution gates below share. It unions the two
+// mechanisms by which an image can ship a present-but-dead structured-chat
+// surface:
+//
+//   - the NODE MODULE LOADER (SyntaxError … ERR_UNKNOWN_BUILTIN_MODULE): the
+//     2026-07-24 claude-code defect (see nodeFloorFragment), where the adapter
+//     was installed on an image whose node could not parse it.
+//   - the CLIENT'S OWN ARGUMENT PARSER plus the dynamic loader (unrecognized
+//     subcommand … symbol lookup error): a client binary that landed but whose
+//     `acp` subcommand does not exist (a half-succeeded installer, a pinned-old
+//     release) or that cannot be loaded at all.
+//
+// "Failed to change directory" is opencode's specific shape for the SAME
+// condition and is deliberately listed: opencode does not reject an
+// unrecognized first argument, it adopts it as the working directory — so an
+// opencode with no `acp` command reports `Error: Failed to change directory to
+// <cwd>/acp` AND EXITS ZERO. Measured live 2026-07-24. That is precisely why
+// these gates match on TEXT rather than exit status.
+const acpProbeFailurePatterns = `SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE|` +
+	`unrecognized subcommand|unknown subcommand|unknown command|unexpected argument|` +
+	`error while loading shared libraries|symbol lookup error|command not found|Failed to change directory`
+
+// acpRunProbe is the shared body of both ACP execution gates: run the
+// structured-chat surface with stdin closed under a timeout, capture
+// everything it says, and fail the BUILD if it said any of
+// acpProbeFailurePatterns.
+//
+// probe is the shell command to run; label names it in the diagnostic. The
+// exit status is deliberately DISCARDED (`|| true`): a healthy ACP server and
+// a dead one can both exit zero or non-zero (claude-code-acp exits non-zero on
+// a clean EOF shutdown; opencode exits ZERO when its `acp` command is missing
+// — both measured live), and it was precisely an exit-status-shaped check that
+// let the original defect through.
+func acpRunProbe(label, probe string) string {
+	return `    && { timeout 20 ` + probe + ` </dev/null >/tmp/ctxloom-acp-probe.log 2>&1 || true; } \
+    && { ! grep -qE '` + acpProbeFailurePatterns + `' /tmp/ctxloom-acp-probe.log \
+         || { echo "ctxloom: ` + label + ` is installed but its ACP surface cannot start in this image:" >&2; cat /tmp/ctxloom-acp-probe.log >&2; exit 1; }; } \
+    && rm -f /tmp/ctxloom-acp-probe.log
+`
+}
+
+// adapterRunGate returns the image-time validation for an engine whose ACP
+// surface is a SEPARATE adapter binary (agent.ACPAdapter — claude-code's
+// claude-code-acp, codex's codex-acp).
 //
 // PATH presence — the old gate, `command -v <adapter>` — is exactly the
 // silent-no-op this project bans: it proved a FILE existed and nothing about
@@ -168,11 +212,31 @@ const nodeFloorFragment = `RUN set -e \
 // and says nothing of the sort; a broken one dies before it ever reads a byte.
 func adapterRunGate(adapter string) string {
 	return `    && command -v ` + adapter + ` \
-    && { timeout 20 ` + adapter + ` </dev/null >/tmp/ctxloom-acp-probe.log 2>&1 || true; } \
-    && { ! grep -qE 'SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE' /tmp/ctxloom-acp-probe.log \
-         || { echo "ctxloom: ` + adapter + ` is installed but cannot start in this image:" >&2; cat /tmp/ctxloom-acp-probe.log >&2; exit 1; }; } \
-    && rm -f /tmp/ctxloom-acp-probe.log
-`
+` + acpRunProbe(adapter, adapter)
+}
+
+// nativeACPRunGate returns the image-time validation for an engine whose ACP
+// surface is a SUBCOMMAND OF ITS OWN CLIENT (agent.ACPNative — kiro's
+// `kiro-cli acp`, opencode's `opencode acp`; see internal/lm/backends'
+// kiroACPTransport / opencodeACPTransport and internal/kiro,
+// internal/opencode's chatACPConfig).
+//
+// These engines install from shell installers, not npm, so they were never
+// exposed to the node-version defect — but they carried the SAME silent-no-op
+// class by a different mechanism. Their only build gate was `<client>
+// --version`, which proves the client binary loads and NOTHING about the
+// surface every structured-chat run actually spawns. A half-succeeded
+// installer, a pinned-old release predating `acp`, or a binary that cannot
+// resolve a shared library would all ship a green image whose delegated agents
+// produce zero ChatEvents — exactly claude-code's failure with a different
+// first cause. `--version` is not a substitute: it exercises a different code
+// path from the one that has to work.
+//
+// Measured live 2026-07-24: a healthy `kiro-cli acp </dev/null` and a healthy
+// `opencode acp </dev/null` each exit 0 having printed NOTHING, so a
+// well-behaved image passes this silently.
+func nativeACPRunGate(client, sub string) string {
+	return acpRunProbe(client+" "+sub, client+" "+sub)
 }
 
 // claudeCodeInstallFragment installs claude via its OFFICIAL npm package plus
@@ -221,12 +285,17 @@ var codexInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @opena
 // unzip ensured best-effort, the binary relocated to /usr/local/bin when the
 // installer lands it under ~/.local/bin instead (any uid finds it there —
 // the rootful-docker path runs the container as the host uid, not root).
+//
+// The validate gate is TWO steps, not one: `kiro-cli --version` proves the
+// client binary loads, and nativeACPRunGate proves `kiro-cli acp` — the
+// surface every structured-chat run actually spawns — comes up. The second is
+// not implied by the first; see nativeACPRunGate's doc.
 var kiroInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
     && curl -fsSL https://cli.kiro.dev/install | bash \
     && { command -v kiro-cli >/dev/null 2>&1 \
          || install -m 0755 /root/.local/bin/kiro-cli /usr/local/bin/kiro-cli; } \
-    && kiro-cli --version
-`)
+    && kiro-cli --version \
+` + nativeACPRunGate("kiro-cli", "acp"))
 
 // opencodeInstallFragment installs opencode via its official install script.
 // The installer lands the binary under $HOME/.opencode/bin (per the opencode
@@ -234,12 +303,19 @@ var kiroInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-g
 // relocated the same way kiro's is. Its own auth resolver is
 // resolveOpencodeContainerAuth (auth.go: OpenRouter env / seeded
 // ~/.local/share/opencode/auth.json) — see the opencode case below.
+//
+// Like kiro's, the validate gate is TWO steps: `opencode --version` for the
+// client, then nativeACPRunGate for `opencode acp`, the surface structured
+// chat spawns. opencode is the sharpest case for gating on TEXT rather than
+// status — with no `acp` command it adopts "acp" as a directory, prints
+// `Error: Failed to change directory to <cwd>/acp`, and EXITS ZERO
+// (measured live 2026-07-24).
 var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
     && curl -fsSL https://opencode.ai/install | bash \
     && { command -v opencode >/dev/null 2>&1 \
          || install -m 0755 "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode; } \
-    && opencode --version
-`)
+    && opencode --version \
+` + nativeACPRunGate("opencode", "acp"))
 
 // antigravityInstallFragment installs agy via its OFFICIAL install script,
 // live-verified 2026-07-15 (task sweet-fruit) by fetching

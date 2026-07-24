@@ -130,3 +130,39 @@ func TestLadder_JournalRoundTrip(t *testing.T) {
 	assert.Equal(t, l[1].Role, got[1].Role)
 	assert.Equal(t, l[1].Timeout, got[1].Timeout)
 }
+
+// TestBuildLadder_NoEscalationConfigDefaultsRelayTo24Hours pins vain-cough
+// item 1's default flip: an agent that declares no escalation: block at all
+// (the common case) gets a relay rung that waits 24 HOURS before falling
+// through, not the old 5-minute human-SLA default. The whole point is that a
+// busy coordinator that hasn't called agent_recv yet must not have its
+// child's request auto-DENIED out from under it — see the 2026-07-24
+// approval-drop cluster this default caused.
+func TestBuildLadder_NoEscalationConfigDefaultsRelayTo24Hours(t *testing.T) {
+	l, err := buildLadder("a", nil, agent.PermissionPlan)
+	require.NoError(t, err)
+	rungs := l.matchingRungs(agentcoordpb.ApprovalRequest_APPROVAL_KIND_COMMAND_EXECUTION)
+	require.NotEmpty(t, rungs)
+	relay := rungs[len(rungs)-1]
+	require.Equal(t, ActionRelayToRole, relay.Action)
+	assert.Equal(t, 24*time.Hour, relay.Timeout,
+		"an agent with no escalation: config must wait 24h before falling through (auto-denying), not the old 5m default")
+}
+
+// TestBuildLadder_EscalationConfigOverridesDefaultRelayTimeout pins
+// vain-cough item 1's "agent configurable" half: an agent that DOES declare
+// an escalation: block with its own relay timeout gets THAT value, not the
+// 24h default — buildLadder already parses EscalationRung.Timeout for a
+// relay/surface rung (this pins that the override still wins after the
+// default changes, and documents the mechanism, not merely the number).
+func TestBuildLadder_EscalationConfigOverridesDefaultRelayTimeout(t *testing.T) {
+	raw := []agents.EscalationRung{
+		{Action: "relay_to_role", Timeout: "10m"},
+	}
+	l, err := buildLadder("a", raw, agent.PermissionPlan)
+	require.NoError(t, err)
+	require.Len(t, l, 1)
+	assert.Equal(t, 10*time.Minute, l[0].Timeout,
+		"an agent's own escalation: timeout must override the 24h default")
+	assert.NotEqual(t, 24*time.Hour, l[0].Timeout)
+}

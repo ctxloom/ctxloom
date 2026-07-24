@@ -48,10 +48,20 @@ type LadderRung struct {
 type Ladder []LadderRung
 
 // defaultRelayTimeout bounds a relay_to_role/surface_to_human rung that
-// declares no explicit timeout — generous enough for an attended parent to
-// notice and answer, short enough that a scripted/unattended parent falls
-// through to the next rung (and ultimately DECLINE) in bounded time.
-const defaultRelayTimeout = 5 * time.Minute
+// declares no explicit timeout.
+//
+// 24 HOURS, not a short human-SLA-shaped number: the 2026-07-24
+// approval-drop cluster was children auto-DENIED after a 5-minute default
+// while a busy COORDINATOR AGENT — not a human at a terminal — simply
+// hadn't called agent_recv yet. A coordinator can legitimately be deep in
+// its own multi-hour turn before it drains its mailbox, so a relay rung
+// must wait for a real answer rather than silently declining out from
+// under it. Agent-configurable: an agent's own escalation: block can set a
+// per-rung Timeout (agents.EscalationRung.Timeout, Go duration syntax) that
+// overrides this default for THAT agent (buildLadder parses it below); this
+// constant is only what an agent with no escalation: config — or a
+// relay/surface rung that omits Timeout — gets.
+const defaultRelayTimeout = 24 * time.Hour
 
 // approvalKindNames is the user-facing short-form vocabulary for
 // ApprovalRequest.ApprovalKind — deliberately hand-written (not derived from

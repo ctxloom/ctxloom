@@ -5,18 +5,18 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/selfexec"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
 // hostRunnerStderrTailBytes bounds the stderr ring buffer a directly-launched
 // host runner keeps for its failure diagnostics — enough to carry a panic
 // trace or a config error, small enough to never grow unbounded across a long
 // run.
-const hostRunnerStderrTailBytes = 8192
+const hostRunnerStderrTailBytes = stderrtail.DefaultBytes
 
 // HostRunner is a directly-launched, BARE (non-go-plugin) host runner
 // subprocess — the StartRunner host path. Unlike NewSelfInvokingClient* it
@@ -30,7 +30,7 @@ const hostRunnerStderrTailBytes = 8192
 // own process group is swept up too.
 type HostRunner struct {
 	cmd      *exec.Cmd
-	stderr   *ringWriter
+	stderr   *stderrtail.Ring
 	pid      int
 	killOnce sync.Once
 	// reaped blocks for the ONE background Wait this runner's process gets.
@@ -69,7 +69,7 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 	// Fresh session leader so killSession has a safe, scoped teardown boundary
 	// (the same reason dialLLMConnection sets it — see realLLMConnection.Kill).
 	isolateRunner(cmd)
-	ring := newRingWriter(hostRunnerStderrTailBytes)
+	ring := stderrtail.New(hostRunnerStderrTailBytes)
 	cmd.Stderr = ring
 	cmd.WaitDelay = hostRunnerWaitDelay
 	if err := cmd.Start(); err != nil {
@@ -110,7 +110,7 @@ func (h *HostRunner) Kill() {
 func (h *HostRunner) Wait() error {
 	err := h.reaped()
 	if err != nil {
-		if tail := h.stderr.tail(); tail != "" {
+		if tail := h.stderr.Tail(); tail != "" {
 			return fmt.Errorf("host runner exited: %w (stderr tail: %s)", err, tail)
 		}
 		return fmt.Errorf("host runner exited: %w", err)
@@ -120,31 +120,4 @@ func (h *HostRunner) Wait() error {
 
 // StderrTail returns the captured stderr tail (bounded), for a caller that
 // wants the diagnostic without waiting on exit.
-func (h *HostRunner) StderrTail() string { return h.stderr.tail() }
-
-// ringWriter keeps only the last max bytes written to it — a bounded stderr
-// tail an io.Writer feeds. Concurrency-safe: the child's stderr pump writes
-// while a reaper reads the tail.
-type ringWriter struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func newRingWriter(max int) *ringWriter { return &ringWriter{max: max} }
-
-func (r *ringWriter) Write(p []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buf = append(r.buf, p...)
-	if len(r.buf) > r.max {
-		r.buf = r.buf[len(r.buf)-r.max:]
-	}
-	return len(p), nil
-}
-
-func (r *ringWriter) tail() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return strings.TrimSpace(string(r.buf))
-}
+func (h *HostRunner) StderrTail() string { return h.stderr.Tail() }

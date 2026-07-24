@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
 // clientInfo identity advertised in the initialize request (recommended by
@@ -385,6 +386,12 @@ func splitCommand(command string) (bin string, args []string) {
 
 // --- subprocess transport ---
 
+// engineStderrTailBytes bounds the ACP adapter's captured stderr tail. This
+// text is forwarded UP as a run-terminal reason (into the child's transcript
+// and its parent's mailbox), so it is deliberately a bounded tail and not a
+// stream: unbounded engine stderr in a transcript is its own problem.
+const engineStderrTailBytes = stderrtail.DefaultBytes
+
 // transport is the I/O seam for one ACP conversation: the child's stdin (we write
 // JSON-RPC frames here), the child's stdout (we read frames here), and teardown.
 // Tests inject in-memory pipes so they never spawn a process.
@@ -392,6 +399,48 @@ type transport struct {
 	stdin  io.WriteCloser
 	stdout io.Reader
 	close  func() error
+	// stderrTail reads the bounded tail of what the spawned agent wrote to
+	// STDERR. This is the driver's only channel for a death that happens
+	// BELOW the protocol: an adapter that dies in its module loader, or is
+	// killed by the OOM killer, never writes a JSON-RPC frame at all, so
+	// every error this driver can otherwise report ("acp: connection
+	// closed", "write |1: file already closed") names the symptom and not
+	// one byte of the cause. The 2026-07-24 incident was exactly that shape
+	// and took 49 minutes.
+	//
+	// Nil for a test transport that spawns no process (engineStderrTail
+	// tolerates it).
+	stderrTail func() string
+}
+
+// engineStderrTail reads tr's captured stderr tail, tolerating a transport
+// that captures none. Only ever called while reporting a failure, so it must
+// never itself be a failure.
+func engineStderrTail(tr *transport) string {
+	if tr == nil || tr.stderrTail == nil {
+		return ""
+	}
+	return tr.stderrTail()
+}
+
+// withEngineStderr wraps err with the engine's dying words when there are
+// any. It is deliberately a WRAP (%w preserved) so errors.As/Is on the
+// underlying transport or *jsonrpc.Error keeps working — callers that match
+// on the protocol error (authRequiredErr's -32000 rewrite, the coordinator's
+// own classification) must not be broken by a diagnostic annotation.
+//
+// A nil error is returned unchanged: a healthy conversation whose engine
+// happened to chatter on stderr is not a failure and must not be reported as
+// one.
+func withEngineStderr(err error, tr *transport) error {
+	if err == nil {
+		return nil
+	}
+	tail := engineStderrTail(tr)
+	if tail == "" {
+		return err
+	}
+	return fmt.Errorf("%w (engine stderr tail: %s)", err, tail)
 }
 
 type transportFunc func(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error)
@@ -432,7 +481,14 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stderr = os.Stderr
+	// Tee rather than replace: stderr passthrough is an existing operator
+	// diagnostic (and, inside a container, the run process's only log), so
+	// capture is ADDITIVE. Before this the adapter's stderr was INHERITED
+	// only — which is why a containerized child's dying words reached the
+	// container's stdout and nowhere the coordinator could ever read them,
+	// with the container force-removed moments later.
+	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)
+	cmd.Stderr = sink
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -454,8 +510,9 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 	}
 
 	return &transport{
-		stdin:  stdin,
-		stdout: stdout,
+		stdin:      stdin,
+		stdout:     stdout,
+		stderrTail: ring.Tail,
 		close: func() error {
 			_ = stdin.Close()
 			if cmd.Process != nil {

@@ -146,6 +146,26 @@ type RunnerHandle struct {
 	Name string
 	Kill func()
 	Wait func() error
+	// StderrTail reads the runner's bounded stderr tail WITHOUT waiting on
+	// exit — the diagnostic a caller needs at the moment it declares a
+	// launch failed or a runner lost, when there is by definition no exit
+	// status to wrap. Wait's error already embeds the same tail for the
+	// caller that does reap; this is the accessor for the (production)
+	// caller that never does.
+	//
+	// Nil-safe via StderrTailOf: not every policy fills it, and a caller
+	// asking a dead runner why it died must not itself panic.
+	StderrTail func() string
+}
+
+// StderrTailOf reads h's bounded stderr tail, tolerating a nil handle or a
+// policy that captures nothing. Callers are diagnosing a failure when they
+// reach this, so it must never be the thing that fails.
+func StderrTailOf(h *RunnerHandle) string {
+	if h == nil || h.StderrTail == nil {
+		return ""
+	}
+	return h.StderrTail()
 }
 
 // EngineStarter is the StartRun spawn-half seam that replaces pb.ClientFactory

@@ -11,11 +11,18 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
 // directRunnerStderrTailBytes bounds the stderr ring a docker-direct runner
 // keeps for its failure diagnostics (the go-plugin Diagnose replacement).
-const directRunnerStderrTailBytes = 8192
+//
+// `docker run` here is ATTACHED (no -d), so this ring is fed by the
+// CONTAINER's own stderr AS IT STREAMS — the in-container `ctxloom llm host`
+// runner's stderr, and through it the engine adapter's. That streaming is
+// what makes the capture survive teardown: Kill force-removes the container,
+// and `docker logs` after a force-remove is too late.
+const directRunnerStderrTailBytes = stderrtail.DefaultBytes
 
 // StartRunner launches the engine runner INSIDE a container via a plain
 // docker/podman `run` — the queer-shrug Phase 1 spawn half that removes
@@ -113,13 +120,13 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		sort.Strings(kv)
 		cmd.Env = append(os.Environ(), kv...)
 	}
-	ring := newStderrRing(directRunnerStderrTailBytes)
+	ring := stderrtail.New(directRunnerStderrTailBytes)
 	cmd.Stderr = ring
 	cmd.WaitDelay = runnerWaitDelay
 	// No stdin (keeps `docker run` off the host terminal); the container's
 	// stdout carries no handshake on this path, so nothing reads it.
 	if err := cmd.Start(); err != nil {
-		if tail := ring.tail(); tail != "" {
+		if tail := ring.Tail(); tail != "" {
 			return nil, fmt.Errorf("start %s runner container %q: %w (stderr tail: %s)", rt.Name(), spec.Name, err, tail)
 		}
 		return nil, fmt.Errorf("start %s runner container %q: %w", rt.Name(), spec.Name, err)
@@ -140,14 +147,14 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	wait := func() error {
 		err := reaped()
 		if err != nil {
-			if tail := ring.tail(); tail != "" {
+			if tail := ring.Tail(); tail != "" {
 				return fmt.Errorf("runner container %q exited: %w (stderr tail: %s)", spec.Name, err, tail)
 			}
 			return fmt.Errorf("runner container %q exited: %w", spec.Name, err)
 		}
 		return nil
 	}
-	return &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait}, nil
+	return &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait, StderrTail: ring.Tail}, nil
 }
 
 // reapRunProcess Waits a started *exec.Cmd exactly once, in the background,
@@ -199,31 +206,4 @@ func removeContainer(ctx context.Context, rt Runtime, name string) {
 			"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this run's workspace, remove it manually with `%s %s`",
 			name, err, rt.Name(), rt.Binary(), strings.Join(rt.RemoveArgs(name), " "))
 	}
-}
-
-// stderrRing keeps only the last max bytes written to it — a bounded stderr
-// tail for a docker-direct runner's failure diagnostics. Concurrency-safe:
-// the `run` process's stderr pump writes while Wait/StderrTail reads.
-type stderrRing struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func newStderrRing(max int) *stderrRing { return &stderrRing{max: max} }
-
-func (r *stderrRing) Write(p []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buf = append(r.buf, p...)
-	if len(r.buf) > r.max {
-		r.buf = r.buf[len(r.buf)-r.max:]
-	}
-	return len(p), nil
-}
-
-func (r *stderrRing) tail() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return strings.TrimSpace(string(r.buf))
 }

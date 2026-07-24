@@ -39,7 +39,7 @@ var _ agent.StructuredChat = (*ACP)(nil)
 // parked engine mid-turn (text messages arriving mid-turn queue for the next
 // turn). This is what makes ForwardPermissions and CancelTurn possible at all —
 // a loop that blocks inside the prompt could never read them.
-func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) (rerr error) {
 	defer close(out)
 
 	ctx, cancel := context.WithCancel(parentCtx)
@@ -53,6 +53,14 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	if err != nil {
 		return err
 	}
+	// Every failure this conversation can report carries the engine's own
+	// dying words when it left any. Registered as a defer (not applied at
+	// each of Chat's many return sites) so a future return path cannot
+	// silently drop the diagnostic — the whole failure mode here is evidence
+	// going missing. Defers run LIFO, so this rewrites rerr strictly BEFORE
+	// the `defer close(out)` above fires; no consumer sees a half-annotated
+	// result.
+	defer func() { rerr = withEngineStderr(rerr, tr) }()
 
 	sess := &chatSession{
 		ctx:         ctx,

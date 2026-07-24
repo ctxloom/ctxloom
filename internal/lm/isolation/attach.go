@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
 // AttachedContainer is a running container's foreground stdio for a caller
@@ -24,7 +24,16 @@ type AttachedContainer struct {
 	Stdin  io.WriteCloser
 	Stdout io.Reader
 	close  func() error
+	stderr *stderrtail.Ring
 }
+
+// StderrTail is the bounded tail of everything the CONTAINER wrote to stderr,
+// captured as it streamed. For the ACP container transport this is the engine
+// adapter's own dying words — the only root-cause evidence a caller ever gets
+// when the in-container process exits before answering a JSON-RPC call, and
+// the reason this is captured rather than merely inherited: Close force-
+// removes the container, so `docker logs` afterwards has nothing to read.
+func (a *AttachedContainer) StderrTail() string { return a.stderr.Tail() }
 
 // Close tears the container down. Safe to call once.
 func (a *AttachedContainer) Close() error { return a.close() }
@@ -69,7 +78,12 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContai
 	if err != nil {
 		return nil, fmt.Errorf("container attach: stdout pipe: %w", err)
 	}
-	cmd.Stderr = os.Stderr
+	// Tee, never replace: the passthrough to the host's stderr is an
+	// operator-facing diagnostic some callers already rely on, and capture
+	// must be ADDITIVE — the whole point is that the evidence stops
+	// vanishing, not that it moves somewhere else.
+	ring, sink := stderrtail.TeeStderr(stderrtail.DefaultBytes)
+	cmd.Stderr = sink
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s container: %w", rt.Name(), err)
 	}
@@ -77,6 +91,7 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContai
 	return &AttachedContainer{
 		Stdin:  stdin,
 		Stdout: stdout,
+		stderr: ring,
 		close: func() error {
 			_ = stdin.Close()
 			if name != "" && rt.Binary() != "" {

@@ -89,7 +89,7 @@ func (None) StartRunner(_ context.Context, backendName, label string, _ int, ws 
 	if err != nil {
 		return nil, err
 	}
-	return &RunnerHandle{Name: "", Kill: hr.Kill, Wait: hr.Wait}, nil
+	return &RunnerHandle{Name: "", Kill: hr.Kill, Wait: hr.Wait, StderrTail: hr.StderrTail}, nil
 }
 
 // hostWorkspace is the None policy's workspace: the live project directory with

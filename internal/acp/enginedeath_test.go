@@ -105,6 +105,6 @@ exit 1
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "FATAL: the actual cause",
 		"the tail must keep the LAST stderr bytes — a dying process says why at the end")
-	assert.Less(t, len(err.Error()), 2*8192,
+	assert.Less(t, len(err.Error()), 2*engineStderrTailBytes,
 		"the tail must be BOUNDED: unbounded engine stderr forwarded into a transcript is its own problem")
 }

@@ -131,6 +131,10 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 	return &transport{
 		stdin:  ac.Stdin,
 		stdout: ac.Stdout,
+		// The container's streamed stderr tail — the in-container engine's
+		// dying words, captured BEFORE ac.Close force-removes the container
+		// (after which `docker logs` has nothing left to read).
+		stderrTail: ac.StderrTail,
 		close: func() error {
 			cerr := ac.Close()
 			if reachBackClose != nil {

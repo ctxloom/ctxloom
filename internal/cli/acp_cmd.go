@@ -40,7 +40,9 @@ var (
 var acpCmd = &cobra.Command{
 	Use:   "acp",
 	Short: "ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent",
-	Long: `ACP (Agent Client Protocol) has two directions under ctxloom, each its own
+	Long: `Experimental — interfaces may change and it is not yet verified against all editors.
+
+ACP (Agent Client Protocol) has two directions under ctxloom, each its own
 subcommand:
 
   ctxloom acp server   ctxloom SERVES the protocol (stdio) so an ACP editor

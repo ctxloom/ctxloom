@@ -46,7 +46,9 @@ var errACPClientLLMRequired = fmt.Errorf("--llm is required: the configured ACP-
 var acpClientCmd = &cobra.Command{
 	Use:   "client <prompt>",
 	Short: "Connect ctxloom OUT to a configured ACP-speaking agent and drive one headless turn",
-	Long: `Drive ONE headless turn against a configured ACP-CLIENT llm entry: an
+	Long: `Experimental — interfaces may change and it is not yet verified against all editors.
+
+Drive ONE headless turn against a configured ACP-CLIENT llm entry: an
 'llm:' label in .ctxloom/config.yaml whose type is "acp" — ctxloom's generic
 outbound ACP driver, which spawns the label's configured 'command' (e.g.
 "kiro-cli acp", "claude-code-acp", "codex-acp") and speaks Agent Client

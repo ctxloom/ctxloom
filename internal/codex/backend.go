@@ -154,8 +154,8 @@ func NewCodex() *Codex {
 //     today's default: WorkDir itself, in-tree — a relocation codex has
 //     always silently performed but never seeded (warm-yodel).
 func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agent.CellKind) (dir string, source codexHomeSource) {
-	if home := env["CODEX_HOME"]; home != "" {
-		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+".codex"); stripped != home {
+	if home := env[CodexHomeEnv]; home != "" {
+		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+ConfigDirName); stripped != home {
 			return stripped, codexHomeIsolationProvided
 		}
 		// An isolation-provided CODEX_HOME not in the expected "/.codex" shape
@@ -327,7 +327,7 @@ func (b *Codex) cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
 	if dir == "" {
 		dir, _ = resolveCodexProjectDir(req.Env, req.WorkDir, req.CellKind)
 	}
-	return map[string]string{"CODEX_HOME": cellScopedCodexHome(dir)}
+	return map[string]string{CodexHomeEnv: cellScopedCodexHome(dir)}
 }
 
 // Configure applies a decoded codex config to this backend.
@@ -439,14 +439,14 @@ func (b *Codex) buildArgs(req *agent.ExecuteRequest) []string {
 
 	interactive := req.Mode != agent.ModeOneshot
 	if !interactive {
-		args = append(args, "exec")
+		args = append(args, subcommandExec)
 	}
 	args = append(args, b.Args...)
 
 	// Select the requested model (codex supports --model/-m). Empty lets codex use
 	// its configured default rather than forcing one.
 	if req.Model != "" {
-		args = append(args, "--model", req.Model)
+		args = append(args, flagModel, req.Model)
 	}
 
 	sandbox := "workspace-write"
@@ -458,13 +458,13 @@ func (b *Codex) buildArgs(req *agent.ExecuteRequest) []string {
 		sandbox, neverApprove = "read-only", true
 	case req.Permissions == agent.PermissionBypass:
 		sandbox = ""
-		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+		args = append(args, flagBypassApprovalsAndSandbox)
 	}
 	if sandbox != "" {
-		args = append(args, "--sandbox", sandbox)
+		args = append(args, flagSandbox, sandbox)
 	}
 	if neverApprove && interactive {
-		args = append(args, "--ask-for-approval", "never")
+		args = append(args, flagAskForApproval, "never")
 	}
 
 	if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {

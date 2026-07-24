@@ -433,7 +433,7 @@ test-acceptance: build
 # that appeared in neither the justfile nor any CI workflow, so it had never
 # actually run.
 test-docker-integration:
-    go test -v -tags docker_integration ./internal/lm/isolation/... ./internal/agentcoord/coord/...
+    go test -v -tags docker_integration ./internal/lm/isolation/... ./internal/agentcoord/coord/... ./internal/vpio/dockerexec/...
 
 # Build the acceptance image (devcontainer toolchain + Node + the Claude Code
 # agent), run as a non-root `ctxloom` user. The ctxloom binary is NOT baked in;

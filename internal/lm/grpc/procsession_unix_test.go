@@ -78,7 +78,7 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) string {
 
 // TestKillSession_ReapsOrphanedGrandchild is damp-pupil 3's regression test:
 // a go-plugin runner spawned via setsid, then HARD-killed directly (exactly
-// go-plugin's raw cmd.Process.Kill() fallback in third_party/go-plugin, or
+// go-plugin's raw cmd.Process.Kill() fallback in github.com/hashicorp/go-plugin, or
 // an operator's/OOM-killer's kill -9 on the runner pid — the graceful RPC
 // path never runs either way) orphans a grandchild it isolated into its own
 // process group, mirroring internal/acp's setpgid'd claude-code-acp

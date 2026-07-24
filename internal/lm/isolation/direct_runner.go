@@ -47,7 +47,7 @@ func (c Container) StartRunner(_ context.Context, backendName, label string, ver
 // git-identity env (cw.extraEnv) + the per-spawn runner env as BARE NAMES.
 // Mounts = the identical-path project mount + the workspace's own mounts
 // (auth credential mounts, config overlays, gitdir mirror, and — critically —
-// the session-state mounts, §6.4). NO socket-dir mount, NO PublishPort, NO
+// the session-state mounts, §6.4). NO socket-dir mount, NO published port, NO
 // curated handshake env. Pure and deterministic so the render is unit-testable
 // without a container.
 func (c Container) buildRunnerSpec(backendName, label, name string, cw *containerWorkspace, spawnEnv map[string]string) RunSpec {
@@ -74,7 +74,7 @@ func (c Container) buildRunnerSpec(backendName, label, name string, cw *containe
 		{Host: cw.dir, Container: workDir},
 	}, cw.extraMounts...)
 
-	// No socket-dir mount, no PublishPort, no curated handshake env — the
+	// No socket-dir mount, no published port, no curated handshake env — the
 	// transport-free spec that removes go-plugin from this spawn.
 	return RunSpec{
 		Image:   c.image,

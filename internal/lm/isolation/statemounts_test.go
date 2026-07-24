@@ -149,7 +149,7 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 	spec := buildRunSpec("img", "name", "/proj", defaultContainerHome,
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claude-code"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123",
-		nil, nil, mounts, 0, nil)
+		nil, nil, mounts, nil)
 	argv := strings.Join(Docker{}.RunArgs(spec), " ")
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")

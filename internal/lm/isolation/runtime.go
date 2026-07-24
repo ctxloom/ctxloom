@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -175,13 +176,6 @@ type RunSpec struct {
 	Command []string // in-container argv (the container's ctxloom + "llm serve …")
 	Env     []string // -e KEY=VAL, the curated go-plugin handshake env
 	Mounts  []Mount  // --mount type=bind bind mounts
-	// PublishPort, when > 0, publishes that TCP port on host loopback
-	// (-p 127.0.0.1:PORT:PORT). Non-zero only for the loopback plugin transport
-	// (non-Linux hosts): the in-container plugin listens on TCP at this port and
-	// the host go-plugin client dials it over loopback, crossing the Docker
-	// Desktop VM boundary that a bind-mounted unix socket cannot. Zero on Linux,
-	// where the unix-socket transport is used and no port is published.
-	PublishPort int
 }
 
 // Mount is one bind mount rendered as `--mount type=bind,source=,target=[,readonly]`.
@@ -257,6 +251,26 @@ func (rt ociRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
 // mapper returns this runtime's pathMapper (identity when unset).
 func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 
+// containerSpawnUnsupportedErr is the platform gate for the go-plugin container
+// SpawnClient path: it returns a fail-loud error on any non-Linux host and nil on
+// Linux. The transport is unix-socket-over-bind-mount — the plugin creates its
+// socket in a dir bind-mounted from the host, which is only a live endpoint when
+// host and container share ONE kernel (Linux). The forked TCP-over-loopback
+// transport that bridged the Docker Desktop VM boundary on macOS/Windows was
+// deleted in 0.7 (it opened a routable in-container plugin listener on the shared
+// bridge — mauve-state), so this path is now Linux-only. Its only residual callers
+// are NON-top-level: the legacy degraded/fallback delegation and oneshot fan-out
+// members — both experimental map/weave surfaces. Top-level container runs
+// (docker-exec / Transport 2) and delegated agents (docker-direct) never reach
+// here and are unaffected on every platform. goos is a parameter (not read from
+// runtime.GOOS inline) so the gate is unit-testable, advertiseHostFor style.
+func containerSpawnUnsupportedErr(goos string) error {
+	if goos == "linux" {
+		return nil
+	}
+	return fmt.Errorf("this legacy container spawn path (degraded/fallback delegation, oneshot fan-out members) is Linux-only since 0.7: the container TCP transport was removed to close a security hole. Run these experimental map/weave container spawns on Linux, or use the fully-supported top-level run modes; top-level runs and delegated agents are unaffected on this platform (%s)", goos)
+}
+
 // spawn is the moved body of the old Container.spawnInContainer: it launches the
 // plugin INSIDE a container via the go-plugin RunnerFunc + AddrTranslator
 // transport and returns its client (Kill force-removes the container). It is
@@ -266,6 +280,13 @@ func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 // container convention arrives on the LaunchSpec, so the body threads image/
 // binaryPath/home/socketDir/workdir/mounts/env identically to spawnInContainer.
 func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
+	// goos-gated fail-loud: this go-plugin SpawnClient path is Linux-only since
+	// 0.7 (the container TCP transport was deleted). runtime.GOOS is passed to a
+	// parameterized helper so the gate is unit-testable (advertiseHostFor style).
+	if err := containerSpawnUnsupportedErr(runtime.GOOS); err != nil {
+		return nil, err
+	}
+
 	command := []string{launch.BinaryPath, "llm", "serve", launch.BackendName}
 	if launch.Label != "" {
 		command = append(command, "--label", launch.Label)
@@ -276,21 +297,8 @@ func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
 		fmt.Fprintf(os.Stderr, "ctxloom: container auth via %s\n", launch.AuthMode)
 	}
 
-	// Pick the plugin transport: unix socket on Linux (fast, shared kernel), TCP
-	// over host loopback off Linux where a bind-mounted unix socket cannot cross
-	// the Docker Desktop VM boundary. A reservation failure is fatal to this run
-	// (the caller degrades to None) — better than launching a container the host
-	// could never reach.
-	loopbackPort, err := loopbackPluginPort()
-	if err != nil {
-		return nil, err
-	}
-	if launch.Verbosity > 0 && loopbackPort > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container plugin transport: TCP loopback 127.0.0.1:%d\n", loopbackPort)
-	}
-
 	name := containerName(launch.AgentID)
-	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv, loopbackPort)
+	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv)
 	return pb.NewContainerClient(launch.BackendName, launch.Label, launch.Verbosity, runnerFunc, launch.HostSocketDir)
 }
 
@@ -514,15 +522,6 @@ func (Chroot) mapper() pathMapper { return identityMapper{} }
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
 func renderRunSpec(spec RunSpec) []string {
 	var args []string
-	if spec.PublishPort > 0 {
-		// Loopback plugin transport: bind the container's TCP listener to the
-		// SAME host loopback port so the host go-plugin client can dial it. Only
-		// 127.0.0.1 is published (never 0.0.0.0) — the plugin RPC is host-local.
-		// --network host would be simpler but is unavailable on Docker Desktop
-		// Mac/Windows (the container is in a VM), which is exactly where this path
-		// runs, so an explicit loopback port-publish it is.
-		args = append(args, "-p", fmt.Sprintf("127.0.0.1:%d:%d", spec.PublishPort, spec.PublishPort))
-	}
 	if spec.Home != "" {
 		args = append(args, "-e", "HOME="+spec.Home)
 	}

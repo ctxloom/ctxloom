@@ -31,7 +31,7 @@ func setsid(cmd *exec.Cmd) {
 // tagged with the runner's session id regardless of how many nested
 // process groups they create.
 //
-// This exists because go-plugin's own Kill() (third_party/go-plugin) only
+// This exists because go-plugin's own Kill() (github.com/hashicorp/go-plugin) only
 // ever targets the runner's OWN pid (graceful RPC close, or a raw
 // cmd.Process.Kill() fallback) — neither reaches a process the runner
 // deliberately isolated into its own group. On a HARD kill (the fallback,

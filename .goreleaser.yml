@@ -567,6 +567,11 @@ release:
     client`) ships in this release. Experimental — interfaces may change and it
     is not yet verified against all editors.
 
+    ### map/weave (Experimental)
+
+    The ensemble commands (`ctxloom map`, `ctxloom weave`) ship in this
+    release. Experimental — interfaces and behavior may change.
+
     ### Which Build?
 
     | Build | Size | Features |

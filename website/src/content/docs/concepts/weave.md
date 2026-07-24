@@ -2,6 +2,10 @@
 title: "Weave (ensembles)"
 ---
 
+:::caution[Experimental]
+Experimental — interfaces and behavior may change. This covers both `ctxloom weave` and `ctxloom map`.
+:::
+
 One reviewer reads a diff for security and misses the N+1 query. Another reads for performance and misses the auth bypass. Running the same model twice with the same prompt doesn't fix this — it just misses the same things twice.
 
 **Weave** fans a task out to several specialized members in parallel, each a

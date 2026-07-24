@@ -107,6 +107,44 @@ func testHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 }
 
+// backdateTranscript shifts every record's receipt time back by `by`. The real
+// Recorder stamps time.Now(), which is exactly right in production and useless
+// for exercising a quiet-window rule, so the file is rewritten in place rather
+// than the reader being stubbed out — the tests keep reading a real transcript
+// through the real reader.
+func backdateTranscript(t *testing.T, path string, by time.Duration) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var out []byte
+	for _, line := range splitLines(raw) {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal(line, &rec))
+		ts, err := time.Parse(time.RFC3339Nano, rec["ts"].(string))
+		require.NoError(t, err)
+		rec["ts"] = ts.Add(-by).Format(time.RFC3339Nano)
+		enc, err := json.Marshal(rec)
+		require.NoError(t, err)
+		out = append(append(out, enc...), '\n')
+	}
+	require.NoError(t, os.WriteFile(path, out, 0o644))
+}
+
+func splitLines(raw []byte) [][]byte {
+	var out [][]byte
+	start := 0
+	for i, b := range raw {
+		if b != '\n' {
+			continue
+		}
+		if i > start {
+			out = append(out, raw[start:i])
+		}
+		start = i + 1
+	}
+	return out
+}
+
 func transcriptPath(t *testing.T, harp string) string {
 	t.Helper()
 	p, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -322,8 +360,7 @@ func TestMonitor_CPUBurnIsSlowNotStalled(t *testing.T) {
 	const harp = "thinking-hard"
 	healthySession(t, harp)
 	path := transcriptPath(t, harp)
-	// Backdate the transcript's own mtime is irrelevant — quiet is driven by
-	// the record timestamps and LastActivity, both of which we control.
+	backdateTranscript(t, path, 30*time.Minute) // silent for half an hour
 
 	now := time.Now()
 	cpu := 10 * time.Second
@@ -366,6 +403,7 @@ func TestMonitor_UnobservableCPUStillReachesAVerdict(t *testing.T) {
 	testHome(t)
 	const harp = "quiet-container"
 	healthySession(t, harp)
+	backdateTranscript(t, transcriptPath(t, harp), 30*time.Minute)
 	now := time.Now()
 	m := liveness.New(liveness.Options{
 		Now:    func() time.Time { return now },
@@ -385,7 +423,8 @@ func TestMonitor_WorktreeActivityCountsAsProgress(t *testing.T) {
 	testHome(t)
 	const harp = "writing-files"
 	healthySession(t, harp)
-	work := t.TempDir()
+	backdateTranscript(t, transcriptPath(t, harp), 30*time.Minute) // the transcript is quiet...
+	work := t.TempDir()                                            // ...but the worktree is not
 	require.NoError(t, os.WriteFile(filepath.Join(work, "out.go"), []byte("package x"), 0o644))
 
 	now := time.Now()

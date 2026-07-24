@@ -133,6 +133,15 @@ const maxLineBytes = 4 << 20
 // place) IS an error: that is a broken observation, not an observation of
 // nothing.
 func ReadTranscript(path string) (TranscriptStat, error) {
+	return ReadTranscriptWith(path, DefaultThresholds())
+}
+
+// ReadTranscriptWith is ReadTranscript under explicit tuning. Only the
+// re-delivery detector reads thr; every other measurement is threshold-free by
+// construction, so that a disagreement about tuning can never turn into a
+// disagreement about what the file SAYS.
+func ReadTranscriptWith(path string, thr Thresholds) (TranscriptStat, error) {
+	thr = thr.normalize()
 	if path == "" {
 		return TranscriptStat{}, errors.New("liveness: ReadTranscript needs a path")
 	}
@@ -215,7 +224,7 @@ func ReadTranscript(path string) (TranscriptStat, error) {
 	st.SeqPinned = st.Records > 1 && st.MaxSeq == 0
 	st.TurnClosed = lastCompleteIdx > lastUserIdx
 	st.PendingPermission = lastKind == "permission"
-	st.Redelivery = detectRedelivery(groups, DefaultThresholds())
+	st.Redelivery = detectRedelivery(groups, thr)
 	return st, nil
 }
 

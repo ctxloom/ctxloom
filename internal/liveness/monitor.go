@@ -2,8 +2,12 @@ package liveness
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Thresholds are every number the verdict ladder depends on. They live in one
@@ -166,7 +170,8 @@ func New(opts Options) *Monitor {
 		m.now = time.Now
 	}
 	if m.readTx == nil {
-		m.readTx = ReadTranscript
+		thr := m.thr
+		m.readTx = func(p string) (TranscriptStat, error) { return ReadTranscriptWith(p, thr) }
 	}
 	if m.newestFS == nil {
 		m.newestFS = NewestMTime
@@ -179,13 +184,243 @@ func New(opts Options) *Monitor {
 func (m *Monitor) Thresholds() Thresholds { return m.thr }
 
 // Assess reaches one verdict for t. It never returns an error: an observation
-// that failed is reported as evidence that is absent, never as a silently
-// healthy agent.
+// that failed is reported as evidence that is ABSENT (Evidence's *Observed
+// bits), never as a silently healthy agent.
+//
+// The ladder below is ordered first-match-wins, and the order is the design:
+//
+//	 0. Approval park — outranks everything. A child on an approval rung must
+//	    never be called stalled, from either the coordinator's word or the
+//	    transcript's own trailing permission record.
+//	 1. Death — the process is observably gone. Split by whether the in-flight
+//	    turn ever closed, so a clean end is not reported as a death.
+//	 2/3. POSITIVE evidence of a loop — a re-delivery cadence, or seq pinned at
+//	    0 across many records. These are observations of a loop HAPPENING, not
+//	    inferences from silence, so they carry no grace period and fire in
+//	    seconds rather than in the hour the incident actually took.
+//	 4. Launch grace — below it, absence proves nothing.
+//	 5..8. ABSENCE-based rules, every one of them age- and quiet-gated.
+//
+// Everything that can rescue a target to a non-firing verdict is checked
+// before everything that can condemn it, at each rung.
 func (m *Monitor) Assess(ctx context.Context, t Target) Report {
-	// STUB (red): the deliberately-wrong monitor — the one that always says
-	// everything is fine. Replaced by the real ladder once the three-direction
-	// test proves it fires.
-	return Report{Harp: t.Harp, Agent: t.Agent, Runtime: t.Runtime, State: StateHealthy, Reason: "not implemented", At: m.now()}
+	now := m.now()
+	ev := m.gather(ctx, t, now)
+	rep := func(s State, format string, args ...any) Report {
+		return Report{
+			Harp: t.Harp, Agent: t.Agent, Runtime: t.Runtime,
+			State: s, Reason: fmt.Sprintf(format, args...), Evidence: ev, At: now,
+		}
+	}
+	tx := ev.Transcript
+
+	// 0. AWAITING APPROVAL — never a stall, never reaped. Two independent
+	// sources, either sufficient: getting this wrong turns a working system
+	// into one that kills its own children, so whichever half is wired up
+	// wrongly must not be able to cause that on its own.
+	if t.AwaitingApproval {
+		return rep(StateAwaitingApproval, "parked on an approval rung (roster state %q) — an approval can legitimately hold a child for minutes", orUnknown(t.RosterState))
+	}
+	if tx.PendingPermission {
+		return rep(StateAwaitingApproval, "the transcript's last record is a permission request with nothing after it — waiting on a decision")
+	}
+
+	// 1. DIED — observably gone. Requires POSITIVE observation of absence:
+	// a probe that could not see the target says nothing, and "nothing" is
+	// never promoted to "dead".
+	if ev.Proc.Observed && !ev.Proc.Alive {
+		if tx.TurnClosed {
+			return rep(StateHealthy, "the run ended after a completed turn (%d complete record(s)) — a clean end, not a death", tx.Completes)
+		}
+		return rep(StateDied, "the runtime is gone with no `complete` for the in-flight turn (%d record(s), %d complete) [%s]", tx.Records, tx.Completes, orUnknown(ev.Proc.Detail))
+	}
+
+	// 2. POSITIVE evidence of a loop: identical content on a metronome.
+	if r := tx.Redelivery; r != nil && r.Repeats >= m.thr.RedeliveryMinRepeats {
+		return rep(StateStalled, "the same %s content was re-delivered %d times on a %s cadence (max deviation %s) — a re-delivery loop, not work: %q",
+			r.EntryType, r.Repeats, r.Cadence.Round(time.Millisecond), r.MaxDeviation.Round(time.Millisecond), r.Sample)
+	}
+
+	// 3. POSITIVE evidence of a loop: seq never advanced past 0 across many
+	// records. Seq restarts per Recorder against an O_APPEND file, so this is
+	// many recorders — i.e. many relaunches — not one conversation.
+	if tx.SeqPinned {
+		return rep(StateStalled, "seq is pinned at 0 across %d records — every line came from a fresh recorder, i.e. a relaunch loop (entry types: %s, assistant turns: %d)",
+			tx.Records, joinOrNone(tx.EntryTypes), tx.AssistantEntries)
+	}
+
+	// 4. LAUNCH GRACE. Below it, absence proves nothing: the coordinator
+	// itself waits StartGrace for a runner to dial home, and firing before
+	// the launch path would give up is a guaranteed false positive.
+	young := !t.StartedAt.IsZero() && ev.Age < m.thr.StartGrace
+	if young && !tx.Exists {
+		return rep(StateStarting, "launched %s ago, no transcript yet — still inside the %s launch grace", ev.Age.Round(time.Second), m.thr.StartGrace)
+	}
+	if t.StartedAt.IsZero() && !tx.Exists {
+		return rep(StateUnknown, "no transcript and no start time — nothing to measure progress against")
+	}
+
+	// 5. NO TRANSCRIPT AT ALL past the grace. The recorder opens lazily on
+	// the first successful Record, so absence means zero events were ever
+	// produced by an engine that has had %s to produce one.
+	if !tx.Exists {
+		return rep(StateStalled, "no canonical transcript exists %s after launch — the engine has emitted zero events (the recorder creates the file on its first record)", ev.Age.Round(time.Second))
+	}
+
+	quiet := ev.Quiet
+	stillQuiet := ev.QuietObserved && quiet >= m.thr.QuietGrace
+
+	// 6. Recent activity on ANY clock is evidence of life. Checked before
+	// every remaining rule so a working agent cannot be condemned by a
+	// definition clause it happens not to satisfy yet.
+	if ev.QuietObserved && quiet < m.thr.QuietGrace {
+		return rep(StateHealthy, "active %s ago (seq %d, %d assistant turn(s), entry types: %s)", quiet.Round(time.Second), tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
+	}
+
+	// 7. The definition's content clauses, each gated on the target ALSO
+	// being quiet — an agent that is visibly doing things is not stalled just
+	// because it has not spoken yet.
+	if stillQuiet && !young {
+		if tx.AssistantEntries == 0 {
+			return rep(StateStalled, "quiet for %s with zero assistant turns in %d records (entry types: %s) — the engine has never produced a turn",
+				quiet.Round(time.Second), tx.Records, joinOrNone(tx.EntryTypes))
+		}
+		if tx.EntryRecords >= 3 && len(tx.EntryTypes) <= 1 {
+			return rep(StateStalled, "quiet for %s with %d entries of a single type (%s) — no entry-type variety",
+				quiet.Round(time.Second), tx.EntryRecords, joinOrNone(tx.EntryTypes))
+		}
+	}
+
+	// 8. Quiet, with content that otherwise looks fine: CPU is the tiebreak
+	// between a long think and a hang.
+	if stillQuiet {
+		burn, known := m.cpuBurn(t.Harp, ev.Proc, now)
+		switch {
+		case known && burn:
+			return rep(StateSlow, "quiet for %s but burning CPU — a long think, not a hang [%s]", quiet.Round(time.Second), orUnknown(ev.Proc.Detail))
+		case known:
+			return rep(StateStalled, "quiet for %s (last tool_use %s) and consuming no CPU [%s]", quiet.Round(time.Second), agoOrNever(ev.Proc, tx.LastToolUse, now), orUnknown(ev.Proc.Detail))
+		case ev.Proc.CPUObserved:
+			// CPU is measurable for this runtime but there is no earlier
+			// sample to difference against. A single absolute reading proves
+			// nothing, so this must not condemn — the next poll will decide.
+			return rep(StateSlow, "quiet for %s; CPU baseline captured, deferring the verdict to the next sample", quiet.Round(time.Second))
+		default:
+			// CPU is NOT measurable for this runtime at all (a container the
+			// coordinator can only see through its runner's heartbeat), so no
+			// future sample will help. Total silence past the quiet grace is
+			// then the best available answer, and refusing to answer would
+			// leave the runtime the incident happened in the one the monitor
+			// cannot speak about.
+			return rep(StateStalled, "quiet for %s with no CPU evidence obtainable for runtime %q [%s]", quiet.Round(time.Second), orUnknown(t.Runtime), orUnknown(ev.Proc.Detail))
+		}
+	}
+
+	if !ev.QuietObserved {
+		return rep(StateUnknown, "no activity clock available (no record timestamps, no worktree mtime, no coordinator activity)")
+	}
+	return rep(StateHealthy, "seq %d, %d assistant turn(s), entry types: %s", tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
+}
+
+// gather collects every piece of evidence, in cheapest-first order. A failed
+// observation lands as an absent one (with the failure in the Detail/Reason
+// text), never as a silently favourable one.
+func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence {
+	ev := Evidence{}
+	if t.TranscriptPath != "" {
+		st, err := m.readTx(t.TranscriptPath)
+		ev.Transcript = st
+		if err != nil {
+			// A broken READ is not an observation of stillness. Exists is
+			// left as the reader returned it and the ladder's absence rules
+			// still apply only past the launch grace.
+			clidiag.Warn("ctxloom", "liveness: %s: read transcript: %v", t.Harp, err)
+		}
+	}
+	if t.WorkDir != "" {
+		mt, ok, err := m.newestFS(t.WorkDir)
+		if err != nil {
+			clidiag.Warn("ctxloom", "liveness: %s: walk worktree: %v", t.Harp, err)
+		}
+		ev.FSMTime, ev.FSObserved = mt, ok
+	}
+	ev.Proc = mergeProbes(ctx, m.probes, t)
+	if !t.StartedAt.IsZero() {
+		ev.Age = now.Sub(t.StartedAt)
+	}
+	// Quiet is measured against the NEWEST of every clock available: an agent
+	// is only silent if it is silent everywhere.
+	var newest time.Time
+	for _, c := range []time.Time{ev.Transcript.LastTS, ev.FSMTime, t.LastActivity} {
+		if c.After(newest) {
+			newest = c
+		}
+	}
+	if !newest.IsZero() {
+		ev.QuietObserved = true
+		if q := now.Sub(newest); q > 0 {
+			ev.Quiet = q
+		}
+	}
+	return ev
+}
+
+// cpuBurn differences this reading against the previous one for harp. known is
+// false when there is no usable pair yet (no CPU accounting for the runtime,
+// or this is the first sample) — the caller must NEVER read that as "idle".
+func (m *Monitor) cpuBurn(harp string, p ProcState, now time.Time) (burning, known bool) {
+	if !p.CPUObserved {
+		return false, false
+	}
+	m.mu.Lock()
+	prev, had := m.last[harp]
+	m.last[harp] = cpuSample{at: now, cpu: p.CPU}
+	m.mu.Unlock()
+	if !had {
+		return false, false
+	}
+	wall := now.Sub(prev.at)
+	if wall <= 0 {
+		return false, false
+	}
+	used := p.CPU - prev.cpu
+	if used < 0 {
+		// The counter went backwards: a different process reusing the pid, or
+		// a relaunch. Not evidence of idleness — drop the pair.
+		return false, false
+	}
+	return float64(used)/float64(wall) >= m.thr.CPUBurnFloor, true
+}
+
+// Forget drops retained CPU sampling state for harp. Callers that enumerate a
+// changing population (the coordinator's roster) call it at a run's terminal
+// so a long-lived monitor's memory stays proportional to LIVE agents rather
+// than to every agent the process has ever seen.
+func (m *Monitor) Forget(harp string) {
+	m.mu.Lock()
+	delete(m.last, harp)
+	m.mu.Unlock()
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+func joinOrNone(s []string) string {
+	if len(s) == 0 {
+		return "none"
+	}
+	return strings.Join(s, ",")
+}
+
+func agoOrNever(_ ProcState, at time.Time, now time.Time) string {
+	if at.IsZero() {
+		return "never"
+	}
+	return now.Sub(at).Round(time.Second).String() + " ago"
 }
 
 // AssessAll assesses every target, preserving order.

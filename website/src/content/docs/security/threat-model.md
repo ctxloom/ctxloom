@@ -161,15 +161,18 @@ about what that costs you.
 **`$PAGER` runs during review.** Review shells out to your pager, which is user-controlled
 code execution at review time. Acknowledged and accepted, as it is in every tool that pages.
 
-**On Docker Desktop the host-to-container LLM transport has no cryptographic authentication.**
+**On Docker Desktop the host-to-container LLM transport has no cryptographic authentication, and is reachable across the container network.**
 On non-Linux hosts (macOS and Windows, under Docker Desktop) ctxloom reaches the isolated LLM
-plugin over plain gRPC on a loopback TCP port published to `127.0.0.1` only — there is no
-per-run bearer token, no mTLS (go-plugin's AutoMTLS is off), and the only handshake value is a
-static, compiled-in magic cookie that guards against mis-execution rather than a credential.
-Security here rests entirely on the loopback binding plus the port being ephemeral and
-short-lived: any local process on the host that can reach that port for the duration of a run
-can speak to the plugin. On Linux the same transport is a bind-mounted unix socket rather than
-TCP, so this caveat is specific to the Docker Desktop path.
+plugin over plain gRPC — there is no per-run bearer token, no mTLS (go-plugin's AutoMTLS is
+off), and the only handshake value is a static, compiled-in magic cookie that guards against
+mis-execution rather than a credential. The host-side port is published to `127.0.0.1` only, so
+it is not reachable from off the host. But the in-container listener binds all interfaces
+(`0.0.0.0`) and ctxloom does not place agent containers on an isolated network, so any other
+container on the same Docker bridge can reach the plugin directly at the container's IP — the
+`127.0.0.1` host publish constrains only host-side access, never container-to-container traffic.
+On a shared or multi-tenant container host, treat this as a trust boundary and isolate untrusted
+workloads on separate Docker networks. On Linux the same transport is a bind-mounted unix socket
+rather than TCP, so this caveat is specific to the Docker Desktop path.
 
 ## The one line we hold
 

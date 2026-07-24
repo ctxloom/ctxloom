@@ -75,6 +75,14 @@ type Options struct {
 	// this, independent of EndedRunTail. <= 0 keeps the package default
 	// (defaultEndedRunMaxAge).
 	EndedRunMaxAge time.Duration
+	// RunnerAwaitTimeout overrides how long issueStartRun waits for a
+	// just-spawned runner to dial home before declaring the launch attempt
+	// failed (children.go's dial-home barrier, awaitRunner). <= 0 keeps the
+	// package default (defaultRunnerAwaitTimeout). Production leaves this
+	// unset; tests lower it to exercise the timeout path without waiting out
+	// the real budget, or raise/lower it to prove a slow-but-successful
+	// dial-home survives (or doesn't) at a given budget.
+	RunnerAwaitTimeout time.Duration
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -113,6 +121,9 @@ type Coordinator struct {
 	// (Slice 4 / Fork 2.3) — see Options.EndedRunTail/EndedRunMaxAge.
 	endedRunTail   int
 	endedRunMaxAge time.Duration
+	// runnerAwaitTimeout is issueStartRun's dial-home budget — see
+	// Options.RunnerAwaitTimeout / defaultRunnerAwaitTimeout (children.go).
+	runnerAwaitTimeout time.Duration
 	// watch is the D1 consumer broadcast hub: every AgentEvent processed on
 	// any RunChannel is teed here, live, for ConsumerService.WatchRuns
 	// subscribers (consumer.go). D2 retired the legacy per-harp agentbus
@@ -236,6 +247,10 @@ func New(opts Options) (*Coordinator, error) {
 	if endedRunMaxAge <= 0 {
 		endedRunMaxAge = defaultEndedRunMaxAge
 	}
+	runnerAwaitTimeout := opts.RunnerAwaitTimeout
+	if runnerAwaitTimeout <= 0 {
+		runnerAwaitTimeout = defaultRunnerAwaitTimeout
+	}
 	stateDir := opts.StateDir
 	var release func()
 	ephemeral := false
@@ -269,26 +284,27 @@ func New(opts Options) (*Coordinator, error) {
 	}
 
 	c := &Coordinator{
-		projectDir:    opts.ProjectDir,
-		stateDir:      stateDir,
-		ephemeral:     ephemeral,
-		now:           now,
-		releaseOwner:  release,
-		spawner:        opts.Spawner,
-		slots:          newTurnSlots(turnCap),
-		endedRunTail:   endedRunTail,
-		endedRunMaxAge: endedRunMaxAge,
-		watch:         newWatchHub(),
-		consumerCreds: &consumerCreds{},
-		attach:        make(map[string]*childRt),
-		byHarp:        make(map[string]*childRt),
-		polls:         make(map[string]*parkedPoll),
-		delivered:     make(map[string][]string),
-		runners:       make(map[string]*runnerSession),
-		runnerReady:   make(map[string]chan struct{}),
-		chans:         make(map[string]*runChan),
-		launchArmed:   make(map[string][]chan struct{}),
-		launches:      make(map[string]*launchState),
+		projectDir:         opts.ProjectDir,
+		stateDir:           stateDir,
+		ephemeral:          ephemeral,
+		now:                now,
+		releaseOwner:       release,
+		spawner:            opts.Spawner,
+		slots:              newTurnSlots(turnCap),
+		endedRunTail:       endedRunTail,
+		endedRunMaxAge:     endedRunMaxAge,
+		runnerAwaitTimeout: runnerAwaitTimeout,
+		watch:              newWatchHub(),
+		consumerCreds:      &consumerCreds{},
+		attach:             make(map[string]*childRt),
+		byHarp:             make(map[string]*childRt),
+		polls:              make(map[string]*parkedPoll),
+		delivered:          make(map[string][]string),
+		runners:            make(map[string]*runnerSession),
+		runnerReady:        make(map[string]chan struct{}),
+		chans:              make(map[string]*runChan),
+		launchArmed:        make(map[string][]chan struct{}),
+		launches:           make(map[string]*launchState),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {

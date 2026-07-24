@@ -215,12 +215,13 @@ func (b *syncBuf) String() string {
 
 func waitForLiveTap(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	// 30s, not conformanceWait's 5s: this path is a REAL dial-home + StartRun
-	// round trip over a real loopback listener (children.go's own
-	// runnerAwaitTimeout budgets 60s for exactly this handshake), and it ran
-	// visibly slower under a full `-race ./...` package run than in
-	// isolation — a scheduling-load sensitivity, not a logic race (repeated
-	// isolated -count=1 -race runs of this test were instant and stable).
+	// 60s, not conformanceWait's 5s: this path is a REAL dial-home + StartRun
+	// round trip over a real loopback listener — this test's own bound, not
+	// children.go's defaultRunnerAwaitTimeout (which this coordinator gets
+	// unmodified and is now wider still) — and it ran visibly slower under a
+	// full `-race ./...` package run than in isolation — a scheduling-load
+	// sensitivity, not a logic race (repeated isolated -count=1 -race runs of
+	// this test were instant and stable).
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {

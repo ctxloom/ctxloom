@@ -285,11 +285,24 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 		_ = baseCleanup()
 		return nil, sharedFSGateError(c.runtime, perr)
 	}
+	// Scope the container run's git identity to this agent, the SAME way the
+	// host+worktree path does (worktreeWorkspace.Env → gitIdentity). The .git
+	// common dir is bind-mounted READ-WRITE and SHARED (gitCommonDirMount), so a
+	// containerized commit resolves the shared .git/config exactly like a host
+	// linked worktree does — a scoped GIT_AUTHOR_*/GIT_COMMITTER_* pair (which
+	// outranks repo-local config) is what stops one agent's commit from
+	// misattributing across that shared config. Deliberately NO TMPDIR/GOTMPDIR
+	// here (unlike the host Env(), which needs them): each container has its OWN
+	// mount namespace, so /tmp is already private per-container — there is no
+	// cross-agent tmpfs collision to scope away. Only the shared, RW-mounted .git
+	// forces an isolation lever, so ONLY the git-identity vars are injected. (Same
+	// shape of reasoning as the host fix's deliberate GOCACHE omission.)
+	extraEnv := append(sc.runEnv(), gitIdentityEnv(agentID)...)
 	return &containerWorkspace{
 		dir:         dir,
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
-		extraEnv:    sc.runEnv(),
+		extraEnv:    extraEnv,
 		extraMounts: extraMounts,
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
@@ -532,6 +545,26 @@ type containerScratch struct {
 // renderRunSpec's `-e <entry>` loop (docker's `-e` grammar accepts both).
 func (sc containerScratch) runEnv() []string {
 	return append(append([]string(nil), sc.auth.envPassthrough...), sc.termEnv...)
+}
+
+// gitIdentityEnv renders the container run's per-agent git identity as the four
+// GIT_AUTHOR_*/GIT_COMMITTER_* KEY=VAL entries a docker/podman `-e` loop
+// consumes — the container-env counterpart to the host path's
+// worktreeWorkspace.Env (both derive name/email from the SAME gitIdentity
+// helper, so the identity format lives in exactly one place). It returns nil for
+// an empty agentID (no backend/agent context — nothing to scope), so the run
+// falls back to whatever git identity the container's own config resolves.
+func gitIdentityEnv(agentID string) []string {
+	name, email := gitIdentity(agentID)
+	if name == "" {
+		return nil
+	}
+	return []string{
+		"GIT_AUTHOR_NAME=" + name,
+		"GIT_AUTHOR_EMAIL=" + email,
+		"GIT_COMMITTER_NAME=" + name,
+		"GIT_COMMITTER_EMAIL=" + email,
+	}
 }
 
 // containerScratchBase returns the PARENT directory for a run's host-side scratch

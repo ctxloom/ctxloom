@@ -505,7 +505,7 @@ func (w *worktreeWorkspace) Env() map[string]string {
 		env["TMPDIR"] = w.scratchDir
 		env["GOTMPDIR"] = w.scratchDir
 	}
-	name, email := w.gitIdentity()
+	name, email := gitIdentity(w.agentID)
 	if name != "" {
 		env["GIT_AUTHOR_NAME"] = name
 		env["GIT_AUTHOR_EMAIL"] = email
@@ -531,26 +531,31 @@ func (w *worktreeWorkspace) Env() map[string]string {
 	return env
 }
 
-// gitIdentity returns the GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL this worktree's
-// commits are attributed to (GIT_COMMITTER_* mirrors them — Env() sets all
-// four to the same pair). It never impersonates the human: the name always
-// self-identifies as an agent, and the email rides a synthetic
-// "agents.ctxloom.local" domain that deliberately resolves nowhere, so it
-// can never collide with — or be mistaken for — a real person's address.
-// agentID (the resolved agent's name, or the run's own session harp for the
-// top-level session — see PrepareWorkspace's caller doc) is the traceable
-// part: it is what makes an agent's commits attributable to THAT agent
-// rather than a generic "ctxloom" identity, and what stopped `git config
-// user.email` leaking from a worktree into the shared main checkout from
-// mattering — the scoped env wins over repo-local config regardless of what
-// the shared .git/config says. Empty agentID (no backend/agent context) is a
-// no-op: name is "" and Env() omits all four vars, falling back to whatever
-// the process/host git config already resolves.
-func (w *worktreeWorkspace) gitIdentity() (name, email string) {
-	if w.agentID == "" {
+// gitIdentity returns the GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL an agent's commits
+// are attributed to (GIT_COMMITTER_* mirrors them — callers set all four to the
+// same pair). It never impersonates the human: the name always self-identifies
+// as an agent, and the email rides a synthetic "agents.ctxloom.local" domain
+// that deliberately resolves nowhere, so it can never collide with — or be
+// mistaken for — a real person's address. agentID (the resolved agent's name,
+// or the run's own session harp for the top-level session — see
+// PrepareWorkspace's caller doc) is the traceable part: it is what makes an
+// agent's commits attributable to THAT agent rather than a generic "ctxloom"
+// identity, and what stopped `git config user.email` leaking from a worktree
+// into the shared main checkout from mattering — the scoped env wins over
+// repo-local config regardless of what the shared .git/config says. Empty
+// agentID (no backend/agent context) is a no-op: name is "" and callers omit
+// all four vars, falling back to whatever the process/host git config resolves.
+//
+// This is a package-level helper (not a method) so BOTH isolation halves derive
+// the identity from the SAME format in ONE place: the host+worktree path
+// (worktreeWorkspace.Env) and the container path (Container.PrepareWorkspace,
+// which the wrapped Worktree's Env() never reaches — containerWorkspace does not
+// implement EnvWorkspace).
+func gitIdentity(agentID string) (name, email string) {
+	if agentID == "" {
 		return "", ""
 	}
-	return "ctxloom agent " + w.agentID, sanitizeAgentID(w.agentID) + "@agents.ctxloom.local"
+	return "ctxloom agent " + agentID, sanitizeAgentID(agentID) + "@agents.ctxloom.local"
 }
 
 // Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes

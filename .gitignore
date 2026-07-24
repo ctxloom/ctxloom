@@ -125,3 +125,11 @@ website/src/content/docs/journeys/
 opencode.json
 AGENTS.md
 .ctxloom-opencode-managed
+
+# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
+.codex/config.toml
+
+# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
+.ctxloom/cache/
+.ctxloom/pieces/
+.ctxloom/sessions/

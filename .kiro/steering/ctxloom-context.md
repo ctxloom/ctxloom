@@ -521,6 +521,37 @@ read files in bulk yourself.
 
 ---
 
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
+on the default:
+
+- **runtime** (`host`|`container`, the agent binding's `runtime:`)
+  isolates the PROCESS.
+- **workspace** (`none`|`worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+They're independent: `container` can still mount the workspace at the
+SAME absolute path as the live project (process isolated, edits still
+land where the editor already looks); `worktree` still runs the engine
+on the host (the editor goes blind to that tree by design — results
+return via the delegated-agent merge flow, not live edits). Picking one
+says nothing about the other.
+
+Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
+default, not a decision.
+
+Containers make isolation a property of the runtime, not a request to
+the engine: some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only
+a stderr warning, discarding the runtime and permissions you asked for —
+confirm the name resolves before trusting the isolation you requested.
+
+---
+
 # llm-tool-killer (ltk)
 
 This project may run **ltk**, a pre-tool hook that inspects each shell
@@ -577,6 +608,11 @@ Persistent task tracking. Tasks live in a per-project append-only log
 Tasks are created and updated only through these tools (or the
 `taskloom` CLI). The harp ID appears in `task_list` output so you can
 reference a specific task in later calls.
+
+Write `text` subject-first: the first line is what the task IS
+(~80 characters or fewer — list views show only that line,
+truncated there). Put provenance like dates or session names on a
+later line, not the first.
 
 ## Plan stamping
 

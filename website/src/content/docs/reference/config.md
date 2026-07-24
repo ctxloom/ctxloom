@@ -17,7 +17,7 @@ Every field on this page can also be set without editing a config file, in ascen
 
 An environment variable override starts with `CTXLOOM_CONFIG_`, followed by the field's dotted path with each segment upper-cased and joined by `_` (e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). A CLI override uses the repeatable `--config-set <dotted.path>=<value>` flag (`--config-set agents.mycoder.runtime=container`) — never a per-field flag of its own, since a command's OWN flags (`--format`, `--bundle`, ...) are not config overrides. Both forms are matched case-insensitively against whatever your config file already has, adopting its casing; unlike an environment variable's name, `--config-set`'s path preserves whatever case you type, so it can also CREATE a new case-sensitive key (e.g. `--config-set agents.MyCoder.runtime=container`), which an environment variable cannot do.
 
-For example, `default_agent` can be set via `CTXLOOM_CONFIG_DEFAULT_AGENT=<value>` or `--config-set default_agent=<value>`.
+For example, `agent_turn_cap` can be set via `CTXLOOM_CONFIG_AGENT_TURN_CAP=<value>` or `--config-set agent_turn_cap=<value>`.
 
 ## Top-Level Fields
 
@@ -25,6 +25,7 @@ Schema for ctxloom config.yaml files
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `agent_turn_cap` | integer | RESOURCE ceiling on how many delegated agent_run children may have a turn EXECUTING (a live engine process) at once — bounds concurrent process/resource load, not a correctness setting (the coordinator's own state is safe under concurrency by construction). Unset uses the built-in default. Raise it for more delegation parallelism; lower it to bound resource use on a constrained host. Never unbounded. |
 | `agents` | map → object | Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files. |
 | `config` | object | Behavioral settings |
 | `default_agent` | string | The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop). |
@@ -50,6 +51,8 @@ Schema for ctxloom config.yaml files
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `coordinator` | boolean | Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf. |
+| `driving` | string | Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key — requires a resume-capable engine). Allowed values: `conversational`, `oneshot`. |
 | `engine` | string | LLM config label/backend hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend) |
 | `escalation` | object[] | The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge. |
 | `permissions` | string | Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |

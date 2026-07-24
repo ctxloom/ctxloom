@@ -57,8 +57,10 @@ func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*LLMInfo, error) {
 
 // Run executes the backend and streams output over a bidirectional stream. The
 // first RunInput carries the RunStart (setup + launch params); subsequent inputs
-// carry stdin/resize from the frontend (consumed by B2 — for now the pty still
-// reads local stdin).
+// carry stdin/resize from the frontend. The Setup→Execute→Cleanup body is
+// shared with `ctxloom llm turn` (the docker-exec interactive transport, Phase
+// 2a) via RunTurn — this method only adapts the go-plugin bidi stream to
+// RunTurn's plain stdio+resize contract.
 func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	first, err := stream.Recv()
 	if err != nil {
@@ -77,6 +79,78 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	stdoutWriter := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: false}
 	stderrWriter := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: true}
 
+	// Pump the rest of the bidi stream — the frontend's keystrokes and resizes —
+	// into the agent's pty: stdin via an io.Pipe, resize via a channel. The
+	// frontend owns the terminal; the controller just forwards. The pump stops
+	// when the client half-closes or the run ends (Recv errors), closing both so
+	// the pty's stdin copier unblocks.
+	stdinR, stdinW := io.Pipe()
+	resizeCh := make(chan agent.WindowSize, 1)
+	go func() {
+		defer func() { _ = stdinW.Close() }()
+		defer close(resizeCh)
+		stdinClosed := false
+		for {
+			in, rerr := stream.Recv()
+			if rerr != nil {
+				return
+			}
+			switch v := in.GetInput().(type) {
+			case *RunInput_Stdin:
+				if stdinClosed {
+					continue
+				}
+				if _, werr := stdinW.Write(v.Stdin); werr != nil {
+					// The pty's stdin copier exited and closed the read end
+					// (ErrClosedPipe). Stop forwarding keystrokes, but KEEP
+					// draining Recv: resize messages must still reach the pty,
+					// and abandoning the stream here would leave the run with
+					// no consumer.
+					stdinClosed = true
+				}
+			case *RunInput_Resize:
+				// Latest-wins coalescing: when a stale size is still pending,
+				// replace it — a plain "drop the new one" select keeps the
+				// OLD size, leaving the pty out of date after a resize burst.
+				ws := agent.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}
+				select {
+				case resizeCh <- ws:
+				default:
+					// Full with a stale size: drain it (the consumer may beat
+					// us to it) and send the newer one. This goroutine is the
+					// sole producer, so the retry send cannot block.
+					select {
+					case <-resizeCh:
+					default:
+					}
+					resizeCh <- ws
+				}
+			}
+		}
+	}()
+
+	result, err := RunTurn(stream.Context(), s.Impl, req, stdinR, stdoutWriter, stderrWriter, resizeCh)
+	if err != nil {
+		return err
+	}
+
+	// Send the exit code and model info as the final message
+	return stream.Send(&RunResponse{
+		Output:    &RunResponse_ExitCode{ExitCode: result.ExitCode},
+		ModelInfo: convertModelInfoToProto(result.ModelInfo),
+	})
+}
+
+// RunTurn runs one engine turn's Setup→Execute→Cleanup body against plain
+// stdio + a resize channel, returning the engine's result. It is the shared
+// core of the interactive transports: the go-plugin Run RPC (GRPCServer.Run,
+// stream-wired) and `ctxloom llm turn` (internal/cli, wired to the
+// docker-exec TTY's os.Stdin/os.Stdout + a SIGWINCH-fed resize) both drive it,
+// so the two never drift on fragment smuggling, headless flooring, cwd
+// delivery, or cleanup semantics. ctx bounds Setup/Execute/Cleanup; stdin may
+// be nil for a non-interactive turn; resize may be nil when no SIGWINCH source
+// exists.
+func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (*agent.ExecuteResult, error) {
 	// Build setup request from RunStart. Treat nil Options as
 	// fully-default so callers using proto-zero-values don't crash —
 	// use the generated Get* accessors throughout (they're nil-safe).
@@ -132,7 +206,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			// Setup does not consume it yet (plan S4b) — plumbed for a later slice.
 			CellKind: cellKindFromProto(opts.GetCellKind()),
 		}
-		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
+		if err := impl.Setup(ctx, setupReq); err != nil {
 			// Fault tolerance (CLAUDE.md): the user must reach their LLM "even
 			// through most misconfigurations." Setup now does load-bearing-but-
 			// non-essential work — context provision, command registration, settings
@@ -143,56 +217,6 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
 		}
 	}
-
-	// Pump the rest of the bidi stream — the frontend's keystrokes and resizes —
-	// into the agent's pty: stdin via an io.Pipe, resize via a channel. The
-	// frontend owns the terminal; the controller just forwards. The pump stops
-	// when the client half-closes or the run ends (Recv errors), closing both so
-	// the pty's stdin copier unblocks.
-	stdinR, stdinW := io.Pipe()
-	resizeCh := make(chan agent.WindowSize, 1)
-	go func() {
-		defer func() { _ = stdinW.Close() }()
-		defer close(resizeCh)
-		stdinClosed := false
-		for {
-			in, rerr := stream.Recv()
-			if rerr != nil {
-				return
-			}
-			switch v := in.GetInput().(type) {
-			case *RunInput_Stdin:
-				if stdinClosed {
-					continue
-				}
-				if _, werr := stdinW.Write(v.Stdin); werr != nil {
-					// The pty's stdin copier exited and closed the read end
-					// (ErrClosedPipe). Stop forwarding keystrokes, but KEEP
-					// draining Recv: resize messages must still reach the pty,
-					// and abandoning the stream here would leave the run with
-					// no consumer.
-					stdinClosed = true
-				}
-			case *RunInput_Resize:
-				// Latest-wins coalescing: when a stale size is still pending,
-				// replace it — a plain "drop the new one" select keeps the
-				// OLD size, leaving the pty out of date after a resize burst.
-				ws := agent.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}
-				select {
-				case resizeCh <- ws:
-				default:
-					// Full with a stale size: drain it (the consumer may beat
-					// us to it) and send the newer one. This goroutine is the
-					// sole producer, so the retry send cannot block.
-					select {
-					case <-resizeCh:
-					default:
-					}
-					resizeCh <- ws
-				}
-			}
-		}
-	}()
 
 	// Build execute request from RunStart. execPrompt carries promptContent
 	// (the original prompt, prefixed with any smuggled Fragments above) rather
@@ -218,8 +242,8 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		Temperature: opts.GetTemperature(),
 		SkipSetup:   opts.GetSkipSetup(),
 		CellKind:    cellKindFromProto(opts.GetCellKind()),
-		Stdin:       stdinR,
-		Resize:      resizeCh,
+		Stdin:       stdin,
+		Resize:      resize,
 	}
 
 	// Defense in depth: a ONESHOT has no human to answer the engine, so a
@@ -237,12 +261,12 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// (every real backend embeds it) but not the Backend interface, and a
 	// bare test fake may lack it, so apply it by capability check. Idempotent
 	// with Setup's own SetWorkDir on the non-skip path (same value).
-	if w, ok := s.Impl.(interface{ SetWorkDir(string) }); ok {
+	if w, ok := impl.(interface{ SetWorkDir(string) }); ok {
 		w.SetWorkDir(execReq.WorkDir)
 	}
 
 	// Execute the backend
-	result, err := s.Impl.Execute(stream.Context(), execReq, stdoutWriter, stderrWriter)
+	result, err := impl.Execute(ctx, execReq, stdout, stderr)
 
 	// Cleanup runs on both Execute paths — a failed launch must still release
 	// the backend's resources. And a teardown hiccup must not mask the Execute
@@ -250,11 +274,11 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// "AI plugin failed" (partial success is success, CLAUDE.md), and after a
 	// failed one it would bury the real error. Warn and carry on, matching how
 	// Setup degrades above.
-	if cerr := s.Impl.Cleanup(stream.Context()); cerr != nil {
+	if cerr := impl.Cleanup(ctx); cerr != nil {
 		clidiag.Warn("ctxloom", "backend cleanup failed: %v", cerr)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// A buggy backend that returns (nil, nil) must not panic the serving
 	// goroutine (CLAUDE.md: log, don't crash). Degrade to a zero-value result
@@ -264,11 +288,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		result = &agent.ExecuteResult{}
 	}
 
-	// Send the exit code and model info as the final message
-	return stream.Send(&RunResponse{
-		Output:    &RunResponse_ExitCode{ExitCode: result.ExitCode},
-		ModelInfo: convertModelInfoToProto(result.ModelInfo),
-	})
+	return result, nil
 }
 
 // CellKindToProto maps a host-side agent.CellKind to the wire CellKind enum for

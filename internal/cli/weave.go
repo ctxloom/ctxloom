@@ -47,7 +47,7 @@ Members from both flags run together. The -s synthesizer runs on its own
 so it works identically on every platform.
 
 This is the composite of the exposed components: it is equivalent to
-  ctxloom map -p A -p B "task" | ctxloom run -p SYNTH --print
+  ctxloom weave -p A -p B --map-only "task" | ctxloom run -p SYNTH --print
 but portable and single-invocation. Use the components directly when you want to
 inspect or post-process the intermediate parts.
 
@@ -57,8 +57,7 @@ instead of) live members:
   --parts-from DIR     include every file in DIR as a part (named by filename)
 
 --map-only is an alias for --no-synthesize: fan out and emit the labeled parts,
-skip the reduce step (the real home of the deprecated top-level 'ctxloom map',
-CLI-primary reorg plan Decision 6).
+skip the reduce step.
 
 The task is taken from the arguments, or from stdin when no arguments are given.
 
@@ -188,6 +187,36 @@ func collectInjectedParts(dir string, named []string) ([]operations.Part, error)
 	return parts, nil
 }
 
+// mergeMembers concatenates the named-agent and bare-profile member lists into
+// the single ordered member slice the operations layer fans across. Both kinds
+// resolve through the same agent-or-bare-profile path; this only fixes their
+// order (agents first).
+func mergeMembers(subs, profiles []string) []string {
+	members := make([]string, 0, len(subs)+len(profiles))
+	members = append(members, subs...)
+	members = append(members, profiles...)
+	return members
+}
+
+// saveParts writes each member's output to <dir>/<sanitized-profile>.txt for
+// later inspection or hand-editing before synthesis.
+func saveParts(dir string, parts []operations.Part) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, p := range parts {
+		name := strings.ReplaceAll(p.Profile, "/", "_") + ".txt"
+		body := p.Output
+		if p.Failed() {
+			body = "[error: " + p.Err + "]"
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func init() {
 	rootCmd.AddCommand(weaveCmd)
 
@@ -201,9 +230,7 @@ func init() {
 	weaveCmd.Flags().StringVar(&weavePartsFrom, "parts-from", "", "Inject every file in this directory as a part to synthesize")
 	weaveCmd.Flags().StringArrayVar(&weaveParts, "part", nil, "Inject NAME=FILE as a part to synthesize (repeatable)")
 	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis")
-	// --map-only is an alias for --no-synthesize sharing the same bool var
-	// (CLI-primary reorg plan, Decision 6: `map` -> `weave --map-only`), the
-	// real home of the deprecated top-level `ctxloom map`.
+	// --map-only is an alias for --no-synthesize sharing the same bool var.
 	weaveCmd.Flags().BoolVar(&weaveNoSynth, "map-only", false, "Alias for --no-synthesize: emit the labeled parts only, skip synthesis")
 	weaveCmd.Flags().CountVarP(&weaveVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 

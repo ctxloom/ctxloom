@@ -1,4 +1,4 @@
-// Tests for the map/weave CLI member surface: how --agents and -p members
+// Tests for the weave CLI member surface: how --agents and -p members
 // combine, and that the --part / --parts-from injection is preserved. The fan
 // behavior itself (per-member engine/context) is covered by
 // operations/ensemble_agents_test.go; here we cover only the CLI-local glue.
@@ -14,7 +14,7 @@ import (
 )
 
 // mergeMembers concatenates named agents then bare profiles into one ordered
-// member list — both map and weave fan across the result.
+// member list that weave fans across.
 func TestMergeMembers_AgentsThenProfiles(t *testing.T) {
 	// Named agents come first, then bare profiles; order within each kind is
 	// preserved. This is what `--agents a,b -p prof1,prof2` resolves to.
@@ -25,14 +25,6 @@ func TestMergeMembers_AgentsThenProfiles(t *testing.T) {
 	assert.Equal(t, []string{"prof1", "prof2"}, mergeMembers(nil, []string{"prof1", "prof2"}))
 	assert.Equal(t, []string{"a", "b"}, mergeMembers([]string{"a", "b"}, nil))
 	assert.Empty(t, mergeMembers(nil, nil))
-}
-
-// mapMembers wires the map command's two member flags through mergeMembers.
-func TestMapMembers_CombinesFlagSlices(t *testing.T) {
-	t.Cleanup(func() { mapAgents, mapProfiles = nil, nil })
-	mapAgents = []string{"go-cr-security"}
-	mapProfiles = []string{"cr-perf", "cr-style"}
-	assert.Equal(t, []string{"go-cr-security", "cr-perf", "cr-style"}, mapMembers())
 }
 
 // collectInjectedParts (weave --part / --parts-from) is unchanged by Phase C;

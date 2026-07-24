@@ -3,7 +3,7 @@ title: "Weave (ensembles)"
 ---
 
 :::caution[Experimental]
-Experimental — interfaces and behavior may change. This covers both `ctxloom weave` and `ctxloom map`.
+Experimental — interfaces and behavior may change. This covers `ctxloom weave`.
 :::
 
 One reviewer reads a diff for security and misses the N+1 query. Another reads for performance and misses the auth bypass. Running the same model twice with the same prompt doesn't fix this — it just misses the same things twice.
@@ -58,25 +58,26 @@ non-ctxloom data:
 | Command | Role |
 |---------|------|
 | [`ctxloom run -p P --print`](/reference/cli/ctxloom_run/) | the atom — one agent. With no prompt it reads the task from **stdin**, so it doubles as a reducer. |
-| [`ctxloom map -p A -p B`](/reference/cli/ctxloom_map/) | the **fan-out** — run profiles in parallel, emit a labeled part stream. |
-| [`ctxloom weave`](/reference/cli/ctxloom_weave/) | the **composite** — map + synthesis in one portable invocation. |
+| [`ctxloom weave -p A -p B --map-only`](/reference/cli/ctxloom_weave/) | the **fan-out** — run profiles in parallel, emit a labeled part stream, skip synthesis. |
+| [`ctxloom weave`](/reference/cli/ctxloom_weave/) | the **composite** — fan-out + synthesis in one portable invocation. |
 
 So `weave` is approximately the hand-built pipeline:
 
 ```bash
-ctxloom map -p A -p B "task" | ctxloom run -p SYNTH --print
+ctxloom weave -p A -p B --map-only "task" | ctxloom run -p SYNTH --print
 ```
 
-The difference: `weave` frames the parts for the synthesizer with a generated
-preamble (the original task, followed by a "specialist outputs to synthesize"
-section and combine instructions) ahead of the labeled part stream. Piping
-`map`'s stdout straight into `run` skips that framing — the synthesis profile
-sees only the raw parts.
+The difference: `weave` (without `--map-only`) frames the parts for the
+synthesizer with a generated preamble (the original task, followed by a
+"specialist outputs to synthesize" section and combine instructions) ahead of
+the labeled part stream. Piping `--map-only`'s stdout straight into `run`
+skips that framing — the synthesis profile sees only the raw parts.
 
 Use the components directly when you want to inspect the intermediate parts
-(`map --save-parts`), swap the synthesizer, or pipe member output through other
-tools. `map` itself never synthesizes; to fan out with `weave` but skip
-synthesis and get the labeled parts only, pass `weave --no-synthesize`.
+(`--save-parts`), swap the synthesizer, or pipe member output through other
+tools. `weave --map-only` itself never synthesizes; to fan out but skip
+synthesis and get the labeled parts only, pass `weave --no-synthesize`
+(`--map-only` is its alias).
 
 ## Injecting non-ctxloom outputs
 

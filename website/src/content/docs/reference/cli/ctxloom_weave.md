@@ -29,7 +29,7 @@ Members from both flags run together. The -s synthesizer runs on its own
 so it works identically on every platform.
 
 This is the composite of the exposed components: it is equivalent to
-  ctxloom map -p A -p B "task" | ctxloom run -p SYNTH --print
+  ctxloom weave -p A -p B --map-only "task" | ctxloom run -p SYNTH --print
 but portable and single-invocation. Use the components directly when you want to
 inspect or post-process the intermediate parts.
 
@@ -39,8 +39,7 @@ instead of) live members:
   --parts-from DIR     include every file in DIR as a part (named by filename)
 
 --map-only is an alias for --no-synthesize: fan out and emit the labeled parts,
-skip the reduce step (the real home of the deprecated top-level 'ctxloom map',
-CLI-primary reorg plan Decision 6).
+skip the reduce step.
 
 The task is taken from the arguments, or from stdin when no arguments are given.
 

@@ -116,13 +116,7 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 			decision, timedOut := c.relayApproval(rec, req, rung)
 			c.onRoleUnpark(rec.Harp)
 			if !timedOut {
-				resolution := "granted"
-				switch decision.GetDecision() {
-				case agentcoordpb.ApprovalDecision_DECISION_DECLINE:
-					resolution = "denied"
-				case agentcoordpb.ApprovalDecision_DECISION_CANCEL:
-					resolution = "cancelled"
-				}
+				resolution := approvalResolution(decision.GetDecision())
 				c.audit("approval", caller.Harp, map[string]string{
 					"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": rungLabel,
 					"action": string(rung.Action), "role": rung.Role,
@@ -147,6 +141,18 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 		Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE,
 		Note:     "ladder exhausted with no rung resolving the request; bottoming at DECLINE",
 	})
+}
+
+// approvalResolution maps a decision onto the audit journal's resolution
+// vocabulary.
+func approvalResolution(d agentcoordpb.ApprovalDecision_Decision) string {
+	switch d {
+	case agentcoordpb.ApprovalDecision_DECISION_DECLINE:
+		return "denied"
+	case agentcoordpb.ApprovalDecision_DECISION_CANCEL:
+		return "cancelled"
+	}
+	return "granted"
 }
 
 func approvalResponse(d *agentcoordpb.ApprovalDecision) *agentcoordpb.CoordinatorResponse {

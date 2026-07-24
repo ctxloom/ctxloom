@@ -615,18 +615,11 @@ func (eh *EngineHost) resolveApproval(ctx context.Context, home engineHome, pr *
 	default:
 		decision = resp.GetApproval()
 		note = decision.GetNote()
-		switch decision.GetDecision() {
-		case agentcoordpb.ApprovalDecision_DECISION_ACCEPT, agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION:
-			resolution = agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED
-		case agentcoordpb.ApprovalDecision_DECISION_CANCEL:
-			resolution = agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED
-		default:
-			resolution = agentcoordpb.InteractionRecorded_RESOLUTION_DENIED
-		}
+		resolution = interactionResolution(decision.GetDecision())
 	}
 
-	allow := decision != nil && (decision.GetDecision() == agentcoordpb.ApprovalDecision_DECISION_ACCEPT ||
-		decision.GetDecision() == agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION)
+	allow := decision != nil &&
+		interactionResolution(decision.GetDecision()) == agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED
 	optionID := ""
 	if decision == nil || decision.GetDecision() != agentcoordpb.ApprovalDecision_DECISION_CANCEL {
 		optionID = pickPermissionOption(pr.Options, allow)
@@ -734,6 +727,24 @@ func structFromJSON(raw json.RawMessage) *structpb.Struct {
 		return nil
 	}
 	return wrapped
+}
+
+// interactionResolution is the ENFORCEMENT allow-list: only an explicit
+// ACCEPT/ACCEPT_FOR_SESSION grants, everything else — including
+// DECISION_UNSPECIFIED and any value proto3's open enums let through the
+// wire — denies. Fail-CLOSED by construction, and the single definition
+// approvalResolution (approval.go) mirrors so the child's
+// InteractionRecorded and the coordinator's audit journal can never
+// disagree about the same event (oily-morse).
+func interactionResolution(d agentcoordpb.ApprovalDecision_Decision) agentcoordpb.InteractionRecorded_Resolution {
+	switch d {
+	case agentcoordpb.ApprovalDecision_DECISION_ACCEPT, agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION:
+		return agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED
+	case agentcoordpb.ApprovalDecision_DECISION_CANCEL:
+		return agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED
+	default:
+		return agentcoordpb.InteractionRecorded_RESOLUTION_DENIED
+	}
 }
 
 // pickPermissionOption mirrors the acp driver's own pickOption (mapping.go)

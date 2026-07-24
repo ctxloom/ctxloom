@@ -17,7 +17,6 @@ import (
 	"github.com/hashicorp/go-plugin/runner"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // containerRemoveTimeout bounds our OWN teardown: the go-plugin fork calls Kill
@@ -110,17 +109,9 @@ func (r *containerRunner) Wait(_ context.Context) error { return r.cmd.Wait() }
 // (not a strictness finding) — never panic a run, but never hide a leak either. A
 // racing --rm makes the remove report an already-gone container, which is success.
 func (r *containerRunner) Kill(ctx context.Context) error {
-	if r.name != "" && r.runtime.Binary() != "" {
-		cctx, cancel := context.WithTimeout(ctx, containerRemoveTimeout)
-		// probeExec is the package's exec seam (`.Output()` captures stderr onto
-		// the ExitError); reuse it so teardown is testable without a real runtime.
-		if _, err := probeExec(cctx, r.runtime.Binary(), r.runtime.RemoveArgs(r.name)); err != nil && !removeReportsGone(err) {
-			clidiag.Warn("ctxloom",
-				"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this run's workspace, remove it manually with `%s %s`",
-				r.name, err, r.runtime.Name(), r.runtime.Binary(), strings.Join(r.runtime.RemoveArgs(r.name), " "))
-		}
-		cancel()
-	}
+	// The name-targeted force-remove (under our own timeout + already-gone
+	// tolerance) is shared with the docker-direct RunnerHandle.Kill.
+	removeContainer(ctx, r.runtime, r.name)
 	if r.cmd.Process != nil {
 		_ = r.cmd.Process.Kill()
 	}

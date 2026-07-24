@@ -40,6 +40,9 @@ func (failingPolicy) PrepareWorkspace(context.Context, string, string) (Workspac
 func (failingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
 	return nil, errors.New("unused: the chain degrades before spawn")
 }
+func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
+	return nil, errors.New("unused: the chain degrades before spawn")
+}
 
 // passingPolicy is a test Policy that always prepares a trivial workspace (the
 // project dir, via None); its Name is configurable so a chain can place a
@@ -55,6 +58,9 @@ func (passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID s
 	return None{}.PrepareWorkspace(ctx, projectDir, agentID)
 }
 func (passingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
+	return nil, errors.New("unused: prepareChain stops at the first success")
+}
+func (passingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: prepareChain stops at the first success")
 }
 

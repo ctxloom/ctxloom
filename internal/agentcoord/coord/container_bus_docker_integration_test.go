@@ -143,7 +143,7 @@ func (s *dockerBusSpawner) AssignSession(projectDir, backend string) (string, er
 	return entry.HarpName, nil
 }
 
-func (s *dockerBusSpawner) Launch(context.Context, *SpawnPlan, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
+func (s *dockerBusSpawner) Launch(context.Context, *SpawnPlan, string, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
 	return nil, fmt.Errorf("dockerBusSpawner: legacy Launch is unused (this agent always routes ViaStartRun)")
 }
 

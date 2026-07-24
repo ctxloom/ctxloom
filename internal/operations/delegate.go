@@ -78,6 +78,12 @@ type AgentChatRequest struct {
 	// Factory overrides plugin construction (test seam). Exactly like the
 	// fan: a non-nil Factory skips isolation entirely.
 	Factory pb.ClientFactory
+	// Starter overrides the StartRun spawn-half construction (test seam,
+	// parallel to Factory): a non-nil Starter lets a spawner test fake
+	// StartEngine's docker-direct/bare-host runner launch without a real
+	// container. Empty on the production path, where PrepareAgentChat binds
+	// the resolved policy's isolation.StarterForWorkspace instead.
+	Starter isolation.EngineStarter
 	// Git overrides the git DI seam the dirty-parent-tree spawn gate uses
 	// (test seam, mirrors task_triggers.go's Git field); nil selects the
 	// real binary (git.NewExec()).
@@ -126,7 +132,8 @@ type PreparedAgentChat struct {
 
 	// chat-path only (nil/empty on the oneshot fallback, which prepares its
 	// isolation per turn inside runResolvedAgent):
-	factory      pb.ClientFactory
+	factory      pb.ClientFactory     // legacy go-plugin Chat spawn (Start)
+	starter      isolation.EngineStarter // StartRun spawn half (StartEngine)
 	workDir      string
 	workspaceEnv map[string]string
 	cleanup      func()
@@ -220,6 +227,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	}
 
 	p.factory = req.Factory
+	p.starter = req.Starter
 	p.workDir = req.WorkDir
 	if p.factory == nil {
 		mark := strictness.Checkpoint()
@@ -234,6 +242,13 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 			return nil, gerr
 		}
 		p.factory = isolation.FactoryForWorkspace(policy, ws, req.RunnerEnv)
+		// The StartRun spawn half (StartEngine) rides the docker-direct /
+		// bare-host runner starter, NOT the go-plugin factory above (which
+		// stays for the legacy Chat path, Start). A test-supplied req.Starter
+		// wins, exactly as req.Factory does for the Chat path.
+		if p.starter == nil {
+			p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, req.Verbosity, req.RunnerEnv)
+		}
 	}
 	if pendingCopy != nil {
 		if err := applyCopySnapshot(ctx, gitClient, p.workDir, pendingCopy); err != nil {
@@ -676,17 +691,20 @@ type AgentEngineProcess struct {
 }
 
 // StartEngine spawns the engine runner process WITHOUT opening the go-plugin
-// Chat stream — the StartRun cutover's spawn half (Wave C1). The factory call
-// completes the go-plugin handshake eagerly, so a returned handle means the
-// runner process is up (and, with the coordinator trio stamped on it, dialing
-// home). Refused on the oneshot fallback: there is no persistent engine
-// process to host a StartRun.
-func (p *PreparedAgentChat) StartEngine(context.Context) (*AgentEngineProcess, error) {
+// Chat stream — the StartRun cutover's spawn half (Wave C1), migrated off
+// go-plugin entirely in queer-shrug Phase 1. It launches the runner via the
+// starter seam (docker-direct `ctxloom llm host` for a container, a bare
+// self-invoked `llm host` under setsid for a host) — NO plugin handshake, NO
+// container plugin listener. A returned handle means the runner PROCESS is up;
+// readiness (its dial-home) is the coordinator's awaitRunner, not this call.
+// Refused on the oneshot fallback: there is no persistent engine process to
+// host a StartRun.
+func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProcess, error) {
 	if p.oneshot {
 		return nil, errors.New("delegate: this backend has no structured chat; the oneshot fallback hosts no engine process for StartRun")
 	}
 	rs := p.req.Resolved
-	client, err := p.factory(rs.Backend, rs.Label, p.req.Verbosity)
+	handle, err := p.starter(ctx)
 	if err != nil {
 		p.Abort()
 		return nil, err
@@ -705,7 +723,7 @@ func (p *PreparedAgentChat) StartEngine(context.Context) (*AgentEngineProcess, e
 		Model:   rs.Model,
 		Kill: func() {
 			once.Do(func() {
-				client.Kill()
+				handle.Kill()
 				p.Abort()
 			})
 		},

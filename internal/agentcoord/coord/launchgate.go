@@ -199,6 +199,33 @@ func (c *Coordinator) nextRelaunch(harp string) (time.Duration, bool) {
 	return launchBackoff(st.fails), true
 }
 
+// relaunchForLeftoverMail is terminateRun's tail: a message that raced the
+// child's death must not strand, so an ended harp with a non-empty mailbox is
+// relaunched (§6a).
+//
+// It is ALSO the launch-retry loop, because a LAUNCH failure ends the run
+// without ever draining the mailbox — so it re-arms itself immediately,
+// forever, if nothing gates it. nextRelaunch is that gate: it refuses once
+// the harp has been stopped or has burned maxLaunchAttempts consecutive
+// failures, and otherwise returns the backoff this attempt must wait out.
+// Exhausting the budget after a LAUNCH failure is reported loudly; every
+// other cause simply stops re-arming (the child is not resumable by
+// retrying, and its mail waits for an explicit delivery).
+func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail string) {
+	if cause == CauseStopped || c.pendingCount(rec.Harp) == 0 {
+		return
+	}
+	delay, ok := c.nextRelaunch(rec.Harp)
+	if !ok {
+		if cause == CauseLaunchFailed {
+			c.giveUpLaunching(rec, detail)
+		}
+		return
+	}
+	attached := c.armLaunch(rec.Harp)
+	c.goTracked(func() { c.resumeChild(rec.Harp, attached, delay) })
+}
+
 // giveUpLaunching is the LOUD end of a bounded retry: the parent's mailbox
 // learns that the launcher stopped trying and why, and the fact goes to
 // stderr too. The alternative — going quiet — is what let a broken launch

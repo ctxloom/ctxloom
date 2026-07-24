@@ -1336,22 +1336,9 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	c.spawner.MarkSessionEnded(rec.Harp)
 
 	// A message that raced the death (queued after the last boundary drain)
-	// must not strand: the ended-child delivery rule is resume (§6a).
-	//
-	// This tail is ALSO the launch-retry loop, because a launch failure ends
-	// the run without ever draining the mailbox — so it re-arms itself
-	// immediately, forever, if nothing gates it. nextRelaunch is that gate
-	// (launchgate.go): it refuses once the harp has been stopped or has
-	// burned maxLaunchAttempts consecutive failures, and otherwise returns
-	// the exponential backoff this attempt must wait out.
-	if cause != CauseStopped && c.pendingCount(rec.Harp) > 0 {
-		if delay, ok := c.nextRelaunch(rec.Harp); ok {
-			attached := c.armLaunch(rec.Harp)
-			c.goTracked(func() { c.resumeChild(rec.Harp, attached, delay) })
-		} else if cause == CauseLaunchFailed {
-			c.giveUpLaunching(rec, detail)
-		}
-	}
+	// must not strand: the ended-child delivery rule is resume (§6a). That
+	// tail is ALSO the launch-retry loop — see relaunchForLeftoverMail.
+	c.relaunchForLeftoverMail(rec, cause, detail)
 
 	// Retention (Slice 4 / Fork 2.3): bound the ended-run records the live
 	// folds keep. Runs after MarkSessionEnded (every terminal, one-shot or

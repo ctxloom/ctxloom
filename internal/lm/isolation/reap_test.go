@@ -86,12 +86,12 @@ type reapRuntime struct {
 	name string
 }
 
-func (r reapRuntime) Name() string                 { return r.name }
-func (r reapRuntime) Binary() string               { return r.bin }
-func (r reapRuntime) Available() bool              { return true }
-func (r reapRuntime) RunArgs(s RunSpec) []string   { return r.run(s) }
-func (r reapRuntime) RemoveArgs(string) []string   { return r.rm }
-func (r reapRuntime) mapper() pathMapper           { return identityMapper{} }
+func (r reapRuntime) Name() string               { return r.name }
+func (r reapRuntime) Binary() string             { return r.bin }
+func (r reapRuntime) Available() bool            { return true }
+func (r reapRuntime) RunArgs(s RunSpec) []string { return r.run(s) }
+func (r reapRuntime) RemoveArgs(string) []string { return r.rm }
+func (r reapRuntime) mapper() pathMapper         { return identityMapper{} }
 
 // newReapRuntime builds a shell-backed runtime whose `run` sleeps (a
 // long-lived "container" that must be killed) and whose `rm` exits at once.

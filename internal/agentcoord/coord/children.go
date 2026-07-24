@@ -87,6 +87,18 @@ type childRt struct {
 
 	slotHeld bool
 	oneshot  bool
+	// ownerRun marks a top-level, OWNER-OWNED run (Phase 2a-B, StartOwnedRun):
+	// the owning session's own structured/oneshot container run, minted
+	// parent-less with the OWNER'S HARP reused as its run role. It rides the
+	// SAME migrated RunChannel machinery a delegated child does (viaStartRun),
+	// but has no distinct parent to report to — the host watches it directly
+	// via WatchRuns — so the automatic child→parent result bridge
+	// (bridgeTurnResult) MUST be suppressed for it: bridging to the owner's
+	// own mailbox (parentHarp == harp) would re-deliver the run's output as its
+	// own next turn, an infinite self-loop. Everything else (turn state, slot
+	// accounting, mailbox-borne follow-up turns) is identical to a migrated
+	// child.
+	ownerRun bool
 	// viaStartRun marks a MIGRATED child (Wave C1): its engine control
 	// rides StartRun on the runner's RunnerChannel — no go-plugin Chat
 	// dial, no driveChild loop; turn delivery is push-down (§6a by child
@@ -556,15 +568,6 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	rt.close = engine.Kill
 	c.mu.Unlock()
 
-	credHash := hashToken(token)
-	actx, acancel := context.WithTimeout(c.baseCtx, runnerAwaitTimeout)
-	_, err = c.awaitRunner(actx, credHash)
-	acancel()
-	if err != nil {
-		c.failChild(rt, fmt.Errorf("child runner never dialed home (StartRun path): %w", err))
-		return
-	}
-
 	spec, err := buildHarnessSpec(HarnessSpecInput{
 		Harness:         rt.plan.Backend,
 		Model:           engine.Model,
@@ -583,11 +586,32 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	// path's leadContextIn performed, done once here (the runner writes
 	// input.prompt verbatim as the first turn).
 	first := operations.JoinLeadBlocks(contextText, prompt)
+	_ = c.issueStartRun(rt, hashToken(token), spec, first, engine.Model, resumeSessionID)
+}
+
+// issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this
+// out of runChildViaStartRun so the owner-owned run, StartOwnedRun, reuses the
+// identical wire crossing): await the runner's dial-home for credHash, issue
+// StartRun with spec + the composed first-turn input on the RunnerChannel,
+// check the result, journal the start_run audit + any harness session id, drain
+// mail queued during standup, and mark rt attached. On any failure it routes
+// through failChild (exactly-once terminal) and returns the error. role is
+// rt.agentName (a delegated child's agent name, or — for an owner-owned run —
+// the owner's own harp, §5.B2).
+func (c *Coordinator) issueStartRun(rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
+	actx, acancel := context.WithTimeout(c.baseCtx, runnerAwaitTimeout)
+	_, err := c.awaitRunner(actx, credHash)
+	acancel()
+	if err != nil {
+		err = fmt.Errorf("runner never dialed home (StartRun path): %w", err)
+		c.failChild(rt, err)
+		return err
+	}
 	var input *structpb.Struct
 	if first != "" {
 		if input, err = structpb.NewStruct(map[string]any{"prompt": first}); err != nil {
 			c.failChild(rt, err)
-			return
+			return err
 		}
 	}
 	rctx, rcancel := context.WithTimeout(c.baseCtx, defaultRequestTimeout)
@@ -602,18 +626,20 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	})
 	rcancel()
 	if err != nil {
-		c.failChild(rt, fmt.Errorf("StartRun never completed: %w", err))
-		return
+		err = fmt.Errorf("StartRun never completed: %w", err)
+		c.failChild(rt, err)
+		return err
 	}
 	if code := resp.GetStatus().GetCode(); code != 0 {
-		c.failChild(rt, fmt.Errorf("StartRun refused: %s", resp.GetStatus().GetMessage()))
-		return
+		err = fmt.Errorf("StartRun refused: %s", resp.GetStatus().GetMessage())
+		c.failChild(rt, err)
+		return err
 	}
 	// The journal proof (acceptance: no go-plugin Chat dial for a migrated
 	// child): the interaction journal records start_run for this run — and
 	// the legacy path's chat-close cause can never appear for it.
 	c.audit("start_run", rt.harp, map[string]string{
-		"run_id": rt.runID, "harness": rt.plan.Backend, "model": engine.Model,
+		"run_id": rt.runID, "harness": rt.plan.Backend, "model": model,
 		"resume_session_id": resumeSessionID,
 	})
 	if sid := resp.GetStartRun().GetHarnessSessionId(); sid != "" {
@@ -623,7 +649,8 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	if c.pendingCount(rt.harp) > 0 {
 		c.pushMail(rt.harp)
 	}
-	c.markAttached(rt) // StartRun round-tripped: the migrated child is up
+	c.markAttached(rt) // StartRun round-tripped: the migrated run is up
+	return nil
 }
 
 // recordHarnessSession journals the run's harness-native session id (the
@@ -730,7 +757,11 @@ func (c *Coordinator) accumulateFinalText(role string, ev *agentcoordpb.AgentEve
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	rt := c.byHarp[role]
-	if rt == nil {
+	if rt == nil || rt.ownerRun {
+		// An owner-owned run's answer is rendered host-side from the WatchRuns
+		// stream (watch.broadcast, above the switch in handleAgentEvent), never
+		// bridged to a parent — so there is nothing to accumulate here, and
+		// accumulating without a bridge that clears it would leak per turn.
 		return
 	}
 	switch p := ev.GetPayload().(type) {
@@ -851,8 +882,13 @@ func (c *Coordinator) onTurnIdle(role string) {
 	}
 	// The MIGRATED path's turn boundary: bridge this turn's result to the
 	// parent BEFORE anything below, so the parent's mailbox carries the
-	// child's answer whether or not the child's model chose to send one.
-	c.bridgeTurnResult(rt)
+	// child's answer whether or not the child's model chose to send one. An
+	// OWNER-OWNED run (Phase 2a-B) has no distinct parent — the host watches it
+	// directly — and bridging to its own harp would self-loop, so it is
+	// suppressed (childRt.ownerRun's doc).
+	if !rt.ownerRun {
+		c.bridgeTurnResult(rt)
+	}
 	// ONE-SHOT (Slice 4): a driving:oneshot child that is live-confirmed
 	// resumable tears its engine down at the clean turn boundary instead of
 	// parking it warm. terminateRun (exactly-once) releases the slot, kills

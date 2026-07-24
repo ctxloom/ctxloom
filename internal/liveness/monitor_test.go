@@ -190,6 +190,7 @@ func TestMonitor_FiresOnStuckAgent(t *testing.T) {
 		TranscriptPath: transcriptPath(t, harp),
 	})
 
+	t.Logf("verdict: %s — %s", rep.State, rep.Reason)
 	require.Equal(t, liveness.StateStalled, rep.State,
 		"the monitor must FIRE on the reproduced incident: %d identical user deliveries, seq pinned at 0, zero assistant turns.\nreason=%q\nevidence=%s",
 		6, rep.Reason, mustJSON(t, rep.Evidence))
@@ -207,6 +208,45 @@ func TestMonitor_FiresOnStuckAgent(t *testing.T) {
 	assert.Equal(t, 0, ev.AssistantEntries, "zero assistant turns")
 	assert.Equal(t, []string{"user"}, ev.EntryTypes, "100% user entries — no variety")
 	assert.False(t, ev.TurnClosed, "no complete for the in-flight turn")
+}
+
+// Direction 1b: the SECOND loop rule must be independently load-bearing. The
+// incident happened to trip both (seq pinned AND a re-delivery cadence), so a
+// re-delivery loop whose seq DOES advance — a single long-lived recorder
+// re-receiving the same block — is constructed here explicitly. Without this,
+// the redelivery detector could be dead code and every test would still pass.
+func TestMonitor_FiresOnRedeliveryCadenceEvenWhenSeqAdvances(t *testing.T) {
+	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	enc := json.NewEncoder(f)
+	// Seq advances normally; the CONTENT is the same block every 4.5s.
+	for i, off := range []time.Duration{0, 4500, 9000, 13500, 18000} {
+		require.NoError(t, enc.Encode(map[string]any{
+			"v": 1, "harp": "h", "engine": "claude", "seq": i,
+			"ts":    base.Add(off * time.Millisecond).Format(time.RFC3339Nano),
+			"kind":  "entry",
+			"entry": map[string]any{"type": "user", "content": composedContext},
+		}))
+	}
+	require.NoError(t, f.Close())
+
+	now := base.Add(20 * time.Second)
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "redelivered", Runtime: "container", RosterState: "executing",
+		StartedAt: base.Add(-time.Hour), LastActivity: now, TranscriptPath: path,
+	})
+	t.Logf("verdict: %s — %s", rep.State, rep.Reason)
+	require.False(t, rep.Evidence.Transcript.SeqPinned, "precondition: seq advanced, so the OTHER rule must be what fires")
+	assert.Equal(t, liveness.StateStalled, rep.State)
+	assert.True(t, rep.Firing())
+	require.NotNil(t, rep.Evidence.Transcript.Redelivery)
+	assert.Equal(t, 5, rep.Evidence.Transcript.Redelivery.Repeats)
 }
 
 // Direction 2: it does NOT fire on a healthy agent.
@@ -230,6 +270,7 @@ func TestMonitor_DoesNotFireOnHealthyAgent(t *testing.T) {
 		TranscriptPath: transcriptPath(t, harp),
 	})
 
+	t.Logf("verdict: %s — %s", rep.State, rep.Reason)
 	assert.Equal(t, liveness.StateHealthy, rep.State, "reason=%q evidence=%s", rep.Reason, mustJSON(t, rep.Evidence))
 	assert.False(t, rep.Firing(), "a working agent must never be reported as stalled or dead")
 	ev := rep.Evidence.Transcript
@@ -265,6 +306,7 @@ func TestMonitor_DoesNotFireOnApprovalPark(t *testing.T) {
 		LastActivity:     now.Add(-45 * time.Minute), // quiet FAR past QuietGrace
 		TranscriptPath:   transcriptPath(t, harp),
 	})
+	t.Logf("verdict (coordinator says parked): %s — %s", rep.State, rep.Reason)
 	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
 	assert.False(t, rep.Firing(), "a child waiting on a human must NEVER be reaped")
 
@@ -281,6 +323,7 @@ func TestMonitor_DoesNotFireOnApprovalPark(t *testing.T) {
 		LastActivity:   now.Add(-45 * time.Minute),
 		TranscriptPath: transcriptPath(t, harp),
 	})
+	t.Logf("verdict (transcript alone): %s — %s", rep.State, rep.Reason)
 	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
 	assert.False(t, rep.Firing())
 }

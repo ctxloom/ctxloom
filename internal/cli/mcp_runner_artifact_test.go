@@ -69,9 +69,9 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(cwd, relSource), content, 0o644))
 
 	reportArgs, err := json.Marshal(map[string]any{
-		"scope":          "SCOPE_FINAL",
-		"text":           "done; see the coverage artifact",
-		"publish_paths":  []string{relSource},
+		"scope":         "SCOPE_FINAL",
+		"text":          "done; see the coverage artifact",
+		"publish_paths": []string{relSource},
 	})
 	require.NoError(t, err)
 	reportResult, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "agent_report", Arguments: json.RawMessage(reportArgs)})

@@ -1299,6 +1299,28 @@ func convertVendorTranscriptOnExit(harp string) {
 	}
 }
 
+// stampHostTerminalEnv copies the host's TERM/COLORTERM into req.Options.Env
+// (never clobbering a value the caller already set), so the in-container engine
+// child renders in the terminal the user is actually watching — the docker-exec
+// counterpart of isolation.hostTerminalEnv on the go-plugin container path. It
+// is what keeps the engine's color intact even though the turn PROCESS runs
+// under TERM=dumb (the Launcher's query-suppression).
+func stampHostTerminalEnv(req *pb.RunStart) {
+	if req.Options == nil {
+		req.Options = &pb.RunOptions{}
+	}
+	if req.Options.Env == nil {
+		req.Options.Env = map[string]string{}
+	}
+	for _, k := range []string{"TERM", "COLORTERM"} {
+		if v := os.Getenv(k); v != "" {
+			if _, set := req.Options.Env[k]; !set {
+				req.Options.Env[k] = v
+			}
+		}
+	}
+}
+
 // selectsDockerExecInteractive reports whether a top-level built-in run takes
 // the Phase 2a-A docker-exec interactive arm — a container policy, INTERACTIVE
 // mode, and NOT --structured — instead of SpawnClient + the go-plugin Launcher.
@@ -1328,6 +1350,14 @@ func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws 
 	if persistDir == "" {
 		return nil, nil, fmt.Errorf("container interactive: no session harp — the RunStart handoff needs the bind-mounted persist dir")
 	}
+
+	// The Launcher forces the TURN process's TERM=dumb (to silence ctxloom's
+	// init-time terminal query, which would eat the user's first keystrokes off
+	// this shared stdin). Stamp the REAL terminal description into the engine's
+	// env (RunStart.Options.Env, which the child's BuildEnv overlays over the
+	// turn's os.Environ) so the engine child still renders in full color —
+	// mirroring hostTerminalEnv on the go-plugin container path.
+	stampHostTerminalEnv(req)
 
 	// Hand off RunStart by file BEFORE the container starts (the persist dir is
 	// the bind SOURCE, created here and by the session-state mounts alike).

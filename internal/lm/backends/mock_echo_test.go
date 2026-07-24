@@ -20,7 +20,7 @@ func TestMock_InteractiveEcho(t *testing.T) {
 	resize <- agent.WindowSize{Rows: 40, Cols: 120}
 	req := &agent.ExecuteRequest{
 		Env:    map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
-		Stdin:  strings.NewReader("typed-line\n"),
+		Stdin:  strings.NewReader("typed-line\nquit\n"),
 		Resize: resize,
 	}
 	var out strings.Builder

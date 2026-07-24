@@ -37,6 +37,14 @@ var llmTurnCmd = &cobra.Command{
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// NOTE (terminal-query suppression lives in the Launcher, not here):
+		// ctxloom's package-INIT terminal-capability detection (termenv querying
+		// the background via OSC 11 + a DSR terminator) fires before this RunE —
+		// before main() even — so it can only be silenced by the process's TERM,
+		// which the docker-exec Launcher forces to `dumb` for the turn process
+		// (dockerexec.turnTermValue). The engine child still gets real color via
+		// RunStart.Options.Env's TERM (stamped by startContainerInteractive),
+		// which overrides the turn's dumb in the child's BuildEnv.
 		backendName := args[0]
 		backend := backends.Get(backendName)
 		if backend == nil {

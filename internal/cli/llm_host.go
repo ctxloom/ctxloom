@@ -23,11 +23,11 @@ import (
 // sweep for a host runner). A SIGINT/SIGTERM or a cancelled root context also
 // unblocks it so a bare foreground invocation can be stopped.
 var llmHostCmd = &cobra.Command{
-	Use:     "host <backend>",
-	Short:   "Run as an in-process engine host (internal use, no plugin transport)",
-	Long:    `Starts the ctxloom binary as an engine-runner host for the specified backend, hosting the engine in-process over Transport 2 with NO go-plugin listener. Used internally by the delegated StartRun spawn path.`,
-	Args:    cobra.ExactArgs(1),
-	Hidden:  true,
+	Use:    "host <backend>",
+	Short:  "Run as an in-process engine host (internal use, no plugin transport)",
+	Long:   `Starts the ctxloom binary as an engine-runner host for the specified backend, hosting the engine in-process over Transport 2 with NO go-plugin listener. Used internally by the delegated StartRun spawn path.`,
+	Args:   cobra.ExactArgs(1),
+	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		backendName := args[0]
 

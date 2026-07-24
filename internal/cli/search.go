@@ -81,11 +81,11 @@ func init() {
 // prints as a stderr hint, so a script sees the truncation too instead of
 // silently getting a partial answer that looks complete.
 type unifiedSearchOutput struct {
-	Query       string                          `json:"query"`
-	Local       []operations.SearchResult       `json:"local"`
-	Remote      []operations.SearchRemoteEntry  `json:"remote"`
-	Count       int                             `json:"count"`
-	HiddenLocal int                             `json:"hidden_local,omitempty"`
+	Query       string                         `json:"query"`
+	Local       []operations.SearchResult      `json:"local"`
+	Remote      []operations.SearchRemoteEntry `json:"remote"`
+	Count       int                            `json:"count"`
+	HiddenLocal int                            `json:"hidden_local,omitempty"`
 }
 
 // runUnifiedSearch searches both local and remote sources and renders the

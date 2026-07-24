@@ -8,8 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -194,53 +192,54 @@ func buildMockResponse(customResponse, contextStr, promptContent string, mode ag
 	return response.String()
 }
 
-// executeInteractiveEcho reflects one typed line and, best-effort, the last
-// terminal resize it observed — the interactive engine behavior the docker-exec
-// turn's integration test asserts round-trips through the full pty chain. It
-// reads a single line (a tty rarely EOFs, so looping-until-EOF would hang the
-// turn), echoes `mock echo: <line>`, reports any resize seen as `mock winsize:
-// RxC`, and returns.
+// executeInteractiveEcho reflects each typed line and the latest terminal
+// resize it has observed — the interactive engine behavior the docker-exec
+// turn's integration test round-trips through the full pty chain. It loops
+// (echoing `mock echo: <line>` plus, once a resize has been seen, `mock
+// winsize: RxC`) until a "quit" line or EOF: a tty rarely EOFs, so the sentinel
+// is what lets a test drive a resize BETWEEN two lines (giving the daemon's
+// SIGWINCH time to propagate) and then end the turn deterministically.
 func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteRequest, stdout io.Writer, modelInfo *agent.ModelInfo) (*agent.ExecuteResult, error) {
-	// Track the latest resize concurrently with the blocking line read, so a
-	// resize that arrives around the same time as the keystroke is captured.
-	var mu sync.Mutex
 	var lastWS agent.WindowSize
 	var sawWS bool
-	resizeDone := make(chan struct{})
-	go func() {
-		defer close(resizeDone)
+	// drainResize picks up every resize delivered so far without blocking — a
+	// resize sent BETWEEN two lines (the integration test's pattern) is on the
+	// channel by the time the next line's iteration drains it.
+	drainResize := func() {
 		if req.Resize == nil {
 			return
 		}
 		for {
 			select {
-			case <-ctx.Done():
-				return
 			case ws, ok := <-req.Resize:
 				if !ok {
+					req.Resize = nil
 					return
 				}
-				mu.Lock()
 				lastWS, sawWS = ws, true
-				mu.Unlock()
+			default:
+				return
 			}
 		}
-	}()
-
-	line, _ := bufio.NewReader(req.Stdin).ReadString('\n')
-	line = strings.TrimRight(line, "\r\n")
-	_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
-
-	// Give a near-simultaneous resize a beat to land before reporting.
-	select {
-	case <-ctx.Done():
-	case <-time.After(200 * time.Millisecond):
 	}
-	mu.Lock()
-	ws, seen := lastWS, sawWS
-	mu.Unlock()
-	if seen {
-		_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", ws.Rows, ws.Cols)
+
+	r := bufio.NewReader(req.Stdin)
+	for {
+		line, err := r.ReadString('\n')
+		line = strings.TrimRight(line, "\r\n")
+		if line == "quit" {
+			break
+		}
+		if line != "" {
+			drainResize()
+			_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
+			if sawWS {
+				_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", lastWS.Rows, lastWS.Cols)
+			}
+		}
+		if err != nil || ctx.Err() != nil {
+			break
+		}
 	}
 
 	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil

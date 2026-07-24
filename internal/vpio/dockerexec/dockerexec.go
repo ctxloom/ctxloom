@@ -78,6 +78,17 @@ func NewLauncher(rt isolation.Runtime, containerName string, turn TurnSpec) *Lau
 	return &Launcher{rt: rt, containerName: containerName, turn: turn}
 }
 
+// turnTermValue is the TERM the turn PROCESS runs under: `dumb`, deliberately.
+// The turn is `ctxloom` on the interactive TTY, and ctxloom's package-init
+// terminal-capability detection (lipgloss/termenv querying the background via
+// OSC 11 + a DSR terminator) would otherwise fire and READ the response from
+// this same stdin, swallowing the user's first keystrokes. `dumb` makes termenv
+// skip the query entirely. The ENGINE child keeps real color: its env is
+// os.Environ() overridden by RunStart.Options.Env, into which the host stamps
+// the real TERM/COLORTERM (see startContainerInteractive), so the override wins
+// over this `dumb` for the engine while the turn process itself stays quiet.
+const turnTermValue = "dumb"
+
 // buildExecCmd renders the `<binary> exec -i -t [-e NAME…] <name> ctxloom llm
 // turn <backend> [--label L] --start <path>` command. Env NAMES cross bare; the
 // values ride the subprocess env so the daemon forwards them without ever
@@ -89,21 +100,28 @@ func (l *Launcher) buildExecCmd(ctx context.Context) *exec.Cmd {
 	}
 	command = append(command, "--start", l.turn.StartPath)
 
-	names := make([]string, 0, len(l.turn.Env))
-	for k := range l.turn.Env {
+	// Force the turn process's TERM=dumb (via the bare-name channel: the value
+	// rides the exec subprocess env, the daemon forwards it). Overrides any TERM
+	// a caller put in TurnSpec.Env.
+	fwd := make(map[string]string, len(l.turn.Env)+1)
+	for k, v := range l.turn.Env {
+		fwd[k] = v
+	}
+	fwd["TERM"] = turnTermValue
+
+	names := make([]string, 0, len(fwd))
+	for k := range fwd {
 		names = append(names, k)
 	}
 	sort.Strings(names)
 
 	args := l.rt.ExecArgs(l.containerName, true, names, command)
 	cmd := exec.CommandContext(ctx, l.rt.Binary(), args...)
-	if len(names) > 0 {
-		kv := make([]string, 0, len(names))
-		for _, k := range names {
-			kv = append(kv, k+"="+l.turn.Env[k])
-		}
-		cmd.Env = append(os.Environ(), kv...)
+	kv := make([]string, 0, len(names))
+	for _, k := range names {
+		kv = append(kv, k+"="+fwd[k])
 	}
+	cmd.Env = append(os.Environ(), kv...)
 	return cmd
 }
 

@@ -44,6 +44,11 @@ func TestBuildExecCmd_RendersTurnArgv(t *testing.T) {
 	env := strings.Join(cmd.Env, "\n")
 	assert.Contains(t, env, "CTXLOOM_COORD_URL=http://x")
 	assert.Contains(t, env, "CTXLOOM_SESSION_HARP=h")
+
+	// The turn process is forced to TERM=dumb (forwarded bare) so ctxloom's
+	// init-time terminal query never fires and eats the interactive stdin.
+	assert.Contains(t, joined, "-e TERM", "TERM is forwarded to the turn process")
+	assert.Contains(t, env, "TERM=dumb", "the turn process runs under TERM=dumb")
 }
 
 // TestBuildExecCmd_NoLabel omits --label when the TurnSpec carries none.

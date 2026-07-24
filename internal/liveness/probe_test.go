@@ -21,13 +21,31 @@ func TestHostProbe_NoPidIsUnobservedNotDead(t *testing.T) {
 }
 
 func TestHostProbe_LiveProcessIsObservedAlive(t *testing.T) {
-	st := liveness.HostProbe{}.Inspect(context.Background(), liveness.Target{Runtime: "host", PID: os.Getpid()})
+	target := liveness.Target{Runtime: "host", PID: os.Getpid()}
+	st := liveness.HostProbe{}.Inspect(context.Background(), target)
 	require.True(t, st.Observed)
 	assert.True(t, st.Alive)
-	if runtime.GOOS == "linux" {
-		assert.True(t, st.CPUObserved, "/proc CPU accounting must be read where it exists")
-		assert.Positive(t, st.CPU, "this very test process has consumed CPU")
+	if runtime.GOOS != "linux" {
+		return
 	}
+	require.True(t, st.CPUObserved, "/proc CPU accounting must be read where it exists")
+
+	// The reading must MOVE when the process burns CPU. Asserting it is merely
+	// non-zero would be flaky (the counter is quantized to 10ms ticks and a
+	// freshly-started test binary can genuinely read 0), and — worse — a probe
+	// that returned a frozen constant would pass such an assertion while being
+	// useless for the differencing the monitor actually does.
+	before := st.CPU
+	deadline := time.Now().Add(250 * time.Millisecond)
+	x := 1
+	for time.Now().Before(deadline) {
+		for i := 0; i < 200000; i++ {
+			x = (x * 31) % 1000003
+		}
+	}
+	require.NotZero(t, x) // keep the loop from being optimized away
+	after := liveness.HostProbe{}.Inspect(context.Background(), target)
+	assert.Greater(t, after.CPU, before, "cumulative CPU must advance after burning some")
 }
 
 func TestHostProbe_DeadPidIsObservedDead(t *testing.T) {

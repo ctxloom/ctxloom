@@ -79,7 +79,9 @@ func runACPServerBareAlias(cmd *cobra.Command, args []string) error {
 var acpServerCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Serve ctxloom as an Agent Client Protocol agent (stdio) for an editor to connect to",
-	Long: `Serve ctxloom AS an ACP agent over stdio, so any ACP client (Zed's agent
+	Long: `Experimental — interfaces may change and it is not yet verified against all editors.
+
+Serve ctxloom AS an ACP agent over stdio, so any ACP client (Zed's agent
 panel, editor plugins) can drive ctxloom sessions — assembled context,
 profiles, and the configured engine — without a bespoke per-editor frontend.
 

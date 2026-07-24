@@ -5,29 +5,59 @@ package grpc
 import (
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
 )
 
-// setsid makes cmd the leader of a FRESH session (session id == its own pid)
-// so killSession can later reap the runner's entire host subtree — including
-// a grandchild the runner itself puts in a SEPARATE process group (e.g. via
-// internal/acp's own setpgid, moral-scorn) — as one unit, without touching
-// anything outside this runner's dedicated session. See killSession.
-func setsid(cmd *exec.Cmd) {
+// isolateRunner decides the process attributes of EVERY runner subprocess this
+// package launches — the self-invoked `ctxloom llm serve <backend>`
+// (dialLLMConnection) and the directly-launched `ctxloom llm host <backend>`
+// (StartHostRunner). Two things, for opposite directions of the lifetime:
+//
+//  1. Setsid — the runner leads a FRESH session (session id == its own pid) so
+//     killSession can later reap its entire subtree, including a grandchild the
+//     runner itself puts in a SEPARATE process group (internal/acp's setpgid,
+//     moral-scorn), as one unit, without touching anything outside that
+//     dedicated session. This is the DOWNWARD guarantee: when teardown runs,
+//     it reaches everything. See killSession.
+//
+//  2. Pdeathsig — the kernel signals the runner the instant its host process
+//     dies, however it dies. This is the UPWARD guarantee, and it exists
+//     because (1) only works while the host is alive to run it:
+//     realLLMConnection.Kill and HostRunner.Kill live INSIDE the host, so a
+//     SIGKILL, an OOM kill, `go test -timeout`'s escalation, a panic that
+//     skipped every defer, a cobra path that called os.Exit, or a killed shell
+//     that took its whole process group down leaves the runner with nothing
+//     watching it. And the runner cannot notice on its own: go-plugin hands it
+//     the HOST's stdin rather than a pipe (go-plugin client.go's
+//     `cmd.Stdin = os.Stdin`), so no EOF ever arrives, and (1) has by
+//     construction put it out of reach of any process-group signal. After the
+//     host is gone the kernel is the only party that still remembers the
+//     relationship — hence PR_SET_PDEATHSIG rather than more userspace
+//     bookkeeping. Without it, orphaned runners accumulate: 208 `llm serve
+//     mock` processes in one incident, 36 more on 2026-07-24 across three
+//     different checkouts, some running unattended for over 36 hours.
+//
+// The signal is SIGTERM, not SIGKILL, so the runner gets to reap its own
+// descendants before it goes — see InstallRunnerTeardown, which is the
+// receiving half. Linux-only (see pdeath_other.go); the same honest gap as
+// killSession, which needs /proc.
+func isolateRunner(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setsid = true
+	setRunnerPdeathsig(cmd.SysProcAttr)
 }
 
 // killSession SIGKILLs every process whose /proc session id equals sid. A
-// go-plugin runner spawned via setsid (above) has sid == its own pid, so
+// go-plugin runner spawned via isolateRunner (above) has sid == its own pid, so
 // this reaps the runner's ENTIRE host subtree in one sweep: the runner
 // itself plus any descendant that moved into its own process group
 // (internal/acp's setpgid'd claude-code-acp, and any worker IT
-// double-forks) without ALSO calling setsid — none of them do, so all stay
+// double-forks) without ALSO calling setsid(2) — none of them do, so all stay
 // tagged with the runner's session id regardless of how many nested
 // process groups they create.
 //
@@ -44,7 +74,16 @@ func setsid(cmd *exec.Cmd) {
 // are not errors — "nothing left to kill" is the outcome every caller wants
 // either way. Linux-only (/proc); the windows build has no equivalent, the
 // same honest gap as internal/acp/procgroup_windows.go.
-func killSession(sid int) {
+func killSession(sid int) { killSessionExcept(sid, 0) }
+
+// killSessionExcept is killSession with one member spared — used by
+// ReapRunnerDescendants, where the sweeper is itself inside the session it is
+// sweeping and must not SIGKILL itself before it has reached its children
+// (/proc enumerates in readdir order, and the session leader's pid is normally
+// the lowest one in the session, so an unguarded sweep would kill the sweeper
+// first and leave exactly the descendants it was called to collect). except=0
+// spares nothing — no real process has pid 0.
+func killSessionExcept(sid, except int) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return
@@ -54,11 +93,61 @@ func killSession(sid int) {
 		if err != nil {
 			continue
 		}
+		if pid == except {
+			continue
+		}
 		if procSessionID(pid) != sid {
 			continue
 		}
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
+}
+
+// runnerTerminatedExitCode is the conventional 128+SIGTERM a process reports
+// when it dies of a signal it chose to handle rather than let default.
+const runnerTerminatedExitCode = 143
+
+// ReapRunnerDescendants SIGKILLs every OTHER member of this process's session.
+// It is the runner-side counterpart of the host-side killSession: the host
+// sweeps the runner's session from outside while it is alive to do so, and
+// this sweeps the same session from inside when the host no longer is.
+//
+// REFUSES TO ACT unless this process is its own session leader — i.e. it was
+// launched through isolateRunner, so "my session" means exactly "the subtree I
+// own". A `ctxloom llm serve` started by hand from a shell shares that shell's
+// session, and an unguarded sweep there would kill the user's shell, its job
+// control, and every sibling command in it. Scoping the blast radius to a
+// session this package created is the whole reason isolateRunner calls setsid.
+func ReapRunnerDescendants() {
+	self := os.Getpid()
+	if procSessionID(self) != self {
+		return
+	}
+	killSessionExcept(self, self)
+}
+
+// InstallRunnerTeardown makes SIGTERM mean "take your subtree with you" for a
+// runner that has no other graceful path — `ctxloom llm serve`, whose body is
+// go-plugin's blocking plugin.Serve (`llm host` already unwinds through
+// waitForRunnerTermination into standup.teardown, so it must NOT also install
+// this: two handlers on one signal race, and the graceful one is better).
+//
+// SIGTERM is what isolateRunner's Pdeathsig delivers when the host dies. Left
+// to its default disposition it would end the runner instantly and strand the
+// engine subprocess one level further down — trading an orphaned runner for an
+// orphaned engine. This closes that step.
+//
+// It does NOT run standup.teardown (dial-home close, MCP endpoint close): the
+// host it would report to is, by construction, already dead. os.Exit here is
+// the same abruptness SIGTERM's default already had, plus the sweep.
+func InstallRunnerTeardown() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGTERM)
+	go func() {
+		<-ch
+		ReapRunnerDescendants()
+		os.Exit(runnerTerminatedExitCode)
+	}()
 }
 
 // procSessionID reads a process's session id from /proc/<pid>/stat (field 6;

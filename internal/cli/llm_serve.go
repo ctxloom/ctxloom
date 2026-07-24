@@ -43,6 +43,16 @@ var llmServeCmd = &cobra.Command{
 			pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend},
 		}
 
+		// plugin.Serve below blocks with no signal handling of its own (it
+		// swallows SIGINT and leaves SIGTERM at its default disposition), so
+		// this is `llm serve`'s only chance to react to the SIGTERM the kernel
+		// delivers when its host dies — isolateRunner's Pdeathsig. Without it
+		// the runner would die and strand the engine subprocess it isolated
+		// into its own process group. `llm host` deliberately does NOT install
+		// this: it already unwinds through waitForRunnerTermination into
+		// standup.teardown, and two handlers on one signal race.
+		pb.InstallRunnerTeardown()
+
 		// Serve the plugin
 		plugin.Serve(&plugin.ServeConfig{
 			HandshakeConfig: pb.HandshakeConfig,

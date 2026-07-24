@@ -47,16 +47,30 @@ func (s *syncBuffer) String() string {
 const hardKillPollTimeout = 20 * time.Second
 const hardKillPollInterval = 25 * time.Millisecond
 
-// TestMockPluginReapedOnHardKilledParent proves the harness's defense-in-
-// depth reap (testenv.PluginChildrenOf + testenv.KillPids — the exact
-// primitive now wired into every place this harness itself hard-kills a
-// live ctxloom process: PTYSession.Close, MCPClient.Close) survives the
-// worst case those exist for: the parent ("ctxloom run") taking a raw,
-// uncatchable SIGKILL with zero chance to run its own `defer client.Kill()`
-// cleanup — the same shape as an agent harness tearing a test run down,
-// `go test`'s own process dying, or a worktree deleted out from under a
-// live run. This is the payload assertion the task asked for: process-table
-// absence, not "the reap function returned without error".
+// TestMockPluginReapedOnHardKilledParent proves, against the REAL product
+// binary and a real `ctxloom llm serve mock` subprocess, that a hard-killed
+// parent no longer leaves that subprocess behind — with NO harness
+// intervention whatsoever. The parent ("ctxloom run") takes a raw,
+// uncatchable SIGKILL and so gets zero chance to run its own `defer
+// client.Kill()` cleanup: the same shape as an agent harness tearing a test
+// run down, `go test`'s own process dying, an OOM kill, or a worktree deleted
+// out from under a live run. Every one of those produced orphans until
+// isolateRunner started arming PR_SET_PDEATHSIG (internal/lm/grpc/
+// pdeath_linux.go) — 208 in one incident, 36 more on 2026-07-24 across three
+// checkouts, some running unattended for over 36 hours.
+//
+// This test USED to assert the opposite as its premise ("the plugin child is
+// now an orphan") and then prove testenv.KillPids could collect it. That
+// premise is now false by construction, which is the point: the harness reap
+// (testenv.PluginChildrenOf + testenv.KillPids, still wired into
+// PTYSession.Close and MCPClient.Close and still exercised by this test's
+// safety-net cleanup) was a harness-side workaround for a product-side leak,
+// and could only ever protect processes this harness itself spawned. Nothing
+// protected `ctxloom run` in a developer's terminal — which is where 12 of
+// the 36 came from.
+//
+// This is the payload assertion the task asked for: process-table absence,
+// not "the reap function returned without error".
 //
 // --structured keeps the run alive reading messages off an open stdin pipe
 // (run_structured.go: parks until EOF) instead of the normal interactive
@@ -85,13 +99,24 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 	parentPID := cmd.Process.Pid
 	waited := false
 	// Safety net: if an assertion below fails (require's t.FailNow ends this
-	// goroutine via runtime.Goexit before reaching the explicit Wait/reap
-	// further down), still reap both the parent zombie and — via the same
-	// PluginChildrenOf/KillPids pair under test — any plugin child, so a
-	// failing run of THIS test doesn't itself leak a "llm serve mock".
-	// Registered before the debug-log cleanup so it runs first (t.Cleanup is
-	// LIFO): the log below can then report the final captured output.
+	// goroutine via runtime.Goexit before reaching the explicit Wait further
+	// down), still reap both the parent zombie and — via the same
+	// PluginChildrenOf/KillPids pair — any plugin child, so a failing run of
+	// THIS test doesn't itself leak a "llm serve mock". Registered before the
+	// debug-log cleanup so it runs first (t.Cleanup is LIFO): the log below
+	// can then report the final captured output.
+	//
+	// capturedChildren is filled in once the plugin child has been observed,
+	// and reaped unconditionally — INCLUDING after `waited`. The final
+	// assertion runs after the parent is already dead and deliberately does
+	// nothing itself; on the failing path (the fix regressed, the child
+	// outlived its parent) the child is by definition an orphan with nothing
+	// else in the world left to collect it. An earlier version of this
+	// cleanup returned early on `waited` and so leaked exactly one orphaned
+	// mock per red run — the very population it was written to protect.
+	var capturedChildren []int
 	t.Cleanup(func() {
+		defer func() { testenv.KillPids(capturedChildren) }()
 		if waited {
 			return
 		}
@@ -121,6 +146,7 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 		time.Sleep(hardKillPollInterval)
 	}
 	require.NotEmpty(t, childPIDs, "mock plugin subprocess never appeared as a child of pid %d", parentPID)
+	capturedChildren = childPIDs // arm the cleanup's unconditional reap
 	childPID := childPIDs[0]
 	require.True(t, processAlive(childPID), "sanity: captured plugin pid %d isn't actually alive", childPID)
 
@@ -143,29 +169,21 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 	_ = cmd.Wait() // reap the zombie; the (SIGKILL) exit error is expected and irrelevant
 	waited = true
 
-	// Without intervention the plugin child is now an orphan: reparented to
-	// init, unreachable via the parent's pid, session, or process group
-	// (setsid'd away by internal/lm/grpc's dialLLMConnection). Confirm that
-	// premise so this test would actually fail — not pass vacuously — if the
-	// reap below were deleted.
-	require.True(t, processAlive(childPID),
-		"premise check failed: plugin pid %d was already gone before any reap ran — this test would pass even with no fix", childPID)
-
-	// The fix: the exact primitive every hard-kill call site in this harness
-	// (PTYSession.Close, MCPClient.Close) now runs — reap the pids captured
-	// BEFORE the kill, by pid, not by re-deriving them (impossible once
-	// reparented to init).
-	testenv.KillPids(childPIDs)
-
-	// PAYLOAD assertion: the process is actually gone from the process
-	// table — not that KillPids returned (it has no return value to lie
-	// with). This project's characteristic bug is exit 0 with nothing
-	// actually done, so absence is the only assertion that means anything
-	// here.
+	// NOTHING IS DONE HERE ON PURPOSE. No KillPids, no signal, no sweep —
+	// the harness deliberately abandons the plugin child exactly as a dying
+	// agent harness or a `kill -9`'d terminal session would. Anything this
+	// test did at this point would be indistinguishable from the mechanism
+	// under test.
+	//
+	// PAYLOAD assertion: the process is actually gone from the process table.
+	// Not that a cleanup function returned — a cleanup that reports success
+	// while the process keeps running is precisely the defect this is the
+	// regression test for, and this project's characteristic bug is exit 0
+	// with nothing actually done.
 	require.Eventually(t, func() bool {
 		return !processAlive(childPID)
 	}, hardKillPollTimeout, hardKillPollInterval,
-		"mock plugin subprocess pid %d survived the reap", childPID)
+		"mock plugin subprocess pid %d outlived its hard-killed parent %d with nothing left to reap it — this is the orphaned-`llm serve mock` leak", childPID, parentPID)
 }
 
 // processAlive reports whether pid names a live process, via the standard

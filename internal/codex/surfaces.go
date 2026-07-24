@@ -78,18 +78,18 @@ import (
 // hang off — so pointing CODEX_HOME here keeps prompts cell-local. It matches
 // codexHome()'s output when CODEX_HOME=<dir>/.codex (CODEX_HOME IS the .codex
 // dir, not its parent), so codexPromptsDir would resolve to cellScopedPromptsDir.
-func cellScopedCodexHome(dir string) string { return filepath.Join(dir, ".codex") }
+func cellScopedCodexHome(dir string) string { return filepath.Join(dir, ConfigDirName) }
 
 // cellScopedPromptsDir is the prompts directory under the cell-scoped
 // $CODEX_HOME — the isolated stand-in for the global codexPromptsDir().
 func cellScopedPromptsDir(dir string) string {
-	return filepath.Join(cellScopedCodexHome(dir), "prompts")
+	return filepath.Join(cellScopedCodexHome(dir), PromptsDirName)
 }
 
 // cellScopedSkillsDir is the Agent Skills directory under the cell-scoped
 // $CODEX_HOME — the isolated stand-in for the global codexSkillsDir().
 func cellScopedSkillsDir(dir string) string {
-	return filepath.Join(cellScopedCodexHome(dir), "skills")
+	return filepath.Join(cellScopedCodexHome(dir), SkillsDirName)
 }
 
 // contextSurface is codex's context surface. codex has no ContextWriter for

@@ -66,7 +66,7 @@ func (w *CodexHookWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
 
 // SettingsPath returns the path to Codex's project-level config.toml.
 func (w *CodexHookWriter) SettingsPath(projectDir string) string {
-	return filepath.Join(projectDir, ".codex", "config.toml")
+	return filepath.Join(projectDir, ConfigDirName, ConfigFileName)
 }
 
 // AgentsMDFile is the workspace-fixed file codex reads NATIVELY at session

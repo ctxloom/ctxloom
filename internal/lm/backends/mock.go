@@ -1,12 +1,15 @@
 package backends
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -60,6 +63,16 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	modelInfo := &agent.ModelInfo{
 		ModelName: "mock-model",
 		Provider:  "mock",
+	}
+
+	// CTXLOOM_MOCK_ECHO_STDIN drives the INTERACTIVE echo path used by the
+	// docker-exec turn's integration proof (Phase 2a): a real interactive
+	// engine reads keystrokes and reflects them, and reacts to terminal
+	// resizes — the default echo (prompt/context only) reads neither, so it
+	// cannot prove the host-pty → exec → turn → engine → back chain. This mode
+	// reflects one typed line and the resize it saw, then exits.
+	if getEnvFromMap(req.Env, "CTXLOOM_MOCK_ECHO_STDIN") == "1" && req.Stdin != nil {
+		return b.executeInteractiveEcho(ctx, req, stdout, modelInfo)
 	}
 
 	// Assemble context from fragments
@@ -179,6 +192,58 @@ func buildMockResponse(customResponse, contextStr, promptContent string, mode ag
 		response.WriteString("[mock] distilled=Compressed content for testing\n")
 	}
 	return response.String()
+}
+
+// executeInteractiveEcho reflects one typed line and, best-effort, the last
+// terminal resize it observed — the interactive engine behavior the docker-exec
+// turn's integration test asserts round-trips through the full pty chain. It
+// reads a single line (a tty rarely EOFs, so looping-until-EOF would hang the
+// turn), echoes `mock echo: <line>`, reports any resize seen as `mock winsize:
+// RxC`, and returns.
+func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteRequest, stdout io.Writer, modelInfo *agent.ModelInfo) (*agent.ExecuteResult, error) {
+	// Track the latest resize concurrently with the blocking line read, so a
+	// resize that arrives around the same time as the keystroke is captured.
+	var mu sync.Mutex
+	var lastWS agent.WindowSize
+	var sawWS bool
+	resizeDone := make(chan struct{})
+	go func() {
+		defer close(resizeDone)
+		if req.Resize == nil {
+			return
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ws, ok := <-req.Resize:
+				if !ok {
+					return
+				}
+				mu.Lock()
+				lastWS, sawWS = ws, true
+				mu.Unlock()
+			}
+		}
+	}()
+
+	line, _ := bufio.NewReader(req.Stdin).ReadString('\n')
+	line = strings.TrimRight(line, "\r\n")
+	_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
+
+	// Give a near-simultaneous resize a beat to land before reporting.
+	select {
+	case <-ctx.Done():
+	case <-time.After(200 * time.Millisecond):
+	}
+	mu.Lock()
+	ws, seen := lastWS, sawWS
+	mu.Unlock()
+	if seen {
+		_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", ws.Rows, ws.Cols)
+	}
+
+	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
 // Cleanup releases resources after execution.

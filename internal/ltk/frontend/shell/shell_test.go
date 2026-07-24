@@ -174,6 +174,43 @@ func TestRedirect(t *testing.T) {
 	}
 }
 
+// A bare redirection (`> file`, `>> file`, `< file`) is a valid statement with
+// NO command word: mvdan.cc/sh parses it to a *syntax.Stmt whose Cmd is nil.
+// Lowering used to fall through to lowerCompound and hand that nil to
+// syntax.Walk, which panics ("syntax.Walk: unexpected node type <nil>") — a
+// guard that CRASHES on valid input blocks the command outright, which is
+// strictly worse than missing a rule.
+func TestBareRedirectionHasNoCommandWord(t *testing.T) {
+	for _, src := range []string{"> out.txt", ">> out.txt", "< in.txt", "2> err.txt"} {
+		t.Run(src, func(t *testing.T) {
+			s := parse(t, ir.ShellBash, src)
+			cmds := s.Commands()
+			if len(cmds) != 1 {
+				t.Fatalf("Parse(%q) commands = %d, want 1", src, len(cmds))
+			}
+			c := cmds[0]
+			if c.Program() != "" {
+				t.Errorf("Program() = %q, want \"\" (no command word)", c.Program())
+			}
+			if len(c.Argv) != 0 {
+				t.Errorf("Argv = %v, want empty", c.Argv)
+			}
+			if len(c.Redirects) != 1 {
+				t.Fatalf("Redirects = %+v, want 1", c.Redirects)
+			}
+		})
+	}
+}
+
+// The bare redirection must not poison the pipelines around it either: the
+// statement it sits next to still has to lower normally.
+func TestBareRedirectionInSequence(t *testing.T) {
+	s := parse(t, ir.ShellBash, "> out.txt; go build ./...")
+	if got, want := programs(s), []string{"", "go"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("programs = %#v, want %#v", got, want)
+	}
+}
+
 func TestShellsCovered(t *testing.T) {
 	got := New().Shells()
 	want := []ir.Shell{ir.ShellSh, ir.ShellBash, ir.ShellZsh, ir.ShellMksh}

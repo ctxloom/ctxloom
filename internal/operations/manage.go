@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -38,9 +39,13 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	workDir := manageWorkDir(req.WorkDir)
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
 
+	names, err := manageBackendNames(req.Backend)
+	if err != nil {
+		return nil, err
+	}
 	removed := []string{}
 	var errs []string
-	for _, name := range manageBackendNames(req.Backend) {
+	for _, name := range names {
 		if ctx.Err() != nil {
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
@@ -189,9 +194,22 @@ func manageWorkDir(workDir string) string {
 }
 
 // manageBackendNames resolves the backend filter to the backends to operate on.
-func manageBackendNames(backend string) []string {
+//
+// An unknown name is an ERROR, not a one-element list. Passing it through made
+// `manage hooks uninstall --backend <typo>` report Status "removed" listing the
+// typo while removing nothing: every layer below reads an unregistered backend
+// as a permitted no-op (RemoveSettings returns nil with no settings writer;
+// BuildSurfaces returns an EmptySurfaceSet whose nil SupportedApproaches makes
+// Select skip the kind), so no error ever surfaced and the name was appended to
+// `removed`. The user's harness was still installed and they had been told it
+// was gone. MaterializeProfile in this same package already guards with
+// backends.Exists — this is that guard, at the other door.
+func manageBackendNames(backend string) ([]string, error) {
 	if backend == "" || backend == "all" {
-		return backends.BackendsWithSettings()
+		return backends.BackendsWithSettings(), nil
 	}
-	return []string{backend}
+	if !backends.Exists(backend) {
+		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(backends.BackendsWithSettings(), ", "))
+	}
+	return []string{backend}, nil
 }

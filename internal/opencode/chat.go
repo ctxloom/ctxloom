@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -39,6 +40,7 @@ const opencodeConfigFile = "opencode.json"
 // after the run, so the user's project file is left exactly as it was (a plan run
 // never leaves its read-only `permission` behind).
 func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+	b.assertSetupRan("structured chat")
 	fs := afero.NewOsFs()
 	model := req.Model
 	if model == "" {
@@ -189,7 +191,12 @@ func chatManaged(req agent.ChatRequest, model, context string, mcp []agent.ChatM
 // delivery living in only one of them is exactly the gap this closes.
 func materializeContextSurface(fs afero.Fs, workDir, context string) (func() error, error) {
 	noop := func() error { return nil }
-	if context == "" {
+	// TrimSpace, not == "": a context of "\n" or "  " is not a context. Testing
+	// for the empty string let 1-4 bytes of whitespace through, writing a
+	// ctxloom-context.md that says nothing and pointing opencode's
+	// instructions[] at it — a delivery indistinguishable from a real one
+	// (U080-F16).
+	if strings.TrimSpace(context) == "" {
 		return noop, nil
 	}
 	ctxPath := filepath.Join(workDir, opencodeContextFile)

@@ -1,9 +1,12 @@
 package kiro
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestChatACPConfig_UsesGenericModelFlag pins the Wave C3 finding: unlike
@@ -32,4 +35,33 @@ func TestChatACPConfig_CarriesConfiguredKnobs(t *testing.T) {
 	assert.Equal(t, "custom-agent", cfg.Agent)
 	assert.Equal(t, "v3", cfg.AgentEngine)
 	assert.Equal(t, map[string]string{"FOO": "bar"}, cfg.Env)
+}
+
+// U055-F03: a configured `effort:` is delivered on the direct-CLI path
+// (buildArgs emits --effort) but the structured-chat path never reads it — the
+// user's setting silently evaporates, and the session runs at kiro's default
+// effort while nothing says so. Delivering it to `kiro-cli acp` is unverified
+// (see chatACPConfig's doc), so the honest outcome is a loud one, not a quiet
+// drop.
+func TestChatACPConfig_DroppedEffortIsAnnounced(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	b := NewKiro()
+	b.Configure(&KiroConfig{Effort: "xhigh"})
+	_ = b.chatACPConfig()
+	assert.Contains(t, buf.String(), "effort", "a dropped effort setting must be announced, not swallowed")
+	assert.Contains(t, buf.String(), "xhigh", "the announcement must name the value that was not delivered")
+}
+
+// A backend with no effort configured stays quiet.
+func TestChatACPConfig_NoEffortNoNoise(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	b := NewKiro()
+	_ = b.chatACPConfig()
+	assert.Empty(t, buf.String())
 }

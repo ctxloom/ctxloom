@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Compile-time assertion that Kiro offers the optional StructuredChat capability.
@@ -42,6 +43,17 @@ func (b *Kiro) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 // the normalized enum onto it is unresearched; do not assume the two
 // vocabularies line up without verifying kiro-cli acp's own flags live.
 func (b *Kiro) chatACPConfig() acp.ACPConfig {
+	// `effort:` IS delivered on the direct-CLI path (buildArgs emits
+	// --effort) but has no verified counterpart on `kiro-cli acp`, so this
+	// path cannot honor it. Say so: silently dropping a knob the user
+	// explicitly set means the session runs at kiro's default effort while
+	// every surface reports success (U055-F03). Passing --effort through on
+	// speculation is the worse option — an unsupported flag would break the
+	// spawn outright, and this file's doc comment already refuses to assume
+	// the two vocabularies line up.
+	if b.effort != "" {
+		clidiag.Warn("ctxloom", "kiro config sets effort %q, but the structured-chat (`kiro-cli acp`) path has no verified effort mechanism — this session runs at kiro's own default; effort applies to the direct `kiro-cli chat` path only", b.effort)
+	}
 	return acp.ACPConfig{
 		Command:     b.BinaryPath + " acp",
 		Agent:       b.agentName,

@@ -528,7 +528,10 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 	ctxPath := w.contextFilePath(req.ProjectDir)
 	cfgPath := w.SettingsPath(req.ProjectDir)
 
-	if req.Context == "" {
+	// TrimSpace, not == "": whitespace-only content is no context at all, and
+	// must take this removal path rather than writing a blank instruction file
+	// opencode is then pointed at (U080-F16).
+	if strings.TrimSpace(req.Context) == "" {
 		var report agent.ContextReport
 		if exists, _ := afero.Exists(fs, ctxPath); exists {
 			if err := fs.Remove(ctxPath); err != nil {

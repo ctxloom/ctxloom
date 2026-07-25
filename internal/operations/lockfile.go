@@ -73,10 +73,18 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}
 
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	// The previous lockfile anchors two safety nets across the closure rebuild:
-	// the per-item Pinned flag (the user's "do not upgrade this" hold must
-	// survive a relock), and the preserved entries when the closure is
-	// incomplete. An unreadable previous lockfile degrades to an empty one.
+	// The previous lockfile anchors three safety nets across the closure
+	// rebuild: the per-item Pinned flag (the user's "do not upgrade this" hold
+	// must survive a relock), the per-item Retracted flag, and the preserved
+	// entries when the closure is incomplete.
+	//
+	// An UNREADABLE previous lockfile degrades to an empty one here, which
+	// means none of those three can be carried forward (U085-F01). That
+	// degrade is survivable only because it can no longer be PERSISTED: the
+	// Save below reads back what is on disk and refuses to overwrite a file it
+	// cannot parse (remote.ErrLockfileUnreadable), so the corrupt file — and
+	// the holds and retractions still recorded in it — is left intact for the
+	// user to fix or delete. Do not "recover" by writing over it.
 	prev, prevErr := lockManager.Load()
 	if prevErr != nil {
 		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}

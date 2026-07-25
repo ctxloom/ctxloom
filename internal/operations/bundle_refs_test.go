@@ -189,6 +189,36 @@ func TestRemoveLocalItems_PrunesLockfileEntries(t *testing.T) {
 	assert.True(t, kept)
 }
 
+// TestRemoveLocalItems_PruningTheLastEntryStillSaves pins the escape hatch on
+// the anti-erasure Save guard. Emptying the lockfile is normally a bug (an
+// incomplete computation writing "nothing" over real state), so Save refuses
+// it — but cleanup empties it DELIBERATELY, one named entry at a time, and
+// must still persist. Distinguishing the two is the whole point of AllowEmpty.
+func TestRemoveLocalItems_PruningTheLastEntryStillSaves(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := remote.NewLockfileManager(refsTestAppDir, remote.WithLockfileFS(fs))
+
+	// The lockfile exists ON DISK and is populated — the state the guard protects.
+	lock := refLockfile(map[string]remote.LockEntry{canonRef("only"): {SHA: "abc"}})
+	require.NoError(t, manager.Save(lock))
+
+	res, err := RemoveLocalItems(RemoveLocalItemsRequest{
+		AppDir:      refsTestAppDir,
+		Items:       []RemovedItem{{Type: remote.ItemTypeBundle, Ref: canonRef("only")}},
+		Lockfile:    lock,
+		LockManager: manager,
+		FS:          fs,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, res.Warnings, "a deliberate full prune is not a refused write")
+	assert.True(t, res.Saved, "pruning the last entry must still persist the now-empty lockfile")
+
+	saved, err := manager.Load()
+	require.NoError(t, err)
+	assert.True(t, saved.IsEmpty(), "the deliberate erasure landed")
+}
+
 // TestRemoveLocalItems_RemovesLegacyMaterializedFile covers the transitional
 // case: installs from the pre-reference-only model left real files on disk;
 // cleanup still deletes those and reports them.

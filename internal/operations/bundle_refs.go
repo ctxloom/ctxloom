@@ -175,7 +175,12 @@ func RemoveLocalItems(req RemoveLocalItemsRequest) (*RemoveLocalItemsResult, err
 		res.Pruned = append(res.Pruned, item.Ref)
 	}
 	if len(res.Pruned) > 0 {
-		if err := req.LockManager.Save(req.Lockfile); err != nil {
+		// remote.AllowEmpty: pruning the LAST entry legitimately empties the
+		// lockfile, and Save otherwise refuses an empty write over a populated
+		// file (that refusal exists to catch callers that computed nothing and
+		// wrote it wholesale — see remote.Save). Here every removed entry was
+		// named individually, so emptying is the intent, not an accident.
+		if err := req.LockManager.Save(req.Lockfile, remote.AllowEmpty()); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to update lockfile: %v", err))
 		} else {
 			res.Saved = true

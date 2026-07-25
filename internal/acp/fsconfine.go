@@ -83,20 +83,20 @@ func confineToWorkspace(root, path string) (string, error) {
 		// A root we cannot resolve is a boundary we cannot enforce. Deny.
 		return "", fmt.Errorf("resolve workspace root %q: %w", absRoot, err)
 	}
-	real, err := resolveRealPath(filepath.Clean(path))
+	resolved, err := resolveRealPath(filepath.Clean(path))
 	if err != nil {
 		return "", fmt.Errorf("resolve path %q: %w", path, err)
 	}
-	if !withinRoot(realRoot, real) {
+	if !withinRoot(realRoot, resolved) {
 		return "", fmt.Errorf("path %q is outside this session's workspace %q", path, realRoot)
 	}
-	return real, nil
+	return resolved, nil
 }
 
-// withinRoot reports whether real is root itself or lies beneath it. Both
+// withinRoot reports whether candidate is root itself or lies beneath it. Both
 // arguments must already be absolute, cleaned, symlink-resolved paths.
-func withinRoot(root, real string) bool {
-	if real == root {
+func withinRoot(root, candidate string) bool {
+	if candidate == root {
 		return true
 	}
 	// The prefix a path under root must start with. Appending the separator
@@ -108,7 +108,7 @@ func withinRoot(root, real string) bool {
 	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
 		prefix += string(filepath.Separator)
 	}
-	return strings.HasPrefix(real, prefix)
+	return strings.HasPrefix(candidate, prefix)
 }
 
 // resolveRealPath is filepath.EvalSymlinks extended to tolerate a path whose

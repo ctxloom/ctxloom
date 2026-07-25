@@ -1208,11 +1208,11 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
-	real, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
+	safePath, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
 	if cerr != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "fs/read_text_file: " + cerr.Error()}
 	}
-	req.Path = real
+	req.Path = safePath
 	if s.fsUpstream != nil {
 		var resp api.ReadTextFileResponse
 		if err := s.fsUpstream.Call(s.ctx, api.ClientMethodFsReadTextFile, req, &resp); err != nil {
@@ -1220,7 +1220,7 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 		}
 		return resp, nil
 	}
-	data, err := os.ReadFile(real)
+	data, err := os.ReadFile(safePath)
 	if err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
@@ -1247,11 +1247,11 @@ func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
-	real, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
+	safePath, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
 	if cerr != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "fs/write_text_file: " + cerr.Error()}
 	}
-	req.Path = real
+	req.Path = safePath
 	if s.fsUpstream != nil {
 		var resp api.WriteTextFileResponse
 		if err := s.fsUpstream.Call(s.ctx, api.ClientMethodFsWriteTextFile, req, &resp); err != nil {
@@ -1259,7 +1259,7 @@ func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error
 		}
 		return api.WriteTextFileResponse{}, nil
 	}
-	if err := os.WriteFile(real, []byte(req.Content), 0o644); err != nil {
+	if err := os.WriteFile(safePath, []byte(req.Content), 0o644); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
 	return api.WriteTextFileResponse{}, nil

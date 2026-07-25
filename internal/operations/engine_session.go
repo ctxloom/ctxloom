@@ -11,6 +11,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -94,6 +95,12 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// Carried through to buildSessionInitSummary (ISO4), which renders it
 		// via namesOrCount (names when short, a count + CLI pointer when long).
 		fragmentsLoaded []string
+		// assemblyFailed is non-nil when context assembly FAILED, as opposed
+		// to succeeding with nothing to load. Without it the init summary
+		// renders a failed assembly as the authoritative "fragments : none"
+		// (U083-F06) — the one artifact whose job is to say what ctxloom
+		// assembled, claiming it assembled nothing when it does not know.
+		assemblyFailed error
 		// requestedAgent is the RAW name resolution was attempted against
 		// (flagAgent, or the project's cfg.DefaultAgent when flagAgent was
 		// empty) — hoisted alongside currentAgent so the ISO3 announcement
@@ -173,6 +180,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 			// context rather than refusing the editor's session.
 			var profileLLM string
 			if ctxResult, cerr := AssembleContext(ctx, cfg, AssembleContextRequest{Profile: profile}); cerr != nil {
+				assemblyFailed = cerr
 				clidiag.Warn("ctxloom", "acp agent: context assembly failed; continuing without context: %v", cerr)
 			} else {
 				contextText = ctxResult.Context
@@ -341,16 +349,24 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	// sessionCommands is built once and reused: both the summary text below
 	// and EngineChat.Commands (the ACP available_commands_update surface)
 	// need the same ListCommands result, and this avoids listing twice.
-	sessionCommands := buildSessionCommands(ctx, cfg)
-	var commandNames []string
-	if sessionCommands != nil {
-		commandNames = make([]string, 0, len(sessionCommands.Available))
+	sessionCommands, cmdErr := buildSessionCommands(ctx, cfg)
+	commandNames := listed(nil)
+	switch {
+	case cmdErr != nil:
+		commandNames = listingFailed(cmdErr)
+	case sessionCommands != nil:
+		names := make([]string, 0, len(sessionCommands.Available))
 		for _, c := range sessionCommands.Available {
-			commandNames = append(commandNames, c.Name)
+			names = append(names, c.Name)
 		}
+		commandNames = listed(names)
 	}
 	skillNames := listSessionSkillNames(ctx, cfg)
-	mcpServerNames := mcpServerNamesFor(mcpServers)
+	mcpServerNames := listed(mcpServerNamesFor(mcpServers))
+	fragments := listed(fragmentsLoaded)
+	if assemblyFailed != nil {
+		fragments = listingFailed(assemblyFailed)
+	}
 
 	// AT-CONNECT (not per-turn): this used to ride the Events channel as a
 	// synthetic first entry (announceOnFirstEvent, since deleted) — which
@@ -370,7 +386,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		label:           label,
 		model:           model,
 		profiles:        sessionProfiles,
-		fragmentsLoaded: fragmentsLoaded,
+		fragmentsLoaded: fragments,
 		commandNames:    commandNames,
 		skillNames:      skillNames,
 		mcpServerNames:  mcpServerNames,
@@ -424,17 +440,17 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 // skill-selection concept today, so this is honestly labeled "installed",
 // never "loaded". nil (degrading the summary line to "none") on a listing
 // failure — fault-tolerant like every other assembly step in this opener.
-func listSessionSkillNames(ctx context.Context, cfg *config.Config) []string {
+func listSessionSkillNames(ctx context.Context, cfg *config.Config) nameListing {
 	res, err := ListSkills(ctx, cfg, ListSkillsRequest{})
 	if err != nil {
 		clidiag.Warn("ctxloom", "acp agent: listing skills for the session init summary: %v", err)
-		return nil
+		return listingFailed(err)
 	}
 	names := make([]string, 0, len(res.Skills))
 	for _, s := range res.Skills {
 		names = append(names, s.Name)
 	}
-	return names
+	return listed(names)
 }
 
 // mcpServerNamesFor extracts a sorted name list from the session's resolved
@@ -464,16 +480,18 @@ func mcpServerNamesFor(servers []agent.ChatMCPServer) []string {
 // GetCommand path — one command system, two surfaces, never a separate
 // reimplementation. nil when no commands are configured for this cwd (the
 // session advertises none), degrading fault-tolerantly exactly like
-// buildSessionModes/buildSessionLLMs do on an empty/failed listing rather
-// than refusing the session open.
-func buildSessionCommands(ctx context.Context, cfg *config.Config) *SessionCommands {
+// buildSessionModes/buildSessionLLMs do on an empty listing rather than
+// refusing the session open — but a listing FAILURE is returned as an error
+// too, so the init summary can tell "no commands" from "could not find out"
+// instead of printing the authoritative word "none" for both (U083-F06).
+func buildSessionCommands(ctx context.Context, cfg *config.Config) (*SessionCommands, error) {
 	res, err := ListCommands(ctx, cfg, ListCommandsRequest{})
 	if err != nil {
 		clidiag.Warn("ctxloom", "acp agent: listing commands for available_commands_update: %v", err)
-		return nil
+		return nil, err
 	}
 	if len(res.Commands) == 0 {
-		return nil
+		return nil, nil
 	}
 	names := make(map[string]bool, len(res.Commands))
 	out := &SessionCommands{Available: make([]CommandInfo, 0, len(res.Commands))}
@@ -495,7 +513,7 @@ func buildSessionCommands(ctx context.Context, cfg *config.Config) *SessionComma
 		}
 		return text, true, nil
 	}
-	return out
+	return out, nil
 }
 
 // acpSessionMCPServers composes the ctxloom-managed MCP injection for one ACP
@@ -601,6 +619,12 @@ func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile s
 	return modes
 }
 
+// assembleModeContext is assembleModeFunc's seam onto AssembleContext (a
+// package var in the style of newACPEngineClient/prepareIsolation) so the
+// zero-byte guard below can be driven without authoring a project whose
+// assembly legitimately produces nothing.
+var assembleModeContext = AssembleContext
+
 // assembleModeFunc backs session/set_mode: re-assemble the lead context for
 // the chosen mode's profile set (nil = the configured defaults). The session's
 // ENGINE is pinned at launch: an agent mode declaring a different engine
@@ -612,9 +636,17 @@ func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.
 			clidiag.Warn("ctxloom", "acp agent: mode %q declares engine %q but this session runs %q — the engine is pinned at launch (use `ctxloom acp --agent %s` to honor it)",
 				mode.ID, mode.Engine, sessionLabel, strings.TrimPrefix(mode.ID, agentModePrefix))
 		}
-		res, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: mode.Profiles})
+		res, err := assembleModeContext(ctx, cfg, AssembleContextRequest{Profiles: mode.Profiles})
 		if err != nil {
 			return "", err
+		}
+		// A zero-byte assembly is NOT a mode with nothing to say — it is an
+		// assembly that produced nothing while reporting success, and handing
+		// it back BLANKS the session's lead context while the editor is told
+		// the mode switch worked (U083-F17). Refuse it: the session keeps the
+		// context it already had, and the editor sees a real failure.
+		if strings.TrimSpace(res.Context) == "" {
+			return "", fmt.Errorf("mode %q assembled to zero bytes of context — refusing to blank this session's lead context (check the mode's profiles with `ctxloom profile show`)", mode.ID)
 		}
 		return res.Context, nil
 	}
@@ -806,9 +838,9 @@ type sessionInitSummaryInputs struct {
 	// so a project with a large bundle catalog can't turn this summary into
 	// a wall of text, while the common small-project case still gets to see
 	// real names instead of a bare number.
-	fragmentsLoaded []string
-	commandNames    []string
-	skillNames      []string
+	fragmentsLoaded nameListing
+	commandNames    nameListing
+	skillNames      nameListing
 	// mcpServerNames is the CONFIGURED set only (what ctxloom asked the
 	// engine to attach — req.MCPServers plus acpSessionMCPServers' managed
 	// injection) — never live connection status. Status (agent.MCPStatus)
@@ -821,7 +853,7 @@ type sessionInitSummaryInputs struct {
 	// reintroduce the exact turn-gating bug ISO3 fixed for the isolation
 	// posture (announceOnFirstEvent); reporting "configured" is the honest,
 	// synchronously-knowable fact instead.
-	mcpServerNames []string
+	mcpServerNames nameListing
 	runtimeAxis    string
 	// workDir is the SAME path OpenEngineSession put on ChatRequest.WorkDir —
 	// req.Cwd for every unisolated/container-only session, or aw.dir once
@@ -842,7 +874,11 @@ const nameListCap = 8
 // uniformly across fragments/commands/skills/mcp rather than each picking
 // its own convention. "none" when the set is empty (a real, distinct fact
 // from "some but too many to show").
-func namesOrCount(names []string, listCmd string) string {
+func namesOrCount(l nameListing, listCmd string) string {
+	if l.err != nil {
+		return fmt.Sprintf("unavailable — this listing FAILED, so ctxloom cannot say (%v)", l.err)
+	}
+	names := l.names
 	if len(names) == 0 {
 		return "none"
 	}
@@ -850,6 +886,31 @@ func namesOrCount(names []string, listCmd string) string {
 		return fmt.Sprintf("%d (%s)", len(names), strings.Join(names, ", "))
 	}
 	return fmt.Sprintf("%d (see `%s`)", len(names), listCmd)
+}
+
+// nameListing is one of the init summary's collapsible name sets together
+// with the ONE fact a bare []string cannot carry: whether the listing that
+// produced it actually succeeded. A failed listing degrading to nil, rendered
+// as the authoritative word "none", is this codebase's signature lie in the
+// one artifact whose stated purpose is "what did ctxloom assemble on my
+// behalf?" (U083-F06) — "I assembled nothing" and "I could not find out" are
+// different answers and the editor is entitled to both.
+type nameListing struct {
+	names []string
+	err   error
+}
+
+// listed wraps a SUCCESSFUL listing's names (possibly empty — an empty set is
+// a real fact).
+func listed(names []string) nameListing { return nameListing{names: names} }
+
+// listingFailed marks a listing that could not be performed. err is never nil
+// at any call site; a nil err would silently degrade back to "none".
+func listingFailed(err error) nameListing {
+	if err == nil {
+		err = errors.New("listing failed")
+	}
+	return nameListing{err: err}
 }
 
 // sessionPermissionsLine is the init summary's "permissions" fact. It is a

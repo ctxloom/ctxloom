@@ -52,7 +52,7 @@ func TestNamesOrCount_BoundaryAtCap(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := namesOrCount(names(tc.n), "ctxloom widget list")
+			got := namesOrCount(listed(names(tc.n)), "ctxloom widget list")
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -115,8 +115,9 @@ func TestListSessionSkillNames_RealCatalog(t *testing.T) {
 	require.NoError(t, err)
 
 	got := listSessionSkillNames(context.Background(), cfg)
-	require.Len(t, got, 1)
-	assert.Equal(t, "skillbundle/humanize", got[0], "the REAL bundle/skill-qualified name, not a placeholder")
+	require.NoError(t, got.err)
+	require.Len(t, got.names, 1)
+	assert.Equal(t, "skillbundle/humanize", got.names[0], "the REAL bundle/skill-qualified name, not a placeholder")
 }
 
 // TestListSessionSkillNames_EmptyCatalogYieldsEmpty proves a project with no
@@ -142,7 +143,8 @@ func TestListSessionSkillNames_EmptyCatalogYieldsEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	got := listSessionSkillNames(context.Background(), cfg)
-	assert.Empty(t, got, "an empty catalog projects to an empty (nil-or-zero-length) name list")
+	assert.NoError(t, got.err, "an empty catalog is a SUCCESSFUL listing, not a failed one")
+	assert.Empty(t, got.names, "an empty catalog projects to an empty (nil-or-zero-length) name list")
 }
 
 // --- buildSessionInitSummary: all four collapsible fields, own CLI pointers
@@ -167,10 +169,10 @@ func TestBuildSessionInitSummary_AllFieldsCollapseWithOwnCLIPointer(t *testing.T
 		requestedAgent:  "coder",
 		currentAgent:    "coder",
 		label:           "claude-sonnet",
-		fragmentsLoaded: mk("frag", nameListCap+1),
-		commandNames:    mk("cmd", nameListCap+2),
-		skillNames:      mk("skill", nameListCap+3),
-		mcpServerNames:  mk("mcp", nameListCap+4),
+		fragmentsLoaded: listed(mk("frag", nameListCap+1)),
+		commandNames:    listed(mk("cmd", nameListCap+2)),
+		skillNames:      listed(mk("skill", nameListCap+3)),
+		mcpServerNames:  listed(mk("mcp", nameListCap+4)),
 		workDir:         "/home/user/project",
 	})
 	assert.Contains(t, got, "fragments : 9 (see `ctxloom run --dry-run`) loaded into the lead context")

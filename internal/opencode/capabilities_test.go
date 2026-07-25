@@ -163,7 +163,10 @@ func TestGetSession_Marker(t *testing.T) {
 // carrying the tool name and error status.
 func TestGetSession_Tools(t *testing.T) {
 	h := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(runnerReturning(nil, readFixture(t, "export_tool.json"), nil)))
-	sess, err := h.GetSession("", "x")
+	// The id must be the fixture's own: an export carrying a DIFFERENT session
+	// than the one asked for is now a hard error (U080-F02), so a placeholder id
+	// here would be asserting the wrong contract.
+	sess, err := h.GetSession("", "ses_09c85f028ffe7AzEs68oZ749iU")
 	require.NoError(t, err)
 
 	var toolUse, toolResult int

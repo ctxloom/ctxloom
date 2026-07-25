@@ -213,7 +213,13 @@ func NewACP() *ACP {
 		agent.NewBaseLifecycle("acp"),
 		&acpCommands{},
 		agent.NewBaseContextProvider(),
-		&acpSessionHistory{},
+		// SessionHistory: ACP exposes conversation state over the live
+		// session/update stream, not a client-side transcript, and this
+		// increment persists none — so acp DECLARES it has none rather than
+		// answering an empty list nobody can tell from "genuinely none".
+		// grpc/sessionhistory.go and operations.HistoryForBackend already turn
+		// nil into "backend acp has no session history".
+		nil,
 		// acp materializes no files (its loadout rides the ACP protocol, see
 		// surfaces.go), so it delivers an EMPTY surface set: Setup still runs the
 		// lifecycle merge that populates ManagedChatMCPServers, but writes nothing.

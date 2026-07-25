@@ -165,7 +165,7 @@ func (h *opencodeSessionHistory) GetSession(workDir, sessionID string) (*agent.S
 	if err != nil {
 		return nil, err
 	}
-	return parseOpencodeExport(out)
+	return parseOpencodeExport(out, sessionID)
 }
 
 // GetSessionByPath is unsupported: opencode does NOT persist a single per-session
@@ -230,10 +230,31 @@ type opencodeToolState struct {
 
 // parseOpencodeExport converts an export document into the normalized Session.
 // Unknown part types (step-start/step-finish) contribute nothing.
-func parseOpencodeExport(data []byte) (*agent.Session, error) {
+//
+// wantID is the session the caller asked for. It is checked because json
+// silently ignores unknown fields: a drifted export — a renamed top-level key, a
+// re-nested messages array, a new part vocabulary — unmarshals CLEANLY into a
+// zero-valued document, and this used to return `Entries: []` with a nil error,
+// so /recover rendered an empty scrollback and reported success. Three
+// shape-drift signatures are therefore hard failures:
+//
+//   - no info.id at all: this is not an export document
+//   - an info.id that is not the one we asked for: this is the wrong document
+//   - messages present but not one of them yielded an entry: the part
+//     vocabulary drifted out from under opencodePartEntries
+//
+// A genuinely empty session (info.id present, zero messages) is NOT one of them
+// and still parses: nothing was recorded, which is a real and reportable answer.
+func parseOpencodeExport(data []byte, wantID string) (*agent.Session, error) {
 	var exp opencodeExport
 	if err := json.Unmarshal(data, &exp); err != nil {
 		return nil, fmt.Errorf("parse opencode export: %w", err)
+	}
+	if exp.Info.ID == "" {
+		return nil, fmt.Errorf("parse opencode export for %q: the document carries no info.id — `opencode export` output has drifted from the shape this reader knows; the transcript is NOT empty, it is unreadable", wantID)
+	}
+	if wantID != "" && exp.Info.ID != wantID {
+		return nil, fmt.Errorf("parse opencode export: asked for session %q but the export carries %q", wantID, exp.Info.ID)
 	}
 	session := &agent.Session{
 		ID:        exp.Info.ID,
@@ -246,6 +267,9 @@ func parseOpencodeExport(data []byte) (*agent.Session, error) {
 		for _, part := range msg.Parts {
 			session.Entries = append(session.Entries, opencodePartEntries(msg.Info.Role, part, ts)...)
 		}
+	}
+	if len(exp.Messages) > 0 && len(session.Entries) == 0 {
+		return nil, fmt.Errorf("parse opencode export for %q: %d message(s) yielded no entries — every part type is unrecognised, so `opencode export`'s part vocabulary has drifted from this reader", exp.Info.ID, len(exp.Messages))
 	}
 	return session, nil
 }

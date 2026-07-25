@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -411,7 +412,7 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	toDrop := map[int]bool{}
 	removed := 0
 	for _, e := range store.Entries() {
-		if principalsContain(e.Principals, principal) {
+		if slices.Contains(e.Principals, principal) {
 			toDrop[e.Line] = true
 			removed++
 		}
@@ -483,15 +484,6 @@ func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, principal string
 		return "", err
 	}
 	return path, nil
-}
-
-func principalsContain(principals []string, want string) bool {
-	for _, p := range principals {
-		if p == want {
-			return true
-		}
-	}
-	return false
 }
 
 func readLines(r io.Reader) ([]string, error) {

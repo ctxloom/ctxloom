@@ -107,10 +107,9 @@ func DecodeLoadoutEnvelope(raw []byte, root TrustRoot, now time.Time) (bundleByt
 		return nil, "", fmt.Errorf("decode loadout bundle: %w", err)
 	}
 
-	var sig []byte
-	if env.Signature != "" {
-		sig = []byte(env.Signature)
-	}
+	// VerifyPublisher gates on len(armoredSig)==0, so a nil and an empty
+	// slice are indistinguishable to it -- no conditional needed.
+	sig := []byte(env.Signature)
 	signer, verr := VerifyPublisher(decoded, sig, root, now)
 	if verr != nil {
 		return nil, "", fmt.Errorf("loadout signature does not verify: %w", verr)

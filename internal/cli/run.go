@@ -138,7 +138,9 @@ var execCommand = exec.CommandContext
 // context.WithTimeout(exitDistillTimeout) — see its own doc for why exit-time
 // distillation is bounded rather than unbounded.
 func shellOutDistill(ctx context.Context, harpName string) error {
-	exe := resolveSelfExecutable()
+	// selfexec.Path survives an in-place upgrade that unlinks the executing
+	// inode; it is shared with the gRPC client, which cannot import cmd.
+	exe := selfexec.Path()
 	c := execCommand(ctx, exe, "session", "distill", harpName)
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr
@@ -280,14 +282,6 @@ func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), disti
 		"CTXLOOM_RESUMED_FROM":  harp,
 		"CTXLOOM_RESUMED_PARTS": "session",
 	}
-}
-
-// resolveSelfExecutable returns the path to use when re-invoking ctxloom
-// from inside a running ctxloom process, surviving in-place upgrades that
-// unlink the executing inode. The logic lives in internal/selfexec so the
-// gRPC client (which cmd cannot be imported by) shares it.
-func resolveSelfExecutable() string {
-	return selfexec.Path()
 }
 
 // seedTaskIntoSession marks the task with harpID In Progress (or the given

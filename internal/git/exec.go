@@ -219,7 +219,7 @@ func (execGit) CurrentBranch(ctx context.Context, dir string) (string, error) {
 // returning the new SHA and the files changed versus the pre-commit HEAD —
 // see the Git interface doc for why the caller needs that second return
 // rather than trusting a bare "commit succeeded".
-func (execGit) CommitAll(ctx context.Context, dir, message string) (string, []string, error) {
+func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []string, error) {
 	preOut, err := output(ctx, dir, "rev-parse", "HEAD")
 	if err != nil {
 		return "", nil, fmt.Errorf("resolving pre-commit HEAD: %w", err)
@@ -239,7 +239,7 @@ func (execGit) CommitAll(ctx context.Context, dir, message string) (string, []st
 	}
 	postSHA := strings.TrimSpace(postOut)
 
-	changed, err := (execGit{}).DiffNameOnly(ctx, dir, preSHA, postSHA)
+	changed, err := g.DiffNameOnly(ctx, dir, preSHA, postSHA)
 	if err != nil {
 		// The commit itself landed (postSHA is real) — surface it even
 		// though verification couldn't complete, rather than discarding a

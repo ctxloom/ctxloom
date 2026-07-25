@@ -619,7 +619,8 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		Store:    storeName,
 	}
 	if !unsigned {
-		res.KeyFingerprint = ssh.FingerprintSHA256(signer.PublicKey())
+		// Same fingerprint already computed into principal above.
+		res.KeyFingerprint = principal
 	}
 	return res, nil
 }

@@ -38,11 +38,6 @@ func narrationPathFor(featurePath string) string {
 	return strings.TrimSuffix(featurePath, ".feature") + ".doc.md"
 }
 
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 type generatedPage struct {
 	name    string
 	content string
@@ -104,7 +99,7 @@ func run(featuresDir, captureDir, outDir string) error {
 
 		docPath := narrationPathFor(fp)
 		narrArg := ""
-		if fileExists(docPath) {
+		if _, statErr := os.Stat(docPath); statErr == nil {
 			narrArg = docPath
 		}
 		narr, err := LoadNarration(docPath)

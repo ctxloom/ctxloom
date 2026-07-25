@@ -223,14 +223,22 @@ func (w *KiroWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextR
 // reconcileSteering writes (or removes, when hash is empty) the ctxloom-owned
 // steering file carrying the assembled context. The content is read from the
 // content-addressed context file, then handed to the shared writeSteering core.
+//
+// An UNRESOLVABLE non-empty hash is a hard error. Empty content is how the
+// caller says "deliver no context", and writeSteering acts on that by REMOVING
+// the steering file kiro auto-loads — so downgrading a failed read to "" both
+// launched the session with zero context bytes and destroyed the last good
+// delivery, reporting success either way. A hash is an assertion that context
+// exists; failing to resolve it means we could not determine what to deliver,
+// which is not the same as being asked to deliver nothing. hash == "" remains
+// the legitimate nothing-to-do (it is also how teardown removes the file).
 func (w *KiroWriter) reconcileSteering(projectDir, hash string) error {
 	content := ""
 	if hash != "" {
 		var err error
 		content, err = agent.ReadContextFile(projectDir, hash, agent.WithContextFS(w.getFS()))
 		if err != nil {
-			w.warn("failed to read context file %s: %v - context will not be delivered to kiro", hash, err)
-			content = ""
+			return fmt.Errorf("kiro context delivery: cannot resolve context %s — refusing to launch with no context (and leaving any previous steering file intact): %w", hash, err)
 		}
 	}
 	_, err := w.writeSteering(projectDir, content)

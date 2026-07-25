@@ -552,10 +552,17 @@ func (w *AntigravityHookWriter) reconcileManagedContext(projectDir, hash string)
 		var err error
 		content, err = agent.ReadContextFile(projectDir, hash, agent.WithContextFS(w.getFS()))
 		if err != nil {
-			// Fault-tolerance contract: a missing/unreadable context file must
-			// not block hook application; the section is dropped with a warning.
-			w.warn("failed to read context file %s: %v - context will not be delivered to antigravity", hash, err)
-			content = ""
+			// NOT fault-tolerance — this used to warn and continue with "",
+			// and "" is how the caller says "deliver no context", so
+			// writeManagedContext STRIPPED the managed section (removing
+			// AGENTS.md when nothing user-authored remained) and WriteSettings
+			// returned nil. The agent launched with zero delivered context and
+			// the last good delivery was destroyed on the way out. A non-empty
+			// hash asserts context exists; failing to resolve it means we could
+			// not determine what to deliver, which is not the same as being
+			// asked to deliver nothing. hash == "" stays the legitimate
+			// nothing-to-do (and is how teardown strips the section).
+			return fmt.Errorf("antigravity context delivery: cannot resolve context %s — refusing to strip the managed section and launch with no context: %w", hash, err)
 		}
 	}
 	_, err := w.writeManagedContext(projectDir, content)

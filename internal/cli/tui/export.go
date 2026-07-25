@@ -79,7 +79,14 @@ func transcriptText(items []feedItem, width int) []byte {
 var errEmptyTranscript = errors.New("nothing to export: the feed holds no transcript content")
 
 // exportTranscript writes the feed under the harp's session dir and returns
-// the path. kind is "txt" (rendered, s) or "ndjson" (raw, S).
+// the path. kind is "txt" (rendered, s) or "ndjson" (raw, S), and is the ONLY
+// permitted set: kind picks the renderer AND supplies the filename extension,
+// so the switch below must stay exhaustive. It used to have a `default:` arm
+// falling through to the text renderer, which meant any other kind wrote
+// role-tagged plain text into a file whose extension claimed otherwise
+// (kind "json" -> transcript-<harp>-<ts>.json full of text) and still reported
+// "saved <path>". A file that lies about its own contents is worse than a
+// refused export, so an unrecognised kind is now an error.
 //
 // It returns errEmptyTranscript rather than writing a 0-byte file.
 func exportTranscript(dir, harp, kind string, items []feedItem, now time.Time) (string, error) {
@@ -88,8 +95,10 @@ func exportTranscript(dir, harp, kind string, items []feedItem, now time.Time) (
 	switch kind {
 	case "ndjson":
 		data, err = transcriptNDJSON(items)
-	default:
+	case "txt":
 		data = transcriptText(items, 100)
+	default:
+		return "", fmt.Errorf("unknown transcript export kind %q (supported: txt, ndjson)", kind)
 	}
 	if err != nil {
 		return "", err

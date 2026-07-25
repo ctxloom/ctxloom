@@ -122,3 +122,29 @@ func TestCopyText_SelectedVsVisible(t *testing.T) {
 	assert.Contains(t, all, "one")
 	assert.Contains(t, all, "two")
 }
+
+// TestExportTranscript_RejectsAnUnknownKind is the regression guard for
+// U044-F09. `kind` was used for TWO things -- selecting the renderer and
+// supplying the filename extension -- with a `default:` arm that fell through
+// to the TEXT renderer. Any kind other than "ndjson" therefore produced
+// role-tagged plain text in a file whose extension claimed otherwise:
+// exportTranscript(..., "json", ...) wrote transcript-<harp>-<ts>.json full of
+// text, and reported "saved <path>" over it. The switch is now exhaustive and
+// an unrecognised kind is a loud error rather than a file that lies about its
+// own contents.
+func TestExportTranscript_RejectsAnUnknownKind(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	for _, kind := range []string{"json", "md", "", "NDJSON", "text"} {
+		t.Run(kind, func(t *testing.T) {
+			path, err := exportTranscript(dir, "swift-elm-fox", kind, exportItems, now)
+			require.Error(t, err, "an unrecognised kind must not silently render text under that extension")
+			assert.Empty(t, path)
+
+			entries, rerr := os.ReadDir(dir)
+			require.NoError(t, rerr)
+			assert.Empty(t, entries, "a refused export must leave no file behind")
+		})
+	}
+}

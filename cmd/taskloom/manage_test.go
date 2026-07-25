@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -151,9 +152,34 @@ func TestManageUninstall_RemovesEntry(t *testing.T) {
 	assert.NotContains(t, servers, "taskloom")
 }
 
-func TestManageUninstall_NoConfigIsNoop(t *testing.T) {
+// Having no backend to uninstall from is a legitimate empty state, so it
+// stays exit 0 — but it must SAY so. Printing nothing at all is
+// indistinguishable from a successful removal, and `manage install` in the
+// identical situation is loud.
+func TestManageUninstall_NoBackendsSaysSoAndSucceeds(t *testing.T) {
 	fakeHome(t)
-	assert.NoError(t, manageUninstall("", ".", true, os.Stderr), "nothing installed → quiet no-op")
+	var errOut bytes.Buffer
+	assert.NoError(t, manageUninstall("", ".", true, &errOut),
+		"nothing to remove is not a failure")
+	assert.Contains(t, errOut.String(), "no agent backends detected",
+		"a silent exit 0 reads as a successful removal")
+}
+
+// An engine returning empty bytes must never be made durable over the user's
+// real backend config: iox.WriteFileAtomic would faithfully commit the
+// truncation.
+func TestWriteConfig_RefusesToTruncateToZeroBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mcp.json")
+	original := `{"mcpServers":{"other":{"command":"x"}}}`
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	for _, empty := range [][]byte{nil, {}} {
+		require.Error(t, writeConfig(path, empty), "an empty payload must be refused")
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, original, string(got), "the user's config must survive intact")
+	}
 }
 
 func TestManageUninstall_RemovesKiroEntry(t *testing.T) {

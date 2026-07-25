@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
+	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -165,6 +166,27 @@ func newUninstallCmd() *cobra.Command {
 // clobbered. Without force, an existing file is kept and a warning explains how
 // to overwrite. With force, the old file is backed up to <path>.bak first.
 func scaffoldConfig(path string, withDefaults, force bool) error {
+	// Decide and CHECK the content before touching anything — including the
+	// --force backup — so a refusal leaves the filesystem exactly as it was.
+	content := minimalRules
+	if withDefaults {
+		content = defaultRules
+		// rules.Parse tolerates an empty document (io.EOF), so a rule-less
+		// file is a VALID allow-all config: the parser will never object on
+		// the user's behalf. Writing one would install a guard that gates
+		// nothing and report "wrote rules file" over it. sample.ltk.yaml is
+		// GENERATED from docs/DEFAULTS.md by tools/extract-defaults, which
+		// checks fence count and parseability but not rule count.
+		cfg, err := rules.Parse([]byte(content))
+		if err != nil {
+			return fmt.Errorf("the built-in default rules do not parse (this is a bug in ltk): %w", err)
+		}
+		if len(cfg.Rules) == 0 {
+			return fmt.Errorf("refusing to write %s: the built-in default rule set contains no rules, "+
+				"which would install a guard that allows everything (use --no-default-rules for a deliberately empty config)", path)
+		}
+	}
+
 	if _, err := os.Stat(path); err == nil {
 		if !force {
 			fmt.Fprintf(os.Stderr, "%s: %s already exists — keeping your rules (use --force to overwrite; the old file is backed up to %s.bak)\n", progName, path, path)
@@ -180,10 +202,6 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
-	}
-	content := minimalRules
-	if withDefaults {
-		content = defaultRules
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write rules file %s: %w", path, err)
@@ -217,6 +235,13 @@ func readIfExists(path string) ([]byte, error) {
 // truncated settings file — those files hold the user's unrelated config too.
 // The parent dir is created and an existing file's permissions are preserved.
 func writeFile(path string, data []byte) error {
+	// These files hold the user's unrelated configuration, and the payload
+	// comes from engine code. An empty one can only be an upstream bug, and
+	// WriteFileAtomic would make the truncation durable while the caller
+	// printed "installed hook for ...".
+	if len(data) == 0 {
+		return fmt.Errorf("refusing to write an empty %s (the engine produced no settings)", path)
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)

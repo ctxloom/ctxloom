@@ -307,12 +307,38 @@ func isolationGateErr(found []strictness.Finding) error {
 	return errors.New(b.String())
 }
 
+// memberLabel names the run in a diagnostic: the member/agent identifier when
+// one exists (the fan and delegated children set AgentID), else the resolved
+// engine label, else the backend. Every caller of runResolvedAgent supplies at
+// least a backend, so this never returns "".
+func memberLabel(req resolvedRunRequest) string {
+	switch {
+	case req.AgentID != "":
+		return req.AgentID
+	case req.Label != "":
+		return req.Label
+	default:
+		return req.Backend
+	}
+}
+
 // runResolvedAgent launches the resolved backend once in ONESHOT mode with the
 // composed context as the lead fragment and stdout captured. It carries no
 // context-assembly or LLM-resolution logic — those happen upstream (RunOneshot
 // for a single profile, ResolveAgent for an agent/bare-profile member) — so
 // the two paths share one backend-launch tail and can never drift.
 func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotResult, error) {
+	// U085-F07: naming a specialisation and delivering none of it is never what
+	// the caller asked for. `if req.Context != ""` alone would launch the engine
+	// unspecialised — it still runs and still produces plausible output, so the
+	// loss is invisible at every consumer. The discriminator is whether a profile
+	// set was NAMED: a bare `run --print` / defaults-only agent has no profiles
+	// and is legitimately context-free (below), while a member whose named
+	// profiles assembled to nothing is a failed assembly and must say so.
+	if strings.TrimSpace(req.Context) == "" && len(req.Profiles) > 0 {
+		return nil, fmt.Errorf("empty context: profile set %v assembled to nothing — refusing to run %q unspecialised (check the profile's fragments/bundles resolve, or drop the profile to run context-free)",
+			req.Profiles, memberLabel(req))
+	}
 	var fragments []*pb.Fragment
 	if req.Context != "" {
 		fragments = append(fragments, &pb.Fragment{Content: req.Context})
@@ -458,6 +484,23 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		return nil, fmt.Errorf("agent exited with code %d: %s", exitCode, strings.TrimSpace(stderr.String()))
 	}
 
+	// U085-F06: a oneshot exists ONLY to capture output — this tail is shared by
+	// `run --print`, map, weave, a delegated oneshot turn and `acp client`, and
+	// every one of them publishes res.Output as the run's whole product
+	// (WeaveResult.Report, Part.Output, a child's assistant SessionEntry). Exit 0
+	// with zero bytes is therefore never "nothing to do, legitimately": it is an
+	// engine that failed to answer while claiming success, and it used to reach
+	// the user as an empty report with no error anywhere. Fail loudly and carry
+	// stderr, which is where such an engine usually explains itself.
+	out := strings.TrimSpace(stdout.String())
+	if out == "" {
+		msg := fmt.Sprintf("agent produced no output: %q exited 0 with an empty stdout", memberLabel(req))
+		if e := strings.TrimSpace(stderr.String()); e != "" {
+			msg += ": " + e
+		}
+		return nil, errors.New(msg)
+	}
+
 	// S6 oneshot capture: this Execute call returns prose on stdout with no
 	// ChatEvent stream, so the structured tee (GRPCClient.Chat/coord's
 	// enginehost.startRun, S2) never fires for it — see
@@ -474,7 +517,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 
 	return &RunOneshotResult{
-		Output:   strings.TrimSpace(stdout.String()),
+		Output:   out,
 		Label:    req.Label,
 		Backend:  req.Backend,
 		Model:    req.Model,

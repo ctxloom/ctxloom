@@ -122,8 +122,22 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	}
 	// Resolve the `@submodules` path sentinel against this repo's .gitmodules, so
 	// a rule can block edits inside every submodule without naming them.
+	// Failing to resolve the sentinel is NOT the same as "there are no
+	// submodules": an unreadable .gitmodules or a submodule path that is not a
+	// valid glob leaves the rule expanded to zero patterns, so a rule written to
+	// protect every submodule silently protects none and every edit sails
+	// through as an allow. Same discipline as the config-load branch above —
+	// deny until it is fixed rather than guard nothing quietly.
 	if wd, err := os.Getwd(); err == nil {
-		cfg.ExpandSubmodules(scm.SubmodulePaths(afero.NewOsFs(), wd))
+		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
+		if err == nil {
+			err = cfg.ExpandSubmodules(subs)
+		}
+		if err != nil {
+			return failClosed(adapter, fmt.Sprintf(
+				"%s could not resolve the @submodules rule sentinel and is denying everything it guards until it is fixed: %v",
+				progName, err))
+		}
 	}
 	// Reading or decoding the hook payload could otherwise return a plain error
 	// → exit 1 → fail OPEN on both hosts (the same silent allow-all the --shell

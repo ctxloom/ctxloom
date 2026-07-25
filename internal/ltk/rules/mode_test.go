@@ -92,6 +92,7 @@ rules:
     mode: disable
   - id: default-rule
     match: { command: [git, push, --force] }
+    message: force-pushing rewrites shared history
 `))
 	if err != nil {
 		t.Fatal(err)

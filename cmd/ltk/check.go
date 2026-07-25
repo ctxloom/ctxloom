@@ -85,8 +85,18 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 	if err != nil {
 		return fmt.Errorf("load rules config: %w", err)
 	}
+	// `check` is the diagnostic surface, not the guard: it may fail loudly. A
+	// .gitmodules that exists but cannot be read, or a submodule path that is
+	// not a valid glob, would otherwise leave a `path: ["@submodules"]` rule
+	// expanded to nothing and report the resulting non-decision as an "allow".
 	if wd, err := os.Getwd(); err == nil {
-		cfg.ExpandSubmodules(scm.SubmodulePaths(afero.NewOsFs(), wd))
+		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
+		if err != nil {
+			return fmt.Errorf("resolve @submodules: %w", err)
+		}
+		if err := cfg.ExpandSubmodules(subs); err != nil {
+			return err
+		}
 	}
 
 	a := app.New(cfg)

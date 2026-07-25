@@ -27,12 +27,17 @@ rules:
     match: { command: [go, test] }
     action: deny                   # deny (default) | allow
     message: "Use `just test`."    # shown to the model on deny
-    suggest: "just test"           # optional replacement command
+    suggest: "just test"           # replacement command; also shown on deny
     mode: enable                   # enable (default) | confirm | disable
 ```
 
 Unknown keys are rejected, so a typo like `programm:` is an error rather than a
 silent no-op. Two rules with the same `id` are a load error too.
+
+A deny rule must carry a `message` or a `suggest` — either alone is enough
+(`suggest` renders as "Use instead: …"). Without one the model is told `deny`
+with no reason and no alternative, so it simply retries; a rule that cannot say
+why is a load error. `allow` and `mode: disable` rules are exempt.
 
 ## How a rule fires
 

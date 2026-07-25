@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -393,11 +394,10 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 			defer coord.ProducerDone()
 		}
 		for msg := range in {
-			if coord != nil && msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn && msg.Text != "" {
-				coord.Submit(ctx, agent.ChatEvent{Entry: &agent.SessionEntry{
-					Type:    agent.EntryTypeUser,
-					Content: msg.Text,
-				}})
+			if coord != nil && msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn {
+				if entry := userTapEntry(msg); entry != nil {
+					coord.Submit(ctx, agent.ChatEvent{Entry: entry})
+				}
 			}
 			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
 				break
@@ -516,4 +516,39 @@ func chatMessageToInput(msg agent.ChatMessage) *ChatInput {
 // Chat delegates to the underlying gRPC client.
 func (p *LLMRunner) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
 	return p.grpc.Chat(ctx, req)
+}
+
+// userTapEntry renders one outbound user message as the transcript entry the
+// inbound tap records, or nil when the message carries no content at all.
+//
+// The tap used to require msg.Text != "", so a ContentBlocks-only turn was
+// delivered to the engine and recorded NOWHERE — the transcript then showed an
+// assistant reply to a prompt that never appears (U059-F11). Blocks are
+// flattened for the Content string AND carried structurally on the entry, so
+// nothing about the turn is invented and nothing is lost.
+func userTapEntry(msg agent.ChatMessage) *agent.SessionEntry {
+	text := msg.Text
+	if text == "" && len(msg.ContentBlocks) > 0 {
+		parts := make([]string, 0, len(msg.ContentBlocks))
+		for _, b := range msg.ContentBlocks {
+			switch {
+			case b.Text != "":
+				parts = append(parts, b.Text)
+			case b.Kind != "":
+				// No text of its own (image/audio/resource): name the kind
+				// rather than contributing nothing, so the turn cannot read as
+				// "the user said nothing".
+				parts = append(parts, "["+b.Kind+" content]")
+			}
+		}
+		text = strings.Join(parts, "\n")
+	}
+	if text == "" {
+		return nil
+	}
+	return &agent.SessionEntry{
+		Type:          agent.EntryTypeUser,
+		Content:       text,
+		ContentBlocks: msg.ContentBlocks,
+	}
 }

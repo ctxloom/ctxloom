@@ -829,6 +829,36 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if runtime == "" {
 		runtime = "host"
 	}
+	// The launch runs on its own goroutine, so "spawned" was historically a
+	// claim, not an observation: a child whose launch had ALREADY failed by
+	// the time this answer was composed still reported as spawned (U024-F05).
+	// Read the run's terminal state before answering — a settled failure is
+	// reported as a failure, and everything else keeps the exact wording that
+	// shipped.
+	return &agentcoordpb.CoordinatorResponse{
+		Status: okStatus(spawnDisposition(out, runtime, c.settledFailureCause(out.RunID))),
+		Kind: &agentcoordpb.CoordinatorResponse_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentResult{
+			ChildRunId:   out.RunID,
+			ChildAgentId: out.Harp,
+		}},
+	}
+}
+
+// spawnDisposition renders agent_run's answer. failureCause is the run's
+// terminal cause when the launch has ALREADY settled as failed by the time we
+// answer (empty otherwise).
+//
+// The success wording is byte-identical to what shipped — an out-of-repo
+// consumer (the ctxloom VS Code extension) may match on "spawned" — so only
+// the failure case reads differently, and it deliberately does NOT contain
+// "spawned " anywhere. The structured SpawnAgentResult (child_run_id /
+// child_agent_id) still rides along on both, so a consumer that reads the
+// payload rather than the prose is unaffected either way.
+func spawnDisposition(out *RunOutcome, runtime, failureCause string) string {
+	if failureCause != "" {
+		return fmt.Sprintf("agent_run FAILED: %s (engine %s, runtime %s) did not launch (%s) — see the roster for the run's terminal detail",
+			out.Harp, out.Engine, runtime, failureCause)
+	}
 	disposition := fmt.Sprintf("spawned %s (engine %s, runtime %s)", out.Harp, out.Engine, runtime)
 	if out.Queued {
 		disposition += "; queued behind the execution cap"
@@ -836,13 +866,22 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	for _, d := range out.Degraded {
 		disposition += "; degraded: " + d
 	}
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(disposition),
-		Kind: &agentcoordpb.CoordinatorResponse_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentResult{
-			ChildRunId:   out.RunID,
-			ChildAgentId: out.Harp,
-		}},
-	}
+	return disposition
+}
+
+// settledFailureCause reports a run's terminal cause when it has already ended
+// in a LAUNCH FAILURE, and "" in every other case (still running, queued, or
+// ended for any other reason). It never waits: a launch still in flight is not
+// a failure, and blocking agent_run on a container prepare would be a worse
+// bug than the one this closes.
+func (c *Coordinator) settledFailureCause(runID string) string {
+	var cause string
+	c.runs.View(func() {
+		if r := c.runsF.run(runID); r != nil && r.Ended && r.Cause == CauseLaunchFailed {
+			cause = r.Cause
+		}
+	})
+	return cause
 }
 
 // serveListRuns is the roster: the caller's children from the roster/runs

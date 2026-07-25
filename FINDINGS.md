@@ -67,6 +67,7 @@ Seven of the review's biggest claims moved. This is the argument for the registe
 Five constraints. At least two fixes are unsafe applied alone.
 
 1. **ACP path confinement MUST land before the `ChatRequest.Runtime` wire fix.** Repairing the wire drop *activates* the path-confinement hole it currently masks (S3 + X31). Fixing the "obvious" bug first opens a vulnerability.
+   **STATUS: SATISFIED** on `fix/acp-path-confinement` — `internal/acp/fsconfine.go`'s `confineToWorkspace` now gates both fs handlers against `ChatRequest.WorkDir`. The `ChatStart.runtime` wire fix is unblocked.
 2. **Do not wire `extra_args` into argv before its allowlist exists** (S14). Today it is a documented "enforcement point" with zero readers — harmless. Wiring it without the allowlist makes it an injection point.
 3. **S5's two halves must both land**; neither closes the other, and either alone reads as fixed.
 4. **Do not add `--ignored` to `IsDirty` alone.**
@@ -146,7 +147,7 @@ A dropped field is an **absent statement**, and no coverage, mutation, or comple
 - **T10. Trust store designed fail-closed, implemented fail-open** (F6) — CONFIRMED.
 - **T11. Six real import cycles deferred into external `_test` packages** — VERIFIED (L1): `coord↔cli/tui`, `termui↔cli/tui`, `transcript↔lm/grpc`, `shared/agent↔{claude,codex,kiro}`. **Four were invisible to every unit review** — each is only visible from outside a single unit. Zero production cycles.
 - **T12. Engine identity enumerated in four rosters with four different memberships** — CONFIRMED (L3). `internal/operations` importing `claude`/`codex`/`kiro` is a literal ADR-0026 violation in the core.
-- **T13. `internal/acp` fs handlers serve any absolute host path** — CONFIRMED (S3). Currently masked by the `ChatStart.runtime` drop. **See fix-ordering constraint 1.**
+- **T13. `internal/acp` fs handlers serve any absolute host path** — CONFIRMED (S3). Currently masked by the `ChatStart.runtime` drop. **See fix-ordering constraint 1.** **FIXED** on `fix/acp-path-confinement`: one boundary, `confineToWorkspace` in `internal/acp/fsconfine.go`, applied before the fs-upstream branch in both handlers; symlinks resolved before the decision; relative paths refused per the ACP schema. Constraint 1 is satisfied.
 - **T14. Container credential fail-open** — CONFIRMED (S4): `containerProfileFor`'s default hands claude credentials to any unrecognized engine; the registered `acp` backend reaches it.
 - **T15. Codex credentials copied into the repo tree, unignored, write follows a tracked symlink** — CONFIRMED + REPRODUCED (S5); phase-2's downgrade reversed.
 - **T16. Runner cell-path boundary anchored to the coordinator's cwd** — CONFIRMED (S6), U038 upheld: `agent_report.publish_paths` / `agent_fetch_artifact.dest_path` can write into the parent tree under `workspace:worktree`.

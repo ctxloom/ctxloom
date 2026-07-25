@@ -858,7 +858,15 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 		return "", fmt.Errorf("LLM exited with code %d: %s", exitCode, stderr.String())
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	// Exit 0 with nothing on stdout is a FAILED distillation, not an empty one.
+	// Counted as success it lands in the chunk slice as "", the all-chunks-failed
+	// abort never fires because nothing was marked failed, and the empty result
+	// is written straight over a previously good essence.md.
+	out := strings.TrimSpace(stdout.String())
+	if out == "" {
+		return "", fmt.Errorf("LLM exited 0 but produced no output: %s", strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
 }
 
 // distilledMeta is the YAML front-matter stored at the top of every
@@ -958,6 +966,15 @@ func firstLineSummary(s string) string {
 // Also writes a frozen task snapshot copy of <projectDir>/.ctxloom/tasks.md
 // to <harpDir>/tasks.md when a harp dir is in play and a tasks file exists.
 func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
+	// The floor: never write an empty distillation. The write is atomic and
+	// replaces the previous essence.md, so an empty body is not a degraded
+	// result — it is silent destruction of the only distilled record of a
+	// session. Refusing here backstops every route into this function, not just
+	// the empty-LLM-output one that was found.
+	if strings.TrimSpace(body) == "" {
+		return "", fmt.Errorf("refusing to write an empty distillation for session %s: it would replace any existing essence with nothing", sessionID)
+	}
+
 	meta.SessionID = sessionID
 	meta.DistilledAt = time.Now().UTC()
 

@@ -515,7 +515,10 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	// confined to the profiles directories before it is joined into a path —
 	// the same guard Save applies (and the profile-side mirror of
 	// bundles.Loader.Find validating in the read path).
-	localName := toLocalProfileName(name)
+	// The name is used as-is: a bundle-shipped (seeded) profile is resolved by
+	// lookupSeeded before this point, and top-level "<url>@profiles/"
+	// distribution was retired, so there is no URL form left to convert.
+	localName := name
 	if err := validateProfileName(localName); err != nil {
 		return nil, err
 	}
@@ -712,15 +715,6 @@ func GetProfileDirs(fs afero.Fs, scmPaths []string) []string {
 // maxProfileDepth prevents stack overflow from deeply nested or malformed configurations.
 // This matches the limit used in config.ResolveProfile for consistency.
 const maxProfileDepth = 64
-
-// toLocalProfileName returns the local lookup name for a profile reference. A
-// bare name (the only live form) is used as-is; a bundle-shipped (seeded) profile
-// is resolved by lookupSeeded before this is reached. Top-level "<url>@profiles/"
-// distribution was retired, so URL profile references are no longer converted to
-// a persistent-storage path.
-func toLocalProfileName(name string) string {
-	return name
-}
 
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
 // Returns bundles, tags, and variables.

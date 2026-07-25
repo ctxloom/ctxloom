@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -563,6 +564,60 @@ func TestPushMail_SaturatedPumpReleasesTheDroppedReservation(t *testing.T) {
 	default:
 		assert.Fail(t, "the dropped message was never re-pushed after the pump drained")
 	}
+}
+
+// TestPushMail_UnprojectableStructuredIsNotPushedHollow is the regression guard
+// for U024-F07, and the push-side twin of U024-F06. peerMessageProto swallowed
+// the json.Unmarshal error on m.Structured (`if err == nil` with no else) and
+// discarded structpb.NewStruct's error entirely, so a message whose structured
+// payload could not be projected was pushed anyway -- as a PeerMessage carrying
+// only `kind` and the body text.
+//
+// For the escalation ladder's relayed ApprovalRequest that is the whole
+// message: the child receives an approval notice with no request to answer, and
+// nothing anywhere reports a fault. Warning and leaving the message pending
+// keeps it deliverable by the turn-boundary drain (which projects nothing)
+// instead of burning it on a hollow notice.
+func TestPushMail_UnprojectableStructuredIsNotPushedHollow(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp = "child-awaiting-an-approval"
+
+	// A JSON scalar, not an object: json.Unmarshal into map[string]any fails,
+	// which is the error the old code discarded.
+	msgID, _, err := c.queueMailPayload(ownerIdentity().Harp, harp, "approval_request", "approve?",
+		json.RawMessage(`"not-an-object"`), "")
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	ch := &runChan{
+		role:   harp,
+		parked: true,
+		send:   make(chan *agentcoordpb.CoordinatorFrame, 4),
+		cancel: cancel,
+	}
+	c.mu.Lock()
+	c.chans[harp] = ch
+	c.mu.Unlock()
+	t.Cleanup(func() {
+		c.mu.Lock()
+		delete(c.chans, harp)
+		c.mu.Unlock()
+	})
+
+	c.pushMail(harp)
+
+	select {
+	case frame := <-ch.send:
+		pm := frame.GetNotice().GetPeerMessage()
+		assert.Fail(t, "a message whose structured payload cannot be projected must not be pushed hollow",
+			"pushed message_id=%q structured=%v", pm.GetMessageId(), pm.GetStructured().AsMap())
+	default:
+	}
+	assert.NotContains(t, reservedIDs(c, harp), msgID,
+		"a message that was never pushed must not be reserved as a tentative delivery")
 }
 
 // reservedIDs snapshots a role's runtime delivery ledger -- the ids handed to a

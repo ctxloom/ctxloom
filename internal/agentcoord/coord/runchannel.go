@@ -390,28 +390,48 @@ func (c *Coordinator) pushMail(role string) {
 		c.mu.Unlock()
 		return
 	}
-	msgs := c.undeliveredLocked(role)
-	for _, m := range msgs {
+	// Project BEFORE reserving: a message whose wire shape cannot be built was
+	// never handed to anyone, so it must not be marked delivered (U024-F07).
+	type outbound struct {
+		id     string
+		notice *agentcoordpb.CoordinatorFrame
+	}
+	var (
+		out      []outbound
+		unshaped []string
+	)
+	for _, m := range c.undeliveredLocked(role) {
+		pm, err := peerMessageProto(m)
+		if err != nil {
+			unshaped = append(unshaped, fmt.Sprintf("%s: %v", m.ID, err))
+			continue
+		}
 		c.delivered[role] = append(c.delivered[role], m.ID)
 		ch.pushed = append(ch.pushed, m.ID)
+		out = append(out, outbound{id: m.ID, notice: &agentcoordpb.CoordinatorFrame{
+			Kind: &agentcoordpb.CoordinatorFrame_Notice{
+				Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_PeerMessage{
+					PeerMessage: pm,
+				}},
+			},
+		}})
 	}
 	send := ch.send
 	c.mu.Unlock()
 
+	for _, why := range unshaped {
+		clidiag.Warn("ctxloom", "coordinator: cannot project mail for %s onto the wire, not pushed (%s)", role, why)
+	}
+
 	var dropped []string
-	for _, m := range msgs {
-		notice := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Notice{
-			Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_PeerMessage{
-				PeerMessage: peerMessageProto(m),
-			}},
-		}}
+	for _, o := range out {
 		select {
-		case send <- notice:
+		case send <- o.notice:
 		default:
 			// Send pump saturated: the notice never went out, so the
 			// tentative delivery must be undone — otherwise the reservation
 			// hides the message from every subsequent push.
-			dropped = append(dropped, m.ID)
+			dropped = append(dropped, o.id)
 		}
 	}
 	if len(dropped) == 0 {
@@ -429,7 +449,16 @@ func (c *Coordinator) pushMail(role string) {
 // caller-supplied Structured payload (e.g. an escalation ladder's relayed
 // ApprovalRequest projection, Wave C2) merges under it — kind always wins on
 // a key collision, so a caller cannot spoof the message's own kind.
-func peerMessageProto(m Message) *agentcoordpb.PeerMessage {
+//
+// A payload that cannot be carried is an ERROR, not an empty result (U024-F07).
+// Both failures were previously swallowed — the json.Unmarshal error by an
+// `if err == nil` with no else, structpb.NewStruct's by assignment to `_` — and
+// each produced a PeerMessage with the caller's payload silently missing. For a
+// relayed ApprovalRequest that is the entire message: the recipient gets an
+// approval notice with no request in it and nothing reports a fault. The caller
+// (pushMail) warns and leaves the message pending rather than spending it on a
+// hollow notice.
+func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
 	pm := &agentcoordpb.PeerMessage{
 		MessageId:   m.ID,
 		FromAgentId: m.From,
@@ -439,19 +468,24 @@ func peerMessageProto(m Message) *agentcoordpb.PeerMessage {
 	fields := map[string]any{}
 	if len(m.Structured) > 0 {
 		var extra map[string]any
-		if err := json.Unmarshal(m.Structured, &extra); err == nil {
-			for k, v := range extra {
-				fields[k] = v
-			}
+		if err := json.Unmarshal(m.Structured, &extra); err != nil {
+			return nil, fmt.Errorf("decode structured payload: %w", err)
+		}
+		for k, v := range extra {
+			fields[k] = v
 		}
 	}
 	if m.Kind != "" {
 		fields["kind"] = m.Kind
 	}
 	if len(fields) > 0 {
-		pm.Structured, _ = structpb.NewStruct(fields)
+		s, err := structpb.NewStruct(fields)
+		if err != nil {
+			return nil, fmt.Errorf("encode structured payload: %w", err)
+		}
+		pm.Structured = s
 	}
-	return pm
+	return pm, nil
 }
 
 // unreserveRuntime drops ids from the runtime delivery ledger WITHOUT a

@@ -55,9 +55,17 @@ func TestWriteContextFile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, hash)
 
-		// Empty content fragments also produce no file
-		hash, err = agent.WriteContextFile(tmpDir, []*agent.Fragment{{Content: ""}, {Content: ""}})
-		require.NoError(t, err)
+	})
+
+	// U101-F01: no fragments at all is legitimately nothing to do; fragments
+	// that EXIST but assemble to nothing is a delivery failure wearing the same
+	// clothes. The two must not be reported identically.
+	t.Run("fragments that assemble to nothing are an error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		hash, err := agent.WriteContextFile(tmpDir, []*agent.Fragment{{Content: ""}, {Content: ""}})
+		require.Error(t, err, "2 fragments produced zero bytes of context — that is a failure, not an empty config")
+		assert.ErrorIs(t, err, agent.ErrNoContext)
 		assert.Empty(t, hash)
 	})
 
@@ -250,12 +258,16 @@ func TestReadContextFile(t *testing.T) {
 		assert.Equal(t, "Test content", content)
 	})
 
-	t.Run("returns empty for non-existent file", func(t *testing.T) {
-		// Missing file is not an error - context may have been cleaned up
+	// U101-F02: a reaped or never-written context file used to read as
+	// ("", nil) — indistinguishable from "no context configured". Callers are
+	// only ever here because a hash exists, so the file's absence is a real
+	// fact they must be able to report.
+	t.Run("missing file is reported, not silently empty", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		content, err := agent.ReadContextFile(tmpDir, "nonexistent")
-		require.NoError(t, err)
+		require.Error(t, err, "a missing context file must be distinguishable from empty context")
+		assert.ErrorIs(t, err, os.ErrNotExist)
 		assert.Empty(t, content)
 	})
 }

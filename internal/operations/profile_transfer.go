@@ -41,6 +41,30 @@ func loadLocalProfile(cfg *config.Config, fs afero.Fs, name string) (*profiles.P
 	return profile, nil
 }
 
+// validateProfileDocument rejects a profile document that carries nothing.
+//
+// yaml.v3 accepts "", whitespace, a comment-only file and `null` into a
+// zero-valued profile with a nil error — only a bare scalar errors. So "does it
+// parse?" was never the question the write paths thought they were asking, and
+// all three of them (import, edit-write-back, export) treated a document that
+// selects NOTHING as a valid profile: `profile edit` truncated a real profile to
+// zero bytes and reported "updated", `profile import` accepted a hollow file as
+// a profile, and `profile export` shipped a hollow one out for someone else to
+// discover. The loader already names this shape (profiles.Profile.HasContent) —
+// there it is a strictness finding because List and the pickers must still be
+// able to ENUMERATE a half-authored profile, but a WRITE has no such duty: on
+// the way in or out, a document that composes nothing is a hard error.
+func validateProfileDocument(data []byte, what string) (*profiles.Profile, error) {
+	var probe profiles.Profile
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", what, err)
+	}
+	if !probe.HasContent() {
+		return nil, fmt.Errorf("refusing to write an empty %s: it selects nothing — no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm (an empty, whitespace-only or comment-only document parses cleanly, which is why this has to be checked explicitly)", what)
+	}
+	return &probe, nil
+}
+
 // ExportProfileRequest is the input for ExportProfile.
 type ExportProfileRequest struct {
 	Name    string `json:"name"`
@@ -72,6 +96,9 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 	srcData, err := afero.ReadFile(fs, profile.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile: %w", err)
+	}
+	if _, err := validateProfileDocument(srcData, "profile"); err != nil {
+		return nil, fmt.Errorf("cannot export %q: %w", req.Name, err)
 	}
 	if err := fs.MkdirAll(req.DestDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
@@ -110,11 +137,11 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
 	}
-	// Validate it parses as a profile before copying (catches a malformed file
-	// at import time rather than at the next run).
-	var probe config.Profile
-	if err := yaml.Unmarshal(srcData, &probe); err != nil {
-		return nil, fmt.Errorf("invalid profile file: %w", err)
+	// Validate it parses as a profile AND carries something before copying
+	// (catches a malformed or hollow file at import time rather than at the
+	// next run).
+	if _, err := validateProfileDocument(srcData, "profile file"); err != nil {
+		return nil, err
 	}
 
 	profileDir := paths.ProfilesPath(cfg.GetAppPaths()[0])
@@ -122,7 +149,14 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 		return nil, fmt.Errorf("failed to create profiles directory: %w", err)
 	}
 	dest := filepath.Join(profileDir, filepath.Base(req.SourcePath))
-	if exists, _ := afero.Exists(fs, dest); exists && !req.Force {
+	// The error mattered: a destination that cannot be STATTED (permissions, a
+	// broken symlink) used to read as "does not exist" and was overwritten
+	// without --force, which is the one outcome the guard exists to prevent.
+	exists, err := afero.Exists(fs, dest)
+	if err != nil {
+		return nil, fmt.Errorf("cannot check whether %s already exists: %w", dest, err)
+	}
+	if exists && !req.Force {
 		return nil, fmt.Errorf("profile already exists: %s (use --force to overwrite)", dest)
 	}
 	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
@@ -185,9 +219,8 @@ func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileCont
 	if err != nil {
 		return nil, err
 	}
-	var probe config.Profile
-	if err := yaml.Unmarshal([]byte(req.Content), &probe); err != nil {
-		return nil, fmt.Errorf("invalid profile: %w", err)
+	if _, err := validateProfileDocument([]byte(req.Content), "profile"); err != nil {
+		return nil, err
 	}
 	if err := afero.WriteFile(fs, profile.Path, []byte(req.Content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save profile: %w", err)

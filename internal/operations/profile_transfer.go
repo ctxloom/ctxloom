@@ -41,26 +41,29 @@ func loadLocalProfile(cfg *config.Config, fs afero.Fs, name string) (*profiles.P
 	return profile, nil
 }
 
-// validateProfileDocument rejects a profile document that carries nothing.
+// validateProfileDocument rejects a profile document that carries nothing at all.
 //
 // yaml.v3 accepts "", whitespace, a comment-only file and `null` into a
 // zero-valued profile with a nil error — only a bare scalar errors. So "does it
 // parse?" was never the question the write paths thought they were asking, and
 // all three of them (import, edit-write-back, export) treated a document that
-// selects NOTHING as a valid profile: `profile edit` truncated a real profile to
+// carries NOTHING as a valid profile: `profile edit` truncated a real profile to
 // zero bytes and reported "updated", `profile import` accepted a hollow file as
 // a profile, and `profile export` shipped a hollow one out for someone else to
-// discover. The loader already names this shape (profiles.Profile.HasContent) —
-// there it is a strictness finding because List and the pickers must still be
-// able to ENUMERATE a half-authored profile, but a WRITE has no such duty: on
-// the way in or out, a document that composes nothing is a hard error.
+// discover.
+//
+// The refusal line is profiles.Profile.IsEmptyDocument — the SAME line
+// profiles.Loader.Save draws, so the four write paths cannot drift apart. A
+// labels-only profile is deliberately above that line: it is a normal
+// half-authored state, it saves, and the fail-loudly gate (which Load and Save
+// already trip) says what it will not do.
 func validateProfileDocument(data []byte, what string) (*profiles.Profile, error) {
 	var probe profiles.Profile
 	if err := yaml.Unmarshal(data, &probe); err != nil {
 		return nil, fmt.Errorf("invalid %s: %w", what, err)
 	}
-	if !probe.HasContent() {
-		return nil, fmt.Errorf("refusing to write an empty %s: it selects nothing — no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm (an empty, whitespace-only or comment-only document parses cleanly, which is why this has to be checked explicitly)", what)
+	if probe.IsEmptyDocument() {
+		return nil, fmt.Errorf("refusing to write an empty %s: it carries nothing at all — no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables, llm, description or tags (an empty, whitespace-only or comment-only document parses cleanly, which is why this has to be checked explicitly)", what)
 	}
 	return &probe, nil
 }

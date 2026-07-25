@@ -642,6 +642,19 @@ func (p *Profile) HasContent() bool {
 		p.LLM != ""
 }
 
+// IsEmptyDocument reports whether a profile carries NOTHING — no selection and
+// not even a label. This is the shape that serializes to "{}\n": it can only
+// ever compose nothing, and there is no half-authored reading of it. It is the
+// refusal line every profile WRITE shares (Save, and operations' import /
+// edit-write-back / export), kept here so the three cannot drift apart.
+//
+// A profile carrying only labels is deliberately NOT this: it is a normal
+// half-authored state, so it saves and the fail-loudly gate says what it will
+// (not) do.
+func (p *Profile) IsEmptyDocument() bool {
+	return !p.HasContent() && p.Description == "" && len(p.Tags) == 0
+}
+
 // Save saves a profile to disk.
 //
 // Seeded remote profiles are rejected: their Path is the "<remote>:" sentinel
@@ -664,7 +677,7 @@ func (l *Loader) Save(profile *Profile) error {
 	// half-authored state: it saves, and the fail-loudly gate says what it
 	// will (not) do, exactly as Load does for the same shape.
 	if !profile.HasContent() {
-		if profile.Description == "" && len(profile.Tags) == 0 {
+		if profile.IsEmptyDocument() {
 			return fmt.Errorf("profile %q is empty: refusing to write a profile with no content at all (add parents, bundles, fragments, select_tags or an llm)", profile.Name)
 		}
 		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags)",

@@ -82,8 +82,11 @@ func TestExportProfile_EmptySourceIsRejected(t *testing.T) {
 	assert.Nil(t, res)
 }
 
-// A real profile still round-trips through all three. This is the discriminator
-// that keeps the checks above from rejecting ordinary use.
+// A real profile still round-trips through all three — and so does a LABELS-ONLY
+// one, which is a normal half-authored state: profiles.Loader.Save draws the
+// refusal line at IsEmptyDocument (nothing at all, not even a label) and these
+// paths draw the same one. These are the discriminators that keep the checks
+// above from rejecting ordinary use.
 func TestProfileTransfer_RealProfileStillRoundTrips(t *testing.T) {
 	cfg, fs := profileTransferFixture(t, "rev", "llm: claude-fast\ndescription: reviewer\n")
 
@@ -97,7 +100,7 @@ func TestProfileTransfer_RealProfileStillRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "exported", expRes.Status)
 
-	require.NoError(t, afero.WriteFile(fs, "/src/other.yaml", []byte("llm: claude-fast\ndescription: another\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, "/src/other.yaml", []byte("description: another\n"), 0o644))
 	impRes, err := ImportProfile(context.Background(), cfg, ImportProfileRequest{SourcePath: "/src/other.yaml", FS: fs})
 	require.NoError(t, err)
 	assert.Equal(t, "imported", impRes.Status)

@@ -129,6 +129,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/knadh/koanf/providers/confmap"
 	koanf "github.com/knadh/koanf/v2"
 	"gopkg.in/yaml.v3"
@@ -222,18 +223,20 @@ type Overrides struct {
 func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
 	var layers []map[string]any
 
-	homeValues, err := readYAMLFile(src.HomePath)
+	homeValues, homePresent, err := readYAMLFile(src.HomePath)
 	if err != nil {
 		return nil, err
 	}
+	p.warnIfKeyless(src.HomePath, homeValues, homePresent)
 	if homeValues != nil {
 		layers = append(layers, homeValues)
 	}
 
-	projectValues, err := readYAMLFile(src.ProjectPath)
+	projectValues, projectPresent, err := readYAMLFile(src.ProjectPath)
 	if err != nil {
 		return nil, err
 	}
+	p.warnIfKeyless(src.ProjectPath, projectValues, projectPresent)
 	if projectValues != nil {
 		layers = append(layers, projectValues)
 	}
@@ -242,26 +245,52 @@ func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
 	return p.ApplyOverrides(base, o)
 }
 
+// warnIfKeyless reports the one state readYAMLFile's presence flag exists to
+// expose: a config file that IS there but contributes nothing — zero bytes,
+// whitespace, entirely commented out, a bare `---`, or a literal `null`. All of
+// those decode to a nil map with no error, indistinguishable from "no file" at
+// the value level, so before the presence flag existed a user who commented out
+// their whole config.yaml (or whose file got truncated) silently ran on
+// defaults. It is a warning, not an error: an empty config file is legal, just
+// almost never intended.
+//
+// The two genuinely-silent states are deliberately excluded — a layer that was
+// never configured (empty path) and an optional file that simply is not there
+// are both normal, and warning about them would make this line noise everyone
+// learns to skip past.
+func (p Product) warnIfKeyless(path string, values map[string]any, present bool) {
+	if !present || len(values) > 0 {
+		return
+	}
+	clidiag.Warn(p.Name, "%s exists but defines no configuration keys (empty, or entirely commented out); "+
+		"this layer contributes nothing", path)
+}
+
 // readYAMLFile decodes path into a presence-tracked map[string]any via
 // yaml.Unmarshal — never viper (see the package doc). A missing file is not
-// an error (config files are optional); it returns (nil, nil), which Load
-// treats as "this layer contributes nothing".
-func readYAMLFile(path string) (map[string]any, error) {
+// an error (config files are optional); it returns (nil, false, nil), which
+// Load treats as "this layer contributes nothing".
+//
+// present distinguishes "there is a file here" from "there is not", which the
+// returned map alone cannot: an empty, whitespace-only, comment-only, `---`-only
+// or `null` document all decode to a nil map with a nil error, exactly like an
+// absent file. See warnIfKeyless for why that distinction has to survive the
+// return.
+func readYAMLFile(path string) (values map[string]any, present bool, err error) {
 	if path == "" {
-		return nil, nil
+		return nil, false, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, fmt.Errorf("confload: read %s: %w", path, err)
+		return nil, false, fmt.Errorf("confload: read %s: %w", path, err)
 	}
-	var values map[string]any
 	if err := yaml.Unmarshal(data, &values); err != nil {
-		return nil, fmt.Errorf("confload: parse %s: %w", path, err)
+		return nil, true, fmt.Errorf("confload: parse %s: %w", path, err)
 	}
-	return values, nil
+	return values, true, nil
 }
 
 // Merge deep-merges layers in ASCENDING precedence order: layers[0] is the

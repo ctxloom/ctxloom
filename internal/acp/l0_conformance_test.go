@@ -107,12 +107,18 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	b := NewACP()
 	fa := executeHarness(t, b)
 
+	// A REAL workspace directory, not the fictional "/proj" this used to
+	// pass: T13's fs confinement (fsconfine.go) resolves every fs/* path
+	// against it, and a root that does not exist denies (fail closed). The
+	// two fs/* captures below therefore live inside it.
+	workspace := t.TempDir()
+
 	in := make(chan agent.ChatMessage)
 	out := make(chan agent.ChatEvent, 32)
 	chatDone := make(chan error, 1)
 	go func() {
 		chatDone <- b.Chat(context.Background(), agent.ChatRequest{
-			WorkDir:     "/proj",
+			WorkDir:     workspace,
 			Permissions: agent.PermissionBypass, // auto-decide (not forwarded) so the permission capture below doesn't need a live upstream consumer
 			MCPServers: []agent.ChatMCPServer{
 				{Name: "tools", Command: "/bin/tools"},
@@ -162,14 +168,14 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	require.NoError(t, fa.respond(promptReq.ID, map[string]any{"stopReason": "cancelled"}))
 
 	// fs/read_text_file (agent -> client -> real filesystem)
-	tmpFile := filepath.Join(t.TempDir(), "f.txt")
+	tmpFile := filepath.Join(workspace, "f.txt")
 	require.NoError(t, os.WriteFile(tmpFile, []byte("hello\n"), 0o644))
 	readResp := l0CallClient(fa, "fs/read_text_file", map[string]any{"path": tmpFile})
 	require.Nil(t, readResp.Error)
 	capture("fs/read_text_file response", "ReadTextFileResponse", readResp.Result)
 
 	// fs/write_text_file — the confirmed divergence.
-	writeResp := l0CallClient(fa, "fs/write_text_file", map[string]any{"path": filepath.Join(t.TempDir(), "w.txt"), "content": "written"})
+	writeResp := l0CallClient(fa, "fs/write_text_file", map[string]any{"path": filepath.Join(workspace, "w.txt"), "content": "written"})
 	require.Nil(t, writeResp.Error)
 	capture("fs/write_text_file response", "WriteTextFileResponse", writeResp.Result)
 

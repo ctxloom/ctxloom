@@ -86,15 +86,18 @@ func runWeave(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	task := strings.Join(args, " ")
-	if task == "" && stdinIsPiped() {
-		if data, rerr := io.ReadAll(os.Stdin); rerr == nil {
-			task = strings.TrimSpace(string(data))
-		}
+	task, err := readTask(args, os.Stdin, stdinIsPiped())
+	if err != nil {
+		return err
 	}
 
 	injected, err := collectInjectedParts(weavePartsFrom, weaveParts)
 	if err != nil {
+		return err
+	}
+	// The guard that matters is on the RESOLVED inputs, not on the flags —
+	// see checkWeaveInputs.
+	if err := checkWeaveInputs(members, injected, task); err != nil {
 		return err
 	}
 
@@ -136,15 +139,80 @@ func runWeave(cmd *cobra.Command, args []string) error {
 	if result == nil {
 		return nil
 	}
+	text, fallback := weaveText(result, weaveErr, weaveNoSynth)
+	if fallback != "" {
+		clidiag.Warn("ctxloom", "%s; emitting parts instead", fallback)
+	}
+	// The output floor (U043-F02): a run that produced neither a synthesis nor
+	// a single part has nothing to say, and printing a blank line and exiting 0
+	// says it succeeded. Checked BEFORE emit so --format json fails too.
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("weave produced no output: no synthesis report and no member parts")
+	}
 	return emit(cmd, result, func() error {
-		w := cmd.OutOrStdout()
-		if weaveErr != nil || weaveNoSynth {
-			fmt.Fprint(w, operations.FormatParts(result.Parts))
-			return nil
-		}
-		fmt.Fprintln(w, result.Report)
+		fmt.Fprint(cmd.OutOrStdout(), text)
 		return nil
 	})
+}
+
+// readTask resolves the shared task: the arguments, or stdin when there are
+// none and stdin is piped.
+//
+// A stdin READ FAILURE is returned, not swallowed (U043-F08). The old form was
+// `if data, rerr := io.ReadAll(os.Stdin); rerr == nil { task = ... }` with no
+// else — a broken pipe mid-read left task empty and weave fanned every member
+// out over nothing, having been told the task was simply blank.
+func readTask(args []string, stdin io.Reader, piped bool) (string, error) {
+	if task := strings.TrimSpace(strings.Join(args, " ")); task != "" {
+		return task, nil
+	}
+	if !piped {
+		return "", nil
+	}
+	data, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", fmt.Errorf("read task from stdin: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// checkWeaveInputs rejects a run that has nothing to work with, gating on the
+// RESOLVED inputs rather than on the flags that were passed (U043-F03): the old
+// guard accepted any non-empty `--parts-from`, so a directory that was empty —
+// or held only subdirectories, which the scan skips — resolved to zero parts and
+// went on to "synthesize" them.
+//
+// An empty task is rejected only when there are MEMBERS to fan out (U043-F08):
+// running engines over an empty prompt is never what the user meant, while a
+// parts-only run legitimately has no task (the synthesis prompt just omits that
+// section).
+func checkWeaveInputs(members []string, injected []operations.Part, task string) error {
+	if len(members) == 0 && len(injected) == 0 {
+		return fmt.Errorf("nothing to weave: no members (--agents/-p) and no parts resolved from --part/--parts-from")
+	}
+	if len(members) > 0 && strings.TrimSpace(task) == "" {
+		return fmt.Errorf("no task to weave: pass it as arguments or on stdin (members would otherwise run on an empty prompt)")
+	}
+	return nil
+}
+
+// weaveText picks what the run emits and, when that is not the synthesis the
+// user asked for, why. An empty report is a synthesis that did not happen
+// (U043-F02): it used to print as one blank line with exit 0 — the
+// characteristic bug — and now falls back to the labeled parts exactly as a
+// synthesis ERROR does, with a warning. The caller enforces the floor: if this
+// returns nothing, there is nothing to print and the run failed.
+func weaveText(result *operations.WeaveResult, weaveErr error, noSynth bool) (out, fallbackReason string) {
+	if noSynth {
+		return operations.FormatParts(result.Parts), ""
+	}
+	if weaveErr != nil {
+		return operations.FormatParts(result.Parts), "" // the caller already warned with the error itself
+	}
+	if strings.TrimSpace(result.Report) == "" {
+		return operations.FormatParts(result.Parts), "synthesis produced no output"
+	}
+	return result.Report + "\n", ""
 }
 
 // collectInjectedParts reads --parts-from <dir> (each file → a part named by its
@@ -200,17 +268,35 @@ func mergeMembers(subs, profiles []string) []string {
 
 // saveParts writes each member's output to <dir>/<sanitized-profile>.txt for
 // later inspection or hand-editing before synthesis.
+//
+// Two silent no-ops closed here (U043-F05). Zero parts used to create the
+// directory and return nil — the user passed --save-parts and got an empty
+// directory reported as success. And the filename was the profile with `/`
+// replaced by `_`, with no uniqueness check: `-p a/b -p a_b`, or an agent and a
+// profile of the same name (mergeMembers does not dedup), collapsed onto one
+// file and one member's entire output was lost.
 func saveParts(dir string, parts []operations.Part) error {
+	if len(parts) == 0 {
+		return fmt.Errorf("--save-parts %s: nothing to save (the run produced no parts)", dir)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	taken := make(map[string]bool, len(parts))
 	for _, p := range parts {
-		name := strings.ReplaceAll(p.Profile, "/", "_") + ".txt"
+		stem := strings.ReplaceAll(p.Profile, "/", "_")
+		name := stem
+		// Probe rather than count, so a member literally named `a-2` cannot be
+		// clobbered by the disambiguation of two members named `a`.
+		for i := 2; taken[name]; i++ {
+			name = fmt.Sprintf("%s-%d", stem, i)
+		}
+		taken[name] = true
 		body := p.Output
 		if p.Failed() {
 			body = "[error: " + p.Err + "]"
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name+".txt"), []byte(body+"\n"), 0o644); err != nil {
 			return err
 		}
 	}
@@ -240,3 +326,4 @@ func init() {
 	_ = weaveCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 }
+

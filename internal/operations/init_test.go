@@ -63,22 +63,22 @@ func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
 		wantAckLine        bool // true: assert the raw "dirty_tree_commit_ack: true" line is present
 	}{
 		{
-			name: "commit answer writes handler commit and ack true",
+			name:             "commit answer writes handler commit and ack true",
 			dirtyTreeHandler: "commit", dirtyTreeCommitAck: true,
 			wantHandlerKeyOnly: true, wantAckLine: true,
 		},
 		{
-			name: "copy answer writes handler copy and ack stays false (no ack line)",
+			name:             "copy answer writes handler copy and ack stays false (no ack line)",
 			dirtyTreeHandler: "copy", dirtyTreeCommitAck: false,
 			wantHandlerKeyOnly: true, wantAckLine: false,
 		},
 		{
-			name: "stale answer writes handler stale and ack stays false (no ack line)",
+			name:             "stale answer writes handler stale and ack stays false (no ack line)",
 			dirtyTreeHandler: "stale", dirtyTreeCommitAck: false,
 			wantHandlerKeyOnly: true, wantAckLine: false,
 		},
 		{
-			name: "fail answer writes handler fail and ack stays false (no ack line)",
+			name:             "fail answer writes handler fail and ack stays false (no ack line)",
 			dirtyTreeHandler: "fail", dirtyTreeCommitAck: false,
 			wantHandlerKeyOnly: true, wantAckLine: false,
 		},
@@ -87,7 +87,7 @@ func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
 			// --non-interactive) must reproduce the pre-interview shape
 			// exactly: neither key written, so an existing project loads the
 			// built-in "commit" default, unacknowledged (still refused).
-			name: "unanswered (zero values) writes neither key",
+			name:             "unanswered (zero values) writes neither key",
 			dirtyTreeHandler: "", dirtyTreeCommitAck: false,
 			wantHandlerKeyOnly: false, wantAckLine: false,
 		},

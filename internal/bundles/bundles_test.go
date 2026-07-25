@@ -457,8 +457,8 @@ func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {
 // the map's iteration order.
 func TestBundleSkill_ToManifest(t *testing.T) {
 	skill := BundleSkill{Files: map[string]SkillFileMeta{
-		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
-		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh":  {SHA256: "sha256:script1", Mode: "0755"},
+		"SKILL.md":        {SHA256: "sha256:skillmd1", Mode: "0644"},
 		"assets/logo.png": {SHA256: "sha256:asset1", Mode: "0644"},
 	}}
 	got := skill.ToManifest()
@@ -1566,7 +1566,7 @@ func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
 
 	got := loader.ExpandBundleRefs([]string{
 		"test/alpha:commands/p1", // prompt — not a fragment
-		"test/alpha:mcp",       // mcp section — not a fragment
+		"test/alpha:mcp",         // mcp section — not a fragment
 		"test/alpha#commands/p1", // prompt via canonical syntax — also skipped
 	})
 

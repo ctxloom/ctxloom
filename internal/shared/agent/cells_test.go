@@ -124,8 +124,10 @@ type fakeSharedSet struct {
 	realize func() (Delivered, error)
 }
 
-func (fakeSharedSet) Deliveries() []Delivery                            { return nil }
-func (fakeSharedSet) SupportedApproaches(SurfaceKind) []Approach         { return []Approach{ApproachUnsafeFile} }
+func (fakeSharedSet) Deliveries() []Delivery { return nil }
+func (fakeSharedSet) SupportedApproaches(SurfaceKind) []Approach {
+	return []Approach{ApproachUnsafeFile}
+}
 func (fakeSharedSet) DefaultApproach(SurfaceKind) (Approach, bool)       { return ApproachUnsafeFile, true }
 func (fakeSharedSet) SurfaceFor(SurfaceKind, Approach) (Delivery, error) { return nil, nil }
 

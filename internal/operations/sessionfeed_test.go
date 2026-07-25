@@ -215,7 +215,7 @@ func TestAdaptConsumerFeed_SeqGapDetection(t *testing.T) {
 			},
 		},
 		{
-			name: "contiguous: no gaps",
+			name:  "contiguous: no gaps",
 			steps: []step{{seq: 1}, {seq: 2}, {seq: 3}},
 		},
 		{

@@ -492,11 +492,11 @@ func runStartedConfig(spec *agentcoordpb.HarnessSpec) *structpb.Struct {
 		return nil
 	}
 	cfg, err := structpb.NewStruct(map[string]any{
-		"harness":                          spec.GetHarness(),
-		"model":                            spec.GetModel(),
-		"workspace":                        spec.GetWorkspace(),
-		"permission_mode":                  spec.GetPermissionMode(),
-		"resumed_from_harness_session_id":  spec.GetResumeSessionId(),
+		"harness":                         spec.GetHarness(),
+		"model":                           spec.GetModel(),
+		"workspace":                       spec.GetWorkspace(),
+		"permission_mode":                 spec.GetPermissionMode(),
+		"resumed_from_harness_session_id": spec.GetResumeSessionId(),
 	})
 	if err != nil {
 		return nil

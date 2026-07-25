@@ -147,4 +147,3 @@ func installUnsignedRejection(t *testing.T, ref trust.Ref, form signing.Form, pa
 		require.NoError(t, store.WriteUnsignedContentReject(kind, form, payload))
 	}
 }
-

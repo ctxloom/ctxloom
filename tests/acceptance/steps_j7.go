@@ -63,9 +63,9 @@ type j7State struct {
 	bobSyncOutput     string // Bob's own retraction-sync `remote pull` output (his own runBob-captured stream, separate from w.env)
 	bobMaterialized   string // Bob's own retraction-sync `profile materialize` output
 
-	embeddedShowBefore  string // `signer show <embedded principal>` output BEFORE the removal attempt
+	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
 	embeddedRemoveOutput string // `signer remove <embedded principal> --project` output
-	embeddedShowAfter   string // `signer show <embedded principal>` output AFTER the removal attempt
+	embeddedShowAfter    string // `signer show <embedded principal>` output AFTER the removal attempt
 }
 
 // j7Of returns (lazily creating) this scenario's J7 fixture state.

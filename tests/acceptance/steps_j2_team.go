@@ -55,10 +55,10 @@ const (
 // j2State is J2's per-scenario state, held as a single field on World (see
 // world.go) to keep that shared struct's diff to one line.
 type j2State struct {
-	bareOrigin string // the team project's bare git origin (file path, no scheme)
-	bobDir     string // Bob's separate clone directory (empty until his first pull)
-	bobOutput  string // last command's combined stdout+stderr run in Bob's checkout
-	bobExit    int
+	bareOrigin  string // the team project's bare git origin (file path, no scheme)
+	bobDir      string // Bob's separate clone directory (empty until his first pull)
+	bobOutput   string // last command's combined stdout+stderr run in Bob's checkout
+	bobExit     int
 	commandName string // the command name scenarios 1/3 authored/edited (default "conventional-commits")
 }
 

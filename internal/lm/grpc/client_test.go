@@ -126,9 +126,9 @@ func (s *fakeStream) CloseSend() error {
 	s.closeSendCalls++
 	return nil
 }
-func (s *fakeStream) Context() context.Context     { return context.Background() }
-func (s *fakeStream) SendMsg(m any) error          { return nil }
-func (s *fakeStream) RecvMsg(m any) error          { return nil }
+func (s *fakeStream) Context() context.Context { return context.Background() }
+func (s *fakeStream) SendMsg(m any) error      { return nil }
+func (s *fakeStream) RecvMsg(m any) error      { return nil }
 
 func TestGRPCClient_Info_Delegates(t *testing.T) {
 	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "test", Version: "1.2.3"}}

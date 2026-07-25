@@ -70,7 +70,7 @@ events.
 | Unified event | claude-code | antigravity | codex | kiro |
 |---|---|---|---|---|
 | `session_start` | `SessionStart` | written through; agy loads no session-start event, so an idempotent hook can opt into `pre_tool_fallback` | `SessionStart` | `agentSpawn` |
-| `session_end` | `SessionEnd` | written through (silently skipped by agy) | **dropped** (no such event) | `stop` |
+| `session_end` | `SessionEnd` | written through (silently skipped by agy) | **dropped, with a warning** (no such event) | `stop` |
 | `pre_tool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` |
 | `post_tool` | `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` |
 | `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `run_command\|execute_command` | `PreToolUse` matcher `Bash` | `preToolUse` matcher `execute_bash` |
@@ -102,9 +102,13 @@ fabricated id (`internal/claude/claudecode.go`, `internal/codex/backend.go`,
 
 ### 3. SessionEnd — not on codex
 Codex's hook set has no SessionEnd-equivalent event, so unified `session_end`
-hooks are not emitted for it (`internal/codex/settings.go`). Antigravity accepts
-the entry but never fires it, which costs nothing and lights up if a future agy
-adds the event.
+hooks are not emitted for it (`internal/codex/settings.go`). The gap is declared
+in codex's route table (`agent.HookRoute.Unsupported`) rather than left as an
+absent route, so configuring a `session_end` hook and running codex prints a
+warning naming the engine and the kind — the hook is inert, and you are told so
+instead of finding out by its never firing. Antigravity accepts the entry but
+never fires it, which costs nothing and lights up if a future agy adds the
+event.
 
 ### 4. Command-metadata ceilings
 `CommandExport` carries description, argument-hint, allowed-tools, and model.

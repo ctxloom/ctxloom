@@ -395,7 +395,7 @@ func (w *AntigravityHookWriter) addUnifiedHooks(hf *antigravityHooksFile, unifie
 		}
 		w.addHook(hf, "SessionStart", h)
 	}
-	agent.RouteUnifiedHooks([]agent.HookRoute{
+	agent.RouteUnifiedHooks("antigravity", []agent.HookRoute{
 		{Hooks: unified.SessionEnd, Event: "SessionEnd"},
 		{Hooks: unified.PreTool, Event: "PreToolUse"},
 		{Hooks: unified.PostTool, Event: "PostToolUse"},

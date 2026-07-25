@@ -328,11 +328,13 @@ func hasManagedHook(cfg map[string]any) bool {
 }
 
 // addUnifiedHooks translates unified hooks to Codex event names and adds them.
-// Codex lacks a SessionEnd event, so unified SessionEnd hooks are not emitted
-// (no route for them).
+// Codex lacks a SessionEnd event, so unified SessionEnd hooks cannot be emitted
+// — the route declares that gap explicitly (U045-F05) so a configured
+// session_end hook is announced as inert instead of vanishing.
 func addUnifiedHooks(cfg map[string]any, u wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks([]agent.HookRoute{
+	agent.RouteUnifiedHooks("codex", []agent.HookRoute{
 		{Hooks: u.SessionStart, Event: "SessionStart"},
+		{Hooks: u.SessionEnd, Kind: "session_end", Unsupported: "codex has no session-end event"},
 		{Hooks: u.PreTool, Event: "PreToolUse"},
 		{Hooks: u.PostTool, Event: "PostToolUse"},
 		{Hooks: u.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},

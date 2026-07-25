@@ -580,7 +580,7 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) 
 
 // addUnifiedHooks translates unified hooks to Claude Code format and adds them.
 func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks([]agent.HookRoute{
+	agent.RouteUnifiedHooks("claude-code", []agent.HookRoute{
 		{Hooks: unified.PreTool, Event: "PreToolUse"},
 		{Hooks: unified.PostTool, Event: "PostToolUse"},
 		{Hooks: unified.SessionStart, Event: "SessionStart"},

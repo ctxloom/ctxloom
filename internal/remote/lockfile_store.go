@@ -7,7 +7,7 @@ package remote
 // for its injectable lock managers, never on the concrete type.
 type LockfileStore interface {
 	Load() (*Lockfile, error)
-	Save(lockfile *Lockfile) error
+	Save(lockfile *Lockfile, opts ...SaveOption) error
 	Path() string
 }
 

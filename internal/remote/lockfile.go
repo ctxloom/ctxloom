@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -100,10 +101,95 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	return &lockfile, nil
 }
 
+// ErrLockfileWouldErase reports a refused write: the incoming lockfile is
+// empty and the one already on disk is not. Callers that mean it say so with
+// AllowEmpty.
+var ErrLockfileWouldErase = errors.New("refusing to erase lockfile entries")
+
+// ErrLockfileUnreadable reports a refused write over a lockfile whose current
+// contents cannot be parsed. There is deliberately no override: the holds and
+// retractions in an unparseable file cannot be read, so nothing can carry them
+// forward and every write over it destroys state nobody can account for. Fix
+// or delete the file instead.
+var ErrLockfileUnreadable = errors.New("refusing to overwrite an unreadable lockfile")
+
+type saveOptions struct{ allowEmpty bool }
+
+// SaveOption tunes a lockfile write.
+type SaveOption func(*saveOptions)
+
+// AllowEmpty declares that emptying the lockfile is the caller's INTENT, not
+// an accident of an incomplete computation — the caller removed entries one by
+// one and the last one happened to go (operations.RemoveLocalItems). It
+// relaxes only the empty-over-populated refusal; an unreadable lockfile is
+// still never overwritten.
+func AllowEmpty() SaveOption {
+	return func(o *saveOptions) { o.allowEmpty = true }
+}
+
 // Save writes the lockfile to disk, stamping LockedAt with the current time.
-func (m *LockfileManager) Save(lockfile *Lockfile) error {
+//
+// Save refuses two destructive writes, because the lockfile is the sole
+// on-disk record of every dependency pin, every user hold (Pinned) and every
+// publisher retraction (Retracted) — losing it silently un-holds and, worse,
+// UN-RETRACTS content the publisher withdrew:
+//
+//   - An EMPTY lockfile over a populated one. A caller that arrives here with
+//     no entries has, by construction, nothing to say about the entries
+//     already recorded; "I computed nothing" and "erase everything" are not
+//     the same statement. This is the class of bug where `ctxloom remote
+//     upgrade`, handed a fallback config with no profile definitions,
+//     resolved an empty closure, wrote it wholesale, and reported "Everything
+//     is up to date." Callers that genuinely mean to empty the lock pass
+//     AllowEmpty.
+//   - ANY write over an UNREADABLE lockfile (U085-F01). Every rebuild carries
+//     Pinned and Retracted forward by reading the previous file; when that
+//     read fails the rebuild silently drops them. Refusing the write keeps the
+//     evidence on disk and puts the fix in the user's hands.
+//
+// A genuinely empty project stays a legitimate success: an empty write is
+// allowed whenever the file is absent, blank, or already empty.
+func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
+	var o saveOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if err := m.guardDestructiveWrite(lockfile, o); err != nil {
+		return err
+	}
 	lockfile.LockedAt = time.Now().UTC()
 	return m.write(lockfile)
+}
+
+// guardDestructiveWrite reads back what is currently on disk and reports the
+// refusals documented on Save. Nothing on disk means nothing to protect.
+func (m *LockfileManager) guardDestructiveWrite(incoming *Lockfile, o saveOptions) error {
+	path := m.Path()
+
+	data, err := afero.ReadFile(m.fs, path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		// Present but unreadable: it may hold holds and retractions we cannot
+		// see, so it is not ours to replace.
+		return fmt.Errorf("%w: %s: %v (fix its permissions, or delete it to start a fresh lock)",
+			ErrLockfileUnreadable, path, err)
+	}
+
+	var current Lockfile
+	if uerr := yaml.Unmarshal(data, &current); uerr != nil {
+		return fmt.Errorf("%w: %s: %v (fix the file, or delete it to start a fresh lock — every hold and retraction it records will be lost)",
+			ErrLockfileUnreadable, path, uerr)
+	}
+
+	if current.IsEmpty() || !incoming.IsEmpty() || o.allowEmpty {
+		return nil
+	}
+	return fmt.Errorf("%w: the write would replace %d locked entry(ies) in %s with none; "+
+		"this is a bug in the caller unless you meant to unlock everything "+
+		"(run `ctxloom remote lock` from the project root, or check that your config loaded)",
+		ErrLockfileWouldErase, current.Count(), path)
 }
 
 // write marshals the lockfile and atomically replaces the on-disk file without

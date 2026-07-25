@@ -76,9 +76,17 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) []*
 			roots = append(roots, &profiles.Profile{Name: name, Bundles: def.Bundles, Parents: def.Parents})
 			continue
 		}
-		if p, err := loader.Load(name); err == nil {
-			roots = append(roots, p)
+		p, err := loader.Load(name)
+		if err != nil {
+			// A root that will not load NARROWS the closure, and a wholesale
+			// lock rewrite built from a narrowed closure drops the entries only
+			// that root reached. Save refuses the all-or-nothing case
+			// (remote.ErrLockfileWouldErase); a PARTIAL narrowing like this one
+			// still gets through, so it must at least be visible.
+			clidiag.Warn("ctxloom", "profile %q could not be loaded (%v); dependencies reached only through it are missing from the closure", name, err)
+			continue
 		}
+		roots = append(roots, p)
 	}
 	return roots
 }
@@ -97,10 +105,15 @@ func closureRoots(cfg *config.Config, loader *profiles.Loader) []*profiles.Profi
 	for name := range cfg.GetProfileDefinitions() {
 		names = append(names, name)
 	}
-	if ps, err := loader.List(); err == nil {
-		for _, p := range ps {
-			names = append(names, p.Name)
-		}
+	ps, err := loader.List()
+	if err != nil {
+		// Losing the whole directory-profile listing is the same hazard as
+		// losing a single root, one order of magnitude larger: every directory
+		// profile drops out of the closure at once. Never silent.
+		clidiag.Warn("ctxloom", "could not list directory profiles (%v); every dependency rooted only in one is missing from the closure", err)
+	}
+	for _, p := range ps {
+		names = append(names, p.Name)
 	}
 	roots := namedRoots(cfg, loader, names)
 	if root := configDefaultsRoot(cfg); root != nil {

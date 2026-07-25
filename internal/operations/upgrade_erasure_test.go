@@ -1,0 +1,128 @@
+package operations
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
+)
+
+// The headline data-loss defect. `ctxloom remote upgrade` loaded its config
+// through loadConfigOrFallback, a FAULT-TOLERANT helper written for read-only
+// commands: on any config-load error it hands back a minimal EMPTY config. An
+// empty config has no profile definitions, so closureRoots enumerates nothing,
+// the resolved closure is empty, the carry-forward guard (which only fires on
+// an INCOMPLETE closure) never runs, and the unconditional Save wrote an empty
+// lockfile over a fully populated one — then printed "Everything is up to
+// date." and exited 0.
+//
+// fallbackShapedConfig is exactly what loadConfigOrFallback returns
+// (config.NewFixture with AppPaths only), pointed at the project's app dir:
+// no inline profile definitions, no defaults, nothing.
+func fallbackShapedConfig(baseDir string) *config.Config {
+	return config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+}
+
+// setupInlineOnlyProject builds a file:// source repo and a project whose ONLY
+// reference to it is an INLINE config.yaml profile definition. That is the
+// shape a config-load failure erases: directory profiles survive on disk, but
+// inline definitions live in the very file that failed to load.
+func setupInlineOnlyProject(t *testing.T) (baseDir, ref string, cfg *config.Config) {
+	t.Helper()
+	tmp := t.TempDir()
+	baseDir = filepath.Join(tmp, ".ctxloom")
+
+	src := filepath.Join(tmp, "src")
+	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/demo.yaml", "name: demo\n")
+	ref = "file://" + src + "@bundles/demo"
+
+	f := testConfigWithSCMPath(baseDir).ToFixture()
+	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
+		"inline": {Bundles: []string{ref}},
+	}}
+	return baseDir, ref, config.NewFixture(f)
+}
+
+func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
+	baseDir, ref, cfg := setupInlineOnlyProject(t)
+	ctx := context.Background()
+
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, mustLoadActive(t, baseDir).Count(), "the project starts with a populated lock")
+
+	before, err := os.ReadFile(remote.NewLockfileManager(baseDir).Path())
+	require.NoError(t, err)
+
+	// The config failed to load: `remote upgrade` proceeds on the empty
+	// fallback, so the closure is empty and there is nothing to propose.
+	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
+	require.Error(t, err, "an upgrade that resolved no dependencies must fail, not silently erase the lock")
+	assert.ErrorIs(t, err, remote.ErrLockfileWouldErase)
+
+	after, err := os.ReadFile(remote.NewLockfileManager(baseDir).Path())
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "the lockfile is byte-identical after the refused upgrade")
+
+	entry, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	assert.True(t, ok, "the dependency pin survives")
+	assert.NotEmpty(t, entry.SHA)
+}
+
+// The security-relevant payload: a wipe silently un-holds every hold and, far
+// worse, UN-RETRACTS content the publisher withdrew (finding S12 — retraction
+// state is cleared by `remote upgrade`).
+func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
+	baseDir, ref, cfg := setupInlineOnlyProject(t)
+	ctx := context.Background()
+
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.NoError(t, err)
+
+	// Hold the bundle, and record a publisher retraction against it.
+	held, err := SetItemPin(cfg, ref, true)
+	require.NoError(t, err)
+	require.True(t, held)
+
+	mgr := remote.NewLockfileManager(baseDir)
+	lf, err := mgr.Load()
+	require.NoError(t, err)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, ref)
+	require.True(t, ok)
+	entry.Retracted = true
+	entry.RetractedReason = "withdrawn by the publisher"
+	lf.AddEntry(remote.ItemTypeBundle, ref, entry)
+	require.NoError(t, mgr.Save(lf))
+
+	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
+	require.Error(t, err)
+
+	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	require.True(t, ok)
+	assert.True(t, after.Pinned, "the user's hold survives")
+	assert.True(t, after.Retracted, "the publisher's retraction survives — a wipe would silently un-retract it")
+	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
+}
+
+// The legitimate empty case: a project with genuinely nothing pinned upgrades
+// to nothing, successfully. Replacing a data-loss bug with a usability one is
+// not a fix.
+func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
+	baseDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(baseDir, 0o755))
+
+	advanced, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
+	require.NoError(t, err, "an empty project has nothing to upgrade and nothing to lose")
+	assert.Equal(t, 0, advanced)
+
+	// Same again once an empty lockfile actually exists on disk.
+	advanced, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
+	require.NoError(t, err)
+	assert.Equal(t, 0, advanced)
+}

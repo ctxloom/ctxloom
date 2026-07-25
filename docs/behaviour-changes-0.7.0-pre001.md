@@ -64,6 +64,28 @@ the fix.
 **Version-only bundle skeletons remain publishable.** Only a document declaring nothing
 at all is refused.
 
+### Dependencies and the lockfile
+
+`.ctxloom/lock.yaml` is the only on-disk record of your dependency pins, your holds
+(`ctxloom bundle hold`) and the publisher retractions learned at the last sync. Losing it
+does not just un-pin — it silently **un-retracts** content a publisher withdrew.
+
+| Surface | Before | Now |
+|---|---|---|
+| `ctxloom remote upgrade` when `config.yaml` fails to load | ran on an empty fallback config, resolved an empty closure, **erased every entry in `lock.yaml`**, printed "Everything is up to date.", exit 0 | non-zero, naming the config error; the lockfile is untouched |
+| Any write that would replace a populated `lock.yaml` with an empty one | written | refused, non-zero, naming how many entries it protected |
+| Any write over an **unparseable** `lock.yaml` | overwritten — every hold and retraction in it lost | refused, non-zero; the file is left intact to fix or delete |
+| A lock rebuild (startup auto-lock) over an unparseable `lock.yaml` | rewrote it with holds and retractions **cleared** | warns and leaves it alone; **exit code unchanged** (a post-sync step never fails the sync) |
+| The trust gate reading an unparseable `lock.yaml` | silently treated nothing as retracted | still treats nothing as retracted — now **warns**; **exit code unchanged** |
+| A root profile that fails to load, or an unlistable profiles directory, during a lock/upgrade | silently narrowed the closure | warns naming what dropped out; **exit code unchanged** |
+
+**A genuinely empty project is still success.** An empty write is allowed whenever the
+lockfile is absent, blank, or already empty, and `remote update --cleanup` may still prune
+its last entry — that erasure is declared, not inferred.
+
+**Recovery from an unparseable `lock.yaml`:** delete it and re-run (`ctxloom remote lock`).
+The refusal exists so you get to decide, not so you get stuck.
+
 ### Configuration
 
 | Surface | Before | Now |
@@ -141,6 +163,9 @@ in scoped and global listings alike — they are never hidden.
 3. **Parsing `plan list` text output?** It gained two columns. Use `--format json`.
 4. **Matching on `agent_run`'s disposition?** Success is unchanged; only the
    previously-mislabelled failure case differs.
+5. **Scripting `ctxloom remote upgrade`?** It can now exit non-zero where it used to
+   print "Everything is up to date." Every such case was an upgrade that resolved
+   nothing and erased your pins. If it fires, fix the config it names — do not retry.
 
 ## What is deliberately NOT changed
 
@@ -155,3 +180,5 @@ in scoped and global listings alike — they are never hidden.
 - An ltk rule file with **no** `@submodules` rule is unaffected by the `.gitmodules`
   changes; a repo that genuinely has no submodules is not an error.
 - An opencode session that genuinely recorded nothing still exports and exits 0.
+- A project with genuinely nothing pinned still locks and upgrades to an empty
+  `lock.yaml` and exits 0; `remote update --cleanup` may still prune its last entry.

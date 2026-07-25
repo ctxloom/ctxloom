@@ -26,7 +26,15 @@ const exitCodeFatalFindings = 3
 // can still diagnose why their effective config is incomplete.
 //
 // Used by tools that must keep working without a fully-loaded config
-// (`ctxloom remote update`, `ctxloom search`) per CLAUDE.md fault tolerance.
+// (`ctxloom remote update`) per CLAUDE.md fault tolerance.
+//
+// NEVER call this from a command that WRITES. The fallback is a minimal EMPTY
+// config: no profile definitions, no defaults, nothing to enumerate. A reader
+// handed it degrades to showing less; a writer handed it computes an empty
+// result and persists it over real state. `ctxloom remote upgrade` did exactly
+// that — it rebuilt the lockfile from an empty closure, erased every pin, hold
+// and retraction, and reported "Everything is up to date." Destructive commands
+// call the loader directly and fail on its error (see runRemoteUpgrade).
 func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *config.Config {
 	cfg, err := loader()
 	if err != nil {

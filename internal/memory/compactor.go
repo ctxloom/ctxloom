@@ -310,12 +310,55 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 	if label == "" {
 		label = session.ID
 	}
+	// An empty session must never REPLACE work that was already distilled. The
+	// dump writes a 54-byte placeholder through the same atomic saveDistilled
+	// the real pipeline uses, and deriveSummary turns that placeholder into a
+	// non-empty summary, so it also overwrote the index summary. Re-distills
+	// are automatic (the staleness path) and a session can read as empty for
+	// reasons that have nothing to do with its essence — a reaped transcript,
+	// an all-sidechain log — so this fired on real, populated sessions.
+	//
+	// Keeping the existing essence is the right outcome, not an error: an empty
+	// session is still not a failure, there is simply nothing better to write.
+	if path, ok := c.existingEssence(session.ID, harpName); ok {
+		c.warnf("session %s is empty but already has a distilled essence; keeping %s", label, path)
+		result.ChunksCreated = 0
+		result.TotalTokensOut = result.TotalTokensIn
+		result.DistilledPath = path
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
 	c.progressf("ctxloom: session %s empty — dumped without distillation\n", label)
 
 	result.ChunksCreated = 0
 	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
 
 	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
+}
+
+// existingEssence reports whether a distilled essence already exists for this
+// session, checking the harp-dir layout first (the primary write target) and
+// then the legacy sessionID-keyed path, mirroring saveDistilled's own
+// precedence so the two can't disagree about where the essence lives.
+func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
+	if harpName != "" {
+		if harpDir, err := harpSessionDir(harpName); err == nil {
+			essencePath := filepath.Join(harpDir, paths.EssenceFileName)
+			if st, err := os.Stat(essencePath); err == nil && st.Size() > 0 {
+				return essencePath, true
+			}
+		}
+	}
+	outputDir := c.config.OutputDir
+	if outputDir == "" {
+		outputDir = ".ctxloom/sessions"
+	}
+	legacyPath := filepath.Join(outputDir, sessionID+".md")
+	if st, err := os.Stat(legacyPath); err == nil && st.Size() > 0 {
+		return legacyPath, true
+	}
+	return "", false
 }
 
 // finishDistill assembles the picker summary + Open-Items detail, re-attaches

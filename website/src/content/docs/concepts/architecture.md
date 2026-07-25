@@ -361,9 +361,15 @@ external agent). A *generic* ACP target has no known native config format, so it
 deliberately registers no settings writer and no command exports — context still
 reaches the run in-band.
 
-:::note
-The `codex` and `kiro` engines are implemented and hermetically tested, but live
-operation is untested — no codex or kiro account exists on any development host.
+:::caution[Experimental engines]
+The `kiro`, `codex`, and `antigravity` engines are **experimental**: implemented and
+hermetically tested, but live operation is not fully verified. `kiro` in particular
+cannot run under container isolation with a subscription login — its credential
+lives in a sqlite store (`~/.local/share/kiro-cli/data.sqlite3`) that can't be
+mounted into a container, so a containerized kiro run needs `KIRO_API_KEY` (headless
+auth). `antigravity` has the same shape with its credential in the OS keyring. Use
+these engines knowing the live path may have gaps; `claude-code` is the exercised
+default.
 :::
 
 ## Extension Points

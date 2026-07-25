@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -32,23 +32,40 @@ installs exactly what is already pinned and never advances.
 Examples:
   ctxloom remote upgrade                 # Advance pins to the latest available`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := loadConfigOrFallback(GetConfig, os.Stderr)
-
-		fmt.Println("Resolving latest commits for pinned dependencies...")
-
-		advanced, err := operations.UpgradeDependencies(cmd.Context(), cfg)
-		if err != nil {
-			return err
-		}
-		if advanced == 0 {
-			fmt.Println("Everything is up to date.")
-			return nil
-		}
-
-		fmt.Printf("Advanced %d dependency pin(s).\n", advanced)
-		fmt.Println("Changed content from untrusted sources is withheld until reviewed: ctxloom review")
-		return nil
+		return runRemoteUpgrade(cmd, GetConfig)
 	},
+}
+
+// runRemoteUpgrade re-resolves and rewrites the active lock.
+//
+// It deliberately does NOT use loadConfigOrFallback. That helper exists for the
+// fault-tolerant READ-ONLY startup paths (`remote update`, `search`) and hands
+// back a minimal EMPTY config on any load error so they can keep working.
+// Upgrade is destructive: it rewrites the lockfile wholesale from whatever
+// closure the config yields, and an empty config yields an empty closure — no
+// profile definitions to enumerate, nothing proposed, so the write erased every
+// pin, hold and retraction and printed "Everything is up to date." A command
+// that rewrites state must fail on a config it could not read, not guess.
+func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error)) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("cannot upgrade dependencies: the config could not be loaded, and upgrade rewrites the lockfile from it: %w", err)
+	}
+
+	fmt.Println("Resolving latest commits for pinned dependencies...")
+
+	advanced, err := operations.UpgradeDependencies(cmd.Context(), cfg)
+	if err != nil {
+		return err
+	}
+	if advanced == 0 {
+		fmt.Println("Everything is up to date.")
+		return nil
+	}
+
+	fmt.Printf("Advanced %d dependency pin(s).\n", advanced)
+	fmt.Println("Changed content from untrusted sources is withheld until reviewed: ctxloom review")
+	return nil
 }
 
 func init() {

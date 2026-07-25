@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
@@ -393,6 +394,14 @@ func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords 
 	lm := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(getFS(fs)))
 	lockfile, err := lm.Load()
 	if err != nil {
+		// An unreadable lockfile degrades to "nothing is retracted", which
+		// FAILS OPEN: content the publisher withdrew is exposed again. That
+		// must never be silent — the write side of the same corruption is
+		// refused outright (remote.ErrLockfileUnreadable); here the read has
+		// no safe answer to give, so it says so. Whether a corrupt lockfile
+		// should instead withhold everything is a posture decision that has
+		// not been taken.
+		clidiag.WarnOnce("ctxloom", "cannot read %s (%v): retraction state is unknown, so no bundle is treated as retracted — fix or delete the file (ctxloom remote lock)", lm.Path(), err)
 		lockfile = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 	}
 	return &lockfileRetraction{lock: lockfile}

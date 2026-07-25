@@ -99,7 +99,11 @@ func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRe
 		clidiag.Warn("ctxloom", "could not snapshot accepted content for %q: %v", tRef.Key(), err)
 		return
 	}
-	raw, distilled, ok := itemContentPair(bundle, tRef)
+	// loader.FS() — NOT fs: fs is the snapshot store, while a skill's
+	// manifest must be derived from the same filesystem the loader resolved
+	// the bundle tree on, or the snapshot would describe a different tree
+	// than the hash it is filed under.
+	raw, distilled, ok := itemContentPair(loader.FS(), bundle, tRef)
 	if !ok {
 		clidiag.Warn("ctxloom", "could not snapshot accepted content: %q not found in %q", tRef.Name, loadRef)
 		return
@@ -116,7 +120,7 @@ func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRe
 // "" when the item has no distilled form (or suppresses it via NoDistill —
 // EffectiveContent(true) then returns the raw text, which the comparison
 // catches). ok=false for executables and missing items.
-func itemContentPair(bundle *bundles.Bundle, tRef trust.Ref) (raw, distilled string, ok bool) {
+func itemContentPair(bundleFS afero.Fs, bundle *bundles.Bundle, tRef trust.Ref) (raw, distilled string, ok bool) {
 	switch tRef.Kind {
 	case trust.KindFragment:
 		frag, found := bundle.Fragments[tRef.Name]
@@ -141,8 +145,13 @@ func itemContentPair(bundle *bundles.Bundle, tRef trust.Ref) (raw, distilled str
 		// rendered tree-listing text `ctxloom review` itself displays
 		// (renderSkillSurface), so a later diff shows exactly which file(s)
 		// changed — the per-file-diff contract skills are stored as a tree
-		// to get.
-		return renderSkillSurface(skill), "", true
+		// to get. The EFFECTIVE manifest is used so an unsynced skill
+		// snapshots its real tree rather than an empty listing.
+		manifest, merr := skill.EffectiveManifest(bundleFS, filepath.Dir(bundle.Path), tRef.Name)
+		if merr != nil {
+			return "", "", false
+		}
+		return renderSkillSurface(manifest), "", true
 	default:
 		return "", "", false
 	}

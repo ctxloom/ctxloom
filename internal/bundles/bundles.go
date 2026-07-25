@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -493,6 +494,12 @@ func (s *BundleSkill) ToManifest() SkillManifest {
 // whole package (skill/command split plan §3.1), so the manifest IS this
 // preimage. Editing any file in the tree, including a scripts/ script,
 // changes the manifest and therefore this payload, re-triggering review/sign.
+//
+// The Manifest here is always the EFFECTIVE manifest (see
+// BundleSkill.EffectiveManifest) — authored if the skill has been synced,
+// derived from the source tree if not. It is never empty: an empty manifest
+// would make every unsynced skill share one preimage, which is exactly the
+// trust hole fixed in T4.
 type skillContentPayload struct {
 	Preimage string        `json:"preimage"`
 	Manifest SkillManifest `json:"manifest"`
@@ -505,24 +512,86 @@ type skillContentPayload struct {
 // is why it carries the same versioned first field those two use: any change
 // to this field set requires bumping signing.ExecPreimageContract, turning a
 // silent mass re-review of every skill approval into an announced one.
-func (s *BundleSkill) ContentPayload() ([]byte, error) {
-	canonical := skillContentPayload{
-		Preimage: signing.ExecPreimageContract,
-		Manifest: s.ToManifest(),
+// EffectiveManifest returns the manifest that BOTH this skill's trust
+// preimage covers AND the loader verifies the on-disk tree against. It is the
+// single answer to "which files, with which bytes and modes, is this skill?"
+//
+// Two sources, one meaning:
+//
+//   - An entry with an authored `files:` manifest (a skill that has been
+//     through `ctxloom skill sync`/`sign`) uses that manifest verbatim. This
+//     path never touches the filesystem, so a synced skill's preimage is
+//     byte-identical to what it has always been and no already-recorded trust
+//     decision is disturbed.
+//   - An entry with NO authored manifest — the shape `ctxloom skill create`
+//     leaves behind, before a sync has run — derives the manifest by parsing
+//     the skill's real source tree. It is NOT a constant.
+//
+// The manifest-less case previously returned an empty manifest, which made
+// every unsynced skill in existence share one preimage
+// ({"preimage":"ctxloom-exec/1","manifest":[]}) and therefore one trust hash:
+// an approval bound nothing, and arbitrary content could be swapped in at an
+// approved ref without re-review. Deriving from the tree is what makes the
+// approval mean "I approved THESE bytes".
+//
+// It fails CLOSED. A tree that cannot be resolved or parsed returns an error
+// rather than degrading to an empty manifest — degrading is precisely how the
+// original defect behaved, and a caller that cannot compute a preimage must
+// withhold the skill, never expose it under a placeholder hash.
+func (s *BundleSkill) EffectiveManifest(fsys afero.Fs, bundleDir, skillName string) (SkillManifest, error) {
+	if len(s.Files) > 0 {
+		return s.ToManifest(), nil
 	}
-	return json.Marshal(canonical)
+	if fsys == nil {
+		return nil, fmt.Errorf("skill %q: no authored manifest and no filesystem to derive one from", skillName)
+	}
+	dir, err := ResolveSkillDir(bundleDir, skillName, *s)
+	if err != nil {
+		return nil, err
+	}
+	pkg, err := ParseSkillPackage(fsys, dir, 0)
+	if err != nil {
+		return nil, fmt.Errorf("skill %q: deriving content manifest from %s: %w", skillName, dir, err)
+	}
+	return pkg.Manifest, nil
+}
+
+// skillPayloadFor encodes a resolved manifest into the canonical skill
+// preimage. Split out so a caller that already holds the effective manifest
+// (the loader, which also verifies the tree against it) builds the payload
+// without re-walking the tree — one parse, one manifest, one preimage.
+func skillPayloadFor(m SkillManifest) ([]byte, error) {
+	return json.Marshal(skillContentPayload{
+		Preimage: signing.ExecPreimageContract,
+		Manifest: m,
+	})
+}
+
+func (s *BundleSkill) ContentPayload(fsys afero.Fs, bundleDir, skillName string) ([]byte, error) {
+	manifest, err := s.EffectiveManifest(fsys, bundleDir, skillName)
+	if err != nil {
+		return nil, err
+	}
+	return skillPayloadFor(manifest)
 }
 
 // ComputeContentHash hashes a skill's canonical manifest payload. This is the
 // hash a skill trust grant binds to (trust.KindSkill); like MCP/hooks, a skill
 // has no distilled form, so there is one hash.
-func (s *BundleSkill) ComputeContentHash() string {
-	data, err := s.ContentPayload()
+func (s *BundleSkill) ComputeContentHash(fsys afero.Fs, bundleDir, skillName string) string {
+	data, err := s.ContentPayload(fsys, bundleDir, skillName)
 	if err != nil {
-		// Unreachable: SkillManifest holds only strings. Fail closed to a
-		// stable digest rather than panic, matching BundleMCP/BundleHook
-		// precedent.
-		return hashContent([]byte("ctxloom:skill-content-hash-error"))
+		// REACHABLE since the manifest-less preimage is derived from the tree
+		// (EffectiveManifest): an unreadable/unparseable package lands here.
+		// The digest must therefore be DISTINCT per skill and per failure — a
+		// single shared error digest would be the very defect this fix closes
+		// (one constant standing in for many different skills). It can never
+		// collide with a real payload hash: no valid payload has this prefix.
+		//
+		// Callers that gate MUST use ContentPayload and withhold on its error
+		// rather than hashing through here; this exists so a hash is always a
+		// hash, not so a failure can be exposed.
+		return hashContent(fmt.Appendf(nil, "ctxloom:skill-content-hash-error:%s:%s:%v", bundleDir, skillName, err))
 	}
 	return hashContent(data)
 }
@@ -592,9 +661,12 @@ func (m *BundleMCP) ComputeContentHash() string {
 	data, err := m.ContentPayload()
 	if err != nil {
 		// Unreachable: the struct holds only strings/[]string/map[string]string,
-		// none of which json.Marshal can fail on. Fail closed to a stable digest
-		// rather than panic.
-		return hashContent([]byte("ctxloom:mcp-content-hash-error"))
+		// none of which json.Marshal can fail on. Fail closed rather than
+		// panic — and to a digest DISTINCT per server/failure, not a shared
+		// constant: one constant standing in for many different items is the
+		// T4 defect, and an unreachable branch is a poor place to keep its
+		// shape alive.
+		return hashContent(fmt.Appendf(nil, "ctxloom:mcp-content-hash-error:%s:%v", m.Command, err))
 	}
 	return hashContent(data)
 }
@@ -648,8 +720,10 @@ func (h *BundleHook) ContentPayload() ([]byte, error) {
 func (h *BundleHook) ComputeContentHash() string {
 	data, err := h.ContentPayload()
 	if err != nil {
-		// Unreachable (only strings + a bool); fail closed to a stable digest.
-		return hashContent([]byte("ctxloom:hook-content-hash-error"))
+		// Unreachable (only strings + a bool); fail closed to a digest
+		// DISTINCT per hook/failure rather than a shared constant, for the
+		// reason given in BundleMCP.ComputeContentHash.
+		return hashContent(fmt.Appendf(nil, "ctxloom:hook-content-hash-error:%s:%s:%v", h.Matcher, h.Command, err))
 	}
 	return hashContent(data)
 }

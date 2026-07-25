@@ -79,22 +79,15 @@ func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 // the skill through the SAME per-item trust choke as fragments/commands
 // (keyed "<bundle>#skills/<name>", trust.KindSkill's selector directory),
 // then parses its source tree fresh (ParseSkillPackage — the same parse
-// authoring/sync uses) and reads every file's bytes. When the bundle.yaml
-// entry carries an authored (signed) manifest already, the on-disk tree is
-// verified against it first — a mismatch (tampered script, drifted content)
-// withholds the skill loudly rather than materializing a partial/tampered
-// package. An entry with no authored manifest yet (no `ctxloom skill sync`
-// has run — that CLI is Part B6) is trusted to the fresh parse alone; a
-// project-local bundle's local-tier trust already auto-allows it regardless.
+// authoring/sync uses) and reads every file's bytes.
+//
+// The gate decides on a preimage that ALWAYS covers real content
+// (BundleSkill.EffectiveManifest): the authored manifest when the skill has
+// been through `ctxloom skill sync`, otherwise one derived from the on-disk
+// tree. The on-disk tree is then verified against that same manifest in
+// either case — a mismatch (tampered script, drifted content) withholds the
+// skill loudly rather than materializing a partial/tampered package.
 func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *LoadedSkill {
-	payload, err := entry.ContentPayload()
-	if err != nil {
-		return nil
-	}
-	if !l.gateContent(bundle.contentSourceRef(), "skills", name, payload, FormRaw, bundle.Signer()) {
-		return nil
-	}
-
 	bundleDir := filepath.Dir(bundle.Path)
 	dir, err := ResolveSkillDir(bundleDir, name, entry)
 	if err != nil {
@@ -102,11 +95,35 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 		return nil
 	}
 
-	if len(entry.Files) > 0 {
-		if verr := VerifyExtractedManifest(l.fs, dir, entry.ToManifest()); verr != nil {
-			clidiag.Warn("ctxloom", "skill %q withheld: %v", name, verr)
-			return nil
-		}
+	// ONE manifest drives both the trust preimage and the integrity check.
+	// Authored when the skill has been synced; derived from the on-disk tree
+	// when it has not. There is deliberately NO `len(entry.Files) > 0`
+	// predicate here any more: that single condition used to both empty the
+	// preimage and skip the verification below, so a manifest-less skill got
+	// a constant hash AND no tamper check — two failures of one trust gate
+	// (arch-review S2/T4). A failure to resolve the manifest withholds.
+	manifest, err := entry.EffectiveManifest(l.fs, bundleDir, name)
+	if err != nil {
+		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
+		return nil
+	}
+	payload, err := skillPayloadFor(manifest)
+	if err != nil {
+		clidiag.Warn("ctxloom", "skill %q withheld: encoding trust preimage: %v", name, err)
+		return nil
+	}
+	if !l.gateContent(bundle.contentSourceRef(), "skills", name, payload, FormRaw, bundle.Signer()) {
+		return nil
+	}
+
+	// Runs on EVERY skill, not just synced ones. For an authored manifest
+	// this is the tamper check against what was signed; for a derived one it
+	// re-reads the tree and re-confirms it still matches the bytes the gate
+	// just decided on, closing the window between the decision and the read
+	// loop below.
+	if verr := VerifyExtractedManifest(l.fs, dir, manifest); verr != nil {
+		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, verr)
+		return nil
 	}
 
 	pkg, err := ParseSkillPackage(l.fs, dir, 0)

@@ -1,6 +1,8 @@
 package grpc
 
 import (
+	"os"
+
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -21,10 +23,12 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 	}
 	return &ManagedConfig{
 		Commands:         commandExportsToProto(m.Commands),
+		Skills:           skillExportsToProto(m.Skills),
 		Hooks:            hooksConfigToProto(m.Hooks),
 		Mcp:              mcpConfigToProto(m.MCP),
 		BundleMcp:        mcpServerMapToProto(m.BundleMCP),
 		ManageStatusline: m.ManageStatusline,
+		DenyTools:        m.DenyTools,
 	}
 }
 
@@ -36,10 +40,12 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 	}
 	return &agent.ManagedConfig{
 		Commands:         commandExportsFromProto(m.GetCommands()),
+		Skills:           skillExportsFromProto(m.GetSkills()),
 		Hooks:            hooksConfigFromProto(m.GetHooks()),
 		MCP:              mcpConfigFromProto(m.GetMcp()),
 		BundleMCP:        mcpServerMapFromProto(m.GetBundleMcp()),
 		ManageStatusline: m.GetManageStatusline(),
+		DenyTools:        m.GetDenyTools(),
 	}
 }
 
@@ -86,17 +92,92 @@ func commandExportsFromProto(in []*CommandExport) []agent.CommandExport {
 	return out
 }
 
+// --- skill exports ---
+
+// skillExportsToProto mirrors commandExportsToProto for whole skill PACKAGES:
+// each export carries its entire materialized tree (SKILL.md plus siblings)
+// with per-file modes, because the exec bit on a scripts/ entry is part of what
+// the writer must reproduce.
+func skillExportsToProto(in []agent.SkillExport) []*SkillExport {
+	if in == nil {
+		return nil
+	}
+	out := make([]*SkillExport, len(in))
+	for i, s := range in {
+		out[i] = &SkillExport{
+			Name:        s.Name,
+			Description: s.Description,
+			Enabled:     s.Enabled,
+			Files:       packageFilesToProto(s.Files),
+		}
+	}
+	return out
+}
+
+func skillExportsFromProto(in []*SkillExport) []agent.SkillExport {
+	if in == nil {
+		return nil
+	}
+	out := make([]agent.SkillExport, 0, len(in))
+	for _, s := range in {
+		if s == nil {
+			continue
+		}
+		out = append(out, agent.SkillExport{
+			Name:        s.GetName(),
+			Description: s.GetDescription(),
+			Enabled:     s.GetEnabled(),
+			Files:       packageFilesFromProto(s.GetFiles()),
+		})
+	}
+	return out
+}
+
+func packageFilesToProto(in []agent.PackageFile) []*PackageFile {
+	if in == nil {
+		return nil
+	}
+	out := make([]*PackageFile, len(in))
+	for i, f := range in {
+		out[i] = &PackageFile{
+			RelPath: f.RelPath,
+			Content: f.Content,
+			Mode:    uint32(f.Mode),
+		}
+	}
+	return out
+}
+
+func packageFilesFromProto(in []*PackageFile) []agent.PackageFile {
+	if in == nil {
+		return nil
+	}
+	out := make([]agent.PackageFile, 0, len(in))
+	for _, f := range in {
+		if f == nil {
+			continue
+		}
+		out = append(out, agent.PackageFile{
+			RelPath: f.GetRelPath(),
+			Content: f.GetContent(),
+			Mode:    os.FileMode(f.GetMode()),
+		})
+	}
+	return out
+}
+
 // --- hooks ---
 
 func hookToProto(h wire.Hook) *Hook {
 	return &Hook{
-		Matcher: h.Matcher,
-		Command: h.Command,
-		Type:    h.Type,
-		Prompt:  h.Prompt,
-		Timeout: int32(h.Timeout),
-		Async:   h.Async,
-		Scm:     h.SCM,
+		Matcher:         h.Matcher,
+		Command:         h.Command,
+		Type:            h.Type,
+		Prompt:          h.Prompt,
+		Timeout:         int32(h.Timeout),
+		Async:           h.Async,
+		Scm:             h.SCM,
+		PreToolFallback: h.PreToolFallback,
 	}
 }
 
@@ -105,13 +186,14 @@ func hookFromProto(h *Hook) wire.Hook {
 		return wire.Hook{}
 	}
 	return wire.Hook{
-		Matcher: h.GetMatcher(),
-		Command: h.GetCommand(),
-		Type:    h.GetType(),
-		Prompt:  h.GetPrompt(),
-		Timeout: int(h.GetTimeout()),
-		Async:   h.GetAsync(),
-		SCM:     h.GetScm(),
+		Matcher:         h.GetMatcher(),
+		Command:         h.GetCommand(),
+		Type:            h.GetType(),
+		Prompt:          h.GetPrompt(),
+		Timeout:         int(h.GetTimeout()),
+		Async:           h.GetAsync(),
+		SCM:             h.GetScm(),
+		PreToolFallback: h.GetPreToolFallback(),
 	}
 }
 

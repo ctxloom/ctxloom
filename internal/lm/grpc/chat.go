@@ -30,6 +30,8 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 		ForwardPermissions:  req.ForwardPermissions,
 		TranscriptRawPolicy: req.TranscriptRawPolicy,
 		ForwardTerminal:     req.ForwardTerminal,
+		Runtime:             req.Runtime,
+		ResumeSessionId:     req.ResumeSessionID,
 	}
 	for _, m := range req.MCPServers {
 		out.McpServers = append(out.McpServers, &ChatMCPServer{
@@ -54,6 +56,8 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 		ForwardPermissions:  p.GetForwardPermissions(),
 		TranscriptRawPolicy: p.GetTranscriptRawPolicy(),
 		ForwardTerminal:     p.GetForwardTerminal(),
+		Runtime:             p.GetRuntime(),
+		ResumeSessionID:     p.GetResumeSessionId(),
 	}
 	for _, m := range p.GetMcpServers() {
 		req.MCPServers = append(req.MCPServers, agent.ChatMCPServer{
@@ -145,6 +149,7 @@ func permissionRequestToProto(p *agent.PermissionRequest) *ChatPermissionRequest
 		ToolName:   p.ToolName,
 		ToolInput:  p.ToolInput,
 		ToolCallId: p.ToolCallID,
+		Kind:       p.Kind,
 	}
 	for _, o := range p.Options {
 		out.Options = append(out.Options, &ChatPermissionOption{Id: o.ID, Kind: o.Kind, Name: o.Name})
@@ -161,6 +166,7 @@ func permissionRequestFromProto(p *ChatPermissionRequest) *agent.PermissionReque
 		ToolName:   p.GetToolName(),
 		ToolInput:  p.GetToolInput(),
 		ToolCallID: p.GetToolCallId(),
+		Kind:       p.GetKind(),
 	}
 	for _, o := range p.GetOptions() {
 		out.Options = append(out.Options, agent.PermissionOption{ID: o.GetId(), Kind: o.GetKind(), Name: o.GetName()})
@@ -211,6 +217,8 @@ func chatSessionInfoToProto(s *agent.ChatSessionInfo) *ChatSessionInfo {
 		return nil
 	}
 	out := &ChatSessionInfo{
+		SessionId:      s.SessionID,
+		Resumable:      s.Resumable,
 		Model:          s.Model,
 		PermissionMode: s.PermissionMode,
 		ContextWindow:  int32(s.ContextWindow),
@@ -226,6 +234,8 @@ func chatSessionInfoFromProto(p *ChatSessionInfo) *agent.ChatSessionInfo {
 		return nil
 	}
 	out := &agent.ChatSessionInfo{
+		SessionID:      p.GetSessionId(),
+		Resumable:      p.GetResumable(),
 		Model:          p.GetModel(),
 		PermissionMode: p.GetPermissionMode(),
 		ContextWindow:  int(p.GetContextWindow()),
@@ -271,23 +281,8 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 			if rerr != nil {
 				return // EOF (client done) or error → close in
 			}
-			var cm agent.ChatMessage
-			switch input := msg.GetInput().(type) {
-			case *ChatInput_UserMessage:
-				cm = agent.ChatMessage{
-					Text:          input.UserMessage.GetText(),
-					ContentBlocks: contentBlocksFromProto(input.UserMessage.GetContentBlocks()),
-				}
-			case *ChatInput_PermissionAnswer:
-				cm = agent.ChatMessage{Permission: &agent.PermissionAnswer{
-					ID:       input.PermissionAnswer.GetId(),
-					OptionID: input.PermissionAnswer.GetOptionId(),
-				}}
-			case *ChatInput_CancelTurn:
-				cm = agent.ChatMessage{CancelTurn: true}
-			case *ChatInput_TerminalAnswer:
-				cm = agent.ChatMessage{Terminal: terminalAnswerFromProto(input.TerminalAnswer)}
-			default:
+			cm, ok := chatMessageFromInput(msg)
+			if !ok {
 				continue // a stray start / unknown variant — ignore
 			}
 			select {
@@ -510,6 +505,33 @@ func chatMessageToInput(msg agent.ChatMessage) *ChatInput {
 			Text:          msg.Text,
 			ContentBlocks: contentBlocksToProto(msg.ContentBlocks),
 		}}}
+	}
+}
+
+// chatMessageFromInput maps one ChatInput frame back to its host-side chat
+// message — the exact inverse of chatMessageToInput, and named (rather than
+// inlined in the server's receive loop) so the pair can be asserted for TOTAL
+// field parity, not just for the fields a test happened to name (parity_test.go).
+// ok is false for a frame that carries no chat message at all (a stray start, or
+// a variant this build does not know), which the server skips.
+func chatMessageFromInput(in *ChatInput) (agent.ChatMessage, bool) {
+	switch input := in.GetInput().(type) {
+	case *ChatInput_UserMessage:
+		return agent.ChatMessage{
+			Text:          input.UserMessage.GetText(),
+			ContentBlocks: contentBlocksFromProto(input.UserMessage.GetContentBlocks()),
+		}, true
+	case *ChatInput_PermissionAnswer:
+		return agent.ChatMessage{Permission: &agent.PermissionAnswer{
+			ID:       input.PermissionAnswer.GetId(),
+			OptionID: input.PermissionAnswer.GetOptionId(),
+		}}, true
+	case *ChatInput_CancelTurn:
+		return agent.ChatMessage{CancelTurn: true}, true
+	case *ChatInput_TerminalAnswer:
+		return agent.ChatMessage{Terminal: terminalAnswerFromProto(input.TerminalAnswer)}, true
+	default:
+		return agent.ChatMessage{}, false
 	}
 }
 

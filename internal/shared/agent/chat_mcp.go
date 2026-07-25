@@ -24,7 +24,7 @@ import (
 //
 // nil mcp AND nil bundleMCP means no managed payload was assembled (config
 // load failed, or setup was skipped): nothing is injected, mirroring
-// BaseLifecycle.Flush's no-op on an empty lifecycle.
+// BaseLifecycle.MergeManaged's no-op on a nil ManagedConfig.
 func ComposeChatMCPServers(pluginKey string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, existing []ChatMCPServer) []ChatMCPServer {
 	if mcp == nil && bundleMCP == nil {
 		return nil

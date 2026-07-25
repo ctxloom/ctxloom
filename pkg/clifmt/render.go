@@ -1,7 +1,8 @@
 // Package clifmt is a shared, reflective output filter for first-party Go
 // CLIs. A command hands over a struct (or slice of structs) and a Format;
-// clifmt renders it — writing almost no per-command rendering code. See the
-// package README for the full tag convention and a worked example.
+// clifmt renders it — writing almost no per-command rendering code. The tag
+// convention (json names and gates fields; label/col tune display) is
+// documented on parseJSONTag, resolveLabel and resolveCol in tags.go.
 package clifmt
 
 import (

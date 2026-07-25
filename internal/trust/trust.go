@@ -171,7 +171,7 @@ type Ref struct {
 	// full canonical ref. This is the bundle component of the stored ref key.
 	Bundle string
 
-	// Kind is the item kind (fragment | prompt | mcp).
+	// Kind is the item kind (fragment | prompt | mcp | hook | skill) -- see ItemKind.
 	Kind ItemKind
 
 	// Name is the item name within the bundle, e.g. "solid".

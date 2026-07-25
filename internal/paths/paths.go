@@ -29,10 +29,10 @@ const (
 	// RemotesFileName is the name of the remotes file (without extension).
 	RemotesFileName = "remotes"
 
-	// TrustFileName is the name of the per-item trust store file (without
-	// extension). It is a committed/shared persistent item, sitting at the
-	// .ctxloom root next to remotes.yaml (NOT under a nested persistent/ dir,
-	// matching the rest of ctxloom's persistent items — see paths_test.go).
+	// TrustFileName is the "trust" path segment. Despite the name it is NOT a
+	// file: no .ctxloom/trust.yaml exists and nothing in this package builds
+	// one. Its sole use is as the DIRECTORY segment in TrustObjectsPath
+	// (cache/trust/objects), the approved-content snapshot store.
 	TrustFileName = "trust"
 
 	// AllowedSignersFileName is the name of the trust-root file: the set of

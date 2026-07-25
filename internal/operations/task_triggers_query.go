@@ -142,19 +142,6 @@ func queryPathExists(repoDir string, q triggers.Query) triggers.QueryResult {
 	}
 }
 
-// queryGrep is a bounded, read-only content search over the working tree,
-// optionally narrowed by PathGlob. It uses Go's stdlib regexp — RE2-based, so
-// an adversarial pattern is bounded to linear time rather than the
-// catastrophic backtracking a PCRE-style engine risks — and stops after
-// maxGrepFilesScanned files or maxGrepMatches lines, whichever comes first,
-// regardless of tree size.
-//
-// PathGlob is a GLOB, not a directory (a model writes "**/*.go" into a field
-// called path_glob, and it must mean what it says). A plain path with no glob
-// metacharacters still works as a subtree scope. A scope that selects NOTHING
-// on disk is an ERROR, never an empty result: an empty result reads to the
-// model as "I searched and found nothing" — positive evidence of absence —
-// and a query that never actually ran must never be able to say that.
 // grepBudget bounds one grep query's work. Injected rather than read from the
 // consts directly so a test can drive the truncation path without building a
 // 20k-file fixture (no package-level vars; DI).
@@ -187,6 +174,19 @@ func skipGrepDir(name string) bool {
 	return name == "node_modules" || name == "vendor"
 }
 
+// queryGrep is a bounded, read-only content search over the working tree,
+// optionally narrowed by PathGlob. It uses Go's stdlib regexp — RE2-based, so
+// an adversarial pattern is bounded to linear time rather than the
+// catastrophic backtracking a PCRE-style engine risks — and stops after
+// maxGrepFilesScanned files or maxGrepMatches lines, whichever comes first,
+// regardless of tree size.
+//
+// PathGlob is a GLOB, not a directory (a model writes "**/*.go" into a field
+// called path_glob, and it must mean what it says). A plain path with no glob
+// metacharacters still works as a subtree scope. A scope that selects NOTHING
+// on disk is an ERROR, never an empty result: an empty result reads to the
+// model as "I searched and found nothing" — positive evidence of absence —
+// and a query that never actually ran must never be able to say that.
 func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.QueryResult {
 	if repoDir == "" {
 		return triggers.QueryResult{Query: q, Err: "no repository configured"}

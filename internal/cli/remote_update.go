@@ -579,11 +579,10 @@ func shortSHA(sha string) string {
 
 // pullOutcome describes how a per-item Pull error should be reported.
 // Extracted so the (user-visible) classification rules can be unit-tested
-// without spinning up a Puller. The matching is intentionally substring-
-// based — the upstream errors flow through several layers of wrapping
-// (forge client → fetcher → puller) and don't carry a stable typed value
-// we can errors.Is on. If forge error shapes change, this is the one
-// place to update.
+// without spinning up a Puller. classifyPullError matches on the typed
+// sentinels in internal/errs with errors.Is, so the several layers of
+// wrapping between the forge client and the puller are transparent to it.
+// If a new outcome is needed, this is the one place to add it.
 type pullOutcome int
 
 const (

@@ -293,7 +293,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 		// Harp-native path: read ~/.ctxloom/sessions/<harp>/essence.md
 		// directly. No backend-history detour, no SessionID binding step.
 		// If the file is missing the user can run `ctxloom session distill`
-		// (when that subcommand lands) or just compact again.
+		// or just compact again.
 		return s.loadHarpEssence(in.HarpName)
 	}
 	if in.SessionID == "" {

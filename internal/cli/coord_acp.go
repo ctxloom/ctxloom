@@ -23,7 +23,8 @@ type acpCoordinator struct {
 
 func newACPCoordinator() *acpCoordinator { return &acpCoordinator{} }
 
-// SessionEnv returns the coordinator reach-back trio for one ACP session's
+// SessionEnv returns the coordinator reach-back pair (EnvCoordURL,
+// EnvCoordCred) for one ACP session's
 // engine env (host runtime — the loopback endpoint reaches the editor's cwd).
 // Empty on any standup/mint failure (warned once). Exported: it implements
 // operations.EngineSessionCoordinator (internal/operations/engine_session.go)

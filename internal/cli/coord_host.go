@@ -117,7 +117,7 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 
 // hostCoordinatorForSession is the run/acp hosting helper: coordinator up,
 // viewer socket bound under the owner harp, owner credential minted, and the
-// engine-env trio returned for injection at launch. A standup failure returns
+// engine-env pair (EnvCoordURL, EnvCoordCred) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
 func hostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtimeAxis string) (*coord.Coordinator, map[string]string, error) {
@@ -134,7 +134,7 @@ func hostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtim
 }
 
 // sessionOwnerEnv mints one session-owner credential on an already-hosted
-// coordinator and returns the env trio for that owner's harness. D2 retired
+// coordinator and returns the env pair for that owner's harness. D2 retired
 // the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
 // ride ConsumerService, a single coordinator-wide surface Serve() already
 // stood up — nothing left to bind here.

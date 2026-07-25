@@ -270,24 +270,6 @@ func SetCompanionLoadoutOutputForTesting(fn func(string) ([]byte, error)) func()
 	return func() { companionLoadoutOutput = prev }
 }
 
-// ProbeCompanionLoadouts discovers companions (DiscoverCompanions), and for
-// each one present on PATH execs `<bin> loadout --format json`, verifies any
-// signature against root, and parses the result into a bundles.Bundle keyed
-// by its ctxloom:companion@<bin> canonical ref — ready to merge into a
-// SeededBundleLoader seed map exactly like a remote bundle.
-//
-// A companion that is absent from PATH, whose probe fails or times out
-// (including a first-party name that does not implement `loadout` yet, e.g.
-// reprise today), or whose loadout is unparseable or fails signature
-// verification (tamper) is SKIPPED with a warning — NEVER fatal, NEVER a
-// crash, and NEVER auto-allowed: an invalid loadout is simply absent from
-// the returned map, so it contributes nothing rather than degrading to
-// unsigned-but-trusted content (spec: "a companion loadout from a companion
-// is withheld, never crashes, never auto-allowed").
-//
-// Probes run concurrently (mirrors ProbeCompanions), each bounded by
-// companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
-// regardless of how many companions are discovered.
 // companionsDisabled is the process-wide companion switch, set once at startup
 // from CTXLOOM_NO_COMPANIONS and the --no-companions flag (the flag wins when
 // both are set). It mirrors strictness.SetDegraded rather than living on Config
@@ -318,6 +300,24 @@ func CompanionsDisabled() bool {
 	return companionsDisabled
 }
 
+// ProbeCompanionLoadouts discovers companions (DiscoverCompanions), and for
+// each one present on PATH execs `<bin> loadout --format json`, verifies any
+// signature against root, and parses the result into a bundles.Bundle keyed
+// by its ctxloom:companion@<bin> canonical ref — ready to merge into a
+// SeededBundleLoader seed map exactly like a remote bundle.
+//
+// A companion that is absent from PATH, whose probe fails or times out
+// (including a first-party name that does not implement `loadout` yet, e.g.
+// reprise today), or whose loadout is unparseable or fails signature
+// verification (tamper) is SKIPPED with a warning — NEVER fatal, NEVER a
+// crash, and NEVER auto-allowed: an invalid loadout is simply absent from
+// the returned map, so it contributes nothing rather than degrading to
+// unsigned-but-trusted content (spec: "a companion loadout from a companion
+// is withheld, never crashes, never auto-allowed").
+//
+// Probes run concurrently (mirrors ProbeCompanions), each bounded by
+// companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
+// regardless of how many companions are discovered.
 func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 	bins := DiscoverCompanions()
 	type probed struct {

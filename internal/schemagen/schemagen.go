@@ -4,6 +4,7 @@ package schemagen
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,17 @@ type Target struct {
 // git-diff CI check is meaningful. An unrepresentable type is a hard error — a
 // silently dropped field would be a lying contract.
 func Generate(dir string, targets []Target) error {
+	// U097-F02: zero targets used to succeed silently — MkdirAll, a no-op sort,
+	// a loop over nothing, return nil — and the caller printed "wrote 0
+	// schemas" and exited 0. Both target providers sit behind `//go:build
+	// schemagen`, so a tag typo or a file move empties the list rather than
+	// breaking the build, and nothing downstream notices: the output directory
+	// is gitignored and `//go:embed all:schema` still matches on the input
+	// schemas. A generator with nothing to generate is a broken build, not a
+	// finished one.
+	if len(targets) == 0 {
+		return errors.New("schemagen: no targets — refusing to report success having generated nothing")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}

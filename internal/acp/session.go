@@ -71,6 +71,10 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		forwardTerm: req.ForwardTerminal,
 		pendingTerm: make(map[string]chan agent.TerminalResponse),
 		clock:       b.clock(),
+		// T13 (finding S3): the fs/* boundary is the same WorkDir handed to
+		// the transport two statements above, so it can never name a
+		// different directory than the engine actually runs in.
+		workspaceRoot: req.WorkDir,
 	}
 	// B5 (gap G14): req.Env[fsUpstreamEnvVar] is set ONLY on the fully
 	// unisolated HOST axis (see operations.OpenEngineSession's gate, and
@@ -739,7 +743,22 @@ type chatSession struct {
 	// forwarded-terminal state mirrors the permission bookkeeping above
 	// exactly, in its own mutex/map so the two domains never share a lock.
 	forwardTerm bool
-	termMu      sync.Mutex
+
+	// workspaceRoot is this session's authoritative filesystem boundary: the
+	// SAME agent.ChatRequest.WorkDir the engine subprocess is spawned with
+	// as its cmd.Dir (Chat's `open(ctx, argv, env, req.WorkDir)`), so the
+	// boundary and the engine's own working directory cannot drift apart.
+	// Every fs/* handler resolves against it via confineToWorkspace
+	// (fsconfine.go) — T13, finding S3. Set once in Chat, before conn's read
+	// loop starts, and never mutated: no lock needed, same as fsUpstream.
+	//
+	// Empty means the caller named no workspace, which is precisely when the
+	// engine is spawned with an empty cmd.Dir and inherits this process's
+	// cwd; confineToWorkspace resolves "" to that same cwd, so the boundary
+	// still tracks the engine rather than defaulting to permitting anything.
+	workspaceRoot string
+
+	termMu sync.Mutex
 	termSeq     int64
 	pendingTerm map[string]chan agent.TerminalResponse
 	termNoInput bool // input closed: no terminal answers can arrive anymore
@@ -1174,12 +1193,26 @@ func stripSessionID(params json.RawMessage) (json.RawMessage, error) {
 //     only the ENGINE's own subprocess is containerized), so local disk
 //     is already correct.
 //
+// CONFINEMENT (T13, finding S3) applies on every one of those axes and is
+// decided BEFORE the branch: req.Path is resolved against s.workspaceRoot by
+// confineToWorkspace (fsconfine.go) and rewritten to the checked real path,
+// so an engine cannot reach outside the session's workspace by any axis —
+// including through the editor. The container axis is why this is not
+// optional: once ChatStart carries the runtime axis again, the engine is in
+// a container while this handler is on the host, and an unconfined read is
+// a straight credential exfiltration.
+//
 // Honors the optional 1-based line offset and line limit either way.
 func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.ReadTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
+	real, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
+	if cerr != nil {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "fs/read_text_file: " + cerr.Error()}
+	}
+	req.Path = real
 	if s.fsUpstream != nil {
 		var resp api.ReadTextFileResponse
 		if err := s.fsUpstream.Call(s.ctx, api.ClientMethodFsReadTextFile, req, &resp); err != nil {
@@ -1187,7 +1220,7 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 		}
 		return resp, nil
 	}
-	data, err := os.ReadFile(req.Path)
+	data, err := os.ReadFile(real)
 	if err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
@@ -1203,11 +1236,22 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 // `"type":"object"` with no null alternative (L0 checklist A1); a bare
 // `nil` here used to render as literal JSON `null` via
 // jsonrpc.marshalResult, which is schema-invalid.
+//
+// It funnels through the SAME confineToWorkspace call handleFsRead does (see
+// its doc, and fsconfine.go) — one boundary, both directions. The write half
+// is where symlink resolution earns its keep: os.WriteFile follows a
+// dangling link out of the workspace and CREATES the target, the same
+// primitive finding S5 records against copyCredentialFile.
 func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.WriteTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
+	real, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
+	if cerr != nil {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "fs/write_text_file: " + cerr.Error()}
+	}
+	req.Path = real
 	if s.fsUpstream != nil {
 		var resp api.WriteTextFileResponse
 		if err := s.fsUpstream.Call(s.ctx, api.ClientMethodFsWriteTextFile, req, &resp); err != nil {
@@ -1215,7 +1259,7 @@ func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error
 		}
 		return api.WriteTextFileResponse{}, nil
 	}
-	if err := os.WriteFile(req.Path, []byte(req.Content), 0o644); err != nil {
+	if err := os.WriteFile(real, []byte(req.Content), 0o644); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
 	return api.WriteTextFileResponse{}, nil

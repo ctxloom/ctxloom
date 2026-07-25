@@ -75,12 +75,17 @@ func (f *fakeFsUpstream) HandleNotification(context.Context, string, json.RawMes
 // serve the engine stale/wrong content with no error, exactly the failure
 // mode this slice exists to prevent.
 func TestChat_FsUpstream_ReadChainsToEditor(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "buffer.go")
+	// The file lives INSIDE the session workspace: T13's confinement
+	// (fsconfine.go) is decided before the upstream branch, so a fixture
+	// outside the root would be denied before the axis under test is ever
+	// exercised. Which axis answers is what this test measures.
+	workspace := t.TempDir()
+	tmpFile := filepath.Join(workspace, "buffer.go")
 	require.NoError(t, os.WriteFile(tmpFile, []byte("DISK: stale committed content\n"), 0o644))
 
 	up := startFakeFsUpstream(t, "EDITOR: live unsaved buffer content")
 
-	h := startChat(t, agent.ChatRequest{Env: map[string]string{fsUpstreamEnvVar: up.addr()}})
+	h := startChat(t, agent.ChatRequest{WorkDir: workspace, Env: map[string]string{fsUpstreamEnvVar: up.addr()}})
 	events := collect(h.out)
 	h.fa.serveHandshake(t)
 
@@ -98,10 +103,15 @@ func TestChat_FsUpstream_ReadChainsToEditor(t *testing.T) {
 // axis relays to the editor instead of touching local disk — the editor's
 // buffer is authoritative for writes too, on this axis.
 func TestChat_FsUpstream_WriteChainsToEditor(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "buffer.go") // deliberately never created
+	// EvalSymlinks so the expected path below is the same REAL path T13's
+	// confinement resolves to before relaying (fsconfine.go) — on a platform
+	// where TMPDIR is a symlink the two spellings differ.
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	tmpFile := filepath.Join(workspace, "buffer.go") // deliberately never created
 	up := startFakeFsUpstream(t, "")
 
-	h := startChat(t, agent.ChatRequest{Env: map[string]string{fsUpstreamEnvVar: up.addr()}})
+	h := startChat(t, agent.ChatRequest{WorkDir: workspace, Env: map[string]string{fsUpstreamEnvVar: up.addr()}})
 	events := collect(h.out)
 	h.fa.serveHandshake(t)
 
@@ -128,10 +138,11 @@ func TestChat_FsUpstream_WriteChainsToEditor(t *testing.T) {
 // this slice — plain local disk, no dial attempted, no fake listener even
 // running.
 func TestChat_FsUpstream_AbsentServesLocalDisk(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "worktree-file.go")
+	workspace := t.TempDir()
+	tmpFile := filepath.Join(workspace, "worktree-file.go")
 	require.NoError(t, os.WriteFile(tmpFile, []byte("WORKTREE: real content\n"), 0o644))
 
-	h := startChat(t, agent.ChatRequest{}) // no Env at all
+	h := startChat(t, agent.ChatRequest{WorkDir: workspace}) // no Env at all
 	events := collect(h.out)
 	h.fa.serveHandshake(t)
 
@@ -150,11 +161,12 @@ func TestChat_FsUpstream_AbsentServesLocalDisk(t *testing.T) {
 // same fault-tolerant posture context assembly failures already get
 // elsewhere in this codebase.
 func TestChat_FsUpstream_DialFailureDegradesToLocalDisk(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "f.go")
+	workspace := t.TempDir()
+	tmpFile := filepath.Join(workspace, "f.go")
 	require.NoError(t, os.WriteFile(tmpFile, []byte("disk content\n"), 0o644))
 
 	bogus := filepath.Join(t.TempDir(), "does-not-exist.sock")
-	h := startChat(t, agent.ChatRequest{Env: map[string]string{fsUpstreamEnvVar: bogus}})
+	h := startChat(t, agent.ChatRequest{WorkDir: workspace, Env: map[string]string{fsUpstreamEnvVar: bogus}})
 	events := collect(h.out)
 	h.fa.serveHandshake(t)
 

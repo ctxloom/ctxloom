@@ -73,6 +73,36 @@ func TestExportTranscript_WritesUnderSessionDir(t *testing.T) {
 	assert.Equal(t, transcriptText(exportItems, 100), txt)
 }
 
+// A feed that holds only viewer chrome renders to zero bytes. Writing that
+// file and reporting "saved <path>" is the project's characteristic silent
+// no-op: exit 0, success message, zero bytes delivered.
+func TestExportTranscript_EmptyRenderIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC)
+	notices := []feedItem{
+		{role: "notice", text: "… 3 live events dropped"},
+		{role: "notice", text: "… 1 live event dropped"},
+	}
+
+	for _, kind := range []string{"txt", "ndjson"} {
+		path, err := exportTranscript(dir, "swift-elm-fox", kind, notices, now)
+		require.ErrorIs(t, err, errEmptyTranscript, "kind=%s", kind)
+		assert.Empty(t, path, "kind=%s: no path may be reported for a refused export", kind)
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "a refused export must not leave a 0-byte file behind")
+}
+
+// An export whose feed is genuinely empty is the same refusal, not a
+// zero-byte file.
+func TestExportTranscript_NoItemsIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	_, err := exportTranscript(dir, "swift-elm-fox", "txt", nil, time.Now())
+	require.ErrorIs(t, err, errEmptyTranscript)
+}
+
 func TestOSC52Copy_Encoding(t *testing.T) {
 	got := osc52Copy("hello ✂ clipboard")
 	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("hello ✂ clipboard")) + "\x07"

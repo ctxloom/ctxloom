@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,9 @@ type fakeSources struct {
 	events    map[string]chan operations.SessionFeedEvent
 	cancelled map[string]int
 	exportDir string
+	// exportDirErr, when set, makes ExportDir fail — the fallback-write
+	// failure path for the copy sink.
+	exportDirErr error
 
 	injected   [][2]string // {harp, text} per inject call
 	injectMode string      // "" defaults to DeliveryQueued
@@ -58,7 +62,12 @@ func (f *fakeSources) sources() Sources {
 				Cancel: func() { f.cancelled[harp]++ },
 			}, nil
 		},
-		ExportDir: func(string) (string, error) { return f.exportDir, nil },
+		ExportDir: func(string) (string, error) {
+			if f.exportDirErr != nil {
+				return "", f.exportDirErr
+			}
+			return f.exportDir, nil
+		},
 		Now:       func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
 		Inject: func(harp, text string) (string, error) {
 			f.injected = append(f.injected, [2]string{harp, text})
@@ -128,7 +137,10 @@ func testGeo() termui.OverlayGeometry {
 	return termui.OverlayGeometry{Cols: 100, Rows: 30, PanelRows: 10}
 }
 
-func newTestModel(f *fakeSources, copyTo *bytes.Buffer) Model {
+// copyTo is an io.Writer (not *bytes.Buffer) so that passing nil yields a
+// genuinely nil interface — a typed-nil *bytes.Buffer passes the model's
+// `m.copyTo != nil` guard and panics on Write.
+func newTestModel(f *fakeSources, copyTo io.Writer) Model {
 	return NewModel(context.Background(), f.sources(), testGeo(), 0x1d, copyTo)
 }
 
@@ -300,6 +312,63 @@ func TestModel_CopyEmitsOSC52WithFileFallback(t *testing.T) {
 	assert.Contains(t, m.status, "in case the terminal ignored it",
 		"the fallback file is named for terminals that ignore OSC 52")
 }
+
+// A feed carrying only viewer chrome (gap notices) renders to zero bytes.
+// Exporting it must fail loudly rather than report "saved <path>" for an
+// empty file.
+func TestModel_ExportAllNoticeFeedFailsLoudly(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
+	require.NotEmpty(t, m.items, "the notice is a real feed item, so the len==0 guard does not fire")
+
+	for _, key := range []string{"s", "S"} {
+		m, _ = step(t, m, keyMsg(key))
+		assert.NotContains(t, m.status, "saved ", "key=%s: nothing was saved", key)
+		assert.Contains(t, m.errMsg, "nothing to export", "key=%s", key)
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "no 0-byte transcript may be written")
+}
+
+// y on an all-notice feed used to emit OSC 52 with an empty payload — the
+// clear-selection form — wiping the user's clipboard and reporting success.
+func TestModel_CopyAllNoticeFeedRefusesInsteadOfClearingClipboard(t *testing.T) {
+	var copyBuf bytes.Buffer
+	dir := t.TempDir()
+	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, &copyBuf), f)
+	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
+	require.NotEmpty(t, m.items)
+
+	m, _ = step(t, m, keyMsg("y"))
+	assert.Empty(t, copyBuf.String(),
+		"an empty OSC 52 payload is the CLEAR-clipboard sequence; it must never be emitted")
+	assert.NotContains(t, m.status, "copied", "nothing was copied")
+	assert.Contains(t, m.status, "nothing to copy")
+}
+
+// The fallback file exists precisely because OSC 52 is unobservable. When it
+// fails the user has no signal at all, so the failure must be reported.
+func TestModel_CopyReportsFallbackAndSinkFailures(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
+	f.exportDirErr = fmt.Errorf("session dir unavailable")
+	m := openSelected(t, newTestModel(f, failingWriter{}), f)
+	m = pushEntry(t, m, f, entryEv("user", "copy me"))
+
+	m, _ = step(t, m, keyMsg("y"))
+	assert.Contains(t, m.errMsg, "session dir unavailable",
+		"a failed fallback write must reach the user")
+	assert.Contains(t, m.errMsg, "tty gone", "a failed OSC 52 write must reach the user")
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("tty gone") }
 
 func TestModel_GapRendersNotice(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})

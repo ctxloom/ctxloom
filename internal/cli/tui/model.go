@@ -489,20 +489,53 @@ func (m Model) copySelection() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	text := copyText(m.items, m.cursor, m.focus == focusFeed)
-	if m.copyTo != nil {
-		_, _ = m.copyTo.Write(osc52Copy(text))
+	// osc52Copy("") is the OSC 52 CLEAR-selection form: emitting it would
+	// wipe whatever the user already had on the clipboard and then report
+	// success. The feed has items, but they rendered to nothing (a feed of
+	// pure viewer chrome), so there is nothing to copy — say so.
+	if text == "" {
+		m.status = "nothing to copy: the selection holds no transcript content"
+		return m, nil
 	}
-	// OSC 52 is fire-and-forget — a refusing terminal ignores it silently —
-	// so always pair it with a file fallback and say so.
-	fallback := ""
-	if m.src.ExportDir != nil {
-		if dir, err := m.src.ExportDir(m.feedHarp); err == nil {
-			if path, err := exportTranscript(dir, m.feedHarp, "txt", m.selectedItems(), m.src.now()); err == nil {
-				fallback = "; saved " + path + " in case the terminal ignored it"
-			}
+
+	var problems []string
+	copied := false
+	if m.copyTo != nil {
+		if _, err := m.copyTo.Write(osc52Copy(text)); err != nil {
+			problems = append(problems, fmt.Sprintf("clipboard write: %v", err))
+		} else {
+			copied = true
 		}
 	}
-	m.status = "copied (OSC 52)" + fallback
+	// OSC 52 is fire-and-forget — a refusing terminal ignores it silently —
+	// so always pair it with a file fallback and say so. That makes the
+	// fallback the only observable delivery: when IT fails the user has no
+	// signal at all, so its failure is reported rather than dropped.
+	fallback := ""
+	if m.src.ExportDir != nil {
+		dir, err := m.src.ExportDir(m.feedHarp)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("fallback file: %v", err))
+		} else if path, err := exportTranscript(dir, m.feedHarp, "txt", m.selectedItems(), m.src.now()); err != nil {
+			problems = append(problems, fmt.Sprintf("fallback file: %v", err))
+		} else {
+			fallback = "; saved " + path + " in case the terminal ignored it"
+		}
+	}
+
+	switch {
+	case copied:
+		m.status = "copied (OSC 52)" + fallback
+	case fallback != "":
+		m.status = "clipboard unavailable" + fallback
+	default:
+		m.status = ""
+	}
+	if len(problems) > 0 {
+		m.errMsg = "copy: " + strings.Join(problems, "; ")
+	} else {
+		m.errMsg = ""
+	}
 	return m, nil
 }
 

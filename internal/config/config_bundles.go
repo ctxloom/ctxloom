@@ -1,7 +1,6 @@
 package config
 
 import (
-	"maps"
 	"os/exec"
 	"sort"
 	"strings"
@@ -110,13 +109,66 @@ func warnMissingCompanion(bin, hint string) {
 func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
+	// Resolve the profile scope BEFORE any merge, because its exclude_mcp
+	// names have to apply to EVERY write into result, not just the
+	// profile-bundle branch. They used to be collected inside the per-profile
+	// loop at the bottom of this function — after the builtin merge and the
+	// companion loop had already put their servers in — so a profile saying
+	// `exclude_mcp: [taskloom]` silently got taskloom's companion server
+	// anyway, with no diagnostic (U049-F02). exclude_mcp now means the same
+	// thing whichever source offered the server.
+	//
+	// The set is the UNION across every profile in scope, i.e. an exclusion is
+	// a VETO rather than a per-profile-local filter. That is a deliberate
+	// widening: profiles in one scope compose into a single session's server
+	// set, one server name resolves to one server, and "profile A wanted this
+	// server withheld but profile B pulled it back in" is not a distinction a
+	// user can act on. Vetoing is also the safe direction — the failure mode it
+	// forecloses is an unwanted server being launched.
+	//
+	// Scope: the caller's selected profiles (e.g. `run -p`); when none are
+	// passed, the configured defaults, so the `manage`/apply-hooks path keeps
+	// its project-default behavior.
+	var scopedProfiles []*profiles.ResolvedProfile
+	excluded := make(map[string]bool)
+	if len(c.appPaths) > 0 {
+		profileLoader := c.GetProfileLoader()
+		for _, profileName := range c.resolveProfileScope(profileNames) {
+			// Resolve through the recursive resolver so bundles inherited from
+			// parent profiles are included — a flat Load would only see this
+			// profile's direct Bundles, silently dropping MCP servers shipped by
+			// an inherited bundle (while the fragment path, which resolves
+			// recursively, still picks them up). See ResolveBundleHooks for the
+			// matching pattern.
+			resolved, ok := resolveProfileOrReport(profileLoader, profileName)
+			if !ok {
+				continue
+			}
+			scopedProfiles = append(scopedProfiles, resolved)
+			for _, name := range resolved.ExcludeMCP {
+				excluded[name] = true
+			}
+		}
+	}
+
+	// addServers is the ONLY way a server reaches result, so no source can
+	// bypass the exclusion filter by construction.
+	addServers := func(servers map[string]wire.MCPServer) {
+		for name, server := range servers {
+			if excluded[name] {
+				continue
+			}
+			result[name] = server
+		}
+	}
+
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality and aren't gated on profile membership. Run them
 	// first so profile-sourced servers can intentionally override. They ARE
 	// routed through c.execGate (nil on management/listing paths, matching the
 	// no-gating convention there) so a builtin item can still be REJECTED —
 	// see resolveBuiltinBundleMCPServers.
-	maps.Copy(result, resolveBuiltinBundleMCPServers(c.execGate))
+	addServers(resolveBuiltinBundleMCPServers(c.execGate))
 
 	// SeededBundleLoader includes remote bundles from the active lockfile
 	// AND every discovered companion's loadout, seeded under its
@@ -131,54 +183,14 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// verified Signer(), never the builtin exemption. Sorted for a
 	// deterministic result across runs.
 	for _, ref := range sortedCompanionRefs(c) {
-		for name, server := range loadMCPFromBundleRef(ref, bundleLoader, c.execGate) {
-			result[name] = server
-		}
+		addServers(loadMCPFromBundleRef(ref, bundleLoader, c.execGate))
 	}
 
-	// Scope to the caller's selected profiles (e.g. `run -p`); when none are
-	// passed, fall back to the configured defaults so the `manage`/apply-hooks
-	// path keeps its project-default behavior.
-	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) == 0 {
-		return result
-	}
-
-	// Get the base .ctxloom directory
-	if len(c.appPaths) == 0 {
-		return result
-	}
-
-	// Load each profile and collect MCP servers.
-	profileLoader := c.GetProfileLoader()
-
-	for _, profileName := range profiles {
-		// Resolve through the recursive resolver so bundles inherited from
-		// parent profiles are included — a flat Load would only see this
-		// profile's direct Bundles, silently dropping MCP servers shipped by
-		// an inherited bundle (while the fragment path, which resolves
-		// recursively, still picks them up). See ResolveBundleHooks for the
-		// matching pattern.
-		resolved, ok := resolveProfileOrReport(profileLoader, profileName)
-		if !ok {
-			continue
-		}
-
-		// Process each bundle URL in the resolved profile, honoring the
-		// profile's exclude_mcp list (same name-based filter the inline
-		// config-profile path applies in profileBuilder.toProfile).
-		excluded := make(map[string]bool, len(resolved.ExcludeMCP))
-		for _, name := range resolved.ExcludeMCP {
-			excluded[name] = true
-		}
+	// Finally the profile-referenced bundles, so profile-sourced servers still
+	// override builtin/companion ones of the same name.
+	for _, resolved := range scopedProfiles {
 		for _, bundleRef := range resolved.Bundles {
-			servers := loadMCPFromBundleRef(bundleRef, bundleLoader, c.execGate)
-			for name, server := range servers {
-				if excluded[name] {
-					continue
-				}
-				result[name] = server
-			}
+			addServers(loadMCPFromBundleRef(bundleRef, bundleLoader, c.execGate))
 		}
 	}
 

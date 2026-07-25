@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -415,5 +416,59 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 			assert.NotEqual(t, remote.CompanionSource+"@ltk#fragments/ltk", f.Name,
 				"a companion fragment must be withheld by a denying gate — a true builtin fragment is exempt and would NOT be")
 		}
+	})
+}
+
+// TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers is the
+// regression guard for U049-F02. A profile's exclude_mcp could not exclude a
+// COMPANION-shipped (or builtin-shipped) MCP server: the `excluded` set was
+// built INSIDE the profile-bundle loop, long after the builtin merge and the
+// companion loop had already written into `result`. `exclude_mcp: [ltk-server]`
+// therefore did precisely nothing, and emitted no diagnostic saying so -- the
+// user asked for a server to be withheld, was told nothing, and got it anyway.
+//
+// The exclusion set is now hoisted out of the profile scope ahead of BOTH
+// merges and applied to every write into result, so exclude_mcp means the same
+// thing regardless of which source offered the server.
+func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing.T) {
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
+	defer restoreProbe()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
+		[]byte("name: dev\nexclude_mcp:\n  - ltk-server\n"), 0o644))
+
+	newCfg := func() *Config {
+		cfg := &Config{
+			defaultAgent: "default",
+			agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
+			appPaths:     []string{appDir},
+		}
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		return cfg
+	}
+
+	t.Run("default profile scope", func(t *testing.T) {
+		result := newCfg().ResolveBundleMCPServers(nil)
+		assert.NotContains(t, result, "ltk-server",
+			"exclude_mcp must withhold a companion-shipped server, not silently ignore the exclusion")
+	})
+
+	t.Run("explicitly selected profile scope", func(t *testing.T) {
+		result := newCfg().ResolveBundleMCPServers([]string{"dev"})
+		assert.NotContains(t, result, "ltk-server",
+			"an explicitly passed profile's exclude_mcp must reach the companion merge too")
+	})
+
+	t.Run("a profile that excludes nothing still gets the companion server", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "plain.yaml"),
+			[]byte("name: plain\n"), 0o644))
+		result := newCfg().ResolveBundleMCPServers([]string{"plain"})
+		assert.Contains(t, result, "ltk-server",
+			"hoisting the exclusion set must not withhold servers nobody excluded")
 	})
 }

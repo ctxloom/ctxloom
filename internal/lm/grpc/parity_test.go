@@ -2,9 +2,14 @@ package grpc
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,6 +321,107 @@ func TestProtoParity(t *testing.T) {
 	// then the user-turn default (Text + ContentBlocks together).
 	checkParity(t, hits, "agent.ChatMessage", chatMessageToInput, chatMessageFromInputOrFail(t),
 		[]string{"Permission"}, []string{"CancelTurn"}, []string{"Terminal"}, []string{"Text", "ContentBlocks"})
+}
+
+// oneWayConverters names every ToProto/FromProto function in this package that
+// has NO opposite number, with the reason. A one-way converter cannot be
+// round-tripped, so parity says nothing about it — listing it here is an
+// admission, not a pass. TestProtoParity_CoversEveryConverterPair fails if an
+// entry stops naming a real function.
+var oneWayConverters = map[string]string{
+	// Encode-only: the host reports a backend's model identity outward over
+	// GetModelInfo and nothing decodes a ModelInfo back into agent form, so
+	// there is no inverse to pair with.
+	"convertModelInfoToProto": "encode-only (GetModelInfo response); no decoder exists to pair with",
+}
+
+// TestProtoParity_CoversEveryConverterPair closes the one hole reflection
+// cannot: TestProtoParity is a hand-written LIST, so a converter pair added
+// later is covered only if somebody remembers to add it. This walks the
+// package's own source for every <x>ToProto/<x>FromProto (and ToInput/FromInput)
+// pair and fails when one is missing from the sweep — turning "remember to add
+// it" into a gate.
+func TestProtoParity_CoversEveryConverterPair(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	require.NoError(t, err, "parse this package's own source")
+
+	base := func(name string) string {
+		for _, suffix := range []string{"ToProto", "FromProto", "ToInput", "FromInput"} {
+			if strings.HasSuffix(name, suffix) {
+				return strings.ToLower(strings.TrimSuffix(name, suffix))
+			}
+		}
+		return ""
+	}
+
+	encoders, decoders := map[string]string{}, map[string]string{}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Recv != nil {
+					continue // methods are not converter functions
+				}
+				name := fd.Name.Name
+				key := base(name)
+				if key == "" {
+					continue
+				}
+				if strings.HasSuffix(name, "ToProto") || strings.HasSuffix(name, "ToInput") {
+					encoders[key] = name
+				} else {
+					decoders[key] = name
+				}
+			}
+		}
+	}
+	require.NotEmpty(t, encoders, "found no converters at all — the source walk is broken, not the package")
+
+	src, err := os.ReadFile("parity_test.go")
+	require.NoError(t, err)
+	sweep := string(src)
+	mentioned := func(name string) bool {
+		return regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(sweep)
+	}
+
+	var uncovered, unpaired, staleOneWay []string
+	for key, enc := range encoders {
+		dec, paired := decoders[key]
+		if !paired {
+			if _, known := oneWayConverters[enc]; !known {
+				unpaired = append(unpaired, enc)
+			}
+			continue
+		}
+		if !mentioned(enc) || !mentioned(dec) {
+			uncovered = append(uncovered, enc+" / "+dec)
+		}
+	}
+	for key, dec := range decoders {
+		if _, paired := encoders[key]; !paired {
+			if _, known := oneWayConverters[dec]; !known {
+				unpaired = append(unpaired, dec)
+			}
+		}
+	}
+	for name := range oneWayConverters {
+		if base(name) == "" || (encoders[base(name)] != name && decoders[base(name)] != name) {
+			staleOneWay = append(staleOneWay, name)
+		}
+	}
+	sort.Strings(uncovered)
+	sort.Strings(unpaired)
+	sort.Strings(staleOneWay)
+
+	require.Empty(t, uncovered,
+		"converter pair(s) exist in this package but are NOT in TestProtoParity's sweep — every field they carry is uncovered, which is exactly how eight fields went missing under a green test. Add a checkParity line.")
+	require.Empty(t, unpaired,
+		"converter(s) have no opposite number and are not declared one-way — either add the inverse, or add it to oneWayConverters with a written reason.")
+	require.Empty(t, staleOneWay,
+		"oneWayConverters names function(s) that no longer exist — delete the stale entry so a future function inheriting the name is not silently exempted.")
 }
 
 // TestProtoParity_ExclusionsAreLive fails when parityExclusions names a field

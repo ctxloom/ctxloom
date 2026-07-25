@@ -50,6 +50,16 @@ import (
 // resolveCellPath expresses the delegation cell boundary — same separator
 // handling, same filesystem-root edge case — deliberately, so this codebase
 // has one shape of confinement test rather than two.
+//
+// EVERY DENIAL EXPLAINS ITSELF. These errors surface in an editor UI (a Zed
+// user whose engine touched a file outside the project sees one), so each
+// names the reason, the workspace root it was judged against, and enough
+// framing to read as policy rather than as a missing file or a bug. The
+// reasons stay DISTINGUISHABLE — "outside the workspace" and "relative path,
+// absolute required" are different user mistakes with different fixes, and
+// collapsing them sends the reader after the wrong one. Naming the root
+// leaks nothing: the caller supplied the path and already knows its own cwd.
+// fsconfine_test.go's TestFsDenial_* pin this, on substance not bytes.
 
 // maxSymlinkHops bounds manual link resolution. filepath.EvalSymlinks has
 // its own internal bound; this one only covers the dangling-leaf loop below,
@@ -68,27 +78,33 @@ const maxSymlinkHops = 40
 // the boundary still matches the engine's actual working directory rather
 // than guessing at one.
 func confineToWorkspace(root, path string) (string, error) {
-	if path == "" {
-		return "", errors.New("path is required")
-	}
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("path %q must be absolute (the ACP fs/* methods take absolute paths); ctxloom will not resolve it against a root the engine did not name", path)
-	}
+	// absRoot is computed FIRST so every denial below can name the boundary
+	// it was judged against. A caller reading one of these in an editor UI
+	// has to be able to tell "ctxloom refused this on policy" from "the file
+	// isn't there" — an opaque error sends them debugging the wrong thing.
+	// This cannot turn a denial into an approval: filepath.Abs already ran
+	// before the containment test, so any failure here already denied.
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("resolve workspace root: %w", err)
+		return "", fmt.Errorf("cannot enforce this session's workspace boundary: workspace root %q does not resolve (%v) — refusing rather than serving an unconfined path", root, err)
+	}
+	if path == "" {
+		return "", fmt.Errorf("path is required — the ACP fs/* methods take an absolute path inside this session's workspace %q", absRoot)
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("path %q is relative — the ACP fs/* methods take an absolute path, and ctxloom will not resolve a relative one against a root the engine did not name; this session's workspace is %q", path, absRoot)
 	}
 	realRoot, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
 		// A root we cannot resolve is a boundary we cannot enforce. Deny.
-		return "", fmt.Errorf("resolve workspace root %q: %w", absRoot, err)
+		return "", fmt.Errorf("cannot enforce this session's workspace boundary: workspace root %q does not resolve (%v) — refusing rather than serving an unconfined path", absRoot, err)
 	}
 	resolved, err := resolveRealPath(filepath.Clean(path))
 	if err != nil {
-		return "", fmt.Errorf("resolve path %q: %w", path, err)
+		return "", fmt.Errorf("path %q does not resolve (%v) — refusing rather than serving a path whose real location cannot be checked against this session's workspace %q", path, err, realRoot)
 	}
 	if !withinRoot(realRoot, resolved) {
-		return "", fmt.Errorf("path %q is outside this session's workspace %q", path, realRoot)
+		return "", fmt.Errorf("path %q is outside this session's workspace %q — ctxloom confines an ACP engine's filesystem access to the session workspace, so this is a policy refusal, not a missing file", path, realRoot)
 	}
 	return resolved, nil
 }

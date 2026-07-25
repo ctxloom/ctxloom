@@ -353,6 +353,93 @@ func TestFsUpstream_ConfinesBeforeChainingToEditor(t *testing.T) {
 	closeChat(t, h, events)
 }
 
+// --- the denial messages themselves ---
+
+// TestFsDenial_OutOfWorkspaceExplainsItself pins the SUBSTANCE of the
+// headline refusal on both handlers. These errors surface in an editor UI,
+// where an opaque failure sends the reader debugging a missing file instead
+// of reading a policy decision. Asserted on substance, never on an exact
+// byte string — a brittle full-string match just gets deleted by whoever
+// next rewords the error.
+func TestFsDenial_OutOfWorkspaceExplainsItself(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		params map[string]any
+	}{
+		{"read", api.ClientMethodFsReadTextFile, map[string]any{}},
+		{"write", api.ClientMethodFsWriteTextFile, map[string]any{"content": "x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFsFixture(t)
+			h, events := startConfinedChat(t, f)
+
+			tc.params["path"] = f.secret
+			resp := l0CallClient(h.fa, tc.method, tc.params)
+			require.NotNil(t, resp.Error, "must still deny")
+			msg := resp.Error.Message
+
+			// 1. the reason, not just a failure
+			assert.Contains(t, msg, "outside", "must say the path was refused for being OUTSIDE the workspace")
+			// 2. the root it was checked against
+			assert.Contains(t, msg, f.root, "must name the workspace root the path was judged against")
+			// 3. legible as policy rather than a missing file or a bug
+			assert.Contains(t, msg, "policy refusal", "must read as a deliberate policy decision")
+			assert.Contains(t, msg, "confines", "must say ctxloom is doing the confining")
+			// and it must still not leak what it was protecting
+			assert.NotContains(t, msg, "SECRET", "the denial must not carry the protected content")
+
+			closeChat(t, h, events)
+		})
+	}
+}
+
+// TestFsDenial_ReasonsAreDistinguishable: "outside the workspace" and
+// "relative path, absolute required" are different user mistakes with
+// different fixes. A reader handed the wrong one chases the wrong thing, so
+// the two messages must not collapse into a single generic refusal.
+func TestFsDenial_ReasonsAreDistinguishable(t *testing.T) {
+	f := newFsFixture(t)
+	h, events := startConfinedChat(t, f)
+
+	outside := l0CallClient(h.fa, api.ClientMethodFsReadTextFile, map[string]any{"path": f.secret})
+	require.NotNil(t, outside.Error)
+	relative := l0CallClient(h.fa, api.ClientMethodFsReadTextFile, map[string]any{"path": "session.go"})
+	require.NotNil(t, relative.Error)
+
+	assert.NotEqual(t, outside.Error.Message, relative.Error.Message,
+		"the two refusal reasons must not collapse into one message")
+	assert.Contains(t, relative.Error.Message, "relative", "the relative-path refusal must name the shape problem")
+	assert.Contains(t, relative.Error.Message, "absolute", "...and say what was expected instead")
+	assert.NotContains(t, relative.Error.Message, "outside",
+		"a relative path is a malformed request, NOT an out-of-workspace one — saying 'outside' sends the reader after the wrong fix")
+	assert.Contains(t, relative.Error.Message, f.root, "the relative-path refusal must still name the workspace root")
+
+	closeChat(t, h, events)
+}
+
+// TestFsDenial_UnresolvableRootExplainsItself: the fail-closed case. A root
+// that does not resolve is a boundary that cannot be enforced, and the
+// message must say THAT rather than blaming the requested path.
+func TestFsDenial_UnresolvableRootExplainsItself(t *testing.T) {
+	f := newFsFixture(t)
+	missingRoot := filepath.Join(f.root, "no-such-workspace")
+
+	h := startChat(t, agent.ChatRequest{WorkDir: missingRoot})
+	events := collect(h.out)
+	h.fa.serveHandshake(t)
+
+	resp := l0CallClient(h.fa, api.ClientMethodFsReadTextFile, map[string]any{
+		"path": filepath.Join(f.root, "anything.txt"),
+	})
+	require.NotNil(t, resp.Error, "an unenforceable boundary must deny, never default to permitting")
+	assert.Contains(t, resp.Error.Message, "workspace boundary", "must name what could not be enforced")
+	assert.Contains(t, resp.Error.Message, missingRoot, "must name the root that failed to resolve")
+	assert.Contains(t, resp.Error.Message, "refusing", "must say it chose to refuse")
+
+	closeChat(t, h, events)
+}
+
 // requireDenied asserts the handler refused, and that the refusal did not
 // leak the content it was protecting.
 func requireDenied(t *testing.T, resp rpcMessage, mustNotContain string) {

@@ -7,6 +7,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -619,6 +620,20 @@ type PushBundleResult struct {
 // PushBundle publishes (or dry-runs) a local bundle file to req.Remote (a
 // resolved registry name — see ResolveBundleRemote). Network is touched only
 // for a non-dry-run.
+// bundleDeclaresNothing reports whether a parsed bundle carries neither a
+// version nor any content — the shape a comment-only or `---`-only document
+// unmarshals into, which yaml.v3 reports as a successful parse.
+//
+// A version alone is enough to pass: a freshly created SKELETON (CreateBundle
+// writes version 1.0.0 and no items) is deliberate authoring, not a failure,
+// and publishing one to claim a name stays allowed. This guard is only for the
+// document that says nothing at all.
+func bundleDeclaresNothing(b *bundles.Bundle) bool {
+	return b.Version == "" &&
+		len(b.Fragments) == 0 && len(b.Commands) == 0 && len(b.Skills) == 0 &&
+		len(b.MCP) == 0 && len(b.Profiles) == 0 && !b.Hooks.HasAny()
+}
+
 func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
 	if err := validatePushRequest(cfg, req); err != nil {
 		return nil, err
@@ -634,8 +649,23 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("read bundle: %w", err)
 	}
-	if _, err := bundles.ParseBundle(data); err != nil {
+	// ParseBundle cannot catch this: gopkg.in/yaml.v3 returns a nil error for
+	// empty, whitespace-only and comment-only input, so all three unmarshal
+	// into a valid-looking empty Bundle. Nothing downstream gates on length
+	// either — PublishManager.preparePublish never inspects it, and
+	// PushBundleResult.SizeBytes records the 0 without acting on it — so
+	// without this guard `push` reports status "pushed" for zero bytes,
+	// overwriting whatever is at the remote path and, with req.Signer set,
+	// signing nothing.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, fmt.Errorf("refusing to publish empty bundle %s: the file has no content", absPath)
+	}
+	parsed, err := bundles.ParseBundle(data)
+	if err != nil {
 		return nil, fmt.Errorf("invalid bundle: %w", err)
+	}
+	if bundleDeclaresNothing(parsed) {
+		return nil, fmt.Errorf("refusing to publish empty bundle %s: it declares no version and no content", absPath)
 	}
 
 	// The last gate before bytes leave the machine. A carried signature is

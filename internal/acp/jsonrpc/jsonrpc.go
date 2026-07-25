@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"sync"
@@ -171,6 +172,15 @@ func (c *Conn) Call(ctx context.Context, method string, params, result any) erro
 // request — plus an await that blocks for the response. Exactly one await call
 // must follow a successful Go (it owns the pending slot's cleanup).
 func (c *Conn) Go(method string, params any) (func(ctx context.Context, result any) error, error) {
+	// A frame with no method is garbage the peer must drop (U013-F17): refuse
+	// it here rather than emitting {"jsonrpc":"2.0"} and reporting success.
+	if method == "" {
+		return nil, errors.New("acp: refusing to send a request with no method")
+	}
+	rawParams, perr := marshalParams(method, params)
+	if perr != nil {
+		return nil, perr
+	}
 	id := atomic.AddInt64(&c.nextID, 1)
 	ch := make(chan rpcMessage, 1)
 
@@ -178,7 +188,7 @@ func (c *Conn) Go(method string, params any) (func(ctx context.Context, result a
 	c.pending[id] = ch
 	c.pendingMu.Unlock()
 
-	if err := c.writeFrame(rpcMessage{Method: method, ID: json.RawMessage(strconv.FormatInt(id, 10)), Params: mustParams(method, params)}); err != nil {
+	if err := c.writeFrame(rpcMessage{Method: method, ID: json.RawMessage(strconv.FormatInt(id, 10)), Params: rawParams}); err != nil {
 		c.pendingMu.Lock()
 		delete(c.pending, id)
 		c.pendingMu.Unlock()
@@ -214,7 +224,14 @@ func (c *Conn) Go(method string, params any) (func(ctx context.Context, result a
 
 // Notify sends a notification (no response expected).
 func (c *Conn) Notify(method string, params any) error {
-	return c.writeFrame(rpcMessage{Method: method, Params: mustParams(method, params)})
+	if method == "" {
+		return errors.New("acp: refusing to send a notification with no method")
+	}
+	rawParams, err := marshalParams(method, params)
+	if err != nil {
+		return err
+	}
+	return c.writeFrame(rpcMessage{Method: method, Params: rawParams})
 }
 
 // Close tears down the transport and unblocks any parked reader/caller.
@@ -268,8 +285,11 @@ func (c *Conn) serveRequest(ctx context.Context, m rpcMessage) {
 			resp := rpcMessage{ID: id}
 			if rerr != nil {
 				resp.Error = rerr
+			} else if raw, merr := marshalResult(result); merr != nil {
+				warnf("acp: result for %q could not be encoded; answering with an error instead of a null success: %s", method, merr.Message)
+				resp.Error = merr
 			} else {
-				resp.Result = marshalResult(result)
+				resp.Result = raw
 			}
 			if err := c.writeFrame(resp); err != nil {
 				warnf("acp: failed to write response to %q: %v", method, err)
@@ -327,32 +347,35 @@ func (c *Conn) writeFrame(m rpcMessage) error {
 	return err
 }
 
-// mustParams marshals a params value to raw JSON, warning (and sending no params)
-// rather than failing the whole frame if the value can't be marshaled.
-func mustParams(method string, params any) json.RawMessage {
+// marshalParams marshals a params value to raw JSON. A marshal failure is an
+// ERROR, not a stripped frame: this used to warn and return nil, and the
+// caller sent the request/notification anyway — with its entire payload
+// silently removed, which the peer answers as best it can (U013-F03).
+func marshalParams(method string, params any) (json.RawMessage, error) {
 	if params == nil {
-		return nil
+		return nil, nil
 	}
 	data, err := json.Marshal(params)
 	if err != nil {
-		warnf("acp: failed to marshal params for %q: %v", method, err)
-		return nil
+		return nil, fmt.Errorf("acp: refusing to send %q with its params stripped: %w", method, err)
 	}
-	return data
+	return data, nil
 }
 
-// marshalResult renders a handler's return value as a response result, defaulting
-// to JSON null (a valid, content-less success) when nil or unmarshalable.
-func marshalResult(result any) json.RawMessage {
+// marshalResult renders a handler's return value as a response result. A nil
+// result is JSON null — a valid, content-less success. An UNMARSHALABLE result
+// is an internal error, not a null success: telling the peer the request
+// succeeded while handing it zero payload is the house lie in wire form
+// (U013-F02).
+func marshalResult(result any) (json.RawMessage, *Error) {
 	if result == nil {
-		return json.RawMessage("null")
+		return json.RawMessage("null"), nil
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		warnf("acp: failed to marshal result: %v", err)
-		return json.RawMessage("null")
+		return nil, &Error{Code: CodeInternalError, Message: "result could not be encoded: " + err.Error()}
 	}
-	return data
+	return data, nil
 }
 
 // warnf routes codec diagnostics through ctxloom's standard warning path.

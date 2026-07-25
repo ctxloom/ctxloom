@@ -9,15 +9,9 @@ import (
 	"github.com/go-git/go-git/v5"
 )
 
-// GetOriginURL returns the URL of the `origin` remote of the git repository
-// enclosing the given path. Returns an error if the path is not in a git
-// repo or if origin is not configured.
-func GetOriginURL(startPath string) (string, error) {
-	return GetRemoteURL(startPath, "origin")
-}
-
 // GetRemoteURL returns the URL of the named remote in the git repository
-// enclosing the given path.
+// enclosing the given path. Returns an error if the path is not in a git repo
+// or if the remote is not configured.
 func GetRemoteURL(startPath, remoteName string) (string, error) {
 	absPath, err := filepath.Abs(startPath)
 	if err != nil {

@@ -3,6 +3,7 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -130,18 +131,36 @@ func assembleDedupedContext(fragments []*Fragment, opts ...ContextFileOption) st
 	return content
 }
 
+// ErrNoContext reports that fragments were supplied but assembled to zero
+// bytes, so no context file was written. It is deliberately distinct from the
+// no-fragments case: a session configured with NO context legitimately writes
+// nothing, but a session whose fragments all resolved empty asked for context
+// and silently got none. Callers that genuinely tolerate an empty assembly can
+// check errors.Is(err, ErrNoContext) and continue; the point is that they have
+// to say so.
+var ErrNoContext = errors.New("fragments assembled to no context")
+
 // WriteContextFile writes the assembled context to a hashed filename in .ctxloom/context/.
 // Returns the hash (used as filename without .md extension).
 // workDir is the directory where the .ctxloom/ directory exists.
 // Use WithContextFS to provide a custom filesystem for testing.
+//
+// With no fragments at all it writes nothing and returns ("", nil) — there was
+// nothing to deliver. With fragments that assemble to nothing it returns
+// ErrNoContext rather than a silent success, because "the user configured no
+// context" and "every fragment the user configured resolved to nothing" are
+// different facts and only one of them is fine.
 func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFileOption) (string, error) {
 	options := applyContextOptions(opts)
 	fs := options.fs
 
 	content := assembleDedupedContext(fragments, opts...)
 	if content == "" {
-		// No content - nothing to write
-		return "", nil
+		if len(fragments) == 0 {
+			// Nothing was asked for; nothing to write.
+			return "", nil
+		}
+		return "", fmt.Errorf("%w: %d fragment(s) produced zero bytes", ErrNoContext, len(fragments))
 	}
 
 	// Generate hash-based filename from content
@@ -164,8 +183,15 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 }
 
 // ReadContextFile reads the context file for the given hash from .ctxloom/context/[hash].md.
-// Returns empty string if file doesn't exist.
 // Use WithContextFS to provide a custom filesystem for testing.
+//
+// A MISSING file is an error wrapping os.ErrNotExist, not ("", nil). Every
+// caller reaches here holding a content hash, which only exists because the
+// file was written — so its absence (reaped cache, wrong workDir, cleaned
+// tree) is a real fact, and collapsing it into "no context" made an
+// undelivered context indistinguishable from a session that was configured
+// with none. Callers that legitimately tolerate absence keep doing so by
+// warning and continuing with empty content; they simply now know.
 func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, error) {
 	options := applyContextOptions(opts)
 	fs := options.fs
@@ -174,7 +200,7 @@ func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, e
 	content, err := afero.ReadFile(fs, contextPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return "", fmt.Errorf("context file %s.md is missing: %w", hash, os.ErrNotExist)
 		}
 		return "", fmt.Errorf("failed to read context file: %w", err)
 	}

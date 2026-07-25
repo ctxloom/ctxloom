@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -523,7 +524,10 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
 	assert.Equal(t, "user", res.Store)
-	assert.NotEmpty(t, res.KeyFingerprint)
+	// U089-F19: KeyFingerprint now reuses the `principal` the approval was
+	// keyed under instead of recomputing it. Assert the VALUE, not just
+	// non-emptiness — the two must remain the same fingerprint.
+	assert.Equal(t, ssh.FingerprintSHA256(fx.signer.PublicKey()), res.KeyFingerprint)
 	assert.Equal(t, "tooling#mcp/postgres", res.Ref)
 	assert.Equal(t, trustRepo, res.RepoURL)
 
@@ -567,7 +571,10 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
 	assert.Equal(t, "user", res.Store)
-	assert.NotEmpty(t, res.KeyFingerprint)
+	// U089-F19: KeyFingerprint now reuses the `principal` the approval was
+	// keyed under instead of recomputing it. Assert the VALUE, not just
+	// non-emptiness — the two must remain the same fingerprint.
+	assert.Equal(t, ssh.FingerprintSHA256(fx.signer.PublicKey()), res.KeyFingerprint)
 	assert.Equal(t, "tooling#skills/reviewer", res.Ref, "the stored key uses trust.KindSkill.Dir() == \"skills\"")
 	assert.Equal(t, trustRepo, res.RepoURL)
 

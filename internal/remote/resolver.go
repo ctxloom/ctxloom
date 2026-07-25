@@ -83,7 +83,7 @@ func (r *Resolver) Resolve(ctx context.Context, ref *Reference) ([]byte, error) 
 	}
 	for _, f := range r.fetchers {
 		if f.Handles(ref) {
-			return f.FetchItem(ctx, ref, ref.EffectiveContentVersion())
+			return f.FetchItem(ctx, ref, ref.ContentVersion)
 		}
 	}
 	return nil, fmt.Errorf("resolve: no fetcher for reference %q", ref.String())

@@ -47,6 +47,7 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 		model = b.model
 	}
 
+	b.assertSetupRan("interactive launch")
 	restore, err := snapshotOpencodeConfig(fs, workDir)
 	if err != nil {
 		return nil, err

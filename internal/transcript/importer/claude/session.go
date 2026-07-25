@@ -3,6 +3,9 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
@@ -154,26 +157,128 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 // packages import, not copied here.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
 	c := &converter{record: importer.RecordFunc(rec, "claude")}
-	return importer.ConvertJSONLLines(ctx, rec, lines, "claude", scanSessionInfo(lines),
+	err := importer.ConvertJSONLLines(ctx, rec, lines, "claude", scanSessionInfo(lines),
 		func(raw []byte) error {
 			var l line
 			if err := json.Unmarshal(raw, &l); err != nil {
+				c.malformed++
 				return nil // malformed line: skip, never fatal (see importer.VendorAdapter doc)
 			}
 			switch l.Type {
 			case "user":
+				c.conversational++
 				return c.handleUser(l)
 			case "assistant":
+				c.conversational++
 				return c.handleAssistant(l)
 			}
 			// Every other Type (progress, queue-operation, system,
 			// attachment, last-prompt, mode, permission-mode, ai-title,
 			// custom-title, file-history-snapshot, agent-name, pr-link,
 			// worktree-state, file-history-delta, agent-color) contributes no
-			// entries: see line's doc comment.
+			// entries: see line's doc comment. Those are ADMINISTRATIVE, so
+			// contributing nothing is correct and silent — but a type this
+			// build has never heard of is vendor content going on the floor,
+			// and gets counted so the operator hears about it (U147-F03).
+			if !adminLineTypes[l.Type] {
+				c.drops.add("line:" + l.Type)
+			}
 			return nil
 		},
 		c.flushPending)
+	if err != nil {
+		return err
+	}
+	c.reportDrops()
+	return c.checkFloor(len(lines))
+}
+
+// adminLineTypes is claude's own UI/session bookkeeping — line types that
+// legitimately carry no conversational content (see line's doc comment).
+// Anything OUTSIDE this set that isn't user/assistant is unknown to this
+// build, which is a different thing entirely and is reported.
+var adminLineTypes = map[string]bool{
+	"progress": true, "queue-operation": true, "system": true,
+	"attachment": true, "last-prompt": true, "mode": true,
+	"permission-mode": true, "ai-title": true, "custom-title": true,
+	"file-history-snapshot": true, "agent-name": true, "pr-link": true,
+	"worktree-state": true, "file-history-delta": true, "agent-color": true,
+	"summary": true, "x-ctxloom-meta": true,
+}
+
+// checkFloor is the answer to "can this importer produce zero entries and
+// still report success?" (U147-F01). It can — legitimately — for a transcript
+// that holds nothing but administrative lines, and that stays a success. What
+// must NOT stay a success is zero entries out of a file that DID contain
+// lines this adapter claims to understand, or whose lines all failed to
+// parse: that is a failed import wearing a success's clothes, and every layer
+// above (ConvertVendorTranscript, `session backfill`, the pty exit seam) is
+// structurally unable to tell the difference on its own.
+func (c *converter) checkFloor(total int) error {
+	if c.entries > 0 {
+		return nil
+	}
+	switch {
+	case c.conversational > 0:
+		return fmt.Errorf("claude: read %d lines including %d user/assistant lines but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", total, c.conversational)
+	case c.malformed > 0 && c.malformed == total:
+		return fmt.Errorf("claude: all %d lines failed to parse as JSON — not a transcript this build can read", total)
+	case c.malformed > 0:
+		return fmt.Errorf("claude: converted ZERO transcript entries from %d lines (%d of them malformed)", total, c.malformed)
+	}
+	return nil
+}
+
+// reportDrops tells the operator what vendor content this build could not
+// represent. Dropping is the honest outcome for a block type ctxloom's
+// canonical schema has no field for — dropping it SILENTLY is not (U147-F03).
+func (c *converter) reportDrops() {
+	if c.drops.total() == 0 {
+		return
+	}
+	agent.Warn("claude transcript import: dropped %d vendor content item(s) with no canonical representation (%s)", c.drops.total(), c.drops.summary())
+}
+
+// dropTally counts, by a short label, vendor content that went on the floor.
+// nil-safe so the pure mapping helpers can be called without one.
+type dropTally struct{ counts map[string]int }
+
+func (d *dropTally) add(label string) {
+	if d == nil {
+		return
+	}
+	if d.counts == nil {
+		d.counts = make(map[string]int)
+	}
+	d.counts[label]++
+}
+
+func (d *dropTally) total() int {
+	if d == nil {
+		return 0
+	}
+	n := 0
+	for _, v := range d.counts {
+		n += v
+	}
+	return n
+}
+
+// summary renders the tally as a stable, sorted "label×N, label×N" string.
+func (d *dropTally) summary() string {
+	if d == nil || len(d.counts) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(d.counts))
+	for k := range d.counts {
+		labels = append(labels, k)
+	}
+	sort.Strings(labels)
+	parts := make([]string, 0, len(labels))
+	for _, l := range labels {
+		parts = append(parts, fmt.Sprintf("%s×%d", l, d.counts[l]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // scanSessionInfo makes one pass over every line looking for session-level
@@ -214,6 +319,15 @@ type converter struct {
 	record    func(agent.ChatEvent) error
 	pending   *agent.TurnMeta
 	pendingID string
+
+	// Import accounting, read by checkFloor/reportDrops once the stream is
+	// done: how many lines this adapter claimed to understand, how many it
+	// could not parse at all, how many canonical entries actually came out,
+	// and what vendor content was dropped along the way.
+	conversational int
+	malformed      int
+	entries        int
+	drops          dropTally
 }
 
 // flushPending records a still-open Complete boundary at end of file — a
@@ -236,7 +350,7 @@ func (c *converter) handleUser(l line) error {
 		return nil
 	}
 	blocks := decodeContentBlocks(l.Message.Content)
-	evs := messageEntries("user", l.IsMeta, blocks)
+	evs := messageEntries("user", l.IsMeta, blocks, &c.drops)
 	return c.recordAll(evs, l.IsSidechain)
 }
 
@@ -251,7 +365,7 @@ func (c *converter) handleAssistant(l line) error {
 		return nil
 	}
 	blocks := decodeContentBlocks(l.Message.Content)
-	evs := messageEntries("assistant", false, blocks)
+	evs := messageEntries("assistant", false, blocks, &c.drops)
 	if err := c.recordAll(evs, l.IsSidechain); err != nil {
 		return err
 	}
@@ -280,6 +394,7 @@ func (c *converter) recordAll(evs []agent.ChatEvent, sidechain bool) error {
 	for _, ev := range evs {
 		if ev.Entry != nil {
 			ev.Entry.Sidechain = sidechain
+			c.entries++
 		}
 		if err := c.record(ev); err != nil {
 			return err
@@ -305,7 +420,7 @@ func (c *converter) recordAll(evs []agent.ChatEvent, sidechain bool) error {
 // array on this box's captured transcripts; processing in encounter order
 // rather than assuming a fixed grouping keeps this correct even if that ever
 // changes.
-func messageEntries(role string, isMeta bool, blocks []contentBlock) []agent.ChatEvent {
+func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *dropTally) []agent.ChatEvent {
 	if role == "user" && isMeta {
 		return nil
 	}
@@ -334,11 +449,14 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock) []agent.Cha
 			evs = append(evs, importer.ToolUseEvent(b.Name, b.ID, b.Input))
 		case "tool_result":
 			flushText()
-			evs = append(evs, importer.ToolResultEvent(b.ToolUseID, toolResultText(b.Content), b.IsError))
+			evs = append(evs, importer.ToolResultEvent(b.ToolUseID, toolResultText(b.Content, drops), b.IsError))
 		default:
 			// An unmodeled/future block type (e.g. "image" pasted directly
 			// into a user turn — observed but rare on this box): skip, not
-			// fatal, same as codex's unrecognized response_item variant.
+			// fatal, same as codex's unrecognized response_item variant. It is
+			// COUNTED, though — a drop nobody can observe is indistinguishable
+			// from content that was never there (U147-F03).
+			drops.add("block:" + b.Type)
 		}
 	}
 	flushText()
@@ -354,13 +472,15 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock) []agent.Cha
 // carries binary bytes this schema has no field for) are DROPPED here, not
 // fabricated into text — an honest gap, matching codex's own
 // function_call_output "no error field, don't sniff prose" discipline.
-func toolResultText(raw json.RawMessage) string {
+func toolResultText(raw json.RawMessage, drops *dropTally) string {
 	blocks := decodeContentBlocks(raw)
 	parts := make([]string, 0, len(blocks))
 	for _, b := range blocks {
 		if b.Type == "text" {
 			parts = append(parts, b.Text)
+			continue
 		}
+		drops.add("tool_result:" + b.Type)
 	}
 	return importer.JoinNonEmpty(parts)
 }

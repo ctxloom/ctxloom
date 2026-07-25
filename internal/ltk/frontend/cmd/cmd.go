@@ -33,7 +33,8 @@ func (f *Frontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellCmd} }
 
 // Parse lowers src into a Script. It is best-effort and never errors.
 func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
-	p := &parser{toks: lex(src)}
+	l := &lexer{s: src}
+	p := &parser{toks: l.run()}
 	pipelines := p.parseSequence()
 	return &ir.Script{Shell: shell, Pipelines: pipelines}, nil
 }
@@ -56,11 +57,6 @@ const (
 type tok struct {
 	kind tkind
 	text string
-}
-
-func lex(s string) []tok {
-	l := &lexer{s: s}
-	return l.run()
 }
 
 type lexer struct {

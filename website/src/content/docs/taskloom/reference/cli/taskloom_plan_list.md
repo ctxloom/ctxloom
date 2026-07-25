@@ -11,6 +11,26 @@ This page is generated from `taskloom plan list --help`.
 
 List session plans
 
+### Synopsis
+
+List session plans (~/.ctxloom/sessions/<harp>/*.plan.md).
+
+By default a listing is scoped to the CURRENT project, resolved exactly the
+way `taskloom list` resolves it (--project, else CTXLOOM_PROJECT_ID,
+else cwd) and joined to plans through the session index: each plan lives in a
+session directory, and ~/.ctxloom/sessions/index.yaml records which project
+directory that session ran in. Pass --global to list every project's plans.
+
+A plan whose session has no index entry — an ephemeral or worktree session, a
+pruned entry, a hand-written plan file — cannot be attributed to any project.
+Those are ALWAYS listed, in scoped listings too, with "-" in the project
+column. A plan is never hidden merely because we could not work out whose it
+is; only plans that positively belong to a DIFFERENT project are excluded.
+
+When no project can be resolved at all — not inside a git repo, no
+CTXLOOM_ROOT override, and no prior history at this exact path — the listing
+falls back to --global on its own, with a notice on stderr saying why.
+
 ```
 taskloom plan list [flags]
 ```
@@ -18,8 +38,9 @@ taskloom plan list [flags]
 ### Options
 
 ```
-  -h, --help   help for list
-      --json   shorthand for --format json
+      --global   list every project's plans, not just the current project's
+  -h, --help     help for list
+      --json     shorthand for --format json
 ```
 
 ### Options inherited from parent commands

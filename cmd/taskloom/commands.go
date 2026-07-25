@@ -125,12 +125,6 @@ tags in use (with counts) via "taskloom tags".`,
 	},
 }
 
-// runListCmd is listCmd's RunE body, factored out so it can be driven in
-// tests without cobra machinery: out/errw are separate so a test can assert
-// on each independently, matching the command's real stdout-stays-parseable
-// / stderr-carries-diagnostics split. text renders the human table(s); any
-// other format hands the raw rows to clifmt so the same data serializes to
-// json/yaml/toml/markdown without a per-format branch here.
 // listOptions bundles the resolved inputs for `taskloom list`. It replaces a
 // long positional parameter list — several same-typed bools in a row are easy
 // to transpose at a call site, and a named field says what each one means.
@@ -160,6 +154,12 @@ type listOptions struct {
 	Format clifmt.Format
 }
 
+// runListCmd is listCmd's RunE body, factored out so it can be driven in
+// tests without cobra machinery: out/errw are separate so a test can assert
+// on each independently, matching the command's real stdout-stays-parseable
+// / stderr-carries-diagnostics split. text renders the human table(s); any
+// other format hands the raw rows to clifmt so the same data serializes to
+// json/yaml/toml/markdown without a per-format branch here.
 func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
 	if opts.Sort != "" && opts.Sort != sortPriority {
 		return fmt.Errorf("taskloom: unknown --sort value %q (must be %q)", opts.Sort, sortPriority)

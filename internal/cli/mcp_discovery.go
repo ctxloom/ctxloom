@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
+
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 )
 
@@ -194,7 +196,7 @@ func probeWellKnownRunner(cwd string) (socket string, err error) {
 		if dialable(m.Socket) {
 			return m.Socket, nil
 		}
-		if m.Pid > 0 && coord.PidAlive(m.Pid) {
+		if m.Pid > 0 && pidalive.Alive(m.Pid) {
 			return "", fmt.Errorf(
 				"ctxloom mcp: discovery marker %s names a live runner (pid %d, socket %s) that refused the connection — refusing to silently start a local coordinator here, since that would be a SECOND, rogue coordinator whose agent_send(to:\"parent\") could never reach the real parent; check the runner process and its socket permissions, or set %s explicitly",
 				path, m.Pid, m.Socket, coord.EnvMCPSocket,

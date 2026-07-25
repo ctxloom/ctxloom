@@ -675,6 +675,42 @@ remotes:
 	require.Error(t, err)
 }
 
+// gopkg.in/yaml.v3 returns a nil error for empty, whitespace-only and
+// comment-only input, so ParseBundle accepts all three as a VALID empty
+// bundle. PushBundle would then report status "pushed" for zero bytes,
+// overwriting whatever is at the remote path — and, with a signer configured,
+// sign nothing. Nothing downstream gates on length either
+// (PublishManager.preparePublish never inspects it; PushBundleResult.SizeBytes
+// records the 0 without acting on it), so the guard belongs here.
+func TestPushBundle_EmptyBundleIsRefused(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `default: r
+remotes:
+  r:
+    url: https://github.com/x/y
+    version: v1
+`)
+
+	for name, content := range map[string]string{
+		"zero bytes":   "",
+		"whitespace":   "   \n   \n",
+		"comment only": "# nothing here\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(paths.LocalBundlesPath(appDir), "empty.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+			_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+				Path:   path,
+				Remote: "r",
+				DryRun: true,
+			})
+			require.Error(t, err, "publishing a bundle with no content must not report success")
+			assert.Contains(t, err.Error(), "empty")
+		})
+	}
+}
+
 // TestResolveBundleRemote_GitRemoteFallback covers the "bundle is in a git
 // tree" case: the user has a checked-out copy of a bundles repo and pushes a
 // bundle from there. We infer the remote by matching the git tree's origin URL

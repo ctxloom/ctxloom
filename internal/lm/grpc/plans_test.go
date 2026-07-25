@@ -80,3 +80,35 @@ func TestSessionReader_GetPlans(t *testing.T) {
 	assert.Equal(t, "h1", got[0].Name)
 	assert.Equal(t, 1, mock.KillCalls)
 }
+
+// U061-F03: an unreadable plan file is dropped from the result. The listing
+// succeeded and the file IS there, so "no plans" is a lie — the omission must
+// at minimum be reported.
+func TestReadPlanFilesReportsUnreadableFile(t *testing.T) {
+	testsupport.Isolate(t)
+	dir, err := paths.HarpDir("brisk-harp")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ok"+paths.PlanFileExt), []byte("# ok"), 0o644))
+	blocked := filepath.Join(dir, "blocked"+paths.PlanFileExt)
+	require.NoError(t, os.WriteFile(blocked, []byte("# secret"), 0o644))
+	require.NoError(t, os.Chmod(blocked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o644) })
+	if _, err := os.ReadFile(blocked); err == nil {
+		t.Skip("plan file is still readable (running as root?) — cannot exercise the failure")
+	}
+
+	got, problems := readPlanFiles("brisk-harp")
+	assert.Len(t, got, 1, "the readable plan is still returned — fault tolerance is kept")
+	require.Len(t, problems, 1, "the dropped file must be reported, not swallowed")
+	assert.Contains(t, problems[0].Error(), "blocked")
+}
+
+// An absent session directory is legitimately empty, not a failure: it must
+// stay quiet.
+func TestReadPlanFilesMissingDirIsQuiet(t *testing.T) {
+	testsupport.Isolate(t)
+	got, problems := readPlanFiles("never-created")
+	assert.Nil(t, got)
+	assert.Empty(t, problems, "a genuinely absent session dir is not a problem to report")
+}

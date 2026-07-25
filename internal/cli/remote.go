@@ -298,7 +298,6 @@ func init() {
 
 	remotePullCmd.Flags().BoolVarP(&remotePullForce, "force", "f", false,
 		"Re-pull even if already installed")
-	remotePullLock = true // default
 	remotePullCmd.Flags().BoolVar(&remotePullLock, "lock", true,
 		"Update lockfile after pull")
 }

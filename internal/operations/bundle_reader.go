@@ -24,7 +24,7 @@ func NewBundleReaderForConfig(cfg *config.Config) remote.BundleByteSource {
 		return nil
 	}
 	return remote.NewCachingBundleReader(
-		remote.NewBundleReader(registry, newCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock),
+		remote.NewBundleReader(registry, NewCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock),
 	)
 }
 
@@ -41,6 +41,6 @@ func NewBundleReaderForLockfile(cfg *config.Config, lock *remote.Lockfile) remot
 		return nil
 	}
 	return remote.NewCachingBundleReader(
-		remote.NewBundleReader(registry, newCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock),
+		remote.NewBundleReader(registry, NewCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock),
 	)
 }

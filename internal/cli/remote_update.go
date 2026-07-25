@@ -146,7 +146,7 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 		return updateInfo{}, false, fmt.Errorf("failed to resolve latest version for %s", refStr)
 	}
 
-	itemType, upToDate := reportUpdateStatus(out, refStr, entry.SHA, latestSHA, itemType)
+	upToDate := reportUpdateStatus(out, refStr, entry.SHA, latestSHA)
 	return updateInfo{
 		Type:             itemType,
 		Ref:              canonical,
@@ -187,23 +187,21 @@ func lookupLockedEntry(lockfile *remote.Lockfile, refStr string) (remote.LockEnt
 	return remote.LockEntry{}, ""
 }
 
-// reportUpdateStatus prints the update status and returns the item type to pull
-// plus whether the ref is already up to date. itemType is the caller's resolved
-// type (lock entry, falling back to the ref's own type segment) and is passed
-// through unchanged — an unlocked profile must still pull as a profile.
-func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string, itemType remote.ItemType) (remote.ItemType, bool) {
+// reportUpdateStatus prints the update status and reports whether the ref is
+// already up to date.
+func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string) bool {
 	switch currentSHA {
 	case "":
 		fmt.Fprintf(out, "%s not found in lockfile, checking latest version...\n", refStr)
-		return itemType, false
+		return false
 	case latestSHA:
 		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
-		return itemType, true
+		return true
 	default:
 		fmt.Fprintf(out, "%s has update available:\n", refStr)
 		fmt.Fprintf(out, "  Current: %s\n", shortSHA(currentSHA))
 		fmt.Fprintf(out, "  Latest:  %s\n", shortSHA(latestSHA))
-		return itemType, false
+		return false
 	}
 }
 
@@ -579,11 +577,10 @@ func shortSHA(sha string) string {
 
 // pullOutcome describes how a per-item Pull error should be reported.
 // Extracted so the (user-visible) classification rules can be unit-tested
-// without spinning up a Puller. The matching is intentionally substring-
-// based — the upstream errors flow through several layers of wrapping
-// (forge client → fetcher → puller) and don't carry a stable typed value
-// we can errors.Is on. If forge error shapes change, this is the one
-// place to update.
+// without spinning up a Puller. classifyPullError matches on the typed
+// sentinels in internal/errs with errors.Is, so the several layers of
+// wrapping between the forge client and the puller are transparent to it.
+// If a new outcome is needed, this is the one place to add it.
 type pullOutcome int
 
 const (

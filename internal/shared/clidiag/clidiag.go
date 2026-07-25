@@ -20,7 +20,7 @@ import (
 // Line returns the "<prog>: warning: <msg>\n" line without writing it, for
 // callers that need the string itself — dedup keys, or emission deferred to an
 // aggregating writer. It always returns the human line, even in structured
-// mode: Warn/Fwarn's dedup key (see onceSeen below) needs one stable identity
+// mode: WarnOnce/FwarnOnce's dedup key (see onceSeen below) needs one stable identity
 // per distinct message regardless of which wire shape actually gets written.
 func Line(prog, format string, args ...any) string {
 	return fmt.Sprintf(prog+": warning: "+format+"\n", args...)

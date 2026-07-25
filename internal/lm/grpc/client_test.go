@@ -126,9 +126,9 @@ func (s *fakeStream) CloseSend() error {
 	s.closeSendCalls++
 	return nil
 }
-func (s *fakeStream) Context() context.Context     { return context.Background() }
-func (s *fakeStream) SendMsg(m any) error          { return nil }
-func (s *fakeStream) RecvMsg(m any) error          { return nil }
+func (s *fakeStream) Context() context.Context { return context.Background() }
+func (s *fakeStream) SendMsg(m any) error      { return nil }
+func (s *fakeStream) RecvMsg(m any) error      { return nil }
 
 func TestGRPCClient_Info_Delegates(t *testing.T) {
 	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "test", Version: "1.2.3"}}
@@ -413,7 +413,7 @@ func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 	}
 	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewSelfInvokingClient("claude-code", 0)
+	_, err := NewSelfInvokingClientForLabel("claude-code", "", 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, gotCmd, "self-invoking client must pass the current executable path")
 	assert.Equal(t, []string{"llm", "serve", "claude-code"}, gotArgs)

@@ -76,7 +76,7 @@ func TestApplyListEdits(t *testing.T) {
 func TestRequireProfilesExist(t *testing.T) {
 	tmp := t.TempDir()
 	loader := profiles.NewLoader([]string{tmp})
-	if err := loader.Save(&profiles.Profile{Name: "exists"}); err != nil {
+	if err := loader.Save(&profiles.Profile{Name: "exists", Bundles: []string{"go-development"}}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 

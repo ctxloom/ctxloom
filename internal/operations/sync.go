@@ -164,7 +164,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		// Skipped when a Puller is injected (tests drive a mock fetcher with no
 		// real clone to advance); per-URL failures warn and continue.
 		if req.Puller == nil {
-			refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(pending))
+			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(pending))
 		}
 
 		if err := syncRefs(ctx, puller, pending, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
@@ -183,11 +183,18 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 			break
 		}
 		bundleRefs = next
+	}
 
-		if pass == maxSyncPasses-1 {
+	// Only warn when the graph is GENUINELY still unconverged — the final
+	// re-collect surfaced refs nothing has synced. Checking this inside the
+	// loop fired whenever the loop merely REACHED the last pass, including
+	// when that pass converged the graph.
+	for _, ref := range bundleRefs {
+		if !synced.Has(ref) {
 			clidiag.Warn("ctxloom",
 				"dependency graph still revealing new references after %d sync passes; "+
 					"run 'ctxloom remote pull' again to continue converging", maxSyncPasses)
+			break
 		}
 	}
 
@@ -224,7 +231,7 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 	if puller == nil {
 		auth := remote.LoadAuth(baseDir)
 		puller = remote.NewPuller(registry, auth,
-			remote.WithFetcherFactory(newCachedFetcherFactory(cfg)),
+			remote.WithFetcherFactory(NewCachedFetcherFactory(cfg)),
 			remote.WithLockfileManager(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))),
 		)
 	}
@@ -296,18 +303,16 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 // URL and are skipped — only network remotes have a clone to refresh. Mirrors
 // uniqueRemoteURLs but works from raw refs (sync's input) rather than lockfile
 // entries.
-func syncRefURLs(refSets ...[]string) []string {
+func syncRefURLs(refs []string) []string {
 	seen := collections.NewSet[string]()
 	var urls []string
-	for _, refs := range refSets {
-		for _, ref := range refs {
-			parsed, err := remote.ParseReference(ref)
-			if err != nil || parsed.URL == "" || seen.Has(parsed.URL) {
-				continue
-			}
-			seen.Add(parsed.URL)
-			urls = append(urls, parsed.URL)
+	for _, ref := range refs {
+		parsed, err := remote.ParseReference(ref)
+		if err != nil || parsed.URL == "" || seen.Has(parsed.URL) {
+			continue
 		}
+		seen.Add(parsed.URL)
+		urls = append(urls, parsed.URL)
 	}
 	return urls
 }
@@ -767,7 +772,7 @@ func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
 	if err != nil {
 		return
 	}
-	refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs))
+	refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(bundleRefs))
 }
 
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.

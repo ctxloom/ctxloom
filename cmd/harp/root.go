@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // progName is the binary/command name, used in the cobra root and in

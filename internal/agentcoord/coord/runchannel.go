@@ -180,23 +180,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 		c.pushMail(id.Harp)
 	}
 
-	defer func() {
-		c.mu.Lock()
-		registered := c.chans[id.Harp] == ch
-		if registered {
-			delete(c.chans, id.Harp)
-		}
-		pushed := ch.pushed
-		ch.pushed = nil
-		c.mu.Unlock()
-		cancel()
-		if registered {
-			// Tentative deliveries die with the channel: un-reserve so the
-			// pending messages re-deliver on reattach (at-least-once) and so
-			// the terminal path's leftover-mail resume sees them.
-			c.unreserveRuntime(id.Harp, pushed)
-		}
-	}()
+	defer c.releaseRunChan(id.Harp, ch)
 
 	// Single writer pump: everything outbound funnels through ch.send.
 	// goTracked (flaky-agentcoord S1): terminates once streamCtx is
@@ -382,6 +366,15 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 // while the runner-side recv is parked: an unparked child's mail is the
 // turn machinery's to deliver (delivery-by-state, §6a), and pushing then
 // would hand the harness the same message twice.
+//
+// A saturated send pump ROLLS THE RESERVATION BACK (U024-F02). The reservation
+// is taken under c.mu before the send so a concurrent push or turn-boundary
+// drain cannot select the same message twice, and released again for exactly
+// the ids the pump refused — which were never delivered, so leaving them
+// reserved would hide them from undeliveredLocked (and so from every later
+// push) for as long as the channel lived. releaseRunChan's unconditional
+// un-reserve only covers the channel's DEATH; a live, busy child stranded the
+// message permanently, having already told the sender it was delivered.
 func (c *Coordinator) pushMail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]
@@ -397,27 +390,58 @@ func (c *Coordinator) pushMail(role string) {
 		c.mu.Unlock()
 		return
 	}
-	msgs := c.undeliveredLocked(role)
-	for _, m := range msgs {
+	// Project BEFORE reserving: a message whose wire shape cannot be built was
+	// never handed to anyone, so it must not be marked delivered (U024-F07).
+	type outbound struct {
+		id     string
+		notice *agentcoordpb.CoordinatorFrame
+	}
+	var (
+		out      []outbound
+		unshaped []string
+	)
+	for _, m := range c.undeliveredLocked(role) {
+		pm, err := peerMessageProto(m)
+		if err != nil {
+			unshaped = append(unshaped, fmt.Sprintf("%s: %v", m.ID, err))
+			continue
+		}
 		c.delivered[role] = append(c.delivered[role], m.ID)
 		ch.pushed = append(ch.pushed, m.ID)
+		out = append(out, outbound{id: m.ID, notice: &agentcoordpb.CoordinatorFrame{
+			Kind: &agentcoordpb.CoordinatorFrame_Notice{
+				Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_PeerMessage{
+					PeerMessage: pm,
+				}},
+			},
+		}})
 	}
 	send := ch.send
 	c.mu.Unlock()
 
-	for _, m := range msgs {
-		notice := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Notice{
-			Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_PeerMessage{
-				PeerMessage: peerMessageProto(m),
-			}},
-		}}
+	for _, why := range unshaped {
+		clidiag.Warn("ctxloom", "coordinator: cannot project mail for %s onto the wire, not pushed (%s)", role, why)
+	}
+
+	var dropped []string
+	for _, o := range out {
 		select {
-		case send <- notice:
+		case send <- o.notice:
 		default:
-			// Send pump saturated: drop the notice; the ids stay reserved
-			// until the channel dies (then re-deliver) — never lost.
+			// Send pump saturated: the notice never went out, so the
+			// tentative delivery must be undone — otherwise the reservation
+			// hides the message from every subsequent push.
+			dropped = append(dropped, o.id)
 		}
 	}
+	if len(dropped) == 0 {
+		return
+	}
+	clidiag.Warn("ctxloom", "coordinator: send pump saturated for %s; %d message(s) requeued for the next push", role, len(dropped))
+	c.mu.Lock()
+	ch.pushed = removeIDs(ch.pushed, dropped)
+	c.mu.Unlock()
+	c.unreserve(role, dropped)
 }
 
 // peerMessageProto projects a mailbox message onto the wire shape. Kind
@@ -425,7 +449,16 @@ func (c *Coordinator) pushMail(role string) {
 // caller-supplied Structured payload (e.g. an escalation ladder's relayed
 // ApprovalRequest projection, Wave C2) merges under it — kind always wins on
 // a key collision, so a caller cannot spoof the message's own kind.
-func peerMessageProto(m Message) *agentcoordpb.PeerMessage {
+//
+// A payload that cannot be carried is an ERROR, not an empty result (U024-F07).
+// Both failures were previously swallowed — the json.Unmarshal error by an
+// `if err == nil` with no else, structpb.NewStruct's by assignment to `_` — and
+// each produced a PeerMessage with the caller's payload silently missing. For a
+// relayed ApprovalRequest that is the entire message: the recipient gets an
+// approval notice with no request in it and nothing reports a fault. The caller
+// (pushMail) warns and leaves the message pending rather than spending it on a
+// hollow notice.
+func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
 	pm := &agentcoordpb.PeerMessage{
 		MessageId:   m.ID,
 		FromAgentId: m.From,
@@ -435,24 +468,62 @@ func peerMessageProto(m Message) *agentcoordpb.PeerMessage {
 	fields := map[string]any{}
 	if len(m.Structured) > 0 {
 		var extra map[string]any
-		if err := json.Unmarshal(m.Structured, &extra); err == nil {
-			for k, v := range extra {
-				fields[k] = v
-			}
+		if err := json.Unmarshal(m.Structured, &extra); err != nil {
+			return nil, fmt.Errorf("decode structured payload: %w", err)
+		}
+		for k, v := range extra {
+			fields[k] = v
 		}
 	}
 	if m.Kind != "" {
 		fields["kind"] = m.Kind
 	}
 	if len(fields) > 0 {
-		pm.Structured, _ = structpb.NewStruct(fields)
+		s, err := structpb.NewStruct(fields)
+		if err != nil {
+			return nil, fmt.Errorf("encode structured payload: %w", err)
+		}
+		pm.Structured = s
 	}
-	return pm
+	return pm, nil
 }
 
 // unreserveRuntime drops ids from the runtime delivery ledger WITHOUT a
 // consume fact — the channel died before consumption, so the messages
 // return to deliverable state.
+// releaseRunChan is the RunChannel handler's teardown: deregister the channel,
+// cancel its context, and release its tentative deliveries.
+//
+// Deregistration IS conditional — only this channel's own registration may be
+// removed, never a successor's. Un-reserving is NOT, and that asymmetry is the
+// whole point (U024-F01). A reconnect registers the new channel and cancels its
+// predecessor inside one c.mu window, so the OLD handler's teardown ALWAYS
+// observes the successor and the old `if registered` guard around the unreserve
+// was always false on exactly the path where mail was in flight. ch.pushed was
+// then dropped on the floor: reserved ids are invisible to undeliveredLocked
+// and so to pendingCount, meaning the reattach push never re-sends them and
+// only unreserve ever clears c.delivered — permanent, silent loss of a message
+// agent_send had already reported as delivered, decided by which goroutine won
+// the race.
+//
+// Un-reserving unconditionally is safe on the other teardown path too: severChan
+// nils ch.pushed under c.mu before this can run, so unreserveRuntime's
+// len(ids)==0 early return makes it a no-op rather than a double release.
+func (c *Coordinator) releaseRunChan(harp string, ch *runChan) {
+	c.mu.Lock()
+	if c.chans[harp] == ch {
+		delete(c.chans, harp)
+	}
+	pushed := ch.pushed
+	ch.pushed = nil
+	c.mu.Unlock()
+	ch.cancel()
+	// Tentative deliveries die with the channel: un-reserve so the pending
+	// messages re-deliver on reattach (at-least-once) and so the terminal
+	// path's leftover-mail resume sees them.
+	c.unreserveRuntime(harp, pushed)
+}
+
 func (c *Coordinator) unreserveRuntime(role string, ids []string) {
 	if len(ids) == 0 {
 		return
@@ -683,9 +754,21 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 		if v, ok := s.GetFields()["kind"]; ok {
 			kind = v.GetStringValue()
 		}
-		if raw, merr := protojson.Marshal(s); merr == nil {
-			structured = raw
+		// Refuse rather than silently truncate. This used to be
+		// `if merr == nil { structured = raw }` with merr never inspected, so a
+		// Struct that could not be marshalled left `structured` nil and the
+		// message was QUEUED without its payload and reported as sent. For a
+		// parent answering a relayed approval that converts a decision into an
+		// unanswerable message: the decode side is strict and then reports
+		// "structured is required", blaming the sender, who was told it worked.
+		// serveCustom below already treats the identical failure as
+		// InvalidArgument.
+		raw, merr := protojson.Marshal(s)
+		if merr != nil {
+			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument,
+				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", merr))}
 		}
+		structured = raw
 	}
 	msgID, delivered, disposition, err := c.peerSend(caller, to, kind, req.GetText(), structured, req.GetInReplyTo())
 	if err != nil {
@@ -742,15 +825,18 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}
-	disposition := fmt.Sprintf("spawned %s (engine %s, runtime %s)", out.Harp, out.Engine, orHost(out.Runtime))
-	if out.Queued {
-		disposition += "; queued behind the execution cap"
+	runtime := out.Runtime
+	if runtime == "" {
+		runtime = "host"
 	}
-	for _, d := range out.Degraded {
-		disposition += "; degraded: " + d
-	}
+	// The launch runs on its own goroutine, so "spawned" was historically a
+	// claim, not an observation: a child whose launch had ALREADY failed by
+	// the time this answer was composed still reported as spawned (U024-F05).
+	// Read the run's terminal state before answering — a settled failure is
+	// reported as a failure, and everything else keeps the exact wording that
+	// shipped.
 	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(disposition),
+		Status: okStatus(spawnDisposition(out, runtime, c.settledFailureCause(out.RunID))),
 		Kind: &agentcoordpb.CoordinatorResponse_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentResult{
 			ChildRunId:   out.RunID,
 			ChildAgentId: out.Harp,
@@ -758,11 +844,44 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	}
 }
 
-func orHost(runtime string) string {
-	if runtime == "" {
-		return "host"
+// spawnDisposition renders agent_run's answer. failureCause is the run's
+// terminal cause when the launch has ALREADY settled as failed by the time we
+// answer (empty otherwise).
+//
+// The success wording is byte-identical to what shipped — an out-of-repo
+// consumer (the ctxloom VS Code extension) may match on "spawned" — so only
+// the failure case reads differently, and it deliberately does NOT contain
+// "spawned " anywhere. The structured SpawnAgentResult (child_run_id /
+// child_agent_id) still rides along on both, so a consumer that reads the
+// payload rather than the prose is unaffected either way.
+func spawnDisposition(out *RunOutcome, runtime, failureCause string) string {
+	if failureCause != "" {
+		return fmt.Sprintf("agent_run FAILED: %s (engine %s, runtime %s) did not launch (%s) — see the roster for the run's terminal detail",
+			out.Harp, out.Engine, runtime, failureCause)
 	}
-	return runtime
+	disposition := fmt.Sprintf("spawned %s (engine %s, runtime %s)", out.Harp, out.Engine, runtime)
+	if out.Queued {
+		disposition += "; queued behind the execution cap"
+	}
+	for _, d := range out.Degraded {
+		disposition += "; degraded: " + d
+	}
+	return disposition
+}
+
+// settledFailureCause reports a run's terminal cause when it has already ended
+// in a LAUNCH FAILURE, and "" in every other case (still running, queued, or
+// ended for any other reason). It never waits: a launch still in flight is not
+// a failure, and blocking agent_run on a container prepare would be a worse
+// bug than the one this closes.
+func (c *Coordinator) settledFailureCause(runID string) string {
+	var cause string
+	c.runs.View(func() {
+		if r := c.runsF.run(runID); r != nil && r.Ended && r.Cause == CauseLaunchFailed {
+			cause = r.Cause
+		}
+	})
+	return cause
 }
 
 // serveListRuns is the roster: the caller's children from the roster/runs

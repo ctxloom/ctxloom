@@ -60,7 +60,7 @@ func List() []Endpoint {
 	}
 	matches, _ := filepath.Glob(filepath.Join(home, paths.AppDirName, coordDirName, "*", "endpoint.json"))
 	sort.Slice(matches, func(i, j int) bool { return mtime(matches[i]).After(mtime(matches[j])) })
-	out := make([]Endpoint, 0, len(matches))
+	var out []Endpoint
 	for _, m := range matches {
 		raw, err := os.ReadFile(m)
 		if err != nil {

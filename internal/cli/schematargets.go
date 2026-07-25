@@ -15,8 +15,8 @@ import (
 // they don't collide with the operations.* result of the same base name.
 func SchemaTargets() []schemagen.Target {
 	return []schemagen.Target{
-		schemagen.Of(reflect.TypeOf(compactSessionResult{}), "mcp-compact-session-result"),
-		schemagen.Of(reflect.TypeOf(loadSessionResult{}), "mcp-load-session-result"),
-		schemagen.Of(reflect.TypeOf(HookOutput{}), "hook-output"),
+		{Type: reflect.TypeOf(compactSessionResult{}), Name: "mcp-compact-session-result"},
+		{Type: reflect.TypeOf(loadSessionResult{}), Name: "mcp-load-session-result"},
+		{Type: reflect.TypeOf(HookOutput{}), Name: "hook-output"},
 	}
 }

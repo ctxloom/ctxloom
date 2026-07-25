@@ -165,9 +165,7 @@ func resolveSearchTypes(itemType string) (localTypes, remoteTypes []string, err 
 		return []string{"fragment", "command", "skill", "profile", "mcp_server"}, []string{"bundle"}, nil
 	}
 	switch itemType {
-	case "fragment", "command", "skill", "mcp_server":
-		return []string{itemType}, nil, nil
-	case "profile":
+	case "fragment", "command", "skill", "mcp_server", "profile":
 		return []string{itemType}, nil, nil
 	case "bundle":
 		return nil, []string{itemType}, nil

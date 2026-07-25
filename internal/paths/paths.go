@@ -29,10 +29,10 @@ const (
 	// RemotesFileName is the name of the remotes file (without extension).
 	RemotesFileName = "remotes"
 
-	// TrustFileName is the name of the per-item trust store file (without
-	// extension). It is a committed/shared persistent item, sitting at the
-	// .ctxloom root next to remotes.yaml (NOT under a nested persistent/ dir,
-	// matching the rest of ctxloom's persistent items — see paths_test.go).
+	// TrustFileName is the "trust" path segment. Despite the name it is NOT a
+	// file: no .ctxloom/trust.yaml exists and nothing in this package builds
+	// one. Its sole use is as the DIRECTORY segment in TrustObjectsPath
+	// (cache/trust/objects), the approved-content snapshot store.
 	TrustFileName = "trust"
 
 	// AllowedSignersFileName is the name of the trust-root file: the set of
@@ -249,18 +249,6 @@ func HarpCanonicalTranscriptPath(harp string) (string, error) {
 	return filepath.Join(dir, CanonicalTranscriptFileName), nil
 }
 
-// harpLegacyCanonicalTranscriptPath returns
-// ~/.ctxloom/sessions/<harp>/persist/transcript.acp.jsonl — the pre-rename
-// leaf (see legacyCanonicalTranscriptFileName). Unexported: only
-// ResolveHarpCanonicalTranscriptPath needs it.
-func harpLegacyCanonicalTranscriptPath(harp string) (string, error) {
-	dir, err := HarpPersistDir(harp)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, legacyCanonicalTranscriptFileName), nil
-}
-
 // ResolveHarpCanonicalTranscriptPath returns the on-disk path to harp's
 // captured canonical transcript, preferring HarpCanonicalTranscriptPath (the
 // current name) but falling back to the pre-rename
@@ -278,19 +266,19 @@ func harpLegacyCanonicalTranscriptPath(harp string) (string, error) {
 // Writers always call HarpCanonicalTranscriptPath directly: this rename is
 // forward-only, nothing ever writes the legacy name again.
 func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
-	current, err := HarpCanonicalTranscriptPath(harp)
+	// One home-dir resolution for both leaf names: the legacy path can only
+	// differ from the current one in its file name, so re-deriving the
+	// directory (and re-handling an error that already fired) buys nothing.
+	dir, err := HarpPersistDir(harp)
 	if err != nil {
 		return "", err
 	}
+	current := filepath.Join(dir, CanonicalTranscriptFileName)
 	if _, statErr := os.Stat(current); statErr == nil {
 		return current, nil
 	}
-	legacy, err := harpLegacyCanonicalTranscriptPath(harp)
-	if err != nil {
-		return current, nil //nolint:nilerr // harp already validated above; degrade to current-name path
-	}
-	if _, statErr := os.Stat(legacy); statErr == nil {
-		return legacy, nil
+	if _, statErr := os.Stat(filepath.Join(dir, legacyCanonicalTranscriptFileName)); statErr == nil {
+		return filepath.Join(dir, legacyCanonicalTranscriptFileName), nil
 	}
 	return current, nil
 }
@@ -338,9 +326,9 @@ func TriggerCacheDir() (string, error) {
 	return filepath.Join(home, AppDirName, CacheDir, "triggers"), nil
 }
 
-// GetCacheDir returns the cache subdirectory path for the given app path.
+// CachePath returns the cache subdirectory path for the given app path.
 // Cache contains regeneratable content: bundles, vendor, context, memory.
-func GetCacheDir(appPath string) string {
+func CachePath(appPath string) string {
 	return filepath.Join(appPath, CacheDir)
 }
 
@@ -445,7 +433,7 @@ func AgentsPath(appPath string) string {
 // project's own bundles" (create/import/export/list/sign) must use that one —
 // wiring them here is the bug this split exists to prevent.
 func CacheBundlesPath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), BundlesDir)
+	return filepath.Join(CachePath(appPath), BundlesDir)
 }
 
 // LocalPath returns the path to the committed content directory (at
@@ -466,22 +454,22 @@ func LocalBundlesPath(appPath string) string {
 
 // VendorPath returns the path to the vendor directory (under cache/).
 func VendorPath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), VendorDir)
+	return filepath.Join(CachePath(appPath), VendorDir)
 }
 
 // ContextPath returns the path to the context directory (under cache/).
 func ContextPath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), ContextDir)
+	return filepath.Join(CachePath(appPath), ContextDir)
 }
 
 // MemoryPath returns the path to the memory directory (under cache/).
 func MemoryPath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), MemoryDir)
+	return filepath.Join(CachePath(appPath), MemoryDir)
 }
 
 // ReposCachePath returns the path to the repos cache directory (under cache/).
 func ReposCachePath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), ReposCacheDir)
+	return filepath.Join(CachePath(appPath), ReposCacheDir)
 }
 
 // TrustObjectsPath returns the approved-content snapshot directory (under
@@ -490,7 +478,7 @@ func ReposCachePath(appPath string) string {
 // Pure cache: deleting it only degrades update review from a diff to a
 // full-content display (the countersignature stores stay authoritative).
 func TrustObjectsPath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), TrustFileName, "objects")
+	return filepath.Join(CachePath(appPath), TrustFileName, "objects")
 }
 
 // DefaultAppDir returns the default app directory path relative to current directory.

@@ -78,16 +78,6 @@ func (p *Projector) MessageSchema(name string) (map[string]any, error) {
 	return p.messageSchema(md, map[protoreflect.FullName]bool{}), nil
 }
 
-// MessageDoc returns the message's LLM-facing description:
-// (message_schema).doc when annotated, else its leading comment.
-func (p *Projector) MessageDoc(name string) (string, error) {
-	md, err := p.message(name)
-	if err != nil {
-		return "", err
-	}
-	return p.messageDoc(md), nil
-}
-
 func (p *Projector) messageDoc(md protoreflect.MessageDescriptor) string {
 	if opts, ok := md.Options().(*descriptorpb.MessageOptions); ok && opts != nil {
 		if proto.HasExtension(opts, agentcoordpb.E_MessageSchema) {
@@ -288,7 +278,7 @@ func normalizeComment(c string) string {
 			parts = append(parts, ln)
 		}
 	}
-	return strings.TrimSuffix(strings.Join(parts, " "), " ")
+	return strings.Join(parts, " ")
 }
 
 // ToolSpec is one generated tool surface entry — the checked-in golden's
@@ -316,10 +306,14 @@ func (p *Projector) ProjectTool(b Binding) (*ToolSpec, error) {
 	// Inputs are closed: models must not invent argument names.
 	in["additionalProperties"] = false
 	if b.Input != "" {
-		if doc, derr := p.MessageDoc(b.Input); derr == nil && doc != "" {
-			spec.Description = doc
-			// The tool description carries the doc; keep the schema lean.
-			delete(in, "description")
+		// The message's LLM-facing description: (message_schema).doc when
+		// annotated, else its leading comment.
+		if md, derr := p.message(b.Input); derr == nil {
+			if doc := p.messageDoc(md); doc != "" {
+				spec.Description = doc
+				// The tool description carries the doc; keep the schema lean.
+				delete(in, "description")
+			}
 		}
 	}
 	if spec.InputSchema, err = marshalSchema(in); err != nil {

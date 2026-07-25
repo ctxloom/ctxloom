@@ -145,7 +145,7 @@ func resolvePullItemPuller(cfg *config.Config, req PullItemRequest, baseDir stri
 		}
 	}
 	auth := remote.LoadAuth(baseDir)
-	return remote.NewPuller(registry, auth, remote.WithFetcherFactory(newCachedFetcherFactory(cfg))), nil
+	return remote.NewPuller(registry, auth, remote.WithFetcherFactory(NewCachedFetcherFactory(cfg))), nil
 }
 
 // bundleInstallation extracts a pulled bundle's installation instructions from

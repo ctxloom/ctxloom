@@ -32,7 +32,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
-	factory := remote.FetcherFactory(newCachedFetcherFactory(cfg))
+	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
 	active, err := remote.NewLockfileManager(baseDir).Load()
 	if err != nil {
 		return 0, err
@@ -42,7 +42,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	// sees the newest commit each constraint permits. The direct refs alone miss
 	// repos reached only through transitive parents; union in every repo URL the
 	// active lock already records so the whole known closure refreshes.
-	refreshRepoCaches(ctx, newRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active))
+	refreshRepoCaches(ctx, NewRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active))
 
 	// Re-resolve the whole closure (upgrade mode): every unheld ref advances to
 	// the newest commit its constraint allows; held entries stay put. Conflicts
@@ -53,7 +53,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 		return 0, ConflictError(conflicts)
 	}
 
-	newActive := emptyLockfile()
+	newActive := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
 	advanced := 0
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
@@ -138,11 +138,4 @@ func unionLockedRepoURLs(urls []string, lock *remote.Lockfile) []string {
 		urls = append(urls, e.Entry.URL)
 	}
 	return urls
-}
-
-func emptyLockfile() *remote.Lockfile {
-	return &remote.Lockfile{
-		Version: 1,
-		Bundles: map[string]remote.LockEntry{},
-	}
 }

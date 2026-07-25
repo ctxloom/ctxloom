@@ -24,7 +24,7 @@ func parseAuthorizedKey(t *testing.T, line string) ssh.PublicKey {
 }
 
 func TestEmbeddedSigners_ReleaseKeyTrustedForPublishOnly(t *testing.T) {
-	store := embeddedSigners()
+	store := EmbeddedSigners()
 	require.NotNil(t, store)
 
 	key := parseAuthorizedKey(t, ctxloomReleasePubkey)
@@ -43,7 +43,7 @@ func TestEmbeddedSigners_ReleaseKeyTrustedForPublishOnly(t *testing.T) {
 }
 
 func TestEmbeddedSigners_UnknownKeyTrustsNothing(t *testing.T) {
-	store := embeddedSigners()
+	store := EmbeddedSigners()
 	// A real, valid ed25519 key that is simply not the embedded one (fixed seed
 	// → deterministic, no rand dependency).
 	seed := make([]byte, ed25519.SeedSize)

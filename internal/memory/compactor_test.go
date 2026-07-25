@@ -370,6 +370,36 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 	assert.Contains(t, err.Error(), "exited with code 1")
 }
 
+// U078-F01: an LLM that exits 0 having written nothing is a FAILURE, not an
+// empty distillation. Treated as success it produced an empty body which
+// saveDistilled then atomically wrote over a previously good essence.md.
+func TestCompactor_DistillChunk_EmptyOutputIsAFailure(t *testing.T) {
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			return 0, nil // exit 0, not one byte of output
+		},
+	}
+
+	c := &Compactor{
+		config:        CompactionConfig{LLM: "test-plugin"},
+		clientFactory: pb.MockClientFactory(mockClient),
+	}
+
+	_, err := c.distillChunk(context.Background(), "content", 1, 1)
+	require.Error(t, err, "exit 0 with empty stdout must not read as a successful distillation")
+	assert.Contains(t, err.Error(), "no output")
+}
+
+// U078-F01 (second half): even if an empty body reaches saveDistilled by some
+// other route, it must never replace an existing essence. Distillation exists
+// to preserve context; silently zeroing it is the worst possible outcome.
+func TestCompactor_SaveDistilled_RefusesEmptyBody(t *testing.T) {
+	c := &Compactor{config: CompactionConfig{OutputDir: t.TempDir()}}
+
+	_, err := c.saveDistilled("some-session", "   \n\n  ", distilledMeta{})
+	require.Error(t, err, "an empty distilled body must not be written over a good essence")
+}
+
 func TestMockClientFactory(t *testing.T) {
 	mock := &pb.MockClient{}
 	factory := pb.MockClientFactory(mock)
@@ -668,6 +698,47 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	result, err := compactor.Compact(context.Background())
 	require.NoError(t, err, "an all-sidechain session must dump successfully, not error")
 	assert.Equal(t, 0, result.ChunksCreated)
+}
+
+// U078-F02: an empty session must NOT replace an already-distilled essence
+// with the 54-byte placeholder. Re-distillation is triggered automatically by
+// the staleness path, and loadSessionToCompact falls back to the current
+// session when a bound transcript is gone — so a good essence could be wiped
+// by a routine, automatic re-distill of a session that reads as empty.
+func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
+	testsupport.Isolate(t)
+	outDir := t.TempDir()
+
+	const sessionID = "previously-distilled"
+	const goodEssence = "---\nsession_id: previously-distilled\n---\n\n# Session summary\n\nReal, hard-won distilled context.\n"
+	existing := filepath.Join(outDir, sessionID+".md")
+	require.NoError(t, os.WriteFile(existing, []byte(goodEssence), 0o644))
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{ID: sessionID, Entries: []agent.SessionEntry{}},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			t.Fatal("empty session must not reach the LLM")
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       outDir,
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err, "an empty session is still not a failure")
+
+	after, readErr := os.ReadFile(existing)
+	require.NoError(t, readErr)
+	assert.Equal(t, goodEssence, string(after),
+		"the placeholder must not have replaced a real distilled essence")
 }
 
 func TestCompact_WithMockClient(t *testing.T) {

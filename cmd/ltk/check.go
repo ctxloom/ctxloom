@@ -71,6 +71,10 @@ broken/unreadable config rather than failing closed.`,
 // text prints the human verdict via printCheckText; json/yaml/toml/markdown
 // serialize checkResult through the shared clifmt filter.
 func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format clifmt.Format) error {
+	// Unreachable from the CLI — newCheckCmd's RunE resolves the format
+	// through cliemit.Resolve, which already rejects anything clifmt cannot
+	// parse. It survives as the seam for direct in-package calls (see
+	// check_test.go's "unknown format errors").
 	if !format.Valid() {
 		return fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", clifmt.ErrUnsupportedFormat, format)
 	}
@@ -81,13 +85,23 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 	if err != nil {
 		return fmt.Errorf("load rules config: %w", err)
 	}
+	// `check` is the diagnostic surface, not the guard: it may fail loudly. A
+	// .gitmodules that exists but cannot be read, or a submodule path that is
+	// not a valid glob, would otherwise leave a `path: ["@submodules"]` rule
+	// expanded to nothing and report the resulting non-decision as an "allow".
 	if wd, err := os.Getwd(); err == nil {
-		cfg.ExpandSubmodules(scm.SubmodulePaths(afero.NewOsFs(), wd))
+		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
+		if err != nil {
+			return fmt.Errorf("resolve @submodules: %w", err)
+		}
+		if err := cfg.ExpandSubmodules(subs); err != nil {
+			return err
+		}
 	}
 
 	a := app.New(cfg)
 	a.ForceShell = forceShell
-	a.HostShell = shellenv.FromEnv(os.Getenv("SHELL"))
+	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
 	resp := a.Decide(context.Background(), engine.Request{Command: command})
 
 	result := checkResult{Decision: "allow"}

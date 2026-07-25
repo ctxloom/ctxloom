@@ -80,7 +80,7 @@ func bundleListDeletedResolver(cfg *config.Config) *remote.Resolver {
 	sort.Strings(urls)
 
 	remoteFetcher := remote.NewRemoteRefFetcher(
-		remote.ClonedRepoVCSFactory(newRepoCache(cfg)),
+		remote.ClonedRepoVCSFactory(NewRepoCache(cfg)),
 		remote.WithRemoteSources(urls),
 	)
 	return remote.NewResolver(remoteFetcher)

@@ -90,7 +90,7 @@ func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeTyp
 // remote-tracking refs (refs/remotes/origin/*) and tags to the live remote.
 // If the repo is not yet cloned, it clones it.
 func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
-	repoDir := c.repoDirForURL(repoURL)
+	repoDir := c.RepoDirForURL(repoURL)
 	unlock := lockCloneDir(repoDir)
 	defer unlock()
 
@@ -110,7 +110,7 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 // same directory serialize on the per-directory lock regardless of which
 // RepoCache instance they go through.
 func (c *RepoCache) ensureClone(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
-	repoDir := c.repoDirForURL(repoURL)
+	repoDir := c.RepoDirForURL(repoURL)
 	unlock := lockCloneDir(repoDir)
 	defer unlock()
 	return c.ensureCloneLocked(ctx, repoURL, repoDir, forgeType)
@@ -263,14 +263,9 @@ func cloneHost(cloneURL string) string {
 	return strings.ToLower(u.Host)
 }
 
-// RepoDirForURL returns the local cache path for a repo URL (exported for operations).
-func (c *RepoCache) RepoDirForURL(repoURL string) string {
-	return c.repoDirForURL(repoURL)
-}
-
-// repoDirForURL computes the local cache path for a repo URL.
+// RepoDirForURL computes the local cache path for a repo URL.
 // e.g., https://github.com/owner/repo → baseDir/github.com/owner/repo
-func (c *RepoCache) repoDirForURL(repoURL string) string {
+func (c *RepoCache) RepoDirForURL(repoURL string) string {
 	u, err := url.Parse(normalizeCloneURL(repoURL))
 	if err != nil {
 		return c.safeRepoPath(sanitizePath(repoURL))

@@ -155,16 +155,11 @@ func (c *Coordinator) LoopbackURL() string {
 	return c.srv.loopURL
 }
 
-// ReachURL resolves the URL a caller on runtimeAxis can dial — the hosting
-// glue uses it for the parent harness's env trio.
-func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
-	return c.reachURL(runtimeAxis)
-}
-
-// reachURL resolves the URL a child on runtimeAxis dials: loopback for host
+// ReachURL resolves the URL a caller on runtimeAxis dials: loopback for host
 // runs; the widened bridge/host-interface listener for container runs
-// (opened on demand, never 0.0.0.0).
-func (c *Coordinator) reachURL(runtimeAxis string) (string, error) {
+// (opened on demand, never 0.0.0.0). The hosting glue uses it for the parent
+// harness's env trio.
+func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
 	if c.srv == nil {
 		return "", errors.New("coordinator listeners are not up")
 	}

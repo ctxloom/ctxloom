@@ -60,7 +60,7 @@ func TestMessageEntries_IsMetaUserSkipped(t *testing.T) {
 	// captured verbatim as an isMeta:true "user" line on this box (see
 	// testdata/MANIFEST.json).
 	blocks := decodeContentBlocks(json.RawMessage(`"<local-command-caveat>Caveat: ...</local-command-caveat>"`))
-	evs := messageEntries("user", true, blocks)
+	evs := messageEntries("user", true, blocks, nil)
 	assert.Nil(t, evs, "isMeta:true user content must never become a canonical entry")
 }
 
@@ -69,7 +69,7 @@ func TestMessageEntries_MultipleTextBlocksJoined(t *testing.T) {
 		{Type: "text", Text: "part one"},
 		{Type: "text", Text: "part two"},
 	}
-	evs := messageEntries("user", false, blocks)
+	evs := messageEntries("user", false, blocks, nil)
 	require.Len(t, evs, 1)
 	assert.Equal(t, "part one\n\npart two", evs[0].Entry.Content)
 }
@@ -79,17 +79,17 @@ func TestMessageEntries_EmptyThinkingSkipped(t *testing.T) {
 	// thinking field and only a signature (confirmed on multiple real
 	// captures on this box) — this must contribute nothing, never a blank
 	// entry.
-	evs := messageEntries("assistant", false, []contentBlock{{Type: "thinking", Thinking: ""}})
+	evs := messageEntries("assistant", false, []contentBlock{{Type: "thinking", Thinking: ""}}, nil)
 	assert.Nil(t, evs)
 }
 
 func TestMessageEntries_EmptyContentSkipped(t *testing.T) {
-	evs := messageEntries("user", false, nil)
+	evs := messageEntries("user", false, nil, nil)
 	assert.Nil(t, evs)
 }
 
 func TestMessageEntries_ToolUseEmptyInputOmitsToolInput(t *testing.T) {
-	evs := messageEntries("assistant", false, []contentBlock{{Type: "tool_use", ID: "t1", Name: "NoArgsTool"}})
+	evs := messageEntries("assistant", false, []contentBlock{{Type: "tool_use", ID: "t1", Name: "NoArgsTool"}}, nil)
 	require.Len(t, evs, 1)
 	assert.Nil(t, evs[0].Entry.ToolInput)
 }
@@ -100,14 +100,14 @@ func TestMessageEntries_ToolUseInputPassesThroughAsObject(t *testing.T) {
 	// tool_use blocks on this box — so it needs no second unmarshal.
 	evs := messageEntries("assistant", false, []contentBlock{{
 		Type: "tool_use", ID: "t1", Name: "Glob", Input: json.RawMessage(`{"pattern":"*.go"}`),
-	}})
+	}}, nil)
 	require.Len(t, evs, 1)
 	assert.JSONEq(t, `{"pattern":"*.go"}`, string(evs[0].Entry.ToolInput))
 }
 
 func TestToolResultText(t *testing.T) {
 	t.Run("bare string content passes through", func(t *testing.T) {
-		assert.Equal(t, "plain output", toolResultText(json.RawMessage(`"plain output"`)))
+		assert.Equal(t, "plain output", toolResultText(json.RawMessage(`"plain output"`), nil))
 	})
 
 	t.Run("array content joins only text elements, dropping tool_reference and image", func(t *testing.T) {
@@ -121,11 +121,11 @@ func TestToolResultText(t *testing.T) {
 			{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}},
 			{"type":"text","text":"second line"}
 		]`)
-		assert.Equal(t, "first line\n\nsecond line", toolResultText(raw))
+		assert.Equal(t, "first line\n\nsecond line", toolResultText(raw, nil))
 	})
 
 	t.Run("empty content yields empty string", func(t *testing.T) {
-		assert.Equal(t, "", toolResultText(nil))
+		assert.Equal(t, "", toolResultText(nil, nil))
 	})
 }
 
@@ -133,7 +133,7 @@ func TestMessageEntries_ToolResultIsError(t *testing.T) {
 	evs := messageEntries("user", false, []contentBlock{{
 		Type: "tool_result", ToolUseID: "call1", IsError: true,
 		Content: json.RawMessage(`"the tool call failed"`),
-	}})
+	}}, nil)
 	require.Len(t, evs, 1)
 	assert.True(t, evs[0].Entry.IsError)
 	assert.Equal(t, "the tool call failed", evs[0].Entry.ToolOutput)
@@ -145,7 +145,7 @@ func TestMessageEntries_UnmodeledBlockTypeSkipped(t *testing.T) {
 	// but rare, on this box; this schema has no field for raw image bytes
 	// yet (agent.ContentBlock's richer projection is unpopulated by this
 	// adapter), so it is dropped rather than fabricated into text.
-	evs := messageEntries("user", false, []contentBlock{{Type: "image"}})
+	evs := messageEntries("user", false, []contentBlock{{Type: "image"}}, nil)
 	assert.Nil(t, evs)
 }
 

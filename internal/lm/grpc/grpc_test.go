@@ -312,7 +312,7 @@ func TestRunResult_WithModelInfo(t *testing.T) {
 // TestMockClient_DefaultBehavior verifies that MockClient returns sensible
 // defaults when no custom functions are configured.
 func TestMockClient_DefaultBehavior(t *testing.T) {
-	mock := NewMockClient()
+	mock := &MockClient{}
 
 	// Info returns default plugin info
 	info, err := mock.Info(context.Background())
@@ -412,7 +412,7 @@ func TestMockClient_CustomKill(t *testing.T) {
 // TestMockClientFactory_ReturnsProvidedMock verifies that MockClientFactory
 // always returns the same mock instance regardless of parameters.
 func TestMockClientFactory_ReturnsProvidedMock(t *testing.T) {
-	mock := NewMockClient()
+	mock := &MockClient{}
 	factory := MockClientFactory(mock)
 
 	// Call factory multiple times with different params

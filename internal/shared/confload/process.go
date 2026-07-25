@@ -11,7 +11,7 @@ import "sync"
 // caller with no dependency on internal/config at all — internal/testsupport,
 // most importantly, which must be able to reset it for test isolation without
 // creating an import cycle back through internal/config's own test files —
-// can still reach it. internal/config's SetOverrides/CurrentOverrides/
+// can still reach it. internal/config's SetOverrides/currentOverrides/
 // ResetOverrides are thin wrappers around this for its own callers'
 // convenience (SetOverrides additionally invalidates its ambient memo, which
 // only internal/config knows how to do).

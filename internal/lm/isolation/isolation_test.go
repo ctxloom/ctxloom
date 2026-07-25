@@ -32,7 +32,7 @@ func resetStrictness(t *testing.T) {
 // always degrades past a failing policy to None.
 type failingPolicy struct{ name string }
 
-func (f failingPolicy) Name() string      { return f.name }
+func (f failingPolicy) Name() string       { return f.name }
 func (failingPolicy) Approvals() Approvals { return ApprovalsBypass }
 func (failingPolicy) PrepareWorkspace(context.Context, string, string) (Workspace, error) {
 	return nil, errors.New("agent image absent")
@@ -52,7 +52,7 @@ func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace
 // stops at the first success).
 type passingPolicy struct{ name string }
 
-func (p passingPolicy) Name() string      { return p.name }
+func (p passingPolicy) Name() string       { return p.name }
 func (passingPolicy) Approvals() Approvals { return ApprovalsPrompt }
 func (passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	return None{}.PrepareWorkspace(ctx, projectDir, agentID)

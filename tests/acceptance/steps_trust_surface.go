@@ -43,7 +43,7 @@ import (
 // file-exists or exit-code proxy.
 const (
 	tsFragmentMarker = "TS-FRAGMENT-MARKER-4b7f1a"
-	tsCommandMarker    = "TS-COMMAND-MARKER-9d2e60"
+	tsCommandMarker  = "TS-COMMAND-MARKER-9d2e60"
 	tsMCPMarker      = "TS-MCP-EXEC-MARKER-6a1c33"
 	tsHookMarker     = "echo TS-HOOK-EXEC-MARKER-7f0e52"
 

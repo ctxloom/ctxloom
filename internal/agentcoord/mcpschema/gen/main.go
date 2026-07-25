@@ -47,20 +47,46 @@ func main() {
 	if err != nil {
 		fatalf("%v", err)
 	}
-	if err := os.MkdirAll(*out, 0o755); err != nil {
-		fatalf("output dir: %v", err)
+	n, err := generateSchemas(p, mcpschema.CoordinationBindings(), *out)
+	if err != nil {
+		fatalf("%v", err)
 	}
-	for _, b := range mcpschema.CoordinationBindings() {
+	fmt.Printf("gen-mcp-schemas: wrote %d schemas to %s\n", n, *out)
+}
+
+// projector is the slice of mcpschema.Projector generateSchemas needs.
+type projector interface {
+	ProjectTool(mcpschema.Binding) (*mcpschema.ToolSpec, error)
+}
+
+// generateSchemas writes one schema per binding and reports how many it wrote.
+//
+// An EMPTY binding table is a failure (U027-F01). The generator used to
+// complete having written zero files, printing nothing and exiting 0 — its only
+// stdout line lived inside the loop, so a run that did nothing could not say
+// so, and these schemas are checked in and embedded as the live MCP tool
+// surface. The summary line now reports the count from outside the loop, so
+// "wrote 0" cannot masquerade as silence.
+func generateSchemas(p projector, bindings []mcpschema.Binding, out string) (int, error) {
+	if len(bindings) == 0 {
+		return 0, fmt.Errorf("no coordination bindings to project — refusing to write an empty tool surface")
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		return 0, fmt.Errorf("output dir: %w", err)
+	}
+	var written int
+	for _, b := range bindings {
 		spec, err := p.ProjectTool(b)
 		if err != nil {
-			fatalf("%v", err)
+			return written, err
 		}
-		path := filepath.Join(*out, b.Tool+".json")
+		path := filepath.Join(out, b.Tool+".json")
 		if err := writeSpec(path, spec); err != nil {
-			fatalf("%v", err)
+			return written, err
 		}
-		fmt.Printf("gen-mcp-schemas: wrote %s\n", path)
+		written++
 	}
+	return written, nil
 }
 
 // assertSourceInfo fails loudly when the descriptor set carries no

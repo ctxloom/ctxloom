@@ -310,12 +310,55 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 	if label == "" {
 		label = session.ID
 	}
+	// An empty session must never REPLACE work that was already distilled. The
+	// dump writes a 54-byte placeholder through the same atomic saveDistilled
+	// the real pipeline uses, and deriveSummary turns that placeholder into a
+	// non-empty summary, so it also overwrote the index summary. Re-distills
+	// are automatic (the staleness path) and a session can read as empty for
+	// reasons that have nothing to do with its essence — a reaped transcript,
+	// an all-sidechain log — so this fired on real, populated sessions.
+	//
+	// Keeping the existing essence is the right outcome, not an error: an empty
+	// session is still not a failure, there is simply nothing better to write.
+	if path, ok := c.existingEssence(session.ID, harpName); ok {
+		c.warnf("session %s is empty but already has a distilled essence; keeping %s", label, path)
+		result.ChunksCreated = 0
+		result.TotalTokensOut = result.TotalTokensIn
+		result.DistilledPath = path
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
 	c.progressf("ctxloom: session %s empty — dumped without distillation\n", label)
 
 	result.ChunksCreated = 0
 	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
 
 	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
+}
+
+// existingEssence reports whether a distilled essence already exists for this
+// session, checking the harp-dir layout first (the primary write target) and
+// then the legacy sessionID-keyed path, mirroring saveDistilled's own
+// precedence so the two can't disagree about where the essence lives.
+func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
+	if harpName != "" {
+		if harpDir, err := harpSessionDir(harpName); err == nil {
+			essencePath := filepath.Join(harpDir, paths.EssenceFileName)
+			if st, err := os.Stat(essencePath); err == nil && st.Size() > 0 {
+				return essencePath, true
+			}
+		}
+	}
+	outputDir := c.config.OutputDir
+	if outputDir == "" {
+		outputDir = ".ctxloom/sessions"
+	}
+	legacyPath := filepath.Join(outputDir, sessionID+".md")
+	if st, err := os.Stat(legacyPath); err == nil && st.Size() > 0 {
+		return legacyPath, true
+	}
+	return "", false
 }
 
 // finishDistill assembles the picker summary + Open-Items detail, re-attaches
@@ -858,7 +901,15 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 		return "", fmt.Errorf("LLM exited with code %d: %s", exitCode, stderr.String())
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	// Exit 0 with nothing on stdout is a FAILED distillation, not an empty one.
+	// Counted as success it lands in the chunk slice as "", the all-chunks-failed
+	// abort never fires because nothing was marked failed, and the empty result
+	// is written straight over a previously good essence.md.
+	out := strings.TrimSpace(stdout.String())
+	if out == "" {
+		return "", fmt.Errorf("LLM exited 0 but produced no output: %s", strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
 }
 
 // distilledMeta is the YAML front-matter stored at the top of every
@@ -958,6 +1009,15 @@ func firstLineSummary(s string) string {
 // Also writes a frozen task snapshot copy of <projectDir>/.ctxloom/tasks.md
 // to <harpDir>/tasks.md when a harp dir is in play and a tasks file exists.
 func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
+	// The floor: never write an empty distillation. The write is atomic and
+	// replaces the previous essence.md, so an empty body is not a degraded
+	// result — it is silent destruction of the only distilled record of a
+	// session. Refusing here backstops every route into this function, not just
+	// the empty-LLM-output one that was found.
+	if strings.TrimSpace(body) == "" {
+		return "", fmt.Errorf("refusing to write an empty distillation for session %s: it would replace any existing essence with nothing", sessionID)
+	}
+
 	meta.SessionID = sessionID
 	meta.DistilledAt = time.Now().UTC()
 

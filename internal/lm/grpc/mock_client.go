@@ -154,11 +154,6 @@ func (m *MockClient) Kill() {
 	}
 }
 
-// NewMockClient creates a new MockClient with default no-op behavior.
-func NewMockClient() *MockClient {
-	return &MockClient{}
-}
-
 // MockClientFactory returns a ClientFactory that always returns the provided mock.
 func MockClientFactory(mock *MockClient) ClientFactory {
 	return func(backendName, label string, verbosity int) (Client, error) {

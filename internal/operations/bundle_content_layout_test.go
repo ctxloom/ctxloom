@@ -53,5 +53,7 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	assert.Equal(t, []string{"alpha", "beta", "gamma"}, ListLocalBundleNames(cfg, fs))
+	names, err := ListLocalBundleNames(cfg, fs)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "beta", "gamma"}, names)
 }

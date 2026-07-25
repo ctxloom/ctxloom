@@ -383,7 +383,6 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created, Signed: signed}, nil
 }
 
-// buildPublishPath constructs the remote file path for an item.
 // maxPRTitleRunes is the readable cap for PR titles. Conventional git
 // subjects target ~72; GitHub's hard limit is 256 bytes, but anything past
 // ~72 is unscannable in PR lists. When a caller-supplied title exceeds this,
@@ -455,6 +454,7 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 	return strings.Join(sections, "\n\n---\n\n")
 }
 
+// buildPublishPath constructs the remote file path for an item.
 func buildPublishPath(itemType ItemType, name string) string {
 	var dir string
 	switch itemType {

@@ -124,7 +124,7 @@ func TestLocalRefFetcher_PinnedAgainstFilesystemErrors(t *testing.T) {
 	ref, err := ParseReference("ctxloom:local@bundles/foo@somerev")
 	require.NoError(t, err)
 
-	_, err = f.FetchItem(ctx, ref, ref.EffectiveContentVersion())
+	_, err = f.FetchItem(ctx, ref, ref.ContentVersion)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "current/HEAD")
 }

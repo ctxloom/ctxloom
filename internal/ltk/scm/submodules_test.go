@@ -22,7 +22,7 @@ func TestSubmodulePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := SubmodulePaths(fs, "/repo")
+	got := mustSubmodulePaths(t, fs, "/repo")
 	want := []string{"libs/foo", "vendor/bar"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("SubmodulePaths = %v, want %v", got, want)
@@ -35,7 +35,7 @@ func TestSubmodulePathsWalksUp(t *testing.T) {
 	if err := afero.WriteFile(fs, "/repo/.gitmodules", []byte("[submodule \"x\"]\n\tpath = x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := SubmodulePaths(fs, "/repo/a/b/c"); !reflect.DeepEqual(got, []string{"x"}) {
+	if got := mustSubmodulePaths(t, fs, "/repo/a/b/c"); !reflect.DeepEqual(got, []string{"x"}) {
 		t.Fatalf("walk-up = %v, want [x]", got)
 	}
 }
@@ -57,7 +57,7 @@ func TestSubmodulePathsStopAtRepositoryRoot(t *testing.T) {
 		if err := fs.MkdirAll("/outer/inner/.git", 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if got := SubmodulePaths(fs, "/outer/inner/src"); got != nil {
+		if got := mustSubmodulePaths(t, fs, "/outer/inner/src"); got != nil {
 			t.Fatalf("parent repo's submodules leaked into the inner repo: %v", got)
 		}
 	})
@@ -66,7 +66,7 @@ func TestSubmodulePathsStopAtRepositoryRoot(t *testing.T) {
 		if err := afero.WriteFile(fs, "/outer/gitfile/.git", []byte("gitdir: /outer/.git/modules/gitfile\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if got := SubmodulePaths(fs, "/outer/gitfile"); got != nil {
+		if got := mustSubmodulePaths(t, fs, "/outer/gitfile"); got != nil {
 			t.Fatalf("parent repo's submodules leaked past a gitfile boundary: %v", got)
 		}
 	})
@@ -74,7 +74,7 @@ func TestSubmodulePathsStopAtRepositoryRoot(t *testing.T) {
 	// The repo's own root keeps working: .gitmodules is read before the .git
 	// check stops the walk.
 	t.Run("the repository's own .gitmodules still resolves", func(t *testing.T) {
-		if got := SubmodulePaths(fs, "/outer/a/b"); !reflect.DeepEqual(got, []string{"x"}) {
+		if got := mustSubmodulePaths(t, fs, "/outer/a/b"); !reflect.DeepEqual(got, []string{"x"}) {
 			t.Fatalf("repo root .gitmodules = %v, want [x]", got)
 		}
 	})
@@ -83,7 +83,7 @@ func TestSubmodulePathsStopAtRepositoryRoot(t *testing.T) {
 // No .gitmodules anywhere → nil (the rule then matches nothing).
 func TestSubmodulePathsNone(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	if got := SubmodulePaths(fs, "/repo"); got != nil {
+	if got := mustSubmodulePaths(t, fs, "/repo"); got != nil {
 		t.Fatalf("expected nil, got %v", got)
 	}
 }

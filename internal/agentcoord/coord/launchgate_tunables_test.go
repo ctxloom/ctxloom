@@ -134,3 +134,25 @@ func TestNew_AppliesLaunchTunablesFromEnv(t *testing.T) {
 	assert.Equal(t, defaultLaunchBackoffBase, c.launchBackoffBase)
 	assert.Equal(t, defaultLaunchBackoffMax, c.launchBackoffMax)
 }
+
+// TestNew_InitialisesLaunchGateMap pins the caller invariant that
+// launchGateLocked relies on: New always allocates c.launches, so the helper
+// needs no lazy nil init of its own. If a future refactor drops the make in
+// New, this fails loudly instead of the map assignment panicking at the first
+// launch attempt.
+func TestNew_InitialisesLaunchGateMap(t *testing.T) {
+	c, err := New(Options{
+		ProjectDir: t.TempDir(),
+		StateDir:   t.TempDir(),
+		Spawner:    newFakeSpawner(nil, nil),
+	})
+	require.NoError(t, err)
+	defer c.Close()
+
+	require.NotNil(t, c.launches, "New must allocate the launch-gate map")
+
+	c.mu.Lock()
+	st := c.launchGateLocked("some-harp")
+	c.mu.Unlock()
+	assert.NotNil(t, st)
+}

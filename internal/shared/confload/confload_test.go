@@ -1,11 +1,13 @@
 package confload
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -220,6 +222,33 @@ func TestEnvOverlay_CoercesBoolIntAndList(t *testing.T) {
 	assert.Equal(t, false, out["enabled"])
 	assert.Equal(t, 3, out["count"])
 	assert.Equal(t, []any{"a", "b", "c"}, out["tags"])
+}
+
+// TestEnvOverlay_ZeroAndOneStayIntegers is the regression guard for U108-F06:
+// strconv.ParseBool accepts "0" and "1", so a bool-first type detection turned
+// EVERY 0/1 integer override into a boolean and left the schema's five
+// integer-typed keys with no way to express their smallest values at all.
+// ctxloom's own `agent_turn_cap` is `{"type":"integer","minimum":1}`, so
+// CTXLOOM_CONFIG_AGENT_TURN_CAP=1 -- the minimum legal value -- became `true`
+// and then failed the whole layered yaml decode with nothing but a warning.
+// Integers must win the 0/1 spellings; bools keep every alphabetic spelling.
+func TestEnvOverlay_ZeroAndOneStayIntegers(t *testing.T) {
+	t.Setenv("TESTPROD_CONFIG_AGENT_TURN_CAP", "1")
+	t.Setenv("TESTPROD_CONFIG_COUNT", "0")
+	t.Setenv("TESTPROD_CONFIG_ENABLED", "true")
+	t.Setenv("TESTPROD_CONFIG_QUIET", "F")
+
+	p := testProduct("agent_turn_cap", "count", "enabled", "quiet")
+	o, err := p.ReadOverrides(nil)
+	require.NoError(t, err)
+
+	out, err := p.ApplyOverrides(map[string]any{}, o)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, out["agent_turn_cap"], "an integer override of 1 must stay an int, not become true")
+	assert.Equal(t, 0, out["count"], "an integer override of 0 must stay an int, not become false")
+	assert.Equal(t, true, out["enabled"], "alphabetic bool spellings still coerce to bool")
+	assert.Equal(t, false, out["quiet"], "single-letter bool spellings still coerce to bool")
 }
 
 // TestEnvOverlay_ExplicitFalseBeatsInheritedTrue proves an env override of
@@ -508,4 +537,78 @@ func TestOverrides_Stamp_ChangesWithContent(t *testing.T) {
 	assert.NotEqual(t, empty.Stamp(), withEnv.Stamp())
 	assert.Equal(t, withEnv.Stamp(), withEnvAgain.Stamp())
 	assert.NotEqual(t, withEnv.Stamp(), withDifferentEnv.Stamp())
+}
+
+// TestLoad_WarnsWhenAConfigFileExistsButDefinesNoKeys is the regression guard
+// for U108-F03. readYAMLFile used to collapse four distinct states -- layer not
+// configured (path ""), file missing, file empty, file comment-only -- into a
+// single (nil, nil), so Load could not tell "you have no config" from "your
+// config file is being ignored". A user who comments out their whole
+// config.yaml, or truncates it to zero bytes, got total silence and a default
+// config. The present/absent distinction now exists and an existing-but-keyless
+// layer is warned about by path.
+func TestLoad_WarnsWhenAConfigFileExistsButDefinesNoKeys(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"zero bytes", ""},
+		// Spaces and newlines only -- a TAB here would be a genuine YAML
+		// syntax error, which readYAMLFile already rejects loudly and must
+		// keep rejecting; that is a different (correct) path.
+		{"whitespace only", "\n   \n \n"},
+		{"comment only", "# store: everything\n# runtime: container\n"},
+		{"document separator only", "---\n"},
+		{"explicit null", "null\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			projectPath := filepath.Join(dir, "project.yaml")
+			writeFile(t, projectPath, tc.body)
+
+			var buf bytes.Buffer
+			restore := clidiag.SetSink(&buf)
+			defer restore()
+
+			p := testProduct()
+			result, err := p.Load(Sources{ProjectPath: projectPath}, Overrides{})
+			require.NoError(t, err, "an existing-but-keyless layer is a warning, never a hard failure")
+			assert.Empty(t, result)
+
+			assert.Contains(t, buf.String(), projectPath,
+				"an existing config file that defines no keys must be reported by path, not silently ignored")
+			assert.Contains(t, buf.String(), "no configuration keys")
+		})
+	}
+}
+
+// TestLoad_DoesNotWarnForAbsentOrPopulatedLayers is the other half of
+// U108-F03: the presence signal must distinguish "exists but keyless" from the
+// two legitimately-silent states. A layer that was never configured (empty
+// path) and a layer whose file simply is not there are both normal -- config
+// files are optional -- and a layer that actually defines keys is obviously
+// fine. None of the three may warn, or the guard above becomes noise everyone
+// learns to ignore.
+func TestLoad_DoesNotWarnForAbsentOrPopulatedLayers(t *testing.T) {
+	dir := t.TempDir()
+	projectPath := filepath.Join(dir, "project.yaml")
+	writeFile(t, projectPath, "store: project-store\n")
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	p := testProduct()
+	// HomePath "" = layer not configured; a missing file under dir = optional
+	// file simply absent; projectPath = populated.
+	result, err := p.Load(Sources{HomePath: "", ProjectPath: projectPath}, Overrides{})
+	require.NoError(t, err)
+	assert.Equal(t, "project-store", result["store"])
+
+	result, err = p.Load(Sources{HomePath: filepath.Join(dir, "nope.yaml"), ProjectPath: projectPath}, Overrides{})
+	require.NoError(t, err)
+	assert.Equal(t, "project-store", result["store"])
+
+	assert.Empty(t, buf.String(), "absent and populated layers are both normal and must stay silent")
 }

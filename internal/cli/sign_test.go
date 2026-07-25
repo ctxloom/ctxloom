@@ -213,3 +213,18 @@ func setupSignTestDir(t *testing.T) (string, *config.Config) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	return appDir, cfg
 }
+
+// U042-F26 (CLI face): `ctxloom sign --all` over a project whose bundle dirs
+// resolve to nothing printed "no local bundles to sign" and exited 0 — signing
+// nothing looked exactly like having nothing to sign. That is also the visible
+// face of the known GetBundleDirs-points-at-cache/bundles defect: the command
+// that is supposed to sign a publishing repo's content quietly signs none of it.
+func TestRunSign_AllWithNoBundlesIsAnError(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	discoverer, _ := discovererWithSoleAgentIdentity(t)
+	cmd, _ := testCmd()
+
+	err := runSign(cmd, cfg, discoverer, "", true, "")
+	require.Error(t, err, "--all that signed nothing must not exit 0")
+	assert.Contains(t, err.Error(), "sign", "the error names what was searched")
+}

@@ -122,6 +122,14 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Nothing to remove from is a legitimate empty state (unlike install,
+	// which cannot do the thing the user asked for and so errors), but it is
+	// not a silent one: an empty stdout/stderr with exit 0 is exactly what a
+	// SUCCESSFUL removal looks like.
+	if len(engines) == 0 {
+		fmt.Fprintln(errOut, "taskloom: nothing to remove (no agent backends detected; name one with --engine)")
+		return nil
+	}
 	for _, e := range engines {
 		path, err := e.ConfigPath(dir, global)
 		if err != nil {
@@ -190,6 +198,12 @@ func readIfExists(path string) ([]byte, error) {
 }
 
 func writeConfig(path string, data []byte) error {
+	// The payload comes from engine code outside this package. An empty one
+	// can only be a bug up there, and committing it would atomically truncate
+	// the user's real backend config — durably, and reported as success.
+	if len(data) == 0 {
+		return fmt.Errorf("refusing to write an empty config to %s (the backend produced no content)", path)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

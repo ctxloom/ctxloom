@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
@@ -417,4 +419,252 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 		Kind: &agentcoordpb.AgentRequest_ListRuns{ListRuns: &agentcoordpb.ListRunsRequest{}},
 	})
 	require.ErrorIs(t, rerr, ErrCoordinatorUnreachable)
+}
+
+// TestReleaseRunChan_ReconnectDoesNotStrandTentativeDeliveries is the
+// regression guard for U024-F01. When a RunChannel RECONNECTS, the new stream
+// registers itself under c.chans[harp] and cancels its predecessor in one c.mu
+// window -- so by the time the OLD handler's deferred teardown runs, it always
+// observes the successor and `registered := c.chans[harp] == ch` is FALSE.
+// Teardown then discarded ch.pushed WITHOUT un-reserving it.
+//
+// That is permanent, silent loss. Reserved ids are invisible to
+// undeliveredLocked and therefore to pendingCount, so the reattach push never
+// re-sends them, and only unreserve ever clears c.delivered -- while agent_send
+// had already reported success. Which goroutine won the race decided whether
+// the message survived.
+//
+// Both channels here are synthetic and installed directly: the finding is about
+// releaseRunChan's registration guard, and driving a real reconnect would make
+// the assertion depend on push/ack timing rather than on the guard.
+//
+// The assertion is on the RESERVATION LEDGER (c.delivered), not on
+// pendingCount, and the reserved id is synthetic. pendingCount also consults
+// the durable fold, and a really-spawned child's own turn loop consumes its
+// mail concurrently -- an earlier draft that queued a real message via
+// AgentSend passed in isolation and failed inside the full package run for that
+// reason, which is the wrong kind of red. The ledger is what this teardown owns
+// and what the finding is about; that a reserved id is invisible to
+// undeliveredLocked/pendingCount is already covered elsewhere.
+func TestReleaseRunChan_ReconnectDoesNotStrandTentativeDeliveries(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp, msgID = "reconnecting-child", "msg-must-not-be-stranded"
+
+	// The channel the reconnect superseded still holds the message as a
+	// tentative delivery; c.chans[harp] already points at its successor.
+	_, cancelOld := context.WithCancel(context.Background())
+	_, cancelNew := context.WithCancel(context.Background())
+	superseded := &runChan{role: harp, pushed: []string{msgID}, cancel: cancelOld}
+	successor := &runChan{role: harp, cancel: cancelNew}
+	c.mu.Lock()
+	c.chans[harp] = successor
+	c.delivered[harp] = []string{msgID}
+	c.mu.Unlock()
+
+	require.Equal(t, []string{msgID}, reservedIDs(c, harp),
+		"precondition: the id is reserved, so the message is invisible to redelivery")
+
+	c.releaseRunChan(harp, superseded)
+
+	assert.NotContains(t, reservedIDs(c, harp), msgID,
+		"a superseded channel's tentative deliveries must be released so they re-deliver on the successor")
+
+	c.mu.Lock()
+	stillRegistered := c.chans[harp] == successor
+	c.mu.Unlock()
+	assert.True(t, stillRegistered,
+		"tearing down a SUPERSEDED channel must not deregister the live successor")
+}
+
+// TestReleaseRunChan_AfterSeverChanIsANoOp pins why the removed `registered`
+// guard is not load-bearing. severChan nils ch.pushed AND deletes the
+// registration under c.mu, so the stream's own deferred teardown finds nothing
+// left to release: the now-unguarded unreserve must be a no-op there, not a
+// double release that disturbs the ledger severChan already settled.
+func TestReleaseRunChan_AfterSeverChanIsANoOp(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp, msgID = "severed-child", "msg-settled-by-severchan"
+
+	_, cancel := context.WithCancel(context.Background())
+	ch := &runChan{role: harp, pushed: []string{msgID}, cancel: cancel}
+	c.mu.Lock()
+	c.chans[harp] = ch
+	c.delivered[harp] = []string{msgID}
+	c.mu.Unlock()
+	require.Equal(t, []string{msgID}, reservedIDs(c, harp))
+
+	c.severChan(harp)
+	require.NotContains(t, reservedIDs(c, harp), msgID, "severChan released the reservation synchronously")
+
+	// The stream's deferred teardown then runs on the same, already-emptied
+	// channel and must change nothing.
+	c.releaseRunChan(harp, ch)
+	assert.NotContains(t, reservedIDs(c, harp), msgID, "teardown after severChan is a no-op, not a double release")
+}
+
+// TestPushMail_SaturatedPumpReleasesTheDroppedReservation is the regression
+// guard for U024-F02. pushMail reserved every selected id in the runtime
+// delivery ledger BEFORE attempting the send, and the saturated-pump branch
+// then dropped the notice while leaving the reservation standing. A reserved id
+// is invisible to undeliveredLocked, so no later push -- not the next park, not
+// the next agent_send -- ever re-selects it. On a channel that stays LIVE (the
+// common case: a busy child, not a dying one) that is permanent silent loss of
+// a message agent_send already reported delivered.
+//
+// releaseRunChan's unconditional un-reserve (U024-F01, ff151a53) only rescues
+// the message if the channel DIES; it is not a fix for this one.
+//
+// The channel is synthetic and its pump is UNBUFFERED with no reader, which is
+// the saturated-pump condition stated exactly. The role is synthetic too, so no
+// real child's turn loop competes for the mail (the failure mode batch 5 hit).
+func TestPushMail_SaturatedPumpReleasesTheDroppedReservation(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp = "child-with-a-saturated-pump"
+
+	msgID, _, err := c.queueMail(ownerIdentity().Harp, harp, "note", "do not strand me")
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	ch := &runChan{
+		role:   harp,
+		parked: true,
+		send:   make(chan *agentcoordpb.CoordinatorFrame), // unbuffered, unread: every send hits `default`
+		cancel: cancel,
+	}
+	c.mu.Lock()
+	c.chans[harp] = ch
+	c.mu.Unlock()
+	t.Cleanup(func() {
+		c.mu.Lock()
+		delete(c.chans, harp)
+		c.mu.Unlock()
+	})
+
+	c.pushMail(harp)
+
+	assert.NotContains(t, reservedIDs(c, harp), msgID,
+		"a notice the pump refused was never delivered, so its id must not stay reserved")
+
+	// The point of releasing it: the NEXT push must re-select the message once
+	// the pump has room. A stranded reservation makes this push find nothing.
+	c.mu.Lock()
+	ch.send = make(chan *agentcoordpb.CoordinatorFrame, 1)
+	drained := ch.send
+	c.mu.Unlock()
+	c.pushMail(harp)
+	select {
+	case frame := <-drained:
+		assert.Equal(t, msgID, frame.GetNotice().GetPeerMessage().GetMessageId(),
+			"the re-pushed notice carries the same message")
+	default:
+		assert.Fail(t, "the dropped message was never re-pushed after the pump drained")
+	}
+}
+
+// TestPushMail_UnprojectableStructuredIsNotPushedHollow is the regression guard
+// for U024-F07, and the push-side twin of U024-F06. peerMessageProto swallowed
+// the json.Unmarshal error on m.Structured (`if err == nil` with no else) and
+// discarded structpb.NewStruct's error entirely, so a message whose structured
+// payload could not be projected was pushed anyway -- as a PeerMessage carrying
+// only `kind` and the body text.
+//
+// For the escalation ladder's relayed ApprovalRequest that is the whole
+// message: the child receives an approval notice with no request to answer, and
+// nothing anywhere reports a fault. Warning and leaving the message pending
+// keeps it deliverable by the turn-boundary drain (which projects nothing)
+// instead of burning it on a hollow notice.
+func TestPushMail_UnprojectableStructuredIsNotPushedHollow(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp = "child-awaiting-an-approval"
+
+	// A JSON scalar, not an object: json.Unmarshal into map[string]any fails,
+	// which is the error the old code discarded.
+	msgID, _, err := c.queueMailPayload(ownerIdentity().Harp, harp, "approval_request", "approve?",
+		json.RawMessage(`"not-an-object"`), "")
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	ch := &runChan{
+		role:   harp,
+		parked: true,
+		send:   make(chan *agentcoordpb.CoordinatorFrame, 4),
+		cancel: cancel,
+	}
+	c.mu.Lock()
+	c.chans[harp] = ch
+	c.mu.Unlock()
+	t.Cleanup(func() {
+		c.mu.Lock()
+		delete(c.chans, harp)
+		c.mu.Unlock()
+	})
+
+	c.pushMail(harp)
+
+	select {
+	case frame := <-ch.send:
+		pm := frame.GetNotice().GetPeerMessage()
+		assert.Fail(t, "a message whose structured payload cannot be projected must not be pushed hollow",
+			"pushed message_id=%q structured=%v", pm.GetMessageId(), pm.GetStructured().AsMap())
+	default:
+	}
+	assert.NotContains(t, reservedIDs(c, harp), msgID,
+		"a message that was never pushed must not be reserved as a tentative delivery")
+}
+
+// reservedIDs snapshots a role's runtime delivery ledger -- the ids handed to a
+// RunChannel but not yet acked. An id sitting here is invisible to
+// undeliveredLocked (and so to pendingCount and every redelivery path), which
+// is exactly why leaking one is silent loss.
+func reservedIDs(c *Coordinator, role string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.delivered[role]...)
+}
+
+// TestServePeerSend_UnmarshalableStructuredIsRefused is the regression guard
+// for U024-F06. servePeerSend marshalled the caller's Struct with
+// `if raw, merr := protojson.Marshal(s); merr == nil { structured = raw }` and
+// NEVER inspected merr. On failure `structured` stayed nil and the message was
+// queued WITHOUT its structured payload, reported as a successful send.
+//
+// For a parent answering a relayed approval that converts a decision into an
+// unanswerable message: the decode side is strict and then reports "structured
+// is required", attributing the fault to the sender, who was told the send
+// succeeded. Refusing the send is what serveCustom two functions below already
+// does with the identical protojson.Marshal failure.
+//
+// A Value with no oneof member set is the shape protojson rejects — the
+// zero-value *structpb.Value a hand-built Struct can easily carry.
+func TestServePeerSend_UnmarshalableStructuredIsRefused(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+
+	unmarshalable := &structpb.Struct{Fields: map[string]*structpb.Value{"kind": {}}}
+	require.Error(t, func() error { _, err := protojson.Marshal(unmarshalable); return err }(),
+		"fixture check: this Struct must really be unmarshalable, or the test proves nothing")
+
+	resp := c.servePeerSend(ownerIdentity(), &agentcoordpb.PeerSendRequest{
+		ToAgentId: out.Harp, Text: "decision", Structured: unmarshalable,
+	})
+	assert.NotEqualValues(t, 0, resp.GetStatus().GetCode(),
+		"a send whose structured payload cannot be carried must not report OK")
+	assert.Empty(t, resp.GetPeerSend().GetMessageId(),
+		"a refused send must not hand back a message id")
+
+	var pending []Message
+	c.mail.View(func() { pending = c.mailF.pendingFor(out.Harp) })
+	for _, m := range pending {
+		assert.NotEqual(t, "decision", m.Body,
+			"a refused send must not queue a hollowed-out message")
+	}
 }

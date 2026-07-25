@@ -244,8 +244,8 @@ func newSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSki
 // SurfaceInputs carries the per-run data claude's surfaces write. It mirrors what
 // the launch path already assembles — the context text, the merged MCP config +
 // profile/builtin bundle servers, the hook set + statusline policy, and the
-// command exports. S1 only defines and fills it in tests; Phase 2 (S4) feeds it
-// from Setup.
+// command exports. It is filled in production from the launch path
+// (agent.LaunchBackend's Setup, via backends.BuildSurfaces) as well as tests.
 type SurfaceInputs struct {
 	Context          string
 	MCP              *wire.MCPConfig

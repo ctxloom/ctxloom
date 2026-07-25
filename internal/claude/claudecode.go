@@ -184,28 +184,27 @@ func parseClaudeJSONResult(data []byte) (text, model string, err error) {
 	if err := json.Unmarshal(data, &env); err != nil {
 		return "", "", err
 	}
-	model, _ = pickByMaxOutput(env.ModelUsage, func(u claudeModelUsage) int { return u.OutputTokens })
+	model = maxOutputModel(env.ModelUsage)
 	return env.Result, model, nil
 }
 
-// pickByMaxOutput returns the map entry with the largest output measure,
-// breaking ties on sorted key for determinism. Used to attribute a result to
+// maxOutputModel returns the model id with the largest output-token count,
+// breaking ties on sorted id for determinism. Used to attribute a result to
 // the GENERATING model among the CLI's per-model usage entries.
-func pickByMaxOutput[T any](m map[string]T, out func(T) int) (string, T) {
+func maxOutputModel(m map[string]claudeModelUsage) string {
 	ids := make([]string, 0, len(m))
 	for id := range m {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	var best string
-	var bestVal T
 	bestTokens := -1
 	for _, id := range ids {
-		if n := out(m[id]); n > bestTokens {
-			best, bestVal, bestTokens = id, m[id], n
+		if n := m[id].OutputTokens; n > bestTokens {
+			best, bestTokens = id, n
 		}
 	}
-	return best, bestVal
+	return best
 }
 
 // sessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.

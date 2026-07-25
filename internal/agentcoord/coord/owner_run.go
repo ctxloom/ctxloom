@@ -81,7 +81,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// never dial home has no transport at all, so an unresolvable endpoint is
 	// fatal here (never a silent degrade, unlike a delegated child which can
 	// fall back to a message-less local orchestrator).
-	url, err := c.reachURL(ownerRunRuntime)
+	url, err := c.ReachURL(ownerRunRuntime)
 	if err != nil {
 		return nil, fmt.Errorf("owner run: no coordinator endpoint reachable from runtime %q: %w — check the container runtime's bridge network", ownerRunRuntime, err)
 	}

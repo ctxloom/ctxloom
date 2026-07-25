@@ -40,9 +40,9 @@ type RunRecord struct {
 	// from ChatSessionInfo.Resumable) — the one-shot gate's live half. A run
 	// tears its engine down at a turn boundary only when this is true AND its
 	// plan resolved ResumeModeOneShot AND HarnessSessionID is captured.
-	Resumable  bool
-	EnqueuedAt time.Time
-	LastActivity     time.Time
+	Resumable    bool
+	EnqueuedAt   time.Time
+	LastActivity time.Time
 	// Ladder is the run's resolved escalation ladder (Wave C2), fixed at
 	// enqueue.
 	Ladder Ladder

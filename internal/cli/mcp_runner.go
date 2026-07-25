@@ -467,7 +467,7 @@ func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Mes
 	if msg := st.GetMessage(); msg != "" {
 		out.Content = []mcp.Content{&mcp.TextContent{Text: msg}}
 	}
-	if result != nil && !reflectIsNil(result) {
+	if result != nil && !protoIsNil(result) {
 		raw, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(result)
 		if err != nil {
 			return nil, fmt.Errorf("encode result: %w", err)
@@ -481,8 +481,8 @@ func coordinationResult(resp *agentcoordpb.CoordinatorResponse, result proto.Mes
 	return out, nil
 }
 
-// reflectIsNil guards typed-nil proto results inside the oneof accessors.
-func reflectIsNil(m proto.Message) bool {
+// protoIsNil guards typed-nil proto results inside the oneof accessors.
+func protoIsNil(m proto.Message) bool {
 	return m == nil || !m.ProtoReflect().IsValid()
 }
 

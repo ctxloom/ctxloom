@@ -239,7 +239,9 @@ func TestLoader_Save_RejectsTraversal(t *testing.T) {
 		})
 	}
 	// Legitimate dot-prefixed names are NOT traversal.
-	require.NoError(t, loader.Save(&Profile{Name: "..hidden"}))
+	// Carries content: a profile with nothing at all in it is refused by Save
+	// on its own merits (U091-F08), which would mask what this test pins.
+	require.NoError(t, loader.Save(&Profile{Name: "..hidden", Bundles: []string{"go-development"}}))
 }
 
 // TestLoader_Save_RoundTripsYmlFile pins extension round-tripping: a profile

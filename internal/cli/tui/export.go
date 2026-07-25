@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,19 +71,43 @@ func transcriptText(items []feedItem, width int) []byte {
 	return []byte(b.String())
 }
 
+// errEmptyTranscript is returned when the feed renders to zero bytes — an
+// empty feed, or one holding nothing but viewer chrome (notices, which both
+// renderers skip). Writing that file and reporting "saved <path>" would be a
+// success message over zero delivered bytes, so the export is refused
+// instead.
+var errEmptyTranscript = errors.New("nothing to export: the feed holds no transcript content")
+
 // exportTranscript writes the feed under the harp's session dir and returns
-// the path. kind is "txt" (rendered, s) or "ndjson" (raw, S).
+// the path. kind is "txt" (rendered, s) or "ndjson" (raw, S), and is the ONLY
+// permitted set: kind picks the renderer AND supplies the filename extension,
+// so the switch below must stay exhaustive. It used to have a `default:` arm
+// falling through to the text renderer, which meant any other kind wrote
+// role-tagged plain text into a file whose extension claimed otherwise
+// (kind "json" -> transcript-<harp>-<ts>.json full of text) and still reported
+// "saved <path>". A file that lies about its own contents is worse than a
+// refused export, so an unrecognised kind is now an error.
+//
+// It returns errEmptyTranscript rather than writing a 0-byte file.
 func exportTranscript(dir, harp, kind string, items []feedItem, now time.Time) (string, error) {
 	var data []byte
 	var err error
 	switch kind {
 	case "ndjson":
 		data, err = transcriptNDJSON(items)
-	default:
+	case "txt":
 		data = transcriptText(items, 100)
+	default:
+		return "", fmt.Errorf("unknown transcript export kind %q (supported: txt, ndjson)", kind)
 	}
 	if err != nil {
 		return "", err
+	}
+	// Both renderers skip notices, so a feed of nothing but viewer chrome
+	// renders to zero bytes just as an empty feed does. Refuse rather than
+	// write the file and report "saved <path>" over it.
+	if len(data) == 0 {
+		return "", errEmptyTranscript
 	}
 	path := filepath.Join(dir, fmt.Sprintf("transcript-%s-%s.%s", harp, now.UTC().Format("20060102T150405"), kind))
 	if err := os.WriteFile(path, data, 0o600); err != nil {

@@ -59,12 +59,18 @@ rules:
     match: { command: [go, test] } # see "Matching commands" below
     action: deny                   # deny (default) | allow
     message: "Use `just test`."    # shown to the model on deny
-    suggest: "just test"           # optional replacement command
+    suggest: "just test"           # replacement command; also shown on deny
     mode: enable                   # enable (default) | confirm | disable (see Rule mode)
 ```
 
 Unknown YAML keys are rejected, so a typo (`programm:`) is an error, not a
 silent no-op.
+
+**A deny rule must carry a `message` or a `suggest`** (either alone is enough —
+`suggest` renders as "Use instead: …"). Without one the hook response has no
+`permissionDecisionReason` at all: the model is told `deny` with no reason and no
+alternative, and simply retries. A rule that cannot say why is rejected at parse
+time. `allow` rules and `mode: disable` rules are exempt — neither ever denies.
 
 ## Matching commands
 

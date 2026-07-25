@@ -512,7 +512,7 @@ func runnerEnv(harp, runID, token, url string, coordinatorCapable bool) map[stri
 // the child launches with no coordinator env (a local, message-less
 // orchestrator, today's broken-but-running posture).
 func (c *Coordinator) spawnReachURL(harp, runtimeAxis string) (string, error) {
-	url, err := c.reachURL(runtimeAxis)
+	url, err := c.ReachURL(runtimeAxis)
 	if err == nil {
 		return url, nil
 	}

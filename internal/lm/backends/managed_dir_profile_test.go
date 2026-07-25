@@ -3,7 +3,7 @@
 // the SAME managed-hooks/MCP resolution as an inline profile — and that, because a
 // directory profile may be remote-sourced, its directly-declared executables pass
 // the SAME per-item executable trust gate as bundle hooks/MCP (a withheld one is
-// dropped). The directory path reaches AssembleManagedHooks / assembleManagedMCP
+// dropped). The directory path reaches AssembleManagedHooks / AssembleManagedMCP
 // through the loader fallback (profiles.ResolvedProfile.Hooks/MCP), not the inline
 // config map.
 package backends
@@ -70,7 +70,7 @@ const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-ho
 func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 	// No gate (management path): both directory-declared servers flow.
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
-	mcp := assembleManagedMCP(cfg, nil)
+	mcp := AssembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "keep-srv", "directory profile inline MCP servers reach the managed set")
 	assert.Contains(t, mcp.Servers, "drop-srv")
 
@@ -80,7 +80,7 @@ func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 	cfg2.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
 		return bundles.HashPayload(payload) == keepHash
 	})
-	gated := assembleManagedMCP(cfg2, nil)
+	gated := AssembleManagedMCP(cfg2, nil)
 	assert.Contains(t, gated.Servers, "keep-srv", "a granted directory-profile MCP server is applied")
 	assert.NotContains(t, gated.Servers, "drop-srv", "an un-granted directory-profile MCP server is withheld by the exec gate")
 }
@@ -121,7 +121,7 @@ func TestAssembleManagedMCP_DirProfileMergesWithInlineDefault(t *testing.T) {
 		return bundles.HashPayload(payload) == dirHash
 	})
 
-	mcp := assembleManagedMCP(cfg, nil)
+	mcp := AssembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "inline-srv", "inline default profile's MCP server (trusted-local) is applied")
 	assert.Contains(t, mcp.Servers, "dir-srv", "directory default profile's granted MCP server is applied")
 }
@@ -170,13 +170,13 @@ func TestAssembleManagedMCP_DirProfileHonorsExcludeMCP(t *testing.T) {
 		"dir": "mcp:\n  servers:\n    keep-srv:\n      command: keep-cmd\n    drop-srv:\n      command: drop-cmd\nexclude_mcp:\n  - drop-srv\n",
 	}, nil)
 
-	mcp := assembleManagedMCP(cfg, nil)
+	mcp := AssembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "keep-srv")
 	assert.NotContains(t, mcp.Servers, "drop-srv", "exclude_mcp drops the directory profile's own declared server")
 }
 
 // TestAssembleManagedDenyTools_DirProfile proves a directory profile's
-// deny_tools reaches assembleManagedDenyTools — the deny-tools mirror of
+// deny_tools reaches AssembleManagedDenyTools — the deny-tools mirror of
 // TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate. Deliberately no
 // executable trust gate set (deny_tools is never gated), so this ALSO proves
 // an ungated cfg does not accidentally withhold it.
@@ -185,7 +185,7 @@ func TestAssembleManagedDenyTools_DirProfile(t *testing.T) {
 		"dir": "deny_tools:\n  - Task\n",
 	}, nil)
 
-	got := assembleManagedDenyTools(cfg, nil)
+	got := AssembleManagedDenyTools(cfg, nil)
 	assert.Equal(t, []string{"Task"}, got)
 }
 
@@ -200,7 +200,7 @@ func TestAssembleManagedDenyTools_MergesInlineAndDirAndDedupes(t *testing.T) {
 			"inlineP": {DenyTools: []string{"WebFetch"}},
 		})
 
-	got := assembleManagedDenyTools(cfg, nil)
+	got := AssembleManagedDenyTools(cfg, nil)
 	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, got, "union across inline+directory defaults, deduped")
 }
 
@@ -208,8 +208,8 @@ func TestAssembleManagedDenyTools_MergesInlineAndDirAndDedupes(t *testing.T) {
 // no deny_tools both degrade to an empty result (never nil-panics, never
 // fabricates a denial) — the silent-no-op guard for the empty-input case.
 func TestAssembleManagedDenyTools_Empty(t *testing.T) {
-	assert.Nil(t, assembleManagedDenyTools(nil, nil))
+	assert.Nil(t, AssembleManagedDenyTools(nil, nil))
 
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": "description: plain\n"}, nil)
-	assert.Empty(t, assembleManagedDenyTools(cfg, nil))
+	assert.Empty(t, AssembleManagedDenyTools(cfg, nil))
 }

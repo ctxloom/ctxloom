@@ -74,6 +74,16 @@ func TestDetectContentType_PrefersExtension(t *testing.T) {
 	assert.Equal(t, ContentTypeGo, result)
 }
 
+// TestDetectContentType_BareExtension pins U046-F18: a file whose whole name
+// IS the extension (".go", ".json") is still recognised by extension. The
+// hand-rolled `len(filename) > len(ext)` bound this replaced excluded exactly
+// that case, silently pushing such files onto the content-sniffing fallback.
+func TestDetectContentType_BareExtension(t *testing.T) {
+	assert.Equal(t, ContentTypeGo, DetectContentType(".go", ""))
+	assert.Equal(t, ContentTypeJSON, DetectContentType(".json", ""))
+	assert.Equal(t, ContentTypeYAML, DetectContentType(".yaml", ""))
+}
+
 // TestDetectContentType_Empty verifies handling of empty filenames
 func TestDetectContentType_Empty(t *testing.T) {
 	result := DetectContentType("", "")

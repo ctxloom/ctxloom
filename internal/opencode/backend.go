@@ -69,6 +69,13 @@ type Opencode struct {
 	// transiently by the LIVE chat path (chat.go) via the SAME
 	// reconcileSkillsSurface function the persistent surfaces.go path binds.
 	pendingSkills []agent.SkillExport
+	// setupRan records that the CellDelivery seam above actually fired, i.e.
+	// that Setup ran on THIS backend instance. Chat/launchInteractive depend
+	// on Setup having run — the assembled context, commands and skills reach
+	// them ONLY through that seam — and nothing asserted the order, so a
+	// caller that skipped Setup got a run that delivered nothing and looked
+	// entirely normal (U080-F03). assertSetupRan is that assertion.
+	setupRan bool
 }
 
 // NewOpencode creates a new opencode backend with default settings.
@@ -93,6 +100,7 @@ func NewOpencode() *Opencode {
 		agent.NewBaseContextProvider(),
 		newOpencodeSessionHistory(b),
 		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
+			b.setupRan = true
 			b.pendingCommands = in.Commands
 			b.pendingContext = in.Context
 			b.pendingSkills = in.Skills
@@ -195,4 +203,20 @@ func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdou
 		fmt.Fprintln(stdout)
 	}
 	return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+}
+
+// assertSetupRan is the assertion behind the Setup→Chat/launchInteractive
+// execution-order dependency. It fires only in the shape that is actually a
+// silent no-op: Setup never ran AND this seam is therefore holding nothing to
+// deliver. It warns rather than refusing, because an ACP-hosted session
+// legitimately skips Setup and carries its context in the lead turn instead —
+// but it says so, which is the whole point.
+func (b *Opencode) assertSetupRan(where string) {
+	if b.setupRan {
+		return
+	}
+	if b.pendingContext != "" || len(b.pendingCommands) > 0 || len(b.pendingSkills) > 0 {
+		return
+	}
+	clidiag.Warn("ctxloom", "opencode %s: ctxloom Setup did not run for this backend, so no assembled context, commands or skills were delivered through the opencode overlay — this run sees only what opencode finds on its own", where)
 }

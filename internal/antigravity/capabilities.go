@@ -96,22 +96,10 @@ type agyConversationMap struct {
 	agent.SessionStore
 }
 
-// agyConversationMapOption configures agyConversationMap.
-type agyConversationMapOption func(*agyConversationMap)
-
-// withAgyConversationMapHomeDir sets a custom home directory for testing.
-func withAgyConversationMapHomeDir(dir string) agyConversationMapOption {
-	return func(m *agyConversationMap) { m.HomeDir = dir }
-}
-
 // newAgyConversationMap builds the conversation-map reader over the OS
-// filesystem (tests override via withAgyConversationMapHomeDir).
-func newAgyConversationMap(opts ...agyConversationMapOption) agyConversationMap {
-	m := agyConversationMap{SessionStore: agent.NewSessionStore()}
-	for _, opt := range opts {
-		opt(&m)
-	}
-	return m
+// filesystem. Tests override the home dir with a plain struct literal.
+func newAgyConversationMap() agyConversationMap {
+	return agyConversationMap{SessionStore: agent.NewSessionStore()}
 }
 
 // path returns agy's workspace -> conversation-UUID map file (VERIFIED

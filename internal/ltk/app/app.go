@@ -134,13 +134,18 @@ func (a *App) onAnalysisPanic(req engine.Request, val any, stack []byte) engine.
 	if req.FilePath != "" {
 		subject = "file " + req.FilePath
 	}
+	deny := a.denyOnUnanalyzable()
 	if a.Warn != nil {
+		verb := "ALLOWED"
+		if deny {
+			verb = "DENIED"
+		}
 		fmt.Fprintf(a.Warn,
 			"ltk: internal error while analyzing %q — recovered and %s this action. "+
 				"This is an ltk bug, not a problem with the command; please report it.\npanic: %v\n%s\n",
-			subject, a.panicOutcomeVerb(), val, stack)
+			subject, verb, val, stack)
 	}
-	if a.denyOnUnanalyzable() {
+	if deny {
 		return engine.Response{Allow: false, Reason: fmt.Sprintf(
 			"could not analyze command (internal error: %v); defaults.on_parse_error is deny", val)}
 	}
@@ -149,13 +154,6 @@ func (a *App) onAnalysisPanic(req engine.Request, val any, stack []byte) engine.
 
 func (a *App) denyOnUnanalyzable() bool {
 	return a.Config != nil && a.Config.Defaults.OnParseError == rules.ActionDeny
-}
-
-func (a *App) panicOutcomeVerb() string {
-	if a.denyOnUnanalyzable() {
-		return "DENIED"
-	}
-	return "ALLOWED"
 }
 
 func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {

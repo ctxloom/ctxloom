@@ -145,8 +145,8 @@ func TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers(t *testing.T) {
 // keyless auth env. This kills the mutant that would trigger on
 // len(presentEnvKeys) > 0 instead of on the key itself.
 func TestResolveClaudeContainerAuth_TriggersOnApiKeyNotOtherAnthropicVars(t *testing.T) {
-	withFakeHome(t)                             // no ~/.claude credentials on disk
-	t.Setenv("ANTHROPIC_API_KEY", "")           // both trigger vars are unset…
+	withFakeHome(t)                   // no ~/.claude credentials on disk
+	t.Setenv("ANTHROPIC_API_KEY", "") // both trigger vars are unset…
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://x") // …but OTHER ANTHROPIC_* vars ARE set
 	t.Setenv("ANTHROPIC_MODEL", "claude-x")

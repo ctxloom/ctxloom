@@ -150,7 +150,7 @@ func (w *CodexHookWriter) WriteSettingsWithTrust(hooks *wire.HooksConfig, mcp *w
 		addProjectTrust(cfg, trustAbsPath)
 	}
 
-	return w.save(settingsPath, cfg)
+	return w.save(settingsPath, cfg, false)
 }
 
 // addProjectTrust sets `[projects."<absPath>"] trust_level = "trusted"` in
@@ -172,9 +172,10 @@ func addProjectTrust(cfg map[string]any, absPath string) {
 	cfg["projects"] = projects
 }
 
-// load parses config.toml into a generic table, preserving every key. It is
-// fault-tolerant: an unparseable file warns and yields an empty table so
-// ctxloom never blocks startup on a schema change.
+// load parses config.toml into a generic table, preserving every key. An
+// ABSENT file is an empty table (nothing to preserve); an UNPARSEABLE one is
+// an error, because every caller writes the returned table straight back and
+// a degraded-to-empty parse would destroy the user's config.
 func (w *CodexHookWriter) load(path string) (map[string]any, error) {
 	cfg := map[string]any{}
 	data, err := afero.ReadFile(w.getFS(), path)
@@ -185,17 +186,30 @@ func (w *CodexHookWriter) load(path string) (map[string]any, error) {
 		return nil, err
 	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		agent.Warn("failed to parse .codex/config.toml: %v - ctxloom settings will be added but existing config may not be preserved", err)
-		return map[string]any{}, nil
+		// Was: warn and return an EMPTY table. Every caller then wrote that
+		// table back, so an unparseable config.toml was silently REPLACED by
+		// one containing ctxloom's keys and nothing else — the user's codex
+		// configuration destroyed on a success path (U045-F02). "I could not
+		// read it" is not "it was empty"; refuse and say so.
+		return nil, fmt.Errorf("cannot parse %s (%w) — refusing to write over a config.toml ctxloom could not read; fix or move the file and re-run", path, err)
 	}
 	return cfg, nil
 }
 
 // save marshals the table back to config.toml via an atomic write+backup.
-func (w *CodexHookWriter) save(path string, cfg map[string]any) error {
+func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return fmt.Errorf("failed to marshal config.toml: %w", err)
+	}
+	// A 0-byte write over a real file is a wipe wearing a success's clothes
+	// (U045-F02). RemoveSettings may legitimately empty the file — stripping
+	// ctxloom's keys from a config that held nothing else — and says so with
+	// allowEmpty; nothing else may.
+	if !allowEmpty && len(bytes.TrimSpace(buf.Bytes())) == 0 {
+		if existing, rerr := afero.ReadFile(w.getFS(), path); rerr == nil && len(bytes.TrimSpace(existing)) > 0 {
+			return fmt.Errorf("refusing to overwrite %s (%d bytes) with an empty config", path, len(existing))
+		}
 	}
 	return agent.AtomicWriteFile(w.getFS(), path, buf.Bytes(), "config.toml")
 }
@@ -214,7 +228,7 @@ func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
 	}
 	removeManagedHooks(cfg)
 	removeManagedMCP(cfg)
-	return w.save(settingsPath, cfg)
+	return w.save(settingsPath, cfg, true)
 }
 
 // Status implements SettingsWriter for Codex CLI.
@@ -314,11 +328,13 @@ func hasManagedHook(cfg map[string]any) bool {
 }
 
 // addUnifiedHooks translates unified hooks to Codex event names and adds them.
-// Codex lacks a SessionEnd event, so unified SessionEnd hooks are not emitted
-// (no route for them).
+// Codex lacks a SessionEnd event, so unified SessionEnd hooks cannot be emitted
+// — the route declares that gap explicitly (U045-F05) so a configured
+// session_end hook is announced as inert instead of vanishing.
 func addUnifiedHooks(cfg map[string]any, u wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks([]agent.HookRoute{
+	agent.RouteUnifiedHooks("codex", []agent.HookRoute{
 		{Hooks: u.SessionStart, Event: "SessionStart"},
+		{Hooks: u.SessionEnd, Kind: "session_end", Unsupported: "codex has no session-end event"},
 		{Hooks: u.PreTool, Event: "PreToolUse"},
 		{Hooks: u.PostTool, Event: "PostToolUse"},
 		{Hooks: u.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},

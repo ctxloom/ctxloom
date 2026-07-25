@@ -94,7 +94,7 @@ func TestOverrides_WithOverridesTestSeamDoesNotMutateProcessState(t *testing.T) 
 
 	// The process-wide value must be untouched: a plain reload with no
 	// WithOverrides sees no override at all.
-	assert.Equal(t, confload.Overrides{}, CurrentOverrides())
+	assert.Equal(t, confload.Overrides{}, currentOverrides())
 }
 
 // TestConfig_EnvMapKeyCasePreserved is the end-to-end guard for the package's

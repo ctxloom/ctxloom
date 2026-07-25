@@ -342,7 +342,7 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // branch/tag/SHA/default pull; it is recorded as LockEntry.Version, matching the
 // lock/upgrade paths.
 func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
-	requestedVersion = ref.EffectiveContentVersion()
+	requestedVersion = ref.ContentVersion
 	res, err := ResolveConstraint(ctx, requestedVersion, NewFetcherRepoVersions(fetcher, owner, repo))
 	if err != nil {
 		return "", "", "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)

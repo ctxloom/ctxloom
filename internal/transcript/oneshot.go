@@ -41,13 +41,17 @@ import (
 // nothing at the run's own exit code — it lets the caller (run.go,
 // oneshot.go) warn rather than silently losing capture.
 func RecordOneshot(harp, engine, prompt, output string) error {
-	if harp == "" {
-		return nil
-	}
 	prompt = strings.TrimSpace(prompt)
 	output = strings.TrimSpace(output)
+	// Nothing said and nothing produced: legitimately nothing to capture.
 	if prompt == "" && output == "" {
 		return nil
+	}
+	// There IS something to capture and no harp to file it under. Returning
+	// nil here reported full success for a run whose entire transcript was
+	// dropped on the floor — callers only check the error (U144-F15).
+	if harp == "" {
+		return fmt.Errorf("transcript: oneshot capture: no harp for this run, so %d bytes of prompt and %d bytes of output cannot be recorded", len(prompt), len(output))
 	}
 
 	rec, err := NewRecorder(harp, engine)

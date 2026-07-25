@@ -224,10 +224,10 @@ func TestBuildSessionInitSummary_ModelProfilesFragmentsNamed(t *testing.T) {
 		label:           "claude-sonnet",
 		model:           "claude-opus-4-6-20260609",
 		profiles:        []string{"reviewer", "go-house-style"},
-		fragmentsLoaded: []string{"builtin:isolation#fragments/isolation-axes", "go-patterns#fragments/errors"},
-		commandNames:    []string{"review", "test"},
-		skillNames:      []string{"code-review"},
-		mcpServerNames:  []string{"ctxloom-context", "taskloom"},
+		fragmentsLoaded: listed([]string{"builtin:isolation#fragments/isolation-axes", "go-patterns#fragments/errors"}),
+		commandNames:    listed([]string{"review", "test"}),
+		skillNames:      listed([]string{"code-review"}),
+		mcpServerNames:  listed([]string{"ctxloom-context", "taskloom"}),
 		workDir:         "/home/user/project",
 	})
 	assert.Contains(t, got, "model     : claude-opus-4-6-20260609")
@@ -253,7 +253,7 @@ func TestBuildSessionInitSummary_LongListsCollapseToCount(t *testing.T) {
 		requestedAgent:  "coder",
 		currentAgent:    "coder",
 		label:           "claude-sonnet",
-		fragmentsLoaded: many,
+		fragmentsLoaded: listed(many),
 		workDir:         "/home/user/project",
 	})
 	assert.Contains(t, got, "fragments : 9 (see `ctxloom run --dry-run`) loaded into the lead context")

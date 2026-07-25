@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -297,5 +298,31 @@ func TestResolveConstraint_ResolveRefError(t *testing.T) {
 	_, err := ResolveConstraint(context.Background(), "", rv)
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error = %v, want wrapped %v", err, sentinel)
+	}
+}
+
+// TestResolveConstraint_ForcedVersionRejectsUnparseableExpr pins U095-F19's
+// substantive half: resolveSemver's constraint-parse failure is NOT purely
+// defensive. On the INFERRED path inferSelectorKind already proved the
+// expression parses as semver, so the branch cannot fire — but the FORCED
+// "version:<expr>" path skips inference entirely, so an unparseable
+// expression reaches semver.NewConstraint with nothing having validated it.
+// That must be a returned error naming the offending expression, never a
+// panic and never a silent fall-through to some other selector kind.
+func TestResolveConstraint_ForcedVersionRejectsUnparseableExpr(t *testing.T) {
+	for _, expr := range []string{"version:not-a-version", "version:^^1", "version:main"} {
+		t.Run(expr, func(t *testing.T) {
+			rv := &fakeRepoVersions{tags: []string{"v1.0.0", "v1.2.0"}}
+			got, err := ResolveConstraint(context.Background(), expr, rv)
+			if err == nil {
+				t.Fatalf("ResolveConstraint(%q) = %+v, want an error: the forced version: path has no prior validation", expr, got)
+			}
+			if !strings.Contains(err.Error(), "invalid version constraint") {
+				t.Errorf("error = %q, want it to name the invalid constraint", err)
+			}
+			if len(rv.resolvedRefs) != 0 {
+				t.Errorf("resolved refs = %v, want none: an unparseable constraint must not reach the repo", rv.resolvedRefs)
+			}
+		})
 	}
 }

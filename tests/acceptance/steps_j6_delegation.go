@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -116,16 +117,6 @@ func j6BundleYAML(s *j6AgentSpec) string {
 // j6ProfileYAML renders one agent's profile: the one bundle that backs it.
 func j6ProfileYAML(s *j6AgentSpec) string {
 	return fmt.Sprintf("bundles:\n  - ctxloom:local@bundles/%s\n", s.Bundle)
-}
-
-// j6Contains reports whether want appears in list.
-func j6Contains(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
 }
 
 // j6JournalRaw reads the coordinator's run-registry journal straight off
@@ -256,10 +247,10 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			w.docStepMaterialized = fmt.Sprintf("runs.jsonl — run_id %s (agent=%s):\n  mcp_servers: %v", fact.RunID, fact.Agent, fact.MCPServers)
-			if !j6Contains(fact.MCPServers, selfSpec.Server) {
+			if !slices.Contains(fact.MCPServers, selfSpec.Server) {
 				return fmt.Errorf("%s's journaled mcp_servers %v do not contain its own server %q", self, fact.MCPServers, selfSpec.Server)
 			}
-			if j6Contains(fact.MCPServers, otherSpec.Server) {
+			if slices.Contains(fact.MCPServers, otherSpec.Server) {
 				return fmt.Errorf("PRIVILEGE BOUNDARY VIOLATED: %s's journaled mcp_servers %v unexpectedly contain %s's server %q", self, fact.MCPServers, other, otherSpec.Server)
 			}
 			return nil
@@ -368,7 +359,7 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 			if fact.Permission != orig.Permission {
 				return fmt.Errorf("the run remembered as %q now shows permission %q, but it was journaled as %q — a later config edit must never rewrite an already-enqueued run's record", label, fact.Permission, orig.Permission)
 			}
-			if !j6Contains(fact.MCPServers, orig.Server) {
+			if !slices.Contains(fact.MCPServers, orig.Server) {
 				return fmt.Errorf("the run remembered as %q no longer shows its original MCP server %q (has %v) — a later config edit must never rewrite an already-enqueued run's record", label, orig.Server, fact.MCPServers)
 			}
 			return nil
@@ -390,7 +381,7 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 			if fact.Permission != cur.Permission {
 				return fmt.Errorf("the run remembered as %q shows permission %q, want the newly edited %q — the edit did not take effect on a fresh spawn", label, fact.Permission, cur.Permission)
 			}
-			if !j6Contains(fact.MCPServers, cur.Server) {
+			if !slices.Contains(fact.MCPServers, cur.Server) {
 				return fmt.Errorf("the run remembered as %q does not show the newly edited MCP server %q (has %v) — the edit did not take effect on a fresh spawn", label, cur.Server, fact.MCPServers)
 			}
 			return nil

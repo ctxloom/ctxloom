@@ -142,19 +142,6 @@ func queryPathExists(repoDir string, q triggers.Query) triggers.QueryResult {
 	}
 }
 
-// queryGrep is a bounded, read-only content search over the working tree,
-// optionally narrowed by PathGlob. It uses Go's stdlib regexp — RE2-based, so
-// an adversarial pattern is bounded to linear time rather than the
-// catastrophic backtracking a PCRE-style engine risks — and stops after
-// maxGrepFilesScanned files or maxGrepMatches lines, whichever comes first,
-// regardless of tree size.
-//
-// PathGlob is a GLOB, not a directory (a model writes "**/*.go" into a field
-// called path_glob, and it must mean what it says). A plain path with no glob
-// metacharacters still works as a subtree scope. A scope that selects NOTHING
-// on disk is an ERROR, never an empty result: an empty result reads to the
-// model as "I searched and found nothing" — positive evidence of absence —
-// and a query that never actually ran must never be able to say that.
 // grepBudget bounds one grep query's work. Injected rather than read from the
 // consts directly so a test can drive the truncation path without building a
 // 20k-file fixture (no package-level vars; DI).
@@ -187,6 +174,19 @@ func skipGrepDir(name string) bool {
 	return name == "node_modules" || name == "vendor"
 }
 
+// queryGrep is a bounded, read-only content search over the working tree,
+// optionally narrowed by PathGlob. It uses Go's stdlib regexp — RE2-based, so
+// an adversarial pattern is bounded to linear time rather than the
+// catastrophic backtracking a PCRE-style engine risks — and stops after
+// maxGrepFilesScanned files or maxGrepMatches lines, whichever comes first,
+// regardless of tree size.
+//
+// PathGlob is a GLOB, not a directory (a model writes "**/*.go" into a field
+// called path_glob, and it must mean what it says). A plain path with no glob
+// metacharacters still works as a subtree scope. A scope that selects NOTHING
+// on disk is an ERROR, never an empty result: an empty result reads to the
+// model as "I searched and found nothing" — positive evidence of absence —
+// and a query that never actually ran must never be able to say that.
 func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.QueryResult {
 	if repoDir == "" {
 		return triggers.QueryResult{Query: q, Err: "no repository configured"}
@@ -231,7 +231,7 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	}
 
 	var matches []string
-	scanned, considered := 0, 0
+	scanned := 0
 	truncated := false
 	stop := fmt.Errorf("grep: bound reached")
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -263,7 +263,6 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 		if scopeRe != nil && !scopeRe.MatchString(rel) {
 			return nil
 		}
-		considered++
 		scanned++
 		data, rerr := os.ReadFile(path)
 		if rerr != nil {
@@ -287,7 +286,7 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	}
 	// A glob that selected no file at all did not search anything, so it must
 	// not report an empty (searched-and-found-nothing) result.
-	if scopeRe != nil && considered == 0 {
+	if scopeRe != nil && scanned == 0 {
 		return triggers.QueryResult{Query: q, Err: fmt.Sprintf("path_glob %q matched no files in the repository — nothing was searched", q.PathGlob)}
 	}
 

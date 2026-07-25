@@ -141,7 +141,7 @@ func TestExpandSubmodules(t *testing.T) {
 		Match:   Match{Path: []string{".gitmodules", "@submodules"}},
 		Message: "submodules are pinned",
 	})
-	cfg.ExpandSubmodules([]string{"libs/foo", "third_party/bar/"})
+	_ = cfg.ExpandSubmodules([]string{"libs/foo", "third_party/bar/"})
 
 	for _, p := range []string{"libs/foo/x.c", "/abs/third_party/bar/deep/y.h", "/p/.gitmodules"} {
 		if EvaluatePath(cfg, p).Allowed {
@@ -159,7 +159,7 @@ func TestExpandSubmodules(t *testing.T) {
 // inert (matches nothing) rather than matching everything.
 func TestExpandSubmodulesEmpty(t *testing.T) {
 	cfg := cfgWith(Rule{ID: "subs", Match: Match{Path: []string{"@submodules"}}})
-	cfg.ExpandSubmodules(nil)
+	_ = cfg.ExpandSubmodules(nil)
 	if !EvaluatePath(cfg, "anything/at/all.go").Allowed {
 		t.Error("an unexpanded @submodules rule must match nothing")
 	}

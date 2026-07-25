@@ -57,7 +57,8 @@ commands:
 func TestBuildSessionCommands_Available(t *testing.T) {
 	cfg := setupSessionCommandsTestFS(t)
 
-	cmds := buildSessionCommands(context.Background(), cfg)
+	cmds, cerr := buildSessionCommands(context.Background(), cfg)
+	require.NoError(t, cerr)
 	require.NotNil(t, cmds)
 	require.Len(t, cmds.Available, 2)
 
@@ -76,7 +77,8 @@ func TestBuildSessionCommands_Available(t *testing.T) {
 // recognized "/<name>" prompt invocation, args appended verbatim.
 func TestBuildSessionCommands_ResolveExpandsMatchedName(t *testing.T) {
 	cfg := setupSessionCommandsTestFS(t)
-	cmds := buildSessionCommands(context.Background(), cfg)
+	cmds, cerr := buildSessionCommands(context.Background(), cfg)
+	require.NoError(t, cerr)
 	require.NotNil(t, cmds)
 	require.NotNil(t, cmds.Resolve)
 
@@ -94,7 +96,8 @@ func TestBuildSessionCommands_ResolveExpandsMatchedName(t *testing.T) {
 // invocation.
 func TestBuildSessionCommands_ResolveUnknownNamePassesThrough(t *testing.T) {
 	cfg := setupSessionCommandsTestFS(t)
-	cmds := buildSessionCommands(context.Background(), cfg)
+	cmds, cerr := buildSessionCommands(context.Background(), cfg)
+	require.NoError(t, cerr)
 	require.NotNil(t, cmds)
 
 	text, ok, err := cmds.Resolve(context.Background(), "etc", "passwd contains secrets")
@@ -117,5 +120,7 @@ func TestBuildSessionCommands_NoCommandsConfigured(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 
-	assert.Nil(t, buildSessionCommands(context.Background(), cfg))
+	emptyCmds, cerr := buildSessionCommands(context.Background(), cfg)
+	require.NoError(t, cerr)
+	assert.Nil(t, emptyCmds)
 }

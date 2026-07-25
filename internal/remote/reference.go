@@ -566,13 +566,6 @@ func fileLastTwoComponents(rawURL string) (string, bool) {
 	return "", false
 }
 
-// RepoURL returns the repository URL for fetching.
-// For canonical refs, returns the embedded URL.
-// For simple refs, returns empty (caller must look up in registry).
-func (r *Reference) RepoURL() string {
-	return r.URL
-}
-
 // sanitizePath makes a string safe for use in file paths.
 func sanitizePath(s string) string {
 	// Remove/replace problematic characters
@@ -650,10 +643,4 @@ func (r *Reference) ToCanonicalWithVersion() string {
 		return fmt.Sprintf("%s@%s", base, r.ContentVersion)
 	}
 	return base
-}
-
-// EffectiveContentVersion returns the content version to use for fetching.
-// Returns empty string if no version is specified (use HEAD/latest).
-func (r *Reference) EffectiveContentVersion() string {
-	return r.ContentVersion
 }

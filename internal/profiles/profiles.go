@@ -515,7 +515,10 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	// confined to the profiles directories before it is joined into a path —
 	// the same guard Save applies (and the profile-side mirror of
 	// bundles.Loader.Find validating in the read path).
-	localName := toLocalProfileName(name)
+	// The name is used as-is: a bundle-shipped (seeded) profile is resolved by
+	// lookupSeeded before this point, and top-level "<url>@profiles/"
+	// distribution was retired, so there is no URL form left to convert.
+	localName := name
 	if err := validateProfileName(localName); err != nil {
 		return nil, err
 	}
@@ -600,8 +603,56 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	if err := yaml.Unmarshal(data, &profile); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
+	// A zero-byte, `{}`, or fully-commented-out profile parses cleanly into a
+	// profile that selects NOTHING, and used to load with err=nil and record
+	// zero strictness findings — a session launches on it, gets no context at
+	// all, and every surface reports success (U091-F01). It is reported
+	// through the fail-loudly gate rather than as a hard load error: `List`
+	// and the pickers must still be able to ENUMERATE a hollow profile (a
+	// half-authored one is a normal intermediate state), but nothing may
+	// launch on one while pretending it composed something.
+	if !profile.HasContent() {
+		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags) or delete it",
+			"profile %s selects nothing: no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm — a session launched on it composes no context", path)
+	}
 	profile.Path = path
 	return &profile, nil
+}
+
+// HasContent reports whether a profile actually selects or declares anything.
+// Description/Tags alone do not count: they are labels, not content, and a
+// profile carrying only labels composes exactly nothing.
+func (p *Profile) HasContent() bool {
+	return len(p.Parents) > 0 ||
+		len(p.SelectTags) > 0 ||
+		len(p.Bundles) > 0 ||
+		len(p.Commands) > 0 ||
+		len(p.Skills) > 0 ||
+		len(p.Fragments) > 0 ||
+		len(p.BundleItems) > 0 ||
+		len(p.ExcludeFragments) > 0 ||
+		len(p.ExcludeMCP) > 0 ||
+		len(p.DenyTools) > 0 ||
+		len(p.Variables) > 0 ||
+		len(p.Hooks.Unified.PreTool)+len(p.Hooks.Unified.PostTool)+
+			len(p.Hooks.Unified.SessionStart)+len(p.Hooks.Unified.SessionEnd)+
+			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit) > 0 ||
+		len(p.Hooks.Plugins) > 0 ||
+		len(p.MCP.Servers) > 0 ||
+		p.LLM != ""
+}
+
+// IsEmptyDocument reports whether a profile carries NOTHING — no selection and
+// not even a label. This is the shape that serializes to "{}\n": it can only
+// ever compose nothing, and there is no half-authored reading of it. It is the
+// refusal line every profile WRITE shares (Save, and operations' import /
+// edit-write-back / export), kept here so the three cannot drift apart.
+//
+// A profile carrying only labels is deliberately NOT this: it is a normal
+// half-authored state, so it saves and the fail-loudly gate says what it will
+// (not) do.
+func (p *Profile) IsEmptyDocument() bool {
+	return !p.HasContent() && p.Description == "" && len(p.Tags) == 0
 }
 
 // Save saves a profile to disk.
@@ -618,6 +669,19 @@ func (l *Loader) Save(profile *Profile) error {
 	}
 	if err := validateProfileName(profile.Name); err != nil {
 		return err
+	}
+	// A profile with NOTHING in it — no selection and not even a description
+	// or tags — serializes to "{}\n", and writing that reported success while
+	// creating a file that can only ever compose nothing (U091-F08). Refuse
+	// it. A profile that carries labels but selects nothing is a normal
+	// half-authored state: it saves, and the fail-loudly gate says what it
+	// will (not) do, exactly as Load does for the same shape.
+	if !profile.HasContent() {
+		if profile.IsEmptyDocument() {
+			return fmt.Errorf("profile %q is empty: refusing to write a profile with no content at all (add parents, bundles, fragments, select_tags or an llm)", profile.Name)
+		}
+		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags)",
+			"profile %q selects nothing: it carries only labels, so a session launched on it composes no context", profile.Name)
 	}
 
 	// A profile loaded from disk saves back to its own file (so a .yml
@@ -712,15 +776,6 @@ func GetProfileDirs(fs afero.Fs, scmPaths []string) []string {
 // maxProfileDepth prevents stack overflow from deeply nested or malformed configurations.
 // This matches the limit used in config.ResolveProfile for consistency.
 const maxProfileDepth = 64
-
-// toLocalProfileName returns the local lookup name for a profile reference. A
-// bare name (the only live form) is used as-is; a bundle-shipped (seeded) profile
-// is resolved by lookupSeeded before this is reached. Top-level "<url>@profiles/"
-// distribution was retired, so URL profile references are no longer converted to
-// a persistent-storage path.
-func toLocalProfileName(name string) string {
-	return name
-}
 
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
 // Returns bundles, tags, and variables.

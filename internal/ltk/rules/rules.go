@@ -356,13 +356,28 @@ func globMatch(pattern, name string) bool {
 // `path: ["@submodules"]` blocks edits inside all of a repo's git submodules
 // without naming them. submodulePaths come from .gitmodules (see internal/scm).
 // With none, the sentinel is dropped — a rule left with no patterns matches
-// nothing (fail-open). Other patterns in the same list are preserved in place.
-func (c *Config) ExpandSubmodules(submodulePaths []string) {
+// nothing (fail-open); the caller is responsible for distinguishing "no
+// submodules" from "could not read .gitmodules" before calling (see
+// scm.SubmodulePaths, which now returns that error). Other patterns in the same
+// list are preserved in place. It returns an error when a submodule path is not
+// a valid glob pattern.
+func (c *Config) ExpandSubmodules(submodulePaths []string) error {
 	var dirs []string
 	for _, p := range submodulePaths {
 		if p = strings.Trim(strings.ReplaceAll(p, "\\", "/"), "/"); p != "" {
 			dirs = append(dirs, p+"/")
 		}
+	}
+	// These patterns are injected into Match.Path AFTER Parse validated that
+	// list, so they are the one class of pattern that never met
+	// validatePathPatterns — and globMatch treats a malformed pattern as
+	// no-match. A submodule whose path carries a glob metacharacter would
+	// therefore expand into a pattern that can never fire, leaving that
+	// submodule unprotected by the very rule written to protect it, with
+	// nothing said anywhere. Re-run the same validation the parser runs and
+	// refuse rather than expand into a dead rule.
+	if err := validatePathPatterns(dirs); err != nil {
+		return fmt.Errorf("expand @submodules: %w", err)
 	}
 	for i := range c.Rules {
 		pats := c.Rules[i].Match.Path
@@ -379,6 +394,7 @@ func (c *Config) ExpandSubmodules(submodulePaths []string) {
 		}
 		c.Rules[i].Match.Path = expanded
 	}
+	return nil
 }
 
 // strictPrefix selects the operand-matching operator per the allow/deny
@@ -584,6 +600,18 @@ func Parse(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
+// Empty returns the built-in allow-all config — no rules, defaults
+// normalized. It cannot fail, which is the point: this used to be produced by
+// parsing a hardcoded YAML string at runtime, so its (impossible) error made
+// the caller report a fail-closed deny-everything as "could not load its rules
+// config", naming a path the user never wrote.
+func Empty() *Config {
+	var cfg Config
+	// Cannot fail: a Config with no rules only normalizes defaults.
+	_ = cfg.normalizeAndValidate()
+	return &cfg
+}
+
 // Load reads and parses a config file.
 func Load(pathname string) (*Config, error) {
 	data, err := os.ReadFile(pathname)
@@ -672,6 +700,18 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 		if !sh.Valid() {
 			return fmt.Errorf("rule %q: unknown shell %q in match.shells", r.ID, sh)
 		}
+	}
+	// A denial with nothing to say is a guard that fires and communicates
+	// nothing: engine.Response.Message() returns "" when both are empty, so the
+	// hook response carries no permissionDecisionReason at all and the agent
+	// cannot tell the user why it was blocked or what to do instead — it just
+	// sees "deny" and retries. `suggest` alone is enough (it renders as
+	// "Use instead: …"). Only rules that can actually deny are held to this:
+	// an allow rule explains nothing by design, and a `mode: disable` rule never
+	// fires (enabling it is the loud moment, and this check fires then).
+	if r.isEnabled() && r.action() == ActionDeny &&
+		strings.TrimSpace(r.Message) == "" && strings.TrimSpace(r.Suggest) == "" {
+		return fmt.Errorf("rule %q: a deny rule needs a message (or a suggest) — without one the agent is told %q with no reason and no alternative", r.ID, "deny")
 	}
 	return nil
 }

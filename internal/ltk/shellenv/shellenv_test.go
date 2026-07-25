@@ -18,18 +18,12 @@ func TestShellFromPath(t *testing.T) {
 		"cmd.exe":                 ir.ShellCmd, // .exe stripped
 		"/usr/local/bin/pwsh.exe": ir.ShellPwsh,
 		"/usr/bin/fish":           "", // unsupported → defer
-		"":                        "",
+		"":                        "", // an unset $SHELL defers, same as an unsupported one
 		"/opt/homebrew/bin/zsh":   ir.ShellZsh,
 	}
 	for in, want := range cases {
 		if got := ShellFromPath(in); got != want {
 			t.Errorf("ShellFromPath(%q) = %q, want %q", in, got, want)
 		}
-	}
-}
-
-func TestFromEnvEmpty(t *testing.T) {
-	if got := FromEnv(""); got != "" {
-		t.Errorf("FromEnv(\"\") = %q, want \"\"", got)
 	}
 }

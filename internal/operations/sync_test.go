@@ -35,6 +35,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -48,6 +49,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -1420,4 +1422,77 @@ remotes:
 	assert.Contains(t, puller.pulled, revealedRef,
 		"a bundle revealed by an earlier pull must also be pulled in the same run; "+
 			"sync must iterate collect->pull to a fixed point rather than collecting refs once")
+}
+
+// chainRevealingPuller reveals exactly one further bundle ref per pull,
+// forming a chain that takes one sync pass per link. With a chain long enough
+// to occupy every allowed pass, the LAST pass still does real work but the
+// re-collect after it reveals nothing — the graph converged on the final
+// permitted pass.
+type chainRevealingPuller struct {
+	cfg    *config.Config
+	next   map[string]string // ref -> the ref pulling it reveals ("" = reveals nothing)
+	pulled []string
+}
+
+func (p *chainRevealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
+	p.pulled = append(p.pulled, refStr)
+	if revealed := p.next[refStr]; revealed != "" {
+		p.cfg.ToFixture().Profiles.Definitions[revealed] = config.Profile{Bundles: []string{revealed}}
+	}
+	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/chain.yaml"}, nil
+}
+
+// TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges pins U088-F25:
+// the "still revealing new references" warning must describe the GRAPH, not
+// the loop counter. A chain that needs every allowed pass and then converges
+// on the last one is a fully-converged sync — warning there tells the user to
+// re-run `remote pull` for nothing, and the re-run finds no work.
+func TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+`), 0644))
+
+	// One link per allowed pass: pass i pulls link i and reveals link i+1,
+	// except the final pull, which reveals nothing.
+	refs := make([]string, maxSyncPasses)
+	next := map[string]string{}
+	for i := range refs {
+		refs[i] = fmt.Sprintf("https://github.com/test/ctxloom@bundles/link%d", i)
+	}
+	for i := 0; i < len(refs)-1; i++ {
+		next[refs[i]] = refs[i+1]
+	}
+
+	cfg := config.NewFixture(config.Fixture{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			refs[0]: {Bundles: []string{refs[0]}},
+		}},
+		AppPaths: []string{testBaseDir},
+	})
+	cfg.SetFS(fs)
+
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	puller := &chainRevealingPuller{cfg: cfg, next: next}
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	_, err = SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS: fs, Registry: registry, Puller: puller,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, puller.pulled, len(refs), "every link in the chain must be pulled")
+	assert.NotContains(t, warnings.String(), "still revealing new references",
+		"the graph converged on the final allowed pass; warning here sends the user on a no-op re-run")
 }

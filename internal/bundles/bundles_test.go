@@ -457,8 +457,8 @@ func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {
 // the map's iteration order.
 func TestBundleSkill_ToManifest(t *testing.T) {
 	skill := BundleSkill{Files: map[string]SkillFileMeta{
-		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
-		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh":  {SHA256: "sha256:script1", Mode: "0755"},
+		"SKILL.md":        {SHA256: "sha256:skillmd1", Mode: "0644"},
 		"assets/logo.png": {SHA256: "sha256:asset1", Mode: "0644"},
 	}}
 	got := skill.ToManifest()
@@ -1566,7 +1566,7 @@ func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
 
 	got := loader.ExpandBundleRefs([]string{
 		"test/alpha:commands/p1", // prompt — not a fragment
-		"test/alpha:mcp",       // mcp section — not a fragment
+		"test/alpha:mcp",         // mcp section — not a fragment
 		"test/alpha#commands/p1", // prompt via canonical syntax — also skipped
 	})
 
@@ -1781,4 +1781,49 @@ func TestBundleHooks_EntriesAndEntryByID(t *testing.T) {
 		_, ok := hooks.EntryByID(bad)
 		assert.Falsef(t, ok, "EntryByID(%q) must report not-found", bad)
 	}
+}
+
+// TestParseBundle_RejectsADocumentThatDeclaresNothing is the regression guard
+// for U030-F01, the root cause under U082-F02. gopkg.in/yaml.v3 returns a nil
+// error for every one of these inputs, unmarshalling each into a zero-value
+// Bundle, so ParseBundle handed callers a VALID EMPTY BUNDLE for a truncated
+// bundle.yaml, a zero-length companion loadout payload, or an empty remote
+// blob. Nothing downstream could tell that apart from a bundle that genuinely
+// ships nothing: bundles.Loader returned it as a successful load, and
+// expandBundleRef only warns when Load ERRORS, so the bundle enumerated zero
+// items with no diagnostic anywhere.
+func TestParseBundle_RejectsADocumentThatDeclaresNothing(t *testing.T) {
+	for name, doc := range map[string]string{
+		"zero bytes":              "",
+		"whitespace only":         "\n   \n \n",
+		"comment only":            "# a bundle used to live here\n",
+		"document separator only": "---\n",
+		"explicit null":           "null\n",
+		"empty mapping":           "{}\n",
+		"metadata but no content": "name: orphan\ndescription: says nothing\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := ParseBundle([]byte(doc))
+			require.Error(t, err, "a document declaring nothing must not parse as a valid bundle")
+			assert.Nil(t, b)
+			assert.Contains(t, err.Error(), "empty")
+		})
+	}
+}
+
+// TestParseBundle_AcceptsAVersionOnlySkeleton is the other half of U030-F01:
+// the rejection must not swallow a legitimately contentless bundle. CreateBundle
+// writes exactly this -- a version and nothing else -- and publishing one to
+// claim a name is deliberate authoring, not a failure. A single declared item
+// with no version is equally real (an authored bundle mid-edit).
+func TestParseBundle_AcceptsAVersionOnlySkeleton(t *testing.T) {
+	b, err := ParseBundle([]byte("version: \"1.0.0\"\n"))
+	require.NoError(t, err, "a version-only skeleton is what CreateBundle writes and must stay loadable")
+	require.NotNil(t, b)
+	assert.NotNil(t, b.Fragments, "the nil-map initialization must still happen")
+
+	b, err = ParseBundle([]byte("fragments:\n  only:\n    content: hi\n"))
+	require.NoError(t, err, "an item with no version declared is content, not emptiness")
+	require.NotNil(t, b)
+	assert.Len(t, b.Fragments, 1)
 }

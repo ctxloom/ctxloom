@@ -295,10 +295,21 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 }
 
 // coerceEnvValue converts a raw environment/--config-set string into the Go value a
-// schema-typed field expects: bool (strconv.ParseBool), then int
-// (strconv.ParseInt base 10), then — if the string contains a comma — a
+// schema-typed field expects: int (strconv.ParseInt base 10), then bool
+// (strconv.ParseBool), then — if the string contains a comma — a
 // []any of its (independently coerced) comma-separated, trimmed parts, and
 // otherwise the string unchanged.
+//
+// INT IS TRIED BEFORE BOOL, and that order is load-bearing. strconv.ParseBool
+// accepts "0" and "1" as well as the alphabetic spellings, so a bool-first
+// order coerced EVERY 0/1 integer override into a boolean and left the
+// integer-typed schema keys (agent_turn_cap among them, declared
+// {"type":"integer","minimum":1}) with no way to express their smallest legal
+// values at all — CTXLOOM_CONFIG_AGENT_TURN_CAP=1 became `true`, which then
+// failed the layered yaml decode of the WHOLE config document with nothing but
+// a warning. Int-first costs bools only the numeric spellings; every
+// alphabetic one (true/false/t/f/T/F/TRUE/False/...) still reads as a bool, so
+// booleans remain fully expressible while integers stop being corrupted.
 //
 // This is a policy decision entirely ours, not koanf's: koanf's own getters
 // (Bool()/Int()/...) require the CALLER to already know which typed getter
@@ -310,11 +321,11 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 // typed getter) so a parse failure correctly falls through to the next
 // candidate type instead of silently returning a zero value.
 func coerceEnvValue(raw string) any {
-	if b, err := strconv.ParseBool(raw); err == nil {
-		return b
-	}
 	if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
 		return int(i)
+	}
+	if b, err := strconv.ParseBool(raw); err == nil {
+		return b
 	}
 	if strings.Contains(raw, ",") {
 		parts := strings.Split(raw, ",")

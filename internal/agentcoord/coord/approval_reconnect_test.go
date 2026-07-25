@@ -188,8 +188,8 @@ func TestApproval_ReconnectDoesNotDuplicateOrFlipDecision(t *testing.T) {
 	// hook fire == one queued approval_request mail). The FIRST msg id is the
 	// correlation the parent answers.
 	var (
-		relayMu    sync.Mutex
-		relayMsgs  []string
+		relayMu   sync.Mutex
+		relayMsgs []string
 	)
 	c.onApprovalMailQueued = func(msgID string) {
 		relayMu.Lock()

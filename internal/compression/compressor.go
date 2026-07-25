@@ -3,7 +3,10 @@
 // elements while removing redundant content.
 package compression
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // Compressor compresses content while preserving semantic structure.
 type Compressor interface {
@@ -127,9 +130,12 @@ func sniffContentType(content string) ContentType {
 	return ContentTypeUnknown
 }
 
+// hasExtension reports whether filename ends in any of exts. A filename that
+// IS the extension (e.g. ".go") counts — the previous hand-rolled
+// len(filename) > len(ext) bound excluded that case for no stated reason.
 func hasExtension(filename string, exts ...string) bool {
 	for _, ext := range exts {
-		if len(filename) > len(ext) && filename[len(filename)-len(ext):] == ext {
+		if strings.HasSuffix(filename, ext) {
 			return true
 		}
 	}

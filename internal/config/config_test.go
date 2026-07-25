@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -1408,19 +1409,143 @@ func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
+// An unresolvable profile (`ctxloom run -p <typo>`) delivers zero MCP
+// servers, zero hooks, zero commands and zero skills. That empty result is not
+// a legitimate "nothing configured" — it is "we could not work out what to
+// deliver" — so every one of the four bundle resolvers must say so rather than
+// `continue` past it. Previously this test asserted only the empty map, which
+// is what the silent no-op produces.
 func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	stubLookPath(t)
+	resetConfigStrictness(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/project/.ctxloom"
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
-	cfg := &Config{
-		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
-		appPaths: []string{appDir},
-		fs:       fs,
+	newCfg := func() *Config {
+		return &Config{
+			defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
+			appPaths: []string{appDir},
+			fs:       fs,
+		}
 	}
 
-	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
+	mark := strictness.Checkpoint()
+	onlyBuiltinMCPServers(t, newCfg().ResolveBundleMCPServers(nil))
+	found := strictness.Since(mark)
+	require.NotEmpty(t, found, "an unresolvable profile must record a finding, not vanish")
+	assert.Equal(t, strictness.ClassRef, found[0].Class)
+	assert.Contains(t, found[0].Message, "nonexistent")
+
+	// The other three resolvers share the defect and must share the fix.
+	// FailOnce dedups per formatted message, so each is checked in its own
+	// window against a fresh Config (the loaders memoize per Config).
+	for _, tc := range []struct {
+		name string
+		call func(*Config)
+	}{
+		{"hooks", func(c *Config) { c.ResolveBundleHooks(nil) }},
+		{"commands", func(c *Config) { c.ResolveBundleCommands(nil) }},
+		{"skills", func(c *Config) { c.ResolveBundleSkills(nil) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetConfigStrictness(t)
+			mark := strictness.Checkpoint()
+			tc.call(newCfg())
+			assert.NotEmpty(t, strictness.Since(mark),
+				"%s: an unresolvable profile must be reported here too", tc.name)
+		})
+	}
+}
+
+// A bundle ref that fails to load drops ALL of its MCP servers and hooks. The
+// error was thrown away, so the result was indistinguishable from a bundle
+// that ships neither — no warning, no finding, exit 0. The sibling
+// loadBundleProfileSeed (config.go) already reports exactly this fault.
+func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
+	stubLookPath(t)
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
+	bundlesDir := paths.LocalBundlesPath(appDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+	// A ref the profile names but that is nowhere on disk: loader.Load fails in
+	// Find. Deliberately NOT a malformed local bundle file — the loader's
+	// directory scan already reports those itself, which would let this test
+	// pass without loadMCPFromBundleRef/loadHooksFromBundleRef reporting
+	// anything (a false green: verified by running it against the unfixed
+	// source).
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "p.yaml"),
+		[]byte("name: p\nbundles:\n  - absent-bundle\n"), 0644))
+
+	newCfg := func() *Config {
+		return &Config{
+			defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
+			appPaths: []string{appDir},
+		}
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(*Config)
+	}{
+		{"mcp", func(c *Config) { c.ResolveBundleMCPServers(nil) }},
+		{"hooks", func(c *Config) { c.ResolveBundleHooks(nil) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetConfigStrictness(t)
+			mark := strictness.Checkpoint()
+			tc.call(newCfg())
+			found := strictness.Since(mark)
+			require.NotEmpty(t, found,
+				"%s: a bundle that failed to load must be reported, not silently contribute nothing", tc.name)
+			assert.Equal(t, strictness.ClassBundle, found[0].Class)
+			assert.Contains(t, found[0].Message, "absent-bundle")
+		})
+	}
+}
+
+// The other side of the discriminator. A profile's `bundles:` list may carry
+// ITEM-SCOPED refs ("<bundle>#fragments/<name>") that select one fragment out
+// of a bundle. loader.Load cannot resolve those by design, and a selector that
+// picked one fragment SHOULD contribute no MCP servers and no hooks — that is
+// a legitimate empty result, not a swallowed failure, and must not be reported
+// as a fatal startup finding.
+func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
+	stubLookPath(t)
+	resetConfigStrictness(t)
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
+	bundlesDir := paths.LocalBundlesPath(appDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "local.yaml"),
+		[]byte("name: local\nversion: \"1.0\"\nfragments:\n  onboarding:\n    content: hi\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "p.yaml"),
+		[]byte("name: p\nbundles:\n  - local#fragments/onboarding\n"), 0644))
+
+	cfg := &Config{
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
+		appPaths: []string{appDir},
+	}
+
+	mark := strictness.Checkpoint()
+	cfg.ResolveBundleMCPServers(nil)
+	cfg.ResolveBundleHooks(nil)
+	assert.Empty(t, strictness.Since(mark),
+		"a fragment-scoped ref shipping no MCP servers or hooks is correct, not a fault")
+}
+
+// resetConfigStrictness gives a test pristine strict-mode state and stops the
+// package-global finding collector bleeding into its neighbours.
+func resetConfigStrictness(t *testing.T) {
+	t.Helper()
+	strictness.Reset()
+	strictness.SetDegraded(false)
+	t.Cleanup(func() {
+		strictness.Reset()
+		strictness.SetDegraded(false)
+	})
 }
 
 // NOTE: the embedded-builtin companion-gating tests that used to live here

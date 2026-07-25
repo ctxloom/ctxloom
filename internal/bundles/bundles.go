@@ -762,7 +762,37 @@ func ParseBundle(data []byte) (*Bundle, error) {
 		bundle.Skills = make(map[string]BundleSkill)
 	}
 
+	// A document that declares NOTHING is a truncated/empty file, not a bundle.
+	// gopkg.in/yaml.v3 returns a nil error for "", whitespace, a comment-only
+	// document, a bare `---`, `null` and `{}` alike — every one unmarshals into
+	// a zero-value Bundle — so without this guard a truncated bundle.yaml, an
+	// empty companion loadout payload, or an empty remote blob SUCCEEDED and
+	// contributed zero items with no diagnostic anywhere: Loader reported a
+	// successful load, and expandBundleRef only warns when Load errors. This is
+	// the root cause under the publish-side guard in operations.PushBundle.
+	//
+	// The predicate is "no version AND no items". A version-only skeleton is
+	// deliberately still valid: CreateBundle writes exactly that, and claiming a
+	// name with one is authoring, not failure. So is an item with no version
+	// (an authored bundle mid-edit). Only the document that says nothing at all
+	// is refused. Metadata alone (name/description/tags/author) does not count
+	// as saying something — it declares no content and carries no version, which
+	// is precisely the truncated-file signature.
+	if bundle.declaresNothing() {
+		return nil, fmt.Errorf("bundle is empty: %d bytes parsed to a document declaring no version "+
+			"and no items (fragments, commands, skills, mcp, profiles or hooks) — an empty, truncated, "+
+			"comment-only or `null` file parses as valid YAML but is not a bundle", len(data))
+	}
+
 	return &bundle, nil
+}
+
+// declaresNothing reports whether the bundle carries neither a version nor a
+// single item of any kind — see ParseBundle for why that specific predicate.
+func (b *Bundle) declaresNothing() bool {
+	return b.Version == "" &&
+		len(b.Fragments) == 0 && len(b.Commands) == 0 && len(b.Skills) == 0 &&
+		len(b.MCP) == 0 && len(b.Profiles) == 0 && !b.Hooks.HasAny()
 }
 
 // detectLegacySkillsKey inspects the raw bundle YAML for a top-level

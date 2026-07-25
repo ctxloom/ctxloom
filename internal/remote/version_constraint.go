@@ -315,8 +315,10 @@ func isRepoTag(ctx context.Context, rv RepoVersions, name string) bool {
 func resolveSemver(ctx context.Context, expr string, rv RepoVersions) (Resolution, error) {
 	constraint, err := semver.NewConstraint(expr)
 	if err != nil {
-		// ClassifyConstraint already validated expr parses; treat a late failure
-		// defensively rather than panic.
+		// On the INFERRED path inferSelectorKind already proved expr parses, so
+		// this is defensive. On the FORCED path ("version:<expr>") parseSelector
+		// never parses it, so this is the only validation there and can really
+		// fire. Either way: an error, never a panic.
 		return Resolution{}, fmt.Errorf("invalid version constraint %q: %w", expr, err)
 	}
 	tags, err := rv.ListTags(ctx)

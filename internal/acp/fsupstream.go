@@ -33,7 +33,7 @@ func dialFsUpstream(ctx context.Context, addr string) (*jsonrpc.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := jsonrpc.NewConn(ctx, conn, conn, jsonrpc.CloserFunc(conn.Close), noopFsUpstreamHandler{})
+	c := jsonrpc.NewConn(conn, conn, jsonrpc.CloserFunc(conn.Close), noopFsUpstreamHandler{})
 	c.Start(ctx)
 	return c, nil
 }

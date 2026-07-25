@@ -319,7 +319,7 @@ func overrideChainSection(topProps map[string]any, envPrefix string) string {
 
 	if name, ok := pickScalarExampleField(topProps); ok {
 		fmt.Fprintf(&b, "For example, `%s` can be set via `%s%s=<value>` or `--config-set %s=<value>`.\n\n",
-			name, envPrefix, envSegment(name), name)
+			name, envPrefix, strings.ToUpper(name), name)
 	}
 	return b.String()
 }
@@ -342,10 +342,6 @@ func pickScalarExampleField(props map[string]any) (string, bool) {
 	}
 	return "", false
 }
-
-// envSegment renders one field-path segment as it would appear in an env var
-// name, per overrideChainSection's doc.
-func envSegment(name string) string { return strings.ToUpper(name) }
 
 // --- small schema helpers ---
 

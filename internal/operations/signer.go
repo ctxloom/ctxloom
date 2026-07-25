@@ -8,6 +8,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -77,7 +79,7 @@ func ResolveSignerKey(keyArg string, fs afero.Fs, stdin io.Reader) (SignerKeyInf
 	var data []byte
 	switch keyArg {
 	case "-":
-		b, err := io.ReadAll(bufio.NewReader(stdin))
+		b, err := io.ReadAll(stdin)
 		if err != nil {
 			return SignerKeyInfo{}, fmt.Errorf("reading public key from stdin: %w", err)
 		}
@@ -195,8 +197,9 @@ func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, erro
 // appendAllowedSignersLine creates dirs/file as needed and appends line,
 // preserving whatever already exists.
 func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
-	if err := fs.MkdirAll(parentDir(path), 0o700); err != nil {
-		return fmt.Errorf("create %s: %w", parentDir(path), err)
+	dir := filepath.Dir(path)
+	if err := fs.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", dir, err)
 	}
 
 	existing, _ := afero.ReadFile(fs, path) // absent is fine: existing stays nil
@@ -212,14 +215,6 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
-}
-
-func parentDir(path string) string {
-	i := strings.LastIndexAny(path, "/\\")
-	if i < 0 {
-		return "."
-	}
-	return path[:i]
 }
 
 // SignerListing is one allowed_signers entry plus the store it came from,
@@ -257,8 +252,8 @@ type SignerListing struct {
 // binary — hiding it here was itself the oozy-plod defect (this function
 // used to omit it entirely, justified by a comment claiming the embedded root
 // was "empty today"; that stopped being true the moment a release key was
-// actually embedded). config.EmbeddedSigners() returns a READ view (never a
-// writable handle — embeddedSigners() itself stays unexported by design) so
+// actually embedded). config.EmbeddedSigners() returns a READ view — the
+// Store type exposes no mutator — so
 // this enumerates entries with no mutation path opening up. An embedded entry
 // is NOT removable via this CLI (only a new binary changes the compiled-in
 // bytes) — RemoveSigner reports that honestly, and can instead persist a
@@ -417,7 +412,7 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	toDrop := map[int]bool{}
 	removed := 0
 	for _, e := range store.Entries() {
-		if principalsContain(e.Principals, principal) {
+		if slices.Contains(e.Principals, principal) {
 			toDrop[e.Line] = true
 			removed++
 		}
@@ -489,15 +484,6 @@ func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, principal string
 		return "", err
 	}
 	return path, nil
-}
-
-func principalsContain(principals []string, want string) bool {
-	for _, p := range principals {
-		if p == want {
-			return true
-		}
-	}
-	return false
 }
 
 func readLines(r io.Reader) ([]string, error) {

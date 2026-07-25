@@ -284,7 +284,7 @@ func TestWriteContextFile(t *testing.T) {
 	assert.NotEmpty(t, hash)
 
 	// Verify context file was created
-	contextPath := paths.GetCacheDir(testBaseDir) + "/context/" + hash + ".md"
+	contextPath := paths.CachePath(testBaseDir) + "/context/" + hash + ".md"
 	exists, err := afero.Exists(fs, contextPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "context file should be created")
@@ -296,22 +296,26 @@ func TestWriteContextFile(t *testing.T) {
 	assert.Contains(t, string(content), "Second fragment content")
 }
 
-// TestWriteContextFile_Empty tests that empty fragments produce empty hash.
+// TestWriteContextFile_Empty pins the distinction WriteContextFile must draw:
+// NO fragments is legitimately nothing to deliver, while fragments that exist
+// but assemble to zero bytes is a delivery failure (U101-F01). Reporting both
+// as a silent success made "no context configured" indistinguishable from
+// "every fragment resolved empty".
 func TestWriteContextFile_Empty(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	hash, err := agent.WriteContextFile("/project", nil,
 		agent.WithContextFS(fs))
-	require.NoError(t, err)
+	require.NoError(t, err, "no fragments at all: nothing was asked for")
 	assert.Empty(t, hash)
 
-	// Also test with empty content fragments
+	// Fragments that exist but carry no content: asked for context, got none.
 	fragments := []*agent.Fragment{
 		{Name: "empty", Content: ""},
 	}
 	hash, err = agent.WriteContextFile("/project", fragments,
 		agent.WithContextFS(fs))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, agent.ErrNoContext)
 	assert.Empty(t, hash)
 }
 

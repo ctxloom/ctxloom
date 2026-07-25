@@ -87,8 +87,8 @@ func TestMain(m *testing.M) {
 		// blocking forever or popping a GUI dialog — a hanging test is worse than
 		// a failing one.
 		os.Setenv("GIT_TERMINAL_PROMPT", "0") //nolint:forbidigo // no *testing.T in TestMain
-		os.Setenv("GIT_ASKPASS", "")           //nolint:forbidigo // no *testing.T in TestMain
-		os.Setenv("SSH_ASKPASS", "")           //nolint:forbidigo // no *testing.T in TestMain
+		os.Setenv("GIT_ASKPASS", "")          //nolint:forbidigo // no *testing.T in TestMain
+		os.Setenv("SSH_ASKPASS", "")          //nolint:forbidigo // no *testing.T in TestMain
 
 		origWD, wdErr := os.Getwd()
 		work := filepath.Join(sandbox, "cwd")

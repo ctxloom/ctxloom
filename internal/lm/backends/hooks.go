@@ -18,20 +18,15 @@ var (
 	WithStatusLineDisabled = agent.WithStatusLineDisabled
 )
 
-// newSettingsWriter constructs the named backend's writer from the resolved
-// options, or nil if the backend doesn't support settings. The per-backend
-// writer constructors live in the descriptor table (registry.go).
-func newSettingsWriter(name string, o *agent.SettingsOptions) agent.SettingsWriter {
+// GetSettingsWriter returns a settings writer for the named backend, or nil if
+// not supported. If fs is provided, it will be used for filesystem operations;
+// otherwise the OS filesystem is used. The per-backend writer constructors
+// live in the descriptor table (registry.go).
+func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
 	if d, ok := descriptors[name]; ok && d.newWriter != nil {
-		return d.newWriter(*o)
+		return d.newWriter(agent.SettingsOptions{FS: fs})
 	}
 	return nil
-}
-
-// GetSettingsWriter returns a settings writer for the named backend, or nil if not supported.
-// If fs is provided, it will be used for filesystem operations; otherwise the OS filesystem is used.
-func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
-	return newSettingsWriter(name, &agent.SettingsOptions{FS: fs})
 }
 
 // BackendsWithSettings returns the names of all backends that support settings.

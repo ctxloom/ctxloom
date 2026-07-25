@@ -73,6 +73,36 @@ func TestExportTranscript_WritesUnderSessionDir(t *testing.T) {
 	assert.Equal(t, transcriptText(exportItems, 100), txt)
 }
 
+// A feed that holds only viewer chrome renders to zero bytes. Writing that
+// file and reporting "saved <path>" is the project's characteristic silent
+// no-op: exit 0, success message, zero bytes delivered.
+func TestExportTranscript_EmptyRenderIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC)
+	notices := []feedItem{
+		{role: "notice", text: "… 3 live events dropped"},
+		{role: "notice", text: "… 1 live event dropped"},
+	}
+
+	for _, kind := range []string{"txt", "ndjson"} {
+		path, err := exportTranscript(dir, "swift-elm-fox", kind, notices, now)
+		require.ErrorIs(t, err, errEmptyTranscript, "kind=%s", kind)
+		assert.Empty(t, path, "kind=%s: no path may be reported for a refused export", kind)
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "a refused export must not leave a 0-byte file behind")
+}
+
+// An export whose feed is genuinely empty is the same refusal, not a
+// zero-byte file.
+func TestExportTranscript_NoItemsIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	_, err := exportTranscript(dir, "swift-elm-fox", "txt", nil, time.Now())
+	require.ErrorIs(t, err, errEmptyTranscript)
+}
+
 func TestOSC52Copy_Encoding(t *testing.T) {
 	got := osc52Copy("hello ✂ clipboard")
 	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("hello ✂ clipboard")) + "\x07"
@@ -91,4 +121,30 @@ func TestCopyText_SelectedVsVisible(t *testing.T) {
 	all := copyText(items, 1, false)
 	assert.Contains(t, all, "one")
 	assert.Contains(t, all, "two")
+}
+
+// TestExportTranscript_RejectsAnUnknownKind is the regression guard for
+// U044-F09. `kind` was used for TWO things -- selecting the renderer and
+// supplying the filename extension -- with a `default:` arm that fell through
+// to the TEXT renderer. Any kind other than "ndjson" therefore produced
+// role-tagged plain text in a file whose extension claimed otherwise:
+// exportTranscript(..., "json", ...) wrote transcript-<harp>-<ts>.json full of
+// text, and reported "saved <path>" over it. The switch is now exhaustive and
+// an unrecognised kind is a loud error rather than a file that lies about its
+// own contents.
+func TestExportTranscript_RejectsAnUnknownKind(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	for _, kind := range []string{"json", "md", "", "NDJSON", "text"} {
+		t.Run(kind, func(t *testing.T) {
+			path, err := exportTranscript(dir, "swift-elm-fox", kind, exportItems, now)
+			require.Error(t, err, "an unrecognised kind must not silently render text under that extension")
+			assert.Empty(t, path)
+
+			entries, rerr := os.ReadDir(dir)
+			require.NoError(t, rerr)
+			assert.Empty(t, entries, "a refused export must leave no file behind")
+		})
+	}
 }

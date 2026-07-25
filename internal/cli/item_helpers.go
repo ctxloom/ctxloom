@@ -247,14 +247,36 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 	if filtered == nil {
 		filtered = []itemRow{}
 	}
+	// A --bundle that names nothing is a typo, not an empty result (U037-F06).
+	// The enumeration is only consulted when the filter matched nothing, and a
+	// failure to enumerate leaves the listing alone rather than inventing a
+	// verdict.
+	if len(filtered) == 0 && bundleFilter != "" {
+		if infos, lerr := operations.ListBundles(cfg); lerr == nil {
+			known := make([]string, 0, len(infos))
+			for _, b := range infos {
+				known = append(known, b.Name)
+			}
+			if err := checkBundleFilter(bundleFilter, known); err != nil {
+				return err
+			}
+		}
+	}
 	// Stamp effective trust only for the machine (json) surface: it materializes
 	// and hashes each item, so the cheaper ref-only human listing stays unchanged.
 	if outputFormatOf(cmd) == formatJSON {
 		stampItemTrust(cfg, itemType, filtered)
 	}
 	return emit(cmd, filtered, func() error {
-		if len(rows) == 0 {
+		// Tested on the FILTERED slice, not the unfiltered one (U037-F06): the
+		// old `len(rows) == 0` was false whenever any item existed anywhere, so
+		// a filter that matched nothing fell through to "Fragments (0):".
+		if len(filtered) == 0 {
 			out := cmd.OutOrStdout()
+			if bundleFilter != "" {
+				fmt.Fprintf(out, "No %ss in bundle %q (%d %ss exist in other bundles).\n", itemType, bundleFilter, len(rows), itemType)
+				return nil
+			}
 			fmt.Fprintf(out, "No %ss found.\n", itemType)
 			fmt.Fprintln(out, "Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
 			return nil
@@ -442,6 +464,9 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 		fmt.Println("No changes made.")
 		return nil
 	}
+	if err := checkEditedContent(itemType, itemName, newContent); err != nil {
+		return err
+	}
 
 	res, err := operations.SetItemContent(context.Background(), cfg, operations.SetItemContentRequest{
 		Bundle:    bundleName,
@@ -622,4 +647,40 @@ func printPushResult(w io.Writer, r *operations.PushBundleResult) error {
 		}
 	}
 	return nil
+}
+
+// checkEditedContent rejects an editor buffer that came back empty (U037-F01).
+// editItem's only guard was "did it change?", so an editor that crashed, wrote
+// a truncated file, or never wrote at all replaced the item's entire body with
+// nothing — and the command printed "Updated <type> ..." and exited 0.
+// editInEditor returns whatever bytes are on disk with no length check, and
+// operations.SetItemContent validates only the kind and the item's existence.
+// An intentional blank is not a thing anyone does through this path; losing a
+// fragment to a wrapper script that silently failed very much is.
+func checkEditedContent(itemType ItemType, itemName, edited string) error {
+	if strings.TrimSpace(edited) == "" {
+		return fmt.Errorf("refusing to overwrite %s %q with an empty buffer — the editor returned no content (crash, truncated write, or a wrapper that never saved); the item is unchanged", itemType, itemName)
+	}
+	return nil
+}
+
+// checkBundleFilter tells a MISTYPED --bundle from one that legitimately holds
+// no items of this kind (U037-F06). The empty-listing branch used to test the
+// UNFILTERED row slice, which is non-empty whenever any item exists anywhere, so
+// `fragment list --bundle nosuchbundle` printed "Fragments (0):" and exited 0
+// with nothing to suggest the name was wrong.
+//
+// known is the set of bundle names that actually exist. An EMPTY known set means
+// the lookup itself did not answer (see runListItems), and this stays silent
+// rather than inventing a verdict from a failed enumeration.
+func checkBundleFilter(bundleFilter string, known []string) error {
+	if bundleFilter == "" || len(known) == 0 {
+		return nil
+	}
+	for _, name := range known {
+		if name == bundleFilter {
+			return nil
+		}
+	}
+	return fmt.Errorf("no bundle named %q (bundles: %s)", bundleFilter, strings.Join(known, ", "))
 }

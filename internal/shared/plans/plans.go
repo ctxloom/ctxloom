@@ -33,6 +33,14 @@ type Plan struct {
 	// Sessions is the frontmatter `sessions:` list (every session that touched
 	// the plan), as stamped by ctxloom's plan-stamp hook.
 	Sessions []string `json:"sessions"`
+	// ProjectDir is the project directory the owning session ran in, joined
+	// from ~/.ctxloom/sessions/index.yaml. Empty when the plan could not be
+	// attributed to any project (ephemeral/worktree session, pruned index
+	// entry, hand-created plan file) — and also empty from the unscoped List /
+	// ListHome, which do no attribution at all. Only the scoped listings
+	// (ListHomeScoped, AttributeAll) populate it, so the field is additive:
+	// existing consumers of the JSON shape see one new optional key.
+	ProjectDir string `json:"project_dir,omitempty"`
 }
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory whose
@@ -57,6 +65,14 @@ func ListHome() ([]Plan, error) {
 // List enumerates <root>/<harp>/*.plan.md, parsing each plan's frontmatter for a
 // title and the sessions list. A missing root yields an empty list (no plans
 // yet), not an error. Results are sorted by session then name for stable output.
+//
+// A session directory or plan file that cannot be READ is an error, not a
+// shorter list. "I could not read it" must never render as "it is not there":
+// a swallowed per-harp read error made an unreadable sessions tree print
+// `(no plans)` and exit 0, indistinguishable from having no plans at all. The
+// one case that is legitimately empty rather than failed is an entry that has
+// VANISHED between listing and reading (a session reaped mid-scan) — that is
+// skipped silently, because it genuinely holds no plans any more.
 func List(root string) ([]Plan, error) {
 	dirs, err := os.ReadDir(root)
 	if err != nil {
@@ -74,7 +90,10 @@ func List(root string) ([]Plan, error) {
 		dir := filepath.Join(root, harp)
 		files, err := os.ReadDir(dir)
 		if err != nil {
-			continue
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read session dir %s: %w", harp, err)
 		}
 		for _, f := range files {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), planExt) {
@@ -84,14 +103,18 @@ func List(root string) ([]Plan, error) {
 			name := strings.TrimSuffix(f.Name(), planExt)
 			title := name
 			var sessions []string
-			if data, err := os.ReadFile(path); err == nil {
-				if t, ss := ParseFrontmatter(string(data)); t != "" || len(ss) > 0 {
-					if t != "" {
-						title = t
-					}
-					sessions = ss
+			data, err := os.ReadFile(path)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
 				}
+				return nil, fmt.Errorf("read plan %s: %w", path, err)
 			}
+			t, ss := ParseFrontmatter(string(data))
+			if t != "" {
+				title = t
+			}
+			sessions = ss
 			out = append(out, Plan{
 				Path:     path,
 				Name:     name,

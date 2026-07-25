@@ -3,6 +3,7 @@ package plans
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,54 @@ func TestListMissingRootIsEmpty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("want empty, got %+v", got)
+	}
+}
+
+// U115-F02: an unreadable session directory must be a LOUD failure, not a
+// silently shorter list. Dropping a harp's whole plan set and returning
+// success is indistinguishable from that session having no plans.
+func TestListUnreadableSessionDirFailsLoudly(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "readable-harp", "ok.plan.md"), "---\ntitle: Fine\n---\n")
+	blocked := filepath.Join(root, "blocked-harp")
+	mustWrite(t, filepath.Join(blocked, "secret.plan.md"), "---\ntitle: Hidden\n---\n")
+	if err := os.Chmod(blocked, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o755) })
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("session dir is still readable (running as root?) — cannot exercise the failure")
+	}
+
+	got, err := List(root)
+	if err == nil {
+		t.Fatalf("List succeeded with %d plans despite an unreadable session dir; "+
+			"the blocked harp's plans vanished silently: %+v", len(got), got)
+	}
+	if !strings.Contains(err.Error(), "blocked-harp") {
+		t.Errorf("error must name the session that could not be read, got: %v", err)
+	}
+}
+
+// A session directory that disappears mid-scan is NOT a failure: it genuinely
+// has no plans any more. Only a real read error is loud.
+func TestListVanishedSessionDirIsNotAnError(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "alpha-harp", "design.plan.md"), "---\ntitle: A\n---\n")
+	gone := filepath.Join(root, "gone-harp")
+	if err := os.MkdirAll(gone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d plans, want 1: %+v", len(got), got)
 	}
 }
 

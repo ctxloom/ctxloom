@@ -201,9 +201,14 @@ func renderOrEmit(out io.Writer, list []plans.Plan, format clifmt.Format) error 
 }
 
 // renderPlanTable writes the human-readable plan listing: one row per plan as
-// "<session>\t<name>\t<title>\t<project>", grouped naturally by the sorted
-// session order. The project column is "-" for a plan that could not be
+// "<session>\t<name>\t<title>\t<project>\t<path>", grouped naturally by the
+// sorted session order. The project column is "-" for a plan that could not be
 // attributed to any project — shown, never dropped.
+//
+// The path is last and it is the point: `plan show` accepts a PATH and nothing
+// else, so a listing without it cannot be piped into it — a reader had to
+// rebuild the path by hand from the documented layout. It is appended rather
+// than inserted so the existing four columns keep their positions.
 func renderPlanTable(out io.Writer, list []plans.Plan) error {
 	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
@@ -215,7 +220,7 @@ func renderPlanTable(out io.Writer, list []plans.Plan) error {
 		if project == "" {
 			project = "-"
 		}
-		w.Printf("%s\t%s\t%s\t%s\n", p.Session, p.Name, p.Title, project)
+		w.Printf("%s\t%s\t%s\t%s\t%s\n", p.Session, p.Name, p.Title, project, p.Path)
 	}
 	return w.Err()
 }

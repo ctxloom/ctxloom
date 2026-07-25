@@ -115,6 +115,34 @@ func TestRunPlanList_NoProjectFallsBackToGlobalWithNotice(t *testing.T) {
 	assert.Contains(t, strings.ToLower(errw.String()), "project")
 }
 
+// `plan show` takes a PATH and nothing else, so a text listing that omits the
+// path cannot be fed to it. Assert the two commands actually compose: take a
+// path straight out of `plan list`'s text output and hand it to plan show.
+func TestRunPlanList_TextRowsCarryThePathPlanShowAccepts(t *testing.T) {
+	dir := t.TempDir()
+	seedPlanWorld(t, map[string]string{"mine": dir}, "orphan")
+	gitInit(t, dir)
+	taskstest.ChangeDir(t, dir)
+
+	var out, errw bytes.Buffer
+	tc := operations.TaskContext{WorkDir: dir}
+	require.NoError(t, runPlanListCmd(&out, &errw, tc, planListOptions{}))
+
+	rows := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		cols := strings.Split(row, "\t")
+		require.Len(t, cols, 5, "row %q must carry the path column", row)
+
+		// The unchanged prefix: adding a column must not renumber the others.
+		assert.Equal(t, "design", cols[1], "name stays column 2")
+
+		content, err := plans.Show(cols[4])
+		require.NoError(t, err, "the listed path must be one plan show accepts")
+		assert.Contains(t, content, "body")
+	}
+}
+
 // --format json still serializes the rows, now carrying project attribution.
 func TestRunPlanList_JSONFormatHonoured(t *testing.T) {
 	dir := t.TempDir()

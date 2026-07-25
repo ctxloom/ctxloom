@@ -70,7 +70,7 @@ func TestClaudeSkillExports_DisabledSkillReportsDisabled(t *testing.T) {
 }
 
 // TestSkillExportsFor_UnregisteredBackendReturnsNil mirrors
-// commandExportsFor's opt-out contract: a backend with no skillExports mapper
+// CommandExportsFor's opt-out contract: a backend with no skillExports mapper
 // (acp/mock — a generic or bare-bones descriptor with no known skills dir)
 // exports no skills rather than erroring.
 func TestSkillExportsFor_UnregisteredBackendReturnsNil(t *testing.T) {

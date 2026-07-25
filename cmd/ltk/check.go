@@ -91,7 +91,7 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 
 	a := app.New(cfg)
 	a.ForceShell = forceShell
-	a.HostShell = shellenv.FromEnv(os.Getenv("SHELL"))
+	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
 	resp := a.Decide(context.Background(), engine.Request{Command: command})
 
 	result := checkResult{Decision: "allow"}

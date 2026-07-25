@@ -48,13 +48,13 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate
 	}
 	cfg.SetExecutableTrustGate(gate)
 	return &agent.ManagedConfig{
-		Commands:         commandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
-		Skills:           skillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
+		Commands:         CommandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
+		Skills:           SkillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
-		MCP:              assembleManagedMCP(cfg, profileNames),
+		MCP:              AssembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
 		ManageStatusline: managedStatuslineEnabled(cfg),
-		DenyTools:        assembleManagedDenyTools(cfg, profileNames),
+		DenyTools:        AssembleManagedDenyTools(cfg, profileNames),
 	}
 }
 
@@ -67,12 +67,12 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 	return settings.ShouldManageStatusline()
 }
 
-// commandExportsFor maps loaded bundle content to the named backend's command
+// CommandExportsFor maps loaded bundle content to the named backend's command
 // exports (resolving that backend's per-prompt enablement + metadata), or nil
 // for a backend without slash-command export. Reads the descriptor table's
 // exports field — the same mapper WriteCommandFilesFor uses — so the two
 // paths can't diverge.
-func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
+func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
 	d, ok := descriptors[backendName]
 	if !ok || d.exports == nil {
 		return nil
@@ -80,11 +80,11 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 	return d.exports(prompts)
 }
 
-// skillExportsFor maps loaded bundle skills to the named backend's Agent
+// SkillExportsFor maps loaded bundle skills to the named backend's Agent
 // Skill package exports (resolving that backend's per-skill enablement), or
 // nil for a backend without skill export. Reads the descriptor table's
-// skillExports field — the skills-surface analog of commandExportsFor.
-func skillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
+// skillExports field — the skills-surface analog of CommandExportsFor.
+func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
 	d, ok := descriptors[backendName]
 	if !ok || d.skillExports == nil {
 		return nil
@@ -92,15 +92,7 @@ func skillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.
 	return d.skillExports(skills)
 }
 
-// AssembleManagedMCP is the exported seam over assembleManagedMCP for callers
-// that already hold a resolved *config.Config with its executable trust gate set
-// (e.g. operations.MaterializeProfile). Unlike AssembleManagedConfig it does not
-// config.Load() from disk, so the caller's in-memory cfg and gate are honored.
-func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
-	return assembleManagedMCP(cfg, profileNames)
-}
-
-// assembleManagedMCP builds the merged MCP server set: config-level servers then
+// AssembleManagedMCP builds the merged MCP server set: config-level servers then
 // each default profile's servers (later wins). This is the MCP half of the old
 // BaseLifecycle.MergeConfigHooks, lifted host-side now that ctxloom owns config
 // resolution.
@@ -113,7 +105,7 @@ func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 // trusted-local config (ungated); a directory profile may be remote-sourced, so
 // ITS directly-declared servers pass the executable trust gate first (the SAME
 // gate bundle MCP servers pass), never reaching settings unevaluated.
-func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
+func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
 	mcp := &wire.MCPConfig{
 		Servers: make(map[string]wire.MCPServer),
 		Plugins: make(map[string]map[string]wire.MCPServer),
@@ -148,18 +140,11 @@ func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 	return mcp
 }
 
-// AssembleManagedDenyTools is the exported seam over assembleManagedDenyTools
-// for callers that already hold a resolved *config.Config (materialize,
-// apply-hooks) — the deny-tools mirror of AssembleManagedMCP.
-func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
-	return assembleManagedDenyTools(cfg, profileNames)
-}
-
-// assembleManagedDenyTools builds the union of deny_tools declared by the
+// AssembleManagedDenyTools builds the union of deny_tools declared by the
 // config's default profile / the caller's selected profiles: config.yaml
 // inline profiles (config.ResolveProfile) or, when a name isn't inline, a
 // directory profile (cfg.GetProfileLoader().ResolveProfile) — the SAME
-// two-source resolution assembleManagedMCP/AssembleManagedHooks use. Order is
+// two-source resolution AssembleManagedMCP/AssembleManagedHooks use. Order is
 // deterministic (first-seen wins position) and entries dedup case-sensitively
 // on the exact tool identifier string.
 //
@@ -168,7 +153,7 @@ func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 // executable to run, so even a remote-sourced directory profile's
 // directly-declared deny_tools is safe to apply unconditionally — it can
 // only narrow what a launch may do.
-func assembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
+func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
 	if cfg == nil {
 		return nil
 	}
@@ -186,7 +171,7 @@ func assembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml) wins, trusted-local (ungated) — see the
-		// same-shaped loop in assembleManagedMCP.
+		// same-shaped loop in AssembleManagedMCP.
 		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
 			add(resolved.DenyTools)
 			continue
@@ -239,7 +224,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	configHooks := cfg.GetHooksConfig()
 	agent.MergeHooksConfig(hooks, &configHooks)
 	// Selected-profile-shipped hooks (defaults when none are passed). A profile
-	// resolves the SAME way operations.resolveProfile / assembleManagedMCP do:
+	// resolves the SAME way operations.resolveProfile / AssembleManagedMCP do:
 	// inline definitions (config.yaml) win and are trusted-local (ungated); a name
 	// that isn't inline falls back to a directory profile, whose directly-declared
 	// hooks pass the executable trust gate first (the SAME gate bundle hooks pass)

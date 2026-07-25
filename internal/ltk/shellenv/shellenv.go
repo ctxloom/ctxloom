@@ -32,12 +32,3 @@ func ShellFromPath(shellPath string) ir.Shell {
 		return ""
 	}
 }
-
-// FromEnv resolves the default shell from a $SHELL value, returning "" when
-// it is empty or unrecognized.
-func FromEnv(shellValue string) ir.Shell {
-	if shellValue == "" {
-		return ""
-	}
-	return ShellFromPath(shellValue)
-}

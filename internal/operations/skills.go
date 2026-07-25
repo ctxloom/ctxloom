@@ -388,7 +388,7 @@ type ExportSkillRequest struct {
 	// must be supplied when Sign is true; ExportSkill never resolves a key
 	// itself (key discovery is internal/signing/agentkey's job, mirroring
 	// SignBundleFile).
-	Sign   bool      `json:"sign,omitempty"`
+	Sign   bool       `json:"sign,omitempty"`
 	Signer ssh.Signer `json:"-"`
 
 	// FS, when non-nil, is the afero filesystem read/written; nil defaults to

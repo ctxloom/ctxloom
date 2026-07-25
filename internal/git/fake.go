@@ -95,6 +95,7 @@ type Fake struct {
 
 var _ Git = (*Fake)(nil)
 
+// record appends one call to the Calls log (caller holds mu).
 func (f *Fake) record(s string) { f.Calls = append(f.Calls, s) }
 
 // IsRepo reports true when Repos is nil (default) or explicitly marks dir.

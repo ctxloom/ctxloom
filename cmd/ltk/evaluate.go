@@ -149,7 +149,7 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 
 	a := app.New(cfg)
 	a.ForceShell = forceShell
-	a.HostShell = shellenv.FromEnv(os.Getenv("SHELL"))
+	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
 	resp := a.Decide(context.Background(), req)
 
 	// A denial may be lifted by "confirm by repeating" only when the rule that

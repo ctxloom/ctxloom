@@ -118,7 +118,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 // seeds a bundle-shipped profile in production, local or remote) carrying an
 // inline hook, and the default agent's profile IS that bundle-shipped
 // profile's "<bundle>#profiles/<name>" ref (the directory-profile fallback
-// branch in assembleManagedMCP/AssembleManagedHooks, NOT an inline
+// branch in AssembleManagedMCP/AssembleManagedHooks, NOT an inline
 // config.yaml profile).
 //
 // Before the fix, the gate ref was built as

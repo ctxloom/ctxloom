@@ -335,13 +335,6 @@ func NewContainerClient(backendName, label string, verbosity int, runnerFunc Con
 	return runnerFromConn(dialContainerConnection(runnerFunc, socketTempDir, newPluginLogger(verbosity)))
 }
 
-// NewSelfInvokingClient creates a plugin client that invokes "ctxloom llm serve <backend>".
-// This is used when no external plugin binary is found.
-// Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
-func NewSelfInvokingClient(backendName string, verbosity int) (*LLMRunner, error) {
-	return NewSelfInvokingClientForLabel(backendName, "", verbosity)
-}
-
 // NewSelfInvokingClientForLabel is NewSelfInvokingClient carrying the resolved
 // config label into the serve subprocess. With two labels of the same backend
 // type, serve's type-based lookup is map-ordered — the run would randomly

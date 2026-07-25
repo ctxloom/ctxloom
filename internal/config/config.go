@@ -475,9 +475,9 @@ func SetOverrides(o confload.Overrides) {
 	Invalidate()
 }
 
-// CurrentOverrides returns the process-wide overrides SetOverrides last
+// currentOverrides returns the process-wide overrides SetOverrides last
 // installed (the zero Overrides{} if none ever was).
-func CurrentOverrides() confload.Overrides {
+func currentOverrides() confload.Overrides {
 	return confload.ProcessOverrides()
 }
 
@@ -1101,7 +1101,7 @@ var (
 // way an ordinary file edit does, on top of (not instead of) SetOverrides'
 // own explicit Invalidate() call — belt and suspenders.
 func ambientStamp() string {
-	overridesStamp := CurrentOverrides().Stamp()
+	overridesStamp := currentOverrides().Stamp()
 	fs := afero.NewOsFs()
 	appPath, source := findAppDir(fs)
 	if appPath == "" {
@@ -1184,7 +1184,7 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	// project does, and a memo re-read triggered by nothing but a file's mtime
 	// changing still carries them (both were silent-loss channels — see
 	// SetOverrides' and Load's own doc).
-	overrides := CurrentOverrides()
+	overrides := currentOverrides()
 	if options.overrides != nil {
 		overrides = *options.overrides
 	}

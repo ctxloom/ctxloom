@@ -188,3 +188,17 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	assert.Equal(t, "claude-code", reloaded.agents["dev"].Engine)
 	assert.Equal(t, []string{"go-developer"}, reloaded.agents["dev"].Profiles)
 }
+
+// TestAgentDirLoader_NeverNil pins the invariant LoadAgents relies on: the
+// directory loader is always usable, so LoadAgents needs no nil guard of its
+// own. With no app paths at all, GetAgentDirs yields an empty slice and
+// agents.NewLoader still returns a loader whose List() is the empty case.
+func TestAgentDirLoader_NeverNil(t *testing.T) {
+	cfg := &Config{}
+	loader := cfg.agentDirLoader()
+	require.NotNil(t, loader, "agentDirLoader must never return nil")
+
+	list, err := loader.List()
+	require.NoError(t, err)
+	assert.Empty(t, list)
+}

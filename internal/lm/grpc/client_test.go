@@ -413,7 +413,7 @@ func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 	}
 	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewSelfInvokingClient("claude-code", 0)
+	_, err := NewSelfInvokingClientForLabel("claude-code", "", 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, gotCmd, "self-invoking client must pass the current executable path")
 	assert.Equal(t, []string{"llm", "serve", "claude-code"}, gotArgs)

@@ -130,7 +130,7 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 
 	// The downstream backend mapper must see it ENABLED despite the bundle's
 	// opt-out, since the profile curated it.
-	ex := commandExportsFor("claude-code", prompts)
+	ex := CommandExportsFor("claude-code", prompts)
 	var found bool
 	for _, e := range ex {
 		if e.Name == "dev-tools/optout" {

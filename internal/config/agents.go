@@ -9,8 +9,9 @@ import (
 
 // agentDirLoader builds the directory-source loader for the project's
 // .ctxloom/agents/*.yaml definitions, threading the injected filesystem so
-// reads honor c.fs (matching GetProfileLoader). Returns nil only when there is
-// no app path to anchor a directory.
+// reads honor c.fs (matching GetProfileLoader). It never returns nil: with no
+// app paths GetAgentDirs yields an empty slice and the loader's List() returns
+// (nil, nil), which is the correct empty case one level down.
 func (c *Config) agentDirLoader() *agents.Loader {
 	dirs := agents.GetAgentDirs(c.fs, c.appPaths)
 	var opts []agents.LoaderOption
@@ -41,20 +42,18 @@ func (c *Config) LoadAgents() []agents.Agent {
 
 	// Directory entries fill in the rest; a name already claimed by the config
 	// key is shadowed (warn, keep config).
-	if dir := c.agentDirLoader(); dir != nil {
-		list, err := dir.List()
-		if err != nil {
-			clidiag.Warn("ctxloom", "failed to scan local agents: %v", err)
+	list, err := c.agentDirLoader().List()
+	if err != nil {
+		clidiag.Warn("ctxloom", "failed to scan local agents: %v", err)
+	}
+	for _, sub := range list {
+		if _, clash := merged[sub.Name]; clash {
+			clidiag.Warn("ctxloom",
+				"agent %q is defined in both config.yaml and %s; using the config.yaml definition",
+				sub.Name, sub.Source)
+			continue
 		}
-		for _, sub := range list {
-			if _, clash := merged[sub.Name]; clash {
-				clidiag.Warn("ctxloom",
-					"agent %q is defined in both config.yaml and %s; using the config.yaml definition",
-					sub.Name, sub.Source)
-				continue
-			}
-			merged[sub.Name] = *sub
-		}
+		merged[sub.Name] = *sub
 	}
 
 	out := make([]agents.Agent, 0, len(merged))

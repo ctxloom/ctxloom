@@ -54,15 +54,15 @@ type agentDescriptor struct {
 	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
-	// Read by commandExportsFor / CommandExportsFor, which feed the commands surface
+	// Read by CommandExportsFor, which feed the commands surface
 	// (SurfaceInputs.Commands) the enabled exports for the delivery seam.
 	exports func([]*bundles.LoadedContent) []agent.CommandExport
 	// skillExports maps loaded bundle skills to this backend's Agent Skill
 	// package exports, resolving its per-skill enablement. nil = no skill
 	// export (every backend but claude today — Part B3-seam; the parallel
 	// codex/opencode/kiro/agy wave populates this next). Read by
-	// skillExportsFor / SkillExportsFor, the skills-surface analog of
-	// commandExportsFor / CommandExportsFor.
+	// SkillExportsFor, the skills-surface analog of
+	// CommandExportsFor.
 	skillExports func([]*bundles.LoadedSkill) []agent.SkillExport
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
 	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan

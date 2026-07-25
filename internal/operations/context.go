@@ -598,7 +598,7 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			Fragments: convertProfileFragments(resolved.Fragments, resolved.ExcludeFragments),
 			// Directly-declared hooks/mcp are executable surfaces; they reach the
 			// SAME managed-hooks/MCP resolution + executable trust gate as inline
-			// profiles via backends.AssembleManagedHooks / assembleManagedMCP.
+			// profiles via backends.AssembleManagedHooks / AssembleManagedMCP.
 			Hooks:            resolved.Hooks,
 			MCP:              resolved.MCP,
 			Variables:        resolved.Variables,
@@ -752,14 +752,6 @@ func undefinedPlainVariableLiterals(tags []mustache.Tag, vars map[string]string)
 	return literals
 }
 
-// referencesVariable reports whether a tag type references a variable name
-// (plain variables — which cover both escaped {{name}} and raw {{{name}}}/
-// {{&name}}, indistinguishable via Tag.Type() — and section tags, which key
-// off a variable).
-func referencesVariable(t mustache.TagType) bool {
-	return t == tagVariable || t == tagSection || t == tagInvertedSection
-}
-
 // hasChildTags reports whether a tag type can contain nested tags (sections).
 func hasChildTags(t mustache.TagType) bool {
 	return t == tagSection || t == tagInvertedSection
@@ -771,7 +763,12 @@ func checkTags(tags []mustache.Tag, vars map[string]string, seen collections.Set
 		name := tag.Name()
 		tagType := tag.Type()
 
-		if referencesVariable(tagType) && !seen.Has(name) {
+		// A tag references a variable name when it is a plain variable (which
+		// covers both escaped {{name}} and raw {{{name}}}/{{&name}} —
+		// indistinguishable via Tag.Type()) or a section tag, which keys off
+		// a variable.
+		referencesVariable := tagType == tagVariable || tagType == tagSection || tagType == tagInvertedSection
+		if referencesVariable && !seen.Has(name) {
 			seen.Add(name)
 			if _, exists := vars[name]; !exists {
 				warnFunc(fmt.Sprintf("undefined variable: {{%s}}", name))

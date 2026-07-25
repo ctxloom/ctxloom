@@ -252,8 +252,8 @@ type SignerListing struct {
 // binary — hiding it here was itself the oozy-plod defect (this function
 // used to omit it entirely, justified by a comment claiming the embedded root
 // was "empty today"; that stopped being true the moment a release key was
-// actually embedded). config.EmbeddedSigners() returns a READ view (never a
-// writable handle — embeddedSigners() itself stays unexported by design) so
+// actually embedded). config.EmbeddedSigners() returns a READ view — the
+// Store type exposes no mutator — so
 // this enumerates entries with no mutation path opening up. An embedded entry
 // is NOT removable via this CLI (only a new binary changes the compiled-in
 // bytes) — RemoveSigner reports that honestly, and can instead persist a

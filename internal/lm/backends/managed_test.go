@@ -153,7 +153,7 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 		},
 	})
 
-	mcp := assembleManagedMCP(cfg, nil)
+	mcp := AssembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "config-mcp")
 	assert.Contains(t, mcp.Servers, "profile-mcp")
 }
@@ -170,15 +170,15 @@ func TestCommandExportsFor(t *testing.T) {
 	c.LLM.Antigravity.Description = "antigravity desc"
 	prompts := []*bundles.LoadedContent{c}
 
-	claudeEx := commandExportsFor("claude-code", prompts)
+	claudeEx := CommandExportsFor("claude-code", prompts)
 	require.Len(t, claudeEx, 1)
 	assert.Equal(t, "claude desc", claudeEx[0].Description)
 	assert.Equal(t, "hint", claudeEx[0].ArgumentHint)
 	assert.True(t, claudeEx[0].Enabled)
 
-	antigravityEx := commandExportsFor("antigravity", prompts)
+	antigravityEx := CommandExportsFor("antigravity", prompts)
 	require.Len(t, antigravityEx, 1)
 	assert.Equal(t, "antigravity desc", antigravityEx[0].Description)
 
-	assert.Nil(t, commandExportsFor("unknown-backend", prompts))
+	assert.Nil(t, CommandExportsFor("unknown-backend", prompts))
 }

@@ -67,7 +67,7 @@ func TestExports_CodexResolvesEnablementAndMetadata(t *testing.T) {
 	p.LLM.Codex.Description = "codex desc"
 	p.LLM.Codex.ArgumentHint = "hint"
 
-	ex := commandExportsFor("codex", []*bundles.LoadedContent{p})
+	ex := CommandExportsFor("codex", []*bundles.LoadedContent{p})
 	require.Len(t, ex, 1)
 	assert.Equal(t, "go-dev/review", ex[0].Name)
 	assert.Equal(t, "codex desc", ex[0].Description)

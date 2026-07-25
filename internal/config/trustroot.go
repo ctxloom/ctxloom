@@ -19,32 +19,26 @@ import (
 //go:embed embedded_signers.allowed_signers
 var embeddedAllowedSigners string
 
-// embeddedSigners returns ctxloom's own compiled-in trust root: the public
+// EmbeddedSigners returns ctxloom's own compiled-in trust root: the public
 // key(s) of the ctxloom release / bundle-publishing pipeline (spec §7, location
 // 1). Trusting the ctxloom binary trusts what it ships.
 //
 // The embedded content is a fixed constant, so a parse failure here is a build
 // bug caught by TestEmbeddedSigners, not a runtime condition; any unparsable
 // line is dropped (toward LESS trust — an unrecognized key trusts nothing).
-func embeddedSigners() *allowedsigners.Store {
+//
+// It is a READ view — every entry, unfiltered, including any this machine has
+// locally suppressed (see SuppressedEmbeddedPrincipals). Callers outside this
+// package (operations.ListSigners/ShowSigner — the oozy-plod (a) visibility
+// fix) enumerate the compiled-in entries through it rather than duplicating
+// the //go:embed. allowedsigners.Store exposes no mutator, so the embedded
+// root is visible without becoming editable.
+func EmbeddedSigners() *allowedsigners.Store {
 	store, _, err := allowedsigners.Parse(strings.NewReader(embeddedAllowedSigners))
 	if err != nil || store == nil {
 		return allowedsigners.NewStore()
 	}
 	return store
-}
-
-// EmbeddedSigners returns ctxloom's own compiled-in trust root as a READ view
-// — every entry, unfiltered, including any this machine has locally
-// suppressed (see SuppressedEmbeddedPrincipals). It exists so callers outside
-// this package (operations.ListSigners/ShowSigner — the oozy-plod (a)
-// visibility fix) can enumerate the compiled-in entries without duplicating
-// the //go:embed. embeddedSigners() itself stays unexported by design (a
-// trust root nobody controls would be worse than none): this returns a
-// Store VALUE, never a handle anything could write through, so the embedded
-// root is now VISIBLE without ever becoming editable via this accessor.
-func EmbeddedSigners() *allowedsigners.Store {
-	return embeddedSigners()
 }
 
 // TrustRoot returns the union of every allowed_signers location: ctxloom's
@@ -80,7 +74,7 @@ func (c *Config) TrustRoot() *allowedsigners.Store {
 // remove <embedded-principal>`) takes effect on the very next trust decision
 // with nothing to invalidate.
 func (c *Config) embeddedSignersTrusted() *allowedsigners.Store {
-	store := embeddedSigners()
+	store := EmbeddedSigners()
 	suppressed := c.SuppressedEmbeddedPrincipals()
 	if len(suppressed) == 0 {
 		return store

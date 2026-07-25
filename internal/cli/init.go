@@ -523,7 +523,7 @@ func discoverySessionPrompt(cfg *config.Config) string {
 // init still exits cleanly; there is no relaunch loop or review offer to gate
 // on a clean return anymore (both deleted — init hands off once and is done).
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
-	client, err := pb.NewSelfInvokingClient(engine, 0)
+	client, err := pb.NewSelfInvokingClientForLabel(engine, "", 0)
 	if err != nil {
 		return fmt.Errorf("failed to launch %s: %w", engine, err)
 	}

@@ -30,6 +30,8 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 		ForwardPermissions:  req.ForwardPermissions,
 		TranscriptRawPolicy: req.TranscriptRawPolicy,
 		ForwardTerminal:     req.ForwardTerminal,
+		Runtime:             req.Runtime,
+		ResumeSessionId:     req.ResumeSessionID,
 	}
 	for _, m := range req.MCPServers {
 		out.McpServers = append(out.McpServers, &ChatMCPServer{
@@ -54,6 +56,8 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 		ForwardPermissions:  p.GetForwardPermissions(),
 		TranscriptRawPolicy: p.GetTranscriptRawPolicy(),
 		ForwardTerminal:     p.GetForwardTerminal(),
+		Runtime:             p.GetRuntime(),
+		ResumeSessionID:     p.GetResumeSessionId(),
 	}
 	for _, m := range p.GetMcpServers() {
 		req.MCPServers = append(req.MCPServers, agent.ChatMCPServer{
@@ -145,6 +149,7 @@ func permissionRequestToProto(p *agent.PermissionRequest) *ChatPermissionRequest
 		ToolName:   p.ToolName,
 		ToolInput:  p.ToolInput,
 		ToolCallId: p.ToolCallID,
+		Kind:       p.Kind,
 	}
 	for _, o := range p.Options {
 		out.Options = append(out.Options, &ChatPermissionOption{Id: o.ID, Kind: o.Kind, Name: o.Name})
@@ -161,6 +166,7 @@ func permissionRequestFromProto(p *ChatPermissionRequest) *agent.PermissionReque
 		ToolName:   p.GetToolName(),
 		ToolInput:  p.GetToolInput(),
 		ToolCallID: p.GetToolCallId(),
+		Kind:       p.GetKind(),
 	}
 	for _, o := range p.GetOptions() {
 		out.Options = append(out.Options, agent.PermissionOption{ID: o.GetId(), Kind: o.GetKind(), Name: o.GetName()})
@@ -211,6 +217,8 @@ func chatSessionInfoToProto(s *agent.ChatSessionInfo) *ChatSessionInfo {
 		return nil
 	}
 	out := &ChatSessionInfo{
+		SessionId:      s.SessionID,
+		Resumable:      s.Resumable,
 		Model:          s.Model,
 		PermissionMode: s.PermissionMode,
 		ContextWindow:  int32(s.ContextWindow),
@@ -226,6 +234,8 @@ func chatSessionInfoFromProto(p *ChatSessionInfo) *agent.ChatSessionInfo {
 		return nil
 	}
 	out := &agent.ChatSessionInfo{
+		SessionID:      p.GetSessionId(),
+		Resumable:      p.GetResumable(),
 		Model:          p.GetModel(),
 		PermissionMode: p.GetPermissionMode(),
 		ContextWindow:  int(p.GetContextWindow()),

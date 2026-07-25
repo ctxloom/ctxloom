@@ -218,6 +218,20 @@ message ChatStart {
   // honest when the caller actually has a live upstream editor that
   // advertised the terminal capability; see agent.ChatRequest.ForwardTerminal.
   bool forward_terminal = 8;
+  // runtime carries the agent binding's resolved runtime axis (ISO1) into a
+  // structured chat: "container" asks the backend to run its engine SUBPROCESS
+  // inside a container, anything else (including empty) means host. Mirrors
+  // agent.ChatRequest.Runtime, which had NO proto field at all — so a
+  // container-bound `ctxloom acp` session ran on the HOST while ctxloom
+  // announced container isolation. Only a backend whose structured-chat
+  // transport implements container isolation (internal/acp) consults it.
+  string runtime = 9;
+  // resume_session_id asks the backend to resume a prior NATIVE session
+  // instead of starting fresh (claude --resume, codex thread/resume, ACP
+  // session/load). Mirrors agent.ChatRequest.ResumeSessionID, which had no
+  // proto field: a delegated child's resume silently started a fresh session
+  // under the old id's name. A backend that cannot resume fails loudly.
+  string resume_session_id = 10;
 }
 
 // ChatMCPServer is one caller-supplied MCP server for a chat run: a stdio
@@ -297,6 +311,13 @@ message ChatPermissionRequest {
   // tool_call_id mirrors agent.PermissionRequest.ToolCallID: the engine-
   // native tool-call id this request refers to, when known.
   string tool_call_id = 5;
+  // kind mirrors agent.PermissionRequest.Kind: the connector-classified tool
+  // category (ACP ToolCallKind — execute | edit | delete | move | read |
+  // search | fetch | think | other), empty when the backend cannot classify.
+  // It had no proto field, so every forwarded permission reached the host
+  // unclassified and any policy that buckets by category (the agentcoord
+  // escalation ladder) saw only "".
+  string kind = 6;
 }
 
 // ChatPermissionOption is one decision the engine offers. kind is the ACP
@@ -354,6 +375,18 @@ message ChatSessionInfo {
   string permission_mode = 2;
   int32  context_window  = 3;
   repeated MCPStatus mcp_servers = 4;
+  // session_id is the harness-NATIVE session id this conversation runs under —
+  // the resume handle a coordinator journals so a later spawn can continue the
+  // same session via ChatStart.resume_session_id. It had no proto field, which
+  // made resume_session_id unusable over this transport in BOTH directions:
+  // the id a plugin learned never reached the host that would journal it.
+  string session_id = 5;
+  // resumable reports that the connected adapter's own handshake advertised
+  // the loadSession capability (the LIVE half of the one-shot resume gate).
+  // Mirrors agent.ChatSessionInfo.Resumable; it had no proto field, so a host
+  // could not tell "engine advertises resume" from "engine does not" and had
+  // to guess from the static per-backend table alone.
+  bool resumable = 6;
 }
 
 // MCPStatus is the connection status of one MCP server at session start.
@@ -428,6 +461,42 @@ message ManagedConfig {
   MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
   bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
   map<string, MCPServer> bundle_mcp = 5; // MCP servers shipped by profile + builtin bundles (parallel to the bundle hooks)
+  // skills mirrors agent.ManagedConfig.Skills: the per-target-agent Agent Skill
+  // package exports (SurfaceSkills), the CommandExport sibling for whole trees.
+  // It had no proto field, so a resolved skill package never reached a backend
+  // over the launch path — the host wrote it into the payload and the wire
+  // dropped it.
+  repeated SkillExport skills = 6;
+  // deny_tools mirrors agent.ManagedConfig.DenyTools: the config +
+  // default-profile deny_tools union (the deny-tools.md root-cause fix) — the
+  // per-engine tool identifiers the resolved profile set denies at launch
+  // (e.g. Claude Code's built-in "Task"). It had no proto field, so a
+  // configured deny entry NEVER reached a backend and the hole it was written
+  // to close stayed open. Never trust-gated: a deny entry only narrows a
+  // launch, it never executes anything.
+  repeated string deny_tools = 7;
+}
+
+// SkillExport mirrors agent.SkillExport: one Agent Skill package's
+// agent-agnostic export spec. Unlike CommandExport (a single rendered file) a
+// skill is a whole TREE — SKILL.md plus whatever sibling files (scripts/,
+// assets/, references/) its package carries — so it carries files rather than
+// one content string.
+message SkillExport {
+  string name = 1;         // package/directory name, == the SKILL.md frontmatter name
+  string description = 2;  // SKILL.md frontmatter description, for engines that register it out-of-package
+  bool enabled = 3;        // resolved enablement for the target agent
+  repeated PackageFile files = 4; // every file the package materializes, SKILL.md included
+}
+
+// PackageFile mirrors agent.PackageFile: one file within a rendered package.
+// mode is the POSIX file mode — the exec bit on scripts/ entries is
+// load-bearing and must survive to the materialized file — and 0 means "use
+// the writer's 0644 default".
+message PackageFile {
+  string rel_path = 1; // path relative to the skill's OWN directory
+  bytes content = 2;
+  uint32 mode = 3;
 }
 
 // CommandExport mirrors agent.CommandExport: one command's agent-agnostic
@@ -452,6 +521,19 @@ message Hook {
   int32 timeout = 5;
   bool async = 6;
   string scm = 7;
+  // pre_tool_fallback mirrors wire.Hook.PreToolFallback: this session_start
+  // hook is safe to fire on PreToolUse instead, on an engine whose harness has
+  // no session-start event (Antigravity). It had no proto field, so the flag —
+  // documented on the website and in the config schema — arrived false at every
+  // backend and the fallback was dead. SIGNING: the hook exec preimage
+  // (bundles.BundleHook.ContentPayload, `ctxloom-exec/1`) already includes
+  // pre_tool_fallback and is built HOST-side (internal/lm/backends/managed.go's
+  // hookExecPayload) from the wire.Hook that always carried the true flag — so
+  // the trust gate never saw a wrong value, and carrying the flag here changes
+  // NO hash, grant, or countersignature. What it fixes is the other half: the
+  // hook DELIVERED to the engine no longer differs from the hook the grant
+  // covered. No preimage-contract bump is needed or wanted.
+  bool pre_tool_fallback = 8;
 }
 
 // HookList wraps a repeated Hook so it can be a proto map value (proto forbids

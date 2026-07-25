@@ -131,7 +131,7 @@ func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
 // HEAD) without writing the proposed profiles to disk first. The third return
 // is the unexpanded-parent set (see FlattenDependencies).
 func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string) {
-	factory := remote.FetcherFactory(newCachedFetcherFactory(cfg))
+	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
 	auth := remote.LoadAuth(getBaseDir(cfg))
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
 	// carried forward (stability), and a resolution failure falls back to its last

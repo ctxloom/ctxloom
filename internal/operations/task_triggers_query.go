@@ -231,7 +231,7 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	}
 
 	var matches []string
-	scanned, considered := 0, 0
+	scanned := 0
 	truncated := false
 	stop := fmt.Errorf("grep: bound reached")
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -263,7 +263,6 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 		if scopeRe != nil && !scopeRe.MatchString(rel) {
 			return nil
 		}
-		considered++
 		scanned++
 		data, rerr := os.ReadFile(path)
 		if rerr != nil {
@@ -287,7 +286,7 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	}
 	// A glob that selected no file at all did not search anything, so it must
 	// not report an empty (searched-and-found-nothing) result.
-	if scopeRe != nil && considered == 0 {
+	if scopeRe != nil && scanned == 0 {
 		return triggers.QueryResult{Query: q, Err: fmt.Sprintf("path_glob %q matched no files in the repository — nothing was searched", q.PathGlob)}
 	}
 

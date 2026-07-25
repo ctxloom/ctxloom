@@ -322,7 +322,7 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 	// unique URL below so "outdated" can actually be detected.
 	fetcherFactory := req.FetcherFactory
 	if fetcherFactory == nil {
-		cached := newCachedFetcherFactory(cfg)
+		cached := NewCachedFetcherFactory(cfg)
 		fetcherFactory = FetcherFactory(cached)
 	}
 
@@ -333,7 +333,7 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 	if req.RepoCache != nil || req.FetcherFactory == nil {
 		cache := req.RepoCache
 		if cache == nil {
-			cache = newRepoCache(cfg)
+			cache = NewRepoCache(cfg)
 		}
 		refreshRepoCaches(ctx, cache, uniqueRemoteURLs(entries, registry))
 	}
@@ -406,7 +406,9 @@ func findOutdatedEntries(ctx context.Context, entries []struct {
 		if e.Entry.SelectorKind().IsPin() {
 			continue
 		}
-		repoURL := repoURLForEntry(e.Ref, e.Entry, registry)
+		// Canonical lockfile entries record the repo URL directly; a missing
+		// URL means there is nothing to resolve against.
+		repoURL := e.Entry.URL
 		if repoURL == "" {
 			continue
 		}
@@ -438,7 +440,9 @@ func uniqueRemoteURLs(entries []struct {
 	seen := map[string]struct{}{}
 	var urls []string
 	for _, e := range entries {
-		repoURL := repoURLForEntry(e.Ref, e.Entry, registry)
+		// Canonical lockfile entries record the repo URL directly; a missing
+		// URL means there is nothing to refresh.
+		repoURL := e.Entry.URL
 		if repoURL == "" {
 			continue
 		}
@@ -449,12 +453,6 @@ func uniqueRemoteURLs(entries []struct {
 		urls = append(urls, repoURL)
 	}
 	return urls
-}
-
-// repoURLForEntry resolves a lockfile entry's repo URL. Canonical lockfile
-// entries record it directly (entry.URL); a missing URL yields "".
-func repoURLForEntry(_ string, entry remote.LockEntry, _ *remote.Registry) string {
-	return entry.URL
 }
 
 // refreshRepoCaches advances each unique clone to live HEAD before SHA

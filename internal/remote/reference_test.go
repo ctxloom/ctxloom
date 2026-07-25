@@ -427,42 +427,6 @@ func TestReference_LocalRemoteName(t *testing.T) {
 	}
 }
 
-func TestReference_RepoURL(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  Reference
-		want string
-	}{
-		{
-			name: "URL-less reference has no URL",
-			ref:  Reference{Path: "security"},
-			want: "",
-		},
-		{
-			name: "canonical HTTPS reference",
-			ref: Reference{
-				URL: "https://github.com/owner/repo",
-			},
-			want: "https://github.com/owner/repo",
-		},
-		{
-			name: "canonical SSH reference",
-			ref: Reference{
-				URL: "git@github.com:owner/repo",
-			},
-			want: "git@github.com:owner/repo",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.RepoURL(); got != tt.want {
-				t.Errorf("RepoURL() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestExtractRepoName(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -560,37 +524,6 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.ref.ToCanonicalWithVersion(); got != tt.want {
 				t.Errorf("ToCanonicalWithVersion() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestReference_EffectiveContentVersion(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  Reference
-		want string
-	}{
-		{
-			name: "returns ContentVersion",
-			ref: Reference{
-				ContentVersion: "v1.2.3",
-			},
-			want: "v1.2.3",
-		},
-		{
-			name: "empty returns empty",
-			ref: Reference{
-				ContentVersion: "",
-			},
-			want: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.EffectiveContentVersion(); got != tt.want {
-				t.Errorf("EffectiveContentVersion() = %q, want %q", got, tt.want)
 			}
 		})
 	}

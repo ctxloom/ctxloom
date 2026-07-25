@@ -360,10 +360,10 @@ func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 		return ""
 	}
 	parsed, err := remote.ParseReference(bundleRef)
-	if err != nil || parsed.IsLocal || parsed.RepoURL() == "" {
+	if err != nil || parsed.IsLocal || parsed.URL == "" {
 		return ""
 	}
-	canonical := trust.CanonicalRepoURL(parsed.RepoURL())
+	canonical := trust.CanonicalRepoURL(parsed.URL)
 	for _, rem := range reg.List() {
 		if trust.CanonicalRepoURL(rem.URL) == canonical {
 			return rem.Name

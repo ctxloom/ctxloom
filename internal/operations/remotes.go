@@ -149,7 +149,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	fetcher := req.Fetcher
 	if fetcher == nil {
 		var err error
-		fetcher, err = getCachedFetcher(cfg, req.URL)
+		fetcher, err = GetCachedFetcher(cfg, req.URL)
 		if err != nil {
 			_ = registry.Remove(req.Name)
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
@@ -199,7 +199,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	// registration; `remote update` retries the clone later.
 	cache := req.Cache
 	if cache == nil {
-		cache = newRepoCache(cfg)
+		cache = NewRepoCache(cfg)
 	}
 	if msg := ensureClone(ctx, cache, rem); msg != "" {
 		result.Warning = appendWarning(result.Warning, msg)
@@ -342,7 +342,7 @@ func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteReque
 		}
 	}
 
-	cache := newRepoCache(cfg)
+	cache := NewRepoCache(cfg)
 
 	var remotes []*remote.Remote
 	if req.Name != "" {
@@ -557,7 +557,7 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 	fetcher := injected
 	if fetcher == nil {
 		var err error
-		fetcher, err = getCachedFetcher(cfg, rem.URL)
+		fetcher, err = GetCachedFetcher(cfg, rem.URL)
 		if err != nil {
 			return nil, "", "", fmt.Errorf("failed to create fetcher: %w", err)
 		}
@@ -684,7 +684,7 @@ func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteC
 		return nil, fmt.Errorf("failed to load registry: %w", err)
 	}
 
-	cache := newRepoCache(cfg)
+	cache := NewRepoCache(cfg)
 	result := &EnsureRemoteClonesResult{}
 
 	for _, rem := range registry.List() {
@@ -821,7 +821,7 @@ func searchTypeList(itemType string) []remote.ItemType {
 // Cloning once up front (serially) makes the parallel reads pure. Fault-
 // tolerant: a clone failure is left to surface as a per-search warning.
 func prewarmRemoteClones(ctx context.Context, cfg *config.Config, remotes []*remote.Remote) {
-	cache := newRepoCache(cfg)
+	cache := NewRepoCache(cfg)
 	for _, rem := range remotes {
 		if forgeType, _, derr := remote.DetectForge(rem.URL); derr == nil {
 			_, _ = cache.EnsureRepo(ctx, rem.URL, forgeType)
@@ -888,7 +888,7 @@ func toSearchEntries(results []remote.SearchResult) []SearchRemoteEntry {
 
 // searchSingleRemote searches a single remote for matching items.
 func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Remote, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	fetcher, err := getCachedFetcher(cfg, rem.URL)
+	fetcher, err := GetCachedFetcher(cfg, rem.URL)
 	if err != nil {
 		return nil, err
 	}

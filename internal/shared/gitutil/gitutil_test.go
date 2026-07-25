@@ -117,21 +117,25 @@ func TestGetRemoteURL_NotARepo(t *testing.T) {
 	assert.Contains(t, err.Error(), "not a git repository")
 }
 
-func TestGetOriginURL_DelegatesToOrigin(t *testing.T) {
+// TestGetRemoteURL_SCPSyntax pins that an scp-style origin round-trips
+// verbatim (folded in from the retired GetOriginURL wrapper's test).
+func TestGetRemoteURL_SCPSyntax(t *testing.T) {
 	repo := initTempRepo(t)
 	addRemote(t, repo, "origin", "git@github.com:example/repo.git")
 
-	url, err := GetOriginURL(repo)
+	url, err := GetRemoteURL(repo, "origin")
 	require.NoError(t, err)
 	assert.Equal(t, "git@github.com:example/repo.git", url)
 }
 
-func TestGetOriginURL_MissingOrigin(t *testing.T) {
+// TestGetRemoteURL_MissingOrigin pins the "origin" caller's failure mode: a
+// repo with only a non-origin remote errors (folded in from the retired
+// GetOriginURL wrapper's test).
+func TestGetRemoteURL_MissingOrigin(t *testing.T) {
 	repo := initTempRepo(t)
-	// Add only a non-origin remote.
 	addRemote(t, repo, "fork", "https://github.com/me/fork.git")
 
-	_, err := GetOriginURL(repo)
+	_, err := GetRemoteURL(repo, "origin")
 	require.Error(t, err)
 }
 

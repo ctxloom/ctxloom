@@ -284,7 +284,7 @@ func TestWriteContextFile(t *testing.T) {
 	assert.NotEmpty(t, hash)
 
 	// Verify context file was created
-	contextPath := paths.GetCacheDir(testBaseDir) + "/context/" + hash + ".md"
+	contextPath := paths.CachePath(testBaseDir) + "/context/" + hash + ".md"
 	exists, err := afero.Exists(fs, contextPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "context file should be created")

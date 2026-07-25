@@ -31,9 +31,6 @@ type Target struct {
 	Name string
 }
 
-// Of builds a Target for T with an explicit file/$id base name.
-func Of(t reflect.Type, name string) Target { return Target{Type: t, Name: name} }
-
 // Generate writes one <name>-schema.json per target into dir, reflecting each
 // struct via google/jsonschema-go and stamping the $schema, $id, and title so
 // the files are stable, self-describing contracts. Output is deterministic

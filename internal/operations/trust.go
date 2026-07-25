@@ -297,7 +297,9 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	//    record — see buildLockfileRetraction — but the ordering is principled
 	//    the same way rejection's is: nothing may short-circuit ahead of it).
 	if retracted, reason := retraction.Retracted(req.Ref); retracted {
-		return decideDetail(trust.Deny, trust.SourceRetracted, reason), nil
+		// SourceRetracted is the one source carrying a display-only
+		// elaboration (the publisher-stated reason).
+		return &EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceRetracted, Detail: reason}, nil
 	}
 	// 3. LOCAL: authored in this project — first-party, every kind, including
 	//    executables. Locality is honest: a seeded or cloned bundle stamps its
@@ -350,12 +352,6 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 
 func decide(d trust.Decision, s trust.Source) *EffectiveTrustResult {
 	return &EffectiveTrustResult{Decision: d, Source: s}
-}
-
-// decideDetail is decide's variant for a source that carries a display-only
-// elaboration (currently only SourceRetracted's publisher-stated reason).
-func decideDetail(d trust.Decision, s trust.Source, detail string) *EffectiveTrustResult {
-	return &EffectiveTrustResult{Decision: d, Source: s, Detail: detail}
 }
 
 // lockfileRetraction is the default RetractionRecords: it reads retraction
@@ -760,7 +756,7 @@ func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err
 
 	if parsed, perr := remote.ParseReference(base); perr == nil {
 		return trust.Ref{
-			RepoURL: parsed.RepoURL(),
+			RepoURL: parsed.URL,
 			Bundle:  parsed.Path,
 			Kind:    kind,
 			Name:    name,

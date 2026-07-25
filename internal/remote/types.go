@@ -46,11 +46,6 @@ func (t ItemType) DirName() string {
 	}
 }
 
-// Plural returns the plural form of the item type for display.
-func (t ItemType) Plural() string {
-	return t.DirName()
-}
-
 // DirEntry represents a directory entry from a remote repository.
 type DirEntry struct {
 	Name  string `json:"name"`

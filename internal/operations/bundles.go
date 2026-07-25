@@ -853,7 +853,7 @@ func remoteFromGitOrigin(cfg *config.Config, registry *remote.Registry, absPath 
 	if isUnderCtxloom(cfg, absPath) {
 		return "", false
 	}
-	originURL, err := gitutil.GetOriginURL(absPath)
+	originURL, err := gitutil.GetRemoteURL(absPath, "origin")
 	if err != nil {
 		return "", false
 	}

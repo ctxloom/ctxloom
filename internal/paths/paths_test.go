@@ -23,8 +23,8 @@ func TestCacheDir_Constant(t *testing.T) {
 }
 
 func TestGetCacheDir(t *testing.T) {
-	assert.Equal(t, ".ctxloom/cache", GetCacheDir(".ctxloom"))
-	assert.Equal(t, "/project/.ctxloom/cache", GetCacheDir("/project/.ctxloom"))
+	assert.Equal(t, ".ctxloom/cache", CachePath(".ctxloom"))
+	assert.Equal(t, "/project/.ctxloom/cache", CachePath("/project/.ctxloom"))
 }
 
 func TestCacheBundlesPath_InCache(t *testing.T) {

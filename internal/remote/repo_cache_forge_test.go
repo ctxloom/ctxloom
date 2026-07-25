@@ -66,7 +66,7 @@ func TestRepoCache_cloneToken_ResolverFallsBackToAmbient(t *testing.T) {
 	assert.Contains(t, env[2], want)
 }
 
-// TestRepoCache_RepoDirForURL covers the exported wrapper used by operations.
+// TestRepoCache_RepoDirForURL covers the cache-path derivation operations uses.
 func TestRepoCache_RepoDirForURL(t *testing.T) {
 	cache := NewRepoCache("/tmp/cache", AuthConfig{})
 	assert.Equal(t, "/tmp/cache/github.com/owner/repo",

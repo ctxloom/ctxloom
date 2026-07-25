@@ -80,10 +80,10 @@ func TestRepoCache_repoDirForURL_TraversalContained(t *testing.T) {
 	base := "/tmp/cache"
 	c := NewRepoCache(base, AuthConfig{})
 
-	got := c.repoDirForURL("https://github.com/../../../../etc/passwd")
+	got := c.RepoDirForURL("https://github.com/../../../../etc/passwd")
 	rel, err := filepath.Rel(base, got)
 	require.NoError(t, err)
 	assert.False(t,
 		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)),
-		"repoDirForURL produced %q which escapes baseDir %q", got, base)
+		"RepoDirForURL produced %q which escapes baseDir %q", got, base)
 }

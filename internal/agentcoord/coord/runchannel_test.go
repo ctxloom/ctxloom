@@ -418,3 +418,96 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 	})
 	require.ErrorIs(t, rerr, ErrCoordinatorUnreachable)
 }
+
+// TestReleaseRunChan_ReconnectDoesNotStrandTentativeDeliveries is the
+// regression guard for U024-F01. When a RunChannel RECONNECTS, the new stream
+// registers itself under c.chans[harp] and cancels its predecessor in one c.mu
+// window -- so by the time the OLD handler's deferred teardown runs, it always
+// observes the successor and `registered := c.chans[harp] == ch` is FALSE.
+// Teardown then discarded ch.pushed WITHOUT un-reserving it.
+//
+// That is permanent, silent loss. Reserved ids are invisible to
+// undeliveredLocked and therefore to pendingCount, so the reattach push never
+// re-sends them, and only unreserve ever clears c.delivered -- while agent_send
+// had already reported success. Which goroutine won the race decided whether
+// the message survived.
+//
+// Both channels here are synthetic and installed directly: the finding is about
+// releaseRunChan's registration guard, and driving a real reconnect would make
+// the assertion depend on push/ack timing rather than on the guard.
+//
+// The assertion is on the RESERVATION LEDGER (c.delivered), not on
+// pendingCount, and the reserved id is synthetic. pendingCount also consults
+// the durable fold, and a really-spawned child's own turn loop consumes its
+// mail concurrently -- an earlier draft that queued a real message via
+// AgentSend passed in isolation and failed inside the full package run for that
+// reason, which is the wrong kind of red. The ledger is what this teardown owns
+// and what the finding is about; that a reserved id is invisible to
+// undeliveredLocked/pendingCount is already covered elsewhere.
+func TestReleaseRunChan_ReconnectDoesNotStrandTentativeDeliveries(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp, msgID = "reconnecting-child", "msg-must-not-be-stranded"
+
+	// The channel the reconnect superseded still holds the message as a
+	// tentative delivery; c.chans[harp] already points at its successor.
+	_, cancelOld := context.WithCancel(context.Background())
+	_, cancelNew := context.WithCancel(context.Background())
+	superseded := &runChan{role: harp, pushed: []string{msgID}, cancel: cancelOld}
+	successor := &runChan{role: harp, cancel: cancelNew}
+	c.mu.Lock()
+	c.chans[harp] = successor
+	c.delivered[harp] = []string{msgID}
+	c.mu.Unlock()
+
+	require.Equal(t, []string{msgID}, reservedIDs(c, harp),
+		"precondition: the id is reserved, so the message is invisible to redelivery")
+
+	c.releaseRunChan(harp, superseded)
+
+	assert.NotContains(t, reservedIDs(c, harp), msgID,
+		"a superseded channel's tentative deliveries must be released so they re-deliver on the successor")
+
+	c.mu.Lock()
+	stillRegistered := c.chans[harp] == successor
+	c.mu.Unlock()
+	assert.True(t, stillRegistered,
+		"tearing down a SUPERSEDED channel must not deregister the live successor")
+}
+
+// TestReleaseRunChan_AfterSeverChanIsANoOp pins why the removed `registered`
+// guard is not load-bearing. severChan nils ch.pushed AND deletes the
+// registration under c.mu, so the stream's own deferred teardown finds nothing
+// left to release: the now-unguarded unreserve must be a no-op there, not a
+// double release that disturbs the ledger severChan already settled.
+func TestReleaseRunChan_AfterSeverChanIsANoOp(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp, msgID = "severed-child", "msg-settled-by-severchan"
+
+	_, cancel := context.WithCancel(context.Background())
+	ch := &runChan{role: harp, pushed: []string{msgID}, cancel: cancel}
+	c.mu.Lock()
+	c.chans[harp] = ch
+	c.delivered[harp] = []string{msgID}
+	c.mu.Unlock()
+	require.Equal(t, []string{msgID}, reservedIDs(c, harp))
+
+	c.severChan(harp)
+	require.NotContains(t, reservedIDs(c, harp), msgID, "severChan released the reservation synchronously")
+
+	// The stream's deferred teardown then runs on the same, already-emptied
+	// channel and must change nothing.
+	c.releaseRunChan(harp, ch)
+	assert.NotContains(t, reservedIDs(c, harp), msgID, "teardown after severChan is a no-op, not a double release")
+}
+
+// reservedIDs snapshots a role's runtime delivery ledger -- the ids handed to a
+// RunChannel but not yet acked. An id sitting here is invisible to
+// undeliveredLocked (and so to pendingCount and every redelivery path), which
+// is exactly why leaking one is silent loss.
+func reservedIDs(c *Coordinator, role string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.delivered[role]...)
+}

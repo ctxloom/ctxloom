@@ -180,23 +180,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 		c.pushMail(id.Harp)
 	}
 
-	defer func() {
-		c.mu.Lock()
-		registered := c.chans[id.Harp] == ch
-		if registered {
-			delete(c.chans, id.Harp)
-		}
-		pushed := ch.pushed
-		ch.pushed = nil
-		c.mu.Unlock()
-		cancel()
-		if registered {
-			// Tentative deliveries die with the channel: un-reserve so the
-			// pending messages re-deliver on reattach (at-least-once) and so
-			// the terminal path's leftover-mail resume sees them.
-			c.unreserveRuntime(id.Harp, pushed)
-		}
-	}()
+	defer c.releaseRunChan(id.Harp, ch)
 
 	// Single writer pump: everything outbound funnels through ch.send.
 	// goTracked (flaky-agentcoord S1): terminates once streamCtx is
@@ -453,6 +437,39 @@ func peerMessageProto(m Message) *agentcoordpb.PeerMessage {
 // unreserveRuntime drops ids from the runtime delivery ledger WITHOUT a
 // consume fact — the channel died before consumption, so the messages
 // return to deliverable state.
+// releaseRunChan is the RunChannel handler's teardown: deregister the channel,
+// cancel its context, and release its tentative deliveries.
+//
+// Deregistration IS conditional — only this channel's own registration may be
+// removed, never a successor's. Un-reserving is NOT, and that asymmetry is the
+// whole point (U024-F01). A reconnect registers the new channel and cancels its
+// predecessor inside one c.mu window, so the OLD handler's teardown ALWAYS
+// observes the successor and the old `if registered` guard around the unreserve
+// was always false on exactly the path where mail was in flight. ch.pushed was
+// then dropped on the floor: reserved ids are invisible to undeliveredLocked
+// and so to pendingCount, meaning the reattach push never re-sends them and
+// only unreserve ever clears c.delivered — permanent, silent loss of a message
+// agent_send had already reported as delivered, decided by which goroutine won
+// the race.
+//
+// Un-reserving unconditionally is safe on the other teardown path too: severChan
+// nils ch.pushed under c.mu before this can run, so unreserveRuntime's
+// len(ids)==0 early return makes it a no-op rather than a double release.
+func (c *Coordinator) releaseRunChan(harp string, ch *runChan) {
+	c.mu.Lock()
+	if c.chans[harp] == ch {
+		delete(c.chans, harp)
+	}
+	pushed := ch.pushed
+	ch.pushed = nil
+	c.mu.Unlock()
+	ch.cancel()
+	// Tentative deliveries die with the channel: un-reserve so the pending
+	// messages re-deliver on reattach (at-least-once) and so the terminal
+	// path's leftover-mail resume sees them.
+	c.unreserveRuntime(harp, pushed)
+}
+
 func (c *Coordinator) unreserveRuntime(role string, ids []string) {
 	if len(ids) == 0 {
 		return

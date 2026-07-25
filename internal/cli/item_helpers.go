@@ -177,7 +177,11 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		}
 		return rows, nil
 	}
-	return nil, nil
+	// Unreachable while ItemType has exactly two constants — but "success with
+	// zero payload" is the wrong shape to leave behind for the third one
+	// (U037-F07): a listing that cannot tell what it was asked to list must
+	// say so, not return an empty list that reads as "there are none".
+	return nil, fmt.Errorf("cannot list items: unrecognized item type %q", itemType)
 }
 
 // filterByBundle keeps only the items belonging to bundleFilter (or all when
@@ -325,7 +329,9 @@ func itemDisplayContent(bundle *bundles.Bundle, itemName string, itemType ItemTy
 		}
 		return prompt.Content, prompt.Distilled, nil
 	}
-	return "", "", nil
+	// See listItemRows above: an unrecognized item type is a failure to
+	// determine what to show, never an item whose content is empty (U037-F07).
+	return "", "", fmt.Errorf("cannot show item %q: unrecognized item type %q", itemName, itemType)
 }
 
 // showItem displays the content of a specific item. With interactive set AND an

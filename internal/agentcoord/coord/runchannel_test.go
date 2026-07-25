@@ -503,6 +503,68 @@ func TestReleaseRunChan_AfterSeverChanIsANoOp(t *testing.T) {
 	assert.NotContains(t, reservedIDs(c, harp), msgID, "teardown after severChan is a no-op, not a double release")
 }
 
+// TestPushMail_SaturatedPumpReleasesTheDroppedReservation is the regression
+// guard for U024-F02. pushMail reserved every selected id in the runtime
+// delivery ledger BEFORE attempting the send, and the saturated-pump branch
+// then dropped the notice while leaving the reservation standing. A reserved id
+// is invisible to undeliveredLocked, so no later push -- not the next park, not
+// the next agent_send -- ever re-selects it. On a channel that stays LIVE (the
+// common case: a busy child, not a dying one) that is permanent silent loss of
+// a message agent_send already reported delivered.
+//
+// releaseRunChan's unconditional un-reserve (U024-F01, ff151a53) only rescues
+// the message if the channel DIES; it is not a fix for this one.
+//
+// The channel is synthetic and its pump is UNBUFFERED with no reader, which is
+// the saturated-pump condition stated exactly. The role is synthetic too, so no
+// real child's turn loop competes for the mail (the failure mode batch 5 hit).
+func TestPushMail_SaturatedPumpReleasesTheDroppedReservation(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	const harp = "child-with-a-saturated-pump"
+
+	msgID, _, err := c.queueMail(ownerIdentity().Harp, harp, "note", "do not strand me")
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	ch := &runChan{
+		role:   harp,
+		parked: true,
+		send:   make(chan *agentcoordpb.CoordinatorFrame), // unbuffered, unread: every send hits `default`
+		cancel: cancel,
+	}
+	c.mu.Lock()
+	c.chans[harp] = ch
+	c.mu.Unlock()
+	t.Cleanup(func() {
+		c.mu.Lock()
+		delete(c.chans, harp)
+		c.mu.Unlock()
+	})
+
+	c.pushMail(harp)
+
+	assert.NotContains(t, reservedIDs(c, harp), msgID,
+		"a notice the pump refused was never delivered, so its id must not stay reserved")
+
+	// The point of releasing it: the NEXT push must re-select the message once
+	// the pump has room. A stranded reservation makes this push find nothing.
+	c.mu.Lock()
+	ch.send = make(chan *agentcoordpb.CoordinatorFrame, 1)
+	drained := ch.send
+	c.mu.Unlock()
+	c.pushMail(harp)
+	select {
+	case frame := <-drained:
+		assert.Equal(t, msgID, frame.GetNotice().GetPeerMessage().GetMessageId(),
+			"the re-pushed notice carries the same message")
+	default:
+		assert.Fail(t, "the dropped message was never re-pushed after the pump drained")
+	}
+}
+
 // reservedIDs snapshots a role's runtime delivery ledger -- the ids handed to a
 // RunChannel but not yet acked. An id sitting here is invisible to
 // undeliveredLocked (and so to pendingCount and every redelivery path), which

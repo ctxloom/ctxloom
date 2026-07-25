@@ -366,6 +366,15 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 // while the runner-side recv is parked: an unparked child's mail is the
 // turn machinery's to deliver (delivery-by-state, §6a), and pushing then
 // would hand the harness the same message twice.
+//
+// A saturated send pump ROLLS THE RESERVATION BACK (U024-F02). The reservation
+// is taken under c.mu before the send so a concurrent push or turn-boundary
+// drain cannot select the same message twice, and released again for exactly
+// the ids the pump refused — which were never delivered, so leaving them
+// reserved would hide them from undeliveredLocked (and so from every later
+// push) for as long as the channel lived. releaseRunChan's unconditional
+// un-reserve only covers the channel's DEATH; a live, busy child stranded the
+// message permanently, having already told the sender it was delivered.
 func (c *Coordinator) pushMail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]
@@ -389,6 +398,7 @@ func (c *Coordinator) pushMail(role string) {
 	send := ch.send
 	c.mu.Unlock()
 
+	var dropped []string
 	for _, m := range msgs {
 		notice := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Notice{
 			Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_PeerMessage{
@@ -398,10 +408,20 @@ func (c *Coordinator) pushMail(role string) {
 		select {
 		case send <- notice:
 		default:
-			// Send pump saturated: drop the notice; the ids stay reserved
-			// until the channel dies (then re-deliver) — never lost.
+			// Send pump saturated: the notice never went out, so the
+			// tentative delivery must be undone — otherwise the reservation
+			// hides the message from every subsequent push.
+			dropped = append(dropped, m.ID)
 		}
 	}
+	if len(dropped) == 0 {
+		return
+	}
+	clidiag.Warn("ctxloom", "coordinator: send pump saturated for %s; %d message(s) requeued for the next push", role, len(dropped))
+	c.mu.Lock()
+	ch.pushed = removeIDs(ch.pushed, dropped)
+	c.mu.Unlock()
+	c.unreserve(role, dropped)
 }
 
 // peerMessageProto projects a mailbox message onto the wire shape. Kind

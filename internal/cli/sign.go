@@ -3,11 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
@@ -137,11 +139,19 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 	if err != nil {
 		return err
 	}
+	// U042-F26: this used to print "no local bundles to sign" and exit 0, so
+	// signing NOTHING looked exactly like having nothing to sign. `sign --all`
+	// is how a publishing repo signs its shipped content; a run that signed
+	// none of it is a failed run, and naming the directories searched is what
+	// turns "it printed something reassuring" into a diagnosable answer. (It is
+	// also the visible face of the GetBundleDirs-points-at-cache/bundles
+	// defect, which this exit code stops hiding.)
 	if len(targets) == 0 {
-		return emit(cmd, signCmdResult{}, func() error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), "no local bundles to sign")
-			return err
-		})
+		searched := cfg.GetBundleDirs()
+		if len(searched) == 0 {
+			return fmt.Errorf("sign --all: no local bundle directories exist to search (expected an authored %s tree)", paths.LocalBundlesPath(paths.AppDirName))
+		}
+		return fmt.Errorf("sign --all: no local bundles found in %s — nothing was signed", strings.Join(searched, ", "))
 	}
 
 	result := signCmdResult{Signed: make([]signCmdTarget, 0, len(targets))}
@@ -177,7 +187,11 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 func resolveSignTargets(cfg *config.Config, ref string, all bool) ([]operations.SignTarget, error) {
 	if all {
 		var targets []operations.SignTarget
-		for _, name := range operations.ListLocalBundleNames(cfg, nil) {
+		local, lerr := operations.ListLocalBundleNames(cfg, nil)
+		if lerr != nil {
+			return nil, lerr
+		}
+		for _, name := range local {
 			targets = append(targets, operations.SignTarget{BundleName: name})
 		}
 		return targets, nil

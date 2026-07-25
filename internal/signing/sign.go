@@ -27,6 +27,15 @@ const DefaultHashAlgorithm = sshsig.HashSHA512
 // §1) and is what keeps a publish signature from being replayable as an
 // approve signature or vice versa.
 func Sign(payload []byte, signer ssh.Signer, namespace string) ([]byte, error) {
+	// U134-F01: sshsig.Sign validates only that the namespace is non-empty and
+	// will happily hash an empty reader, producing a valid armored signature
+	// over the empty string — one blob that verifies against EVERY zero-byte
+	// payload, for every consumer, forever. A signature over nothing attests to
+	// nothing, so the floor lives in the primitive where it covers every caller
+	// (publish, skills, bundles) at once.
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("signing: refusing to sign an empty payload — a signature over zero bytes attests to nothing")
+	}
 	sig, err := sshsig.Sign(bytes.NewReader(payload), signer, DefaultHashAlgorithm, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("signing: %w", err)

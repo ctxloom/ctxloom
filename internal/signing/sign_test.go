@@ -104,3 +104,21 @@ func TestSign_EmptyNamespaceRejected(t *testing.T) {
 	_, err := Sign([]byte("payload"), signer, "")
 	assert.Error(t, err)
 }
+
+// U134-F01: Sign hashed and signed a ZERO-BYTE payload and reported success.
+// sshsig.Sign validates only that the namespace is non-empty, then io.Copy's an
+// empty reader into the hash — producing a valid armored signature over the
+// empty string. `ctxloom sign` on a truncated bundle wrote that .sig and printed
+// success, and the blob verifies over EVERY zero-byte bundle, for every
+// consumer, forever.
+//
+// The floor belongs in the primitive: a floor only in operations.SignBundleFile
+// would leave the skills and bundles callers exposed.
+func TestSign_RefusesAnEmptyPayload(t *testing.T) {
+	signer, _ := newTestSigner(t)
+	for _, payload := range [][]byte{nil, {}} {
+		out, err := Sign(payload, signer, NamespacePublish)
+		require.Error(t, err, "a signature over zero bytes attests to nothing")
+		assert.Nil(t, out)
+	}
+}

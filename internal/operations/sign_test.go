@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -172,11 +173,73 @@ func TestListLocalBundleNames_ListsOnlyLocalBundles(t *testing.T) {
 	_, err = CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "beta"})
 	require.NoError(t, err)
 
-	names := ListLocalBundleNames(cfg, nil)
+	names, err := ListLocalBundleNames(cfg, nil)
+	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha", "beta"}, names)
 }
 
 func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
-	names := ListLocalBundleNames(&config.Config{}, nil)
+	names, err := ListLocalBundleNames(&config.Config{}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, names)
+}
+
+// U087-F02: SignBundleFile read the bundle file and handed the bytes to
+// signing.Sign with no length check, so a truncated or zero-byte bundle got a
+// .sig and a "Signed ..." line at exit 0 — a valid publish signature covering
+// nothing. bundles.ParseBundle yaml.Unmarshals empty input without error, so the
+// truncated file survives loadBundleForUpdate and reaches the signer.
+func TestSignBundleFile_RefusesAZeroByteBundle(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "truncated"})
+	require.NoError(t, err)
+
+	fs := afero.NewOsFs()
+	path := cfg.GetBundleDirs()[0] + "/truncated.yaml"
+	require.NoError(t, afero.WriteFile(fs, path, nil, 0o644))
+
+	_, err = SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "truncated"},
+		Signer: testSigner(t),
+		FS:     fs,
+	})
+	require.Error(t, err, "signing zero bytes must not report success")
+	assert.Contains(t, err.Error(), "empty")
+
+	_, statErr := fs.Stat(path + ".sig")
+	assert.Error(t, statErr, "a refused sign must not leave a signature behind")
+}
+
+// U042-F26: ListLocalBundleNames swallowed EVERY ReadDir error with a bare
+// `continue`, so a bundle dir it could not read was indistinguishable from one
+// that simply is not there, and `sign --all` reported "no local bundles to
+// sign" at exit 0. An absent dir is legitimately nothing; one that exists and
+// cannot be read is a failure to find out.
+//
+// Note on reach: cfg.GetBundleDirs() already Stats each candidate and drops
+// anything that is not a directory, so the surviving way to hit this is a
+// directory whose contents cannot be listed -- mode 0000 here. Root ignores
+// permission bits, so the test skips there rather than passing vacuously.
+func TestListLocalBundleNames_UnreadableDirIsAnError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions; the unreadable case cannot be staged")
+	}
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "alpha"})
+	require.NoError(t, err)
+
+	bundleDir := cfg.GetBundleDirs()[0]
+	require.NoError(t, os.Chmod(bundleDir, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(bundleDir, 0o755) })
+
+	_, err = ListLocalBundleNames(cfg, afero.NewOsFs())
+	require.Error(t, err, "a bundle dir that cannot be read must not look like an empty one")
+}
+
+// The absent case stays green: a project with no authored bundle dir has
+// legitimately nothing to list.
+func TestListLocalBundleNames_AbsentDirIsNotAnError(t *testing.T) {
+	names, err := ListLocalBundleNames(&config.Config{}, nil)
+	require.NoError(t, err)
 	assert.Empty(t, names)
 }

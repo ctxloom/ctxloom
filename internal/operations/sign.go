@@ -8,7 +8,9 @@
 package operations
 
 import (
+	"errors"
 	"fmt"
+	fs2 "io/fs"
 	"sort"
 	"strings"
 
@@ -168,14 +170,23 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 // and builtin bundles are never included, nor is anything in the gitignored
 // cache: this project only has write access to its own authored bundle files.
 // Sorted for deterministic --all output.
-func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) []string {
+func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 	fs = getFS(fs)
 	var names []string
 	seen := map[string]bool{}
 	for _, dir := range cfg.GetBundleDirs() {
 		entries, err := afero.ReadDir(fs, dir)
 		if err != nil {
-			continue // absent/unreadable dir: no local bundles here, not fatal
+			// U042-F26: an ABSENT dir is legitimately nothing to list; an
+			// unreadable one (wrong permissions, a file where a directory
+			// should be, an I/O error) is a failure to find out, and swallowing
+			// it made a misconfigured GetBundleDirs indistinguishable from an
+			// empty project — `sign --all` then reported "no local bundles to
+			// sign" and exited 0.
+			if errors.Is(err, fs2.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("list local bundles: read %s: %w", dir, err)
 		}
 		for _, e := range entries {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
@@ -189,5 +200,5 @@ func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) []string {
 		}
 	}
 	sort.Strings(names)
-	return names
+	return names, nil
 }

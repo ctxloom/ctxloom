@@ -1,6 +1,7 @@
 package clifmt
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -19,7 +20,7 @@ const (
 // ErrUnsupportedFormat is the sentinel wrapped by every "unknown format"
 // error clifmt returns. Callers should compare with errors.Is rather than
 // matching on error strings, since the message includes the offending input.
-var ErrUnsupportedFormat = fmt.Errorf("clifmt: unsupported format")
+var ErrUnsupportedFormat = errors.New("clifmt: unsupported format")
 
 // Valid reports whether f is one of the five formats clifmt renders.
 func (f Format) Valid() bool {

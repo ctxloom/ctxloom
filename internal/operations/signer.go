@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -77,7 +78,7 @@ func ResolveSignerKey(keyArg string, fs afero.Fs, stdin io.Reader) (SignerKeyInf
 	var data []byte
 	switch keyArg {
 	case "-":
-		b, err := io.ReadAll(bufio.NewReader(stdin))
+		b, err := io.ReadAll(stdin)
 		if err != nil {
 			return SignerKeyInfo{}, fmt.Errorf("reading public key from stdin: %w", err)
 		}
@@ -195,8 +196,9 @@ func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, erro
 // appendAllowedSignersLine creates dirs/file as needed and appends line,
 // preserving whatever already exists.
 func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
-	if err := fs.MkdirAll(parentDir(path), 0o700); err != nil {
-		return fmt.Errorf("create %s: %w", parentDir(path), err)
+	dir := filepath.Dir(path)
+	if err := fs.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", dir, err)
 	}
 
 	existing, _ := afero.ReadFile(fs, path) // absent is fine: existing stays nil
@@ -212,14 +214,6 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
-}
-
-func parentDir(path string) string {
-	i := strings.LastIndexAny(path, "/\\")
-	if i < 0 {
-		return "."
-	}
-	return path[:i]
 }
 
 // SignerListing is one allowed_signers entry plus the store it came from,

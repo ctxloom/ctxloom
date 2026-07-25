@@ -288,7 +288,7 @@ func normalizeComment(c string) string {
 			parts = append(parts, ln)
 		}
 	}
-	return strings.TrimSuffix(strings.Join(parts, " "), " ")
+	return strings.Join(parts, " ")
 }
 
 // ToolSpec is one generated tool surface entry — the checked-in golden's

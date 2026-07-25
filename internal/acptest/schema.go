@@ -29,10 +29,10 @@
 package acptest
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
@@ -67,7 +67,7 @@ type Validator struct {
 // construction (Validate compiles each $defs entry once and caches it).
 func NewValidator() (*Validator, error) {
 	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource(schemaResourceName, strings.NewReader(string(schemaJSON))); err != nil {
+	if err := compiler.AddResource(schemaResourceName, bytes.NewReader(schemaJSON)); err != nil {
 		return nil, fmt.Errorf("acptest: add schema resource: %w", err)
 	}
 	return &Validator{compiler: compiler, cache: make(map[string]*jsonschema.Schema)}, nil

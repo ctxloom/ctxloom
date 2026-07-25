@@ -11,6 +11,7 @@ package lint
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,7 +97,7 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
 
 		for target, enum := range enums {
 			for _, v := range values[target] {
-				if !contains(enum, v) {
+				if !slices.Contains(enum, v) {
 					out = append(out, Violation{t.HarpID,
 						fmt.Sprintf("%s=%q is not one of the declared enum values %v", target, v, enum)})
 				}
@@ -178,7 +179,7 @@ func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]strin
 					// collide with a legitimate enum member.
 				}
 				enum, hasEnum := enums[refTarget]
-				if !hasEnum || contains(enum, refValue) {
+				if !hasEnum || slices.Contains(enum, refValue) {
 					continue
 				}
 				out = append(out, Violation{SchemaViolationHarpID, fmt.Sprintf(
@@ -208,13 +209,4 @@ func groupByTarget(tagStrings []string) map[string][]string {
 		out[target] = append(out[target], *t.Value)
 	}
 	return out
-}
-
-func contains(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }

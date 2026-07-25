@@ -36,6 +36,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -424,20 +425,10 @@ func expandHome(path string) string {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err == nil {
-			return filepathJoin(home, strings.TrimPrefix(path, "~"))
+			return filepath.Join(home, strings.TrimPrefix(path, "~"))
 		}
 	}
 	return path
-}
-
-// filepathJoin avoids importing path/filepath solely for this one call site
-// twice; kept trivial and OS-separator-correct via filepath.Join semantics.
-func filepathJoin(a, b string) string {
-	b = strings.TrimPrefix(b, "/")
-	if a == "" {
-		return b
-	}
-	return a + string(os.PathSeparator) + b
 }
 
 func findByFingerprint(ag agent.Agent, fingerprint, source string) (*Discovered, error) {

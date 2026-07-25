@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	gopath "path"
 	"strings"
 	"testing"
 )
@@ -130,7 +131,7 @@ func (f *ForgeStub) serveGitHubContents(w http.ResponseWriter, path string) {
 			"type":     "file",
 			"encoding": "base64",
 			"size":     len(content),
-			"name":     baseName(path),
+			"name":     gopath.Base(path),
 			"path":     path,
 			"sha":      "filesha",
 			"content":  base64.StdEncoding.EncodeToString(content),
@@ -228,11 +229,4 @@ func (f *ForgeStub) gitlabRef(path string) (string, bool) {
 func (f *ForgeStub) writeGitLabError(w http.ResponseWriter, status int, message string) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"message": message})
-}
-
-func baseName(path string) string {
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		return path[i+1:]
-	}
-	return path
 }

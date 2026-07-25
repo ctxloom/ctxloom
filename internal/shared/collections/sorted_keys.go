@@ -1,6 +1,6 @@
 package collections
 
-import "sort"
+import "slices"
 
 // SortedKeys returns m's keys in sorted order — the deterministic iteration
 // order a text/table render, hash-stable output, or any other order-sensitive
@@ -11,6 +11,6 @@ func SortedKeys[K ~string, V any](m map[K]V) []K {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	slices.Sort(keys)
 	return keys
 }

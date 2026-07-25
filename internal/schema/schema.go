@@ -2,8 +2,8 @@
 package schema
 
 import (
+	"bytes"
 	"fmt"
-	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
@@ -36,7 +36,7 @@ func NewConfigValidator() (*ConfigValidator, error) {
 // implementation.
 func NewValidatorFromSchema(schemaData []byte) (*ConfigValidator, error) {
 	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("config.json", strings.NewReader(string(schemaData))); err != nil {
+	if err := compiler.AddResource("config.json", bytes.NewReader(schemaData)); err != nil {
 		return nil, fmt.Errorf("failed to add config schema resource: %w", err)
 	}
 

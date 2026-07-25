@@ -108,13 +108,6 @@ type loadSessionResult struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
-// getSessionsDir returns the directory holding distilled session .md files.
-// Persistent (not ephemeral) because distilled summaries are a per-repo cache
-// the user benefits from across restarts.
-func (s *ctxServer) getSessionsDir() string {
-	return paths.ProjectSessionsDir(s.cfg.GetAppDir())
-}
-
 // This and the sibling registerXTools functions share a duplicate shape by
 // construction (a run of mcp.AddTool calls). Their tool descriptions are
 // independent content; a change to one implies nothing about the others.
@@ -178,7 +171,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
 
-	sessionsDir := s.getSessionsDir()
+	sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		LLM:       plugin,
@@ -649,7 +642,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		}, nil
 	}
 
-	sessionsDir := s.getSessionsDir()
+	sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
 
 	// Resolve the harp that owns this session so its plan files
 	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the

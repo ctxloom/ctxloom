@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -90,7 +91,7 @@ func fakeAgyInvocations(t *testing.T, logPath string) [][]string {
 // subprocess, so an in-memory afero.Fs would never see its write).
 func newChatTestBackend(t *testing.T, binaryPath, home string) *Antigravity {
 	t.Helper()
-	b := &Antigravity{convMap: newAgyConversationMap(withAgyConversationMapHomeDir(home))}
+	b := &Antigravity{convMap: agyConversationMap{SessionStore: agent.SessionStore{FS: afero.NewOsFs(), HomeDir: home}}}
 	b.BaseBackend = agent.NewBaseBackend("antigravity", "1.0.0")
 	b.BinaryPath = binaryPath
 	b.InitLaunch(

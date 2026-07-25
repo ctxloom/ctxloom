@@ -206,7 +206,7 @@ type globalListResult struct {
 //
 // A tasks dir that doesn't exist yet (nothing has ever been tracked
 // anywhere) is zero projects, zero tasks — not an error.
-func listAllProjects(statuses []string, term, tagQuery string, includeDone, sortPriority bool, schema *tagschema.Schema, now time.Time, sessionHarp string) (*globalListResult, error) {
+func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPriority bool, schema *tagschema.Schema, now time.Time, sessionHarp string) (*globalListResult, error) {
 	dir, err := paths.HomeTasksDir()
 	if err != nil {
 		return nil, fmt.Errorf("tasks dir: %w", err)
@@ -238,7 +238,7 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, sort
 		out.ProjectCount++
 		out.HiddenCompleted += hiddenCompleted
 		out.HiddenDeferred += hiddenDeferred
-		if sortPriority {
+		if byPriority {
 			all, serr := store.Snapshot()
 			if serr != nil {
 				return nil, fmt.Errorf("snapshot project %s for priority computation: %w", projectID, serr)
@@ -261,7 +261,7 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, sort
 		if out.Rows[i].ProjectID != out.Rows[j].ProjectID {
 			return out.Rows[i].ProjectID < out.Rows[j].ProjectID
 		}
-		if sortPriority {
+		if byPriority {
 			return priorityOf(out.Rows[i].Task) > priorityOf(out.Rows[j].Task)
 		}
 		return out.Rows[i].HarpID < out.Rows[j].HarpID

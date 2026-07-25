@@ -584,6 +584,18 @@ func Parse(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
+// Empty returns the built-in allow-all config — no rules, defaults
+// normalized. It cannot fail, which is the point: this used to be produced by
+// parsing a hardcoded YAML string at runtime, so its (impossible) error made
+// the caller report a fail-closed deny-everything as "could not load its rules
+// config", naming a path the user never wrote.
+func Empty() *Config {
+	var cfg Config
+	// Cannot fail: a Config with no rules only normalizes defaults.
+	_ = cfg.normalizeAndValidate()
+	return &cfg
+}
+
 // Load reads and parses a config file.
 func Load(pathname string) (*Config, error) {
 	data, err := os.ReadFile(pathname)

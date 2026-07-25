@@ -36,7 +36,9 @@ type ClaudeCodeHookWriter struct {
 	mcpCommandOverride string
 }
 
-// getFS returns the filesystem to use, defaulting to the OS filesystem.
+// getFS returns the filesystem to use, defaulting to the OS filesystem. It is
+// a spelling shortener for the 12 in-package call sites, not an injection
+// seam — the seam is the FS field itself.
 func (w *ClaudeCodeHookWriter) getFS() afero.Fs {
 	return agent.GetFS(w.FS)
 }
@@ -297,7 +299,7 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	if slRaw, ok := raw["statusLine"]; ok {
 		var sl claudeCodeStatusLine
 		if err := json.Unmarshal(slRaw, &sl); err != nil {
-			w.warn("failed to parse statusLine in settings.json: %v", err)
+			agent.Warn("failed to parse statusLine in settings.json: %v", err)
 		} else {
 			settings.StatusLine = &sl
 		}
@@ -311,13 +313,13 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	if permRaw, ok := raw["permissions"]; ok {
 		var permMap map[string]json.RawMessage
 		if err := json.Unmarshal(permRaw, &permMap); err != nil {
-			w.warn("failed to parse permissions in settings.json: %v", err)
+			agent.Warn("failed to parse permissions in settings.json: %v", err)
 		} else {
 			perm := &claudeCodePermissions{}
 			if denyRaw, ok := permMap["deny"]; ok {
 				var deny []string
 				if err := json.Unmarshal(denyRaw, &deny); err != nil {
-					w.warn("failed to parse permissions.deny in settings.json: %v", err)
+					agent.Warn("failed to parse permissions.deny in settings.json: %v", err)
 				} else {
 					perm.Deny = deny
 				}
@@ -336,11 +338,6 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	settings.Other = raw
 
 	return settings, nil
-}
-
-// warn outputs a warning message to stderr.
-func (w *ClaudeCodeHookWriter) warn(format string, args ...interface{}) {
-	agent.Warn(format, args...)
 }
 
 // backupCorrupt copies the raw, unparseable bytes of a settings file aside to
@@ -367,7 +364,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	for k, v := range settings.Other {
 		var val interface{}
 		if err := json.Unmarshal(v, &val); err != nil {
-			w.warn("failed to preserve setting %q: %v", k, err)
+			agent.Warn("failed to preserve setting %q: %v", k, err)
 			continue // Skip corrupted field
 		}
 		output[k] = val
@@ -391,7 +388,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		for k, v := range settings.Permissions.Other {
 			var val interface{}
 			if err := json.Unmarshal(v, &val); err != nil {
-				w.warn("failed to preserve permissions.%s: %v", k, err)
+				agent.Warn("failed to preserve permissions.%s: %v", k, err)
 				continue
 			}
 			permOut[k] = val
@@ -433,7 +430,7 @@ func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig,
 
 	if err := json.Unmarshal(data, mcpConfig); err != nil {
 		// MCP config format may have changed - warn but continue
-		w.warn("failed to parse .mcp.json: %v - existing MCP servers may not be preserved", err)
+		agent.Warn("failed to parse .mcp.json: %v - existing MCP servers may not be preserved", err)
 		return mcpConfig, nil
 	}
 

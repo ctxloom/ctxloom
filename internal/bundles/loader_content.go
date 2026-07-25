@@ -611,7 +611,10 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	// differ from the default) and stamps every item with the commit so each
 	// resolves at that version.
 	canonical, version := splitBundleVersion(ref)
-	b, err := l.wholeBundleForExpansion(ref, version)
+	// bundleAtVersion with no explicit commit re-derives the version from the
+	// ref itself: the lockfile-pinned default when nothing is pinned, or the
+	// exact historical version via the wired version resolver for "@<commit>".
+	b, err := l.bundleAtVersion(ref, "")
 	if err != nil {
 		// A profile referenced this bundle but it didn't resolve (missing, or a
 		// pinned version that failed to fetch). Warn so the gap is diagnosable —
@@ -627,15 +630,4 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-// wholeBundleForExpansion materializes a whole-bundle ref for fragment
-// enumeration: the lockfile-pinned default when no version is pinned (the
-// unchanged path), or the exact historical version via the wired version
-// resolver when a "@<commit>" is present.
-func (l *Loader) wholeBundleForExpansion(ref, version string) (*Bundle, error) {
-	if version == "" {
-		return l.Load(ref)
-	}
-	return l.bundleAtVersion(ref, "")
 }

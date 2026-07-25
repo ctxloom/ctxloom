@@ -146,7 +146,7 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 		return updateInfo{}, false, fmt.Errorf("failed to resolve latest version for %s", refStr)
 	}
 
-	itemType, upToDate := reportUpdateStatus(out, refStr, entry.SHA, latestSHA, itemType)
+	upToDate := reportUpdateStatus(out, refStr, entry.SHA, latestSHA)
 	return updateInfo{
 		Type:             itemType,
 		Ref:              canonical,
@@ -187,23 +187,21 @@ func lookupLockedEntry(lockfile *remote.Lockfile, refStr string) (remote.LockEnt
 	return remote.LockEntry{}, ""
 }
 
-// reportUpdateStatus prints the update status and returns the item type to pull
-// plus whether the ref is already up to date. itemType is the caller's resolved
-// type (lock entry, falling back to the ref's own type segment) and is passed
-// through unchanged — an unlocked profile must still pull as a profile.
-func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string, itemType remote.ItemType) (remote.ItemType, bool) {
+// reportUpdateStatus prints the update status and reports whether the ref is
+// already up to date.
+func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string) bool {
 	switch currentSHA {
 	case "":
 		fmt.Fprintf(out, "%s not found in lockfile, checking latest version...\n", refStr)
-		return itemType, false
+		return false
 	case latestSHA:
 		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
-		return itemType, true
+		return true
 	default:
 		fmt.Fprintf(out, "%s has update available:\n", refStr)
 		fmt.Fprintf(out, "  Current: %s\n", shortSHA(currentSHA))
 		fmt.Fprintf(out, "  Latest:  %s\n", shortSHA(latestSHA))
-		return itemType, false
+		return false
 	}
 }
 

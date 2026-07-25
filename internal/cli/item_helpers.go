@@ -494,8 +494,6 @@ func editNoDistillWarning(itemType ItemType, ref string, noDistillFlag, wasAlrea
 	return fmt.Sprintf("warning: distilled form not refreshed (--no-distill); run `ctxloom %s distill %s` before relying on distilled-mode output\n", itemType, ref)
 }
 
-// distillSource returns the content and distill flags for an item, erroring
-// when it doesn't exist.
 // distillItem (re)distills an item via the operations core; the CLI only
 // supplies the LLM-backed Distiller and renders the outcome.
 func distillItem(ref string, itemType ItemType, force bool) error {

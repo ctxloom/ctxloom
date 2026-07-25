@@ -133,6 +133,8 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 // bar's local mirror type (termui stays dependency-light — its own
 // documented convention). nil sessionCoord (no coordinator hosted) is an
 // empty roster, not an error: the bar degrades to showing just this session.
+// The error return is structurally always nil — it exists only to satisfy
+// termui.Options.FetchRoster; there is no failure case to hunt for.
 func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, error) {
 	if sessionCoord == nil {
 		return nil, nil

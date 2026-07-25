@@ -472,8 +472,11 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 
 // compactionModelFor resolves the model one distill runs with: an explicit
 // caller override wins, and "" falls back to the configured compaction model.
-// Shared so every distill path resolves it identically — honoring the override
-// on only some paths is exactly the bug this exists to prevent (sour-scoop).
+// Kept as a named function despite the single call site (compactEntry, which
+// is itself the single funnel) because it is the one unit-testable statement
+// of the sour-scoop rule — honoring the override on only some distill paths
+// is exactly the bug this exists to prevent — and compactEntry needs a live
+// session entry and compactor to exercise.
 func compactionModelFor(cfg *config.Config, override string) string {
 	if override != "" {
 		return override

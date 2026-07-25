@@ -237,20 +237,6 @@ func TestShellOutDistill_PropagatesError(t *testing.T) {
 	assert.Error(t, err, "non-zero exit must propagate")
 }
 
-// TestShouldDistillOnExit covers the exit-time distill decision: a bound
-// harp on an INTERACTIVE run should distill; an unbound harp, a
-// structured-REPL run (whose Chat RPC never runs Setup, so no session_id
-// ever binds), or a headless oneshot/--print run must not — FINDING #2:
-// distilling on every --print invocation is a blocking LLM call on every
-// headless call, and a fresh harp each time means the idempotency guard
-// never helps.
-func TestShouldDistillOnExit(t *testing.T) {
-	assert.True(t, shouldDistillOnExit("swift-amber-falcon", true), "bound harp, interactive run: must distill")
-	assert.False(t, shouldDistillOnExit("", true), "no bound harp: nothing to distill")
-	assert.False(t, shouldDistillOnExit("swift-amber-falcon", false), "non-interactive (oneshot/--print or structured-REPL) run: must not distill")
-	assert.False(t, shouldDistillOnExit("", false), "neither bound nor eligible")
-}
-
 // testDistillTimeout is a generous bound used by tests that expect the
 // injected distillFn to return immediately — large enough that it never
 // fires in practice, so these tests exercise the happy/error paths rather
@@ -304,6 +290,16 @@ func TestDistillSessionOnExit_NoOpCases(t *testing.T) {
 			testDistillTimeout,
 			io.Discard)
 		assert.False(t, distillCalled, "structured runs never bind a session_id, and headless oneshot/--print must not pay for a blocking LLM call on every invocation — skip")
+	})
+
+	t.Run("neither bound nor interactive", func(t *testing.T) {
+		distillCalled := false
+		distillSessionOnExit("", false,
+			func(string) ([]byte, error) { return nil, errors.New("no essence") },
+			func(context.Context, string) error { distillCalled = true; return nil },
+			testDistillTimeout,
+			io.Discard)
+		assert.False(t, distillCalled, "neither bound nor eligible")
 	})
 
 	t.Run("already distilled", func(t *testing.T) {

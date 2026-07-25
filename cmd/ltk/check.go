@@ -71,6 +71,10 @@ broken/unreadable config rather than failing closed.`,
 // text prints the human verdict via printCheckText; json/yaml/toml/markdown
 // serialize checkResult through the shared clifmt filter.
 func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format clifmt.Format) error {
+	// Unreachable from the CLI — newCheckCmd's RunE resolves the format
+	// through cliemit.Resolve, which already rejects anything clifmt cannot
+	// parse. It survives as the seam for direct in-package calls (see
+	// check_test.go's "unknown format errors").
 	if !format.Valid() {
 		return fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", clifmt.ErrUnsupportedFormat, format)
 	}

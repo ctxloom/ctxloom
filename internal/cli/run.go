@@ -147,10 +147,14 @@ func shellOutDistill(ctx context.Context, harpName string) error {
 	return c.Run()
 }
 
-// shouldDistillOnExit decides whether the just-ended session at activeHarp
-// should be synchronously distilled when `ctxloom run` exits. It mirrors the
-// guard MarkSessionEnded already uses (a bound harp) and additionally
-// requires an INTERACTIVE run — the caller folds in two disqualifying cases:
+// exitDistillTimeout bounds distillSessionOnExit's synchronous exit-time
+// distill (FINDING #3): a stalled LLM/network call at process-exit time must
+// not wedge the exiting shell forever.
+const exitDistillTimeout = 120 * time.Second
+
+// distillSessionOnExit runs the exit-time distill. It mirrors the guard
+// MarkSessionEnded already uses (a bound harp) and additionally requires an
+// INTERACTIVE run, which folds in two disqualifying cases:
 //
 //   - structured-REPL runs: --structured returns via runStructuredREPL before
 //     goplugin.NewLauncher(...).Start ever runs Setup, so a structured
@@ -160,17 +164,8 @@ func shellOutDistill(ctx context.Context, harpName string) error {
 //     mints a fresh harp on every invocation, so the idempotency check
 //     (essenceFn) never short-circuits — without this gate, distillation
 //     would fire as a blocking LLM call at the end of EVERY headless call.
-func shouldDistillOnExit(activeHarp string, interactive bool) bool {
-	return activeHarp != "" && interactive
-}
-
-// exitDistillTimeout bounds distillSessionOnExit's synchronous exit-time
-// distill (FINDING #3): a stalled LLM/network call at process-exit time must
-// not wedge the exiting shell forever.
-const exitDistillTimeout = 120 * time.Second
-
-// distillSessionOnExit runs the exit-time distill decided by
-// shouldDistillOnExit. essenceFn/distillFn are injected (readHarpEssence/
+//
+// essenceFn/distillFn are injected (readHarpEssence/
 // shellOutDistill in production) so the decision logic is unit-testable
 // without shelling out or touching the filesystem.
 //
@@ -197,7 +192,7 @@ const exitDistillTimeout = 120 * time.Second
 //
 // Idempotent: skipped if an essence already exists for the harp.
 func distillSessionOnExit(activeHarp string, interactive bool, essenceFn func(string) ([]byte, error), distillFn func(context.Context, string) error, timeout time.Duration, out io.Writer) {
-	if !shouldDistillOnExit(activeHarp, interactive) {
+	if activeHarp == "" || !interactive {
 		return
 	}
 	if _, essErr := essenceFn(activeHarp); essErr == nil {
@@ -841,7 +836,7 @@ Examples:
 		// (mode == ONESHOT) mints a fresh harp per invocation, so distilling
 		// there would be a blocking LLM call on every headless call with no
 		// idempotency guard to save it; --structured never binds a
-		// session_id at all (see shouldDistillOnExit).
+		// session_id at all (see distillSessionOnExit).
 		interactiveExit := mode == pb.ExecutionMode_INTERACTIVE && !runStructured
 		defer distillSessionOnExit(activeHarp, interactiveExit, readHarpEssence, shellOutDistill, exitDistillTimeout, os.Stderr)
 

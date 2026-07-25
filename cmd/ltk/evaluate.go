@@ -295,8 +295,7 @@ func loadConfig(path string) (*rules.Config, string, error) {
 			}
 		}
 	}
-	c, err := rules.Parse([]byte("version: 1\nrules: []\n"))
-	return c, "", err
+	return rules.Empty(), "", nil
 }
 
 // configSearchDirs returns the cwd and its ancestors, stopping at the first

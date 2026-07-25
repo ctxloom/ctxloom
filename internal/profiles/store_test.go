@@ -29,10 +29,10 @@ func TestProfileStoreContract(t *testing.T) {
 				t.Fatal("Load of a missing profile should error")
 			}
 
-			if err := s.Save(&Profile{Name: "alpha"}); err != nil {
+			if err := s.Save(&Profile{Name: "alpha", Bundles: []string{"go-development"}}); err != nil {
 				t.Fatalf("Save alpha: %v", err)
 			}
-			if err := s.Save(&Profile{Name: "beta"}); err != nil {
+			if err := s.Save(&Profile{Name: "beta", Bundles: []string{"go-development"}}); err != nil {
 				t.Fatalf("Save beta: %v", err)
 			}
 

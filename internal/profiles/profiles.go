@@ -603,8 +603,43 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	if err := yaml.Unmarshal(data, &profile); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
+	// A zero-byte, `{}`, or fully-commented-out profile parses cleanly into a
+	// profile that selects NOTHING, and used to load with err=nil and record
+	// zero strictness findings — a session launches on it, gets no context at
+	// all, and every surface reports success (U091-F01). It is reported
+	// through the fail-loudly gate rather than as a hard load error: `List`
+	// and the pickers must still be able to ENUMERATE a hollow profile (a
+	// half-authored one is a normal intermediate state), but nothing may
+	// launch on one while pretending it composed something.
+	if !profile.HasContent() {
+		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags) or delete it",
+			"profile %s selects nothing: no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm — a session launched on it composes no context", path)
+	}
 	profile.Path = path
 	return &profile, nil
+}
+
+// HasContent reports whether a profile actually selects or declares anything.
+// Description/Tags alone do not count: they are labels, not content, and a
+// profile carrying only labels composes exactly nothing.
+func (p *Profile) HasContent() bool {
+	return len(p.Parents) > 0 ||
+		len(p.SelectTags) > 0 ||
+		len(p.Bundles) > 0 ||
+		len(p.Commands) > 0 ||
+		len(p.Skills) > 0 ||
+		len(p.Fragments) > 0 ||
+		len(p.BundleItems) > 0 ||
+		len(p.ExcludeFragments) > 0 ||
+		len(p.ExcludeMCP) > 0 ||
+		len(p.DenyTools) > 0 ||
+		len(p.Variables) > 0 ||
+		len(p.Hooks.Unified.PreTool)+len(p.Hooks.Unified.PostTool)+
+			len(p.Hooks.Unified.SessionStart)+len(p.Hooks.Unified.SessionEnd)+
+			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit) > 0 ||
+		len(p.Hooks.Plugins) > 0 ||
+		len(p.MCP.Servers) > 0 ||
+		p.LLM != ""
 }
 
 // Save saves a profile to disk.
@@ -621,6 +656,19 @@ func (l *Loader) Save(profile *Profile) error {
 	}
 	if err := validateProfileName(profile.Name); err != nil {
 		return err
+	}
+	// A profile with NOTHING in it — no selection and not even a description
+	// or tags — serializes to "{}\n", and writing that reported success while
+	// creating a file that can only ever compose nothing (U091-F08). Refuse
+	// it. A profile that carries labels but selects nothing is a normal
+	// half-authored state: it saves, and the fail-loudly gate says what it
+	// will (not) do, exactly as Load does for the same shape.
+	if !profile.HasContent() {
+		if profile.Description == "" && len(profile.Tags) == 0 {
+			return fmt.Errorf("profile %q is empty: refusing to write a profile with no content at all (add parents, bundles, fragments, select_tags or an llm)", profile.Name)
+		}
+		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags)",
+			"profile %q selects nothing: it carries only labels, so a session launched on it composes no context", profile.Name)
 	}
 
 	// A profile loaded from disk saves back to its own file (so a .yml

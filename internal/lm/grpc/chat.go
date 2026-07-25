@@ -528,6 +528,14 @@ func (p *LLMRunner) Chat(ctx context.Context, req agent.ChatRequest) (chan<- age
 // nothing about the turn is invented and nothing is lost.
 func userTapEntry(msg agent.ChatMessage) *agent.SessionEntry {
 	text := msg.Text
+	// Blocks ride the entry only when they are the SOLE carrier of the turn:
+	// a message that already has Text records exactly as it did before, which
+	// keeps the two chat doors' transcripts byte-identical (see
+	// cli.TestH1bEquivalence_CanonicalTranscript).
+	blocks := msg.ContentBlocks
+	if text != "" {
+		blocks = nil
+	}
 	if text == "" && len(msg.ContentBlocks) > 0 {
 		parts := make([]string, 0, len(msg.ContentBlocks))
 		for _, b := range msg.ContentBlocks {
@@ -549,6 +557,6 @@ func userTapEntry(msg agent.ChatMessage) *agent.SessionEntry {
 	return &agent.SessionEntry{
 		Type:          agent.EntryTypeUser,
 		Content:       text,
-		ContentBlocks: msg.ContentBlocks,
+		ContentBlocks: blocks,
 	}
 }

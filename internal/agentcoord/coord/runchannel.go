@@ -742,7 +742,11 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}
-	disposition := fmt.Sprintf("spawned %s (engine %s, runtime %s)", out.Harp, out.Engine, orHost(out.Runtime))
+	runtime := out.Runtime
+	if runtime == "" {
+		runtime = "host"
+	}
+	disposition := fmt.Sprintf("spawned %s (engine %s, runtime %s)", out.Harp, out.Engine, runtime)
 	if out.Queued {
 		disposition += "; queued behind the execution cap"
 	}
@@ -756,13 +760,6 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 			ChildAgentId: out.Harp,
 		}},
 	}
-}
-
-func orHost(runtime string) string {
-	if runtime == "" {
-		return "host"
-	}
-	return runtime
 }
 
 // serveListRuns is the roster: the caller's children from the roster/runs

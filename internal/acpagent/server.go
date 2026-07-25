@@ -148,7 +148,7 @@ type session struct {
 // is torn down on exit.
 func Serve(ctx context.Context, r io.Reader, w io.Writer, open ChatOpener) error {
 	s := &Server{open: open, ctx: ctx, sessions: make(map[api.SessionId]*session)}
-	s.conn = jsonrpc.NewConn(ctx, r, w, nil, s)
+	s.conn = jsonrpc.NewConn(r, w, nil, s)
 	// s.conn must be FULLY assigned before the read loop can start — Server
 	// is its own Handler, and its request handling (emitUpdate) reads
 	// s.conn back. Starting the read loop is deferred to Start (see its

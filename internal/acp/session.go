@@ -86,7 +86,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 			sess.fsUpstream = fc
 		}
 	}
-	conn := jsonrpc.NewConn(ctx, tr.stdout, tr.stdin, jsonrpc.CloserFunc(tr.close), sess)
+	conn := jsonrpc.NewConn(tr.stdout, tr.stdin, jsonrpc.CloserFunc(tr.close), sess)
 	conn.Start(ctx)
 
 	// teardown cancels (unblocking any handler parked on an out-send), closes the
@@ -761,7 +761,9 @@ type chatSession struct {
 // send emits one event, stamping a receipt time when the entry lacks one (ACP
 // updates carry no per-event timestamp). Returns false if ctx is cancelled first.
 func (s *chatSession) send(ev agent.ChatEvent) bool {
-	ev = stampTime(ev, s.clock)
+	if ev.Entry != nil && ev.Entry.Timestamp.IsZero() {
+		ev.Entry.Timestamp = s.clock()
+	}
 	select {
 	case s.out <- ev:
 		return true
@@ -1221,14 +1223,6 @@ func decodeSessionUpdate(params json.RawMessage) (*api.SessionUpdate, error) {
 		return nil, err
 	}
 	return &upd, nil
-}
-
-// stampTime records receipt time on an entry event that arrived without one.
-func stampTime(ev agent.ChatEvent, now func() time.Time) agent.ChatEvent {
-	if ev.Entry != nil && ev.Entry.Timestamp.IsZero() {
-		ev.Entry.Timestamp = now()
-	}
-	return ev
 }
 
 // sliceLines applies fs/read_text_file's optional 1-based line offset and max

@@ -121,7 +121,7 @@ func (s *Server) acceptFsUpstream(ctx context.Context, f *fsUpstreamListener) {
 		if err != nil {
 			return // listener closed (session teardown) — normal exit
 		}
-		jsonrpc.NewConn(ctx, conn, conn, jsonrpc.CloserFunc(conn.Close), &fsUpstreamHandler{server: s}).Start(ctx)
+		jsonrpc.NewConn(conn, conn, jsonrpc.CloserFunc(conn.Close), &fsUpstreamHandler{server: s}).Start(ctx)
 	}
 }
 

@@ -106,9 +106,5 @@ func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte) (shaHex str
 // open opens a stored blob for reading by its hex sha256 ("", os.ErrNotExist
 // on a miss).
 func (s *artifactStore) open(shaHex string) (*os.File, error) {
-	f, err := os.Open(s.path(shaHex))
-	if err != nil {
-		return nil, err
-	}
-	return f, nil
+	return os.Open(s.path(shaHex))
 }

@@ -159,9 +159,6 @@ type launchState struct {
 
 // launchGate returns harp's launch state, creating it on demand. Caller holds mu.
 func (c *Coordinator) launchGateLocked(harp string) *launchState {
-	if c.launches == nil {
-		c.launches = map[string]*launchState{}
-	}
 	st := c.launches[harp]
 	if st == nil {
 		st = &launchState{}
@@ -253,14 +250,12 @@ func (c *Coordinator) noteLaunchAttached(harp string) {
 	c.launchGateLocked(harp).fails = 0
 }
 
-// noteLaunchFailure records one failed attempt and returns the new
-// consecutive-failure count.
-func (c *Coordinator) noteLaunchFailure(harp string) int {
+// noteLaunchFailure records one failed attempt against harp's consecutive-
+// failure count.
+func (c *Coordinator) noteLaunchFailure(harp string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	st := c.launchGateLocked(harp)
-	st.fails++
-	return st.fails
+	c.launchGateLocked(harp).fails++
 }
 
 // launchBackoff is the delay before the (fails+1)-th attempt: exponential

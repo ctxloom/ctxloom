@@ -114,7 +114,7 @@ type Conn struct {
 // handler receives inbound requests and notifications. The read loop does
 // NOT start until Start is called (see its doc) — call Start once
 // construction is complete.
-func NewConn(ctx context.Context, r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
+func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
 	return &Conn{
 		dec:     json.NewDecoder(r),
 		w:       w,
@@ -131,7 +131,7 @@ func NewConn(ctx context.Context, r io.Reader, w io.Writer, closer io.Closer, ha
 // Splitting this from NewConn closes a real data race a caller can otherwise
 // fall into: a Handler that stores the *Conn NewConn returns back onto
 // itself (so its own methods can call Notify/Call — acpagent's Server does
-// exactly this: `s.conn = jsonrpc.NewConn(ctx, r, w, nil, s)`) has no
+// exactly this: `s.conn = jsonrpc.NewConn(r, w, nil, s)`) has no
 // guarantee that assignment is visible to the read loop, because — before
 // this split — the read loop's goroutine was spawned INSIDE NewConn, before
 // NewConn had even returned to the caller, let alone before the caller's

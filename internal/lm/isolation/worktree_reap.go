@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
+
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -202,7 +204,7 @@ func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeRe
 	if !ok {
 		return worktreeReapSkipped // indeterminate owner — never touch
 	}
-	if pidAlive(pid) {
+	if pidalive.Alive(pid) {
 		return worktreeReapSkipped // live owner
 	}
 

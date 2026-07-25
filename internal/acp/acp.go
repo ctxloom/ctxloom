@@ -558,5 +558,4 @@ func spawnEnv(base, strip []string, overlay map[string]string) []string {
 }
 
 // warnf routes a diagnostic through ctxloom's standard "ctxloom: warning:" path.
-// Centralized here so the codec (jsonrpc.go) stays free of the agent import.
 func warnf(format string, args ...any) { agent.Warn(format, args...) }

@@ -119,25 +119,25 @@ const artifactUploadFullMethod = "/agentcoord.v1.ArtifactTransferService/UploadA
 // extends the same rule to UploadArtifact (mutating) while leaving
 // DownloadArtifact open to consumers (read-only).
 func (c *Coordinator) grpcServer() *grpc.Server {
-	auth := func(ctx context.Context, fullMethod string) (Identity, error) {
+	auth := func(ctx context.Context, fullMethod string) error {
 		id, ok := c.Identify(mdToken(ctx))
 		if !ok {
-			return Identity{}, status.Error(codes.Unauthenticated, "unknown or revoked credential")
+			return status.Error(codes.Unauthenticated, "unknown or revoked credential")
 		}
 		if id.Consumer && (strings.HasPrefix(fullMethod, coordinatorServiceMethodPrefix) || fullMethod == artifactUploadFullMethod) {
-			return Identity{}, status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call "+fullMethod)
+			return status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call "+fullMethod)
 		}
-		return id, nil
+		return nil
 	}
 	srv := grpc.NewServer(
 		grpc.ChainStreamInterceptor(func(v any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-			if _, err := auth(ss.Context(), info.FullMethod); err != nil {
+			if err := auth(ss.Context(), info.FullMethod); err != nil {
 				return err
 			}
 			return handler(v, ss)
 		}),
 		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			if _, err := auth(ctx, info.FullMethod); err != nil {
+			if err := auth(ctx, info.FullMethod); err != nil {
 				return nil, err
 			}
 			return handler(ctx, req)

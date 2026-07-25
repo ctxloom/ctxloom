@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -333,4 +335,29 @@ func TestIsHardwareBacked(t *testing.T) {
 
 	assert.False(t, IsHardwareBacked(signer.PublicKey()), "a plain ed25519 key is software, not hardware")
 	assert.False(t, IsHardwareBacked(nil))
+}
+
+// TestExpandHome pins U135-F13: expandHome now uses filepath.Join, replacing a
+// hand-rolled twin whose stated rationale ("avoids importing path/filepath for
+// one call site twice") was false. The two differ on real inputs — the twin
+// produced a TRAILING SEPARATOR for a bare "~" (home + sep + "") and never
+// cleaned the result — so pin the shape the caller actually needs: a clean,
+// separator-correct absolute path, and a non-tilde path returned untouched.
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir in this environment: %v", err)
+	}
+
+	if got := expandHome("~"); got != home {
+		t.Errorf("expandHome(%q) = %q, want %q (no trailing separator)", "~", got, home)
+	}
+	if got, want := expandHome("~/.ssh/id_ed25519"), filepath.Join(home, ".ssh/id_ed25519"); got != want {
+		t.Errorf("expandHome(~/.ssh/id_ed25519) = %q, want %q", got, want)
+	}
+	for _, p := range []string{"/abs/path/key", "relative/key", "", "~notauser/key"} {
+		if got := expandHome(p); got != p {
+			t.Errorf("expandHome(%q) = %q, want it returned untouched", p, got)
+		}
+	}
 }

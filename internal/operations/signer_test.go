@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -374,4 +376,51 @@ func embeddedTestPublicKey(t *testing.T) ssh.PublicKey {
 	}
 	t.Fatalf("embedded trust root carries no entry for %s", testEmbeddedPrincipal)
 	return nil
+}
+
+// strictMkdirFs models the ONE way a real filesystem is stricter than afero's
+// MemMapFs, measured directly: os.MkdirAll("") returns "mkdir : no such file
+// or directory", while MemMapFs.MkdirAll("") silently returns nil. Without
+// this wrapper an in-memory test cannot see an empty mkdir target at all.
+type strictMkdirFs struct{ afero.Fs }
+
+func (f strictMkdirFs) MkdirAll(path string, perm os.FileMode) error {
+	if path == "" {
+		return fmt.Errorf("mkdir %s: no such file or directory", path)
+	}
+	return f.Fs.MkdirAll(path, perm)
+}
+
+// TestAppendAllowedSignersLine_ParentDirs pins U087-F20: the parent directory
+// of the allowed_signers path is created before the write, INCLUDING the
+// depth-1 case ("/allowed_signers"), whose parent is the root.
+//
+// The hand-rolled parentDir this replaced sliced at the last separator with no
+// special case for index 0, so it returned "" for "/allowed_signers" where
+// filepath.Dir returns "/". That reached fs.MkdirAll(""), which a real
+// filesystem rejects — the append then failed outright rather than writing.
+func TestAppendAllowedSignersLine_ParentDirs(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"nested path", "/home/u/.ctxloom/allowed_signers"},
+		{"depth-1 absolute path (parent is the root)", "/allowed_signers"},
+		{"bare relative name (parent is the cwd)", "allowed_signers"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := strictMkdirFs{afero.NewMemMapFs()}
+			require.NoError(t, appendAllowedSignersLine(fs, tc.path, "first@example.com ssh-ed25519 AAAA"),
+				"the parent dir of %s must be a path a real filesystem can create", tc.path)
+			require.NoError(t, appendAllowedSignersLine(fs, tc.path, "second@example.com ssh-ed25519 BBBB"))
+
+			got, err := afero.ReadFile(fs, tc.path)
+			require.NoError(t, err, "the line must actually land on disk at %s", tc.path)
+			assert.Equal(t,
+				"first@example.com ssh-ed25519 AAAA\nsecond@example.com ssh-ed25519 BBBB\n",
+				string(got), "appends must preserve what was already there")
+		})
+	}
 }

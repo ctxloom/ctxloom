@@ -700,9 +700,21 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 		if v, ok := s.GetFields()["kind"]; ok {
 			kind = v.GetStringValue()
 		}
-		if raw, merr := protojson.Marshal(s); merr == nil {
-			structured = raw
+		// Refuse rather than silently truncate. This used to be
+		// `if merr == nil { structured = raw }` with merr never inspected, so a
+		// Struct that could not be marshalled left `structured` nil and the
+		// message was QUEUED without its payload and reported as sent. For a
+		// parent answering a relayed approval that converts a decision into an
+		// unanswerable message: the decode side is strict and then reports
+		// "structured is required", blaming the sender, who was told it worked.
+		// serveCustom below already treats the identical failure as
+		// InvalidArgument.
+		raw, merr := protojson.Marshal(s)
+		if merr != nil {
+			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument,
+				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", merr))}
 		}
+		structured = raw
 	}
 	msgID, delivered, disposition, err := c.peerSend(caller, to, kind, req.GetText(), structured, req.GetInReplyTo())
 	if err != nil {

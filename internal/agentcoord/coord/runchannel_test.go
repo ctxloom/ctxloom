@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
@@ -510,4 +511,43 @@ func reservedIDs(c *Coordinator, role string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.delivered[role]...)
+}
+
+// TestServePeerSend_UnmarshalableStructuredIsRefused is the regression guard
+// for U024-F06. servePeerSend marshalled the caller's Struct with
+// `if raw, merr := protojson.Marshal(s); merr == nil { structured = raw }` and
+// NEVER inspected merr. On failure `structured` stayed nil and the message was
+// queued WITHOUT its structured payload, reported as a successful send.
+//
+// For a parent answering a relayed approval that converts a decision into an
+// unanswerable message: the decode side is strict and then reports "structured
+// is required", attributing the fault to the sender, who was told the send
+// succeeded. Refusing the send is what serveCustom two functions below already
+// does with the identical protojson.Marshal failure.
+//
+// A Value with no oneof member set is the shape protojson rejects — the
+// zero-value *structpb.Value a hand-built Struct can easily carry.
+func TestServePeerSend_UnmarshalableStructuredIsRefused(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+
+	unmarshalable := &structpb.Struct{Fields: map[string]*structpb.Value{"kind": {}}}
+	require.Error(t, func() error { _, err := protojson.Marshal(unmarshalable); return err }(),
+		"fixture check: this Struct must really be unmarshalable, or the test proves nothing")
+
+	resp := c.servePeerSend(ownerIdentity(), &agentcoordpb.PeerSendRequest{
+		ToAgentId: out.Harp, Text: "decision", Structured: unmarshalable,
+	})
+	assert.NotEqualValues(t, 0, resp.GetStatus().GetCode(),
+		"a send whose structured payload cannot be carried must not report OK")
+	assert.Empty(t, resp.GetPeerSend().GetMessageId(),
+		"a refused send must not hand back a message id")
+
+	var pending []Message
+	c.mail.View(func() { pending = c.mailF.pendingFor(out.Harp) })
+	for _, m := range pending {
+		assert.NotEqual(t, "decision", m.Body,
+			"a refused send must not queue a hollowed-out message")
+	}
 }

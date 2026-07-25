@@ -729,7 +729,19 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 // Items); sourceSize is the transcript byte size the essence was distilled from,
 // used for staleness detection (see TranscriptStale). Passing nil detail clears
 // it; a zero sourceSize leaves the fingerprint unset (no staleness badge).
+//
+// An EMPTY summary is refused (U099-F20). Accepting it made this the
+// destructive variant of the house empty-input bug: SetSummary(harp, "", nil,
+// 0) reported success while erasing a good summary, its detail lines AND its
+// staleness fingerprint. A failed distill produces exactly that argument set,
+// so the only thing standing between a distill hiccup and permanent loss of a
+// session's summary was a caller remembering to check first (memory.
+// Compactor.updateSessionIndex does; nothing made it). The refusal lives here,
+// where the data is.
 func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSize int64) error {
+	if strings.TrimSpace(summary) == "" {
+		return fmt.Errorf("refusing to set an empty summary on %q: that would erase the existing summary, detail lines and staleness fingerprint", harpName)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -755,7 +767,17 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
+// saveLocked atomically replaces the index file with idx.
+//
+// A nil idx is refused (U099-F21): yaml.Marshal(nil) is the literal `null`,
+// and writing it would atomically overwrite every recorded session with a
+// file that loads back as an empty index — a total, silent wipe with a nil
+// error. No caller passes nil today; this is a guard on the destroy step, not
+// a reaction to a live bug.
 func (m *Manager) saveLocked(idx *Index) error {
+	if idx == nil {
+		return fmt.Errorf("refusing to write a nil session index (that would overwrite %s with `null`)", m.path)
+	}
 	data, err := yaml.Marshal(idx)
 	if err != nil {
 		return fmt.Errorf("marshal index: %w", err)

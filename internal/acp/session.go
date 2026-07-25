@@ -166,7 +166,11 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		done := make(chan turnResult, 1)
 		turnDone = done
 		turnStarted = sess.clock()
-		blocks := sess.buildPromptBlocks(msg)
+		blocks, berr := sess.buildPromptBlocks(msg)
+		if berr != nil {
+			done <- turnResult{err: berr}
+			return
+		}
 		await, err := b.promptAsync(conn, sessionID, blocks)
 		if err != nil {
 			done <- turnResult{err: err}
@@ -586,15 +590,24 @@ func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, blocks []
 // why (kind, mime type, byte count) — never a silent drop (this codebase's
 // signature bug: exit 0, success, zero bytes delivered). text and
 // resource_link are unconditional per spec (every agent MUST support them).
-func (s *chatSession) buildPromptBlocks(msg agent.ChatMessage) []api.ContentBlock {
+func (s *chatSession) buildPromptBlocks(msg agent.ChatMessage) ([]api.ContentBlock, error) {
 	if len(msg.ContentBlocks) == 0 {
-		return []api.ContentBlock{api.TextBlock(msg.Text)}
+		// A prompt with no blocks and no text is zero bytes of intent. Sending
+		// it as TextBlock("") burns a real engine turn and returns a normal
+		// completion — the house silent-no-op. Refuse it instead; callers that
+		// legitimately have nothing to say must not call at all (see
+		// cli.readMessagesLoop, which drops blank REPL lines before they get
+		// here).
+		if strings.TrimSpace(msg.Text) == "" {
+			return nil, fmt.Errorf("acp: refusing to deliver an empty prompt (no text and no content blocks) — a turn would run on zero bytes")
+		}
+		return []api.ContentBlock{api.TextBlock(msg.Text)}, nil
 	}
 	out := make([]api.ContentBlock, 0, len(msg.ContentBlocks))
 	for _, b := range msg.ContentBlocks {
 		out = append(out, s.deliverBlock(b))
 	}
-	return out
+	return out, nil
 }
 
 // deliverBlock renders one IR content block for delivery: image/audio/
@@ -633,8 +646,20 @@ func (s *chatSession) deliverBlock(b agent.ContentBlock) api.ContentBlock {
 			return block
 		}
 		return api.TextBlock(b.Text)
-	default: // "text" and any future/unrecognized kind
+	case "text", "":
 		return api.TextBlock(b.Text)
+	default:
+		// A kind this build does not know about. Flattening it to
+		// TextBlock(b.Text) delivers an EMPTY text block for any structured
+		// block (whose payload lives in Raw, not Text) — a silent drop, the
+		// exact thing this function's doc promises never to do. Deliver a
+		// visible placeholder naming the kind instead, carrying whatever text
+		// the block did have.
+		warnf("acp: unrecognized content block kind %q flattened to a text placeholder — this build cannot deliver it", b.Kind)
+		if strings.TrimSpace(b.Text) != "" {
+			return api.TextBlock(fmt.Sprintf("[unrecognized %q content block, delivered as text]\n%s", b.Kind, b.Text))
+		}
+		return api.TextBlock(fmt.Sprintf("[%q content received but not delivered: this build does not recognize that block kind%s]", b.Kind, mediaBlockDetail(b.Raw)))
 	}
 }
 

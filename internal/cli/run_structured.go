@@ -275,8 +275,15 @@ func readMessagesLoop(ctx context.Context, in io.Reader, out chan<- agent.ChatMe
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		// A blank line is legitimately nothing to say — drop it here rather
+		// than handing the driver an empty prompt (which now refuses it, and
+		// rightly: a zero-byte turn is the house silent-no-op).
+		text := decodeMessageLine(scanner.Text())
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
 		select {
-		case out <- agent.ChatMessage{Text: decodeMessageLine(scanner.Text())}:
+		case out <- agent.ChatMessage{Text: text}:
 		case <-ctx.Done():
 			return ctx.Err()
 		}

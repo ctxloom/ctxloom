@@ -18,7 +18,28 @@ Every finding carries a verification provenance. **This is the most important co
 | **CONFIRMED** | a synthesizer verified it against source and stated its method |
 | **CLAIMED** | asserted by a unit review, not re-verified — **do not act on these without checking** |
 
-Raw counts from the corpus (381 HIGH across 162 units) are **not** quoted here as a headline. They are pre-dedup and pre-verification; a large fraction are the same root cause seen from different units. Use the ranked list, not the count.
+### This file is the action list, NOT a census — read both
+
+**Corrected 2026-07-25.** An earlier version of this section said "381 HIGH across 162 units" and let that stand in for the corpus. **That was wrong and it undersold the corpus by a factor of six.** The real totals, mechanically extracted:
+
+| | count |
+|---|---|
+| findings in the corpus | **2,268** |
+| HIGH | 376 |
+| MED | 999 |
+| LOW | 871 |
+| ranked items in THIS file | **20** |
+
+That is 113:1 compression, and **no finding in the corpus is cited by ID anywhere in this file** — so there is no path from this register back to the evidence behind it.
+
+**The complete census is [`docs/architecture/findings-index.md`](docs/architecture/findings-index.md)** — all 2,268 findings, mechanically extracted by script (no model judgement), sorted by severity, each with unit ID, `file:line`, category, and claim. It exists because this file answers *"what do we fix first"* and cannot answer *"what is the actual state of this codebase."* Those are different questions and they need different artifacts.
+
+**How to use them together:**
+- **Act** from this register: it is ranked, deduped, and every entry carries a verification provenance.
+- **Look up** in the index: it is lossless and greppable, and it is where the ~100 distinct HIGH findings that did not survive ranking still live.
+- A row in the index is **one reviewer's claim about one unit**. It is NOT verified unless this register says so. Treat every index row as CLAIMED until checked — this review downgraded or refuted seven headline claims under exactly that scrutiny.
+
+Applying the observed dedup ratio (~3:1, measured by the failure-semantics lens on its own slice) to 376 HIGH suggests roughly **125 distinct HIGH findings**. This register names 20. **The remainder are real, evidence-backed, and out of scope for the remediation plan** — they are backlog, not noise.
 
 ---
 

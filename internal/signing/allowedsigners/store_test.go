@@ -1,6 +1,8 @@
 package allowedsigners
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,4 +274,62 @@ func TestStore_EmptyStoreTrustsNothing(t *testing.T) {
 func TestStore_NilKeyIsNeverTrusted(t *testing.T) {
 	store := NewStore(Entry{Principals: []string{"a@example.com"}, PublicKey: mustParseKey(t, testEd25519Key)})
 	assert.False(t, store.TrustedForNamespace(nil, "publish.v1.ctxloom.dev", fixedNow()).Trusted)
+}
+
+// --- U136-F04: a store must be able to say "a location failed to load" -------
+
+// The API could not express "the trust root failed to load": an unreadable
+// location, an absent one, an empty one and an entirely-garbage one all
+// resolved to the same value (nil, or a Store with no entries). A caller
+// that wants to refuse when the root did not actually load had nothing to
+// ask.
+func TestStore_FailedSource_IsRepresentable(t *testing.T) {
+	failed := FailedSource("/etc/ctxloom/allowed_signers", errors.New("permission denied"))
+
+	require.NotNil(t, failed)
+	assert.Zero(t, failed.Len())
+	srcs := failed.Sources()
+	require.Len(t, srcs, 1)
+	assert.Equal(t, "/etc/ctxloom/allowed_signers", srcs[0].Path)
+	assert.False(t, srcs[0].Loaded)
+	require.Error(t, srcs[0].Err)
+
+	require.Len(t, failed.LoadErrors(), 1)
+}
+
+// An EMPTY store that loaded fine is a different fact from one that failed,
+// and Len() must not be the only distinguisher.
+func TestStore_EmptyLoadedSource_IsNotAFailure(t *testing.T) {
+	s, _, err := Parse(strings.NewReader(""))
+	require.NoError(t, err)
+	loaded := s.WithSource("/home/u/.ctxloom/allowed_signers")
+
+	assert.Zero(t, loaded.Len())
+	require.Len(t, loaded.Sources(), 1)
+	assert.True(t, loaded.Sources()[0].Loaded)
+	assert.Empty(t, loaded.LoadErrors())
+}
+
+// Union must PRESERVE a failed source rather than erase it. Skipping a nil
+// argument was the erasure: a caller that returned nil on EACCES produced a
+// union indistinguishable from one where that location simply held no keys.
+func TestStore_Union_PreservesFailedSources(t *testing.T) {
+	pub := mustParseKey(t, testEd25519Key)
+	good := NewStore(Entry{Principals: []string{"a@example.com"}, PublicKey: pub}).WithSource("/good")
+	bad := FailedSource("/bad", errors.New("permission denied"))
+
+	u := Union(good, bad)
+	assert.Equal(t, 1, u.Len())
+	require.Len(t, u.LoadErrors(), 1, "a failed location must survive the union")
+	assert.Equal(t, "/bad", u.LoadErrors()[0].Path)
+	assert.Len(t, u.Sources(), 2)
+}
+
+// Len() on a nil store is zero, and asking a nil store for provenance is not
+// a panic — nil is still a legal "no store here" for existing callers.
+func TestStore_NilProvenance(t *testing.T) {
+	var s *Store
+	assert.Zero(t, s.Len())
+	assert.Empty(t, s.Sources())
+	assert.Empty(t, s.LoadErrors())
 }

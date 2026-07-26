@@ -106,6 +106,8 @@ normal first-run shape and still writes cleanly.
 | `ctxloom signer list` / `show` over a store with an unreadable line | the line was silently omitted from the audit listing | listed as an `(unreadable)` row + a warning; **exit code unchanged** |
 | `ctxloom signer remove` finding nothing in a store whose lines it could not fully read | exit 0, "no entry for X" | non-zero (a fully-parseable store without that principal still exits 0) |
 | `ctxloom signer list` / `remove` where the store exists but cannot be opened | silently treated as absent | reported |
+| A `.sig` record in the approvals store whose bytes will not parse as a signature | read as "no such record" — and on the **reject** path that silently **un-rejects** the item | the fail-closed gate fires: every item is denied, naming the unparseable record, and a strictness finding is recorded; **exit code unchanged** outside strict mode |
+| An `allowed_signers` file that exists but cannot be opened (e.g. EACCES) | silently erased from the trust root, indistinguishable from "the file is not there" | warns, naming the file and that its keys are not trusted this session; the failure rides on the trust root as a failed source; **exit code unchanged** |
 
 **Why:** every one of these reported trust that was not there, or granted trust that a
 real `ssh-keygen` refuses. "Nothing was recorded" and "I could not read what was

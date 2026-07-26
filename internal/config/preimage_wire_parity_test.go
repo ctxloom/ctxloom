@@ -229,7 +229,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 
 // TestPreimageFieldsReachTheWire is halves 1+2: every non-bool signed field
 // must arrive on the wire carrying ITS OWN value.
-func TestPreimageFieldsReachTheWire(t *testing.T) {
+func TestArch_Preimage_SignedFieldsReachTheWire(t *testing.T) {
 	for _, s := range preimageSubjects() {
 		t.Run(s.Name, func(t *testing.T) {
 			filled := reflect.New(s.ItemType).Elem()
@@ -293,7 +293,7 @@ func TestPreimageFieldsReachTheWire(t *testing.T) {
 // Counting trues under a total fill is NOT enough: a converter that writes one
 // source bool into two wire slots while dropping another emits the same number
 // of trues. Only isolation tells those apart.
-func TestPreimageBoolFieldsReachDistinctWireSlots(t *testing.T) {
+func TestArch_Preimage_BoolFieldsReachDistinctWireSlots(t *testing.T) {
 	for _, s := range preimageSubjects() {
 		t.Run(s.Name, func(t *testing.T) {
 			boolKeys := boolSignedKeys(t, s)
@@ -339,7 +339,7 @@ func TestPreimageBoolFieldsReachDistinctWireSlots(t *testing.T) {
 // TestPreimageWireExemptionsAreLive is the companion to the exemption map: an
 // entry that no longer matches a real preimage key is a stale exemption, and a
 // stale exemption silently un-covers whatever field inherits the name.
-func TestPreimageWireExemptionsAreLive(t *testing.T) {
+func TestArch_Preimage_ExemptionsAreLive(t *testing.T) {
 	live := map[string]bool{}
 	for _, s := range preimageSubjects() {
 		filled := reflect.New(s.ItemType).Elem()

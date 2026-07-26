@@ -151,10 +151,13 @@ flowchart LR
   one layer out at `operations/sessions.go:255`; `internal/memory/compactor.go:570` calls
   `mgr.BindSession` **directly on the Manager**, bypassing it. `MemStore.BindSession`
   (`memstore.go:137-144`) has the identical hole.
-- **`SetSummary(harp, "", nil, 0)` succeeds and *erases* a good summary, its detail lines, and its
-  staleness fingerprint** (`index.go:750-752` assigns all three unconditionally; `:730-731`
-  documents "passing nil detail clears it" as intended). The guard is at the call site —
-  `internal/memory/compactor.go:573-576` — not in the writer.
+- ~~**`SetSummary(harp, "", nil, 0)` succeeds and *erases* a good summary, its detail lines, and its
+  staleness fingerprint**; the guard is at the call site, not in the writer.~~ —
+  **RESOLVED `07abd892`** (U099-F20). `SetSummary` (`index.go:742-744`) now refuses an
+  empty summary outright, naming exactly what the write would have erased. The guard
+  moved into the **writer**, which is the point: the call-site guard in
+  `internal/memory` was correct and a second caller reaching the writer directly would
+  not have replicated it.
 - **`Reconcile` is the only entry-returning method that never fills
   `CanonicalTranscriptPath`**, so its `isDead` predicate always sees `""`. A session whose legacy
   engine transcript was deleted but whose ctxloom-captured canonical transcript is present is

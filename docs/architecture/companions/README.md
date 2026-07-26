@@ -76,10 +76,13 @@ shorter to read:
    through.
 
 2. **A guard whose precondition is checked at the call site, not in the writer.**
-   `sessions.SetSummary` erases `Summary`/`Detail`/`SourceSize` unconditionally and the non-empty
-   guard lives in `internal/memory`; `sessions.BindSession` accepts an empty session ID and the
-   guard lives in `internal/operations`. Both are then reachable through a second caller that does
-   not replicate the guard.
+   `sessions.BindSession` accepts an empty session ID and the guard lives in
+   `internal/operations`, reachable through a second caller that does not replicate it.
+   The sibling instance — `sessions.SetSummary` erasing `Summary`/`Detail`/`SourceSize`
+   unconditionally while `internal/memory` held the non-empty guard — is **RESOLVED
+   `07abd892`**: the refusal moved into the writer. The pattern is left described here
+   because `BindSession` still has it, and because the fix is the pattern's answer:
+   move the guard to the writer rather than replicating it at each call site.
 
 3. **Two individually-correct decisions composing into the failure both were written to prevent.**
    The clearest instance is in `transcript`: the `Recorder`'s lazy file open is documented as

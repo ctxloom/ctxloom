@@ -86,7 +86,8 @@ does not just un-pin — it silently **un-retracts** content a publisher withdre
 | Any write that would replace a populated `lock.yaml` with an empty one | written | refused, non-zero, naming how many entries it protected |
 | Any write over an **unparseable** `lock.yaml` | overwritten — every hold and retraction in it lost | refused, non-zero; the file is left intact to fix or delete |
 | A lock rebuild (startup auto-lock) over an unparseable `lock.yaml` | rewrote it with holds and retractions **cleared** | warns and leaves it alone; **exit code unchanged** (a post-sync step never fails the sync) |
-| The trust gate reading an unparseable `lock.yaml` | silently treated nothing as retracted | still treats nothing as retracted — now **warns**; **exit code unchanged** |
+| The trust gate reading an unparseable `lock.yaml` | silently treated nothing as retracted, exit 0 — content a publisher **withdrew** was served again | **withholds remote content** and, on `ctxloom run` / `mcp` / `acp` / `profile materialize`, aborts pre-launch naming the file and the recovery. `review`, `list`, `search` warn and keep working |
+| The trust gate with **no** `lock.yaml` at all | nothing retracted | unchanged — a project with no pins legitimately has nothing retracted |
 | A root profile that fails to load, or an unlistable profiles directory, during a lock/upgrade | silently narrowed the closure | warns naming what dropped out; **exit code unchanged** |
 
 **A genuinely empty project is still success.** An empty write is allowed whenever the
@@ -94,7 +95,19 @@ lockfile is absent, blank, or already empty, and `remote update --cleanup` may s
 its last entry — that erasure is declared, not inferred.
 
 **Recovery from an unparseable `lock.yaml`:** delete it and re-run (`ctxloom remote lock`).
-The refusal exists so you get to decide, not so you get stuck.
+The refusal exists so you get to decide, not so you get stuck. Nothing overwrites the
+broken file, so your holds and retractions are still in it and can be read by hand first.
+The commands that help you diagnose it — `review`, `list`, `search` — keep working; only
+the commands that would *launch an agent on it* refuse.
+
+**Why the read side now refuses too.** "I cannot read the retraction record" is not the
+same statement as "nothing is retracted", and treating it as such re-exposed content a
+publisher had deliberately withdrawn. Retraction exists for *"this turned out to be
+harmful"*, so failing open on it inverts the control. The accepted cost is stated plainly:
+a corrupt `lock.yaml` turns `ctxloom run` into an abort rather than a degraded run.
+`--degraded` (`CTXLOOM_DEGRADED=1`) still launches — it downgrades the fault from fatal to
+a warning — but it does **not** relax the withholding: unreadable trust state is never
+treated as trustworthy.
 
 ### Configuration
 

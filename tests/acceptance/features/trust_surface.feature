@@ -221,3 +221,23 @@ Feature: The trust surface — what "review" actually controls
     And Alice starts a session
     Then her session refuses to start, telling her the approvals store is corrupted
     And the previously-rejected fragment has still not reappeared in her assistant's context
+
+  # GAP D2 — the RETRACTION half of the same posture (U085-F02). The write
+  # side of a corrupt lock.yaml was already refused (it is the only on-disk
+  # record of publisher retractions, so overwriting it un-retracts silently).
+  # The READ side still failed OPEN: EffectiveTrust's retraction lookup
+  # degraded an unparseable lock.yaml to "nothing is retracted", so a bundle
+  # the publisher deliberately WITHDREW was served to the assistant again,
+  # exit 0. "I cannot read the retraction record" is not "nothing is
+  # retracted"; collapsing the two inverts the one control that exists for
+  # "this content turned out to be harmful". Now it withholds, records a
+  # fatal trust finding, and names the recovery. The BOUNDARY that must not
+  # trip — a project with no lock.yaml at all has nothing retracted and keeps
+  # working — is pinned in internal/operations/trust_retraction_readable_test.go.
+  Scenario: An unreadable lockfile withholds remote content, rather than silently un-retracting it
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
+    When Alice starts a session
+    Then the fragment is present in her assistant's delivered surface
+    When her lockfile is corrupted, an unparseable lock.yaml
+    And Alice starts a session
+    Then her session refuses to start, telling her the retraction state cannot be established, and naming how to recover

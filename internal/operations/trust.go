@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
@@ -125,6 +124,24 @@ type readableRecords interface {
 	readable() error
 }
 
+// readableRetraction is the RETRACTION-side twin of readableRecords: the
+// OPTIONAL capability a RetractionRecords implementation may expose, meaning
+// "could retraction state actually be established". EffectiveTrust checks it
+// by type assertion rather than widening the RetractionRecords interface, so
+// the closure-driven test fakes (fakeRetraction) stay two lines long and are
+// simply assumed readable; lockfileRetraction is the sole production
+// implementation.
+//
+// The method name deliberately differs from readableRecords.readable(), so
+// the two capabilities are not structurally identical interfaces that any
+// implementation of one silently satisfies for the other. They are different
+// stores answering different questions, and a type assertion must never
+// confuse them.
+type readableRetraction interface {
+	retractionReadable() error
+	lockfilePath() string
+}
+
 // EffectiveTrustResult reports the decision outcome and which step decided it.
 type EffectiveTrustResult struct {
 	Decision trust.Decision `json:"decision"`
@@ -196,6 +213,7 @@ func (r EffectiveTrustResult) Reason() string {
 // First-match-wins, fail-closed:
 //
 //  1. REJECTED       DENY   a rejection covers this ref, or these exact bytes
+// 2a. UNREADABLE     DENY   retraction state could not be established (remote refs only)
 //  2. RETRACTED      DENY   the publisher withdrew this bundle (locally recorded at sync)
 //  3. LOCAL          ALLOW  authored in this project
 //  4. BUILTIN        ALLOW  compiled into this binary
@@ -220,6 +238,16 @@ func (r EffectiveTrustResult) Reason() string {
 // network probe already ran at sync time, which is the only place with the
 // network in hand (operations.syncItem); EXPOSURE-time evaluation here never
 // dials out.
+//
+// Step 2 FAILS CLOSED (2a). Because the lookup is local, it has a way of
+// coming back with no answer at all — a lock.yaml that exists and will not
+// parse. "I cannot read the retraction record" is not "nothing is retracted",
+// and collapsing the two re-exposes content a publisher deliberately withdrew,
+// which inverts the one control that exists for "this turned out to be
+// harmful". So an unreadable lockfile withholds instead, for exactly the refs
+// that lockfile could have spoken about (remote ones — see retractable). An
+// ABSENT lockfile is not this case and never was: a project with no pins
+// legitimately has nothing retracted.
 //
 // Step 5 is where SIGNATURES enter, and what they buy is authentication, never
 // authorization: it allows because a key trusted for the publish namespace
@@ -293,6 +321,51 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	if records.Rejected(req.Ref, req.Payload) {
 		return decide(trust.Deny, trust.SourceRejected), nil
 	}
+	// 2a. RETRACTION STATE UNREADABLE — the fail-closed arm of step 2
+	//     (U085-F02). A lockfile that exists but cannot be parsed does not
+	//     say "nothing is retracted"; it says nothing at all. Treating that
+	//     silence as "nothing" is failing OPEN on the one control whose whole
+	//     purpose is "this content turned out to be harmful", so a retraction
+	//     that once withdrew a bundle would silently un-withdraw it. Assume
+	//     instead that whatever was retracted STAYS retracted: withhold.
+	//
+	//     SCOPED to refs the lockfile could ever have spoken about. Unlike the
+	//     approvals store — which holds REJECTIONS, and a local fragment can
+	//     be rejected, which is why that gate denies everything — the lockfile
+	//     records only REMOTE bundle entries. A local or builtin ref has no
+	//     lockfile entry by construction, so an unreadable lockfile conceals
+	//     nothing about it; denying it would be withholding on the basis of
+	//     state that provably could not exist, and would break a project whose
+	//     content is entirely first-party. retractable() is the single
+	//     predicate shared with lockfileRetraction.Retracted, so the exemption
+	//     and the gate can never drift apart.
+	//
+	//     BELOW step 1, not above it: rejection is supreme, and a rejected
+	//     item should be reported as "rejected" — the truthful, more specific
+	//     answer the user acts on — rather than as the generic fail-closed
+	//     one. Both deny; only the Source differs. (The approvals gate sits
+	//     ABOVE step 1 because an unreadable approvals store is what makes
+	//     rejection itself unknowable; here rejection is perfectly readable.)
+	//
+	//     SourcePending, matching the corrupt-approvals-store deny and
+	//     trust.SourcePending's own documented role as "the terminal
+	//     fail-closed source (unreadable store or registry...)". Deliberately
+	//     NOT SourceRetracted: nothing here establishes that the publisher
+	//     actually withdrew anything, and SourceRetracted renders as the
+	//     permanent StateRejected — claiming a retraction we cannot read would
+	//     be as dishonest as ignoring one.
+	if rr, ok := retraction.(readableRetraction); ok && retractable(req.Ref) {
+		if err := rr.retractionReadable(); err != nil {
+			// FailOnce, not Fail, for the same reason the approvals gate uses
+			// it: this runs per ITEM, and a whole session's worth of items
+			// hits the same broken file with a byte-identical message.
+			strictness.FailOnce(strictness.ClassTrust,
+				"delete "+rr.lockfilePath()+" and rebuild it (ctxloom remote lock) — the file is left intact, so its holds and retractions can be read by hand first",
+				"cannot establish retraction state: %s is unreadable (%v) — withholding remote content rather than treating a withdrawn bundle as trustworthy",
+				rr.lockfilePath(), err)
+			return decide(trust.Deny, trust.SourcePending), nil
+		}
+	}
 	// 2. RETRACTED. A peer of step 1: the publisher, not a local reviewer,
 	//    withdrew this bundle. Checked just as early so it too beats every
 	//    exemption below (local/builtin never actually carry a retraction
@@ -365,18 +438,49 @@ func decide(d trust.Decision, s trust.Source) *EffectiveTrustResult {
 // repeatedly: a missing lockfile degrades to "nothing retracted" (Load()
 // returns an empty Lockfile rather than an error), never a crash and never a
 // spurious deny.
+//
+// unreadable is the fail-closed arm (U085-F02): non-nil when the lockfile
+// EXISTS but could not be read or parsed, which means retraction state is
+// UNKNOWN rather than empty. See readableRetraction and step 2's gate.
 type lockfileRetraction struct {
-	lock *remote.Lockfile
+	lock       *remote.Lockfile
+	unreadable error
+	// path is the lockfile the failure refers to, carried so the diagnostic
+	// can name the exact file the user has to fix. Nothing the user typed
+	// mentions lock.yaml, so an unnamed file is an undiagnosable abort.
+	path string
+}
+
+// retractionReadable implements readableRetraction: nil when retraction state
+// was established (including the legitimate "no lockfile at all" case),
+// non-nil when it could not be.
+func (l *lockfileRetraction) retractionReadable() error {
+	if l == nil {
+		return nil
+	}
+	return l.unreadable
+}
+
+// lockfilePath reports the file the unreadable error refers to (for the
+// diagnostic); empty when there is nothing to name.
+func (l *lockfileRetraction) lockfilePath() string {
+	if l == nil {
+		return ""
+	}
+	return l.path
 }
 
 // buildLockfileRetraction loads cfg's active lockfile and wraps it as a
-// RetractionRecords. A load failure (corrupt lock.yaml) degrades to an empty
-// lockfile — "nothing recorded as retracted" — rather than failing the whole
-// trust decision closed: the lockfile is a provenance/pin record, not the
-// review-store security boundary that the corrupted-approvals-store path
-// above deliberately fails closed for (a corrupt lockfile is EffectiveTrust's
-// problem only insofar as a retraction it once knew about might now be
-// unreadable, which sync's own next successful run will re-establish).
+// RetractionRecords.
+//
+// A load failure is NOT degraded to an empty lockfile. An ABSENT lockfile is
+// not a failure at all — a project with no pinned dependencies legitimately
+// has nothing retracted, and remote.LockfileManager.Load already turns
+// os.IsNotExist into an empty lockfile with a nil error, so that case never
+// reaches the branch below. What DOES reach it is a lockfile that exists and
+// cannot be read or parsed, and that means retraction state is UNKNOWN, which
+// is not the same statement as "nothing is retracted" — see the gate in
+// EffectiveTrust for why the difference is the whole defect.
 func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords {
 	if cfg == nil {
 		// A nil cfg means there is no project to read a lockfile FROM (every
@@ -395,15 +499,15 @@ func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords 
 	lm := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(getFS(fs)))
 	lockfile, err := lm.Load()
 	if err != nil {
-		// An unreadable lockfile degrades to "nothing is retracted", which
-		// FAILS OPEN: content the publisher withdrew is exposed again. That
-		// must never be silent — the write side of the same corruption is
-		// refused outright (remote.ErrLockfileUnreadable); here the read has
-		// no safe answer to give, so it says so. Whether a corrupt lockfile
-		// should instead withhold everything is a posture decision that has
-		// not been taken.
-		clidiag.WarnOnce("ctxloom", "cannot read %s (%v): retraction state is unknown, so no bundle is treated as retracted — fix or delete the file (ctxloom remote lock)", lm.Path(), err)
-		lockfile = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
+		// FAIL CLOSED. The read has no safe answer to give, so it refuses to
+		// invent one: the empty lockfile substituted here is a placeholder
+		// that the step-2 gate never actually consults, kept only so
+		// Retracted() stays nil-safe for any caller that skips the gate.
+		return &lockfileRetraction{
+			lock:       &remote.Lockfile{Bundles: map[string]remote.LockEntry{}},
+			unreadable: err,
+			path:       lm.Path(),
+		}
 	}
 	return &lockfileRetraction{lock: lockfile}
 }
@@ -420,12 +524,25 @@ func lockfileKeyForRef(ref trust.Ref) string {
 	return ref.RepoURL + "@" + remote.ItemTypeBundle.DirName() + "/" + ref.Bundle
 }
 
+// retractable reports whether the lockfile could ever record a retraction FOR
+// this ref. Retraction is a REMOTE-manifest concept: local and builtin items
+// have no remote lockfile entry (no RepoURL) and are never retracted by
+// construction.
+//
+// This is the ONE predicate defining that scope, deliberately shared by the
+// two places that must agree on it: the Retracted() exemption below, and
+// EffectiveTrust's step-2a unreadable gate. If they ever disagreed, either a
+// retractable ref would slip past the fail-closed gate, or a first-party ref
+// would be withheld over state that could not have existed.
+func retractable(ref trust.Ref) bool {
+	return !ref.IsLocal && !ref.IsBuiltin && ref.RepoURL != ""
+}
+
 // Retracted implements RetractionRecords over the wrapped lockfile snapshot.
 // Local and builtin items never have a remote lockfile entry (no RepoURL) and
-// are never retracted by construction — retraction is a REMOTE-manifest
-// concept.
+// are never retracted by construction — see retractable.
 func (l *lockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
-	if l == nil || l.lock == nil || ref.IsLocal || ref.IsBuiltin || ref.RepoURL == "" {
+	if l == nil || l.lock == nil || !retractable(ref) {
 		return false, ""
 	}
 	entry, ok := l.lock.GetEntry(remote.ItemTypeBundle, lockfileKeyForRef(ref))

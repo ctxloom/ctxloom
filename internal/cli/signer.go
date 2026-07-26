@@ -220,6 +220,15 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 		return err
 	}
 	for _, l := range listings {
+		if l.Unreadable != "" {
+			// Not an entry — a line in this store that could not be read.
+			// Shown rather than omitted so the listing cannot pass a
+			// silently-shortened trust root off as the whole one.
+			if _, err := fmt.Fprintf(w, "%-40s %-10s %s\n", "(unreadable)", l.Source, l.Unreadable); err != nil {
+				return err
+			}
+			continue
+		}
 		principal := "?"
 		if len(l.Entry.Principals) > 0 {
 			principal = strings.Join(l.Entry.Principals, ",")

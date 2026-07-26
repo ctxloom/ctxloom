@@ -2,6 +2,7 @@ package allowedsigners
 
 import (
 	"bufio"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ var (
 	errDuplicateOption = errors.New("duplicate option")
 	errUnquotedValue   = errors.New("option value must be double-quoted")
 	errBadTimestamp    = errors.New("invalid valid-after/valid-before timestamp")
+	errKeyTypeMismatch = errors.New("declared key type does not match the key blob")
 )
 
 // ParseError describes one allowed_signers line that could not be used.
@@ -79,7 +81,7 @@ func Parse(r io.Reader) (*Store, []*ParseError, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, perrs, err
 	}
-	return &Store{entries: entries}, perrs, nil
+	return &Store{entries: entries, parseErrors: perrs}, perrs, nil
 }
 
 // ParseFile is a convenience wrapper around Parse for a path on disk.
@@ -117,6 +119,9 @@ func parseLine(line string, lineNo int) (*Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errNoKey, err)
 	}
+	if declared := declaredKeyType(rest, pubKey); declared != "" && declared != pubKey.Type() {
+		return nil, fmt.Errorf("%w: line declares %q but the blob is %s", errKeyTypeMismatch, declared, pubKey.Type())
+	}
 
 	entry := &Entry{
 		Principals: principals,
@@ -130,6 +135,33 @@ func parseLine(line string, lineNo int) (*Entry, error) {
 		return nil, err
 	}
 	return entry, nil
+}
+
+// declaredKeyType returns the key-type token a line literally declares, or ""
+// when it cannot be located unambiguously.
+//
+// golang.org/x/crypto's parseAuthorizedKey base64-decodes the field after the
+// first space and NEVER reads the type token, so `ssh-rsa <ed25519 blob>` and
+// even `not-a-key-type <ed25519 blob>` both parse there as a perfectly good
+// ed25519 key. Real ssh-keygen calls both "invalid key" and refuses to verify
+// against them — measured against the binary, not inferred. Granting trust
+// from a line ssh-keygen rejects is the one divergence that went the WRONG
+// way: this package's doc promises every divergence yields strictly less
+// trust, never more.
+//
+// The token is located by matching the re-encoded blob rather than by field
+// position, so options (which may be quoted and contain spaces) cannot
+// mislead it. An unlocatable blob (some non-canonical encoding) returns "",
+// which skips the check rather than rejecting a line that may be fine.
+func declaredKeyType(rest string, pub ssh.PublicKey) string {
+	want := base64.StdEncoding.EncodeToString(pub.Marshal())
+	fields := strings.Fields(rest)
+	for i, f := range fields {
+		if f == want && i > 0 {
+			return fields[i-1]
+		}
+	}
+	return ""
 }
 
 func splitPrincipals(field string) ([]string, error) {

@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
@@ -235,6 +237,12 @@ type SignerListing struct {
 	// parallel to a removed user/project entry, which also stays visible in
 	// nothing but git history, never hidden.
 	Suppressed bool
+	// Unreadable, when non-empty, means this row is NOT an entry: it is a
+	// line in Path the parser could not turn into one, carried into the
+	// listing so `signer list` cannot present a silently-shortened store as
+	// the whole truth. Entry is zero for such a row. An audit surface that
+	// omits what it could not read is worse than one that shows a gap.
+	Unreadable string
 }
 
 // ListSigners returns every entry across all three trust-root locations
@@ -285,20 +293,36 @@ func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	return out, nil
 }
 
+// listFromPath reads one on-disk store for the audit listing.
+//
+// It stays TOLERANT — a half-authored store must not blank the listing — but
+// never SILENT: an absent file is genuinely nothing to list, while a file
+// that cannot be opened, cannot be read, or holds lines the parser dropped is
+// a listing that is shorter than the truth, and an audit surface that hides
+// that is worse than one that shows a gap.
 func listFromPath(fs afero.Fs, path, source string) []SignerListing {
 	f, err := fs.Open(path)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil // no store here yet — legitimately nothing to list
+		}
+		clidiag.Warn("ctxloom", "signer list: cannot open %s, its entries are missing from this listing: %v", path, err)
+		return []SignerListing{{Source: source, Path: path, Unreadable: err.Error()}}
 	}
 	defer func() { _ = f.Close() }()
 
 	store, _, err := allowedsigners.Parse(f)
 	if err != nil {
-		return nil
+		clidiag.Warn("ctxloom", "signer list: cannot read %s, its entries are missing from this listing: %v", path, err)
+		return []SignerListing{{Source: source, Path: path, Unreadable: err.Error()}}
 	}
 	var out []SignerListing
 	for _, e := range store.Entries() {
 		out = append(out, SignerListing{Entry: e, Source: source, Path: path})
+	}
+	for _, pe := range store.ParseErrors() {
+		clidiag.Warn("ctxloom", "signer list: %s line %d is not a usable entry and grants no trust: %v", path, pe.Line, pe.Err)
+		out = append(out, SignerListing{Source: source, Path: path, Unreadable: pe.Error()})
 	}
 	return out
 }
@@ -312,7 +336,11 @@ func ShowSigner(cfg *config.Config, identity string, fs afero.Fs) ([]SignerListi
 	}
 	var out []SignerListing
 	for _, l := range all {
-		if l.Entry.MatchesPrincipal(identity) {
+		// An unreadable line cannot be matched against identity, and dropping
+		// it here would make `signer show X` answer "nothing" for a store
+		// that may well hold an entry for X — the same lie `signer list` used
+		// to tell, on the surface an operator reaches for to check ONE key.
+		if l.Unreadable != "" || l.Entry.MatchesPrincipal(identity) {
 			out = append(out, l)
 		}
 	}
@@ -396,7 +424,11 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, error) {
 	f, err := fs.Open(path)
 	if err != nil {
-		return 0, nil // nothing to remove
+		if os.IsNotExist(err) {
+			return 0, nil // no store here — legitimately nothing to remove
+		}
+		// "I could not open the store" is not "the principal is not in it".
+		return 0, fmt.Errorf("open %s: %w", path, err)
 	}
 	lines, err := readLines(f)
 	_ = f.Close()
@@ -418,7 +450,21 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 		}
 	}
 	if removed == 0 {
+		// A dropped line contributes no entry, so the principal LOOKS absent
+		// — and `signer remove` would report "no entry for X", telling an
+		// operator a key is untrusted while a line they cannot see stays in
+		// the file. Nothing removed because the store could not be read in
+		// full is not the same as nothing to remove. (When something WAS
+		// removed the command did its job; the unrelated bad line is only
+		// worth a warning, emitted below.)
+		if perrs := store.ParseErrors(); len(perrs) > 0 {
+			return 0, fmt.Errorf("removed nothing from %s, but %d line(s) there could not be read and may hold this principal — fix them and retry: %w",
+				path, len(perrs), perrs[0])
+		}
 		return 0, nil
+	}
+	for _, pe := range store.ParseErrors() {
+		clidiag.Warn("ctxloom", "signer remove: %s line %d could not be read and was left in place: %v", path, pe.Line, pe.Err)
 	}
 
 	var kept []string

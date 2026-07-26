@@ -273,3 +273,37 @@ func TestParseFile_MissingFileReturnsError(t *testing.T) {
 	_, _, err := ParseFile("/nonexistent/path/does-not-exist/allowed_signers")
 	assert.Error(t, err)
 }
+
+// --- the declared key type must match the key blob --------------------------
+
+// U136-F05. golang.org/x/crypto's parseAuthorizedKey base64-decodes the field
+// after the first space WITHOUT ever reading the type token, so this package
+// granted trust from lines real ssh-keygen calls "invalid key" and refuses to
+// verify against. Measured against the ssh-keygen binary: `ssh-rsa <ed25519
+// blob>` and `not-a-key-type <ed25519 blob>` both fail there.
+//
+// The package doc's central invariant is that any divergence from ssh-keygen
+// yields STRICTLY LESS trust, never more. This was the one case that went the
+// other way.
+func TestParse_DeclaredKeyTypeMustMatchTheBlob(t *testing.T) {
+	blob := strings.Fields(testEd25519Key)[1]
+
+	for _, declared := range []string{"ssh-rsa", "not-a-key-type", "ecdsa-sha2-nistp256"} {
+		line := "ben@abbitt.me " + declared + " " + blob + "\n"
+		store, perrs, err := Parse(strings.NewReader(line))
+		require.NoError(t, err)
+		assert.Empty(t, store.Entries(),
+			"a line declaring %q over an ed25519 blob must grant no trust — real ssh-keygen calls it invalid", declared)
+		assert.Len(t, perrs, 1, "and it must be REPORTED as dropped, not vanish")
+	}
+}
+
+// The matching case must keep working, including with options present.
+func TestParse_DeclaredKeyTypeMatching_StillParses(t *testing.T) {
+	line := `releases@ctxloom.dev namespaces="publish.v1.ctxloom.dev" ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, "ssh-ed25519", store.Entries()[0].KeyType)
+}

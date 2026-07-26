@@ -29,6 +29,15 @@ func isUnrecoverable(e sessions.Entry) bool {
 	if e.Summary != "" || len(e.Detail) > 0 {
 		return false // distilled: essence.md is still viewable
 	}
+	// ctxloom's OWN capture (transcript.jsonl) is a full fallback for a
+	// vendor transcript the vendor has since pruned — the whole point of
+	// capturing runner-side. Missing this check made the reap delete
+	// perfectly recoverable sessions (U087-F05). Manager.Reconcile fills this
+	// computed-on-read field on the entry it judges; without that fill the
+	// check here can never fire, which is why the fix had two halves.
+	if e.CanonicalTranscriptPath != "" {
+		return false
+	}
 	if e.TranscriptPath == "" {
 		return false // pending/unbound: the session is still in progress
 	}
@@ -173,6 +182,9 @@ func GetSession(harp string) (*sessions.Entry, error) {
 }
 
 // RenameSession renames a harp entry; the backend transcript is unaffected.
+// The new name is validated by sessions.Manager.Rename (harp.Validate), not
+// here — U087-F04: a harp name is a filesystem path component, so the refusal
+// belongs where the data is, guarding every caller rather than this one.
 func RenameSession(oldName, newName string) error {
 	mgr, err := openSessions()
 	if err != nil {

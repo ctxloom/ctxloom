@@ -520,3 +520,77 @@ func TestListSigners_UnparseableLine_DoesNotBlankTheListingAndIsCounted(t *testi
 	assert.Contains(t, principals, "keep@example.com", "the readable entries must still be listed")
 	assert.Equal(t, 1, unreadable, "the dropped line must appear in the audit listing, not vanish from it")
 }
+
+// --- U087-F06: an unreadable trust store must not read as an empty one ------
+
+// requireNonRoot skips when the test process can read a 0000 file anyway.
+// Root bypasses DAC permission checks, so an EACCES test silently becomes a
+// no-op there — the same class of blind gate this programme keeps finding.
+func requireNonRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 does not produce EACCES, so this case cannot be exercised")
+	}
+}
+
+// The headline case: `ctxloom signer remove alice` against a store the
+// process CANNOT OPEN used to print "no entry for alice in <path>" and exit
+// 0 — a false statement about the trust root. Absent, unreadable, and
+// never-asked are three different states; a bare `return 0, nil` collapsed
+// the first two.
+func TestRemoveSigner_UnreadableStore_IsAnErrorNotNoEntry(t *testing.T) {
+	requireNonRoot(t)
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, line := testKeyLine(t)
+	path := writeAllowedSignersLines(t, cfg, fs, "alice@example.com "+strings.TrimSpace(line))
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "alice@example.com", Project: true, FS: fs})
+	require.Error(t, err, "an unreadable store must not report a clean no-op")
+	assert.Nil(t, res, "no result may be returned alongside a failure to read the trust root")
+	assert.Contains(t, err.Error(), path, "the error must name the store it could not read")
+}
+
+// `signer list` — the "whom do I trust?" audit surface — must not omit a
+// whole store it could not open. It stays TOLERANT (a hard error would blank
+// the listing, breaking the very enumeration an operator needs to diagnose
+// the problem) but never silent: the store appears as an explicit unreadable
+// row.
+func TestListSigners_UnreadableStore_AppearsAsAnUnreadableRow(t *testing.T) {
+	requireNonRoot(t)
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, line := testKeyLine(t)
+	path := writeAllowedSignersLines(t, cfg, fs, "alice@example.com "+strings.TrimSpace(line))
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	entries, err := ListSigners(cfg, fs)
+	require.NoError(t, err, "listing must survive an unreadable store — a hard error here blanks the audit surface")
+
+	var unreadable []SignerListing
+	for _, e := range entries {
+		if e.Unreadable != "" {
+			unreadable = append(unreadable, e)
+		}
+	}
+	require.Len(t, unreadable, 1, "the unreadable store must appear in the listing, not vanish from it")
+	assert.Equal(t, path, unreadable[0].Path)
+}
+
+// An ABSENT store is genuinely nothing to remove — the third state must stay
+// distinct from the other two, or the fix would just invert the lie.
+func TestRemoveSigner_AbsentStore_StaysAQuietNoop(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "nobody@example.com", Project: true, FS: afero.NewOsFs()})
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.Removed)
+}

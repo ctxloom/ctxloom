@@ -4,6 +4,8 @@ package paths
 import (
 	"os"
 	"path/filepath"
+
+	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
 const (
@@ -179,7 +181,19 @@ func SessionIndexPath() (string, error) {
 
 // HarpDir returns ~/.ctxloom/sessions/<harp>/. Errors when the home dir
 // can't be resolved; callers fall back to the legacy layout in that case.
+//
+// harp is validated here (harp.Validate) because this is the chokepoint every
+// harp-derived path is built from — essence, ephemeral, canonical transcript,
+// and the harp dir itself all layer on this one function. U087-F04: a harp
+// name is a user-renameable string that becomes a single path COMPONENT, so
+// `ctxloom session rename <old> ../..` otherwise reached MkdirAll/Symlink on
+// a traversed path. Validating at each caller would have been seven chances
+// to forget; validating here means no harp-derived path can be built from a
+// name that escapes the sessions root.
 func HarpDir(harp string) (string, error) {
+	if err := harpid.Validate(harp); err != nil {
+		return "", err
+	}
 	root, err := HomeSessionsDir()
 	if err != nil {
 		return "", err

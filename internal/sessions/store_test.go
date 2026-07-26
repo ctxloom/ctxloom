@@ -174,3 +174,42 @@ func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
 		})
 	}
 }
+
+// TestSessionStoreContract_RenameRefusesUnsafeNames holds BOTH adapters to
+// U087-F04's rule. It lives in the contract suite deliberately: MemStore is
+// the fake every other package's tests run against, so a fake that accepts a
+// name the real Manager refuses is exactly how a validation defect stays
+// invisible. Asserted on store state, not error text.
+func TestSessionStoreContract_RenameRefusesUnsafeNames(t *testing.T) {
+	adapters := []struct {
+		name string
+		make func(t *testing.T) Store
+	}{
+		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
+		{"Manager", func(t *testing.T) Store {
+			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			return m
+		}},
+	}
+	for _, a := range adapters {
+		t.Run(a.name, func(t *testing.T) {
+			for _, bad := range []string{"", "..", "../../etc/passwd", "a/b", `a\b`, " lead", "nul\x00name"} {
+				s := a.make(t)
+				e, err := s.AssignHarp("/proj", "claude")
+				if err != nil {
+					t.Fatalf("AssignHarp: %v", err)
+				}
+				if err := s.Rename(e.HarpName, bad); err == nil {
+					t.Errorf("Rename to %q was accepted; want refusal", bad)
+				}
+				got, err := s.Find(e.HarpName)
+				if err != nil || got == nil {
+					t.Errorf("after refused rename to %q: Find(%q) = %v, %v; want the original entry", bad, e.HarpName, got, err)
+				}
+			}
+		})
+	}
+}

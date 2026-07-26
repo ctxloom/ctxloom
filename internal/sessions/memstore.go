@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
@@ -161,10 +162,14 @@ func (m *MemStore) MarkEnded(harpName string, at time.Time) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
-// Rename changes a harp name, erroring if oldName is absent or newName is taken.
+// Rename changes a harp name, erroring if oldName is absent, newName is taken,
+// or newName is not a usable harp identifier. The last check mirrors
+// Manager.Rename exactly (U087-F04): this is the fake every other package's
+// tests run against, and a fake that accepts a name the real store refuses is
+// how a validation defect stays invisible.
 func (m *MemStore) Rename(oldName, newName string) error {
-	if newName == "" {
-		return fmt.Errorf("newName required")
+	if err := harp.Validate(newName); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

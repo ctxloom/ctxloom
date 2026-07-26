@@ -620,11 +620,17 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 }
 
 // Rename changes the harp name of an existing entry to newName, leaving
-// SessionID and other fields intact. Errors if oldName doesn't exist or
-// newName is already in use.
+// SessionID and other fields intact. Errors if oldName doesn't exist, if
+// newName is already in use, or if newName is not a usable harp identifier.
+//
+// The validation lives HERE, where the data is (the same posture as
+// SetSummary's empty-summary refusal), not in operations.RenameSession: the
+// new name becomes an index key that paths.HarpDir turns into a filesystem
+// path, and `ctxloom session rename <old> ../..` was previously a
+// pass-through all the way to MkdirAll/Symlink (U087-F04).
 func (m *Manager) Rename(oldName, newName string) error {
-	if newName == "" {
-		return fmt.Errorf("newName required")
+	if err := harp.Validate(newName); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -704,9 +710,21 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 	}
 	survivors := make([]Entry, 0, len(idx.Sessions))
 	for _, e := range idx.Sessions {
-		if !isDead(e) {
+		// Judge a COPY enriched with the computed-on-read canonical
+		// transcript path (U087-F05). Judging the raw entry made the
+		// recoverability test structurally blind: CanonicalTranscriptPath is
+		// yaml:"-", so it is ALWAYS empty on a freshly loaded entry, and a
+		// session whose vendor transcript had been pruned but whose
+		// ctxloom-captured transcript.jsonl survived was reaped — by a
+		// saveLocked, i.e. irreversibly.
+		judged := e
+		fillCanonicalTranscript(&judged)
+		if !isDead(judged) {
 			survivors = append(survivors, e)
+			continue
 		}
+		// A silent irreversible delete deserves one line of output.
+		clidiag.Warn("ctxloom", "session %s dropped from the index: its transcript is gone and it has no distilled essence", e.HarpName)
 	}
 	if len(survivors) != len(idx.Sessions) {
 		idx.Sessions = survivors
@@ -715,8 +733,8 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 		}
 	}
 	// Fill AFTER the save decision so the located path is computed-on-read
-	// only, never persisted; isDead deliberately judged the RAW entries (an
-	// unbound entry with a located transcript is recoverable either way).
+	// only, never persisted. (The canonical-transcript fill above is on a
+	// throwaway copy for exactly the same reason.)
 	for i := range survivors {
 		fillTranscriptByLocation(&survivors[i])
 	}

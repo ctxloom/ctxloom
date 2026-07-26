@@ -166,3 +166,51 @@ func TestGenerateName_CollisionRate(t *testing.T) {
 func inList(list []string, s string) bool {
 	return slices.Contains(list, s)
 }
+
+// TestValidate_RejectsNamesThatAreNotOnePathComponent pins U087-F04's
+// mechanism: a harp name becomes a filesystem path component (paths.HarpDir),
+// so anything that can escape that component — a separator, "..", a control
+// character — must be refused at the validator, not discovered at MkdirAll.
+func TestValidate_RejectsNamesThatAreNotOnePathComponent(t *testing.T) {
+	bad := []string{
+		"",
+		".",
+		"..",
+		"../..",
+		"../../etc/passwd",
+		"a/b",
+		`a\b`,
+		"C:evil",
+		"has\x00nul",
+		"has\nnewline",
+		"has\ttab",
+		" leading",
+		"trailing ",
+	}
+	for _, name := range bad {
+		if err := Validate(name); err == nil {
+			t.Errorf("Validate(%q) = nil, want error", name)
+		}
+	}
+}
+
+// TestValidate_AcceptsRealAndRenamedHarps guards the other direction: the
+// validator must not break generated harps or the memorable names humans
+// rename them to, which is why it is permissive on charset.
+func TestValidate_AcceptsRealAndRenamedHarps(t *testing.T) {
+	good := []string{
+		GenerateName(),
+		GenerateShortName(),
+		"swift-amber-falcon",
+		"my_session 2",
+		"Fix Login Bug",
+		"réunion-café",
+		"a.b.c",
+		"..hidden-but-not-dotdot",
+	}
+	for _, name := range good {
+		if err := Validate(name); err != nil {
+			t.Errorf("Validate(%q) = %v, want nil", name, err)
+		}
+	}
+}

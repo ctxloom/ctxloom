@@ -275,3 +275,58 @@ func TestImportSkill_RejectsPathTraversalArchive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, loaded.Skills, "a rejected archive must leave the bundle's skills: map untouched")
 }
+
+// writeMalformedSkillZip writes a zip whose top-level directory is topDir and
+// whose SKILL.md has no valid frontmatter, so ParseSkillPackage rejects it
+// AFTER extraction. Returns the archive path.
+func writeMalformedSkillZip(t *testing.T, topDir string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "malformed.zip")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	zw := zip.NewWriter(f)
+	w, err := zw.Create(topDir + "/SKILL.md")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("this is not a skill package\n"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	require.NoError(t, f.Close())
+	return path
+}
+
+// TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact pins U087-F25:
+// ImportSkillArchive computed the destination from the ARCHIVE's own top-level
+// directory name and RemoveAll'd it before anything validated the replacement,
+// so importing a malformed archive over a good skill left the skill gone from
+// disk while bundle.yaml still referenced it. The assertion is on the surviving
+// BYTES, not on the error — a refusal that has already destroyed the thing it
+// refused is the failure mode.
+func TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "dst")
+
+	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "dst", Name: "reviewer", Description: "Reviews Go diffs."})
+	require.NoError(t, err)
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "dst", Name: "reviewer"})
+	require.NoError(t, err)
+
+	good, err := os.ReadFile(filepath.Join(createRes.Dir, "SKILL.md"))
+	require.NoError(t, err)
+
+	_, err = ImportSkill(context.Background(), cfg, ImportSkillRequest{
+		Bundle:      "dst",
+		ArchivePath: writeMalformedSkillZip(t, "reviewer"),
+	})
+	require.Error(t, err, "a malformed archive must be refused")
+
+	still, rerr := os.ReadFile(filepath.Join(createRes.Dir, "SKILL.md"))
+	require.NoError(t, rerr, "the existing skill tree must survive a refused import")
+	assert.Equal(t, good, still, "the existing skill's bytes must be untouched by a refused import")
+
+	// And the bundle's reference must still resolve to a real tree.
+	loaded, lerr := bundleLoader(cfg).Load("dst")
+	require.NoError(t, lerr)
+	entry, ok := loaded.Skills["reviewer"]
+	require.True(t, ok, "bundle.yaml must still reference the surviving skill")
+	assert.Contains(t, entry.Files, "SKILL.md")
+}

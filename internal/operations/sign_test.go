@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"os"
+	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -242,4 +245,66 @@ func TestListLocalBundleNames_AbsentDirIsNotAnError(t *testing.T) {
 	names, err := ListLocalBundleNames(&config.Config{}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, names)
+}
+
+// TestListLocalBundleNames_MatchesTheLoadersEnumeration is U087-F03's gate,
+// and it is deliberately a CROSS-CHECK against the real loader rather than a
+// hand-written expectation: `sign --all` must sign every bundle the rest of
+// ctxloom can load out of the authored dirs, and the only trustworthy
+// statement of "every bundle" is the enumeration bundles.Loader actually
+// performs. A hand-listed expectation would have gone stale the moment the
+// loader learned a new bundle shape; this cannot.
+//
+// The defect it pins: ListLocalBundleNames dropped `e.IsDir()` outright, so
+// every DIRECTORY-form bundle — i.e. exactly the bundles that can ship skills
+// (skills.go requires directory form) — was unsignable via --all, and the
+// command reported success having signed a subset.
+func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	dir := cfg.GetBundleDirs()[0]
+	fs := afero.NewOsFs()
+
+	// File-form bundle.
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "alpha"})
+	require.NoError(t, err)
+	// Directory-form bundle — the shape that can carry skills.
+	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "gamma"), 0o755))
+	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "nested", "delta"), 0o755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "gamma", "bundle.yaml"),
+		[]byte("name: gamma\nversion: 0.1.0\n"), 0o644))
+	// Nested directory-form bundle — the loader walks recursively, so --all
+	// must reach this too.
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "nested", "delta", "bundle.yaml"),
+		[]byte("name: delta\nversion: 0.1.0\n"), 0o644))
+
+	names, err := ListLocalBundleNames(cfg, fs)
+	require.NoError(t, err)
+
+	infos, err := bundles.NewLoader(cfg.GetBundleDirs(), false, bundles.WithFS(fs)).List()
+	require.NoError(t, err)
+	var want []string
+	for _, b := range infos {
+		want = append(want, b.Name)
+	}
+	sort.Strings(want)
+
+	assert.Equal(t, want, names,
+		"sign --all must sign exactly the bundles the loader can load from the authored dirs")
+	assert.Contains(t, names, "gamma", "a directory-form bundle must be signable via --all")
+
+	// Widening the enumeration promotes a previously-theoretical question to
+	// a live one: `sign --all` now HANDS these names to SignBundleFile, so
+	// every name this returns must actually be signable. A list that names
+	// bundles the signer then chokes on would just move the lie.
+	signer := testSigner(t)
+	for _, name := range names {
+		res, serr := SignBundleFile(cfg, SignBundleRequest{
+			Target: SignTarget{BundleName: name},
+			Signer: signer,
+			FS:     fs,
+		})
+		require.NoError(t, serr, "sign --all must be able to sign %q", name)
+		ok, _ := afero.Exists(fs, res.SigPath)
+		assert.True(t, ok, "no signature landed for %q at %s", name, res.SigPath)
+	}
 }

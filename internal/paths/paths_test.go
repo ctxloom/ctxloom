@@ -235,3 +235,47 @@ func TestResolveHarpCanonicalTranscriptPath_BothPresent_PrefersCurrent(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, current, p, "the current name wins when both exist — nothing writes the legacy name post-rename")
 }
+
+// TestHarpDir_RefusesTraversingNames is U087-F04's class gate at the path
+// chokepoint: every harp-derived path (essence, ephemeral, canonical
+// transcript, the harp dir itself) is built from HarpDir, so a name that is
+// not one path component must be refused HERE rather than at each caller's
+// MkdirAll. The assertion is on the RESOLVED PATH, not on the error string:
+// whatever HarpDir returns must still live under the sessions root.
+func TestHarpDir_RefusesTraversingNames(t *testing.T) {
+	testsupport.Isolate(t)
+	root, err := HomeSessionsDir()
+	require.NoError(t, err)
+
+	for _, name := range []string{"..", "../..", "../../etc", "a/b", `a\b`, "", " lead"} {
+		got, err := HarpDir(name)
+		if err == nil {
+			t.Errorf("HarpDir(%q) = %q, nil; want an error", name, got)
+			continue
+		}
+		assert.Empty(t, got, "HarpDir(%q) must not return a path alongside its error", name)
+	}
+
+	// A real harp still resolves, directly under the sessions root.
+	ok, err := HarpDir("swift-amber-falcon")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "swift-amber-falcon"), ok)
+}
+
+// TestHarpDerivedPaths_RefuseTraversingNames extends the gate to every path
+// helper layered on HarpDir — the point of putting validation at the
+// chokepoint is that none of them can be reached with a traversing name.
+func TestHarpDerivedPaths_RefuseTraversingNames(t *testing.T) {
+	testsupport.Isolate(t)
+	helpers := map[string]func(string) (string, error){
+		"HarpDir":                            HarpDir,
+		"HarpEssencePath":                    HarpEssencePath,
+		"HarpEphemeralDir":                   HarpEphemeralDir,
+		"ResolveHarpCanonicalTranscriptPath": ResolveHarpCanonicalTranscriptPath,
+	}
+	for label, fn := range helpers {
+		got, err := fn("../../escape")
+		assert.Error(t, err, "%s must refuse a traversing harp name", label)
+		assert.NotContains(t, got, "escape", "%s leaked a traversed path: %q", label, got)
+	}
+}

@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	fs2 "io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -170,33 +172,67 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 // and builtin bundles are never included, nor is anything in the gitignored
 // cache: this project only has write access to its own authored bundle files.
 // Sorted for deterministic --all output.
+//
+// The enumeration MIRRORS bundles.Loader.List (U087-F03): both bundle shapes,
+// walked recursively, named by slash-joined path relative to the search dir.
+// Listing only top-level `*.yaml` files skipped every DIRECTORY-form bundle —
+// which is exactly the shape that can ship skills (skills.go requires
+// directory form) — so a bundle with skills was unsignable via --all while
+// the command reported success having signed a subset. It is mirrored rather
+// than delegated because the loader's walk deliberately swallows read errors
+// (a corrupt bundle must not blank a listing), whereas this set decides what
+// gets SIGNED: an unreadable authored dir has to stay loud here (U042-F26).
 func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 	fs = getFS(fs)
 	var names []string
 	seen := map[string]bool{}
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
 	for _, dir := range cfg.GetBundleDirs() {
-		entries, err := afero.ReadDir(fs, dir)
-		if err != nil {
-			// U042-F26: an ABSENT dir is legitimately nothing to list; an
-			// unreadable one (wrong permissions, a file where a directory
-			// should be, an I/O error) is a failure to find out, and swallowing
-			// it made a misconfigured GetBundleDirs indistinguishable from an
-			// empty project — `sign --all` then reported "no local bundles to
-			// sign" and exited 0.
+		// U042-F26: an ABSENT dir is legitimately nothing to list; an
+		// unreadable one (wrong permissions, a file where a directory
+		// should be, an I/O error) is a failure to find out, and swallowing
+		// it made a misconfigured GetBundleDirs indistinguishable from an
+		// empty project — `sign --all` then reported "no local bundles to
+		// sign" and exited 0.
+		if _, err := afero.ReadDir(fs, dir); err != nil {
 			if errors.Is(err, fs2.ErrNotExist) {
 				continue
 			}
 			return nil, fmt.Errorf("list local bundles: read %s: %w", dir, err)
 		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-				continue
+		walkErr := afero.Walk(fs, dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return fmt.Errorf("read %s: %w", path, err)
 			}
-			name := strings.TrimSuffix(e.Name(), ".yaml")
-			if !seen[name] {
-				seen[name] = true
-				names = append(names, name)
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				return fmt.Errorf("resolve %s under %s: %w", path, dir, relErr)
 			}
+			rel = filepath.ToSlash(rel)
+			if info.IsDir() {
+				// Directory form: <name>/bundle.yaml, at any depth.
+				if rel == "." {
+					return nil
+				}
+				if ok, _ := afero.Exists(fs, filepath.Join(path, "bundle.yaml")); ok {
+					add(rel)
+				}
+				return nil
+			}
+			// File form: <name>.yaml, at any depth; bundle.yaml is the
+			// directory form's manifest, already counted above.
+			if strings.HasSuffix(info.Name(), ".yaml") && info.Name() != "bundle.yaml" {
+				add(strings.TrimSuffix(rel, ".yaml"))
+			}
+			return nil
+		})
+		if walkErr != nil {
+			return nil, fmt.Errorf("list local bundles: %w", walkErr)
 		}
 	}
 	sort.Strings(names)

@@ -567,32 +567,69 @@ func normalizeExtractedMode(mode int64) os.FileMode {
 // tree on disk. Every rejection is loud (silent-no-op is this codebase's
 // characteristic bug: an import that silently drops files instead of failing
 // would be exactly that).
-func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts ExtractOptions) (string, error) {
+//
+// validate, when non-nil, is run against the STAGING tree — before anything
+// at the destination is touched — and its error aborts the import with the
+// destination untouched. It is a required parameter rather than an option
+// because of U087-F25: the destination is computed from the ARCHIVE's own
+// top-level directory name and then RemoveAll'd, so importing a malformed
+// archive over a good skill used to leave the skill gone from disk while
+// bundle.yaml still referenced it. Callers with genuinely nothing to check
+// pass nil, and do so visibly.
+func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts ExtractOptions, validate func(afero.Fs, string) error) (string, error) {
 	format, err := DetectArchiveFormat(archive)
 	if err != nil {
 		return "", fmt.Errorf("skill import: %w", err)
 	}
 
-	staging := filepath.Join(destParent, ".ctxloom-import-staging")
-	if err := fsys.RemoveAll(staging); err != nil {
+	// stagingRoot holds ONE directory whose name is the archive's top-level
+	// name, because a skill package is identified by its directory's base
+	// name (ParseSkillPackage derives the skill name from it and matches it
+	// against the frontmatter). Validating a tree parked under a
+	// staging-shaped name would fail for the wrong reason and never catch
+	// the real one, so staging reproduces the final NAME as well as the
+	// final contents.
+	stagingRoot := filepath.Join(destParent, ".ctxloom-import-staging")
+	if err := fsys.RemoveAll(stagingRoot); err != nil {
 		return "", fmt.Errorf("skill import: clearing staging directory: %w", err)
 	}
+	extracted := filepath.Join(stagingRoot, "tree")
 
-	topDir, err := HardenedExtract(fsys, archive, format, staging, opts)
+	topDir, err := HardenedExtract(fsys, archive, format, extracted, opts)
 	if err != nil {
-		_ = fsys.RemoveAll(staging)
+		_ = fsys.RemoveAll(stagingRoot)
 		return "", fmt.Errorf("skill import: %w", err)
+	}
+
+	// HardenedExtract STRIPS the top-level directory, so `extracted` holds
+	// what will become destParent/topDir; give it that name in staging.
+	staged := filepath.Join(stagingRoot, topDir)
+	if staged != extracted {
+		if err := fsys.Rename(extracted, staged); err != nil {
+			_ = fsys.RemoveAll(stagingRoot)
+			return "", fmt.Errorf("skill import: naming the staged tree %q: %w", topDir, err)
+		}
+	}
+
+	// Validate in staging: the destination must not be destroyed on behalf of
+	// a replacement that turns out to be unusable (U087-F25).
+	if validate != nil {
+		if err := validate(fsys, staged); err != nil {
+			_ = fsys.RemoveAll(stagingRoot)
+			return "", fmt.Errorf("skill import: %w", err)
+		}
 	}
 
 	final := filepath.Join(destParent, topDir)
 	if err := fsys.RemoveAll(final); err != nil {
-		_ = fsys.RemoveAll(staging)
+		_ = fsys.RemoveAll(stagingRoot)
 		return "", fmt.Errorf("skill import: clearing destination %q: %w", final, err)
 	}
-	if err := fsys.Rename(staging, final); err != nil {
-		_ = fsys.RemoveAll(staging)
+	if err := fsys.Rename(staged, final); err != nil {
+		_ = fsys.RemoveAll(stagingRoot)
 		return "", fmt.Errorf("skill import: moving extracted tree into place: %w", err)
 	}
+	_ = fsys.RemoveAll(stagingRoot)
 	return final, nil
 }
 

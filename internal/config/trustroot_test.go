@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -88,4 +91,72 @@ func TestTrustRoot_MalformedLineSkippedRestStillLoads(t *testing.T) {
 
 	assert.True(t, cfg.TrustRoot().TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
 		"a malformed line is skipped; the valid entries in the same file still load")
+}
+
+// --- U136-F04: an unreadable trust-root location must not vanish ------------
+
+// denyOpenFs fails Open for one path — "permission denied" without chmod, so
+// the test is deterministic and does not skip under root.
+type denyOpenFs struct {
+	afero.Fs
+	deny string
+}
+
+func (f denyOpenFs) Open(name string) (afero.File, error) {
+	if name == f.deny {
+		return nil, errors.New("permission denied")
+	}
+	return f.Fs.Open(name)
+}
+
+// An allowed_signers file that EXISTS but cannot be opened was erased
+// entirely: parseAllowedSigners returned nil, Union skipped nil, and the
+// resulting trust root was byte-identical to one where the file simply did
+// not exist. Every key that file listed silently stopped counting, with no
+// warning and nothing on the Store to ask.
+func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
+	base := afero.NewMemMapFs()
+	path := paths.AllowedSignersPath(".ctxloom")
+	require.NoError(t, afero.WriteFile(base, path, []byte("# whatever\n"), 0o644))
+	fs := denyOpenFs{Fs: base, deny: path}
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+	root := cfg.TrustRoot()
+
+	failed := root.LoadErrors()
+	require.Len(t, failed, 1, "an unreadable allowed_signers location must survive as a failed source")
+	assert.Equal(t, path, failed[0].Path)
+	require.Error(t, failed[0].Err)
+}
+
+// The control: an ABSENT file is the overwhelmingly common case and is not a
+// failure. It must contribute nothing and record nothing — otherwise every
+// fresh install reports a broken trust root.
+func TestTrustRoot_AbsentStore_IsNotALoadError(t *testing.T) {
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: afero.NewMemMapFs()}
+	assert.Empty(t, cfg.TrustRoot().LoadErrors())
+}
+
+// The MIRROR of TestTrustRoot_UnreadableStore_IsRecordedNotErased, on the
+// suppression side — and the direction of the degradation is REVERSED. An
+// unreadable allowed_signers means fewer keys trusted (safe). An unreadable
+// distrusted_signers means fewer SUPPRESSIONS, i.e. an embedded key the
+// operator explicitly removed silently counts again: a human's "no" quietly
+// reversed. It must not be silent.
+func TestSuppressedEmbeddedPrincipals_UnreadableStore_IsLoud(t *testing.T) {
+	base := afero.NewMemMapFs()
+	path := paths.DistrustedSignersPath(".ctxloom")
+	require.NoError(t, afero.WriteFile(base, path, []byte("bundles@ctxloom.dev\n"), 0o644))
+	fs := denyOpenFs{Fs: base, deny: path}
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	cfg.SuppressedEmbeddedPrincipals()
+
+	assert.Contains(t, buf.String(), "distrusted_signers",
+		"an unreadable suppression file re-trusts a key the operator removed; that must be reported")
 }

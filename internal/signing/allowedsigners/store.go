@@ -18,6 +18,9 @@ type Store struct {
 	// then silently revoked a signer nobody revoked, invisibly, on the very
 	// surfaces an operator uses to audit trust. See ParseErrors.
 	parseErrors []*ParseError
+	// sources is the load provenance of every location that fed this store
+	// — see Source.
+	sources []Source
 }
 
 // NewStore builds a Store directly from entries, without parsing text.
@@ -37,18 +40,22 @@ func NewStore(entries ...Entry) *Store {
 // project stores in that order — the order does not affect
 // TrustedForNamespace/TrustedAs (every matching entry is considered), but
 // it does affect which entry's Line is reported first in diagnostics. A
-// nil *Store argument is ignored.
+// nil *Store argument is ignored — nil means "this location was not
+// consulted", and it is NOT the way to report a location that failed: use
+// FailedSource, whose provenance this preserves (U136-F04).
 func Union(stores ...*Store) *Store {
 	var all []Entry
 	var perrs []*ParseError
+	var srcs []Source
 	for _, st := range stores {
 		if st == nil {
 			continue
 		}
 		all = append(all, st.entries...)
 		perrs = append(perrs, st.parseErrors...)
+		srcs = append(srcs, st.sources...)
 	}
-	return &Store{entries: all, parseErrors: perrs}
+	return &Store{entries: all, parseErrors: perrs, sources: srcs}
 }
 
 // Entries returns a copy of every successfully parsed entry, in file
@@ -166,4 +173,79 @@ func keysEqual(a, b ssh.PublicKey) bool {
 		return false
 	}
 	return bytes.Equal(a.Marshal(), b.Marshal())
+}
+
+// Source is one location that was asked to contribute to a Store, and what
+// came back. It exists because the type could not previously express "the
+// trust root failed to load": an unreadable location, an absent one, an
+// empty one and an entirely-garbage one all resolved to the same value, so a
+// caller that wanted to refuse when the root did not actually load had
+// nothing to ask (U136-F04). Union skipping a nil *Store was the erasure —
+// the caller that returned nil on EACCES produced a union indistinguishable
+// from one where that location simply held no keys.
+type Source struct {
+	// Path is the location, as the loader named it.
+	Path string
+	// Loaded is whether the location was read successfully. An ABSENT file
+	// is Loaded — "there is nothing here" is a real answer.
+	Loaded bool
+	// Err is why the location failed, non-nil exactly when Loaded is false.
+	Err error
+	// Count is how many entries this location contributed.
+	Count int
+}
+
+// FailedSource builds a Store that contributes NO entries and records why:
+// the value a loader returns when it could not read a location at all.
+func FailedSource(path string, err error) *Store {
+	return &Store{sources: []Source{{Path: path, Loaded: false, Err: err}}}
+}
+
+// WithSource labels an already-parsed Store with the location it came from,
+// returning a Store that carries that provenance. The receiver is not
+// mutated.
+func (s *Store) WithSource(path string) *Store {
+	if s == nil {
+		return &Store{sources: []Source{{Path: path, Loaded: true}}}
+	}
+	out := &Store{entries: s.entries, parseErrors: s.parseErrors}
+	out.sources = append(append([]Source{}, s.sources...), Source{Path: path, Loaded: true, Count: len(s.entries)})
+	return out
+}
+
+// Len is how many entries this store trusts — without the full copy Entries
+// allocates, and without the caller having to infer "did it load" from it.
+func (s *Store) Len() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.entries)
+}
+
+// Sources returns the provenance of every location that fed this store, in
+// union order.
+func (s *Store) Sources() []Source {
+	if s == nil {
+		return nil
+	}
+	out := make([]Source, len(s.sources))
+	copy(out, s.sources)
+	return out
+}
+
+// LoadErrors returns only the sources that FAILED. A caller presenting this
+// store as "the trust root" while any of these is non-empty is presenting a
+// root that silently lost a location — the same class of lie ParseErrors
+// exists to prevent one line at a time.
+func (s *Store) LoadErrors() []Source {
+	if s == nil {
+		return nil
+	}
+	var out []Source
+	for _, src := range s.sources {
+		if !src.Loaded {
+			out = append(out, src)
+		}
+	}
+	return out
 }

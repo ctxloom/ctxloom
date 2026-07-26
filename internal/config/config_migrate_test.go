@@ -388,3 +388,44 @@ func TestConfigUpgrades_MalformedYAMLUnchanged(t *testing.T) {
 	assert.Empty(t, applied)
 	assert.Equal(t, in, out)
 }
+
+// U049-F06. The collision branch — a hand-authored agents.default already
+// exists, so profiles.defaults cannot be synthesized into it — DELETES the
+// user's default profile list and says nothing. That is an irreversible
+// on-disk loss (the migration rewrites the file), and the next run silently
+// launches with a different profile set than the one the user configured.
+//
+// migrateLLMv3 already does the right thing for its own lossy branch:
+// recordMigrationWarning, surfaced as WarnKindMigrationLossy, fatal in strict
+// mode. This branch is the same class of loss and must be reported the same
+// way.
+func TestConfigUpgrades_V5toV6_CollidingDefaults_IsReportedLossy(t *testing.T) {
+	drainMigrationWarnings() // isolate from any earlier test's residue
+
+	in := "version: 5\nagents:\n  default:\n    profiles: [keep]\nprofiles:\n  defaults:\n    - dev\n    - go\n"
+	root, _ := runConfigUpgrades(in)
+
+	agent := root["agents"].(map[string]any)["default"].(map[string]any)
+	require.Equal(t, []any{"keep"}, agent["profiles"], "precondition: the collision branch ran")
+
+	warnings := drainMigrationWarnings()
+	require.NotEmpty(t, warnings, "dropping the user's profiles.defaults must be recorded as a lossy migration")
+	joined := strings.Join(warnings, "\n")
+	assert.Contains(t, joined, "profiles.defaults")
+	assert.Contains(t, joined, "dev")
+	assert.Contains(t, joined, "go")
+}
+
+// The SYNTHESIZING branch loses nothing — the list is moved, not dropped — so
+// it must stay quiet. A warning on the ordinary path is noise every upgrading
+// user would see.
+func TestConfigUpgrades_V5toV6_SynthesizedDefaults_IsNotLossy(t *testing.T) {
+	drainMigrationWarnings()
+
+	in := "version: 5\nllm:\n  defaults:\n    primary: big\nprofiles:\n  defaults:\n    - dev\n"
+	root, _ := runConfigUpgrades(in)
+	agent := root["agents"].(map[string]any)["default"].(map[string]any)
+	require.Equal(t, []any{"dev"}, agent["profiles"], "precondition: the synthesizing branch ran")
+
+	assert.Empty(t, drainMigrationWarnings(), "a migration that moved the list lost nothing")
+}

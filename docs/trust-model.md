@@ -64,33 +64,51 @@ match wins; it is fail-closed:
 
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes
    (the repo/ref-agnostic content denylist) → **DENY**.
-2. **local** — the item was authored in this project (`ctxloom:local`), any kind
+2. **retracted** — the publisher themselves withdrew this bundle, learned from
+   their remote manifest at the last sync and recorded locally → **DENY**.
+   Retraction is a *peer* of rejection, not a kind of it: a rejection is a
+   human's decision about bytes, a retraction is the publisher's own
+   withdrawal, and it must beat every allow below — including the publisher's
+   own trusted signature, since a publisher has to be able to retract content
+   they signed. The check is a pure local lookup; the network probe already
+   ran at sync time, and exposure-time evaluation never dials out.
+   - **2a. retraction state unreadable** → **DENY**, for exactly the remote
+     refs the record could have spoken about. "I cannot read the retraction
+     record" is not "nothing is retracted", and collapsing the two re-exposes
+     content a publisher deliberately withdrew. An *absent* record is not this
+     case: a project with no pins legitimately has nothing retracted.
+3. **local** — the item was authored in this project (`ctxloom:local`), any kind
    including MCP servers and hooks → **ALLOW**.
-3. **builtin** — the item is shipped inside the binary itself
+4. **builtin** — the item is shipped inside the binary itself
    (`resources/builtin_bundles`, synthetic signer `builtin:ctxloom`) → **ALLOW**.
    Builtins are deliberately **not** signed — signing bytes embedded in the
    binary that verifies them is circular.
-4. **trusted signer** — the item's bundle carries a non-empty verified publisher
+5. **trusted signer** — the item's bundle carries a non-empty verified publisher
    `Signer`: a key trusted for the publish namespace signed exactly these file
    bytes, and the signature verified at load, before any parse → **ALLOW**
    (updates included). This replaces the deleted hash-blind `trust_bundles`
    source bypass. The synthetic `builtin:ctxloom` identity is explicitly
-   excluded here — a builtin is allowed *as a builtin* (step 3), never laundered
+   excluded here — a builtin is allowed *as a builtin* (step 4), never laundered
    into a "trusted publisher".
-5. **approved** — a valid approve countersignature covers exactly these bytes,
+6. **approved** — a valid approve countersignature covers exactly these bytes,
    at this ref, in this form, from a key trusted for the approve namespace
    → **ALLOW**. Any change to the exposed bytes drops the approval to pending.
-6. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
+7. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
    startup notice. This is where unsigned content lands, where signed-but-
    untrusted-key content lands, and where content whose bytes changed lands.
+
+Retraction is a second DENY **reason**, not a fourth item **state**: an item is
+pending, approved, or rejected, and a retracted item renders as rejected —
+withheld permanently, awaiting nothing.
 
 Before step 1 even runs, the resolver checks that both physical approvals
 stores (the personal `~/.ctxloom/approvals` and the committable
 `.ctxloom/approvals`) can actually be read. A store directory that has never
 been created is **fine** — that is the ordinary "nothing reviewed yet" shape
 of a fresh project or a fresh user — but a store that *exists* and cannot be
-listed, or contains a record file that cannot be opened (permission denied, a
-filesystem-level I/O error), is treated as a fault, not as empty: it might be
+listed, contains a record file that cannot be opened (permission denied, a
+filesystem-level I/O error), or contains a `.sig` record whose bytes will not
+parse as a signature at all, is treated as a fault, not as empty: it might be
 hiding a **rejection**, and silently reading it as "nothing rejected" would
 reopen a gate a human closed. On that fault the resolver **denies every item**
 — even one that would otherwise be allowed by the local or builtin exemption —
@@ -101,7 +119,7 @@ approvals store, then re-review (ctxloom review)`.
 
 **A signature authenticates; it never authorizes.** A validly-signed malicious
 fragment is still malicious — signed does *not* mean safe. That is why review
-(steps 1 and 5) is a separate axis and why rejection outranks every signature,
+(steps 1 and 6) is a separate axis and why rejection outranks every signature,
 including ctxloom's own. There is no "signed" item state: `Signer` is an *input*
 to the decision, never a state. An item is pending, approved, or rejected; a
 signed item whose key you do not trust is not a fourth thing — it is pending.
@@ -114,23 +132,43 @@ documented — builtin bundles are routed through the SAME decision function as
 everything else (`trust.Ref{IsBuiltin: true}`, keyed under the synthetic
 identity `builtin:ctxloom` so a builtin item can never collide with a
 project-local bundle of the same name), and step 1's rejection check runs
-before step 3's builtin exemption. A missing countersignature for the exact
-form being exposed does not satisfy step 5 — the exact materialization being
+before step 4's builtin exemption. A missing countersignature for the exact
+form being exposed does not satisfy step 6 — the exact materialization being
 exposed was never reviewed, so it stays pending. Finding a candidate
 countersignature FILE at the right index is never enough on its own: it must
 still cryptographically verify against the reconstructed payload and its
 signer must be trusted for the relevant namespace, or it resolves pending —
-never allow. A malformed `allowed_signers` file, a corrupted countersignature,
-or a deleted countersignature store all degrade toward *fewer* trusted
-decisions — more content unsigned or unreviewed, more review — never toward
-more exposure.
+never allow.
+
+**Degradation is only safe in one direction, and the two directions are not
+symmetric.** For the ALLOW steps (4-6) a malformed `allowed_signers` file, a
+corrupted approve countersignature, or a deleted countersignature store all
+degrade toward *fewer* trusted decisions — more content unsigned or
+unreviewed, more review — never toward more exposure. For the DENY steps (1-2)
+the identical degradation would run the other way: a rejection nobody can read
+is a rejection nobody enforces, so a corrupted *reject* record would silently
+un-reject the item, and for a bundle carrying a verified publisher signature
+that is not "back to pending" but straight to **allow** at step 5.
+
+That inversion is closed, not accepted. `Store.Verified` deliberately has no
+error channel — it answers `("", false)` for an empty store, a corrupt file, a
+malformed armor and an untrusted signer alike, and it must, because from
+inside a single query it cannot tell "no such record" from "the record is
+corrupt": it only ever sees the candidates whose index hash that one query
+reconstructed. The distinction is a whole-store question, so it is answered by
+the readability gate above, which runs before step 1 and **parses every record
+in both stores**. A `.sig` that will not unarmor is a fault there, and the
+resolver denies everything rather than guess which decision it just lost.
+A signature that parses but does not verify is *not* a fault — that is the
+ordinary "not proven" outcome, and treating it as one would deny every session
+carrying a single stale record.
 
 `builtin:ctxloom` is a plain identity string, not a cryptographic signature —
 nothing about a builtin bundle is verified beyond "it shipped inside this
 binary" (trusting the binary trusts what it ships, same as always). It exists
 purely so builtin items are addressable and rejectable through the same
 identity shape the store already uses for local (`ctxloom:local`) and remote
-(canonical repo URL) items. It is explicitly rejected at step 4 so it can never
+(canonical repo URL) items. It is explicitly rejected at step 5 so it can never
 be mistaken for a cryptographically-verified publisher.
 
 ## First-party sources
@@ -143,8 +181,8 @@ rejection — see the decision function above):
   remote ref, so a *copy* of remote content keys as remote and is **not**
   local-trusted. "You wrote it here, you trust it; a clone of it is not yours."
 - **Builtin** — bundles compiled into the binary, keyed to the synthetic
-  `builtin:ctxloom` identity. Allowed by default (step 3) with no review
-  friction — but, unlike local content's step-2 placement, this is a distinct
+  `builtin:ctxloom` identity. Allowed by default (step 4) with no review
+  friction — but, unlike local content's step-3 placement, this is a distinct
   step specifically so a rejection (step 1) can still reach it.
 - **Trusted publisher** — a bundle whose file bytes were signed by a key you
   trust for the publish namespace, verified at load. Updates included: change
@@ -266,7 +304,7 @@ signature body, resolves pending — never allow.
 | `cache/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
 
 The decision function's approval/rejection steps (`operations.EffectiveTrust`
-steps 1 and 5) read through the `ReviewRecords` seam, which takes the exposed
+steps 1 and 6) read through the `ReviewRecords` seam, which takes the exposed
 **bytes**, not a hash — exactly the shape a signature verification needs. The
 countersignature stores are its only implementation; the hash-pair `trust.yaml`
 ledger this seam was built to replace has been deleted outright — pre1 never
@@ -275,7 +313,7 @@ shipped, so there is no migration and no compatibility shim.
 **Composition — reads are the UNION of both stores, with no precedence between
 them.** A signature is a signature no matter which store holds it; precedence
 lives entirely in the decision function's step order (rejection is step 1,
-approval is step 5), so a personal rejection in the user store beats an
+approval is step 6), so a personal rejection in the user store beats an
 inherited approval sitting in the project store, and a personal approval
 likewise cannot override an inherited project-level rejection — rejection wins
 from EITHER store, always.
@@ -363,7 +401,15 @@ Addressed:
   type).
 - **URL-variant / typosquat escape of a rejection** — canonical repo URLs on both
   comparison sides; the content-reject countersignature is repo- and
-  ref-agnostic (signed with the ref omitted).
+  ref-agnostic (signed with the ref omitted). Canonicalization is total over
+  same-repo spellings: scheme case and `http`/`https`, a `www.` prefix on known
+  forges, userinfo, query, fragment, trailing slashes and a `.git` suffix in
+  either order all collapse to one key, because the store address is
+  `CanonicalURL()+"|"+Key()` and any divergence is not a near miss but a store
+  miss.
+- **Corrupted rejection records** — a `.sig` in either approvals store that will
+  not parse trips the readability gate ahead of step 1, and the resolver denies
+  everything. Without that, an unreadable rejection would be an unenforced one.
 - **curl-pipe-sh via tooling declarations** — tooling collection is trust-gated;
   nothing is applied without per-item human countersignature.
 - **Content-form-flip escape** — closed by requiring an independent

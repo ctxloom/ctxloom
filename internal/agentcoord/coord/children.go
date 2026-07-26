@@ -1085,7 +1085,16 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 // an empty mailbox parks the child idle and yields the slot.
 func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	c.bridgeTurnResult(rt)
-	if msg, ok := c.takeNextMail(rt.harp); ok {
+	// A journal failure here is NOT "the mailbox is empty" (U023-F03): parking
+	// the child idle on it strands mail the fold still considers deliverable
+	// and reports the boundary as clean. Fail the child instead — a stalled
+	// child that says so beats one that silently stops consuming its mail.
+	msg, ok, err := c.takeNextMail(rt.harp)
+	if err != nil {
+		c.failChild(rt, err)
+		return
+	}
+	if ok {
 		c.sendTurn(rt, msg.Body)
 		return
 	}
@@ -1132,7 +1141,13 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 	if c.runState(rt.runID) != StateIdle {
 		return
 	}
-	msg, ok := c.takeNextMail(rt.harp)
+	msg, ok, err := c.takeNextMail(rt.harp)
+	if err != nil {
+		// Not a spurious wake — the take FAILED (U023-F03). Returning quietly
+		// would leave the child idle holding undelivered mail forever.
+		c.failChild(rt, err)
+		return
+	}
 	if !ok {
 		return // spurious wake (a recv or boundary drain consumed it)
 	}
@@ -1676,7 +1691,10 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	}
 	c.noteLaunchAttached(harp)
 	c.attachLaunch(rt, launch)
-	if msg, ok := c.takeNextMail(harp); ok {
+	if msg, ok, merr := c.takeNextMail(harp); merr != nil {
+		c.failChild(rt, merr)
+		return
+	} else if ok {
 		c.sendTurn(rt, msg.Body)
 	}
 	c.markAttached(rt) // the engine is up; driveChild below drives its whole lifetime, not just the relaunch

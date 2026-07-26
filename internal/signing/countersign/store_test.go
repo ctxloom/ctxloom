@@ -494,3 +494,57 @@ func TestStore_LatestApprove_AbsentIndex_IsNotAnError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, found)
 }
+
+// --- U137-F03: a record that will not even UNARMOR is not "absent" -----------
+
+// The mirror of TestStore_Readable_FileWithinUnreadable_IsAnError, for
+// content rather than I/O. A .sig file that opens fine but whose bytes are
+// not a parseable armored signature cannot be distinguished from a
+// SUPPRESSED REJECTION: VerifyCountersignature collapses the unarmor failure
+// into (false, ""), Rejected() then answers "not rejected", and the item is
+// re-exposed. Readable() is the only place that can tell the difference,
+// because it is the only pass that sees every file in the store rather than
+// the ones whose index hash a particular query happens to reconstruct.
+func TestStore_Readable_UnparseableSignature_IsAnError(t *testing.T) {
+	signer, _ := testSigner(t)
+	dir := t.TempDir()
+	fs := afero.NewOsFs()
+	s := NewStore(dir, fs)
+	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+
+	matches, err := afero.Glob(fs, filepath.Join(dir, "*.sig"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	require.NoError(t, afero.WriteFile(fs, matches[0], []byte("not an armored signature at all\n"), 0o644))
+
+	rerr := s.Readable()
+	require.Error(t, rerr, "a .sig this store cannot parse must not read as 'nothing recorded'")
+	assert.Contains(t, rerr.Error(), "unparseable")
+}
+
+// A well-formed signature that simply does not VERIFY (wrong key, wrong
+// bytes) is NOT a Readable() error — that is the normal "not proven"
+// outcome the store is designed around, and turning it into a hard error
+// would deny every session that carries one stale record.
+func TestStore_Readable_UnverifiableButParseableSignature_IsNotAnError(t *testing.T) {
+	signer, _ := testSigner(t)
+	dir := t.TempDir()
+	fs := afero.NewOsFs()
+	s := NewStore(dir, fs)
+	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+
+	assert.NoError(t, s.Readable())
+}
+
+// Non-record files (the display-only index.yaml, an editor's leftovers) are
+// not signatures and must not be parsed as such.
+func TestStore_Readable_NonSignatureFiles_AreIgnored(t *testing.T) {
+	dir := t.TempDir()
+	fs := afero.NewOsFs()
+	s := NewStore(dir, fs)
+
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "index.yaml"), []byte("[]\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "notes.txt"), []byte("hi\n"), 0o644))
+
+	assert.NoError(t, s.Readable())
+}

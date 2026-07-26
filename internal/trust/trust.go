@@ -229,13 +229,27 @@ var knownCaseFoldForges = map[string]bool{
 }
 
 // CanonicalRepoURL canonicalizes a repository URL so that variant spellings of
-// the same repo collapse to one key — otherwise a blacklist keyed on one
-// spelling could be escaped by fetching the same repo under another. It builds
-// on remote.NormalizeURL (unifies scheme, rewrites git@ → https, strips a
-// trailing .git for http(s)) and then, for http(s) URLs, lowercases the host
-// (DNS is case-insensitive) and — for known case-insensitive forges — the
-// owner/repo path, and trims a trailing slash. Empty input, the ctxloom:local
-// token, and the ctxloom:companion token pass through unchanged.
+// the same repo collapse to one key — otherwise a rejection keyed on one
+// spelling could be escaped by fetching the same repo under another. This is
+// the ENTIRE defense against that escape: the countersignature store's address
+// is CanonicalURL()+"|"+Key(), so any divergence between two spellings is not
+// a near miss, it is a store miss — and for a bundle with a verified publisher
+// signature the escape is not "rejected → pending" but "rejected → ALLOW" at
+// step 5. docs/trust-model.md lists "URL-variant / typosquat escape of a
+// rejection" as an addressed threat; this function is where that claim is
+// either true or false.
+//
+// It builds on remote.NormalizeURL (unifies scheme, rewrites git@ → https,
+// strips a trailing .git for http(s)) and then, for http(s) URLs: normalizes
+// http → https, lowercases the host, folds a www. prefix off known forges,
+// drops userinfo/query/fragment, trims trailing slashes and a .git suffix in
+// that order, and lowercases the owner/repo path on known case-insensitive
+// forges. Empty input, the ctxloom:local token, and the ctxloom:companion
+// token pass through unchanged.
+//
+// Anything ADDED here must be a spelling of the same repository, never a
+// different one: folding two distinct repos onto one key would let a rejection
+// of one silently block — or an approval of one silently allow — the other.
 func CanonicalRepoURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -256,17 +270,57 @@ func CanonicalRepoURL(raw string) string {
 
 	normalized := remote.NormalizeURL(raw)
 
-	// Only http(s) URLs get host/path case folding; other transports (file://,
-	// ssh://, git://) keep their path verbatim, where case may be significant.
-	if !strings.HasPrefix(normalized, "http://") && !strings.HasPrefix(normalized, "https://") {
-		return normalized
-	}
-
+	// PARSE FIRST, then branch on the parsed scheme (U150-F01). The old order
+	// was a HasPrefix check on the raw string, which is case-SENSITIVE: an
+	// uppercase "HTTPS://github.com/acme/repo" skipped host folding, path
+	// folding and slash trimming altogether — every one of them — even though
+	// url.Parse lowercases the scheme for free. Deciding on the parsed value
+	// removes a whole class of "the guard did not recognize its own input".
 	u, err := url.Parse(normalized)
 	if err != nil {
 		return normalized
 	}
+
+	// Only http(s) URLs get host/path folding; other transports (file://,
+	// ssh://, git://) keep their path verbatim, where case may be significant.
+	switch u.Scheme {
+	case "http":
+		// A rejection recorded over https must not be escaped by refetching
+		// the same repo over http. The transport is not part of the repo's
+		// identity, and no forge serves different content on the two.
+		u.Scheme = "https"
+	case "https":
+	default:
+		return normalized
+	}
+
 	u.Host = strings.ToLower(u.Host)
+	// www.github.com and github.com are one repo. knownCaseFoldForges already
+	// listed "www.github.com", which proves the variant was considered — but
+	// nothing ever rewrote the host, so the entry only ever lowercased the
+	// path of a URL that still compared unequal to its bare-host twin
+	// (U150-F13). Folding the prefix off is what makes the entry mean
+	// something.
+	if strings.HasPrefix(u.Host, "www.") && knownCaseFoldForges[strings.TrimPrefix(u.Host, "www.")] {
+		u.Host = strings.TrimPrefix(u.Host, "www.")
+	}
+
+	// Credentials, query and fragment address a REQUEST, never a repository.
+	// Leaving them in made "…/repo?ref=x" a different trust key from "…/repo".
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	u.RawFragment = ""
+
+	// Trim trailing slashes BEFORE stripping .git, and strip .git HERE rather
+	// than relying on remote.NormalizeURL. NormalizeURL's TrimSuffix(".git")
+	// runs before this function ever sees the string, so "…/repo.git/" kept
+	// its ".git" — connascence of order across two packages, where neither
+	// side is wrong on its own. Doing both, in this order, in one place makes
+	// the function total over the suffix spellings.
+	u.Path = strings.TrimRight(u.Path, "/")
+	u.Path = strings.TrimSuffix(u.Path, ".git")
 	u.Path = strings.TrimRight(u.Path, "/")
 	if knownCaseFoldForges[u.Host] {
 		u.Path = strings.ToLower(u.Path)

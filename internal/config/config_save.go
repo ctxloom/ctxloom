@@ -156,7 +156,21 @@ func (c *Config) Marshal() ([]byte, error) {
 
 // readExistingConfig loads the current config file into a generic map so that
 // unknown fields are preserved across a Save. A missing file yields an empty
-// map; a corrupt one warns and continues (fault tolerance — don't block).
+// map — that is the normal first-write shape.
+//
+// A file that will not PARSE is refused (U049-F04). The old behaviour warned
+// and returned an empty map, and saveLocked then atomically replaced the file
+// with only the sections applyConfigSections emits: every key ctxloom does
+// not model, and every key it does model but this in-memory Config happens
+// not to carry, was destroyed by a command the user ran for an unrelated
+// reason (`ctxloom agent add`, `mcp add`, anything through Manager.Update).
+// The warning even said so — "unknown fields may be lost" — while proceeding
+// to lose them.
+//
+// "I could not read what is there" is not "there is nothing there", and it is
+// not a licence to overwrite it. A corrupt config is a reason to stop: the
+// user still has their file and can fix the one line that broke it, which is
+// impossible once we have rewritten it.
 func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{}, error) {
 	existingData, err := afero.ReadFile(fs, configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -165,7 +179,7 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
 		if err := yaml.Unmarshal(existingData, &existing); err != nil {
-			clidiag.Warn("ctxloom", "existing config may be corrupted, unknown fields may be lost: %v", err)
+			return nil, fmt.Errorf("refusing to write over %s: it does not parse as YAML, and saving would replace it with a truncated file — fix or move it first: %w", configPath, err)
 		}
 	}
 	return existing, nil

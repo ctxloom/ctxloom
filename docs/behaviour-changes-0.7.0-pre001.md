@@ -106,6 +106,10 @@ normal first-run shape and still writes cleanly.
 | `ctxloom signer list` / `show` over a store with an unreadable line | the line was silently omitted from the audit listing | listed as an `(unreadable)` row + a warning; **exit code unchanged** |
 | `ctxloom signer remove` finding nothing in a store whose lines it could not fully read | exit 0, "no entry for X" | non-zero (a fully-parseable store without that principal still exits 0) |
 | `ctxloom signer list` / `remove` where the store exists but cannot be opened | silently treated as absent | reported |
+| A `.sig` record in the approvals store whose bytes will not parse as a signature | read as "no such record" — and on the **reject** path that silently **un-rejects** the item | the fail-closed gate fires: every item is denied, naming the unparseable record, and a strictness finding is recorded; **exit code unchanged** outside strict mode |
+| An `allowed_signers` file that exists but cannot be opened (e.g. EACCES) | silently erased from the trust root, indistinguishable from "the file is not there" | warns, naming the file and that its keys are not trusted this session; the failure rides on the trust root as a failed source; **exit code unchanged** |
+| A `distrusted_signers` file that exists but cannot be opened | silently ignored — every signer suppressed there was **trusted again**, with no notice | warns, naming the file and that its suppressions are not in effect this session; **exit code unchanged** |
+| Re-fetching a **rejected** bundle under a respelled remote URL (`…/repo.git/`, `HTTPS://…`, `www.github.com/…`, `http://…`, `…?ref=x`, `…#frag`, `user@…`) | the rejection was **escaped** — a store miss reads as "not rejected", and a bundle with a verified publisher signature went straight to **allow** | all of these collapse to one trust key, so the rejection holds |
 
 **Why:** every one of these reported trust that was not there, or granted trust that a
 real `ssh-keygen` refuses. "Nothing was recorded" and "I could not read what was
@@ -154,6 +158,8 @@ treated as trustworthy.
 | A `config.yaml` that exists but defines no keys | silent | warning naming the path; exit unchanged |
 | An unparseable codex `config.toml` | degraded to an empty table which callers wrote back, **replacing every user key** | non-zero |
 | `exclude_mcp` against a builtin or companion MCP server | silently ineffective | works |
+| Any write over an **unparseable** `config.yaml` (`ctxloom agent add`, `mcp add`, anything through `Manager.Update`) | exit 0 — the file was **replaced** with only the sections the in-memory config could emit, destroying every key it did not carry, after warning "unknown fields may be lost" | refused, non-zero, naming the file; the file is left exactly as written so the broken line can still be fixed |
+| The v5→v6 upgrade of a config that has **both** `profiles.defaults` and a hand-authored `agents.default` | the profile list was deleted from disk with no notice — the next run launched with a different profile set | recorded as a lossy migration naming the dropped profiles and where to re-add them; **fatal in strict mode**, warning otherwise |
 
 `CTXLOOM_CONFIG_AGENT_TURN_CAP=1` was the worst of these: it arrived as `true` and took
 the whole config layer down with it.
@@ -200,6 +206,12 @@ in scoped and global listings alike — they are never hidden.
 | `ctxloom run --print`, `map`, `weave`, a delegated turn or `acp client` where the engine exits 0 with **no output** | exit 0, empty report / empty `Part.Output` / empty assistant turn | non-zero, carrying the engine's stderr (in a fan this is one member's error `Part`, not the whole call) |
 | A `map`/`weave` member (or delegated child) whose **named profiles** assemble to nothing | ran context-free, produced plausible output | non-zero — a run naming no profile is still legitimately context-free |
 | `ctxloom manage hooks uninstall --backend <typo>` | `Status: "removed"` listing the typo, nothing removed | non-zero, naming the supported backends |
+
+### Agent coordination (additional)
+
+| Surface | Before | Now |
+|---|---|---|
+| A child relaunch, turn boundary, or wake whose mail-consume fails to journal | read as "no mail": the child was driven with **no prompt** / parked idle holding undelivered mail, and the message became permanently invisible (its reservation was never released) | the reservation is released so the message stays queued, and the child is failed with the journal error rather than driven promptless |
 
 ### Build and generator gates (contributors)
 

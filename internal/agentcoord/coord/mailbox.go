@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -169,12 +170,18 @@ func (c *Coordinator) pendingCount(role string) int {
 // drives is consumed at take (there is no recv to ack it); the crash window
 // between take and the engine seeing the turn is accepted and documented —
 // the recv path is where the at-least-once guarantee lives.
-func (c *Coordinator) takeNextMail(role string) (Message, bool) {
+//
+// The error return is load-bearing (U023-F03). "No mail" and "the take
+// FAILED" are different facts and every caller acts on them differently: a
+// caller that reads a failure as an empty mailbox drives a child with no
+// prompt, or parks it idle holding mail the fold still calls deliverable.
+// Callers must never treat an error as false.
+func (c *Coordinator) takeNextMail(role string) (Message, bool, error) {
 	c.mu.Lock()
 	deliverable := c.undeliveredLocked(role)
 	if len(deliverable) == 0 {
 		c.mu.Unlock()
-		return Message{}, false
+		return Message{}, false, nil
 	}
 	msg := deliverable[0]
 	// Reserve under the lock so a racing poll delivery cannot double-take.
@@ -184,10 +191,17 @@ func (c *Coordinator) takeNextMail(role string) (Message, bool) {
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailConsumed, c.now(), mailConsumed{Role: role, MessageIDs: []string{msg.ID}})}, nil
 	}); err != nil {
-		return Message{}, false
+		// RELEASE THE RESERVATION (U023-F03). The id was reserved above so a
+		// racing poll delivery could not double-take it; if the consume never
+		// journaled, nothing consumed it, and leaving it reserved makes the
+		// message permanently INVISIBLE — undeliveredLocked filters reserved
+		// ids out and nothing else ever clears this one (severChan un-reserves
+		// only ch.pushed, ackDelivered only ids it copied).
+		c.unreserve(role, []string{msg.ID})
+		return Message{}, false, fmt.Errorf("mailbox: journaling the consume of message %s for %s failed, the message is left queued: %w", msg.ID, role, err)
 	}
 	c.unreserve(role, []string{msg.ID})
-	return msg, true
+	return msg, true, nil
 }
 
 // unreserve drops ids from the runtime delivery ledger (they are consumed in

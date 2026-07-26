@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	_ "embed"
+	"os"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -54,6 +55,13 @@ func EmbeddedSigners() *allowedsigners.Store {
 // degradations moves toward LESS exposure, never more: fewer trusted keys means
 // more content is unsigned, and unsigned content is withheld until a human
 // reviews it (spec §10.5).
+//
+// "Never fails" is not "never lost anything", and the returned Store now says
+// which: a location that existed but could not be read rides on the union as a
+// failed Source (Store.LoadErrors), so a caller that must not present a
+// silently-shortened root has something to ask. Degrading toward fewer keys is
+// safe; degrading toward fewer keys INVISIBLY is how a revoked-looking signer
+// gets diagnosed as a publishing bug.
 func (c *Config) TrustRoot() *allowedsigners.Store {
 	fs := c.fs
 	if fs == nil {
@@ -151,14 +159,23 @@ func (c *Config) distrustedSignersPaths() []string {
 }
 
 // readPrincipalLines parses one distrusted_signers file: one principal per
-// non-empty, non-`#`-comment line. An absent or unreadable file simply
-// contributes nothing (mirrors parseAllowedSigners' degrade-toward-fewer-keys
-// default — here, degrading toward FEWER suppressions, i.e. MORE embedded
-// keys trusted, which is the pre-A2 status quo, never a new exposure this
-// mechanism itself introduces).
+// non-empty, non-`#`-comment line. An ABSENT file contributes nothing, which
+// is the overwhelmingly common shape (nobody has suppressed anything).
+//
+// A file that EXISTS but cannot be read is the mirror of
+// parseAllowedSigners' case with the DIRECTION REVERSED, and the old doc here
+// had it backwards: fewer suppressions means MORE embedded keys trusted, so
+// an unreadable file silently re-trusts a key the operator explicitly removed
+// — a human's "no" quietly reversed, which is the same shape as U137-F03 on
+// the reject path. It stays non-fatal (failing closed here would suppress
+// every embedded principal, i.e. withhold all first-party content over a
+// permissions problem), but it must never be silent.
 func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 	f, err := fs.Open(path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			clidiag.Warn("ctxloom", "distrusted_signers %s exists but cannot be read; any signer suppressed there is trusted again this session: %v", path, err)
+		}
 		return nil
 	}
 	defer func() { _ = f.Close() }()
@@ -197,20 +214,32 @@ func (c *Config) allowedSignersPaths() []string {
 // that neither store exists. A malformed LINE is skipped with a warning while
 // the file's valid entries still load, matching ssh-keygen's own behavior: one
 // bad line must not silently disarm every other key in the file.
+//
+// A file that EXISTS but cannot be read is neither of those, and it used to
+// be erased: this returned nil, Union skipped nil, and the resulting trust
+// root was byte-identical to one where the file did not exist. Every key that
+// file listed silently stopped counting, with no warning on the way out and
+// nothing on the Store to ask afterwards (U136-F04). It now warns and returns
+// a FailedSource, so the failure rides on the union as provenance for any
+// caller that needs to refuse rather than guess.
 func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.Store {
 	f, err := fs.Open(path)
 	if err != nil {
-		return nil // absent (or unreadable): no keys from here
+		if os.IsNotExist(err) {
+			return nil // absent: no keys from here, and that is a real answer
+		}
+		clidiag.Warn("ctxloom", "allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", path, err)
+		return allowedsigners.FailedSource(path, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	store, parseErrs, err := allowedsigners.Parse(f)
 	if err != nil {
 		clidiag.Warn("ctxloom", "allowed_signers %s unreadable, ignoring it: %v", path, err)
-		return nil
+		return allowedsigners.FailedSource(path, err)
 	}
 	for _, pe := range parseErrs {
 		clidiag.Warn("ctxloom", "allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
 	}
-	return store
+	return store.WithSource(path)
 }

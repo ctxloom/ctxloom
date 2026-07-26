@@ -45,6 +45,23 @@ func TestCanonicalRepoURL_VariantsCollapse(t *testing.T) {
 		"git@github.com:acme/repo",
 		"git@github.com:Acme/Repo.git",
 		"acme/repo",
+
+		// U150-F01. Each of these escaped a sticky ref-level rejection by
+		// respelling the remote URL — and for a bundle carrying a verified
+		// publisher signature the escape is not "rejected -> pending" but
+		// "rejected -> ALLOW" at step 5, because the store address is
+		// CanonicalURL()+"|"+Key() and any divergence is simply a store miss.
+		// docs/trust-model.md lists "URL-variant / typosquat escape of a
+		// rejection" as an ADDRESSED threat.
+		"https://github.com/acme/repo.git/",   // NormalizeURL strips .git BEFORE the trailing slash is trimmed
+		"git@github.com:acme/repo.git/",       // same, via the git@ rewrite
+		"HTTPS://github.com/acme/repo",        // the http(s) guard was case-SENSITIVE, so this skipped folding entirely
+		"https://www.github.com/acme/repo",    // www. was in knownCaseFoldForges but never folded off
+		"http://github.com/acme/repo",         // scheme downgrade
+		"https://user@github.com/acme/repo",   // userinfo
+		"https://github.com/acme/repo?ref=x",  // query
+		"https://github.com/acme/repo#readme", // fragment
+		"https://github.com/acme/repo//",      // repeated trailing slashes
 	}
 	want := CanonicalRepoURL(variants[0])
 	for _, v := range variants {

@@ -77,6 +77,18 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	if start == nil {
 		return nil, errors.New("owner run: a runner starter is required")
 	}
+	// U023-F17: a ONE-SHOT run gets exactly one turn and this prompt is it, so
+	// an empty one can only be a delivery failure upstream — and it used to
+	// sail through: issueStartRun builds Input only `if first != ""`, so the
+	// StartRun went out with a nil Input, round-tripped, and this returned a
+	// populated RunOutcome and nil. A top-level container run with zero
+	// payload and every signal green. A STRUCTURED run is different: it
+	// legitimately opens with no lead and takes its turns via
+	// SendOwnedRunTurn, so it is not refused here.
+	if spec.Oneshot && prompt == "" {
+		return nil, errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
+			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
+	}
 	// Structured/oneshot over Transport 2 IS the reach-back — a run that could
 	// never dial home has no transport at all, so an unresolvable endpoint is
 	// fatal here (never a silent degrade, unlike a delegated child which can

@@ -60,9 +60,19 @@ the fix.
 | `profile import` where the destination cannot be statted | overwrote it without `--force` | non-zero |
 | `profile export` of such a profile | exit 0, "exported", 0 bytes shipped | non-zero |
 | A pinned remote bundle whose content is empty | vanished silently from assembly | strictness finding |
+| A skill with **no `files:` manifest** (never `ctxloom skill sync`-ed) | every such skill hashed to one **constant** trust preimage, so an approval bound no content and any later replacement was delivered unreviewed | the preimage is derived from the skill's real source tree; changing any file re-triggers review |
+| The install-time tamper check (`VerifyExtractedManifest`) on such a skill | **skipped entirely** — the same condition that emptied the preimage also disabled the check | runs on every skill, synced or not |
+| A skill whose source tree is missing, unparseable, or escapes the bundle directory | resolved anyway under the constant hash | withheld, naming the reason |
 
 **Version-only bundle skeletons remain publishable.** Only a document declaring nothing
 at all is refused.
+
+**Manifest-less skills become pending again — once.** Their previously recorded approvals
+covered a constant, not your content, so they cannot be carried over: re-approving is what
+binds the approval to real bytes for the first time. `ctxloom review` shows the full
+per-file listing when you do. A skill that had already been through `ctxloom skill sync`
+is **unaffected** — its preimage is byte-for-byte what it always was, and its approval
+stands. Run `ctxloom skill sync <bundle>` to move a skill to an authored manifest for good.
 
 ### Dependencies and the lockfile
 
@@ -171,6 +181,11 @@ in scoped and global listings alike — they are never hidden.
 
 - Legitimately empty results still succeed.
 - Version-only bundle skeletons still publish.
+- A skill that has been through `ctxloom skill sync` hashes exactly as before, and its
+  existing approval stands — the preimage change reaches manifest-less skills only.
+- Authoring a skill without syncing it is still supported. `ctxloom skill create` leaves
+  no manifest and that remains a legitimate shape; it is now bound to its content rather
+  than refused.
 - Labels-only profiles still save.
 - `taskloom manage uninstall` with nothing to remove still exits 0.
 - Mixed-content chat messages record exactly as before.

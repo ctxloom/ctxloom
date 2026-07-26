@@ -223,6 +223,26 @@ in scoped and global listings alike — they are never hidden.
 | `extract-defaults` / `just defaults` | exit 0 with a rule-free document | exit 1 below a floor of 8 rules |
 | `ctxloom weave` | exit 0 when parts resolved to zero, the task was empty with members, stdin failed, or there was no output | non-zero in all four |
 
+### Agent delegation and remote retraction
+
+| Surface | Before | Now |
+|---|---|---|
+| A top-level container **one-shot** run (`ctxloom run --print` on `runtime: container`) with an empty composed prompt | exit 0, run launched, **zero payload delivered** | refused before the runner starts, naming the empty first turn (U023-F17) |
+| A delegated child whose `StartRun` would carry no first turn — no composed prompt, no resume session id, no queued mail | attached and sat idle in `executing`, having been told nothing | the run fails terminal with the reason (U023-F17) |
+| A child that starts and exits repeatedly **without consuming its mail** | relaunched forever at zero backoff | bounded by the same budget a failing launch gets, with backoff, then a loud give-up to the parent's mailbox (U023-F02) |
+| Retry-budget exhaustion for a cause other than `launch_failed` | silent; the child's mail stayed queued and nobody was told | the parent's mailbox and stderr both learn (U023-F02) |
+| `ctxloom remote pull` where the remote's `manifest.yaml` exists but does not parse | treated as **not retracted**, pull proceeded | non-zero: the retraction status is UNKNOWN and the pull stops, `--force` included (U150-F04) |
+| A profile using `deny_tools` | `ctxloom run` aborted in strict mode; degraded mode printed "it is IGNORED", which was false | accepted, as the loader always honoured it (U049-F01) |
+
+Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
+
+- `agent_report` from a **resumed** child is no longer discarded. The dedupe
+  watermark was keyed by harp while the sequence number restarts per run, so under
+  one-shot driving essentially every report after turn 1 was dropped before it
+  reached the log (U023-F24).
+- The `ui:` config section (`prefix_key`, `surround`) is now actually written by
+  `Save()`/`Marshal()`. It had been accepted and silently discarded (U049-F03).
+
 ---
 
 ## Upgrading
@@ -259,3 +279,10 @@ in scoped and global listings alike — they are never hidden.
 - An opencode session that genuinely recorded nothing still exports and exits 0.
 - A project with genuinely nothing pinned still locks and upgrades to an empty
   `lock.yaml` and exits 0; `remote update --cleanup` may still prune its last entry.
+- A **structured** container run still opens with no lead: it takes its turns via
+  follow-up sends, so an empty first prompt there is legitimate. Only the one-shot
+  arm, which gets exactly one turn, is refused.
+- A remote that publishes **no** `manifest.yaml` is still legitimately "not retracted".
+  Only a manifest that exists and will not parse is an error.
+- A relaunch budget resets whenever the child actually **consumes** mail, so a
+  long-lived child taking one turn per run is never throttled by it.

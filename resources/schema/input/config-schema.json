@@ -237,6 +237,15 @@
               "minLength": 1
             },
             "uniqueItems": true
+          },
+          "deny_tools": {
+            "type": "array",
+            "description": "Per-engine tool identifiers this profile denies at launch (e.g. \"Task\" for Claude Code's built-in sub-agent tool). Accumulates through profile inheritance like exclude_mcp — a child cannot un-deny what a parent denied. Currently reaches the claude-code backend only; other backends ignore it.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
           }
             },
             "additionalProperties": false

@@ -658,12 +658,50 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 // ctx is the launch context: cancelling it (agent_stop) aborts the
 // dial-home wait instead of holding the harp for the full
 // c.runnerAwaitTimeout.
+// startRunPayloadErr refuses a StartRun that would carry no work at all
+// (U023-F17). issueStartRun builds Input only `if first != ""`, so an empty
+// lead used to go out as a StartRun with a NIL Input: it round-trips, the run
+// attaches, the roster says executing, and the engine sits there having been
+// told nothing. Zero payload, every signal green — ctxloom's characteristic
+// silent no-op, and the same shape as the known `runtime:container`
+// prompt-delivery defect.
+//
+// An empty lead is NOT always a defect, so this discriminates rather than
+// blanket-refusing — the three legitimate sources of work a lead-less run can
+// still have:
+//
+//   - a resume key: the engine continues its OWN recorded session (ACP
+//     session/load), which needs no re-priming (see resumeChild);
+//   - queued mail: issueStartRun's own standup drain pushes it as the first
+//     turn moments later;
+//   - an owner run: a STRUCTURED top-level session legitimately opens with no
+//     lead and takes its turns via SendOwnedRunTurn. Its one-shot sibling,
+//     which genuinely has only this one turn, is adjudicated by StartOwnedRun
+//     where the Oneshot flag lives.
+//
+// Anything else has nothing to do and no way to be given anything to do.
+func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID string) error {
+	if first != "" || resumeSessionID != "" || rt.ownerRun {
+		return nil
+	}
+	if c.pendingCount(rt.harp) > 0 {
+		return nil
+	}
+	return fmt.Errorf("StartRun for %q (%s) would carry no first turn: no composed prompt, no resume session id, and no queued mail — "+
+		"the run would attach and sit idle having been told nothing (context composition or prompt delivery failed upstream)",
+		rt.agentName, rt.harp)
+}
+
 func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 	_, err := c.awaitRunner(actx, credHash)
 	acancel()
 	if err != nil {
 		err = fmt.Errorf("runner never dialed home (StartRun path): %w", err)
+		c.failChild(rt, err)
+		return err
+	}
+	if err := c.startRunPayloadErr(rt, first, resumeSessionID); err != nil {
 		c.failChild(rt, err)
 		return err
 	}

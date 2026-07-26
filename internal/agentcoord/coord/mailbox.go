@@ -201,6 +201,7 @@ func (c *Coordinator) takeNextMail(role string) (Message, bool, error) {
 		return Message{}, false, fmt.Errorf("mailbox: journaling the consume of message %s for %s failed, the message is left queued: %w", msg.ID, role, err)
 	}
 	c.unreserve(role, []string{msg.ID})
+	c.noteMailConsumed(role) // real progress: the relaunch budget is forgiven
 	return msg, true, nil
 }
 
@@ -242,6 +243,7 @@ func (c *Coordinator) ackDelivered(role string) error {
 		return err
 	}
 	c.unreserve(role, ids)
+	c.noteMailConsumed(role) // real progress: the relaunch budget is forgiven
 	return nil
 }
 

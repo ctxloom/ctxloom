@@ -19,7 +19,9 @@ import (
 // Report fact kinds (runs journal).
 const (
 	// factSummary is one filed report: scope + text (+ structured companion,
-	// protojson-encoded). Deduped on (harp, seq).
+	// protojson-encoded). Deduped on (harp, run_id, seq) — seq is a PER-RUN
+	// counter (Home.seq restarts at 0 in each runner process), so the run id
+	// is load-bearing, not decoration. See reportKey.
 	factSummary = "report.summary"
 	// factArtifact is one artifact manifest (manifest-on-log: name, kind,
 	// sha256, size, path label — bytes stay in the producing session's
@@ -31,7 +33,12 @@ const (
 
 // summaryFact is factSummary's payload.
 type summaryFact struct {
-	Harp          string   `json:"harp"`
+	Harp string `json:"harp"`
+	// RunID scopes Seq. Absent on facts journaled before U023-F24, which
+	// degrades the key back to (harp, seq) for those — exactly the old
+	// behaviour for an old log, and no cross-harp collision, because Harp is
+	// still part of the key.
+	RunID         string   `json:"run_id,omitempty"`
 	Seq           uint64   `json:"seq,omitempty"`
 	Scope         string   `json:"scope"`
 	StepID        string   `json:"step_id,omitempty"`
@@ -83,8 +90,18 @@ type reportsFold struct {
 	latest     map[string]summaryFact               // harp → latest summary
 	checkpoint map[string]summaryFact               // harp → latest SCOPE_CHECKPOINT
 	artifacts  map[string]map[string]ArtifactRecord // harp → artifact_id → latest
-	seq        map[string]uint64                    // harp → highest report seq seen
+	seq        map[string]uint64                    // reportKey(harp, run_id) → highest report seq seen
 }
+
+// reportKey scopes a report-seq watermark. seq is a PER-RUN counter — Home.seq
+// starts at 0 in every runner process, and a resume revokes the credential,
+// severs the runner and spawns a fresh one — so a watermark keyed by harp
+// alone silently discarded every report from a resumed child until its seq
+// climbed past the previous run's maximum (U023-F24). Under one-shot driving,
+// which mints a new run per TURN, that was essentially every report after turn
+// 1. itemsFold has always keyed its watermark by run_id; the harp stays in the
+// key here so one harp's watermark can never suppress another's report.
+func reportKey(harp, runID string) string { return harp + "\x00" + runID }
 
 func newReportsFold() *reportsFold {
 	return &reportsFold{
@@ -102,11 +119,12 @@ func (f *reportsFold) apply(fact Fact) {
 		if fact.decode(&p) != nil {
 			return
 		}
-		if p.Seq != 0 && p.Seq <= f.seq[p.Harp] {
-			return // (harp, seq) dedupe: an at-least-once redelivery
+		k := reportKey(p.Harp, p.RunID)
+		if p.Seq != 0 && p.Seq <= f.seq[k] {
+			return // (harp, run_id, seq) dedupe: an at-least-once redelivery
 		}
 		if p.Seq != 0 {
-			f.seq[p.Harp] = p.Seq
+			f.seq[k] = p.Seq
 		}
 		f.latest[p.Harp] = p
 		if p.Scope == agentcoordpb.Summary_SCOPE_CHECKPOINT.String() {
@@ -170,7 +188,7 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 // recordSummary journals one filed report (plane-1 Summary event → durable
 // fact). Best-effort from the stream handler: a journal failure warns — the
 // runner's Ack still advances, and the report re-rides the next checkpoint.
-func (c *Coordinator) recordSummary(harp string, seq uint64, s *agentcoordpb.Summary) {
+func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoordpb.Summary) {
 	structured := ""
 	if st := s.GetStructured(); st != nil {
 		if raw, err := protojson.Marshal(st); err == nil {
@@ -178,11 +196,12 @@ func (c *Coordinator) recordSummary(harp string, seq uint64, s *agentcoordpb.Sum
 		}
 	}
 	if err := c.runs.Exec(func() ([]Fact, error) {
-		if seq != 0 && seq <= c.reportsF.seq[harp] {
+		if seq != 0 && seq <= c.reportsF.seq[reportKey(harp, runID)] {
 			return nil, nil // duplicate delivery
 		}
 		return []Fact{factAt(factSummary, c.now(), summaryFact{
 			Harp:          harp,
+			RunID:         runID,
 			Seq:           seq,
 			Scope:         s.GetScope().String(),
 			StepID:        s.GetStepId(),

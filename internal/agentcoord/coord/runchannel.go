@@ -268,7 +268,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		c.handleCustomEvent(ch, payload.Custom)
 		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_Summary:
-		c.recordSummary(ch.role, ev.GetSeq(), payload.Summary)
+		c.recordSummary(ch.role, ch.id.RunID, ev.GetSeq(), payload.Summary)
 		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_ArtifactProduced:
 		c.recordArtifact(ch.role, ev.GetSeq(), payload.ArtifactProduced)
@@ -325,6 +325,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 			return
 		}
 		c.unreserve(ch.role, ids)
+		c.noteMailConsumed(ch.role) // real progress: the relaunch budget is forgiven
 		c.mu.Lock()
 		ch.pushed = removeIDs(ch.pushed, ids)
 		c.mu.Unlock()

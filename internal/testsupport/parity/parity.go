@@ -34,6 +34,12 @@
 //     one true leaf, at a JSON key distinct from every other bool field's.
 //     This is the blind spot batch 18 declared and batch 19 closed.
 //
+// A FOURTH mirror exists — the runner↔plugin gRPC wire (internal/lm/grpc) —
+// and is deliberately NOT a pair here: it already carries a stronger gate of
+// its own (its T7 total-struct proto parity, a reflection-filled round trip
+// requiring whole-struct equality in BOTH directions). Nothing is gained by
+// pointing a weaker one-directional gate at it.
+//
 // The remaining declared blind spot is the READ side: these halves gate the
 // agent → mirror direction only. A mirror → agent converter that drops a field
 // is not covered here (the `--format json` DTOs have no in-repo read side at
@@ -72,13 +78,17 @@ func CheckFieldCount(t *testing.T, pairs []Pair) {
 		t.Run(p.Name, func(t *testing.T) {
 			at := reflect.TypeOf(p.AgentType)
 			mt := reflect.TypeOf(p.MirrorType)
-			want := at.NumField() - len(p.Exempt)
-			if mt.NumField() != want {
-				t.Errorf("%s has %d fields; %s has %d (%d exempt) — expected %d mirror fields.\n"+
+			// Exported fields only on BOTH sides: a protobuf-generated mirror
+			// carries three unexported bookkeeping fields (state, sizeCache,
+			// unknownFields) that are not part of the projection and would
+			// otherwise mask three real drops.
+			want := exportedFieldCount(at) - len(p.Exempt)
+			if exportedFieldCount(mt) != want {
+				t.Errorf("%s has %d exported fields; %s has %d (%d exempt) — expected %d mirror fields.\n"+
 					"agent fields: %s\nmirror fields: %s\n"+
 					"A field added to the agent type with no mirror is silent data loss on every byte this mirror writes. "+
 					"Either mirror it (struct + converter + published schema) or add it to this pair's Exempt map with a reason.",
-					at.Name(), at.NumField(), mt.Name(), mt.NumField(), len(p.Exempt), want,
+					at.Name(), exportedFieldCount(at), mt.Name(), exportedFieldCount(mt), len(p.Exempt), want,
 					strings.Join(FieldNames(at), ", "), strings.Join(FieldNames(mt), ", "))
 			}
 			for name := range p.Exempt {
@@ -174,6 +184,8 @@ func marshalConverted(t *testing.T, p Pair, filled reflect.Value) []byte {
 
 // --- sentinel machinery ----------------------------------------------------
 
+// scalarSentinel is one field's unique stamp: the path it was written to and
+// the single value that must show up on the other side.
 type scalarSentinel struct {
 	path  string
 	value any // string or float64
@@ -262,6 +274,16 @@ func fillValue(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
 }
 
 func isTime(t reflect.Type) bool { return t == reflect.TypeOf(time.Time{}) }
+
+func exportedFieldCount(t reflect.Type) int {
+	n := 0
+	for i := 0; i < t.NumField(); i++ {
+		if t.Field(i).PkgPath == "" {
+			n++
+		}
+	}
+	return n
+}
 
 func hasExportedFields(t reflect.Type) bool {
 	for i := 0; i < t.NumField(); i++ {
@@ -448,11 +470,15 @@ func collectLeaves(t *testing.T, raw []byte) leafSet {
 	return out
 }
 
-// FieldNames lists a struct type's field names, for failure messages.
+// FieldNames lists a struct type's EXPORTED field names, for failure messages
+// — matching what exportedFieldCount counts, so the message and the count
+// never disagree.
 func FieldNames(t reflect.Type) []string {
 	out := make([]string, 0, t.NumField())
 	for i := 0; i < t.NumField(); i++ {
-		out = append(out, t.Field(i).Name)
+		if t.Field(i).PkgPath == "" {
+			out = append(out, t.Field(i).Name)
+		}
 	}
 	return out
 }

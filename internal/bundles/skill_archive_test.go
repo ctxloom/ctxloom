@@ -725,7 +725,7 @@ func TestSkillArchive_ExportImportRoundTrip_TreeByteIdenticalAndExecBitPreserved
 	zipBytes, srcPkg, files := buildValidSkillZip(t, "humanize")
 
 	destFs := afero.NewMemMapFs()
-	finalDir, err := ImportSkillArchive(destFs, zipBytes, "/imported", ExtractOptions{})
+	finalDir, err := ImportSkillArchive(destFs, zipBytes, "/imported", ExtractOptions{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/imported/humanize", finalDir)
 
@@ -762,7 +762,7 @@ func TestImportSkillArchive_TarGzHappyPath(t *testing.T) {
 	})
 
 	fsys := afero.NewMemMapFs()
-	dir, err := ImportSkillArchive(fsys, archive, "/imported", ExtractOptions{})
+	dir, err := ImportSkillArchive(fsys, archive, "/imported", ExtractOptions{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/imported/tarskill", dir)
 
@@ -1098,4 +1098,55 @@ func TestPublisherSkillSignatureVerifier_TamperedSignatureRejected(t *testing.T)
 		Root:             skillPublisherRoot("bundles@ctxloom.dev", pub),
 	}
 	require.Error(t, verifier.VerifyManifestSignature(pkg.Manifest))
+}
+
+// TestImportSkillArchive_FailedValidationLeavesDestinationIntact is U087-F25
+// at the mechanism: the destination is computed from the ARCHIVE's own
+// top-level directory name and then RemoveAll'd, so "import over the tree I
+// already have" is the ordinary case. A validator that rejects the staged
+// replacement must leave the existing tree byte-identical — a refusal that
+// has already destroyed what it refused is the failure mode, not the error.
+func TestImportSkillArchive_FailedValidationLeavesDestinationIntact(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	fsys := afero.NewMemMapFs()
+
+	existing := "/imported/humanize/SKILL.md"
+	require.NoError(t, fsys.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(fsys, existing, []byte("the good tree\n"), 0o644))
+
+	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{},
+		func(afero.Fs, string) error { return fmt.Errorf("nope") })
+	require.Error(t, err)
+
+	got, rerr := afero.ReadFile(fsys, existing)
+	require.NoError(t, rerr, "the existing tree must survive a rejected import")
+	assert.Equal(t, "the good tree\n", string(got))
+
+	// Staging must not be left behind either.
+	leftover, _ := afero.Exists(fsys, "/imported/.ctxloom-import-staging")
+	assert.False(t, leftover, "staging must be cleaned up on rejection")
+}
+
+// TestImportSkillArchive_ValidatorSeesTheFinalSkillName guards the reason
+// staging reproduces the final NAME: a skill package is identified by its
+// directory's base name (ParseSkillPackage derives the name from it and
+// matches it against the frontmatter), so a validator handed a
+// staging-shaped path would fail for the wrong reason and never catch the
+// real one — a gate satisfiable by the wrong evidence.
+func TestImportSkillArchive_ValidatorSeesTheFinalSkillName(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	fsys := afero.NewMemMapFs()
+
+	var seen string
+	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{},
+		func(vfs afero.Fs, staged string) error {
+			seen = staged
+			_, perr := ParseSkillPackage(vfs, staged, 0)
+			return perr
+		})
+	require.NoError(t, err)
+	assert.Equal(t, "humanize", filepath.Base(seen),
+		"the staged tree must carry the skill's real directory name")
+	assert.NotEqual(t, "/imported/humanize", seen,
+		"validation must run BEFORE the tree reaches its destination")
 }

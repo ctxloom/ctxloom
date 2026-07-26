@@ -555,26 +555,42 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 		return nil, fmt.Errorf("read archive %s: %w", req.ArchivePath, err)
 	}
 
+	// Read the signature BEFORE anything is extracted: an unreadable --sig
+	// path is a caller error that has nothing to do with the destination, and
+	// discovering it after the swap meant deleting a good skill tree over a
+	// typo'd path (U087-F25, second loss path).
+	var sigBytes []byte
+	if req.SigPath != "" {
+		var serr error
+		sigBytes, serr = afero.ReadFile(fs, req.SigPath)
+		if serr != nil {
+			return nil, fmt.Errorf("read signature %s: %w", req.SigPath, serr)
+		}
+	}
+
 	bundleDir := filepath.Dir(bundle.Path)
 	skillsParent := filepath.Join(bundleDir, "skills")
-	landedDir, err := bundles.ImportSkillArchive(fs, archiveBytes, skillsParent, bundles.ExtractOptions{})
+	// Validation runs against the STAGING tree, so a malformed archive can
+	// never destroy the skill it was supposed to replace (U087-F25): the
+	// destination is computed from the ARCHIVE's own top-level directory
+	// name, so "import this over the skill I already have" was the ordinary
+	// case, not an exotic one.
+	var pkg *bundles.SkillPackage
+	landedDir, err := bundles.ImportSkillArchive(fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
+		func(vfs afero.Fs, staged string) error {
+			p, perr := bundles.ParseSkillPackage(vfs, staged, 0)
+			if perr != nil {
+				return fmt.Errorf("imported skill failed validation: %w", perr)
+			}
+			pkg = p
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("import %s: %w", req.ArchivePath, err)
 	}
 
-	pkg, err := bundles.ParseSkillPackage(fs, landedDir, 0)
-	if err != nil {
-		_ = fs.RemoveAll(landedDir)
-		return nil, fmt.Errorf("imported skill failed validation: %w", err)
-	}
-
 	sigState := "unsigned"
 	if req.SigPath != "" {
-		sigBytes, serr := afero.ReadFile(fs, req.SigPath)
-		if serr != nil {
-			_ = fs.RemoveAll(landedDir)
-			return nil, fmt.Errorf("read signature %s: %w", req.SigPath, serr)
-		}
 		root := req.Root
 		if root == nil {
 			root = cfg.TrustRoot()

@@ -172,3 +172,47 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 		})
 	}
 }
+
+// TestSkillPreimageDir_RefusesToDeriveFromCwd is the U030-F03 widening.
+//
+// The finding named ONE call site (the loader). Eight more in
+// internal/operations took filepath.Dir(bundle.Path) the same way, including
+// three on TRUST paths — `ctxloom review`'s approval surface, SetItemTrust's
+// grant preimage, and the review snapshot. On a pathless bundle those hashed
+// whatever sat in the process working directory into a trust decision.
+//
+// The rule is conditional, and the condition is load-bearing in both
+// directions: a manifest-LESS skill must fail (it would derive from the tree),
+// an AUTHORED one must succeed (it never touches the filesystem, so a
+// companion bundle carrying one is legitimate and refusing it would be a
+// regression).
+func TestSkillPreimageDir_RefusesToDeriveFromCwd(t *testing.T) {
+	pathless := &Bundle{Name: "companion", Path: ""}
+
+	t.Run("manifest-less skill on a pathless bundle fails", func(t *testing.T) {
+		_, err := pathless.SkillPreimageDir(BundleSkill{})
+		require.Error(t, err,
+			"a manifest-less skill derives its preimage by parsing the tree; with no bundle "+
+				"directory that tree would be resolved from the process working directory, and "+
+				"those bytes would be hashed into a trust grant")
+	})
+
+	t.Run("authored manifest on a pathless bundle is legitimate", func(t *testing.T) {
+		dir, err := pathless.SkillPreimageDir(BundleSkill{
+			Files: map[string]SkillFileMeta{"SKILL.md": {SHA256: "sha256:abc", Mode: "0644"}},
+		})
+		require.NoError(t, err,
+			"an authored manifest is hashed without touching the filesystem, so a companion "+
+				"bundle can legitimately carry one")
+		require.NotEqual(t, ".", dir, "must never hand back the process working directory")
+		require.NotEqual(t, "", dir,
+			`"" joins to a cwd-relative "skills/<name>" just as "." does — the stand-in must be unusable`)
+	})
+
+	t.Run("a real bundle path is returned unchanged", func(t *testing.T) {
+		dir, err := (&Bundle{Name: "demo", Path: filepath.Join("some", "where", "bundle.yaml")}).
+			SkillPreimageDir(BundleSkill{})
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join("some", "where"), dir)
+	})
+}

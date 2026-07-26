@@ -97,8 +97,8 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
 	// or seeded bundle Dir() of it is ".", which resolved this skill against
 	// the process working directory and materialized whatever sat there as
-	// the bundle's own content (U030-F03). fsDir refuses those values.
-	bundleDir, err := bundle.fsDir()
+	// the bundle's own content (U030-F03). FSDir refuses those values.
+	bundleDir, err := bundle.FSDir()
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
 		return nil

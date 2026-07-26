@@ -97,29 +97,38 @@ deliberately materializes no filesystem surfaces, because its loadout rides
 
 ## Divergences and real behaviour
 
-- **The container transport is unreachable on the go-plugin path.**
-  `spawnTransport` branches on `b.runtimeAxis`, set only from `req.Runtime`
-  (`acp.go:329`). The only non-test producer of `ChatRequest.Runtime` is
-  `operations/engine_session.go:322`, and that request crosses the go-plugin gRPC wire
-  via `lm/grpc/chat.go:332 chatStartToProto` → `llm.proto:189 message ChatStart`, which
-  **has no runtime field**; `chatStartFromProto` therefore always reconstructs
-  `Runtime: ""`. Meanwhile `engine_session.go:940` computes its isolation banner from the
-  **host-side** local variable, so a session announced as "isolated inside a container"
-  runs as a plain host subprocess. No compensating env carrier exists.
-- **`session/load` resume is unreachable the same way.** `ResumeSessionID` is likewise
-  absent from `ChatStart`, so the guard at `session.go:373` (which exists to refuse a
-  resume the engine cannot honour) can never fire on that path and the coordinator's
-  one-shot resume would silently start a fresh session. The **in-process** path is
-  unaffected: `coord/harnessspec.go:176` sets `ResumeSessionID` and
-  `coord/enginehost.go:311` calls `backend.Chat` directly with no proto conversion, so
-  the modern coordinator path resumes correctly.
-- **The fs handlers serve any absolute host path with no confinement.** `setup`
-  advertises `Fs{ReadTextFile: true, WriteTextFile: true}` unconditionally
-  (`session.go:338`) and the handlers call `os.ReadFile(req.Path)` / `os.WriteFile(...)`
-  with no validation against the workspace (`session.go:1163,1191`). The driver always
-  runs on the host — only the engine subprocess is containerized. **Ordering constraint:
-  repairing the `Runtime` wire drop activates this, so path confinement must land before
-  or with that fix.**
+- ~~**The container transport is unreachable on the go-plugin path.**~~ **RESOLVED
+  `40b49a7f`.** `spawnTransport` branches on `b.runtimeAxis`, set from `req.Runtime`
+  (`acp.go:329`), and `ChatStart` now carries `runtime = 9` so `chatStartFromProto`
+  reconstructs it. Until then the proto had **no runtime field** and `Runtime` always
+  came back `""`, while `engine_session.go` computed its isolation banner from the
+  **host-side** local variable — so a session announced as "isolated inside a
+  container" ran as a plain host subprocess, with no compensating env carrier.
+- ~~**`session/load` resume is unreachable the same way.**~~ **RESOLVED `40b49a7f`**
+  — `ChatStart.resume_session_id = 10`, with `ChatSessionInfo.session_id` /
+  `.resumable` as the return half. The guard at `session.go:373` (which refuses a
+  resume the engine cannot honour) can now fire on this path; before, a one-shot
+  resume silently started a fresh session. The **in-process** path was never affected:
+  `coord/harnessspec.go:176` sets `ResumeSessionID` and `coord/enginehost.go:311`
+  calls `backend.Chat` directly with no proto conversion.
+- ~~**The fs handlers serve any absolute host path with no confinement.**~~ **RESOLVED
+  `73ea8d7f` (T13).** Both handlers funnel through `confineToWorkspace`
+  (`internal/acp/fsconfine.go`) **before** branching on the fs upstream — an
+  unconfined upstream would otherwise have been a trivial bypass. The root is
+  `agent.ChatRequest.WorkDir`, the same value handed to the engine subprocess as
+  `cmd.Dir`, so the boundary and the engine's cwd cannot drift. Fail-closed
+  throughout: symlinks resolved on both root and candidate including dangling links,
+  and unresolvable root / unreadable ancestor / stat error / symlink loops all deny.
+  Relative paths are **refused** rather than resolved — the ACP schema types `path` as
+  absolute, and resolving against the process cwd *is* the defect.
+  **The ordering mattered and is worth remembering:** repairing the `Runtime` wire
+  drop *activates* this hole, so confinement landed first (`73ea8d7f`) and the wire
+  fix second (`40b49a7f`). Fixing the more obvious bug first would have opened a
+  vulnerability.
+  **Still open (taskloom `loud-guide`):** `internal/acpagent/fsupstream.go`'s relay is
+  itself unconfined and its unix socket is locally callable; there is a TOCTOU between
+  check and syscall (needs `openat2` `RESOLVE_BENEATH`); and `setup` still advertises
+  `Fs{ReadTextFile: true, WriteTextFile: true}` unconditionally (`session.go:338`).
 - **`Chat`'s `defer close(out)` races the forward goroutines it never joins.**
   `teardown` waits only for `<-conn.Done()`; `handlePermission` and `handleTerminal`
   spawn `go s.forwardPermission(...)` / `go s.forwardTerminal(...)` (`session.go:906,1009`)
@@ -145,10 +154,13 @@ deliberately materializes no filesystem surfaces, because its loadout rides
 - **`Execute` returns `ExitCode: 0` on a turn that wrote zero assistant bytes**
   (`execute.go:69-94`); `wroteText` is used only to decide a trailing newline, and
   `ev.Complete`'s stop reason is never inspected. A nil prompt is sent as an empty message.
-- **`acpSessionHistory.ListSessions` returns `(nil, nil)`** — an empty list presented as
-  success — while its four siblings return "acp session history not yet supported"
-  (`capabilities.go:38`). The other backends now pass `nil` for `SessionHistory`, which
-  callers already handle with a uniform error.
+- ~~**`acpSessionHistory.ListSessions` returns `(nil, nil)`**, an empty list presented as
+  success, while its siblings return "acp session history not yet supported".~~ —
+  **RESOLVED `46d713d5`** (U011-F02). The placeholder `SessionHistory` is gone: `NewACP`
+  passes `nil`, the same declaration every other engine makes, so a caller is told
+  "backend acp has no session history" rather than receiving an empty list it cannot
+  distinguish from a workspace that genuinely has none (`capabilities.go:11-14`,
+  pinned by `sessionhistory_test.go`).
 - **`acpCommands.RegisterFromContent` accepts a command slice, writes nothing and
   returns nil** (`capabilities.go:21`); `LaunchBackend.commands` is written at
   `launch_backend.go:92` and read nowhere in the repo.

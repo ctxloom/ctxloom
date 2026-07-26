@@ -24,7 +24,7 @@ flowchart TD
   C --> ST["Start(ctx) :154<br/>happens-before edge, not a wrapper"]
   ST --> RL["readLoop :237<br/>decode + classify"]
   subgraph out["outbound — any goroutine"]
-    CALL["Call :161"] --> GO["Go :173"] --> MP["mustParams :332"] --> WF["writeFrame :317 (writeMu)"]
+    CALL["Call :161"] --> GO["Go :173"] --> MP["marshalParams"] --> WF["writeFrame :317 (writeMu)"]
     NOT["Notify :216"] --> MP
   end
   subgraph in["inbound — read-loop goroutine ONLY"]
@@ -69,7 +69,7 @@ flowchart TD
 | `Conn.failPending` | `jsonrpc.go:300` | closes and deletes every pending slot so parked callers unblock |
 | `Conn.closedErr` | `jsonrpc.go:309` | the stored read error, or `ErrConnClosed` for a clean EOF |
 | `Conn.writeFrame` | `jsonrpc.go:317` | stamps `"jsonrpc":"2.0"`, marshals, appends `\n`, writes under `writeMu` |
-| `mustParams` / `marshalResult` | `jsonrpc.go:332,346` | marshal outbound params; marshal a handler result, defaulting nil to JSON `null` |
+| `marshalParams` / `marshalResult` | `jsonrpc.go` | marshal outbound params (**errors** rather than sending a stripped frame, `39c3bcad`); marshal a handler result, defaulting nil to JSON `null` and **erroring** on a real marshal failure |
 
 ## Contracts
 
@@ -98,12 +98,17 @@ flowchart TD
   reference ACP TypeScript SDK converts a thrown handler exception into `-32603` — the
   peer recovers, this side does not. A live trigger exists at
   `internal/acp/session.go:1247` (`sliceLines` with a negative `limit`).
-- **`marshalResult` turns a result-marshal failure into a *successful* response with
-  `"result":null`** (`jsonrpc.go:351-354`). The nil→`null` path is intentional and is
-  depended on cross-package; the failure path is not distinguishable from it.
-- **`mustParams` drops params on a marshal failure and sends the frame anyway**
-  (`jsonrpc.go:337-340`) — e.g. a `session/prompt` carrying no prompt. It also violates
-  the Go `must*` convention by neither panicking nor erroring.
+- ~~**`marshalResult` turns a result-marshal failure into a *successful* response with
+  `"result":null`**~~ — **RESOLVED `39c3bcad`** (U013-F02). It now returns a
+  `CodeInternalError` naming the encoding failure (`jsonrpc.go:376`). The deliberate
+  nil→`null` path survives untouched (`:371`) and is pinned by test, because it is
+  depended on cross-package — the whole defect was that the failure was
+  indistinguishable from it.
+- ~~**`mustParams` drops params on a marshal failure and sends the frame anyway**~~ —
+  **RESOLVED `39c3bcad`** (U013-F03). Renamed `marshalParams` and it returns an error,
+  so a frame whose params cannot be marshalled is **not sent stripped**. `Notify("")` /
+  `Go("")` are refused too (U013-F17): they used to emit `{"jsonrpc":"2.0"}`, a frame
+  with no method and no id that the peer must drop as garbage.
 - **`routeResponse` sends on the cap-1 pending channel outside `pendingMu`**
   (`jsonrpc.go:296`), so a duplicate-id response racing an `await` that exited via
   `ctx.Done()` can block the read loop permanently; `done` then never closes.

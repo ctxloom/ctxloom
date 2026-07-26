@@ -214,7 +214,8 @@ flowchart TD
 |---|---|---|
 | `NewLockfileManager(baseDir, opts...)` | `internal/remote/lockfile.go:44` | Manager over `<baseDir>/lock.yaml`; `WithLockfileFS` (`:36`) is the afero test seam. |
 | `LockfileManager.Load() (*Lockfile, error)` | `internal/remote/lockfile.go:66` | Read + parse + initialise maps + self-heal. A missing or empty file yields an empty lockfile with no error; the self-heal path **writes during a read**. |
-| `LockfileManager.Save(*Lockfile) error` | `internal/remote/lockfile.go:104` | Stamps `LockedAt = now().UTC()`, then `write`. |
+| `LockfileManager.Save(*Lockfile, ...SaveOption) error` | `internal/remote/lockfile.go:152` | **Reads back what is on disk and can refuse.** Two refusals: `ErrLockfileWouldErase` (`:107`) when an empty lockfile would replace a populated one, naming how many entries it protected; and `ErrLockfileUnreadable` (`:114`) on **any** write over an unparseable lockfile, naming the recovery. Otherwise stamps `LockedAt = now().UTC()` and calls `write`. Added by `fd0d87d6` (T1); the signature is variadic so no call site churned. |
+| `remote.AllowEmpty() SaveOption` | `internal/remote/lockfile.go:126` | The opt-in for a caller that emptied the lockfile **deliberately**. Relaxes only the first refusal. The unreadable refusal has **no** override on purpose: holds and retractions that cannot be read cannot be carried forward, so every write over a corrupt file destroys unaccountable state. |
 | `LockfileManager.write(*Lockfile) error` | `internal/remote/lockfile.go:111` | Marshal, `MkdirAll`, `iox.WriteFileAtomicFs` — the only code path that touches `lock.yaml` bytes. |
 | `LockfileManager.Path() string` | `internal/remote/lockfile.go:60` | `<baseDir>/lock.yaml`; the filename is fixed. |
 | `Lockfile.AddEntry/GetEntry/RemoveEntry` | `internal/remote/lockfile.go:133,140,149` | In-memory entry CRUD, gated on `ItemTypeBundle` — a non-bundle type is a silent no-op. |
@@ -267,10 +268,20 @@ flowchart TD
    (`internal/remote/types.go:202`) and `AddEntry`/`GetEntry`/`RemoveEntry`
    (`internal/remote/lockfile.go:133,140,149`) silently ignore any `ItemType` other than
    `ItemTypeBundle`. Top-level profile distribution was retired.
-3. **`LockfileManager.write` (`internal/remote/lockfile.go:111`) is the only code path
-   that writes `lock.yaml` bytes**, always via `iox.WriteFileAtomicFs`. It is reached from
-   `Save` (`:104`) and from the load-time self-heal inside `Load` (`:66`) — so a `Load`
-   can write. Within this package, `Save` is called by `Puller.updateLockfile`
+3. **`LockfileManager.write` is the only code path that writes `lock.yaml` bytes**,
+   always via `iox.WriteFileAtomicFs`. It is reached from `Save` and from the load-time
+   self-heal inside `Load` (`:66`) — so a `Load` can write.
+   **`Save` is now a guard, not just a writer** (`fd0d87d6`). It reads the current file
+   back and refuses an empty-over-populated write and any write over a corrupt one.
+   This was the review's highest data-loss finding: `remote upgrade` could erase every
+   dependency pin and print "Everything is up to date." with exit 0, because any
+   config-load error produced an empty closure and the save was unconditional. It was
+   security-relevant, not merely inconvenient — `remote upgrade` clears retraction
+   state, so a wipe silently **un-retracted** previously withdrawn content. The guard
+   closes the class; the trigger (`remote upgrade` reading through
+   `loadConfigOrFallback`) was closed separately. **`remote update` still reads through
+   that same fallback** — read-only today, so correct by accident rather than by
+   construction. Within this package, `Save` is called by `Puller.updateLockfile`
    (`internal/remote/pull.go:424`, at `:462`) and `Puller.RecordRetraction`
    (`internal/remote/pull.go:221`, at `:242`). Outside it, the writer is
    `internal/operations` (`internal/operations/lockfile.go:147`) through the

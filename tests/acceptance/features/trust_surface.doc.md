@@ -157,21 +157,23 @@ rejecting one item, and checks the same state field lands on "rejected," never
 "pending."
 <!-- /doc:scenario -->
 
-<!-- doc:scenario: A corrupted approvals store silently un-rejects previously withheld content, instead of denying everything -->
-This scenario is tagged `@wip` and it documents a bug, not a proof. The trust
-system's own comments promise that an approvals store this process cannot read
-denies EVERYTHING — on the theory that an unreadable store might be hiding a
-rejection, and rejection is supposed to be supreme. That guard exists in the
-code. It is also never reached: every real caller builds its own record store
-and hands EffectiveTrust something already non-nil, so the one preamble check
-that would fail closed never runs. What actually happens when the store
-becomes unreadable is the opposite of "deny everything" — the store's read
-path treats an I/O error exactly like "nothing was ever recorded here," so a
-previously rejected item silently stops being rejected. This scenario proves
-it: reject a fragment, confirm it is withheld, corrupt the store, and watch
-the SAME fragment reach the assistant again, with no warning and exit code 0.
-It is expected to pass today, because it is asserting what actually happens,
-not what is supposed to. Filed as a product finding, not fixed here.
+<!-- doc:scenario: A corrupted approvals store denies everything, rather than silently un-rejecting previously withheld content -->
+An approvals store this process cannot read denies EVERYTHING — on the theory
+that an unreadable store might be hiding a rejection, and rejection is
+supposed to be supreme. This scenario proves that end to end: reject a
+fragment, confirm it is withheld, corrupt the store, and Alice's next session
+refuses to start, telling her plainly that the approvals store is the problem.
+The previously-rejected fragment does not reappear, and neither does anything
+else — this is deny-all, not "deny that one item".
+
+**It used to be the opposite, which is why the scenario is worded as a
+contrast.** The guard existed in the code but was never reached: every real
+caller built its own record store and handed `EffectiveTrust` something
+already non-nil, so the one preamble check that would fail closed never ran.
+The store's read path then treated an I/O error exactly like "nothing was ever
+recorded here", and a previously rejected item silently stopped being
+rejected — no warning, exit code 0. The scenario is kept in that shape so a
+regression reads as a reversal rather than as a missing assertion.
 <!-- /doc:scenario -->
 
 <!-- doc:scenario: An approved item's review state is labeled "accepted," not left at "pending" -->

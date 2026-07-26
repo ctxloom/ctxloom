@@ -7,6 +7,27 @@
 
 ---
 
+## STATUS as of `9492dd16` (2026-07-26)
+
+The review was written against `0f59fbae`. **Remediation has landed since** — an 8-batch sweep plus five release-blocking fixes. Each affected item below is marked in place; nothing is deleted.
+
+| item | state | commit |
+|---|---|---|
+| **T1** `remote upgrade` wipes `lock.yaml` | **RESOLVED** | `fd0d87d6` |
+| **T2** `deny_tools` / `skills` dropped on the launch wire | **RESOLVED** | `40b49a7f` |
+| **T4** manifest-less skill preimage is a constant | **RESOLVED** | `8d9da20c` |
+| **T7** total-struct parity gate | **RESOLVED** | `40b49a7f` |
+| **T13** ACP fs handlers serve any host path | **RESOLVED** | `73ea8d7f` |
+| **X9** / `U061-F02` — `PreToolFallback` has no proto field | **RESOLVED** | `40b49a7f` |
+| retraction fail-open on an unreadable lockfile (found *during* T1) | **RESOLVED** | `9492dd16` |
+| the census (`docs/architecture/findings-index.md`) | **168 of 2,268 rows resolved** | `0e35e9b9` + the five above |
+
+**T3, T5, T6, T8–T12, T14–T20 are UNTOUCHED.** So are the ~2,096 census rows no commit names — and `open` there means *no commit named that ID*, not *re-verified as still broken*.
+
+Items the fixes themselves raised, which are **open** — see [Open — explicitly not established](#open--explicitly-not-established) at the end of this file for the full list.
+
+---
+
 ## How to read this
 
 Every finding carries a verification provenance. **This is the most important column** — the review's own headline claims moved in both directions under scrutiny.
@@ -22,13 +43,15 @@ Every finding carries a verification provenance. **This is the most important co
 
 **Corrected 2026-07-25.** An earlier version of this section said "381 HIGH across 162 units" and let that stand in for the corpus. **That was wrong and it undersold the corpus by a factor of six.** The real totals, mechanically extracted:
 
-| | count |
-|---|---|
-| findings in the corpus | **2,268** |
-| HIGH | 376 |
-| MED | 999 |
-| LOW | 871 |
-| ranked items in THIS file | **20** |
+| | count | resolved as of `9492dd16` |
+|---|---|---|
+| findings in the corpus | **2,268** | **168** |
+| HIGH | 376 | 47 |
+| MED | 999 | 30 |
+| LOW | 871 | 91 |
+| ranked items in THIS file | **20** | 5 (T1, T2, T4, T7, T13) |
+
+The resolved counts are **mechanical** — a row is marked resolved iff a commit in `0f59fbae..HEAD` names its ID. They are a floor, not a measurement: a fix that closed a sibling's root cause without naming the row is not counted.
 
 That is 113:1 compression, and **no finding in the corpus is cited by ID anywhere in this file** — so there is no path from this register back to the evidence behind it.
 
@@ -67,18 +90,28 @@ Seven of the review's biggest claims moved. This is the argument for the registe
 Five constraints. At least two fixes are unsafe applied alone.
 
 1. **ACP path confinement MUST land before the `ChatRequest.Runtime` wire fix.** Repairing the wire drop *activates* the path-confinement hole it currently masks (S3 + X31). Fixing the "obvious" bug first opens a vulnerability.
-   **STATUS: SATISFIED** on `fix/acp-path-confinement` — `internal/acp/fsconfine.go`'s `confineToWorkspace` now gates both fs handlers against `ChatRequest.WorkDir`. The `ChatStart.runtime` wire fix is unblocked.
+   **STATUS: DISCHARGED.** Confinement landed first (`73ea8d7f`), then `ChatStart.runtime` (`40b49a7f`). `internal/acp/fsconfine.go`'s `confineToWorkspace` gates both fs handlers against `ChatRequest.WorkDir`. The constraint held in the shipped order — kept here because it is the record of *why* the two commits are sequenced.
 2. **Do not wire `extra_args` into argv before its allowlist exists** (S14). Today it is a documented "enforcement point" with zero readers — harmless. Wiring it without the allowlist makes it an injection point.
 3. **S5's two halves must both land**; neither closes the other, and either alone reads as fixed.
 4. **Do not add `--ignored` to `IsDirty` alone.**
 5. **T1's guard (b) should land before or with (a).** Refusing to write an empty lockfile over a non-empty one closes the whole class; fixing only the fallback closes one trigger.
+   **STATUS: DISCHARGED** — both landed together in `fd0d87d6`, guard first (`28f313f7`), then the trigger (`b51c7209`).
 
 ---
 
 ## Tier 1 — act on these
 
-### T1. `remote upgrade` silently wipes `lock.yaml` and reports success — **VERIFIED**
+### T1. `remote upgrade` silently wipes `lock.yaml` and reports success — **VERIFIED** · **RESOLVED `fd0d87d6`**
 Highest data-loss finding in the review. Every link re-read by the coordinator.
+
+**RESOLVED.** Both halves landed, guard before trigger. (b) `LockfileManager.Save` reads back what is on disk and refuses two cases — empty over populated (`ErrLockfileWouldErase`, naming how many entries it protected) and **any** write over an unparseable lockfile (`ErrLockfileUnreadable`, naming the recovery, with no override: holds and retractions that cannot be read cannot be carried forward). `AllowEmpty()` is the opt-in for a caller that emptied the lock deliberately, and relaxes only the first refusal; the signature is variadic so no call site churned. All six call sites covered. (a) `remote upgrade` calls the config loader directly and fails loud. `U085-F01` (a corrupt lock degraded to empty and was then saved, clearing every hold and retraction) folded in — the degrade still happens but can no longer be persisted, and the corrupt file is left byte-identical.
+
+**Raised by this fix and still OPEN:** partial closure narrowing still writes a non-empty result; `remote update` still reads via `loadConfigOrFallback`.
+
+#### T1a. The trust gate failed OPEN on an unreadable lockfile — **RESOLVED `9492dd16`**
+**Not from the original review** — escalated out of T1's own work and recorded here so it is not lost. `buildLockfileRetraction` degraded an unparseable `lock.yaml` to "nothing is retracted", so content a publisher had deliberately **withdrawn** was silently served again. No write is involved, so T1's write guard does not reach it; retraction exists for "this turned out to be harmful", so failing open inverts the control.
+
+Now denies via `trust.Deny` + `trust.SourcePending`, recorded as `strictness.FailOnce(ClassTrust)`. **Scoped to remote refs**, not everything: the lockfile records only remote bundle entries, so an unreadable one conceals nothing about a local or builtin ref. One predicate, `retractable(ref)`, is shared by the gate and by `lockfileRetraction.Retracted` so they cannot drift. Absent ≠ corrupt — `Load` already maps `os.IsNotExist` to an empty lockfile with a nil error, so a project with no pins is untouched.
 
 `remote_upgrade.go:35` uses `loadConfigOrFallback`, which on ANY config-load error returns a minimal empty config (`startup_helpers.go:38-39`). Empty config → no profile definitions → `closureRoots` empty (`depgraph.go:95-107`) → `proposed` and `unexpanded` both empty → the carry-forward guard at `upgrade.go:77` **never fires** → `Save(newActive)` at `:90` is **unconditional** and writes an empty lockfile, erasing every pin → `advanced == 0` → prints **"Everything is up to date."**, exit 0.
 
@@ -88,8 +121,16 @@ Highest data-loss finding in the review. Every link re-read by the coordinator.
 - **Trigger is routine:** a config-load error, not an exotic state.
 - **Fix:** (a) `remote upgrade` must refuse a fallback config and fail loud; (b) `Save` must refuse to write an empty lockfile over a non-empty one absent an explicit force. **Do (b) regardless** — it closes the class.
 
-### T2. `deny_tools` and `skills` are dropped on the LAUNCH wire — **VERIFIED**
+### T2. `deny_tools` and `skills` are dropped on the LAUNCH wire — **VERIFIED** · **RESOLVED `40b49a7f`**
 Reported independently by three lenses (D1, W2, S7); reach settled by the coordinator.
+
+**RESOLVED.** One proto change and one regen carried **eight** fields, not two — `ChatStart.runtime` (9), `ChatStart.resume_session_id` (10), `ManagedConfig.skills` (6), `ManagedConfig.deny_tools` (7), `Hook.pre_tool_fallback` (8), `ChatPermissionRequest.kind` (6), `ChatSessionInfo.session_id` (5), `ChatSessionInfo.resumable` (6). This closes T2, **X9**/`U061-F02`, `U059-F01`/`F02`, `U012-F03` and **T7** together.
+
+The last three were found **by the parity gate, not by the review** — `session_id` and `resumable` are the return half of `resume_session_id`, so fixing only the request side would have shipped a half-wired feature.
+
+Consequences closed: a configured `deny_tools` entry now reaches the backend on the launch path; `pre_tool_fallback` is no longer dead on Antigravity, so the delivered hook matches the grant its signed preimage covers; a container-bound `ctxloom acp` session no longer runs on the host while ctxloom announces container isolation; a delegated child's resume no longer starts fresh.
+
+**No signature, hash, grant or countersignature changed, and no `ExecPreimageContract` bump** — the exec preimage already included `pre_tool_fallback` and is built host-side before `ManagedConfigToProto` runs, so the trust gate never hashed a wrong value. What was broken was the other half of the correspondence: the hook *delivered* had the flag cleared.
 
 > **Scope correction (coordinator, phase 4).** An earlier statement of this finding — including mine — said these fields "never reach any backend, on any path." **That over-claimed.** They DO reach engines by other routes: `DenyTools` via `internal/operations/profile_materialize.go:115` and `internal/operations/hooks.go:452` (both `AssembleManagedDenyTools`, writing settings files directly), and `Skills` via each engine's own `surfaces.go` (kiro `:237`, opencode `:136`, antigravity `:231`). **What is broken is the LAUNCH path specifically.** State it that way; the narrower claim is the true one and is still serious.
 
@@ -110,10 +151,10 @@ Mechanism, coordinator-confirmed: the `Defaults.OnParseError` policy applies **o
 - **Fix:** give the nested path a way to report unanalyzability and route it through the same policy — then audit every other route by which an unparsed or unsupported input reaches an allow. The `ExpandWrappers` signature is the blocker for the first; `Registry.Supports` having no callers suggests the second was intended and never wired.
 - Context: ltk is a cooperative redirect, not a sandbox. This bounds the severity — it does not excuse a guard that can be stepped around.
 
-### T4. Manifest-less skill trust preimage is a constant, and verification is skipped on the same predicate — **REPRODUCED**
+### T4. Manifest-less skill trust preimage is a constant, and verification is skipped on the same predicate — **REPRODUCED** · **RESOLVED `8d9da20c`**
 `{"preimage":"ctxloom-exec/1","manifest":[]}`, sha `502727b7…` (executed), with `loader_skills.go:105` skipping verification on the identical condition (S2). Two independent failures of the same trust check, in one branch. Directly undermines the signed-context claim.
 
-**FIXED** on `fix/skill-trust-preimage`. `BundleSkill.EffectiveManifest` is the one answer to "which files is this skill": the authored manifest when synced, otherwise one derived from the real source tree, failing closed on an unreadable/escaping tree. Both halves are closed — the `len(entry.Files) > 0` predicate is gone from the loader, so `VerifyExtractedManifest` runs on every skill against the same manifest the gate decided on. Review and the accepted-content snapshot render that same effective manifest, so the listing a user approves is the one the hash covers.
+**RESOLVED** on `fix/skill-trust-preimage`, merged as `8d9da20c`. `BundleSkill.EffectiveManifest` is the one answer to "which files is this skill": the authored manifest when synced, otherwise one derived from the real source tree, failing closed on an unreadable/escaping tree. Both halves are closed — the `len(entry.Files) > 0` predicate is gone from the loader, so `VerifyExtractedManifest` runs on every skill against the same manifest the gate decided on. Review and the accepted-content snapshot render that same effective manifest, so the listing a user approves is the one the hash covers.
 
 **S2's recommended remedy was deliberately not taken**, and the divergence is the finding's one open question: S2 says refuse to gate a manifest-less skill. The code says manifest-less is a legitimate shape — `ctxloom skill create` (`operations/skills.go:236`) emits exactly it, and `skill sync` is a later step. Refusing would break authoring for every project-local bundle, whose local-tier trust already auto-allows it. Deriving the preimage closes the hole *and* keeps the workflow, which is strictly better; but if the intent really is "a skill must be signed before it can be used", that is a product call that would reverse this. **No contract bump:** the payload's field set is unchanged, and `signing.ExecPreimageContract` is shared with MCP servers and hooks, so bumping it would mass-invalidate their untouched approvals as collateral. **Previously-recorded approvals of manifest-less skills are invalidated** — unavoidably, since they attested to a constant; they return to pending for one re-review rather than being migrated, because there is no honest way to re-point an approval-of-nothing at real bytes.
 
@@ -127,8 +168,8 @@ This is the architecture behind the observed 846 zombies / 208 orphaned runners.
 |---|---|
 | `complexity-check` | **exit 1** — red and ignored |
 | `test-conformance` | **exit 1** *and in no workflow* — it caught a real claude-vs-codex divergence nobody is watching |
-| `gen-schemas` (untagged) | **exit 0 having emitted zero bytes** |
-| `validate` | **exit 0 validating 0 files** (`git ls-files .ctxloom` → 0; `.ctxloom/*` gitignored) |
+| `gen-schemas` (untagged) | **exit 0 having emitted zero bytes** — the *untagged* stub (`U003-F01`) is **untouched**. Separately **RESOLVED `20451f26`**: `just gen-schemas` now exits 1 on an empty target list, and `just gen-mcp-schemas` on an empty binding table |
+| `validate` | ~~exit 0 validating 0 files~~ **RESOLVED `e479306b`** — targets are typed (the gitignored project config OPTIONAL, the three tracked `resources/*-config.yaml` REQUIRED), a zero-document run is an error, and each validated path is printed by name. A textbook CI-vs-local asymmetry: the file exists locally, so the same command looked like it worked |
 | `gen-schemas-check`, `extract-defaults -check` | **do not exist** — despite comments citing them as protection |
 | gofmt | **no gate anywhere**; 19 dirty files |
 
@@ -137,10 +178,16 @@ This is the architecture behind the observed 846 zombies / 208 orphaned runners.
 
 **The complexity gate also has a structural blind spot, independent of being red** — CLAIMED (phase-4 documentation agent): **lizard does not descend into func literals**, so the ~930-line `runCmd.RunE` closure (`cli/run.go:367-1300`) — the single largest body of logic in the CLI — is invisible to it even when the gate runs. Two separate problems: the gate does not run, *and* it could not see the worst offender if it did. Fixing only the red does not close this.
 
-### T7. The one testing change with the highest yield — **CONFIRMED**
+### T7. The one testing change with the highest yield — **CONFIRMED** · **RESOLVED `40b49a7f`**
 A dropped field is an **absent statement**, and no coverage, mutation, or complexity metric can point at a line nobody wrote. The existing round-trip test asserts `req.MCPServers == back.MCPServers` — one *named field*, not `req == back`. MCPServer survives because it is the field the assertion names.
 
 **One reflective total-struct round-trip helper (~1 day) across every hand-mirrored converter covers ~104 HIGH wire drops.** This is the highest findings-per-unit-of-work item in the review. Runner-up (~1 hour): invert the 6 tests that currently *pin* silent no-ops as intended behavior.
+
+**RESOLVED, built and landed with T2.** The helper populates every field at every depth with distinguishable non-zero values, round-trips, and requires the whole struct back. It **names no field**, so a field added later is covered without anyone updating the test. It covers all **27** hand-mirrored pairs in `internal/lm/grpc`, with an AST-walking gate that fails when a pair is added without a sweep entry; two exclusions, each with a written reason and an anti-rot test.
+
+**Verified non-vacuous, twice:** the sweep was run against unmodified source first and failed with ten subtests naming every dropped field; and independently by deleting the `Runtime` assignment and confirming `TestProtoParity/agent.ChatRequest` fails naming that field.
+
+**The runner-up is NOT done** — the 6 tests that pin silent no-ops as intended behaviour are untouched. So is the reach beyond `internal/lm/grpc`: the helper covers that package's 27 pairs, not every hand-mirrored converter in the repo.
 
 ---
 
@@ -151,7 +198,7 @@ A dropped field is an **absent statement**, and no coverage, mutation, or comple
 - **T10. Trust store designed fail-closed, implemented fail-open** (F6) — CONFIRMED.
 - **T11. Six real import cycles deferred into external `_test` packages** — VERIFIED (L1): `coord↔cli/tui`, `termui↔cli/tui`, `transcript↔lm/grpc`, `shared/agent↔{claude,codex,kiro}`. **Four were invisible to every unit review** — each is only visible from outside a single unit. Zero production cycles.
 - **T12. Engine identity enumerated in four rosters with four different memberships** — CONFIRMED (L3). `internal/operations` importing `claude`/`codex`/`kiro` is a literal ADR-0026 violation in the core.
-- **T13. `internal/acp` fs handlers serve any absolute host path** — CONFIRMED (S3). Currently masked by the `ChatStart.runtime` drop. **See fix-ordering constraint 1.** **FIXED** on `fix/acp-path-confinement`: one boundary, `confineToWorkspace` in `internal/acp/fsconfine.go`, applied before the fs-upstream branch in both handlers; symlinks resolved before the decision; relative paths refused per the ACP schema. Constraint 1 is satisfied.
+- **T13. `internal/acp` fs handlers serve any absolute host path** — CONFIRMED (S3). Was masked by the `ChatStart.runtime` drop; that mask is now gone (`40b49a7f`), which is why the ordering mattered. **See fix-ordering constraint 1.** **RESOLVED `73ea8d7f`**: one boundary, `confineToWorkspace` in `internal/acp/fsconfine.go`, applied **before** the fs-upstream branch in both handlers so the editor-chained axis is confined too; symlinks resolved on both root and candidate including dangling links; unresolvable root, unreadable ancestor, stat error and symlink loops all deny; relative paths refused rather than resolved, per the ACP schema. Root is `agent.ChatRequest.WorkDir`, the same value handed to the engine subprocess as `cmd.Dir`, so the boundary and the engine's cwd cannot drift. 18 confinement tests. **Still open, filed as `loud-guide`:** `internal/acpagent/fsupstream.go`'s relay is itself unconfined and its unix socket is locally callable; TOCTOU between check and syscall (needs `openat2` `RESOLVE_BENEATH`); the unconditional `Fs` capability advertisement.
 - **T14. Container credential fail-open** — CONFIRMED (S4): `containerProfileFor`'s default hands claude credentials to any unrecognized engine; the registered `acp` backend reaches it.
 - **T15. Codex credentials copied into the repo tree, unignored, write follows a tracked symlink** — CONFIRMED + REPRODUCED (S5); phase-2's downgrade reversed.
 - **T16. Runner cell-path boundary anchored to the coordinator's cwd** — CONFIRMED (S6), U038 upheld: `agent_report.publish_paths` / `agent_fetch_artifact.dest_path` can write into the parent tree under `workspace:worktree`.
@@ -221,6 +268,23 @@ Do not treat these as findings.
 - Left CLAIMED elsewhere: D10/D13/D14, parts of D11/D12; transcript payload mirrors and `Record.Engine`; MCP resources; a systematic output-schema sweep; `internal/acp` L0 `$defs`.
 - S11's `ssh-keygen` interop half; X68 timings; 2 of 4 retraction paths; `VerifyPublisher` nil-root reachability.
 - No container, codex, or delegation run was executed by any synthesizer.
+
+### Raised BY the remediation, still open (added 2026-07-26)
+
+These are not from the review — the implementing agents surfaced them while fixing something adjacent, and each was deliberately **not** absorbed into the fix it was found in. They are open work, recorded here so they survive.
+
+| item | raised by | state |
+|---|---|---|
+| `internal/acpagent/fsupstream.go`'s relay is itself **unconfined**, and its unix socket is locally callable — so the confinement T13 added to `internal/acp` can be reached around | T13 `73ea8d7f` | **open**, filed as taskloom `loud-guide` |
+| TOCTOU between the confinement check and the syscall — needs `openat2` `RESOLVE_BENEATH` | T13 `73ea8d7f` | **open**, same task |
+| The `Fs` capability is advertised unconditionally | T13 `73ea8d7f` | **open**, same task |
+| **Partial closure narrowing still writes** a non-empty result — the T1 guard refuses empty-over-populated, not populated-but-smaller | T1 `fd0d87d6` | **open** |
+| **`remote update` still reads via `loadConfigOrFallback`** — the same fault-tolerant fallback whose use by a destructive command *was* T1. `remote update` is read-only today, so it is correct-by-accident, not by construction | T1 `fd0d87d6` | **open** |
+| T4 **diverges from S2's recommended remedy** (S2: refuse to gate a manifest-less skill; the fix: derive a real preimage instead). Recorded as a **product call**, not a defect — reversing it is a decision, not a bug fix | T4 `8d9da20c` | **open decision** |
+| T4 **invalidates previously-recorded approvals of manifest-less skills.** No honest migration exists — they attested to a constant. They return to pending for one re-review | T4 `8d9da20c` | **accepted consequence**, shipped |
+| A **stale orphaned narration block** in `trust_surface.doc.md` | sweep / `f48ec814` | **open** — see below |
+| T7's runner-up (invert the 6 tests that pin silent no-ops) and its reach beyond `internal/lm/grpc` | T7 `40b49a7f` | **open** |
+| One batch refutation (`confload.Merge`'s swallowing branches are unreachable) named **no finding ID**, so the census cannot key on it | sweep `0e35e9b9` | **untracked** |
 
 ---
 

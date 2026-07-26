@@ -131,25 +131,29 @@ flowchart TD
 
 **Do not hold, or are narrower than documented:**
 
-- **An LLM plugin that exits 0 with empty stdout is not a failure anywhere in the chain.**
-  `runDistill` (`compactor.go:857-861`) returns `(strings.TrimSpace(stdout), nil)` and only a
-  non-zero exit is an error; `distillChunks` (`:477-483`) increments `failed` **only** when
-  `err != nil`, so the all-failed abort at `:242` cannot fire. `combined` becomes `""` (single
-  chunk) or `"---"` (multi-chunk), `assembleBody` returns `""`, and `saveDistilled:974` atomically
-  replaces the previous good `essence.md` with it. The reader then reports
-  `Loaded: true, Content: ""`.
-- **`dumpEmptySession` overwrites a previously good essence with a 54-byte placeholder**, and —
-  because `deriveSummary` returns the placeholder's first prose line, which is non-empty — the
-  `summary != ""` guard at `:578` does not stop `SetSummary` replacing a good index summary with
-  it. Reachable three ways: `CanonicalHistory.GetSession` returns `(session, nil)` for an
-  existing-but-empty `transcript.jsonl`; `loadSessionToCompact:404` falls back to
-  `CurrentSession` when a bound id's transcript is gone; and `MainThreadEntries` filters an
-  all-sidechain session to zero.
-- **The `summary != ""` guard covers only `Summary`.** `sessions.SetSummary`
-  (`index.go:750-752`) assigns `Summary`, `Detail` and `SourceSize` unconditionally, and
-  `buildPickerDetail` returns nil whenever the body has no `### Open Items` heading — which the
-  reduce prompt explicitly permits. So a normal re-distill of a session that finished its open
-  items erases the stored `Detail`.
+- ~~**An LLM plugin that exits 0 with empty stdout is not a failure anywhere in the chain.**~~ —
+  **RESOLVED `cb00291e`** (U078-F01). `runDistill` now returns an error for "exited 0 but
+  produced no output", so `distillChunks` marks the chunk failed and the all-chunks-failed
+  abort *can* fire and keep the previous essence. The old chain is the reason the abort
+  existed and never ran: `failed` was incremented only on `err != nil`, so an empty result
+  counted as success, `assembleBody` returned `""`, and `saveDistilled` atomically replaced
+  a good `essence.md` with it while the reader reported `Loaded: true, Content: ""`.
+- ~~**`dumpEmptySession` overwrites a previously good essence with a 54-byte placeholder**~~ —
+  **RESOLVED `9979ce25`** (U078-F02). `dumpEmptySession` (`compactor.go:323`) now checks
+  `existingEssence` first and **keeps** what is there, warning rather than erroring: an
+  empty session is still not a failure, there is simply nothing better to write. This
+  fired on real, populated sessions — a session reads as empty for reasons that have
+  nothing to do with its essence (`CanonicalHistory.GetSession` returning `(session, nil)`
+  for an existing-but-empty `transcript.jsonl`; the `CurrentSession` fallback when a bound
+  id's transcript is gone; `MainThreadEntries` filtering an all-sidechain session to zero)
+  — and re-distills fire automatically off the staleness path.
+- **The `summary != ""` guard covers only `Summary`** — `buildPickerDetail` returns nil
+  whenever the body has no `### Open Items` heading, which the reduce prompt explicitly
+  permits, so a normal re-distill of a session that finished its open items erases the
+  stored `Detail`. **Partly closed by `07abd892`**: `sessions.SetSummary` now refuses an
+  *empty summary* outright, but it still assigns `Detail` and `SourceSize` from whatever
+  it is handed, so a non-empty summary with a nil `Detail` still clears the detail lines.
+  **UNVERIFIED whether that residue is reachable today** — not re-traced in this pass.
 - **`transcriptSize` returns 0 on five distinct failure paths** (`compactor.go:593,597,602,614,618`)
   and — unlike every other degradation in this file — emits **no warning at all**, so a transient
   failure silently zeroes the staleness fingerprint and disables the "out of date" badge for that

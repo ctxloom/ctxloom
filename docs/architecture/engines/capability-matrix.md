@@ -81,21 +81,31 @@ Two further permission facts:
 
 ### The deny-list reality check
 
-**`ManagedConfig.DenyTools` never reaches any engine on the launch path.** The Go
-struct carries it (`internal/shared/agent/backend.go:362`); the proto does not
-(`internal/lm/grpc/llm.proto:425-431`, 5 fields); `ManagedConfigToProto` drops it
-(`internal/lm/grpc/managed.go:22-28`). See [the plugin wire](grpc-wire.md).
+**`ManagedConfig.DenyTools` reaches the launch path** since `40b49a7f`. The Go
+struct carries it (`internal/shared/agent/backend.go:362`) and so does the proto
+(`repeated string deny_tools = 7`, `internal/lm/grpc/llm.proto`); `ManagedConfigToProto`
+and `managedConfigFromProto` both carry it. See [the plugin wire](grpc-wire.md).
 
-It reaches surfaces on the **host-side paths only**:
+All three delivery paths now carry it:
 
 | Path | Carries `DenyTools`? | Carries `Skills`? | Site |
 |---|---|---|---|
-| `ctxloom run` / oneshot (gRPC launch) | **no** | **no** | `internal/lm/grpc/managed.go:22-28` |
+| `ctxloom run` / oneshot (gRPC launch) | yes — **since `40b49a7f`** | yes — **since `40b49a7f`** | `internal/lm/grpc/managed.go` |
 | `ctxloom apply-hooks` | yes | **no** | `internal/operations/hooks.go:452` |
 | `ctxloom profile materialize` | yes | yes | `internal/operations/profile_materialize.go:129`, `:131` |
 
-So a `deny_tools` entry configured for claude applies when you materialize or apply
-hooks, and does not apply to the engine ctxloom launches.
+**Whether the engine then *honours* it is a separate question** — the per-engine
+table above is the one that answers it. Only claude has a native per-tool deny
+list; codex and antigravity accept `DenyTools` at the seam and drop it in
+`NewSurfaces`, and kiro's lever is an allowlist. The wire carrying the field does
+not give an engine a capability it never had.
+
+> **This used to be false and it is the reason to distrust "it is configured, so
+> it applies".** Before `40b49a7f` the proto had 5 fields and `ManagedConfigToProto`
+> dropped `deny_tools` and `skills` outright, so a `deny_tools` entry applied when
+> you materialized or applied hooks and **did not apply to the engine ctxloom
+> launched** — exit 0, no diagnostic. The field's own comment called it "the
+> deny-tools.md root-cause fix"; it had been inert since it was written.
 
 ## 4. Context surface — how assembled context actually reaches the engine
 
@@ -213,9 +223,7 @@ Composable container engines, in order (`internal/lm/isolation/profile.go:357`):
 ## 10. Capabilities that exist on every engine and fire on none
 
 - **`ContentCommands` / `RegisterFromContent`** — implemented with a real body by all six backends (claude, antigravity, acp, kiro, codex, opencode). `LaunchBackend.commands` is assigned at `internal/shared/agent/launch_backend.go:92` and **read nowhere**. Production call sites: zero. Real command writes go through the commands *surface* instead.
-- **`ManagedConfig.Skills`** — five engines declare `skillExports`; the field never crosses the launch wire.
-- **`ManagedConfig.DenyTools`** — one engine (claude) consumes it; the field never crosses the launch wire.
-- **`wire.Hook.PreToolFallback`** — one consumer (`internal/antigravity/antigravity.go:388`, "the only way it ever fires on agy"); the field never crosses the wire, so it is always `false` on the engine side.
+- ~~**`ManagedConfig.Skills`**~~, ~~**`ManagedConfig.DenyTools`**~~, ~~**`wire.Hook.PreToolFallback`**~~ — **all three now cross the launch wire** (`40b49a7f`). They belonged in this section because none of them did: five engines declared `skillExports` that never received anything, claude's deny list was never applied at launch, and `PreToolFallback` arrived `false` at its one consumer (`internal/antigravity/antigravity.go:388`, "the only way it ever fires on agy"). Left visible because "declared everywhere, fires nowhere" is the pattern this section catalogues, and these were its three clearest instances.
 - **`RunOptions.temperature` and `RunOptions.max_tokens`** — carried by the proto, constructed by nothing, read by no backend.
 
 ## See also

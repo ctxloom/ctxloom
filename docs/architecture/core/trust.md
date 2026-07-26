@@ -143,9 +143,22 @@ Step semantics that matter:
 - **Step 1 is supreme.** A ref-reject outranks a verified publisher signature. It is scoped to
   the ref only (not to bytes or form), so it survives every content change.
 - **Step 2 reads `lock.yaml`, never the network.** `buildLockfileRetraction`
-  (`internal/operations/trust.go:382`) loads the lockfile and wraps it as `RetractionRecords`;
-  the key is `lockfileKeyForRef` = `RepoURL + "@bundles/" + Bundle` (`trust.go:413`). Retraction is
+  (`internal/operations/trust.go:484`) loads the lockfile and wraps it as `RetractionRecords`;
+  the key is `lockfileKeyForRef` = `RepoURL + "@bundles/" + Bundle` (`trust.go:523`). Retraction is
   *recorded* at sync time by `checkInstalledRetraction` (`internal/operations/sync.go:554`).
+- **Step 2 fails CLOSED on an unreadable lockfile** (`9492dd16`). An unparseable `lock.yaml`
+  denies via `trust.Deny` + `trust.SourcePending`, recorded as `strictness.FailOnce(ClassTrust)`.
+  **Scoped to remote refs only** — the lockfile records nothing but remote bundle entries, so an
+  unreadable one conceals nothing about a local or builtin ref, and withholding those would be
+  denying on evidence that does not exist. One predicate, `retractable(ref)` (`trust.go:527`), is
+  shared by the gate and by `lockfileRetraction.Retracted` so the two cannot drift. The gate sits
+  **below** the rejection step, keeping rejection supreme.
+  **Absent is not corrupt:** `LockfileManager.Load` maps `os.IsNotExist` to an empty lockfile with
+  a nil error, so the failure branch never sees absence and a project with no pins is untouched.
+  > This degraded to "nothing is retracted" until `9492dd16`, so content a publisher had
+  > deliberately **withdrawn** was silently served again. Retraction is the one control that
+  > exists for "this turned out to be harmful", so failing open inverted it. T1's write guard
+  > does not reach this — no write is involved.
 - **Step 6 is scoped to `(ref, form, bytes)`.** `Approved` (`countersign_records.go:129`) requires a
   countersignature that verifies over the supplied payload for the supplied form; an empty payload
   or empty form returns false.

@@ -1,3 +1,5 @@
+//go:build arch
+
 // Package docs holds gates over the repository's own long-lived record files.
 //
 // The findings index is maintained by hand across many remediation batches, and

@@ -1,3 +1,5 @@
+//go:build arch
+
 package liveness_test
 
 import (

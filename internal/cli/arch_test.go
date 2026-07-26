@@ -1,3 +1,5 @@
+//go:build arch
+
 package cli
 
 import (

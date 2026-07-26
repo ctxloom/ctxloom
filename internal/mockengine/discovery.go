@@ -176,15 +176,29 @@ func observePath(rec ProbeRecord, path string, dir bool) ProbeRecord {
 	info, err := os.Stat(path)
 	if err != nil {
 		rec.Present = false
+		if !os.IsNotExist(err) {
+			// "Not there" and "I could not look" arrive through the same error
+			// return. Only the first establishes absence; reporting the second
+			// as absence makes the instrument that exists to prove delivery
+			// report a delivered surface as undelivered (U079-F06).
+			rec.Unreadable = true
+			rec.Note = joinNote(rec.Note, "unstattable: "+err.Error())
+		}
 		return rec
 	}
 	if dir || info.IsDir() {
 		rec.Dir = true
-		entries := hashDir(path)
+		entries, walkErr := hashDir(path)
 		rec.Present = true
 		rec.Entries = entries
 		rec.Size = int64(len(entries))
 		rec.SHA256 = hashBytes([]byte(canonicalEntries(entries)))
+		if walkErr != nil {
+			// The listing is INCOMPLETE. Without this the truncated listing
+			// hashed cleanly and read as a full, faithful observation.
+			rec.Unreadable = true
+			rec.Note = joinNote(rec.Note, "incomplete listing: "+walkErr.Error())
+		}
 		return rec
 	}
 	b, err := os.ReadFile(path)
@@ -192,6 +206,7 @@ func observePath(rec ProbeRecord, path string, dir bool) ProbeRecord {
 		// Present on disk but unreadable — report present with no hash and a
 		// note, rather than pretending it is absent.
 		rec.Present = true
+		rec.Unreadable = true
 		rec.Note = joinNote(rec.Note, "unreadable: "+err.Error())
 		return rec
 	}
@@ -206,10 +221,13 @@ func observePath(rec ProbeRecord, path string, dir bool) ProbeRecord {
 // slash-separated relative path, name-sorted, each hashed. Recursive so nested
 // command/skill package files are captured; deterministic so the directory's
 // own hash is stable.
-func hashDir(root string) []EntryRecord {
+func hashDir(root string) ([]EntryRecord, error) {
 	var entries []EntryRecord
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
 			return nil
 		}
 		rel, relErr := filepath.Rel(root, path)
@@ -219,7 +237,11 @@ func hashDir(root string) []EntryRecord {
 		rel = filepath.ToSlash(rel)
 		b, readErr := os.ReadFile(path)
 		e := EntryRecord{Name: rel}
-		if readErr == nil {
+		if readErr != nil {
+			// Listed but unread: say so. An entry with an empty SHA256 and no
+			// marker is indistinguishable from one nobody hashed (U079-F07).
+			e.Unreadable = true
+		} else {
 			e.Size = int64(len(b))
 			e.SHA256 = hashBytes(b)
 		}
@@ -227,7 +249,7 @@ func hashDir(root string) []EntryRecord {
 		return nil
 	})
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	return entries
+	return entries, walkErr
 }
 
 // canonicalEntries renders a directory's entries as one deterministic line each,

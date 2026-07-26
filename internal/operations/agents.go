@@ -94,22 +94,31 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // NOT settable here — it is a session trait chosen at invocation time, never
 // stored on a binding.
 type SetAgentRequest struct {
-	Name        string   `json:"name"`
-	Engine      string   `json:"engine,omitempty"`
-	Profiles    []string `json:"profiles,omitempty"`
-	Runtime     string   `json:"runtime,omitempty"`
-	Permissions string   `json:"permissions,omitempty"`
+	Name        string    `json:"name"`
+	Engine      *string   `json:"engine,omitempty"`
+	Profiles    *[]string `json:"profiles,omitempty"`
+	Runtime     *string   `json:"runtime,omitempty"`
+	Permissions *string   `json:"permissions,omitempty"`
 	// Coordinator sets the trust-boundary gate flag: whether this agent, when
 	// run as a delegated child, is trusted with the coordinator-only MCP
 	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
 	// = leaf; set true only for an agent that itself spawns/manages children.
-	Coordinator bool `json:"coordinator,omitempty"`
+	Coordinator *bool `json:"coordinator,omitempty"`
 	// Driving sets the per-turn execution axis (conversational|oneshot);
 	// empty = conversational (the default, see agents.Agent.Driving). Unlike
 	// Runtime/Permissions below, an unknown value here is REJECTED (SetAgent
 	// returns an error, nothing is persisted) rather than warned-and-stored —
 	// see agents.ValidateDriving's doc for why.
-	Driving string `json:"driving,omitempty"`
+	Driving *string `json:"driving,omitempty"`
+}
+
+// orKeep dereferences an optional request field: nil means "the caller did not
+// name this field", so the existing value is kept.
+func orKeep[T any](set *T, existing T) T {
+	if set == nil {
+		return existing
+	}
+	return *set
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,
@@ -121,9 +130,16 @@ type SetAgentRequest struct {
 //
 // cfg is used only for the advisory reads below (the same-name shadow
 // warning, and resolving remote aliases for canonicalize-on-store); it is
-// never mutated. The bind itself is an unconditional whole-binding rewrite
-// (an update is a replace, not a merge), so it needs no read-check against
-// the transaction's fresh Draft the way a duplicate-detecting write would.
+// never mutated. The bind itself is a per-FIELD update applied to the
+// transaction's fresh Draft: a nil request field means "the caller did not
+// name this field" and keeps whatever the existing binding holds, while an
+// explicitly-supplied empty value clears it. It used to be a whole-binding
+// REPLACE, which meant `ctxloom agent set dev --runtime container` silently
+// destroyed dev's engine, profiles, permission posture, coordinator flag and
+// — worst, because the request type cannot even express it — its approval
+// escalation ladder (U081-F01). Merging inside Update also keeps the
+// read-modify-write under the same lock, so a concurrent writer cannot land
+// between the read of the existing record and the write of the merged one.
 //
 // Name-agnostic by construction: it stores whatever name/engine/profiles the
 // caller passes — the role taxonomy (developer/finder/code-review, per-language ×
@@ -154,20 +170,20 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// Runtime is stored as written — validation is advisory only (an unknown
 	// value acts as host at resolve time, per fault tolerance), but warn NOW
 	// so a typo is caught at write time rather than at the first run.
-	if req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), req.Runtime) {
+	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
 		clidiag.Warn("ctxloom",
 			"agent %q declares unknown runtime %q (known: %s); it will run on the host",
-			name, req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
+			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
 	}
 
 	// Permissions is likewise stored as written; validation is advisory (an
 	// unknown value resolves to the default posture at run time), but warn NOW so
 	// a typo is caught at write time rather than at the first run.
-	if req.Permissions != "" {
-		if _, ok := agent.ParsePermissionMode(req.Permissions); !ok {
+	if req.Permissions != nil && *req.Permissions != "" {
+		if _, ok := agent.ParsePermissionMode(*req.Permissions); !ok {
 			clidiag.Warn("ctxloom",
 				"agent %q declares unknown permissions %q (known: %s); it will use the default posture",
-				name, req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
+				name, *req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
 		}
 	}
 
@@ -177,9 +193,10 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// never silently persist and later silently resolve to the default — see
 	// agents.ValidateDriving's doc. Nothing is written to config.yaml when
 	// this fails.
-	driving := agents.DrivingMode(req.Driving)
-	if err := agents.ValidateDriving(driving); err != nil {
-		return nil, fmt.Errorf("agent %q: %w", name, err)
+	if req.Driving != nil {
+		if err := agents.ValidateDriving(agents.DrivingMode(*req.Driving)); err != nil {
+			return nil, fmt.Errorf("agent %q: %w", name, err)
+		}
 	}
 
 	// Canonicalize-on-store (decision B): a per-remote short profile ref
@@ -187,12 +204,25 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// binding persists a stable identity, not a machine-local alias that a later
 	// remote rename would strand. Bare/local names stay verbatim (decision A). This
 	// replaces the old verbatim store.
-	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
-	entry := agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions, Coordinator: req.Coordinator, Driving: driving}
-
+	var entry agents.Agent
 	err := mgr.Update(func(d *config.Draft) error {
 		if d.Agents == nil {
 			d.Agents = make(map[string]agents.Agent)
+		}
+		// Start from the record as it stands RIGHT NOW inside the transaction
+		// (not from cfg, which was loaded before the lock), so every field the
+		// request does not name — including Escalation, which SetAgentRequest
+		// has no way to carry — survives untouched.
+		entry = d.Agents[name]
+		if req.Profiles != nil {
+			entry.Profiles = canonicalizeProfileRefs(*req.Profiles, aliasToURLResolver(cfg))
+		}
+		entry.Engine = orKeep(req.Engine, entry.Engine)
+		entry.Runtime = orKeep(req.Runtime, entry.Runtime)
+		entry.Permissions = orKeep(req.Permissions, entry.Permissions)
+		entry.Coordinator = orKeep(req.Coordinator, entry.Coordinator)
+		if req.Driving != nil {
+			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
 		d.Agents[name] = entry
 		return nil
@@ -202,12 +232,12 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	}
 	return &AgentEntry{
 		Name:        name,
-		Engine:      req.Engine,
-		Profiles:    profiles,
-		Runtime:     req.Runtime,
-		Permissions: req.Permissions,
-		Coordinator: req.Coordinator,
-		Driving:     driving,
+		Engine:      entry.Engine,
+		Profiles:    entry.Profiles,
+		Runtime:     entry.Runtime,
+		Permissions: entry.Permissions,
+		Coordinator: entry.Coordinator,
+		Driving:     entry.Driving,
 		Source:      agents.SourceConfig,
 	}, nil
 }

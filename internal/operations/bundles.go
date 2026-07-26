@@ -1138,6 +1138,15 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 			failed.Add(name)
 			continue
 		}
+		if res.Distilled == "" {
+			// Zero bytes delivered is a FAILED distillation, not a successful
+			// one that happened to be empty. Assigning it would overwrite a
+			// previously-good distillation with "" and let distillOutcome
+			// report "distilled" for content nobody can use (U081-F04).
+			clidiag.Warn("ctxloom", "distill of fragment %q produced no content; keeping the previous distillation", name)
+			failed.Add(name)
+			continue
+		}
 		frag.Distilled = res.Distilled
 		frag.DistilledBy = res.ModelID
 		frag.ContentHash = frag.ComputeContentHash()
@@ -1162,6 +1171,11 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		})
 		if err != nil {
 			clidiag.Warn("ctxloom", "distill of prompt %q failed: %v", name, err)
+			failed.Add(name)
+			continue
+		}
+		if res.Distilled == "" {
+			clidiag.Warn("ctxloom", "distill of prompt %q produced no content; keeping the previous distillation", name)
 			failed.Add(name)
 			continue
 		}

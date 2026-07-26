@@ -143,7 +143,14 @@ func staleSignatureError(bundlePath string, err error) error {
 func readSignature(fs afero.Fs, srcBundle string) ([]byte, error) {
 	srcSig := srcBundle + sigSuffix
 	exists, err := afero.Exists(fs, srcSig)
-	if err != nil || !exists {
+	if err != nil {
+		// Absent is not the same state as unreadable. afero.Exists reports
+		// (false, err) for any non-IsNotExist stat failure — EACCES on the
+		// directory, an I/O error — and collapsing that into "unsigned" is
+		// precisely the downgrade this function exists to prevent (U081-F06).
+		return nil, fmt.Errorf("stat signature %s: %w", srcSig, err)
+	}
+	if !exists {
 		return nil, nil
 	}
 	data, err := afero.ReadFile(fs, srcSig)
@@ -193,7 +200,9 @@ type ImportBundleResult struct {
 	SigDest string `json:"sig_dest,omitempty"`
 }
 
-// ImportBundle validates a bundle file and copies it into the project's
+// ImportBundle validates a bundle file — its name (*.yaml, since that is all
+// the loader ever looks for) and its content (bundles.ParseBundle refuses a
+// document that declares nothing) — and copies it into the project's
 // committed content bundles directory (symlink-guarded, like CreateBundle),
 // carrying its detached `.sig` sibling when one exists. Refuses to overwrite
 // without Force.
@@ -202,6 +211,12 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
+	// .yaml ONLY: bundles.Loader.Find stats "<name>.yaml" and
+	// "<name>/bundle.yaml" and nothing else, so a ".yml" bundle is as
+	// unloadable as a ".txt" one (U081-F10).
+	if err := requireLoadableName(req.SourcePath, "bundle", ".yaml"); err != nil {
+		return nil, err
+	}
 	srcData, err := afero.ReadFile(fs, req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
@@ -219,7 +234,15 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
-	if exists, _ := afero.Exists(fs, destPath); exists && !req.Force {
+	// The error matters: a destination that cannot be STATTED (permissions, a
+	// broken symlink) used to read as "does not exist" and was overwritten
+	// without --force — the one outcome this guard exists to prevent. Matches
+	// ImportProfile, which already reads it (U081-F11).
+	exists, err := afero.Exists(fs, destPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)
+	}
+	if exists && !req.Force {
 		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
 	}
 	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {

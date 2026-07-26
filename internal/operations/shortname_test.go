@@ -40,7 +40,7 @@ func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 
 	res, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "dev",
-		Profiles: []string{"personal/agent-ensemble#profiles/finder", "developer"},
+		Profiles: ptr([]string{"personal/agent-ensemble#profiles/finder", "developer"}),
 	})
 	require.NoError(t, err)
 

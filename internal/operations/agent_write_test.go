@@ -47,8 +47,8 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 
 	entry, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "finder",
-		Engine:   "claude-fast",
-		Profiles: []string{"p1", "p2"},
+		Engine:   ptr("claude-fast"),
+		Profiles: ptr([]string{"p1", "p2"}),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "finder", entry.Name)
@@ -73,9 +73,9 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "developer",
-		Engine:   "claude-code",
-		Profiles: []string{"default"},
-		Runtime:  "container",
+		Engine:   ptr("claude-code"),
+		Profiles: ptr([]string{"default"}),
+		Runtime:  ptr("container"),
 	})
 	require.NoError(t, err)
 
@@ -86,7 +86,7 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 	assert.Equal(t, "container", sub.Runtime)
 
 	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Runtime: "podracer"})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Runtime: ptr("podracer")})
 	require.NoError(t, err, "unknown runtime warns, never errors")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -105,9 +105,9 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:        "planner",
-		Engine:      "claude-code",
-		Profiles:    []string{"default"},
-		Permissions: "plan",
+		Engine:      ptr("claude-code"),
+		Profiles:    ptr([]string{"default"}),
+		Permissions: ptr("plan"),
 	})
 	require.NoError(t, err)
 
@@ -118,7 +118,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	assert.Equal(t, "plan", sub.Permissions)
 
 	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Permissions: "wildwest"})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Permissions: ptr("wildwest")})
 	require.NoError(t, err, "unknown permissions warns, never errors")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -138,9 +138,9 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "shooter",
-		Engine:   "claude-code",
-		Profiles: []string{"default"},
-		Driving:  "oneshot",
+		Engine:   ptr("claude-code"),
+		Profiles: ptr([]string{"default"}),
+		Driving:  ptr("oneshot"),
 	})
 	require.NoError(t, err)
 
@@ -151,7 +151,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 	assert.Equal(t, agents.DrivingOneshot, sub.Driving)
 
 	// Unknown value: REJECTED — nothing written, unlike Runtime/Permissions.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Driving: "wildwest"})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Driving: ptr("wildwest")})
 	require.Error(t, err, "unknown driving must be rejected, not stored")
 	assert.Contains(t, err.Error(), "wildwest")
 	final, err := config.Load(config.WithAppDir(appDir))
@@ -166,11 +166,11 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Engine: "a", Profiles: []string{"x"}})
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Engine: ptr("a"), Profiles: ptr([]string{"x"})})
 	require.NoError(t, err)
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: "b", Profiles: []string{"y", "z"}})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: ptr("b"), Profiles: ptr([]string{"y", "z"})})
 	require.NoError(t, err)
 
 	final, err := config.Load(config.WithAppDir(appDir))
@@ -184,7 +184,7 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "", Profiles: []string{"p"}})
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "", Profiles: ptr([]string{"p"})})
 	assert.Error(t, err)
 }
 
@@ -193,7 +193,7 @@ func TestSetAgent_EmptyName(t *testing.T) {
 func TestRemoveAgent_RoundTrips(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "finder", Profiles: []string{"p1"}})
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "finder", Profiles: ptr([]string{"p1"})})
 	require.NoError(t, err)
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
@@ -250,7 +250,7 @@ func TestSetAgent_ConcurrentWritesAllSurvive(t *testing.T) {
 			defer wg.Done()
 			_, errs[i] = SetAgent(mgr, cfg, SetAgentRequest{
 				Name:     fmt.Sprintf("agent-%02d", i),
-				Profiles: []string{"p"},
+				Profiles: ptr([]string{"p"}),
 			})
 		}(i)
 	}

@@ -23,7 +23,7 @@ import (
 // empty model id — the previous code stamped every target "distilled",
 // silently lying in the summary.
 func TestDistillOutcome_FailureReportedSkipped(t *testing.T) {
-	failed := distillOutcome(ItemKindFragment, "frag", "", false)
+	failed := distillOutcome(ItemKindFragment, "frag", "body", "", false)
 	if failed.Status != DistillStatusSkipped {
 		t.Fatalf("empty DistilledBy must be Skipped, got %q", failed.Status)
 	}
@@ -34,7 +34,7 @@ func TestDistillOutcome_FailureReportedSkipped(t *testing.T) {
 		t.Fatalf("failed item must carry no model id, got %q", failed.ModelID)
 	}
 
-	ok := distillOutcome(ItemKindCommand, "p", "claude-haiku-4-5", false)
+	ok := distillOutcome(ItemKindCommand, "p", "body", "claude-haiku-4-5", false)
 	if ok.Status != DistillStatusDistilled {
 		t.Fatalf("stamped DistilledBy must be Distilled, got %q", ok.Status)
 	}
@@ -44,7 +44,7 @@ func TestDistillOutcome_FailureReportedSkipped(t *testing.T) {
 
 	// The RE-distill failure case: the old DistilledBy survives the failed
 	// attempt, so the failed flag — not post-state — must drive the outcome.
-	redistillFailed := distillOutcome(ItemKindFragment, "frag", "stale-model", true)
+	redistillFailed := distillOutcome(ItemKindFragment, "frag", "body", "stale-model", true)
 	if redistillFailed.Status != DistillStatusSkipped || redistillFailed.Reason != "distill_failed" {
 		t.Fatalf("failed re-distill must be reported distill_failed, got %+v", redistillFailed)
 	}

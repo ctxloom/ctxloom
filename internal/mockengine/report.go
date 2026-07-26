@@ -42,8 +42,18 @@ type ProbeRecord struct {
 	// probe's flag was absent, or when the value was an inline literal.
 	Path string `json:"path"`
 	// Present is whether the probed surface EXISTS. A false here on a surface a
-	// test delivered is a silent no-op caught red-handed.
+	// test delivered is a silent no-op caught red-handed — but read it WITH
+	// Unreadable: Present=false only establishes absence when Unreadable is
+	// false.
 	Present bool `json:"present"`
+	// Unreadable marks an observation that FAILED rather than an absence that
+	// was established. os.Stat reports "not there" and "I could not look"
+	// through the same error return, and collapsing both into Present=false
+	// made the instrument that exists to prove delivery report a delivered
+	// surface as undelivered (U079-F06). It is in the digest because a
+	// conformance assertion of absence must not go green on a failed
+	// observation. Note carries the underlying error.
+	Unreadable bool `json:"unreadable,omitempty"`
 	// Size is the byte length of the file, the inline literal, or (for a
 	// directory) the count of entries beneath it.
 	Size int64 `json:"size"`
@@ -120,6 +130,11 @@ type EntryRecord struct {
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+	// Unreadable marks an entry that was listed but whose bytes could not be
+	// read. Without it the entry carried an empty SHA256, which looks like a
+	// hash nobody bothered to compute rather than a read that failed
+	// (U079-F07).
+	Unreadable bool `json:"unreadable,omitempty"`
 }
 
 // Report is the full discovery answer for one launch.
@@ -183,10 +198,10 @@ func hashBytes(b []byte) string {
 func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 	var b strings.Builder
 	for _, r := range recs {
-		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t\n",
-			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback)
+		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t|%t\n",
+			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback, r.Unreadable)
 		for _, e := range r.Entries {
-			fmt.Fprintf(&b, "  entry|%s|%d|%s\n", e.Name, e.Size, e.SHA256)
+			fmt.Fprintf(&b, "  entry|%s|%d|%s|%t\n", e.Name, e.Size, e.SHA256, e.Unreadable)
 		}
 	}
 	// The env contract is rendered by NAME and OUTCOME only: a variable's value

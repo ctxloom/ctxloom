@@ -366,10 +366,67 @@ that cannot fail is worse than no instrument, and several of its limbs could not
   cleanly and run green (U079-F01/F02). This tightens the shared reader the
   driver's own anti-drift tests use, so a driver that stops emitting a required
   flag now fails its test instead of the live spawn.
-- **The discovery digest has changed value.** It now covers the env section and
-  the env-dir fallback marker. Any test pinning a literal digest must be re-taken
-  — that is the point: the old digest could not distinguish a delivered run from
-  an undelivered one on those limbs.
+- **A failed observation is no longer reported as an absent surface.**
+  `os.Stat` reports "it is not there" and "I could not look" through the same
+  error return, and the probe collapsed both into `present:false` — so a surface
+  ctxloom DID deliver, on a path the probe could not stat, read as a delivery
+  that never happened. Records now carry `unreadable`, and the directory walk
+  no longer discards its error: an incomplete listing says so instead of hashing
+  cleanly, and a listed-but-unreadable file is marked rather than left with an
+  empty hash (U079-F06/F07).
+- **The discovery digest has changed value.** It now covers the env section, the
+  env-dir fallback marker and the `unreadable` markers above. Any test pinning a
+  literal digest must be re-taken — that is the point: the old digest could not
+  distinguish a delivered run from an undelivered one on those limbs, and could
+  not distinguish either from a run whose observation failed.
+
+---
+
+## Bundles, agents and imports (batch 8)
+
+- **`ctxloom agent set <name>` now updates only the flags you typed.** It was a
+  whole-record replace behind an "add or update" help string, so
+  `ctxloom agent set dev --runtime container` silently destroyed dev's engine,
+  profiles, permission posture, coordinator flag — and its approval-escalation
+  ladder, which the request could not even express, so no caller could have
+  preserved it. Omitted flags are now left alone. **Explicitly clearing still
+  works**: `--engine ""` clears the engine, because "not named" and "set to
+  empty" are now different things. If you were relying on `agent set` to reset a
+  binding to defaults, name the fields you want cleared, or `agent remove` and
+  re-add (U081-F01).
+- **`ctxloom bundle distill` no longer reports a zero-byte distillation as a
+  success.** A distiller that returned no error and no content had its empty
+  result written over a previously-good distillation and reported as
+  `distilled` with a fresh model id. Such an item is now reported
+  `distill_failed` and the prior distillation is kept (U081-F04).
+- **An unreadable signature is an error, not an unsigned bundle.** A stat
+  failure on a detached `.sig` (permissions, I/O) used to read as "this bundle
+  is unsigned". On `bundle move` that was worse: the carried signature stayed
+  nil, the "published but its signature did not" guard was skipped, and the
+  signed local source was deleted. Both paths now stop loudly. A genuinely
+  unsigned bundle is still normal and still silent (U081-F06).
+- **`bundle import` / `profile import` refuse a filename the loader could never
+  find.** The destination is the source basename written verbatim, and the
+  loaders filter by extension — so `ctxloom bundle import seed.txt` reported
+  `imported` for a file nothing would ever open, and with `--force` destroyed a
+  real bundle of the same basename to make room for it. Bundles must be
+  `*.yaml` (`bundles.Loader` stats only `<name>.yaml` and `<name>/bundle.yaml`,
+  so `.yml` is as unloadable as `.txt`); profiles accept `*.yaml` or `*.yml`.
+  Rename the file and re-import (U081-F10).
+- **`bundle import` reads the destination-exists error.** An unstattable
+  destination used to read as "absent" and was overwritten without `--force`,
+  which is the one outcome that guard exists to prevent. `profile import`
+  already did this; now both do (U081-F11).
+- **A remote URL can no longer place a cache path outside the cache.**
+  `Reference.LocalPath` derives an on-disk directory from a lockfile's remote
+  URL, and none of the derivations stripped traversal — `https://x/../..`
+  cleaned to `..`. `ctxloom remote update --cleanup` against such a lockfile
+  deleted a file outside `.ctxloom/cache/bundles`. Traversal segments are now
+  rewritten to `__` (rewritten, not dropped, so two degenerate remotes cannot
+  collide onto one cache directory), and the cleanup path keeps an independent
+  containment check before any delete. A remote with such a URL will find its
+  cache directory at a new name and re-pull; ordinary remotes are unaffected
+  (U081-F08).
 
 ---
 
@@ -422,6 +479,13 @@ that cannot fail is worse than no instrument, and several of its limbs could not
   before. Only *nothing* is refused.
 - `ctxloom run` on a run that genuinely **succeeded** still exits 0, and an
   explicitly `FAILED` run still exits 1 with the same message.
+- `ctxloom agent set <newname>` on a name that does not exist yet is unchanged: with
+  nothing to preserve, a per-field update and a whole-record write are the same write.
+- A `bundle`/`profile` import of a correctly-named, non-empty file is unchanged.
+- A bundle that genuinely carries no detached `.sig` still imports, exports and moves
+  as unsigned, silently. Only an unreadable one is an error.
+- A distillation that produces real content is unchanged, and a `--dry-run` still
+  plans without distilling anything.
 - The liveness watchdog still **reports only**. It has never terminated, relaunched
   or reaped anything, and none of the above changes that; a quieter watchdog is a
   watchdog whose warnings are worth reading.

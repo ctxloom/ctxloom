@@ -481,6 +481,81 @@ func TestMonitor_WorktreeActivityCountsAsProgress(t *testing.T) {
 	assert.True(t, rep.Evidence.FSObserved)
 }
 
+// A worktree the monitor could not WALK is a broken clock, not a silent one.
+// "Quiet on every clock" is only sayable when every clock was actually read;
+// an unreadable worktree could be full of writes. Condemning anyway is the
+// same verdict-manufactured-from-a-failure as condemning on an unreadable
+// transcript (U056-F01/F05/F08).
+func TestMonitor_UnreadableWorktreeIsUnknownNotStalled(t *testing.T) {
+	requireNonRoot(t)
+	testHome(t)
+	const harp = "locked-worktree"
+	healthySession(t, harp)
+	backdateTranscript(t, transcriptPath(t, harp), 30*time.Minute)
+	work := t.TempDir()
+	// The worktree is BUSY — it just cannot be looked at.
+	require.NoError(t, os.WriteFile(filepath.Join(work, "out.go"), []byte("package x"), 0o644))
+	require.NoError(t, os.Chmod(work, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(work, 0o755) })
+
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: harp, Runtime: "container", RosterState: "executing",
+		StartedAt: now.Add(-2 * time.Hour), LastActivity: now.Add(-30 * time.Minute),
+		TranscriptPath: transcriptPath(t, harp), WorkDir: work,
+	})
+	assert.Equal(t, liveness.StateUnknown, rep.State,
+		"a worktree that could not be walked cannot support a silence verdict: %s", rep.Reason)
+	assert.False(t, rep.Firing())
+	assert.NotEmpty(t, rep.Evidence.FSError, "the walk failure must be carried on the evidence")
+	assert.Contains(t, rep.Reason, "worktree", "the reason must name the instrument that failed: %s", rep.Reason)
+}
+
+// The stall reason asserts what the monitor OBSERVED. Three filesystem states
+// are distinct and must read differently: nobody asked (no WorkDir), the walk
+// found nothing countable, and the walk saw files that are simply old.
+func TestMonitor_StallReasonDistinguishesUnaskedFromUnwrittenWorktree(t *testing.T) {
+	testHome(t)
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	assess := func(harp, work string) liveness.Report {
+		healthySession(t, harp)
+		backdateTranscript(t, transcriptPath(t, harp), 30*time.Minute)
+		return m.Assess(context.Background(), liveness.Target{
+			Harp: harp, Runtime: "container", RosterState: "executing",
+			StartedAt: now.Add(-2 * time.Hour), LastActivity: now.Add(-30 * time.Minute),
+			TranscriptPath: transcriptPath(t, harp), WorkDir: work,
+		})
+	}
+
+	unasked := assess("no-worktree", "")
+	require.Equal(t, liveness.StateStalled, unasked.State, unasked.Reason)
+	assert.Contains(t, unasked.Reason, "no worktree was looked at",
+		"with no WorkDir the monitor never looked, so it must not report an absence of writes: %s", unasked.Reason)
+
+	old := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(old, "a.go"), []byte("a"), 0o644))
+	stamp := now.Add(-30 * time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(old, "a.go"), stamp, stamp))
+	stale := assess("stale-worktree", old)
+	require.Equal(t, liveness.StateStalled, stale.State, stale.Reason)
+	assert.True(t, stale.Evidence.FSObserved)
+	assert.Contains(t, stale.Reason, "no worktree write", stale.Reason)
+
+	empty := assess("empty-worktree", t.TempDir())
+	require.Equal(t, liveness.StateStalled, empty.State, empty.Reason)
+	assert.False(t, empty.Evidence.FSObserved)
+	assert.Contains(t, empty.Reason, "no countable file in the worktree",
+		"an empty worktree yields no clock at all, which is not the same as a worktree with old files: %s", empty.Reason)
+}
+
 // AssessAll preserves order and assesses every target.
 func TestMonitor_AssessAllCoversEveryTarget(t *testing.T) {
 	testHome(t)

@@ -20,19 +20,19 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **219** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **225** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,045** |
+| `open` | no commit names this ID | **2,039** |
 
-**Totals: 2268 findings across 162 units — 219 resolved, 2045 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-6` batch; the previous totals had not been carried forward by the intervening sweeps.)
+**Totals: 2268 findings across 162 units — 225 resolved, 2039 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-7` batch. The MED resolved count had drifted low by one again since the batch-6 recount, which is the second time these totals have needed correcting rather than incrementing — count them, never adjust them by hand.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 95 | 280 (+1 refuted) |
-| MED | 999 | 32 | 967 |
-| LOW | 871 | 92 | 798 (+3 partial/escalated) |
+| HIGH | 376 | 100 | 275 (+1 refuted) |
+| MED | 999 | 33 | 966 |
+| LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -301,11 +301,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U078-F02 | **RESOLVED** `9979ce25` | `compactor.go:229-231, :308-319` | SILENTNOOP | **`dumpEmptySession` overwrites a previously good essence with a 54-byte placeholder**, and overwrites the index summary with that placeholder text. There is no check that a prior essence exists. | U078.md |
 | U078-F03 | open | `compactor.go:574-582, :592-621` | CORRECTNESS | **The `summary != ""` guard covers only `Summary`; `detail` and `sourceSize` are written unguarded and erase good values.** `sessions.Manager.SetSummary` assigns all three unconditionally. | U078.md |
 | U078-F11 | open | `stamp.go:71, :81, :84, :123` | SILENTNOOP | `StampPlanFile` returns `nil` in four cases where it wrote nothing, and the doc comment's claimed mitigation ("caller logs") is false — the caller only logs on a non-nil error. | U078.md |
-| U079-F01 | open | `discovery.go` (whole unit) via `agent/enginecli.go:414` | CORRECTNESS | The mock validates flag **names** only — never values, never required flags, never declared mutual exclusions — so it accepts argv lines the real binaries reject with exit 2. | U079.md |
-| U079-F02 | open | **`runtime.go:67`, `cmd/mockengine/main.go:39`** | CORRECTNESS | A **missing** flag is invisible to the mock: nothing cross-checks argv against the surface the mock is impersonating. The surface is chosen out-of-band by the harness, not derived from argv. | U079.md |
-| U079-F03 | open | `report.go:144` | SILENTNOOP | `PromptSHA256` is **never empty**, so "no prompt was delivered" is indistinguishable from "a prompt was delivered" — in the one field that exists to prove prompt delivery. | U079.md |
-| U079-F04 | open | `discovery.go:70-76` | CORRECTNESS | `ScopeEnvDir` silently falls back to the **real** `$HOME`, so a run in which ctxloom never set the env var reads the developer's global config and reports `present:true` for a surface ctxloom never... | U079.md |
-| U079-F05 | open | `runtime.go` / `discovery.go` (absent code)` | CORRECTNESS | The declared **environment contract is never verified**. `EngineCLI.SetEnv`/`StripEnv` exist specifically because "a strip that silently stopped happening is otherwise invisible", yet this unit rea... | U079.md |
+| U079-F01 | **RESOLVED** `92780e05` | `discovery.go` (whole unit) via `agent/enginecli.go:414` | CORRECTNESS | The mock validates flag **names** only — never values, never required flags, never declared mutual exclusions — so it accepts argv lines the real binaries reject with exit 2. | U079.md |
+| U079-F02 | **RESOLVED** `92780e05` | **`runtime.go:67`, `cmd/mockengine/main.go:39`** | CORRECTNESS | A **missing** flag is invisible to the mock: nothing cross-checks argv against the surface the mock is impersonating. The surface is chosen out-of-band by the harness, not derived from argv. | U079.md |
+| U079-F03 | **RESOLVED** `92780e05` | `report.go:144` | SILENTNOOP | `PromptSHA256` is **never empty**, so "no prompt was delivered" is indistinguishable from "a prompt was delivered" — in the one field that exists to prove prompt delivery. | U079.md |
+| U079-F04 | **RESOLVED** `92780e05` | `discovery.go:70-76` | CORRECTNESS | `ScopeEnvDir` silently falls back to the **real** `$HOME`, so a run in which ctxloom never set the env var reads the developer's global config and reports `present:true` for a surface ctxloom never... | U079.md |
+| U079-F05 | **RESOLVED** `92780e05` | `runtime.go` / `discovery.go` (absent code)` | CORRECTNESS | The declared **environment contract is never verified**. `EngineCLI.SetEnv`/`StripEnv` exist specifically because "a strip that silently stopped happening is otherwise invisible", yet this unit rea... | U079.md |
 | U080-F01 | open | **`backend.go:172-197`** | SILENTNOOP | A oneshot run that produces no assistant text exits 0 with zero bytes written and no diagnostic; an empty prompt is likewise sent without a check. | U080.md |
 | U080-F02 | **RESOLVED** `46d713d5` | **`capabilities.go:233-251`** | SILENTNOOP | `parseOpencodeExport` returns an empty transcript with `nil` error whenever `opencode export`'s JSON shape drifts, because Go silently ignores unknown fields. `/recover` would then show an empty sc... | U080.md |
 | U080-F03 | **RESOLVED** `ef0880e3` | **`backend.go:95-100, chat.go:59-60, interactive.go:60`** | SILENTNOOP / COUPLING | `Setup` must run before `Chat`/`launchInteractive` or the run silently delivers no context, no commands and no skills — connascence of *execution order* with no assertion. This is the exact shape o... | U080.md |
@@ -870,7 +870,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U055-F08 | open | **`backend.go:196-201`** | SILENTNOOP | A oneshot with an empty prompt launches `kiro-cli chat --no-interactive` **with no INPUT positional**. `--no-interactive` is appended unconditionally on `ModeOneshot` (:197-198) while the prompt is... | U055.md |
 | U056-F06 | open | `monitor.go:322-327 vs liveness.go:120-122` | CORRECTNESS | A zero `StartedAt` **enables** the age-gated content rung instead of disabling it, contradicting the field's documented contract; and `cpuRung` is not age-gated at all, so the launch grace does not... | U056.md |
 | U056-F07 | open | `transcript.go:300-306, monitor.go:276-279` | CORRECTNESS | The zero-median branch emits a `Redelivery` with **no cadence proof**, and `loopRung` fires on `Repeats` alone with no grace period — contradicting `detectRedelivery`'s own "both conditions matter"... | U056.md |
-| U056-F08 | open | `transcript.go:388-389, 405-432` | ERRHANDLING | `NewestMTime`'s doc promises that a genuine walk error is returned; in fact the `WalkDir` callback swallows every error and the `walkErr` branch is unreachable, so a permission-denied worktree retu... | U056.md |
+| U056-F08 | **RESOLVED** `9f6a477f` | `transcript.go:388-389, 405-432` | ERRHANDLING | `NewestMTime`'s doc promises that a genuine walk error is returned; in fact the `WalkDir` callback swallows every error and the `walkErr` branch is unreachable, so a permission-denied worktree retu... | U056.md |
 | U056-F09 | **RESOLVED** `3060b28c` | `transcript.go:166-168, monitor.go:377-385` | ERRHANDLING | A mid-file scan failure returns a **partial** `TranscriptStat` alongside the error; `gather` keeps the partial data and warns, and the ladder then condemns on it. | U056.md |
 | U056-F10 | open | `monitor.go:488-504` | DEAD | `Monitor.Watch` is test-only and duplicates `coord.livenessWatchdog`, which is the real production driver. | U056.md |
 | U056-F11 | open | `monitor.go:206-214, liveness.go:152-185, coord/liveness.go:182-184` | NOPAY | The whole package's production effect is one `clidiag.Warn` line per firing transition; the on-demand API and the entire JSON-serialisable `Evidence` trail have no production consumer. | U056.md |

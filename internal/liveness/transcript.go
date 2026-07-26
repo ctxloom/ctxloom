@@ -576,8 +576,12 @@ var skipDirs = map[string]bool{
 // empty, absent, or contained nothing countable — again a SIGNAL rather than
 // an error, since a worktree with nothing in it is a statement about progress.
 //
-// A genuine walk error (permissions on root itself) IS returned: a failed
-// observation must never be reported as an observation of stillness.
+// A genuine walk error IS returned, and returned ALONGSIDE whatever the walk
+// managed to see: the walk keeps going past an unreadable subtree because a
+// partial answer beats none, but the failure travels with it, because a failed
+// observation must never be reported as an observation of stillness. Before
+// U056-F08 the callback returned nil on every error, filepath.WalkDir consumed
+// it, and a `chmod 000` worktree was indistinguishable from an empty one.
 func NewestMTime(root string) (newest time.Time, ok bool, err error) {
 	if root == "" {
 		return time.Time{}, false, nil
@@ -593,9 +597,26 @@ func NewestMTime(root string) (newest time.Time, ok bool, err error) {
 		return info.ModTime(), true, nil
 	}
 	seen := 0
+	// firstErr is the first thing the walk could not read. Keeping only the
+	// first bounds the message on a systematically unreadable tree while
+	// still making the difference between "nothing there" and "could not
+	// look" visible to the caller.
+	var firstErr error
+	note := func(p string, e error) {
+		if firstErr == nil {
+			if p == root {
+				firstErr = e
+				return
+			}
+			firstErr = fmt.Errorf("%s: %w", p, e)
+		}
+	}
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // an unreadable subtree is not a verdict; keep walking
+			// An unreadable subtree is not a verdict; keep walking. It is not
+			// an observation of stillness either, so it is recorded.
+			note(p, err)
+			return nil
 		}
 		if seen >= maxWalkEntries {
 			return fs.SkipAll
@@ -609,6 +630,7 @@ func NewestMTime(root string) (newest time.Time, ok bool, err error) {
 		}
 		fi, ierr := d.Info()
 		if ierr != nil {
+			note(p, ierr)
 			return nil
 		}
 		if mt := fi.ModTime(); mt.After(newest) {
@@ -618,7 +640,10 @@ func NewestMTime(root string) (newest time.Time, ok bool, err error) {
 		return nil
 	})
 	if walkErr != nil {
-		return newest, ok, fmt.Errorf("liveness: walk workdir %s: %w", root, walkErr)
+		note(root, walkErr)
+	}
+	if firstErr != nil {
+		return newest, ok, fmt.Errorf("liveness: walk workdir %s: %w", root, firstErr)
 	}
 	return newest, ok, nil
 }

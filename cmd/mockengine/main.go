@@ -114,9 +114,14 @@ consume:
 			Getenv: os.Getenv,
 		},
 		Getenv: os.Getenv,
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
+		// The two-value form is passed EXPLICITLY: the env-contract observation
+		// turns on unset-versus-set-to-empty, and deriving presence from
+		// os.Getenv alone would report a variable ctxloom set to nothing as one
+		// it never set.
+		LookupEnv: os.LookupEnv,
+		Stdin:     os.Stdin,
+		Stdout:    os.Stdout,
+		Stderr:    os.Stderr,
 	}
 	return rt.Run()
 }

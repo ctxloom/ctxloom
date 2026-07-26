@@ -177,6 +177,12 @@ type Evidence struct {
 	// whether the walk succeeded at all.
 	FSMTime    time.Time `json:"fs_mtime,omitempty"`
 	FSObserved bool      `json:"fs_observed,omitempty"`
+	// FSError is the walk's failure text when the worktree could not be read.
+	// It is the third state the pair above cannot express: FSObserved false
+	// means "no clock", which until U056-F08 covered both "the worktree holds
+	// nothing countable" and "the walk was denied" — and only one of those is
+	// evidence about the agent.
+	FSError string `json:"fs_error,omitempty"`
 	// Age is now-StartedAt (zero when StartedAt is unknown).
 	Age time.Duration `json:"age,omitempty"`
 	// Quiet is now minus the NEWEST of every activity clock the monitor has

@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -295,4 +296,21 @@ func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 	for _, p := range cli.Probes {
 		assert.NotEqual(t, "AGENTS.md", p.Rel, "claude does not read AGENTS.md")
 	}
+}
+
+// TestEngineCLI_OneshotRequiresPrint pins claude's oneshot DISCRIMINATOR. A
+// driver that stopped emitting --print while still piping the prompt on stdin
+// hangs the real binary on its terminal handshake; against a name-only grammar
+// the stand-in produced an identical, fully green report (U079-F02).
+func TestEngineCLI_OneshotRequiresPrint(t *testing.T) {
+	oneshot, ok := agent.EngineCLIFor(ClaudeEngineCLIs(), agent.CLISurfaceOneshot)
+	require.True(t, ok)
+	require.NoError(t, oneshot.Validate())
+
+	_, err := oneshot.ParseArgv([]string{"--model", "sonnet"})
+	var missing *agent.MissingFlagError
+	assert.True(t, errors.As(err, &missing), "an oneshot line without --print must not parse: %v", err)
+
+	_, err = oneshot.ParseArgv([]string{"--print", "--model", "sonnet"})
+	assert.NoError(t, err)
 }

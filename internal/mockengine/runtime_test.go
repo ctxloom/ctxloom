@@ -227,8 +227,14 @@ func TestRuntime_FailSentinelExitsNonzero(t *testing.T) {
 	if code == 0 {
 		t.Fatal("fail sentinel did not produce a nonzero exit")
 	}
-	if rep.PromptSHA256 == "" {
-		t.Fatal("report was not emitted on the failing run")
+	// This used to read `rep.PromptSHA256 == ""`, which could not fail: the
+	// hash was taken over a nil prompt too (U079-F03). Assert the PRESENCE bit
+	// and the delivered bytes, both of which a missing report cannot fake.
+	if !rep.PromptPresent {
+		t.Fatal("report was not emitted with the prompt it received on the failing run")
+	}
+	if rep.PromptSHA256 != sha256hex([]byte(prompt)) {
+		t.Fatalf("promptSha256 = %s, want the hash of the delivered bytes", rep.PromptSHA256)
 	}
 }
 
@@ -259,7 +265,7 @@ func TestReport_DigestExcludesAbsolutePaths(t *testing.T) {
 		cwd := t.TempDir()
 		writeFile(t, cwd, "CLAUDE.md", body)
 		recs := mockengine.Walk(cli, argv, mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }})
-		return mockengine.BuildReport(cli.Engine, string(cli.Surface), recs, nil).DiscoveryDigest
+		return mockengine.BuildReport(cli.Engine, string(cli.Surface), recs, nil, nil).DiscoveryDigest
 	}
 	if a, b := digest(), digest(); a != b {
 		t.Fatalf("digest varied with the absolute root: %s != %s", a, b)

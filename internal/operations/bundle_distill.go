@@ -117,10 +117,10 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 	failedFrags := distillFragments(ctx, bundle, fragTargets, req.Distiller)
 	failedPrompts := distillPrompts(ctx, bundle, promptTargets, req.Distiller)
 	for _, n := range fragTargets {
-		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].DistilledBy, failedFrags.Has(n)))
+		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].Distilled, bundle.Fragments[n].DistilledBy, failedFrags.Has(n)))
 	}
 	for _, n := range promptTargets {
-		res.Items = append(res.Items, distillOutcome(ItemKindCommand, n, bundle.Commands[n].DistilledBy, failedPrompts.Has(n)))
+		res.Items = append(res.Items, distillOutcome(ItemKindCommand, n, bundle.Commands[n].Distilled, bundle.Commands[n].DistilledBy, failedPrompts.Has(n)))
 	}
 
 	if len(fragTargets)+len(promptTargets) > 0 {
@@ -203,8 +203,13 @@ func planBundleItemDistill(kind ItemKind, name string, noDistill, needsDistill, 
 // model id as a fresh success was a silent lie in the summary. A first-time
 // failure also leaves DistilledBy empty, which the empty-check still catches
 // for callers without a failed set.
-func distillOutcome(kind ItemKind, name, distilledBy string, failed bool) DistillBundleItem {
-	if failed || distilledBy == "" {
+//
+// It is handed the distilled CONTENT as well as the model id so that "a model
+// id was stamped" can never on its own buy a success verdict: zero delivered
+// bytes is a failure however it arose (U081-F04). A classifier that cannot see
+// what was produced is a classifier that can be lied to.
+func distillOutcome(kind ItemKind, name, distilled, distilledBy string, failed bool) DistillBundleItem {
+	if failed || distilledBy == "" || distilled == "" {
 		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: "distill_failed"}
 	}
 	return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusDistilled, ModelID: distilledBy}

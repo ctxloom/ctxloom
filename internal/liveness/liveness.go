@@ -47,10 +47,11 @@
 //
 //	DIED              the process/container is gone with no `complete` for the
 //	                  in-flight turn.
-//	STALLED           alive, seq not advancing, no recent tool_use, and — where
-//	                  observable — no CPU burn.
-//	LEGITIMATELY SLOW alive and burning CPU, or parked awaiting approval. A spin
-//	                  loop looks different from a hang; a long think is not a stall.
+//	STALLED           alive, seq not advancing, no recent tool_use, and silent on
+//	                  every activity clock (transcript, worktree mtime, the
+//	                  coordinator's own fold).
+//	LEGITIMATELY SLOW still writing files, or parked awaiting approval. An agent
+//	                  in a ten-minute build says nothing and is not stalled.
 //
 // # The design caution this package is built around
 //
@@ -84,9 +85,6 @@ const (
 	StateStarting State = "starting"
 	// StateHealthy is positive evidence of progress.
 	StateHealthy State = "healthy"
-	// StateSlow is LEGITIMATELY SLOW: alive and burning CPU, or alive with a
-	// CPU baseline not yet established. Quiet, but not stuck.
-	StateSlow State = "slow"
 	// StateAwaitingApproval is parked on an approval rung. It outranks every
 	// stall rule below it — a child waiting on a human must NEVER be reaped.
 	StateAwaitingApproval State = "awaiting_approval"
@@ -97,9 +95,9 @@ const (
 )
 
 // Firing reports whether s is a state an operator must be told about
-// unprompted. Only the two genuine failures fire; "slow" and
-// "awaiting_approval" deliberately do not, because crying wolf over a long
-// think is how a monitor gets ignored.
+// unprompted. Only the two genuine failures fire; "starting" and
+// "awaiting_approval" deliberately do not, because crying wolf over a slow
+// launch or a long wait on a human is how a monitor gets ignored.
 func (s State) Firing() bool { return s == StateStalled || s == StateDied }
 
 // Target is one agent the monitor is asked about. The caller (the coordinator
@@ -133,18 +131,19 @@ type Target struct {
 	// StateAwaitingApproval before any stall rule runs.
 	AwaitingApproval bool
 	// Ended marks a run the coordinator has already terminated. The monitor
-	// still assesses it, to distinguish a clean end from a death mid-turn.
+	// still assesses it, to distinguish a clean end from a death mid-turn
+	// (deathRung), and then declines to judge it any further (endedRung): a
+	// run nothing is driving cannot be making progress OR failing to.
 	Ended bool
 	// TranscriptPath is paths.HarpCanonicalTranscriptPath(Harp). Empty skips
 	// transcript evidence entirely (and with it every sharp rule).
 	TranscriptPath string
-	// WorkDir is the agent's worktree, for filesystem-mtime evidence. Empty
-	// skips it.
+	// WorkDir is the agent's worktree, for filesystem-mtime evidence — the
+	// only activity clock this package has that does not come from the
+	// engine's own bookkeeping, and therefore the only one that can tell a
+	// long silent tool call (a build, a test run) from a hang. Empty skips
+	// it.
 	WorkDir string
-	// PID is the host-side process, when the caller knows one (0 = unknown).
-	PID int
-	// ContainerID is the container, when the caller knows one.
-	ContainerID string
 }
 
 // Report is one verdict. Reason is ALWAYS non-empty — a verdict a human
@@ -167,7 +166,13 @@ func (r Report) Firing() bool { return r.State.Firing() }
 // from a re-run.
 type Evidence struct {
 	Transcript TranscriptStat `json:"transcript"`
-	Proc       ProcState      `json:"proc"`
+	// TranscriptError is the reader's failure text when the transcript could
+	// not be observed (TranscriptStat.Observed false because the read broke,
+	// rather than because nobody asked). Carried into the reason so an
+	// operator sees WHY the monitor has nothing to say, instead of a
+	// confident verdict manufactured from the failure.
+	TranscriptError string    `json:"transcript_error,omitempty"`
+	Proc            ProcState `json:"proc"`
 	// FSMTime is the newest mtime under Target.WorkDir; FSObserved says
 	// whether the walk succeeded at all.
 	FSMTime    time.Time `json:"fs_mtime,omitempty"`

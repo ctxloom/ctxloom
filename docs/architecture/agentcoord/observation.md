@@ -93,8 +93,8 @@ sorted most-recently-active first.
 |---|---|---|
 | `livenessWatchdog` | `liveness.go:195` | 1-minute poll; warns on state transitions |
 | `LivenessSnapshot` | `liveness.go:182` | assess-all, on demand |
-| `livenessTargets` | `liveness.go:112` | folds + approvals → `[]liveness.Target`; a path-resolution error warns and degrades to empty; parked children are explicitly exempt from the stall verdict (`:132-144`) |
-| `livenessMonitor` | `liveness.go:41` | lazily builds and memoizes the monitor (it must be one instance — it retains CPU samples) |
+| `livenessTargets` | `liveness.go` | folds + approvals + the live attachment's `workDir` → `[]liveness.Target`; a path-resolution error warns and degrades to an unobserved transcript (`StateUnknown`, never a stall); parked children are explicitly exempt from the stall verdict |
+| `livenessMonitor` | `liveness.go` | lazily builds and memoizes the monitor; the monitor itself is stateless since U056-F04 removed the CPU sampling |
 | `runnerHeartbeatProbe` | `liveness.go:72` | the universal probe; **absence is reported as `Observed:false`, never as dead** |
 
 The watchdog is read-only: it never terminates, relaunches or reaps.

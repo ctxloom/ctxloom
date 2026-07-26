@@ -36,18 +36,19 @@ import (
 const livenessPollInterval = time.Minute
 
 // livenessMonitor lazily builds this coordinator's monitor. One per
-// coordinator, because it retains per-harp CPU samples between polls (a single
-// absolute CPU reading says nothing; only the difference does).
+// coordinator, so the probe closure below can see this coordinator's runner
+// registry.
 func (c *Coordinator) livenessMonitor() *liveness.Monitor {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.liveness == nil {
 		c.liveness = liveness.New(liveness.Options{
 			Now: c.now,
-			Probes: []liveness.Probe{
-				liveness.HostProbe{},
-				c.runnerHeartbeatProbe(),
-			},
+			// The runner heartbeat is the ONLY process evidence this
+			// coordinator has. The host pid probe that used to sit beside it
+			// was inert: Spawner.StartEngine returns a Kill closure, never a
+			// pid, so no liveness.Target ever carried one (U056-F04).
+			Probes: []liveness.Probe{c.runnerHeartbeatProbe()},
 		})
 	}
 	return c.liveness
@@ -59,12 +60,12 @@ func (c *Coordinator) livenessMonitor() *liveness.Monitor {
 // inside a container exactly as it does from the host, so for a migrated child
 // the heartbeat — not a pid — is the honest answer to "is the runtime alive".
 //
-// It reports CPUObserved:false always. That is not laziness, it is the
-// distinction the monitor is built around: the coordinator can see THAT a
-// container's runner is alive but not how hard it is working, and a probe that
-// invented a CPU number would be the silent no-op wearing a different hat. The
-// monitor reads the missing CPU accounting as a permanent property of this
-// runtime pairing and reaches its verdict from the transcript instead.
+// It answers ALIVE only, never "how hard is it working": the coordinator can
+// see THAT a container's runner is alive but not what it is doing, and a probe
+// that invented a busy-ness number would be the silent no-op wearing a
+// different hat. The "working but silent" question is answered instead by
+// Target.WorkDir's mtime clock, which is real evidence rather than an
+// inference.
 //
 // A run with no connected runner yields Observed:false, NOT Observed+dead: the
 // legacy go-plugin Chat path never dials home at all, and a child on it must
@@ -103,12 +104,17 @@ func (c *Coordinator) runnerHeartbeatProbe() liveness.Probe {
 }
 
 // livenessTargets projects every LIVE child onto a liveness.Target. Ended runs
-// are included for one poll's worth of grace after their terminal so a death
-// mid-turn is still reported; permanently-ended harps drop out because
-// Forget() clears their retained sample and the roster stops being interesting
-// — but the important property is that this list is derived from the FOLDS
-// (the durable, authoritative state), never from the runtime attachment map,
-// which is exactly the layer that was lying during the incident.
+// are included and answered by the monitor's endedRung rather than dropped
+// here, so a death mid-turn is still reported and a clean end is never
+// condemned.
+//
+// The list is derived from the FOLDS (the durable, authoritative state), never
+// from the runtime attachment map, which is exactly the layer that was lying
+// during the incident. The one exception is WorkDir, taken from the live
+// attachment below: a worktree PATH is a static fact about a spawn, not a
+// claim about whether anything is happening in it, so reading it from the
+// attachment cannot reintroduce the lie — and its mtime is the only activity
+// clock the monitor has that the engine does not write itself.
 func (c *Coordinator) livenessTargets() []liveness.Target {
 	type row struct {
 		harp, agent, runtime, state string
@@ -135,7 +141,13 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 	// registry. (The transcript's trailing permission record is a third,
 	// checked inside the monitor.)
 	parked := make(map[string]bool)
+	workDirs := make(map[string]string)
 	c.mu.Lock()
+	for harp, rt := range c.byHarp {
+		if rt != nil {
+			workDirs[harp] = rt.workDir
+		}
+	}
 	for _, ap := range c.approvals {
 		if ap != nil && ap.targetHarp != "" {
 			parked[ap.targetHarp] = true
@@ -168,6 +180,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 			AwaitingApproval: parked[r.harp] || r.state == StateParked,
 			Ended:            r.ended,
 			TranscriptPath:   txPath,
+			WorkDir:          workDirs[r.harp],
 		})
 	}
 	return out
@@ -214,7 +227,6 @@ func (c *Coordinator) livenessWatchdog() {
 			for harp := range last {
 				if !seen[harp] {
 					delete(last, harp)
-					c.livenessMonitor().Forget(harp)
 				}
 			}
 		}

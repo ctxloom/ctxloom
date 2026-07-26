@@ -163,12 +163,10 @@ func TestRunnerHeartbeatProbe_AbsentRunnerIsUnobservedNotDead(t *testing.T) {
 	assert.False(t, st.Observed, "no connected runner means we know nothing, not that it died")
 	assert.False(t, st.Alive)
 	assert.NotEmpty(t, st.Detail, "an unobserved target must say why")
-	assert.False(t, st.CPUObserved, "the coordinator cannot read a child's CPU; it must not pretend to")
 }
 
-// A connected runner beating recently is positive evidence of life, with no
-// CPU claim attached.
-func TestRunnerHeartbeatProbe_LiveRunnerIsAliveWithoutCPU(t *testing.T) {
+// A connected runner beating recently is positive evidence of life.
+func TestRunnerHeartbeatProbe_LiveRunnerIsAlive(t *testing.T) {
 	livenessTestHome(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
@@ -184,7 +182,6 @@ func TestRunnerHeartbeatProbe_LiveRunnerIsAliveWithoutCPU(t *testing.T) {
 	st := c.runnerHeartbeatProbe().Inspect(context.Background(), liveness.Target{Harp: harp})
 	assert.True(t, st.Observed)
 	assert.True(t, st.Alive)
-	assert.False(t, st.CPUObserved)
 
 	// Past the loss bound the same probe reports dead — the SAME bound
 	// runnerWatchdog uses, so the two can never disagree.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -40,9 +39,9 @@ type Thresholds struct {
 	// agent performs. A tool_use entry is recorded when the call STARTS, so a
 	// ten-minute test run shows one record and then nothing until it
 	// finishes; this project's own acceptance suite is minutes long. 10
-	// minutes clears that with margin. It is deliberately not tighter: where
-	// CPU is observable, a burning process is rescued to StateSlow anyway, so
-	// the cost of a generous value is only latency on a real stall, while the
+	// minutes clears that with margin. It is deliberately not tighter: an
+	// agent writing files is rescued by the worktree clock anyway, so the
+	// cost of a generous value is only latency on a real stall, while the
 	// cost of a tight one is crying wolf over every long build.
 	QuietGrace time.Duration
 
@@ -60,13 +59,6 @@ type Thresholds struct {
 	// (the incident's own "every ~4-5 seconds" is ±11% around 4.5s) while
 	// rejecting anything paced by a model's variable thinking time.
 	RedeliveryJitterRatio float64
-
-	// CPUBurnFloor is how much CPU time must accumulate BETWEEN two samples
-	// for the process to count as burning, expressed as a fraction of the
-	// wall time between them. 0.02 (2% of one core) is above the noise of a
-	// process merely being scheduled to service a timer or a heartbeat, and
-	// far below anything a genuinely working engine consumes.
-	CPUBurnFloor float64
 }
 
 // DefaultThresholds returns the tuned defaults. See each field for why.
@@ -76,7 +68,6 @@ func DefaultThresholds() Thresholds {
 		QuietGrace:            10 * time.Minute,
 		RedeliveryMinRepeats:  3,
 		RedeliveryJitterRatio: 0.25,
-		CPUBurnFloor:          0.02,
 	}
 }
 
@@ -96,9 +87,6 @@ func (t Thresholds) normalize() Thresholds {
 	}
 	if t.RedeliveryJitterRatio <= 0 {
 		t.RedeliveryJitterRatio = d.RedeliveryJitterRatio
-	}
-	if t.CPUBurnFloor <= 0 {
-		t.CPUBurnFloor = d.CPUBurnFloor
 	}
 	return t
 }
@@ -127,7 +115,7 @@ type Options struct {
 // Nothing here cancels, stops, kills, or reaps, and that is a decision rather
 // than an omission. A stall verdict is an inference from absence, and every
 // absence-based rule in the ladder has a false-positive mode (a slow container
-// start, a long silent tool call, a runtime whose CPU we cannot read). The
+// start, a long silent tool call, a runtime no probe can see). The
 // blast radius of acting on a wrong answer is a working agent destroyed
 // mid-task with its worktree possibly unmerged; the blast radius of a wrong
 // REPORT is a human looking at a healthy agent. Those are not comparable, and
@@ -142,18 +130,6 @@ type Monitor struct {
 	probes   []Probe
 	readTx   func(string) (TranscriptStat, error)
 	newestFS func(string) (time.Time, bool, error)
-
-	mu   sync.Mutex
-	last map[string]cpuSample
-}
-
-// cpuSample is one prior CPU reading, kept so the NEXT assessment can
-// difference it. A single absolute cumulative CPU number says nothing about
-// whether anything is happening right now, which is why a first assessment
-// never reaches a CPU-based stall verdict.
-type cpuSample struct {
-	at  time.Time
-	cpu time.Duration
 }
 
 // New builds a Monitor.
@@ -164,7 +140,6 @@ func New(opts Options) *Monitor {
 		probes:   opts.Probes,
 		readTx:   opts.ReadTranscript,
 		newestFS: opts.NewestMTime,
-		last:     make(map[string]cpuSample),
 	}
 	if m.now == nil {
 		m.now = time.Now
@@ -223,6 +198,7 @@ func (m *Monitor) verdict(t Target, ev Evidence, now time.Time) (State, string) 
 	for _, r := range []rung{
 		m.approvalRung,
 		m.deathRung,
+		m.endedRung,
 		m.loopRung,
 		m.graceRung,
 		m.quietRung,
@@ -264,8 +240,37 @@ func (m *Monitor) deathRung(_ Target, ev Evidence, _ time.Time) (State, string) 
 	if tx.TurnClosed {
 		return StateHealthy, fmt.Sprintf("the run ended after a completed turn (%d complete record(s)) — a clean end, not a death", tx.Completes)
 	}
+	if !tx.Observed {
+		// The runtime being gone is a POSITIVE observation and still fires;
+		// the turn boundary is not, so the reason must not claim one.
+		return StateDied, fmt.Sprintf("the runtime is gone and the transcript could not be read, so a clean end cannot be ruled out [%s]",
+			orUnknown(ev.Proc.Detail))
+	}
 	return StateDied, fmt.Sprintf("the runtime is gone with no `complete` for the in-flight turn (%d record(s), %d complete) [%s]",
 		tx.Records, tx.Completes, orUnknown(ev.Proc.Detail))
+}
+
+// endedRung: a run the coordinator has ALREADY terminated cannot be stalled.
+//
+// Target.Ended used to be passed in and read by nothing (U056-F03), while the
+// coordinator's roster fold is never pruned and reapEndedRuns never reaps a
+// harp's current run — so every cleanly-finished child kept being enumerated,
+// went quiet (because it was done), lost its runner (so no probe could see
+// it), and was condemned ten minutes later. The watchdog cried wolf on every
+// success, which is precisely how a monitor gets ignored.
+//
+// It sits BELOW deathRung on purpose: a run that ended with its runtime
+// observably gone and its turn still open is a death, and saying so is the
+// whole point of the rung above.
+func (m *Monitor) endedRung(t Target, ev Evidence, _ time.Time) (State, string) {
+	if !t.Ended {
+		return "", ""
+	}
+	tx := ev.Transcript
+	if tx.Observed && tx.TurnClosed {
+		return StateHealthy, fmt.Sprintf("the coordinator has ended this run and its last turn closed (%d complete record(s)) — a clean end", tx.Completes)
+	}
+	return StateUnknown, "the coordinator has ended this run; a terminated run makes no further progress, so there is nothing left to judge"
 }
 
 // loopRung: POSITIVE evidence of a loop. Both rules here are observations of a
@@ -293,6 +298,16 @@ func (m *Monitor) loopRung(_ Target, ev Evidence, _ time.Time) (State, string) {
 // transcript at all means the engine emitted zero events (the recorder creates
 // the file on its first record), which is a stall.
 func (m *Monitor) graceRung(t Target, ev Evidence, _ time.Time) (State, string) {
+	// A transcript that could not be OBSERVED is a broken instrument, not an
+	// engine that emitted zero events, and every rule below this line reasons
+	// from absence. Answering "unknown" with the failure attached is the only
+	// honest verdict available (U056-F01/F05).
+	if !ev.Transcript.Observed {
+		if ev.TranscriptError != "" {
+			return StateUnknown, "the transcript could not be read, so there is no evidence to judge progress by: " + ev.TranscriptError
+		}
+		return StateUnknown, "no transcript was looked at for this run (no path resolved), so there is no evidence to judge progress by"
+	}
 	if ev.Transcript.Exists {
 		return "", ""
 	}
@@ -325,7 +340,8 @@ func (m *Monitor) quietRung(t Target, ev Evidence, now time.Time) (State, string
 			return s, reason
 		}
 	}
-	return m.cpuRung(t, ev, quiet, now)
+	return StateStalled, fmt.Sprintf("quiet for %s on every clock (last tool_use %s) — no transcript record, no worktree write, no coordinator activity",
+		quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now))
 }
 
 // contentRung applies the shared definition's two CONTENT clauses — at least
@@ -345,29 +361,6 @@ func (m *Monitor) contentRung(ev Evidence, quiet time.Duration) (State, string) 
 	return "", ""
 }
 
-// cpuRung is the tiebreak between a long think and a hang, for a target whose
-// content otherwise looks fine. The three "we cannot tell" branches are
-// deliberately distinct: a runtime whose CPU is measurable but not yet sampled
-// twice must NOT be condemned (the next poll decides), whereas a runtime whose
-// CPU can never be measured gets the best answer available rather than
-// permanent silence — otherwise the container case, which is where the
-// incident happened, is the one case the monitor cannot speak about.
-func (m *Monitor) cpuRung(t Target, ev Evidence, quiet time.Duration, now time.Time) (State, string) {
-	burning, known := m.cpuBurn(t.Harp, ev.Proc, now)
-	switch {
-	case known && burning:
-		return StateSlow, fmt.Sprintf("quiet for %s but burning CPU — a long think, not a hang [%s]", quiet.Round(time.Second), orUnknown(ev.Proc.Detail))
-	case known:
-		return StateStalled, fmt.Sprintf("quiet for %s (last tool_use %s) and consuming no CPU [%s]",
-			quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now), orUnknown(ev.Proc.Detail))
-	case ev.Proc.CPUObserved:
-		return StateSlow, fmt.Sprintf("quiet for %s; CPU baseline captured, deferring the verdict to the next sample", quiet.Round(time.Second))
-	default:
-		return StateStalled, fmt.Sprintf("quiet for %s with no CPU evidence obtainable for runtime %q [%s]",
-			quiet.Round(time.Second), orUnknown(t.Runtime), orUnknown(ev.Proc.Detail))
-	}
-}
-
 // gather collects every piece of evidence, in cheapest-first order. A failed
 // observation lands as an absent one (with the failure in the Detail/Reason
 // text), never as a silently favourable one.
@@ -377,9 +370,13 @@ func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence 
 		st, err := m.readTx(t.TranscriptPath)
 		ev.Transcript = st
 		if err != nil {
-			// A broken READ is not an observation of stillness. Exists is
-			// left as the reader returned it and the ladder's absence rules
-			// still apply only past the launch grace.
+			// A broken READ is not an observation of stillness. Observed is
+			// forced false here as well as in the reader, because readTx is
+			// an injectable seam and a seam that reported an error while
+			// leaving Observed set would put the ladder right back to
+			// condemning on a failure (U056-F01).
+			ev.Transcript.Observed = false
+			ev.TranscriptError = err.Error()
 			clidiag.Warn("ctxloom", "liveness: %s: read transcript: %v", t.Harp, err)
 		}
 	}
@@ -409,43 +406,6 @@ func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence 
 		}
 	}
 	return ev
-}
-
-// cpuBurn differences this reading against the previous one for harp. known is
-// false when there is no usable pair yet (no CPU accounting for the runtime,
-// or this is the first sample) — the caller must NEVER read that as "idle".
-func (m *Monitor) cpuBurn(harp string, p ProcState, now time.Time) (burning, known bool) {
-	if !p.CPUObserved {
-		return false, false
-	}
-	m.mu.Lock()
-	prev, had := m.last[harp]
-	m.last[harp] = cpuSample{at: now, cpu: p.CPU}
-	m.mu.Unlock()
-	if !had {
-		return false, false
-	}
-	wall := now.Sub(prev.at)
-	if wall <= 0 {
-		return false, false
-	}
-	used := p.CPU - prev.cpu
-	if used < 0 {
-		// The counter went backwards: a different process reusing the pid, or
-		// a relaunch. Not evidence of idleness — drop the pair.
-		return false, false
-	}
-	return float64(used)/float64(wall) >= m.thr.CPUBurnFloor, true
-}
-
-// Forget drops retained CPU sampling state for harp. Callers that enumerate a
-// changing population (the coordinator's roster) call it at a run's terminal
-// so a long-lived monitor's memory stays proportional to LIVE agents rather
-// than to every agent the process has ever seen.
-func (m *Monitor) Forget(harp string) {
-	m.mu.Lock()
-	delete(m.last, harp)
-	m.mu.Unlock()
 }
 
 func orUnknown(s string) string {

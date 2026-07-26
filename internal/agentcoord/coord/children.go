@@ -888,16 +888,24 @@ func (c *Coordinator) accumulateFinalText(role string, ev *agentcoordpb.AgentEve
 // stderr-tail capture it carries the adapter's dying words (a module-loader
 // SyntaxError, a JSON-RPC -32603 "Invalid API key") for a death that happens
 // below the protocol, exactly the case that emits no final-channel output for
-// bridgeTurnResult to deliver. Only FAILED with non-empty text is captured: a
-// SUCCEEDED/CANCELLED terminal is not a failure to explain, and an empty text
-// carries nothing (this project's silent no-op — never surfaced as a reason).
+// bridgeTurnResult to deliver. Any terminal that is neither SUCCEEDED nor
+// CANCELLED is captured when its text is non-empty: those two are not
+// failures to explain, and an empty text carries nothing (this project's
+// silent no-op — never surfaced as a reason).
 func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent) {
 	rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
 	if !ok {
 		return
 	}
 	res := rc.RunCompleted.GetResult()
-	if res.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
+	// SUCCESS IS AN ALLOW-LIST (U016-F06). This used to test
+	// `!= RUN_STATUS_FAILED`, so a run that ended on the enum's ZERO value —
+	// what an engine that never set a status produces — or on TIMED_OUT /
+	// BUDGET_EXCEEDED had its dying words silently dropped and the parent got
+	// no reason at all. CANCELLED stays excluded deliberately: a deliberate
+	// stop is not a failure to explain.
+	switch res.GetStatus() {
+	case agentcoordpb.Result_RUN_STATUS_SUCCEEDED, agentcoordpb.Result_RUN_STATUS_CANCELLED:
 		return
 	}
 	text := strings.TrimSpace(res.GetText())

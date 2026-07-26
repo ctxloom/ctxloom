@@ -157,6 +157,7 @@ treated as trustworthy.
 | A `config.yaml` that exists but defines no keys | silent | warning naming the path; exit unchanged |
 | An unparseable codex `config.toml` | degraded to an empty table which callers wrote back, **replacing every user key** | non-zero |
 | `exclude_mcp` against a builtin or companion MCP server | silently ineffective | works |
+| Any write over an **unparseable** `config.yaml` (`ctxloom agent add`, `mcp add`, anything through `Manager.Update`) | exit 0 — the file was **replaced** with only the sections the in-memory config could emit, destroying every key it did not carry, after warning "unknown fields may be lost" | refused, non-zero, naming the file; the file is left exactly as written so the broken line can still be fixed |
 
 `CTXLOOM_CONFIG_AGENT_TURN_CAP=1` was the worst of these: it arrived as `true` and took
 the whole config layer down with it.

@@ -235,3 +235,68 @@ func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
 		assert.False(t, strings.HasSuffix(e.Name(), ".tmp"), "leftover temp file: %s", e.Name())
 	}
 }
+
+// --- U049-F04: an unparseable config.yaml must not be truncated -------------
+
+// readExistingConfig exists to preserve unknown keys across a save. When the
+// file will not parse it warned and returned an EMPTY map, and saveLocked
+// then atomically replaced the file with only the sections
+// applyConfigSections emits — so every key ctxloom does not model, and every
+// key it does but the in-memory Config happens not to carry, was destroyed.
+// Reached by every `ctxloom agent add` / `mcp add` / `manage` write through
+// Manager.Update.
+//
+// "I could not read what is there" is not "there is nothing there", and it is
+// certainly not a licence to overwrite it.
+func TestConfig_Save_CorruptConfig_RefusesToTruncate(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0o755))
+
+	corrupt := "version: 3\neditor:\n  command: vim\n  bad: [unclosed\ncustom_unknown: keepme\n"
+	path := paths.ConfigPath(appDir)
+	require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0o644))
+
+	cfg := &Config{appPaths: []string{appDir}}
+	cfg.SetFS(fs)
+
+	err := cfg.Save()
+	require.Error(t, err, "a config this process cannot parse must not be overwritten")
+
+	after, rerr := afero.ReadFile(fs, path)
+	require.NoError(t, rerr)
+	assert.Equal(t, corrupt, string(after), "the corrupt file must be left exactly as it was")
+}
+
+// The control: a config that parses fine still round-trips, unknown keys and
+// all. The error channel must separate "unparseable" from "ordinary".
+func TestConfig_Save_ParseableConfig_StillSaves(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0o755))
+	path := paths.ConfigPath(appDir)
+	require.NoError(t, afero.WriteFile(fs, path, []byte("version: 3\ncustom_unknown: keepme\n"), 0o644))
+
+	cfg := &Config{appPaths: []string{appDir}}
+	cfg.SetFS(fs)
+	require.NoError(t, cfg.Save())
+
+	after, rerr := afero.ReadFile(fs, path)
+	require.NoError(t, rerr)
+	assert.Contains(t, string(after), "custom_unknown: keepme")
+}
+
+// An ABSENT config is the normal first-write shape and must still save.
+func TestConfig_Save_AbsentConfig_StillSaves(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0o755))
+
+	cfg := &Config{appPaths: []string{appDir}}
+	cfg.SetFS(fs)
+	require.NoError(t, cfg.Save())
+
+	exists, eerr := afero.Exists(fs, paths.ConfigPath(appDir))
+	require.NoError(t, eerr)
+	assert.True(t, exists)
+}

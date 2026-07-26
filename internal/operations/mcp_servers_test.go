@@ -793,28 +793,32 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	assert.Contains(t, string(data), "npx")
 }
 
-// TestAddMCPServer_WithFS_InvalidYAML demonstrates ctxloom's fault-tolerant
-// behavior: a pre-existing config.yaml with invalid YAML never blocks a
-// write. Manager.Update's fresh reload degrades the same way config.Load
-// does (a warning, not an error), so the transaction still runs and persists
-// a now-valid file carrying the new entry.
+// TestAddMCPServer_WithFS_InvalidYAML pins the CORRECTED contract (U049-F04).
+//
+// This test previously asserted the opposite, describing it as "ctxloom's
+// fault-tolerant behavior: a pre-existing config.yaml with invalid YAML never
+// blocks a write". What actually happened is that the write REPLACED the
+// user's unparseable file with a fresh one built from the sections the
+// in-memory Config could emit — every unmodelled key, and every modelled key
+// this Config did not happen to carry, silently destroyed by a command the
+// user ran to add an MCP server. "Resilience" that overwrites the input is
+// data loss with a friendly name.
+//
+// The write is now refused and the file is left exactly as the user wrote it,
+// so the one broken line can still be fixed.
 func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
-	mgr, fs := mcpTestManager(t, "{{invalid yaml")
+	const corrupt = "{{invalid yaml"
+	mgr, fs := mcpTestManager(t, corrupt)
 
-	result, err := AddMCPServer(context.Background(), mgr, AddMCPServerRequest{
+	_, err := AddMCPServer(context.Background(), mgr, AddMCPServerRequest{
 		Name:    "test-server",
 		Command: "npx",
 	})
+	require.Error(t, err, "a config.yaml that does not parse must not be overwritten")
 
-	// With resilient startup, this now succeeds - config loads with warnings
-	require.NoError(t, err)
-	assert.Equal(t, "added", result.Status)
-
-	// The write went through despite the prior invalid content, and the file
-	// is valid YAML afterward, carrying the new entry.
-	data, err := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "test-server")
+	data, rerr := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
+	require.NoError(t, rerr)
+	assert.Equal(t, corrupt, string(data), "the user's file must be left untouched")
 }
 
 func TestRemoveMCPServer_WithFS(t *testing.T) {

@@ -234,3 +234,53 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 
 	assert.Empty(t, strictness.Since(mark), "a fresh/absent approvals store must never record a strictness finding, even reached via the injected-records path")
 }
+
+// U137-F03 — the MIRROR trap test. The package's existing trap coverage runs
+// the APPROVE direction (a corrupted approval resolves pending, never allow),
+// where collapsing "corrupt" onto "absent" is safe. This is the REJECT
+// direction, where the identical collapse is a fail-OPEN: a signed rejection
+// record whose bytes have been corrupted at the CONTENT level (it opens fine,
+// it just will not unarmor) reads as "not countersigned", and "not
+// countersigned" on the reject path is benign — the item silently un-rejects
+// and falls through to the local exemption.
+//
+// The corruption here is deliberately NOT the I/O-error variant already
+// covered above (a directory replaced by a file, permission denied): the
+// directory lists fine, the file opens fine, only its CONTENT is garbage.
+func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
+	resetStrictness(t)
+	fs := afero.NewOsFs()
+	dir := t.TempDir()
+	userDir := filepath.Join(dir, "user-approvals")
+	signer := testSigner(t)
+
+	userStore := countersign.NewStore(userDir, fs)
+	projectStore := countersign.NewStore(filepath.Join(dir, "project-approvals"), fs)
+
+	rejectedRef := trust.Ref{Bundle: "tooling", Kind: trust.KindFragment, Name: "rejected-thing", IsLocal: true}
+	require.NoError(t, userStore.WriteRefReject(signingKindOf(rejectedRef.Kind), countersignRef(rejectedRef), signer))
+
+	records := countersignRecords{user: userStore, project: projectStore}
+
+	// CORRUPT THE CONTENT ONLY: same filename, same index hash, same
+	// permissions — bytes that are not a signature.
+	matches, gerr := afero.Glob(fs, filepath.Join(userDir, "*.sig"))
+	require.NoError(t, gerr)
+	require.Len(t, matches, 1)
+	require.NoError(t, afero.WriteFile(fs, matches[0], []byte("-----BEGIN SSH SIGNATURE-----\ngarbage\n"), 0o644))
+
+	mark := strictness.Checkpoint()
+
+	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Deny, res.Decision,
+		"a corrupted REJECT record must not silently un-reject the item")
+	assert.NotEqual(t, trust.SourceLocal, res.Source,
+		"the local exemption is exactly what a swallowed rejection falls through to")
+
+	found := strictness.Since(mark)
+	require.NotEmpty(t, found, "an unparseable record in the approvals store must record a strictness finding")
+	assert.Equal(t, strictness.ClassTrust, found[0].Class)
+}

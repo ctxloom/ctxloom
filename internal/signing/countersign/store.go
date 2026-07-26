@@ -96,11 +96,22 @@ func (s *Store) Dir() string {
 // closed. This method exists so the caller (EffectiveTrust's
 // records-construction preamble) can fail closed instead.
 //
-// It deliberately does NOT attempt to parse or verify any file's contents —
-// a signature that reads fine but fails cryptographic verification is not
-// an error here (see Verified: that is the normal "not proven" outcome).
-// Readable only asks "can every byte on disk actually be read", nothing
-// more.
+// It does NOT verify any signature — a record that parses fine but fails
+// cryptographic verification (untrusted signer, bytes that no longer match)
+// is not an error here: that is the normal "not proven" outcome Verified
+// exists to report, and every session carrying one stale record would
+// otherwise deny everything.
+//
+// It DOES parse every .sig record (U137-F03). A file that will not even
+// unarmor is indistinguishable from a SUPPRESSED REJECTION, and the verify
+// path cannot make that distinction on the caller's behalf: it collapses an
+// unarmor failure into the same quiet (false, "") as "no such record", which
+// on the reject path silently un-rejects the item. Readable is the only pass
+// that sees every file in the store rather than the ones whose index hash a
+// particular query happens to reconstruct, so it is the only place the
+// corrupt-content variant of "this store might be hiding a rejection" can be
+// caught. Non-record files (the display-only index.yaml, editor leftovers)
+// are not signatures and are not parsed as such.
 func (s *Store) Readable() error {
 	if s == nil {
 		return nil
@@ -120,11 +131,16 @@ func (s *Store) Readable() error {
 			continue
 		}
 		path := filepath.Join(s.dir, entry.Name())
-		f, ferr := s.fs.Open(path)
+		data, ferr := afero.ReadFile(s.fs, path)
 		if ferr != nil {
 			return fmt.Errorf("countersignature store %s: cannot read %s: %w", s.dir, entry.Name(), ferr)
 		}
-		_ = f.Close()
+		if filepath.Ext(entry.Name()) != ".sig" {
+			continue
+		}
+		if perr := signing.ParseArmored(data); perr != nil {
+			return fmt.Errorf("countersignature store %s: record %s is unparseable (a corrupted record cannot be told apart from a suppressed rejection): %w", s.dir, entry.Name(), perr)
+		}
 	}
 	return nil
 }

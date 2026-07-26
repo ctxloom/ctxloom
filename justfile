@@ -756,6 +756,10 @@ docker-prune HOURS="6":
     echo "Pruned $removed ephemeral image(s) older than {{HOURS}}h."
     docker image prune -f --filter "until={{HOURS}}h" >/dev/null
     echo "Pruned dangling layers older than {{HOURS}}h."
+    # Build cache pins the layers the image prune above frees, so physical disk
+    # is not reclaimed until this runs too. Same age floor keeps in-flight work.
+    docker builder prune -f --filter "until={{HOURS}}h" >/dev/null
+    echo "Pruned build cache older than {{HOURS}}h."
 
 # Install dependencies
 deps:

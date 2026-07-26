@@ -70,3 +70,26 @@ func Verify(payload []byte, armored []byte, pub ssh.PublicKey, namespace string)
 	}
 	return nil
 }
+
+// ParseArmored reports whether armored is a well-formed PROTOCOL.sshsig blob
+// — nothing about who signed it or what it covers, only that the bytes on
+// disk are a signature at all.
+//
+// It exists because "this file will not even parse" and "there is no such
+// file" are different facts that the VERIFY path deliberately conflates:
+// VerifyCountersignature collapses every failure into (false, "") because on
+// the APPROVE path a signature that does not prove anything is correctly
+// treated as absent. On the REJECT path that collapse is a fail-OPEN — an
+// unparseable rejection record silently un-rejects the item — so the caller
+// that owns the fail-closed gate (countersign.Store.Readable) needs a way to
+// ask this narrower question about every record it can see, ahead of any
+// query-scoped verification.
+func ParseArmored(armored []byte) error {
+	if len(armored) == 0 {
+		return fmt.Errorf("empty signature blob")
+	}
+	if _, err := sshsig.Unarmor(armored); err != nil {
+		return fmt.Errorf("unarmor: %w", err)
+	}
+	return nil
+}

@@ -133,3 +133,8 @@ AGENTS.md
 .ctxloom/cache/
 .ctxloom/pieces/
 .ctxloom/sessions/
+
+# Working decisions log — for human review during a work session, not part of
+# the repo record. FINDINGS.md and docs/behaviour-changes-*.md are the committed
+# artifacts; this is the scratch ledger behind them.
+DECISIONS.md

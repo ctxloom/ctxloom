@@ -131,7 +131,7 @@ func TestWriteItemsSnapshot_RoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, 1, &agentcoordpb.Summary{
+	c.recordSummary(out.Harp, "run-1", 1, &agentcoordpb.Summary{
 		Scope:            agentcoordpb.Summary_SCOPE_CHECKPOINT,
 		Text:             "checkpoint",
 		CoversThroughSeq: 1,

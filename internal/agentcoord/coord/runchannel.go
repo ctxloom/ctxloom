@@ -268,7 +268,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		c.handleCustomEvent(ch, payload.Custom)
 		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_Summary:
-		c.recordSummary(ch.role, ev.GetSeq(), payload.Summary)
+		c.recordSummary(ch.role, ch.id.RunID, ev.GetSeq(), payload.Summary)
 		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_ArtifactProduced:
 		c.recordArtifact(ch.role, ev.GetSeq(), payload.ArtifactProduced)

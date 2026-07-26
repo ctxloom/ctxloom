@@ -149,6 +149,19 @@ type launchState struct {
 	// fails counts CONSECUTIVE failed launch attempts; reset by a launch
 	// that attaches, and by an explicit new delivery.
 	fails int
+	// relaunches counts CONSECUTIVE automatic relaunches armed by
+	// relaunchForLeftoverMail. It exists because `fails` bounds LAUNCH
+	// FAILURES only (U023-F02): a child that ATTACHES and then dies without
+	// draining its mailbox resets `fails` on every cycle (noteLaunchAttached),
+	// so terminateRun's tail re-arms forever at zero backoff — the 2026-07-24
+	// incident shape through a different door, and precisely the observed
+	// `runtime:container` "starts, gets nothing, exits" behaviour.
+	//
+	// The decisive difference is what clears it: attaching does NOT, because
+	// attaching is not progress. Only CONSUMING mail (noteMailConsumed, wired
+	// to all three factMailConsumed writers) and an explicit new delivery
+	// (clearLaunchGate) do. Draining is progress; coming up is not.
+	relaunches int
 	// stopped records an explicit agent_stop. It survives the run terminal
 	// on purpose: the incident's stop landed on an ALREADY-ENDED run with a
 	// relaunch armed behind it, and the run record alone could not express
@@ -238,6 +251,7 @@ func (c *Coordinator) clearLaunchGate(harp string) {
 	st := c.launchGateLocked(harp)
 	st.stopped = false
 	st.fails = 0
+	st.relaunches = 0
 }
 
 // noteLaunchAttached records that a launch actually came up: the
@@ -248,6 +262,21 @@ func (c *Coordinator) noteLaunchAttached(harp string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.launchGateLocked(harp).fails = 0
+}
+
+// noteMailConsumed records the only thing that counts as progress for the
+// relaunch budget: harp actually DRAINED mail. Called from every site that
+// journals a factMailConsumed (takeNextMail, ackDelivered, and the runner's
+// ctxloom/mail_consumed custom event) — the mailbox emptying is the whole
+// reason terminateRun's tail re-arms, so the message leaving it is the whole
+// reason to forgive the attempts spent getting there.
+//
+// Deliberately NOT reset by an attach (noteLaunchAttached): U023-F02 is
+// exactly the loop where every cycle attaches and none of them drains.
+func (c *Coordinator) noteMailConsumed(harp string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.launchGateLocked(harp).relaunches = 0
 }
 
 // noteLaunchFailure records one failed attempt against harp's consecutive-
@@ -277,16 +306,35 @@ func (c *Coordinator) launchBackoff(fails int) time.Duration {
 }
 
 // nextRelaunch decides whether terminateRun's leftover-mail tail may relaunch
-// harp, and after how long. It refuses once the harp has been stopped, or
-// once c.maxLaunchAttempts consecutive attempts have failed.
-func (c *Coordinator) nextRelaunch(harp string) (time.Duration, bool) {
+// harp, and after how long. It refuses once the harp has been stopped, once
+// c.maxLaunchAttempts consecutive attempts have FAILED, or once that many
+// consecutive relaunches have been armed WITHOUT the harp draining any mail
+// (U023-F02 — the attach-then-die loop, which the failure counter alone
+// cannot see because attaching resets it).
+//
+// It is not a pure predicate: authorising a relaunch SPENDS one, so the
+// counter it consults advances here. Exactly one caller
+// (relaunchForLeftoverMail) may therefore ask, and it asks once per decision.
+// The third result separates the two refusals, because they are not the same
+// event: `exhausted` is a bounded retry running out (the operator must be
+// told — mail is stranded), while a refusal from `stopped` is the operator's
+// own agent_stop being honoured and is correctly silent.
+func (c *Coordinator) nextRelaunch(harp string) (delay time.Duration, ok, exhausted bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	st := c.launchGateLocked(harp)
-	if st.stopped || st.fails >= c.maxLaunchAttempts {
-		return 0, false
+	if st.stopped {
+		return 0, false, false
 	}
-	return c.launchBackoff(st.fails), true
+	// The budget is spent by whichever counter is further along: a harp that
+	// alternates launch failures with attach-then-die cycles must not get a
+	// full budget of each.
+	spent := max(st.fails, st.relaunches)
+	if spent >= c.maxLaunchAttempts {
+		return 0, false, true
+	}
+	st.relaunches++
+	return c.launchBackoff(spent), true, false
 }
 
 // relaunchForLeftoverMail is terminateRun's tail: a message that raced the
@@ -305,10 +353,15 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 	if cause == CauseStopped || c.pendingCount(rec.Harp) == 0 {
 		return
 	}
-	delay, ok := c.nextRelaunch(rec.Harp)
+	delay, ok, exhausted := c.nextRelaunch(rec.Harp)
 	if !ok {
-		if cause == CauseLaunchFailed {
-			c.giveUpLaunching(rec, detail)
+		// Budget exhaustion is LOUD whatever burned it. Restricting the notice
+		// to CauseLaunchFailed left the attach-then-die loop (U023-F02) ending
+		// in silence with the child's mail still queued — a stranded mailbox
+		// nobody is told about is the same 49-minute blind spot in slower
+		// motion.
+		if exhausted {
+			c.giveUpLaunching(rec, cause, detail)
 		}
 		return
 	}
@@ -320,11 +373,18 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 // learns that the launcher stopped trying and why, and the fact goes to
 // stderr too. The alternative — going quiet — is what let a broken launch
 // look like a slow one for 49 minutes.
-func (c *Coordinator) giveUpLaunching(rec RunRecord, detail string) {
-	body := fmt.Sprintf("agent %q (session %s) failed to launch %d times in a row — giving up; "+
+func (c *Coordinator) giveUpLaunching(rec RunRecord, cause, detail string) {
+	what := fmt.Sprintf("failed to launch %d times in a row", c.maxLaunchAttempts)
+	if cause != CauseLaunchFailed {
+		// It came up and died again without ever draining its mailbox — a
+		// different failure with the same runaway shape, and a different fix.
+		what = fmt.Sprintf("started and exited %d times in a row without consuming any of its mail (last run ended: %s)",
+			c.maxLaunchAttempts, cause)
+	}
+	body := fmt.Sprintf("agent %q (session %s) %s — giving up; "+
 		"its queued messages are still waiting. Last failure: %s. "+
 		"Fix the launch (image, runtime, auth, workspace) and agent_send again to retry.",
-		rec.Agent, rec.Harp, c.maxLaunchAttempts, detail)
+		rec.Agent, rec.Harp, what, detail)
 	clidiag.Warn("ctxloom", "%s", body)
 	if rec.ParentHarp == "" {
 		return

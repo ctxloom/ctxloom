@@ -325,6 +325,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 			return
 		}
 		c.unreserve(ch.role, ids)
+		c.noteMailConsumed(ch.role) // real progress: the relaunch budget is forgiven
 		c.mu.Lock()
 		ch.pushed = removeIDs(ch.pushed, ids)
 		c.mu.Unlock()

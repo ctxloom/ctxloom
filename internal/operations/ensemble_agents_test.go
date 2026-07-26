@@ -154,10 +154,9 @@ func TestMapProfiles_LLMOverrideWinsOverAgentEngine(t *testing.T) {
 // engine), an injected part is appended, and the synthesizer reduces them all.
 func TestWeave_FansAgentBareMixSynthesizesAndInjects(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := agentFanConfig()
-	// Definitions is a map (reference type), so mutating it through the Fixture
-	// view still lands in cfg's own backing map — no rebuild needed.
-	cfg.ToFixture().Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
+	cfg := withProfileDefs(agentFanConfig(), map[string]config.Profile{
+		"synth": {LLM: "agy-code"},
+	})
 
 	// echo stub: the synthesizer's report is the framed synthesis input, so we can
 	// assert the member + injected parts flowed in.

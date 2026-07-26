@@ -139,16 +139,13 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 	// Give the inline reviewer profile its own MCP server (trusted-local, ungated).
-	// Definitions is a map (reference type): mutating it through the Fixture
-	// view still lands in cfg's own backing map (GetProfilesConfig, by
-	// contrast, returns a copy-on-read clone — assigning into it would be a
-	// silent no-op).
-	defs := cfg.ToFixture().Profiles.Definitions
-	p := defs["reviewer"]
+	// Both GetProfilesConfig and ToFixture are copy-on-read (U049-F05), so the
+	// amended definition has to be installed by rebuilding the config.
+	p := cfg.GetProfilesConfig().Definitions["reviewer"]
 	p.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{
 		"prof-srv": {Command: "prof-cmd"},
 	}}
-	defs["reviewer"] = p
+	cfg = withProfileDefs(cfg, map[string]config.Profile{"reviewer": p})
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,

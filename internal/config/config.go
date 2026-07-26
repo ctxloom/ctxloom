@@ -330,29 +330,38 @@ type configDoc struct {
 }
 
 // toDoc copies c's persisted fields into a configDoc for marshaling.
+//
+// Like its twin ToFixture (fixture.go), it clones every map and slice rather
+// than aliasing c's own. The strongest reason is Draft: Manager.Update hands
+// the doc this builds to an arbitrary caller's fn as the package's documented
+// WRITE surface, and an fn that mutates a container in place must not be able
+// to reach back into the Config the draft was taken from. Cloning also keeps
+// the two conversions honest with each other — they are near-identical
+// 21-field copies, and one of them silently having weaker ownership than the
+// other is how U049-F05 happened.
 func (c *Config) toDoc() configDoc {
 	return configDoc{
 		Version:                      c.version,
-		LM:                           c.lm,
-		Editor:                       c.editor,
-		Settings:                     c.settings,
-		Sync:                         c.sync,
-		Hooks:                        c.hooks,
-		MCP:                          c.mcp,
-		Profiles:                     c.profiles,
-		Agents:                       c.agents,
+		LM:                           cloneLMConfig(c.lm),
+		Editor:                       cloneEditor(c.editor),
+		Settings:                     cloneSettings(c.settings),
+		Sync:                         cloneSync(c.sync),
+		Hooks:                        cloneHooksConfig(c.hooks),
+		MCP:                          cloneMCPConfig(c.mcp),
+		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
+		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
 		AgentTurnCap:                 c.agentTurnCap,
-		IsolationImages:              c.isolationImages,
+		IsolationImages:              cloneStringMap(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
-		IsolationDevcontainerBase:    c.isolationDevcontainerBase,
+		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
 		IsolationDevcontainerService: c.isolationDevcontainerService,
-		IsolationEngines:             c.isolationEngines,
-		UI:                           c.ui,
+		IsolationEngines:             cloneStrings(c.isolationEngines),
+		UI:                           cloneUIConfig(c.ui),
 	}
 }
 

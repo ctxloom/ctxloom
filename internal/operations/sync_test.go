@@ -1360,21 +1360,23 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 // previously-unloadable profile into the profiles dir.
 type revealingPuller struct {
 	cfg         *config.Config
-	reveals     string // pulling this ref makes the revealed profile resolvable
-	revealedRef string // the bundle that newly-resolvable profile references
+	fs          afero.Fs // re-injected when cfg is rebuilt; a Fixture carries no fs
+	reveals     string   // pulling this ref makes the revealed profile resolvable
+	revealedRef string   // the bundle that newly-resolvable profile references
 	pulled      []string
 }
 
 func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
 	p.pulled = append(p.pulled, refStr)
 	if refStr == p.reveals {
-		// Definitions is a map (reference type): mutating it through the
-		// Fixture view still lands in cfg's own backing map. GetProfilesConfig
-		// (like every Get* accessor) returns a copy-on-read CLONE — assigning
-		// into it here would be exactly the silent-no-op this test exists to
-		// catch, just relocated into the test double instead of production
-		// code.
-		p.cfg.ToFixture().Profiles.Definitions["revealed"] = config.Profile{Bundles: []string{p.revealedRef}}
+		// Every read of a Config's profiles is copy-on-read — ToFixture
+		// included, since U049-F05 — so making a definition appear mid-run
+		// means rebuilding the config the sync loop is holding. Assigning into
+		// a returned map would be exactly the silent no-op this test exists to
+		// catch, just relocated into the test double.
+		installProfileDefs(p.cfg, p.fs, map[string]config.Profile{
+			"revealed": {Bundles: []string{p.revealedRef}},
+		})
 	}
 	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/revealed.yaml"}, nil
 }
@@ -1411,7 +1413,7 @@ remotes:
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	puller := &revealingPuller{cfg: cfg, reveals: rootRef, revealedRef: revealedRef}
+	puller := &revealingPuller{cfg: cfg, fs: fs, reveals: rootRef, revealedRef: revealedRef}
 
 	_, err = SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS: fs, Registry: registry, Puller: puller,
@@ -1431,6 +1433,7 @@ remotes:
 // permitted pass.
 type chainRevealingPuller struct {
 	cfg    *config.Config
+	fs     afero.Fs          // re-injected when cfg is rebuilt; a Fixture carries no fs
 	next   map[string]string // ref -> the ref pulling it reveals ("" = reveals nothing)
 	pulled []string
 }
@@ -1438,7 +1441,9 @@ type chainRevealingPuller struct {
 func (p *chainRevealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
 	p.pulled = append(p.pulled, refStr)
 	if revealed := p.next[refStr]; revealed != "" {
-		p.cfg.ToFixture().Profiles.Definitions[revealed] = config.Profile{Bundles: []string{revealed}}
+		installProfileDefs(p.cfg, p.fs, map[string]config.Profile{
+			revealed: {Bundles: []string{revealed}},
+		})
 	}
 	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/chain.yaml"}, nil
 }
@@ -1481,7 +1486,7 @@ remotes:
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	puller := &chainRevealingPuller{cfg: cfg, next: next}
+	puller := &chainRevealingPuller{cfg: cfg, fs: fs, next: next}
 
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)

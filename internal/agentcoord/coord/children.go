@@ -114,6 +114,12 @@ type childRt struct {
 	viaStartRun bool
 	in          chan<- agent.ChatMessage
 	close       func()
+	// workDir is the isolation-resolved workspace this run's engine was
+	// started in (EngineSpawn.WorkDir). It exists for the liveness watchdog:
+	// the worktree's newest mtime is the only activity clock that is not
+	// written by the engine's own bookkeeping, so it is what distinguishes an
+	// agent inside a ten-minute build from one that is hung (U056-F04).
+	workDir     string
 	wake        chan struct{}
 	turnOutput  []string // result bridging: this turn's assistant output (see bridgeTurnResult)
 	turnErrored bool     // result bridging: this turn's Entry.IsError was set (Result.status)
@@ -623,6 +629,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	c.mu.Lock()
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
+	rt.workDir = engine.WorkDir
 	c.mu.Unlock()
 
 	spec, err := buildHarnessSpec(HarnessSpecInput{

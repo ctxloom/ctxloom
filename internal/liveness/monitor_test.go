@@ -152,8 +152,8 @@ func transcriptPath(t *testing.T, harp string) string {
 	return p
 }
 
-// aliveNoCPU is a probe standing in for a runtime whose process is up but
-// whose CPU cannot be read (the container case as the coordinator sees it).
+// aliveNoCPU is a probe standing in for a runtime the coordinator can see is
+// up but cannot look inside (the container case, answered by a heartbeat).
 var aliveNoCPU = liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
 	return liveness.ProcState{Observed: true, Alive: true, Detail: "runner heartbeat 2s ago"}
 }}
@@ -396,53 +396,50 @@ func TestMonitor_DiedVersusCleanEnd(t *testing.T) {
 	assert.False(t, rep.Firing(), "a run that finished its turn and ended is not a death: %s", rep.Reason)
 }
 
-// LEGITIMATELY SLOW: quiet past the grace, but the process is burning CPU. A
-// spin loop looks different from a hang; a long think is not a stall.
-func TestMonitor_CPUBurnIsSlowNotStalled(t *testing.T) {
+// LEGITIMATELY SLOW: quiet on the TRANSCRIPT past the grace, but still
+// writing files. A ten-minute build says nothing and is not a hang.
+//
+// This used to be proved through a CPU-burn probe. That probe could never run
+// in production — no liveness.Target ever carried a pid, because
+// Spawner.StartEngine returns a Kill closure and not one (U056-F04) — so the
+// distinction it drew was a distinction the shipped monitor could not make.
+// The worktree mtime clock draws the same one from evidence the coordinator
+// actually has.
+func TestMonitor_WorktreeWritesRescueAQuietTranscript(t *testing.T) {
 	testHome(t)
 	const harp = "thinking-hard"
 	healthySession(t, harp)
 	path := transcriptPath(t, harp)
-	backdateTranscript(t, path, 30*time.Minute) // silent for half an hour
+	backdateTranscript(t, path, 30*time.Minute) // the transcript is silent...
+
+	work := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(work, "built.o"), []byte("x"), 0o644)) // ...the build is not
 
 	now := time.Now()
-	cpu := 10 * time.Second
-	cur := now
 	m := liveness.New(liveness.Options{
-		Now: func() time.Time { return cur },
-		Probes: []liveness.Probe{liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
-			return liveness.ProcState{Observed: true, Alive: true, CPUObserved: true, CPU: cpu}
-		}}},
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
 	})
 	target := liveness.Target{
 		Harp: harp, Runtime: "host", RosterState: "executing",
 		StartedAt: now.Add(-2 * time.Hour), LastActivity: now.Add(-30 * time.Minute),
-		TranscriptPath: path,
+		TranscriptPath: path, WorkDir: work,
 	}
-
-	// First look: no CPU baseline yet, so no stall verdict may be reached
-	// from CPU alone.
 	rep := m.Assess(context.Background(), target)
-	assert.False(t, rep.Firing(), "a first sample has nothing to difference against: %s", rep.Reason)
+	assert.False(t, rep.Firing(), "an agent writing files is not stalled: %s", rep.Reason)
 
-	// Second look, one minute later, having burned 30s of CPU: slow.
-	cur = now.Add(time.Minute)
-	cpu = 40 * time.Second
-	rep = m.Assess(context.Background(), target)
-	assert.Equal(t, liveness.StateSlow, rep.State, "reason=%q", rep.Reason)
-	assert.False(t, rep.Firing())
-
-	// Third look, another minute, having burned nothing: stalled.
-	cur = now.Add(2 * time.Minute)
+	// Take the worktree clock away and the same target IS a stall — the
+	// rescue must come from the evidence, not from the rung being toothless.
+	target.WorkDir = ""
 	rep = m.Assess(context.Background(), target)
 	assert.Equal(t, liveness.StateStalled, rep.State, "reason=%q", rep.Reason)
-	assert.True(t, rep.Firing())
+	assert.NotContains(t, rep.Reason, "CPU", "no verdict may cite evidence this monitor cannot gather")
 }
 
-// A runtime whose CPU can never be read must still be assessable — otherwise
-// the container case, which is where the incident happened, is exactly the
-// case the monitor cannot speak about.
-func TestMonitor_UnobservableCPUStillReachesAVerdict(t *testing.T) {
+// A runtime whose process the coordinator can only see through a heartbeat
+// must still be assessable — otherwise the container case, which is where the
+// incident happened, is exactly the case the monitor cannot speak about.
+func TestMonitor_HeartbeatOnlyRuntimeStillReachesAVerdict(t *testing.T) {
 	testHome(t)
 	const harp = "quiet-container"
 	healthySession(t, harp)
@@ -458,7 +455,7 @@ func TestMonitor_UnobservableCPUStillReachesAVerdict(t *testing.T) {
 		TranscriptPath: transcriptPath(t, harp),
 	})
 	assert.Equal(t, liveness.StateStalled, rep.State,
-		"with no CPU evidence obtainable, 30 minutes of total silence is a stall: %s", rep.Reason)
+		"30 minutes of silence on every clock is a stall: %s", rep.Reason)
 }
 
 // Filesystem activity is evidence of life even when the transcript is quiet.

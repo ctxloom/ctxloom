@@ -2,8 +2,6 @@ package liveness_test
 
 import (
 	"context"
-	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -12,52 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/liveness"
 )
-
-func TestHostProbe_NoPidIsUnobservedNotDead(t *testing.T) {
-	st := liveness.HostProbe{}.Inspect(context.Background(), liveness.Target{Runtime: "host"})
-	assert.False(t, st.Observed, "an unknown pid means we know nothing, not that it died")
-	assert.False(t, st.Alive)
-	assert.NotEmpty(t, st.Detail, "an unobserved target must say why")
-}
-
-func TestHostProbe_LiveProcessIsObservedAlive(t *testing.T) {
-	target := liveness.Target{Runtime: "host", PID: os.Getpid()}
-	st := liveness.HostProbe{}.Inspect(context.Background(), target)
-	require.True(t, st.Observed)
-	assert.True(t, st.Alive)
-	if runtime.GOOS != "linux" {
-		return
-	}
-	require.True(t, st.CPUObserved, "/proc CPU accounting must be read where it exists")
-
-	// The reading must MOVE when the process burns CPU. Asserting it is merely
-	// non-zero would be flaky (the counter is quantized to 10ms ticks and a
-	// freshly-started test binary can genuinely read 0), and — worse — a probe
-	// that returned a frozen constant would pass such an assertion while being
-	// useless for the differencing the monitor actually does.
-	before := st.CPU
-	deadline := time.Now().Add(250 * time.Millisecond)
-	x := 1
-	for time.Now().Before(deadline) {
-		for i := 0; i < 200000; i++ {
-			x = (x * 31) % 1000003
-		}
-	}
-	require.NotZero(t, x) // keep the loop from being optimized away
-	after := liveness.HostProbe{}.Inspect(context.Background(), target)
-	assert.Greater(t, after.CPU, before, "cumulative CPU must advance after burning some")
-}
-
-func TestHostProbe_DeadPidIsObservedDead(t *testing.T) {
-	// A pid that has certainly exited: spawn nothing, use an implausible one.
-	// pid 0 and negatives are rejected earlier, so use a very high pid which
-	// is either free or (vanishingly rarely) in use — the assertion is only
-	// that we OBSERVE something, and that a free pid reads as not alive.
-	const unlikely = 4194303 // one past the usual Linux pid_max
-	st := liveness.HostProbe{}.Inspect(context.Background(), liveness.Target{Runtime: "host", PID: unlikely})
-	assert.True(t, st.Observed, "a pid we were given is a pid we can answer about")
-	assert.False(t, st.Alive)
-}
 
 // A probe declaring a runtime must not be consulted for a different one, or
 // "evidence of life" stops being runtime-polymorphic and becomes a guess.
@@ -100,7 +52,6 @@ func TestUnobservableProbe_DeclaresTheGap(t *testing.T) {
 	st := p.Inspect(context.Background(), liveness.Target{Runtime: "container"})
 	assert.Equal(t, "container", p.Runtime())
 	assert.False(t, st.Observed)
-	assert.False(t, st.CPUObserved)
 	assert.Equal(t, "no exec into the container from here", st.Detail)
 }
 

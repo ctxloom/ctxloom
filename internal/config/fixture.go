@@ -15,6 +15,18 @@ import (
 // corrupting the ONE shared instance every Load/Current holder sees, and a
 // Fixture-built Config never enters the ambient memo and never aliases a
 // Load result. Every call yields a separately-owned value.
+//
+// "Separately owned" means the CONTAINERS too, not just the struct. Both
+// directions of the round trip clone every map and slice they carry, using
+// accessors.go's clone helpers, so this type obeys the same copy-on-read
+// policy the Get* accessors do — see TestToFixture_NeverAliasesConfigContainers
+// for the reflective gate that keeps a newly added field honest.
+//
+// ONE deliberate exception, matching GetPendingUpgrade: PendingUpgrade and
+// HomePendingUpgrade are carried as the same *upgrade.Pending. They are a
+// handle on a pending on-disk schema upgrade that CommitPendingUpgrade
+// consumes, not user data a caller amends, and duplicating one would hand out
+// a second commit token for a single upgrade.
 type Fixture struct {
 	Version                      int
 	LM                           LMConfig
@@ -60,31 +72,31 @@ type Fixture struct {
 func (c *Config) ToFixture() Fixture {
 	return Fixture{
 		Version:                      c.version,
-		LM:                           c.lm,
-		Editor:                       c.editor,
-		Settings:                     c.settings,
-		Sync:                         c.sync,
-		Hooks:                        c.hooks,
-		MCP:                          c.mcp,
-		Profiles:                     c.profiles,
-		Agents:                       c.agents,
+		LM:                           cloneLMConfig(c.lm),
+		Editor:                       cloneEditor(c.editor),
+		Settings:                     cloneSettings(c.settings),
+		Sync:                         cloneSync(c.sync),
+		Hooks:                        cloneHooksConfig(c.hooks),
+		MCP:                          cloneMCPConfig(c.mcp),
+		Profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)},
+		Agents:                       cloneAgentsMap(c.agents),
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
 		AgentTurnCap:                 c.agentTurnCap,
-		IsolationImages:              c.isolationImages,
+		IsolationImages:              cloneStringMap(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
-		IsolationDevcontainerBase:    c.isolationDevcontainerBase,
+		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
 		IsolationDevcontainerService: c.isolationDevcontainerService,
-		IsolationEngines:             c.isolationEngines,
-		UI:                           c.ui,
-		AppPaths:                     c.appPaths,
+		IsolationEngines:             cloneStrings(c.isolationEngines),
+		UI:                           cloneUIConfig(c.ui),
+		AppPaths:                     cloneStrings(c.appPaths),
 		AppRoot:                      c.appRoot,
 		AppDir:                       c.appDir,
 		Source:                       c.source,
-		Warnings:                     c.warnings,
+		Warnings:                     cloneWarnings(c.warnings),
 		PendingUpgrade:               c.pendingUpgrade,
 		HomePendingUpgrade:           c.homePendingUpgrade,
 	}
@@ -110,31 +122,31 @@ func (c *Config) ToFixture() Fixture {
 func NewFixture(f Fixture) *Config {
 	return &Config{
 		version:                      f.Version,
-		lm:                           f.LM,
-		editor:                       f.Editor,
-		settings:                     f.Settings,
-		sync:                         f.Sync,
-		hooks:                        f.Hooks,
-		mcp:                          f.MCP,
-		profiles:                     f.Profiles,
-		agents:                       f.Agents,
+		lm:                           cloneLMConfig(f.LM),
+		editor:                       cloneEditor(f.Editor),
+		settings:                     cloneSettings(f.Settings),
+		sync:                         cloneSync(f.Sync),
+		hooks:                        cloneHooksConfig(f.Hooks),
+		mcp:                          cloneMCPConfig(f.MCP),
+		profiles:                     ProfilesConfig{Definitions: cloneProfilesMap(f.Profiles.Definitions)},
+		agents:                       cloneAgentsMap(f.Agents),
 		defaultAgent:                 f.DefaultAgent,
 		workspace:                    f.Workspace,
 		dirtyTreeHandler:             f.DirtyTreeHandler,
 		dirtyTreeCommitAck:           f.DirtyTreeCommitAck,
 		runtime:                      f.Runtime,
 		agentTurnCap:                 f.AgentTurnCap,
-		isolationImages:              f.IsolationImages,
+		isolationImages:              cloneStringMap(f.IsolationImages),
 		isolationBaseContainerfile:   f.IsolationBaseContainerfile,
-		isolationDevcontainerBase:    f.IsolationDevcontainerBase,
+		isolationDevcontainerBase:    cloneBoolPtr(f.IsolationDevcontainerBase),
 		isolationDevcontainerService: f.IsolationDevcontainerService,
-		isolationEngines:             f.IsolationEngines,
-		ui:                           f.UI,
-		appPaths:                     f.AppPaths,
+		isolationEngines:             cloneStrings(f.IsolationEngines),
+		ui:                           cloneUIConfig(f.UI),
+		appPaths:                     cloneStrings(f.AppPaths),
 		appRoot:                      f.AppRoot,
 		appDir:                       f.AppDir,
 		source:                       f.Source,
-		warnings:                     f.Warnings,
+		warnings:                     cloneWarnings(f.Warnings),
 		pendingUpgrade:               f.PendingUpgrade,
 		homePendingUpgrade:           f.HomePendingUpgrade,
 	}

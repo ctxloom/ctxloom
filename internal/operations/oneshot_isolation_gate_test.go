@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -127,11 +128,11 @@ func TestMapProfiles_ContainerDegradeIsPerMember(t *testing.T) {
 	resetStrictness(t)
 	_, loader := setupContextTestFS(t)
 	cfg := mapTestConfig()
-	// Definitions is a map (reference type): mutating it through the Fixture
-	// view still lands in cfg's own backing map.
-	defs := cfg.ToFixture().Profiles.Definitions
-	defs["c"] = defs["a"]
-	defs["d"] = defs["b"]
+	base := cfg.GetProfilesConfig().Definitions
+	cfg = withProfileDefs(cfg, map[string]config.Profile{
+		"c": base["a"],
+		"d": base["b"],
+	})
 
 	stubPrepareIsolation(t, map[string]bool{"b": true, "d": true}, func() pb.Client { return &stubClient{out: "ok"} })
 

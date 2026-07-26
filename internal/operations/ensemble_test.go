@@ -94,10 +94,9 @@ func TestMapProfiles_Empty(t *testing.T) {
 // letting us assert the member + injected parts flowed in.
 func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := mapTestConfig()
-	// Definitions is a map (reference type), so mutating it through the Fixture
-	// view still lands in cfg's own backing map — no rebuild needed.
-	cfg.ToFixture().Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
+	cfg := withProfileDefs(mapTestConfig(), map[string]config.Profile{
+		"synth": {LLM: "agy-code"},
+	})
 
 	factory := func(string, string, int) (pb.Client, error) { return &stubClient{echo: true}, nil }
 

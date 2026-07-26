@@ -418,10 +418,9 @@ Examples:
 		// --print` synthesizes over any piped input (e.g. `ctxloom weave
 		// --map-only` output or non-ctxloom text). Skipped on a TTY so an
 		// interactive read never blocks.
-		if prompt == "" && runPrint && stdinIsPiped() {
-			if data, rerr := io.ReadAll(os.Stdin); rerr == nil {
-				prompt = strings.TrimSpace(string(data))
-			}
+		prompt, err = finalizeRunPrompt(prompt, runPrint, stdinIsPiped(), os.Stdin)
+		if err != nil {
+			return err
 		}
 
 		// Assemble context using operations. The context carries shutdown
@@ -1262,10 +1261,9 @@ Examples:
 		// otherwise-successful (or otherwise-failed — the exit code below
 		// is unaffected either way) run. Captured even on a nonzero exit:
 		// partial prose on stdout is still real memory of what happened.
+		var captureErr error
 		if oneshotCapture != nil {
-			if terr := transcript.RecordOneshot(activeHarp, backendName, prompt, oneshotCapture.String()); terr != nil {
-				clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
-			}
+			captureErr = recordOneshotAnswer(activeHarp, backendName, prompt, oneshotCapture.String())
 		}
 
 		// Interactive-pty exit seam for vendor-transcript import
@@ -1284,9 +1282,68 @@ Examples:
 		if status.Code != 0 {
 			return &ExitError{Code: int(status.Code)}
 		}
+		// The engine's own exit code wins when it is nonzero: it already said
+		// what went wrong. Only an otherwise-GREEN run that produced no answer
+		// falls through to this.
+		if captureErr != nil {
+			return captureErr
+		}
 
 		return nil
 	},
+}
+
+// finalizeRunPrompt applies the last two steps of prompt resolution, after the
+// flag / saved-command / positional-args sources have had their turn: read the
+// piped-stdin source a `--print` run may be using, and refuse a `--print` run
+// that ends up with nothing to say.
+//
+// U041-F03: both steps used to be missing. An unreadable pipe was swallowed
+// (`if data, rerr := io.ReadAll(os.Stdin); rerr == nil`, the error dropped),
+// and nothing downstream rejected an empty ONESHOT prompt, so
+// `broken-producer | ctxloom run --print` launched a headless engine with an
+// empty prompt and exited 0 having asked nothing. A one-shot gets exactly one
+// turn; an empty one delivers nothing at all. Interactive runs are untouched —
+// an empty prompt there legitimately means "open a session".
+func finalizeRunPrompt(prompt string, print, stdinPiped bool, stdin io.Reader) (string, error) {
+	if prompt == "" && print && stdinPiped {
+		data, rerr := io.ReadAll(stdin)
+		if rerr != nil {
+			return "", fmt.Errorf("--print: the prompt was to be read from stdin and stdin could not be read: %w", rerr)
+		}
+		prompt = strings.TrimSpace(string(data))
+	}
+	if print && prompt == "" {
+		return "", errors.New("--print: nothing to run — no prompt was given by --prompt, --command, positional " +
+			"arguments or piped stdin, and a one-shot run gets exactly one turn, so an empty prompt asks nothing at all")
+	}
+	return prompt, nil
+}
+
+// recordOneshotAnswer is the single seam both `--print` arms use to close out a
+// one-shot run: the go-plugin/Backend.Execute arm (run.go) and the Transport-2
+// container arm (runOneshotViaCoord). It records the two-entry canonical
+// transcript and reports the zero-answer case as a failure.
+//
+// U041-F01/F02: the container arm warned about an empty answer and returned nil
+// anyway; the go-plugin arm had no check at all and simply handed the empty
+// string to RecordOneshot, which treats "nothing to record" as a legitimate
+// no-op. Either way `ctxloom run --print ... > out.txt` produced an empty file
+// and exit 0. There is no legitimately-empty one-shot answer — one question was
+// asked and none was answered — so it exits nonzero and says so.
+//
+// Transcript capture itself stays best-effort: losing capture must never change
+// the exit code of a run that DID answer.
+func recordOneshotAnswer(harp, backend, prompt, answer string) error {
+	if strings.TrimSpace(answer) == "" {
+		clidiag.Warn("ctxloom", "one-shot run produced no answer text: the engine started and finished "+
+			"without emitting a single answer byte, so there is nothing to print or record")
+		return &ExitError{Code: 1}
+	}
+	if terr := transcript.RecordOneshot(harp, backend, prompt, answer); terr != nil {
+		clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
+	}
+	return nil
 }
 
 // convertVendorTranscriptOnExit runs the vendor-transcript importer

@@ -130,6 +130,35 @@ func TestAssembleContextResult_MultipleProfiles(t *testing.T) {
 	assert.Len(t, result.FragmentsLoaded, 2)
 }
 
+// withProfileDefs returns a config carrying cfg's fields plus defs.
+//
+// U049-F05: a Fixture used to alias the Config's own containers, so tests
+// injected profile definitions by writing straight into
+// `cfg.ToFixture().Profiles.Definitions`. ToFixture now deep-copies, honouring
+// the "every call yields a separately-owned value" contract its doc always
+// claimed — which is exactly why that write is now a no-op and adding a
+// definition to an already-built config means REBUILDING it.
+func withProfileDefs(cfg *config.Config, defs map[string]config.Profile) *config.Config {
+	f := cfg.ToFixture()
+	if f.Profiles.Definitions == nil {
+		f.Profiles.Definitions = map[string]config.Profile{}
+	}
+	for name, p := range defs {
+		f.Profiles.Definitions[name] = p
+	}
+	return config.NewFixture(f)
+}
+
+// installProfileDefs is withProfileDefs for the case where the config is
+// already held by the code under test (a mid-run test double that must make a
+// definition appear): it rebuilds in place, re-injecting fs since a Fixture
+// does not carry one.
+func installProfileDefs(cfg *config.Config, fs afero.Fs, defs map[string]config.Profile) {
+	rebuilt := withProfileDefs(cfg, defs)
+	rebuilt.SetFS(fs)
+	*cfg = *rebuilt
+}
+
 // ========== Loader-based integration tests ==========
 
 func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {

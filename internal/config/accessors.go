@@ -228,6 +228,7 @@ func cloneProfile(p Profile) Profile {
 	p.MCP = cloneMCPConfig(p.MCP)
 	p.ExcludeFragments = cloneStrings(p.ExcludeFragments)
 	p.ExcludeMCP = cloneStrings(p.ExcludeMCP)
+	p.DenyTools = cloneStrings(p.DenyTools)
 	return p
 }
 

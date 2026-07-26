@@ -379,21 +379,29 @@ func TestAntigravityHookWriter_Idempotent(t *testing.T) {
 	assert.Equal(t, string(firstMCP), string(secondMCP))
 }
 
-// TestAntigravityHookWriter_FaultTolerantLoad verifies corrupt files do not
-// block hook application (the CLAUDE.md fault-tolerance contract).
-func TestAntigravityHookWriter_FaultTolerantLoad(t *testing.T) {
+// This test used to assert the OPPOSITE — that a corrupt hooks.json did not
+// block hook application, under a "fault-tolerance contract" (U029-F06). What
+// it actually pinned was the destruction of the user's hook configuration:
+// loadHooksFile returned an empty structure and saveHooksFile wrote it back
+// as a ctxloom-only file. Not blocking the launch is worth having; achieving
+// it by deleting what you could not read is not.
+//
+// The corrected contract: an unreadable hooks.json stops the write and leaves
+// the file (and a .corrupt backup) for the user to fix.
+func TestAntigravityHookWriter_CorruptHooksFile_DoesNotApplyOverTheTopOfIt(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/project/.agents/hooks.json", []byte("{not valid json"), 0644))
-	require.NoError(t, afero.WriteFile(fs, "/project/.agents/mcp_config.json", []byte("also broken"), 0644))
+	corrupt := "{not valid json"
+	require.NoError(t, afero.WriteFile(fs, "/project/.agents/hooks.json", []byte(corrupt), 0644))
 
 	writer := &AntigravityHookWriter{FS: fs}
 	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
 		PreTool: []wire.Hook{{Command: "ctxloom hook pre-tool"}},
 	}}
-	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+	require.Error(t, writer.WriteSettings(cfg, nil, nil, "/project"))
 
-	hooks := readHooks(t, fs)
-	assert.Contains(t, hooks, "PreToolUse")
+	data, err := afero.ReadFile(fs, "/project/.agents/hooks.json")
+	require.NoError(t, err)
+	assert.Equal(t, corrupt, string(data), "the user's hooks.json must survive verbatim")
 }
 
 // TestAntigravityHookWriter_EmptyMCPFileTolerated verifies the zero-byte
@@ -597,4 +605,76 @@ func readHooks(t *testing.T, fs afero.Fs) map[string][]antigravityHookGroup {
 	var hooks map[string][]antigravityHookGroup
 	require.NoError(t, json.Unmarshal(top["hooks"], &hooks))
 	return hooks
+}
+
+// U029-F06, the antigravity twin of U032-F03/F05 and of taskloom lone-taste:
+// loadHooksFile returned an empty-but-valid structure on a parse failure and
+// saveHooksFile then persisted it, so an unparseable hooks.json was replaced
+// with a ctxloom-only file — the user's entire hook configuration destroyed,
+// behind a warning that called itself a "fault-tolerance contract".
+func TestAntigravityHookWriter_MalformedHooksFile_FailsLoudAndBacksUp(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &AntigravityHookWriter{FS: fs}
+
+	path := "/project/.agents/hooks.json"
+	require.NoError(t, fs.MkdirAll("/project/.agents", 0755))
+	corrupt := `{ "hooks": { "preToolUse": [ }`
+	require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "./pre.sh"}}},
+	}
+	require.Error(t, writer.WriteSettings(cfg, nil, nil, "/project"),
+		"an unreadable hooks.json must stop the write, not be replaced by a ctxloom-only one")
+
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Equal(t, corrupt, string(data), "the user's hooks.json must be left exactly as it was")
+
+	entries, err := afero.ReadDir(fs, "/project/.agents")
+	require.NoError(t, err)
+	found := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "hooks.json.corrupt-") {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected a hooks.json.corrupt-<timestamp> backup of the original bytes")
+}
+
+// The nested case: the file parses but "hooks" is the wrong shape. Warning
+// and continuing dropped every hook the user had.
+func TestAntigravityHookWriter_MalformedHooksField_FailsLoudRatherThanDropping(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &AntigravityHookWriter{FS: fs}
+
+	path := "/project/.agents/hooks.json"
+	require.NoError(t, fs.MkdirAll("/project/.agents", 0755))
+	corrupt := `{"hooks": "not-an-object", "somethingElse": true}`
+	require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "./pre.sh"}}},
+	}
+	require.Error(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Equal(t, corrupt, string(data))
+}
+
+// An ABSENT hooks.json is legitimately nothing to preserve and must still
+// write cleanly — the guard must not block a first run.
+func TestAntigravityHookWriter_AbsentHooksFile_StillWrites(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &AntigravityHookWriter{FS: fs}
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "./pre.sh"}}},
+	}
+	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+
+	data, err := afero.ReadFile(fs, "/project/.agents/hooks.json")
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "pre.sh")
 }

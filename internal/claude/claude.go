@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/afero"
 
@@ -342,36 +341,15 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	return settings, nil
 }
 
-// corruptSettings is the single refusal shape for "part of this file will not
-// parse, and writing it back would therefore lose whatever I could not read".
-//
-// It backs the original bytes up and returns an error, so the caller aborts
-// before touching the file. Every partial-parse failure routes through here
-// precisely so no future field can be added with a warn-and-continue branch —
-// a warning is not a guard, and each of the paths that had one (permissions,
-// permissions.deny, .mcp.json) was destroying user data behind it.
-//
-// what names the field that failed; consequence completes "refusing to write
-// … <consequence>".
+// corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
+// doc): back the original bytes up, then return an error so the caller aborts
+// before touching the file. Every partial-parse failure in loadSettings and
+// loadMCPConfig routes through here precisely so no future field can be added
+// with a warn-and-continue branch — a warning is not a guard, and each of the
+// paths that had one (permissions, permissions.deny, .mcp.json) was
+// destroying user data behind it.
 func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what string, cause error, consequence string) error {
-	name := filepath.Base(path)
-	backupPath, backupErr := w.backupCorrupt(path, data)
-	if backupErr != nil {
-		return fmt.Errorf("failed to parse %s: %w; additionally failed to back up the corrupt file: %v - refusing to write %s %s", what, cause, backupErr, name, consequence)
-	}
-	return fmt.Errorf("failed to parse %s: %w - original backed up to %s; fix the JSON and re-run (refusing to write %s %s)", what, cause, backupPath, name, consequence)
-}
-
-// backupCorrupt copies the raw, unparseable bytes of a settings file aside to
-// <path>.corrupt-<unix-timestamp> so a caller that fails loud on a parse
-// error doesn't also lose the user's original file content — the backup is
-// the recovery path pointed to by the returned error.
-func (w *ClaudeCodeHookWriter) backupCorrupt(path string, data []byte) (string, error) {
-	backupPath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
-	if err := afero.WriteFile(w.getFS(), backupPath, data, 0600); err != nil {
-		return "", err
-	}
-	return backupPath, nil
+	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 
 // saveSettings writes settings back to settings.json.

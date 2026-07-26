@@ -246,9 +246,16 @@ func (w *AntigravityHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire
 	return w.mcpFile(projectDir).WriteServers(mcp, bundleMCP)
 }
 
-// loadHooksFile loads existing hooks.json or returns an empty structure.
-// Parse failures warn and continue with empty settings (fault-tolerance
-// contract: ctxloom never blocks launch on a schema change).
+// loadHooksFile loads existing hooks.json, or an empty structure for a
+// MISSING file — the only case that legitimately means "nothing configured".
+//
+// A parse failure is refused, not tolerated. The old contract ("ctxloom never
+// blocks launch on a schema change") described the intent but not the effect:
+// saveHooksFile persists whatever this returns, so continuing with an empty
+// structure replaced the user's entire hooks.json with a ctxloom-only file.
+// The same defect was fixed in the claude writer as taskloom lone-taste; this
+// is its twin (U029-F06). Both now route through agent.RefuseCorrupt, which
+// backs the original bytes up and points the user at them.
 func (w *AntigravityHookWriter) loadHooksFile(path string) (*antigravityHooksFile, error) {
 	hf := &antigravityHooksFile{
 		Hooks: make(map[string][]antigravityHookGroup),
@@ -266,13 +273,14 @@ func (w *AntigravityHookWriter) loadHooksFile(path string) (*antigravityHooksFil
 
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		w.warn("failed to parse %s/hooks.json (schema may have changed): %v - ctxloom hooks will be added but existing entries may not be preserved", AgentsDir, err)
-		return hf, nil
+		return nil, agent.RefuseCorrupt(fs, path, data,
+			AgentsDir+"/hooks.json (schema may have changed)", err, "to avoid overwriting it")
 	}
 
 	if hooksRaw, ok := raw["hooks"]; ok {
 		if err := json.Unmarshal(hooksRaw, &hf.Hooks); err != nil {
-			w.warn("failed to parse hooks in hooks.json: %v - existing hooks may not be preserved", err)
+			return nil, agent.RefuseCorrupt(fs, path, data,
+				"hooks in "+AgentsDir+"/hooks.json", err, "to avoid dropping existing hooks")
 		}
 		delete(raw, "hooks")
 	}

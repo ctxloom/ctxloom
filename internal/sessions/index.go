@@ -620,11 +620,17 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 }
 
 // Rename changes the harp name of an existing entry to newName, leaving
-// SessionID and other fields intact. Errors if oldName doesn't exist or
-// newName is already in use.
+// SessionID and other fields intact. Errors if oldName doesn't exist, if
+// newName is already in use, or if newName is not a usable harp identifier.
+//
+// The validation lives HERE, where the data is (the same posture as
+// SetSummary's empty-summary refusal), not in operations.RenameSession: the
+// new name becomes an index key that paths.HarpDir turns into a filesystem
+// path, and `ctxloom session rename <old> ../..` was previously a
+// pass-through all the way to MkdirAll/Symlink (U087-F04).
 func (m *Manager) Rename(oldName, newName string) error {
-	if newName == "" {
-		return fmt.Errorf("newName required")
+	if err := harp.Validate(newName); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

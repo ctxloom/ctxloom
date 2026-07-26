@@ -648,3 +648,27 @@ func TestForget(t *testing.T) {
 	require.Len(t, idx.Sessions, 1)
 	assert.Equal(t, b.HarpName, idx.Sessions[0].HarpName)
 }
+
+// TestRename_RefusesUnsafeNewName is U087-F04 at the index: the new name
+// becomes both an index KEY and a filesystem path component, and Rename is
+// the only place a harp name arrives from user argv. Asserted on the index
+// state, not the error text — a refused rename must leave the original entry
+// findable and mint no entry under the traversing name.
+func TestRename_RefusesUnsafeNewName(t *testing.T) {
+	for _, bad := range []string{"..", "../..", "../../etc/passwd", "a/b", `a\b`, " lead", "nul\x00name"} {
+		m := newManager(t)
+		e, _ := m.AssignHarp("/proj", "claude-code")
+
+		err := m.Rename(e.HarpName, bad)
+		assert.Error(t, err, "Rename to %q must be refused", bad)
+
+		still, ferr := m.Find(e.HarpName)
+		require.NoError(t, ferr)
+		require.NotNil(t, still, "a refused rename must leave %q in the index", e.HarpName)
+		assert.Equal(t, "/proj", still.ProjectDir)
+
+		got, ferr := m.Find(bad)
+		require.NoError(t, ferr)
+		assert.Nil(t, got, "a refused rename must mint no entry under %q", bad)
+	}
+}

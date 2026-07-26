@@ -192,6 +192,40 @@ func UniqueFrom(used map[string]struct{}, gen func() string) string {
 	return gen()
 }
 
+// Validate reports whether name is usable as a harp identifier — the key of a
+// session index entry and, via paths.HarpDir, a single FILESYSTEM PATH
+// COMPONENT under ~/.ctxloom/sessions/. That second role is what makes this a
+// validator rather than a style check: `ctxloom session rename <old> ../..`
+// otherwise reached MkdirAll/Symlink on a traversed path (U087-F04).
+//
+// The rule is deliberately permissive on charset — a harp is renameable to
+// whatever a human finds memorable, and existing indexes hold such names — and
+// strict only on what stops a name from being one path component: it must be
+// non-empty, must not be "." or "..", must contain no path separator (/ or \),
+// no volume separator (:), and no control character (NUL included), and must
+// not begin or end with whitespace (a name whose edges are invisible cannot be
+// typed back by the human who has to address it).
+func Validate(name string) error {
+	if name == "" {
+		return fmt.Errorf("harp name is required")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid harp name %q: names a directory, not a session", name)
+	}
+	if strings.ContainsAny(name, `/\:`) {
+		return fmt.Errorf("invalid harp name %q: must not contain a path separator (/, \\ or :)", name)
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("invalid harp name %q: must not contain control characters", name)
+		}
+	}
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("invalid harp name %q: must not begin or end with whitespace", name)
+	}
+	return nil
+}
+
 // GenerateNameWithOptions returns a name built per the given options.
 // Invalid options are silently clamped (see Options.normalize).
 func GenerateNameWithOptions(opts Options) string {

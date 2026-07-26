@@ -45,8 +45,28 @@ type Store struct {
 // — it is created lazily on the first write; a Store over a nonexistent dir
 // reads as empty (no candidates), which is the correct "nothing approved or
 // rejected yet" starting state.
+//
+// An EMPTY dir is not that state and never was: it is a store nobody managed
+// to configure (the real trigger is `$HOME` being unresolvable, which leaves
+// operations' user-store construction with ""). Such a Store is inert — every
+// read answers nothing, every write refuses, and Readable reports the
+// misconfiguration so the caller's fail-closed gate fires. See configured.
 func NewStore(dir string, fs afero.Fs) *Store {
 	return &Store{dir: dir, fs: fs}
+}
+
+// configured reports the "nobody gave this store a directory" fault as an
+// error. It exists because filepath.Join("", x) == x: WITHOUT this guard a
+// dir "" store does not read as empty, it reads the PROCESS WORKING
+// DIRECTORY. Since unsigned markers are honoured with no cryptographic
+// verification whatsoever (§9.5), that turned a file committed at a repo root
+// into an unconditional approval of attacker-chosen bytes the moment $HOME
+// went missing. Every path that touches s.dir consults this first.
+func (s *Store) configured() error {
+	if s == nil || s.dir != "" {
+		return nil
+	}
+	return fmt.Errorf("countersignature store: no directory configured (unresolvable home directory?)")
 }
 
 // Dir returns the store's root directory.
@@ -84,6 +104,9 @@ func (s *Store) Dir() string {
 func (s *Store) Readable() error {
 	if s == nil {
 		return nil
+	}
+	if err := s.configured(); err != nil {
+		return err
 	}
 	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
@@ -143,9 +166,38 @@ func filename(header signing.CountersignHeader, payload []byte, pub ssh.PublicKe
 	return indexHash(header, payload) + "." + string(header.Assertion) + "." + keyTag(pub) + ".sig"
 }
 
+// pinsBytes enforces the one shape rule that differs between the two
+// assertions: an APPROVE must pin bytes, a REJECT need not.
+//
+// The reader already refuses an empty-payload approval — the composing
+// adapter's Approved() returns false for len(payload) == 0 before it touches
+// any store, because an approval that pinned nothing is meaningless — so
+// writing one produced a record that could never be honoured while telling
+// the user "approved" with a key fingerprint against it, leaving the item
+// pending forever. Refusing the write is the fail-loud form of a rule the
+// read side already relies on.
+//
+// A REJECT is deliberately exempt: a ref-reject pins no bytes by design (it
+// blocks the ref whatever its content becomes, spec §5.3). Keeping the rule
+// here rather than in the approve wrappers is what keeps the twelve
+// assertion wrappers uniform — the asymmetry is a property of the assertion,
+// not of two functions.
+func pinsBytes(header signing.CountersignHeader, payload []byte) error {
+	if header.Assertion != signing.AssertionApprove || len(payload) > 0 {
+		return nil
+	}
+	return fmt.Errorf("countersign approve %s %s: refusing to record an empty payload — an approval that pinned nothing can never be honoured", header.Kind, header.Ref)
+}
+
 // write signs header+payload with signer under namespace and persists the
 // resulting armored signature under this store's directory.
 func (s *Store) write(header signing.CountersignHeader, payload []byte, signer ssh.Signer, namespace string) error {
+	if err := s.configured(); err != nil {
+		return err
+	}
+	if err := pinsBytes(header, payload); err != nil {
+		return err
+	}
 	armored, err := signing.Sign(signing.CountersignPayload(header, payload), signer, namespace)
 	if err != nil {
 		return err
@@ -160,6 +212,8 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 // WriteApprove signs and stores a ref-scoped, form-scoped approve
 // countersignature (spec §5.2) — "I reviewed exactly these bytes, at this
 // ref, in this form".
+//
+// An EMPTY payload is refused — see pinsBytes.
 func (s *Store) WriteApprove(kind signing.ItemKind, ref string, form signing.Form, payload []byte, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Kind: kind, Ref: ref, Form: form}
 	return s.write(h, payload, signer, signing.NamespaceApprove)
@@ -186,6 +240,11 @@ func (s *Store) WriteRefReject(kind signing.ItemKind, ref string, signer ssh.Sig
 // index hash. Finding one proves NOTHING — see Verified.
 func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][]byte {
 	if s == nil {
+		return nil
+	}
+	if s.configured() != nil {
+		// Not "no candidates here" but "there is no here" — globbing an
+		// unconfigured store would glob the working directory.
 		return nil
 	}
 	pattern := filepath.Join(s.dir, indexHash(header, payload)+".*.sig")
@@ -265,6 +324,12 @@ func unsignedFilename(header signing.CountersignHeader, payload []byte) string {
 // writeUnsigned records header+payload as an unsigned marker: existence is
 // the entire record, and it carries no cryptographic weight whatsoever.
 func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) error {
+	if err := s.configured(); err != nil {
+		return err
+	}
+	if err := pinsBytes(header, payload); err != nil {
+		return err
+	}
 	if err := s.fs.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
@@ -274,6 +339,11 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 
 func (s *Store) hasUnsigned(header signing.CountersignHeader, payload []byte) bool {
 	if s == nil {
+		return false
+	}
+	if s.configured() != nil {
+		// See candidates: an unconfigured store must never stat the working
+		// directory, because a marker's mere existence IS the approval.
 		return false
 	}
 	exists, err := afero.Exists(s.fs, filepath.Join(s.dir, unsignedFilename(header, payload)))
@@ -345,48 +415,95 @@ func (s *Store) indexPath() string {
 	return filepath.Join(s.dir, "index.yaml")
 }
 
-func (s *Store) readIndex() []IndexEntry {
+// readIndex reads and parses the sidecar index, distinguishing the three
+// outcomes its callers must not conflate: absent (nil, nil — the normal fresh
+// shape), present and parseable (entries, nil), and present but UNPARSEABLE
+// (nil, err). Folding the third onto the first is what let one truncated
+// write destroy the entire approval history: AppendIndex rebuilds the whole
+// file from what this returns.
+func (s *Store) readIndex() ([]IndexEntry, error) {
 	if s == nil {
-		return nil
+		return nil, nil
+	}
+	if err := s.configured(); err != nil {
+		return nil, err
 	}
 	data, err := afero.ReadFile(s.fs, s.indexPath())
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("countersignature index %s: %w", s.indexPath(), err)
 	}
 	var entries []IndexEntry
 	if err := yaml.Unmarshal(data, &entries); err != nil {
-		return nil
+		return nil, fmt.Errorf("countersignature index %s is unparseable: %w", s.indexPath(), err)
 	}
-	return entries
+	return entries, nil
 }
 
-// AppendIndex appends one record to the sidecar index (best-effort: a write
-// failure here must never fail the caller's actual countersignature write,
-// which already succeeded and is the record that matters).
+// AppendIndex appends one record to the sidecar index.
+//
+// It is a read-modify-write of the whole file, so it REFUSES when the
+// existing index cannot be read or parsed: appending onto a failed read means
+// rewriting the file from nothing, silently destroying every prior record.
+// The index is display-only, but it is what labels an item UPDATE and
+// supplies the diff base, so losing it makes substituted bytes look like a
+// first-time item — a review-integrity loss, not a cosmetic one.
+//
+// The write goes through a temp file + rename so a crash mid-write cannot
+// leave behind the truncated file that would trip the refusal above.
+//
+// The caller may still treat a failure here as non-fatal — the actual
+// countersignature write already succeeded and is the record that matters —
+// but it must not be told the append happened when it did not.
 func (s *Store) AppendIndex(e IndexEntry) error {
 	if s == nil {
 		return nil
 	}
-	entries := append(s.readIndex(), e)
-	data, err := yaml.Marshal(entries)
+	if err := s.configured(); err != nil {
+		return err
+	}
+	existing, err := s.readIndex()
+	if err != nil {
+		return fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
+	}
+	data, err := yaml.Marshal(append(existing, e))
 	if err != nil {
 		return err
 	}
 	if err := s.fs.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
-	return afero.WriteFile(s.fs, s.indexPath(), data, 0o644)
+	tmp := s.indexPath() + ".tmp"
+	if err := afero.WriteFile(s.fs, tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := s.fs.Rename(tmp, s.indexPath()); err != nil {
+		_ = s.fs.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // LatestApprove returns the most recently appended approve index entry for
-// (kind, ref, form), or (_, false) if none exist. Display-only: a caller MUST
-// still verify before treating anything about the result as an approval — this
-// only answers "was there ever a prior approval attempt here", to decide
-// whether to label a pending item UPDATE and to pick a diff base.
-func (s *Store) LatestApprove(kind signing.ItemKind, ref string, form signing.Form) (IndexEntry, bool) {
+// (kind, ref, form), or (_, false, nil) if none exist. Display-only: a caller
+// MUST still verify before treating anything about the result as an approval
+// — this only answers "was there ever a prior approval attempt here", to
+// decide whether to label a pending item UPDATE and to pick a diff base.
+//
+// The error return is what stops an unreadable index from silently answering
+// "no prior approval": that answer relabels an UPDATE as NEW, which is
+// exactly how substituted bytes would slip past a reviewer looking for a
+// diff. Callers must not treat an error as "false".
+func (s *Store) LatestApprove(kind signing.ItemKind, ref string, form signing.Form) (IndexEntry, bool, error) {
+	entries, err := s.readIndex()
+	if err != nil {
+		return IndexEntry{}, false, err
+	}
 	var latest IndexEntry
 	found := false
-	for _, e := range s.readIndex() {
+	for _, e := range entries {
 		if e.Assertion != string(signing.AssertionApprove) || e.Kind != string(kind) ||
 			e.Ref != ref || e.Form != string(form) {
 			continue
@@ -396,5 +513,5 @@ func (s *Store) LatestApprove(kind signing.ItemKind, ref string, form signing.Fo
 			found = true
 		}
 	}
-	return latest, found
+	return latest, found, nil
 }

@@ -3,6 +3,7 @@ package operations
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -423,4 +424,99 @@ func TestAppendAllowedSignersLine_ParentDirs(t *testing.T) {
 				string(got), "appends must preserve what was already there")
 		})
 	}
+}
+
+// --- U136-F03: a line the parser dropped must not read as "not there" -------
+
+// writeAllowedSignersLines replaces the project allowed_signers file with
+// exactly these lines — the seam for exercising a store that has content
+// AddSigner would never have produced (a hand-edited or externally-managed
+// file, which is the normal case for a team's committed store).
+func writeAllowedSignersLines(t *testing.T, cfg *config.Config, fs afero.Fs, lines ...string) string {
+	t.Helper()
+	path := mustAllowedSignersProjectPath(t, cfg)
+	require.NoError(t, fs.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, afero.WriteFile(fs, path, []byte(strings.Join(lines, "\n")+"\n"), 0o600))
+	return path
+}
+
+// `signer remove` parses the store to find the principal's line. A line the
+// parser DROPS contributes no entry, so the principal appears absent and the
+// command reports "no entry for X" — telling an operator the key is not
+// trusted when the file still holds a line they cannot see and did not
+// remove. Nothing removed BECAUSE THE FILE COULD NOT BE READ is not the same
+// as nothing to remove.
+func TestRemoveSigner_UnparseableLine_IsReportedNotSilentlyNothingToRemove(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, line := testKeyLine(t)
+	writeAllowedSignersLines(t, cfg,
+		fs,
+		"this-line-is-not-an-allowed-signers-entry",
+		"keep@example.com "+strings.TrimSpace(line),
+	)
+
+	_, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "unreadable@example.com", Project: true, FS: fs})
+	require.Error(t, err, "removing nothing from a store with unreadable lines must not report a clean no-op")
+	assert.Contains(t, err.Error(), "this-line-is-not-an-allowed-signers-entry")
+}
+
+// The genuinely-nothing-to-do case must stay a clean no-op: a store that
+// parses fully and simply has no such principal is not a failure.
+func TestRemoveSigner_ParseableStoreWithoutThePrincipal_StaysAQuietNoop(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, line := testKeyLine(t)
+	writeAllowedSignersLines(t, cfg, fs, "keep@example.com "+strings.TrimSpace(line))
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "nobody@example.com", Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.Removed)
+}
+
+// A removal that SUCCEEDS alongside an unrelated malformed line still
+// succeeds — the guard must not make the store unmanageable.
+func TestRemoveSigner_SucceedsDespiteAnUnrelatedUnparseableLine(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, line := testKeyLine(t)
+	writeAllowedSignersLines(t, cfg, fs, "garbage-line", "drop@example.com "+strings.TrimSpace(line))
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "drop@example.com", Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Removed)
+}
+
+// `signer list` is an AUDIT surface, so it must keep listing the entries it
+// can read (a half-authored store must not blank the listing — trap: a hard
+// error here breaks enumeration) while the dropped lines are still counted
+// rather than erased.
+func TestListSigners_UnparseableLine_DoesNotBlankTheListingAndIsCounted(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, line := testKeyLine(t)
+	writeAllowedSignersLines(t, cfg, fs, "garbage-line", "keep@example.com "+strings.TrimSpace(line))
+
+	entries, err := ListSigners(cfg, fs)
+	require.NoError(t, err)
+
+	var principals []string
+	unreadable := 0
+	for _, e := range entries {
+		if e.Unreadable != "" {
+			unreadable++
+			continue
+		}
+		principals = append(principals, e.Entry.Principals[0])
+	}
+	assert.Contains(t, principals, "keep@example.com", "the readable entries must still be listed")
+	assert.Equal(t, 1, unreadable, "the dropped line must appear in the audit listing, not vanish from it")
 }

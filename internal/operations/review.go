@@ -333,7 +333,18 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 	// already, independently, decided this item is pending.
 	signingKind := signingKindOf(tRef.Kind)
 	refStr := countersignRef(tRef)
-	entry, found := latestApproveEntry(e.records, signingKind, refStr, signing.Form(form))
+	entry, found, idxErr := latestApproveEntry(e.records, signingKind, refStr, signing.Form(form))
+	if idxErr != nil {
+		// "I cannot read the index" is not "there was never a prior
+		// approval". Say so, and take the conservative label: UPDATE puts the
+		// reviewer on notice that these bytes may be a substitution for
+		// something they already looked at, which is the reading that costs
+		// them a second look rather than a missed one. The diff base is
+		// genuinely unavailable, so none is offered.
+		clidiag.Warn("ctxloom", "review: cannot read the approvals index for %q, treating it as an update: %v", ref, idxErr)
+		item.Status = ReviewStatusUpdate
+		return item, true
+	}
 	if found {
 		item.Status = ReviewStatusUpdate
 		if !executable {
@@ -348,18 +359,25 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 // latestApproveEntry looks up the most recent prior approve attempt across
 // BOTH the user and project stores' sidecar indexes (display-only; see
 // countersign.Store.LatestApprove).
-func latestApproveEntry(records countersignRecords, kind signing.ItemKind, ref string, form signing.Form) (countersign.IndexEntry, bool) {
+// An unreadable index is reported, never folded into "no prior approval":
+// that answer would relabel an UPDATE as NEW and hide the diff a reviewer
+// looks at.
+func latestApproveEntry(records countersignRecords, kind signing.ItemKind, ref string, form signing.Form) (countersign.IndexEntry, bool, error) {
 	var latest countersign.IndexEntry
 	found := false
 	for _, st := range records.bothStores() {
-		if e, ok := st.LatestApprove(kind, ref, form); ok {
+		e, ok, err := st.LatestApprove(kind, ref, form)
+		if err != nil {
+			return countersign.IndexEntry{}, false, err
+		}
+		if ok {
 			if !found || e.ReviewedAt > latest.ReviewedAt {
 				latest = e
 				found = true
 			}
 		}
 	}
-	return latest, found
+	return latest, found, nil
 }
 
 // remoteNameFor resolves a bundle ref's source repo to its registered remote

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -137,12 +138,25 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 		exitCode, err := b.RunNonInteractive(ctx, args, env, promptStdin(req), &raw, stderr)
 		text, model, perr := parseClaudeJSONResult(raw.Bytes())
 		if perr != nil {
-			// Fault tolerant: hand back whatever the CLI emitted and keep the
-			// best-effort model rather than dropping the result.
-			_, _ = stdout.Write(raw.Bytes())
+			// Fault tolerant about the ENVELOPE: hand back whatever the CLI
+			// emitted and keep the best-effort model rather than dropping the
+			// result. Not tolerant about there being no result at all — see
+			// below.
+			payload := raw.Bytes()
+			if werr := writeAll(stdout, payload); werr != nil && err == nil {
+				err = werr
+			}
+			if oerr := requireOneshotOutput(payload, exitCode, err); oerr != nil {
+				return &agent.ExecuteResult{ExitCode: oneshotFailureCode(exitCode), ModelInfo: modelInfo}, oerr
+			}
 			return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 		}
-		_, _ = io.WriteString(stdout, text)
+		if werr := writeAll(stdout, []byte(text)); werr != nil && err == nil {
+			err = werr
+		}
+		if oerr := requireOneshotOutput([]byte(text), exitCode, err); oerr != nil {
+			return &agent.ExecuteResult{ExitCode: oneshotFailureCode(exitCode), ModelInfo: modelInfo}, oerr
+		}
 		if model != "" {
 			modelInfo.ModelName = model
 		}
@@ -179,6 +193,50 @@ type claudeModelUsage struct {
 // output tokens — the one that produced the result — so provenance records the
 // generating model rather than a helper the CLI routed a read through. Ties
 // break on sorted id for determinism.
+// requireOneshotOutput turns "the minimal oneshot produced nothing" into a
+// real failure.
+//
+// This branch is the distill/compaction path, and it could return ExitCode 0
+// with a nil error having written ZERO bytes two ways: the CLI exits 0
+// emitting nothing (the envelope then fails to parse, the empty buffer is
+// copied through, and the nil error is returned), or the envelope parses fine
+// with an empty "result". Both are indistinguishable from a working run to
+// every exit-code gate above — which is exactly how a distillation that
+// produced nothing gets written back over content that was fine.
+//
+// An error the run ALREADY reported is left alone: it is the more specific
+// cause, and replacing it would hide why the run failed.
+func requireOneshotOutput(payload []byte, exitCode int32, runErr error) error {
+	if runErr != nil || len(bytes.TrimSpace(payload)) > 0 {
+		return nil
+	}
+	return fmt.Errorf("claude produced no output (exit %d)", exitCode)
+}
+
+// oneshotFailureCode keeps the CLI's own non-zero exit code when it had one —
+// that is the more specific signal — and otherwise synthesizes a failure,
+// since exit 0 is precisely the lie requireOneshotOutput exists to stop.
+func oneshotFailureCode(exitCode int32) int32 {
+	if exitCode != 0 {
+		return exitCode
+	}
+	return 1
+}
+
+// writeAll reports a short or failed write instead of discarding it. A
+// partially delivered oneshot result is a truncated result, and the caller
+// treats what it receives as complete.
+func writeAll(w io.Writer, payload []byte) error {
+	n, err := w.Write(payload)
+	if err != nil {
+		return fmt.Errorf("writing claude output: %w", err)
+	}
+	if n < len(payload) {
+		return fmt.Errorf("writing claude output: wrote %d of %d bytes", n, len(payload))
+	}
+	return nil
+}
+
 func parseClaudeJSONResult(data []byte) (text, model string, err error) {
 	var env claudeJSONResult
 	if err := json.Unmarshal(data, &env); err != nil {

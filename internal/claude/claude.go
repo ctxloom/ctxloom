@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/afero"
 
@@ -276,21 +275,13 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// First unmarshal to get all fields
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		backupPath, backupErr := w.backupCorrupt(path, data)
-		if backupErr != nil {
-			return nil, fmt.Errorf("failed to parse settings.json (schema may have changed): %w; additionally failed to back up the corrupt file: %v - refusing to write settings.json to avoid overwriting it", err, backupErr)
-		}
-		return nil, fmt.Errorf("failed to parse settings.json (schema may have changed): %w - original backed up to %s; fix the JSON and re-run (refusing to write settings.json to avoid overwriting it)", err, backupPath)
+		return nil, w.corruptSettings(path, data, "settings.json (schema may have changed)", err, "to avoid overwriting it")
 	}
 
 	// Extract hooks separately
 	if hooksRaw, ok := raw["hooks"]; ok {
 		if err := json.Unmarshal(hooksRaw, &settings.Hooks); err != nil {
-			backupPath, backupErr := w.backupCorrupt(path, data)
-			if backupErr != nil {
-				return nil, fmt.Errorf("failed to parse hooks in settings.json: %w; additionally failed to back up the corrupt file: %v - refusing to write settings.json to avoid dropping existing hooks", err, backupErr)
-			}
-			return nil, fmt.Errorf("failed to parse hooks in settings.json: %w - original backed up to %s; fix the JSON and re-run (refusing to write settings.json to avoid dropping existing hooks)", err, backupPath)
+			return nil, w.corruptSettings(path, data, "hooks", err, "to avoid dropping existing hooks")
 		}
 		delete(raw, "hooks")
 	}
@@ -310,29 +301,39 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// unmarshaled into its typed slice; every sibling key (allow, ask,
 	// defaultMode, …) is kept verbatim in Other so a user's own rules
 	// round-trip untouched (see claudeCodePermissions's doc).
+	//
+	// A permissions block this code cannot read is treated exactly like
+	// unparseable hooks, and for the same reason: the delete below used to
+	// run unconditionally, and saveSettings only re-emits permissions when
+	// the typed field is non-nil, so a warning was followed by the user's
+	// allow/ask/defaultMode/additionalDirectories rules being dropped from
+	// the file — silently, with no .corrupt backup, on a SECURITY surface.
 	if permRaw, ok := raw["permissions"]; ok {
 		var permMap map[string]json.RawMessage
 		if err := json.Unmarshal(permRaw, &permMap); err != nil {
-			agent.Warn("failed to parse permissions in settings.json: %v", err)
-		} else {
-			perm := &claudeCodePermissions{}
-			if denyRaw, ok := permMap["deny"]; ok {
-				var deny []string
-				if err := json.Unmarshal(denyRaw, &deny); err != nil {
-					agent.Warn("failed to parse permissions.deny in settings.json: %v", err)
-				} else {
-					perm.Deny = deny
-				}
-				delete(permMap, "deny")
-			}
-			perm.Other = permMap
-			settings.Permissions = perm
+			return nil, w.corruptSettings(path, data, "permissions", err, "to avoid dropping existing permission rules")
 		}
+		perm := &claudeCodePermissions{}
+		if denyRaw, ok := permMap["deny"]; ok {
+			var deny []string
+			if err := json.Unmarshal(denyRaw, &deny); err != nil {
+				return nil, w.corruptSettings(path, data, "permissions.deny", err, "to avoid dropping existing permission rules")
+			}
+			perm.Deny = deny
+			delete(permMap, "deny")
+		}
+		perm.Other = permMap
+		settings.Permissions = perm
 		delete(raw, "permissions")
 	}
 
-	// Remove mcpServers from settings.json if present (migrating to .mcp.json)
-	delete(raw, "mcpServers")
+	// A legacy mcpServers block stays exactly where it is, in Other. This
+	// used to be deleted under a comment claiming a migration to .mcp.json —
+	// but no migration code exists, nothing ever reads the block, and
+	// writeMCPConfig only ever reads and writes .mcp.json. So the delete was
+	// pure loss, and it ran on the UNINSTALL path too (removeSettingsFile →
+	// loadSettings → saveSettings), meaning ctxloom destroyed a user's
+	// servers while being removed.
 
 	// Preserve other fields
 	settings.Other = raw
@@ -340,16 +341,15 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	return settings, nil
 }
 
-// backupCorrupt copies the raw, unparseable bytes of a settings file aside to
-// <path>.corrupt-<unix-timestamp> so a caller that fails loud on a parse
-// error doesn't also lose the user's original file content — the backup is
-// the recovery path pointed to by the returned error.
-func (w *ClaudeCodeHookWriter) backupCorrupt(path string, data []byte) (string, error) {
-	backupPath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
-	if err := afero.WriteFile(w.getFS(), backupPath, data, 0600); err != nil {
-		return "", err
-	}
-	return backupPath, nil
+// corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
+// doc): back the original bytes up, then return an error so the caller aborts
+// before touching the file. Every partial-parse failure in loadSettings and
+// loadMCPConfig routes through here precisely so no future field can be added
+// with a warn-and-continue branch — a warning is not a guard, and each of the
+// paths that had one (permissions, permissions.deny, .mcp.json) was
+// destroying user data behind it.
+func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what string, cause error, consequence string) error {
+	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 
 // saveSettings writes settings back to settings.json.
@@ -401,7 +401,10 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		}
 	}
 
-	// Note: mcpServers are NOT written here - they go to .mcp.json
+	// Note: ctxloom's own MCP servers are NOT written here — they go to
+	// .mcp.json. A LEGACY mcpServers block that was already in the user's
+	// settings.json rides along in Other and is emitted verbatim above:
+	// nothing migrates it, so dropping it would just delete it.
 
 	data, err := agent.CanonicalJSON(output)
 	if err != nil {
@@ -411,9 +414,12 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	return agent.AtomicWriteFile(w.getFS(), path, data, "settings")
 }
 
-// loadMCPConfig loads existing .mcp.json or returns empty config.
-// This function is fault-tolerant: on parse errors, it logs a warning and
-// returns empty config rather than failing, allowing ctxloom to continue.
+// loadMCPConfig loads existing .mcp.json, or an empty config for a missing
+// file — which is the only case that legitimately means "no servers yet".
+//
+// It is deliberately NOT fault-tolerant on a parse failure: its result is
+// written straight back by writeMCPConfig, so "tolerating" an unreadable file
+// meant deleting every server in it. See corruptSettings.
 func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig, error) {
 	mcpConfig := &claudeCodeMCPConfig{
 		MCPServers: make(map[string]claudeCodeMCPServer),
@@ -429,9 +435,12 @@ func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig,
 	}
 
 	if err := json.Unmarshal(data, mcpConfig); err != nil {
-		// MCP config format may have changed - warn but continue
-		agent.Warn("failed to parse .mcp.json: %v - existing MCP servers may not be preserved", err)
-		return mcpConfig, nil
+		// Returning the empty config here handed writeMCPConfig a blank slate
+		// it then filled with ctxloom's servers and SAVED — deleting every
+		// server the user had. The old warning conceded as much ("existing
+		// MCP servers may not be preserved"); a warning is not a guard. This
+		// now mirrors loadSettings, which was hardened for exactly this.
+		return nil, w.corruptSettings(path, data, ".mcp.json", err, "to avoid deleting the MCP servers already in it")
 	}
 
 	if mcpConfig.MCPServers == nil {

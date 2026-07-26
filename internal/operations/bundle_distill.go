@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -155,7 +156,15 @@ func invalidatedByDistill(cfg *config.Config, bundleName string, items []Distill
 		}
 		ref := trust.Ref{Bundle: bundleName, Kind: tKind, Name: it.Name, IsLocal: true}
 		kind := signingKindOf(tKind)
-		if records.hadPriorApprove(kind, countersignRef(ref), signing.FormDistilled) {
+		prior, err := records.hadPriorApprove(kind, countersignRef(ref), signing.FormDistilled)
+		if err != nil {
+			// Cannot tell whether this item had a prior approval — say so and
+			// list it anyway. Over-warning costs a re-review; under-warning
+			// leaves a signature the user believes still covers these bytes.
+			clidiag.Warn("ctxloom", "distill: cannot read the approvals index for %s/%s, assuming its approval is invalidated: %v", it.Kind, it.Name, err)
+			prior = true
+		}
+		if prior {
 			out = append(out, string(it.Kind)+"/"+it.Name)
 		}
 	}

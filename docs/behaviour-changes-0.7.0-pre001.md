@@ -39,6 +39,7 @@ the fix.
 | `ctxloom hook inject-context` with a missing context file | silent | warns; **exit code unchanged** |
 | `session/set_mode` over a zero-byte assembly | ok, lead context blanked | RPC error |
 | A kiro or antigravity run whose context hash cannot be resolved | exit 0, steering file **removed** / AGENTS.md section **stripped**, launched with zero context | non-zero; the previous delivery is left intact |
+| A minimal (`--skip-setup`) claude oneshot — the distill/compaction path — that produced no output | exit 0, nil error, **zero bytes** written | non-zero, "claude produced no output (exit N)"; a non-zero CLI exit keeps its own code |
 | A `session_end` hook configured while running codex | written nowhere, said nothing | still written nowhere (codex has no such event) — now **warns** naming engine and kind; **exit code unchanged** |
 
 **Why:** a run that silently delivers no context looks identical to a working one. The
@@ -73,6 +74,42 @@ binds the approval to real bytes for the first time. `ctxloom review` shows the 
 per-file listing when you do. A skill that had already been through `ctxloom skill sync`
 is **unaffected** — its preimage is byte-for-byte what it always was, and its approval
 stands. Run `ctxloom skill sync <bundle>` to move a skill to an authored manifest for good.
+
+### Engine settings files ctxloom round-trips
+
+| Surface | Before | Now |
+|---|---|---|
+| `hooks apply` / launch when `.claude/settings.json` has an unparseable `permissions` block | exit 0, warning, the user's `allow` / `ask` / `defaultMode` / `additionalDirectories` rules **deleted from the file**, no backup | non-zero; original untouched and backed up to `settings.json.corrupt-<ts>` |
+| …an unparseable `permissions.deny` | exit 0, warning, same loss | non-zero, same backup |
+| A legacy `mcpServers` block in `.claude/settings.json` | **deleted** on every write, including on uninstall | preserved verbatim |
+| …an unparseable `.mcp.json` | exit 0, warning, replaced with a file holding only ctxloom's servers | non-zero; original untouched and backed up |
+| …an unparseable `.agents/hooks.json` (antigravity) | exit 0, warning, replaced with a ctxloom-only file | non-zero; original untouched and backed up |
+| …an unparseable `hooks` field inside it | exit 0, warning, the user's hooks dropped from the file | non-zero, same backup |
+
+**Why:** these are files the user owns and ctxloom only edits. Each path read
+"tolerate a schema change and keep going", and each one implemented that by writing an
+empty structure over the thing it had failed to read. A **missing** file is still the
+normal first-run shape and still writes cleanly.
+
+### The trust root and the approvals store
+
+| Surface | Before | Now |
+|---|---|---|
+| Any trust decision when `$HOME` cannot be resolved | the user approvals store silently resolved against the **process working directory**, so personal rejections went unseen and a `*.approve.unsigned` file at a repo root was an unconditional approval | the store reports itself unconfigured; the existing fail-closed gate denies all items and names the cause |
+| Approving an item whose payload is empty | exit 0, "approved" with a key fingerprint, item stays pending forever | non-zero: an approval that pinned nothing is refused (ref-**rejections**, which pin no bytes by design, are unaffected) |
+| Appending to a corrupt/truncated `approvals/index.yaml` | exit 0, the whole approval history silently overwritten | non-zero, the existing file left untouched; the write is now temp+rename |
+| `ctxloom review` when the approvals index cannot be read | item silently labelled **NEW** | warns and labels it **UPDATE** (the conservative reading); **exit code unchanged** |
+| `ctxloom bundle distill` when the approvals index cannot be read | item silently omitted from the invalidation report | warns and reports it as invalidated; **exit code unchanged** |
+| `ctxloom signer add` with whitespace or a comma inside a principal | exit 0, success line + fingerprint, entry unusable on every later read | non-zero |
+| `ctxloom signer add --comment` containing a line break | exit 0, a **second** fully-trusted signer appended that the prompt never displayed | non-zero |
+| An `allowed_signers` line whose declared key type does not match the key blob | trusted (real `ssh-keygen` calls it "invalid key") | dropped and reported |
+| `ctxloom signer list` / `show` over a store with an unreadable line | the line was silently omitted from the audit listing | listed as an `(unreadable)` row + a warning; **exit code unchanged** |
+| `ctxloom signer remove` finding nothing in a store whose lines it could not fully read | exit 0, "no entry for X" | non-zero (a fully-parseable store without that principal still exits 0) |
+| `ctxloom signer list` / `remove` where the store exists but cannot be opened | silently treated as absent | reported |
+
+**Why:** every one of these reported trust that was not there, or granted trust that a
+real `ssh-keygen` refuses. "Nothing was recorded" and "I could not read what was
+recorded" are different answers, and only the first one is safe to act on.
 
 ### Dependencies and the lockfile
 

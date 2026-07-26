@@ -25,6 +25,14 @@ func FormatEntry(e Entry) (string, error) {
 	if e.PublicKey == nil {
 		return "", fmt.Errorf("allowed_signers entry needs a public key")
 	}
+	for _, p := range e.Principals {
+		if err := validPrincipal(p); err != nil {
+			return "", err
+		}
+	}
+	if err := validComment(e.Comment); err != nil {
+		return "", err
+	}
 
 	var b strings.Builder
 	b.WriteString(strings.Join(e.Principals, ","))
@@ -65,6 +73,46 @@ func FormatEntry(e Entry) (string, error) {
 		b.WriteString(e.Comment)
 	}
 	return b.String(), nil
+}
+
+// validPrincipal rejects a principal this format cannot carry.
+//
+// The principals field is ONE whitespace-delimited token whose members are
+// comma-separated, so whitespace inside a principal re-tokenizes the whole
+// line (ssh.ParseAuthorizedKey then reads the tail as options and drops the
+// entry) and a comma inside one principal silently becomes TWO principals —
+// a LARGER grant than the confirmation prompt displayed. Both used to be
+// written happily, with `ctxloom signer add` reporting success and a key
+// fingerprint for an entry that delivered no trust at all.
+//
+// Validating here rather than at the CLI is deliberate: FormatEntry is the
+// only way an allowed_signers line is produced, so this cannot be bypassed by
+// a second caller that forgets.
+func validPrincipal(p string) error {
+	if p == "" {
+		return fmt.Errorf("allowed_signers principal cannot be empty")
+	}
+	if i := strings.IndexAny(p, " \t\r\n"); i >= 0 {
+		return fmt.Errorf("allowed_signers principal %q cannot contain whitespace: the reader would drop the entry, granting no trust at all", p)
+	}
+	if strings.Contains(p, ",") {
+		return fmt.Errorf("allowed_signers principal %q cannot contain a comma: it is the separator, so this would silently grant trust to two principals — pass them separately instead", p)
+	}
+	return nil
+}
+
+// validComment rejects a comment that would break FormatEntry's contract of
+// rendering e as ONE line.
+//
+// Comment arrives from the unvalidated `signer add --comment` flag and was
+// written verbatim, so a newline in it emitted a SECOND allowed_signers line
+// — a complete, fully-trusted entry the CLI's confirmation prompt never
+// displayed. Parse splits on "\n", so the injected tail parses as real trust.
+func validComment(c string) error {
+	if i := strings.IndexAny(c, "\r\n"); i >= 0 {
+		return fmt.Errorf("allowed_signers comment cannot contain a line break: it would append a second, undisplayed trusted signer")
+	}
+	return nil
 }
 
 // formatTimestamp renders t in the 14-digit UTC form parseTimestamp accepts,

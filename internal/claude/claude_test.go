@@ -875,26 +875,28 @@ func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, originalContent, string(backupData), "backup should contain original content")
 }
-func TestClaudeCodeHookWriter_MCPConfigResilience(t *testing.T) {
+// This test used to assert the OPPOSITE — that a malformed .mcp.json was
+// warned about and then overwritten, described as "resilience" (U032-F05).
+// What it actually pinned was the deletion of every MCP server the user had:
+// loadMCPConfig returned a fresh empty config, writeMCPConfig filled it with
+// ctxloom's servers and saved. Resilience is refusing to write, not writing
+// anyway; the contract is now the same one loadSettings has had since
+// taskloom lone-taste.
+func TestClaudeCodeHookWriter_MalformedMCPConfig_IsNotOverwritten(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &ClaudeCodeHookWriter{FS: fs}
 
-	// Create malformed .mcp.json
 	mcpPath := "/project/.mcp.json"
-	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte("not valid json"), 0644))
+	malformed := "not valid json"
+	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte(malformed), 0644))
 
-	// WriteSettings should NOT fail - it should warn and continue
 	cfg := &wire.HooksConfig{}
 	err := writer.WriteSettings(cfg, nil, nil, "/project")
-	require.NoError(t, err, "should not fail on malformed .mcp.json")
+	require.Error(t, err, "an unreadable .mcp.json must stop the write, not be replaced by one")
 
-	// Verify MCP config was still written
-	data, err := afero.ReadFile(fs, mcpPath)
-	require.NoError(t, err)
-
-	var mcpConfig map[string]interface{}
-	require.NoError(t, json.Unmarshal(data, &mcpConfig))
-	assert.Contains(t, mcpConfig, "mcpServers", "should have mcpServers after writing")
+	data, readErr := afero.ReadFile(fs, mcpPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, malformed, string(data), "the user's .mcp.json must be left exactly as it was")
 }
 
 // permissionsPayload reads settings.json and returns its permissions block —
@@ -988,4 +990,147 @@ func TestClaudeCodeHookWriter_DenyTools_UnionsAcrossApplies(t *testing.T) {
 	// A later run adding a second tool unions rather than replaces.
 	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"WebFetch"}, "/project"))
 	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, permissionsPayload(t, fs, settingsPath).Deny, "a later deny_tools entry unions with the existing deny list")
+}
+
+// U032-F03. The third half of taskloom lone-taste, left unfixed: an
+// unparseable "permissions" block was warned about and then DELETED from the
+// document. delete(raw, "permissions") ran unconditionally, outside the else,
+// and saveSettings only re-emits permissions when the typed field is non-nil
+// — so the user's allow/ask/defaultMode/additionalDirectories rules were
+// dropped on the next write. That is a security surface, and unlike the
+// whole-file and hooks cases there was no .corrupt backup either.
+func TestClaudeCodeHookWriter_MalformedPermissionsJSON_FailsLoudAndBacksUp(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	corruptContent := `{"permissions": "not-an-object", "env": {"KEEP": "me"}}`
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(corruptContent), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
+	}
+	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	require.Error(t, err, "should refuse to write when permissions in settings.json fail to parse")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, corruptContent, string(data), "settings.json with unparseable permissions must not be overwritten")
+
+	assert.True(t, hasCorruptBackup(t, fs, "/project/.claude", "settings.json", corruptContent),
+		"expected a settings.json.corrupt-<timestamp> backup of the original bytes")
+}
+
+// The nested case: permissions parses as an object but permissions.deny is
+// the wrong shape. Same rule — it must not cost the user their sibling rules.
+func TestClaudeCodeHookWriter_MalformedPermissionsDeny_FailsLoudAndBacksUp(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	corruptContent := `{"permissions": {"deny": "not-a-list", "allow": ["Bash(ls:*)"]}}`
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(corruptContent), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
+	}
+	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	require.Error(t, err, "should refuse to write when permissions.deny fails to parse")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, corruptContent, string(data), "settings.json with unparseable permissions.deny must not be overwritten")
+}
+
+// A WELL-FORMED permissions block must still round-trip untouched: the guard
+// must not make a healthy settings.json unwritable.
+func TestClaudeCodeHookWriter_WellFormedPermissions_RoundTripUntouched(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath,
+		[]byte(`{"permissions": {"allow": ["Bash(ls:*)"], "defaultMode": "acceptEdits"}}`), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
+	}
+	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"Bash(ls:*)"`, "the user's allow rules must survive")
+	assert.Contains(t, string(data), `"acceptEdits"`, "the user's defaultMode must survive")
+}
+
+// U032-F04. `delete(raw, "mcpServers")` destroyed a user's legacy mcpServers
+// block. The comment called it a migration to .mcp.json, but no migration
+// code exists — nothing ever reads that block. The struct field's own doc
+// claims the opposite ("Preserve other settings (including legacy mcpServers
+// for backwards compat)"). It also ran on the UNINSTALL path, so ctxloom
+// destroyed them while being removed.
+func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath,
+		[]byte(`{"mcpServers": {"mine": {"command": "my-server"}}}`), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "./test.sh"}}},
+	}
+	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "my-server",
+		"a legacy mcpServers block must not be deleted: nothing migrates it, so deleting it is pure loss")
+}
+
+// U032-F05. An unparseable .mcp.json was warned about and replaced with an
+// EMPTY config, which writeMCPConfig then filled with ctxloom's servers and
+// saved — the user's servers gone. The warning text even conceded "existing
+// MCP servers may not be preserved". A warning is not a guard, and this is
+// asymmetric with loadSettings, which was hardened for exactly this.
+func TestClaudeCodeHookWriter_MalformedMCPConfig_FailsLoudAndBacksUp(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	mcpPath := "/project/.mcp.json"
+	require.NoError(t, fs.MkdirAll("/project", 0755))
+	corruptContent := `{"mcpServers": {"mine": {"command": "my-server"} `
+	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte(corruptContent), 0644))
+
+	err := writer.writeMCPConfig("/project", &wire.MCPConfig{}, map[string]wire.MCPServer{
+		"ctxloom-added": {Command: "ctxloom", Args: []string{"mcp"}},
+	})
+	require.Error(t, err, "should refuse to write .mcp.json over an unparseable one")
+
+	data, readErr := afero.ReadFile(fs, mcpPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, corruptContent, string(data), "the unparseable .mcp.json must not be overwritten")
+
+	assert.True(t, hasCorruptBackup(t, fs, "/project", ".mcp.json", corruptContent),
+		"expected a .mcp.json.corrupt-<timestamp> backup of the original bytes")
+}
+
+// An ABSENT .mcp.json is legitimately nothing to preserve and must still
+// write cleanly.
+func TestClaudeCodeHookWriter_AbsentMCPConfig_StillWrites(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	require.NoError(t, fs.MkdirAll("/project", 0755))
+
+	require.NoError(t, writer.writeMCPConfig("/project", &wire.MCPConfig{}, map[string]wire.MCPServer{
+		"ctxloom-added": {Command: "ctxloom", Args: []string{"mcp"}},
+	}))
+
+	data, err := afero.ReadFile(fs, "/project/.mcp.json")
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "ctxloom-added")
 }

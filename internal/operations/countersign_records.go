@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -205,9 +206,17 @@ func buildCountersignRecords(cfg *config.Config, fs afero.Fs, injectedUser, inje
 
 	user := injectedUser
 	if user == nil {
-		userDir := ""
-		if home, err := paths.HomeApprovalsPath(); err == nil {
-			userDir = home
+		// An unresolvable home directory used to leave userDir == "", which
+		// is NOT "an empty user store" — every read then resolved against the
+		// process working directory (see countersign.Store.configured), and
+		// every rejection recorded in the real user store went unseen.
+		// countersign.Store now refuses to operate on "", so the fail-closed
+		// gate in EffectiveTrust fires; naming the cause here is what makes
+		// that abort explicable rather than mysterious.
+		userDir, err := paths.HomeApprovalsPath()
+		if err != nil {
+			clidiag.Warn("ctxloom", "cannot locate the user approvals store (%v) — every personal approval and rejection is unreadable this session", err)
+			userDir = ""
 		}
 		user = countersign.NewStore(userDir, f)
 	}
@@ -243,11 +252,19 @@ func newCountersignRecords(cfg *config.Config, fs afero.Fs) ReviewRecords {
 // this exact (kind, ref, form), it necessarily covered the OLD bytes — the
 // new bytes did not exist when it was signed — and therefore no longer
 // verifies. Presence is proof of invalidation, not merely a proxy for it.
-func (c countersignRecords) hadPriorApprove(kind signing.ItemKind, refStr string, form signing.Form) bool {
+// An index this process cannot read is reported rather than read as "no prior
+// approval": the caller uses the answer to WARN a user that re-distilling
+// just invalidated something they signed, and staying silent about that is
+// the failure mode worth avoiding.
+func (c countersignRecords) hadPriorApprove(kind signing.ItemKind, refStr string, form signing.Form) (bool, error) {
 	for _, st := range c.bothStores() {
-		if _, ok := st.LatestApprove(kind, refStr, form); ok {
-			return true
+		_, ok, err := st.LatestApprove(kind, refStr, form)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }

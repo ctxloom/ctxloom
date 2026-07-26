@@ -12,6 +12,12 @@ import (
 // doc for the precedence/union model).
 type Store struct {
 	entries []Entry
+	// parseErrors are the lines Parse could not turn into an Entry. They
+	// ride ON the Store because the alternative — a second return value —
+	// is DROPPABLE, and production call sites did drop it: a malformed line
+	// then silently revoked a signer nobody revoked, invisibly, on the very
+	// surfaces an operator uses to audit trust. See ParseErrors.
+	parseErrors []*ParseError
 }
 
 // NewStore builds a Store directly from entries, without parsing text.
@@ -34,13 +40,15 @@ func NewStore(entries ...Entry) *Store {
 // nil *Store argument is ignored.
 func Union(stores ...*Store) *Store {
 	var all []Entry
+	var perrs []*ParseError
 	for _, st := range stores {
 		if st == nil {
 			continue
 		}
 		all = append(all, st.entries...)
+		perrs = append(perrs, st.parseErrors...)
 	}
-	return &Store{entries: all}
+	return &Store{entries: all, parseErrors: perrs}
 }
 
 // Entries returns a copy of every successfully parsed entry, in file
@@ -51,6 +59,23 @@ func (s *Store) Entries() []Entry {
 	}
 	out := make([]Entry, len(s.entries))
 	copy(out, s.entries)
+	return out
+}
+
+// ParseErrors returns the lines that could not be parsed into an entry, in
+// file order — empty for a Store built by NewStore.
+//
+// A dropped line is a signer that is NOT trusted despite the file saying it
+// should be, so a caller that presents the Store as "the trust root" without
+// consulting this is presenting a silently-shortened one. Reading it is
+// mandatory on any surface that reports absence: "no entry for X" and "there
+// is a line for X I could not read" are different answers.
+func (s *Store) ParseErrors() []*ParseError {
+	if s == nil {
+		return nil
+	}
+	out := make([]*ParseError, len(s.parseErrors))
+	copy(out, s.parseErrors)
 	return out
 }
 

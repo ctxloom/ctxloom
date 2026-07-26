@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -155,4 +157,30 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
 		_ = fs.Remove(tmpPath)
 	}
 	return nil
+}
+
+// RefuseCorrupt is the one refusal shape for "part of this user-owned file
+// will not parse, and writing it back would therefore lose whatever could not
+// be read".
+//
+// It backs the original bytes up to <path>.corrupt-<unix-timestamp> and
+// returns an error, so the caller aborts before touching the file — the
+// backup is the recovery path the error points at.
+//
+// Every backend that reads a user-editable settings/hooks/MCP file,
+// round-trips it, and writes it back must route its partial-parse failures
+// here. The alternative — warn and continue with an empty structure — reads
+// as "fault tolerance" and IS silent data destruction: the empty structure
+// gets persisted over the file it failed to read (taskloom lone-taste,
+// U032-F03/F05, U029-F06). A warning is not a guard.
+//
+// what names the thing that failed to parse; consequence completes
+// "refusing to write <file> … <consequence>".
+func RefuseCorrupt(fs afero.Fs, path string, data []byte, what string, cause error, consequence string) error {
+	name := filepath.Base(path)
+	backupPath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	if err := afero.WriteFile(fs, backupPath, data, 0o600); err != nil {
+		return fmt.Errorf("failed to parse %s: %w; additionally failed to back up the corrupt file: %v - refusing to write %s %s", what, cause, err, name, consequence)
+	}
+	return fmt.Errorf("failed to parse %s: %w - original backed up to %s; fix the JSON and re-run (refusing to write %s %s)", what, cause, backupPath, name, consequence)
 }

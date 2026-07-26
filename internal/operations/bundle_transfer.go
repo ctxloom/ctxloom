@@ -211,14 +211,11 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
-	// The destination filename is the SOURCE basename, and bundles.Loader only
-	// ever looks for <name>.yaml or <name>/bundle.yaml — so importing
-	// "seed.txt" writes a file no loader can ever find: exit 0, "imported",
-	// nothing usable (U081-F10). Refuse instead of reporting a success that
-	// delivered nothing.
-	if ext := strings.ToLower(filepath.Ext(req.SourcePath)); ext != ".yaml" && ext != ".yml" {
-		return nil, fmt.Errorf("import %s: a bundle file must be named *.yaml (the loader only ever looks for <name>.yaml or <name>/bundle.yaml, so %q would import to a path nothing can read)",
-			req.SourcePath, filepath.Base(req.SourcePath))
+	// .yaml ONLY: bundles.Loader.Find stats "<name>.yaml" and
+	// "<name>/bundle.yaml" and nothing else, so a ".yml" bundle is as
+	// unloadable as a ".txt" one (U081-F10).
+	if err := requireLoadableName(req.SourcePath, "bundle", ".yaml"); err != nil {
+		return nil, err
 	}
 	srcData, err := afero.ReadFile(fs, req.SourcePath)
 	if err != nil {
@@ -237,7 +234,15 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
-	if exists, _ := afero.Exists(fs, destPath); exists && !req.Force {
+	// The error matters: a destination that cannot be STATTED (permissions, a
+	// broken symlink) used to read as "does not exist" and was overwritten
+	// without --force — the one outcome this guard exists to prevent. Matches
+	// ImportProfile, which already reads it (U081-F11).
+	exists, err := afero.Exists(fs, destPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)
+	}
+	if exists && !req.Force {
 		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
 	}
 	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {

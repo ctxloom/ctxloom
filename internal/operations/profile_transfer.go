@@ -136,6 +136,12 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
+	// The destination basename is the source basename, and the profile scan
+	// filters on .yaml/.yml — anything else imports to a path nothing ever
+	// reads (U081-F10, same class as ImportBundle).
+	if err := requireLoadableName(req.SourcePath, "profile", ".yaml", ".yml"); err != nil {
+		return nil, err
+	}
 	srcData, err := afero.ReadFile(fs, req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)

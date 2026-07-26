@@ -231,18 +231,66 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 	}
 }
 
-// TestImportBundle_RejectsNonYAMLName guards the other half: the loader only
-// ever stats <name>.yaml or <name>/bundle.yaml, so importing "seed.txt" writes
-// a file no loader can ever find — exit 0, nothing usable.
-func TestImportBundle_RejectsNonYAMLName(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-	require.NoError(t, fs.MkdirAll("/incoming", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/incoming/seed.txt", []byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
+// TestImport_RejectsNameTheLoaderCannotFind is the CLASS gate for U081-F10.
+//
+// Every importer here writes the SOURCE basename into the target directory
+// verbatim, and every loader filters that directory by extension. So the
+// question "could the loader ever find what I just wrote?" has to be asked by
+// each of them, and the accepted set is not the same: bundles.Loader.Find
+// stats only "<name>.yaml" (a .yml bundle is as unloadable as a .txt one),
+// while the profile scan takes .yaml and .yml alike.
+//
+// Blind spot, stated: this covers the two importers that exist today. It is a
+// table, not a reflective sweep over every writer — a third importer added
+// later must be added here by hand.
+func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
+	const bundleBody = "version: 1.0.0\nfragments:\n  a:\n    content: hi\n"
+	const profileBody = "name: p\ndescription: d\nfragments:\n  - ctxloom:local@fragments/a\n"
 
-	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/seed.txt", FS: fs})
-	require.Error(t, err, "a bundle the loader can never find must not import as a success")
-	assert.Contains(t, err.Error(), ".yaml")
+	importBundle := func(t *testing.T, fs afero.Fs, cfg *config.Config, src string) error {
+		_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, FS: fs})
+		return err
+	}
+	importProfile := func(t *testing.T, fs afero.Fs, cfg *config.Config, src string) error {
+		_, err := ImportProfile(context.Background(), cfg, ImportProfileRequest{SourcePath: src, FS: fs})
+		return err
+	}
+
+	cases := []struct {
+		kind     string
+		body     string
+		imp      func(*testing.T, afero.Fs, *config.Config, string) error
+		loadable []string
+		unusable []string
+	}{
+		{"bundle", bundleBody, importBundle, []string{"seed.yaml"}, []string{"seed.txt", "seed", "seed.yml", "seed.yaml.bak", "seed.json"}},
+		{"profile", profileBody, importProfile, []string{"p.yaml", "p.yml"}, []string{"p.txt", "p", "p.yaml.bak", "p.json"}},
+	}
+
+	for _, tc := range cases {
+		for _, name := range tc.unusable {
+			t.Run(tc.kind+"/rejects/"+name, func(t *testing.T) {
+				fs := afero.NewMemMapFs()
+				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				require.NoError(t, fs.MkdirAll("/incoming", 0755))
+				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
+
+				err := tc.imp(t, fs, cfg, "/incoming/"+name)
+				require.Error(t, err, "a %s the loader can never find must not import as a success", tc.kind)
+				assert.Contains(t, err.Error(), ".yaml", "the error must say what the name has to be")
+			})
+		}
+		for _, name := range tc.loadable {
+			t.Run(tc.kind+"/accepts/"+name, func(t *testing.T) {
+				fs := afero.NewMemMapFs()
+				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				require.NoError(t, fs.MkdirAll("/incoming", 0755))
+				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
+
+				assert.NoError(t, tc.imp(t, fs, cfg, "/incoming/"+name), "a loadable %s name must still import", tc.kind)
+			})
+		}
+	}
 }
 
 // TestImportBundle_DoesNotDestroyOnRejection is the --force corollary: a

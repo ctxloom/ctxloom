@@ -328,6 +328,48 @@ which warnings you see on the console during a delegated run.
   **worktree mtime**, which the coordinator does know and now passes in (U056-F04).
   Stall reasons name the three clocks (transcript, worktree, coordinator activity)
   instead of citing CPU evidence that was never gathered.
+- **A worktree that cannot be WALKED no longer reports as a worktree nobody
+  wrote to.** The walk swallowed every error, so a permission-denied worktree
+  came back indistinguishable from an empty one, its clock silently dropped out
+  of the quiet measurement, and the agent was condemned for a silence the
+  monitor had never observed. A failed walk now produces `unknown` carrying the
+  failure, and the stall reason states what was actually seen of the worktree —
+  never looked at / nothing countable / old files — instead of always asserting
+  "no worktree write" (U056-F08).
+
+---
+
+## The mock engine can now say "nothing was delivered"
+
+`internal/mockengine` is the stand-in vendor CLI the test suites launch in place
+of `claude`/`codex`, and its discovery report is how this project proves context
+actually reached a child. It affects no shipped command — but a test instrument
+that cannot fail is worse than no instrument, and several of its limbs could not.
+
+- **A zero-byte prompt now reads as a zero-byte prompt.** `promptSha256` used to
+  hash the empty prompt to `e3b0c442…`, so it was never empty and "nothing was
+  delivered" rendered exactly like a delivery. Reports now carry
+  `promptPresent`, and the hash is EMPTY when no bytes arrived (U079-F03).
+- **The report carries an `env` section.** The engine declarations say which
+  variables ctxloom SETS on the child and which it STRIPS; nothing read either
+  list, so a run that stopped setting `CTXLOOM_CONTEXT_FILE` — or stopped
+  stripping a credential — reported identically to one that did. A variable set
+  to the EMPTY string is recorded as a violation, not a delivery (U079-F05).
+- **A probe that fell back to the real `$HOME` says so.** With `CODEX_HOME`
+  unset the walk reads the developer's own `~/.codex` and reports `present:true`
+  for a surface ctxloom never delivered. The fallback is now marked and folded
+  into the discovery digest (U079-F04).
+- **The declared argv grammar is enforced in full.** `agent.CLIFlag` gains
+  `Required`, `Enum` and `ConflictsWith`, all enforced by `ParseArgv`. Lines the
+  real binaries reject with exit 2 — `--sandbox nonsense`, codex's bypass flag
+  alongside `--sandbox`, a claude oneshot line missing `--print` — used to parse
+  cleanly and run green (U079-F01/F02). This tightens the shared reader the
+  driver's own anti-drift tests use, so a driver that stops emitting a required
+  flag now fails its test instead of the live spawn.
+- **The discovery digest has changed value.** It now covers the env section and
+  the env-dir fallback marker. Any test pinning a literal digest must be re-taken
+  — that is the point: the old digest could not distinguish a delivered run from
+  an undelivered one on those limbs.
 
 ---
 

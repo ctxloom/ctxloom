@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **233** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **238** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,031** |
+| `open` | no commit names this ID | **2,026** |
 
-**Totals: 2268 findings across 162 units — 233 resolved, 2031 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 238 resolved, 2026 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 105 | 270 (+1 refuted) |
+| HIGH | 376 | 110 | 265 (+1 refuted) |
 | MED | 999 | 36 | 963 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -334,11 +334,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U086-F17 | open | `resume.go:16, 41` | SILENTNOOP | A resume whose recorded transcript yields zero main-thread entries succeeds while priming **zero bytes** of history, and no call site notices | U086.md |
 | U086-F18 | open | `resume.go:63-70` | SILENTNOOP | The 32 KiB tail budget can drop **100% of the history** while still emitting a block that announces history follows | U086.md |
 | U087-F02 | **REFUTED** `5cd9bf90` | **`sign.go:140-153`** | SILENTNOOP | `SignBundleFile` will happily sign a **zero-byte bundle file** and report success, producing a `.sig` that verifies over nothing. | U087.md |
-| U087-F03 | open | **`sign.go:180-189`** | CORRECTNESS | `ListLocalBundleNames` — the set `ctxloom sign --all` signs — **skips every directory-form bundle**, i.e. exactly the bundles that can ship skills. It also only reads each dir's top level while the... | U087.md |
-| U087-F04 | open | `sessions.go:176-181` | CORRECTNESS | **Routed item #5 CONFIRMED.** `RenameSession` passes user argv straight to `sessions.Manager.Rename`, which validates only non-empty. | U087.md |
-| U087-F05 | open | `sessions.go:262-265` | SILENTNOOP | **Routed item #15 CONFIRMED and worse than reported.** `isUnrecoverable` can never see a canonical transcript, so a session whose *vendor* transcript was pruned but whose ctxloom-captured `transcri... | U087.md |
-| U087-F06 | open | **`signer.go:401-405, 293-302, 266`** | SILENTNOOP | Every read of an allowed_signers store swallows `Open`/`Parse` errors, so an **unreadable trust root reads as an empty one** on three surfaces. Worst case: `ctxloom signer remove alice` on an EACCE... | U087.md |
-| U087-F25 | open | `skills.go:560-569` | CORRECTNESS | `ImportSkill` **destroys an existing skill tree before the replacement has been validated**. A malformed archive imported over a good skill leaves the skill gone from disk and still referenced in `... | U087.md |
+| U087-F03 | **RESOLVED** `41da6633` | **`sign.go:180-189`** | CORRECTNESS | `ListLocalBundleNames` — the set `ctxloom sign --all` signs — **skips every directory-form bundle**, i.e. exactly the bundles that can ship skills. It also only reads each dir's top level while the... | U087.md |
+| U087-F04 | **RESOLVED** `0eada046` | `sessions.go:176-181` | CORRECTNESS | **Routed item #5 CONFIRMED.** `RenameSession` passes user argv straight to `sessions.Manager.Rename`, which validates only non-empty. | U087.md |
+| U087-F05 | **RESOLVED** `1cfb92be` | `sessions.go:262-265` | SILENTNOOP | **Routed item #15 CONFIRMED and worse than reported.** `isUnrecoverable` can never see a canonical transcript, so a session whose *vendor* transcript was pruned but whose ctxloom-captured `transcri... | U087.md |
+| U087-F06 | **RESOLVED** `eba5fc65` | **`signer.go:401-405, 293-302, 266`** | SILENTNOOP | Every read of an allowed_signers store swallows `Open`/`Parse` errors, so an **unreadable trust root reads as an empty one** on three surfaces. Worst case: `ctxloom signer remove alice` on an EACCE... | U087.md |
+| U087-F25 | **RESOLVED** `2db99262` | `skills.go:560-569` | CORRECTNESS | `ImportSkill` **destroys an existing skill tree before the replacement has been validated**. A malformed archive imported over a good skill leaves the skill gone from disk and still referenced in `... | U087.md |
 | U088-F01 | open | `sync.go:559-564` | CORRECTNESS | **One offline sync silently un-retracts installed content.** (Routed item #3 — CONFIRMED with a correction.) | U088.md |
 | U088-F02 | open | `task_triggers_query.go:241-245, 304-306` | SILENTNOOP | **A non-glob `path_glob` naming a hidden directory searches ZERO files and reports "no matches" — positive evidence of absence for a search that never ran.** | U088.md |
 | U088-F03 | open | `task_triggers.go:646-670 + 290-299` | CORRECTNESS | **Round-2 fallback verdicts ARE written to the verdict cache, contradicting the invariant documented at task_triggers.go:113-115** ("Degraded/cannot-determine fallback verdicts are never written to... | U088.md |

@@ -54,6 +54,8 @@ the fix.
 | `ctxloom bundle distill` / `copy` / `import` over such a file | exit 0, zero items | non-zero |
 | `ctxloom bundle push` of a contentless bundle | published (**and signed**) zero bytes | non-zero |
 | `ctxloom sign --all` / `bundle sign --all` finding nothing | exit 0, "no local bundles to sign" | non-zero, naming the directories searched |
+| `ctxloom sign --all` in a project holding directory-form (`<name>/bundle.yaml`) bundles | exit 0, those bundles silently **not signed** | all of them signed, nested ones included |
+| `ctxloom skill import` of a malformed archive over an existing skill | exit 1 — with the existing skill tree already **deleted** | exit 1, existing tree untouched |
 | `ctxloom <item> list --bundle X` for an unknown `X` | exit 0, "Fragments (0):" | non-zero (a real-but-empty bundle still exits 0 with a message) |
 | `ctxloom <item> edit` saved from an empty editor buffer | exit 0, "Updated …", item destroyed | non-zero, item unchanged |
 | `profile create` / `save` with no content at all | exit 0 | non-zero (labels-only profiles still save) |
@@ -194,6 +196,8 @@ in scoped and global listings alike — they are never hidden.
 | Oneshot capture with content but no harp | exit 0, nothing written | non-zero |
 | `ListSessions` / `GetSession` on the `acp` backend | exit 0, empty list — indistinguishable from "none" | `backend acp has no session history` |
 | `/recover` on opencode when `opencode export`'s JSON shape has drifted | exit 0, empty scrollback | non-zero, naming the drift (a real session with zero messages still exits 0) |
+| `ctxloom session rename <old> ../..` (or any name that is not one path component) | exit 0, index key and `MkdirAll`/`Symlink` on a traversed path | non-zero, index unchanged |
+| `ctxloom session list` over a session whose vendor transcript was pruned but whose ctxloom-captured `transcript.jsonl` survives | exit 0, session **irreversibly deleted** from the index | kept and listed; any genuine drop now warns, naming the harp |
 
 ### Agents and coordination
 
@@ -428,6 +432,38 @@ that cannot fail is worse than no instrument, and several of its limbs could not
   cache directory at a new name and re-pull; ordinary remotes are unaffected
   (U081-F08).
 
+## Sessions, signing and skill imports (batch 9)
+
+- **`ctxloom session rename <old> <new>` validates the new name.** A harp name
+  is an index key that becomes a filesystem path component, and the only check
+  was non-empty — so `ctxloom session rename <old> ../..` reached
+  `MkdirAll`/`Symlink` on a traversed path. Names must now be one path
+  component: non-empty, not `.` or `..`, no `/`, `\` or `:`, no control
+  characters, and no leading or trailing whitespace. The rule is otherwise
+  permissive — `Fix Login Bug`, `réunion-café` and `a.b.c` are all still fine —
+  so ordinary renames are unaffected. Validation sits in `paths.HarpDir` and
+  in the session store, so every harp-derived path inherits it (U087-F04).
+- **`ctxloom session list` stops deleting sessions it can still recover.** A
+  session whose *vendor* transcript had been pruned but whose ctxloom-captured
+  `transcript.jsonl` survived was reaped from the index — irreversibly, on an
+  ordinary listing. ctxloom's own capture now counts as recoverable, and every
+  drop prints one line naming the harp it dropped instead of vanishing
+  silently (U087-F05).
+- **`ctxloom sign --all` now signs directory-form bundles.** It enumerated only
+  top-level `<name>.yaml` files, so every `<name>/bundle.yaml` bundle — that
+  is, exactly the shape that can carry skills — was skipped, and the command
+  reported success having signed a subset. Nested bundles are found too. If you
+  publish a directory-form bundle, `--all` will now produce a `.sig` for it
+  that it previously never wrote (U087-F03).
+- **A rejected `ctxloom skill import` no longer destroys the skill it was
+  replacing.** The destination is computed from the archive's own top-level
+  directory name and was cleared before anything validated the replacement, so
+  importing a malformed archive over a good skill left the skill gone from disk
+  and still referenced in `bundle.yaml`. The replacement is now validated in a
+  staging directory and only swapped in once it is known good; a bad `--sig`
+  path is read before extraction rather than after. A successful import behaves
+  exactly as before (U087-F25).
+
 ---
 
 ## Upgrading
@@ -486,6 +522,11 @@ that cannot fail is worse than no instrument, and several of its limbs could not
   as unsigned, silently. Only an unreadable one is an error.
 - A distillation that produces real content is unchanged, and a `--dry-run` still
   plans without distilling anything.
+- Ordinary session renames are unaffected: only names that stop being one path
+  component are refused, and the charset stays permissive.
+- A session with genuinely no transcript and no essence is still reaped — it is
+  unactionable. It just says so now.
+- A successful `ctxloom skill import` behaves exactly as before, staging and all.
 - The liveness watchdog still **reports only**. It has never terminated, relaunched
   or reaped anything, and none of the above changes that; a quieter watchdog is a
   watchdog whose warnings are worth reading.

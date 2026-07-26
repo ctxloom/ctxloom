@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -133,4 +135,28 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 func TestTrustRoot_AbsentStore_IsNotALoadError(t *testing.T) {
 	cfg := &Config{appPaths: []string{".ctxloom"}, fs: afero.NewMemMapFs()}
 	assert.Empty(t, cfg.TrustRoot().LoadErrors())
+}
+
+// The MIRROR of TestTrustRoot_UnreadableStore_IsRecordedNotErased, on the
+// suppression side — and the direction of the degradation is REVERSED. An
+// unreadable allowed_signers means fewer keys trusted (safe). An unreadable
+// distrusted_signers means fewer SUPPRESSIONS, i.e. an embedded key the
+// operator explicitly removed silently counts again: a human's "no" quietly
+// reversed. It must not be silent.
+func TestSuppressedEmbeddedPrincipals_UnreadableStore_IsLoud(t *testing.T) {
+	base := afero.NewMemMapFs()
+	path := paths.DistrustedSignersPath(".ctxloom")
+	require.NoError(t, afero.WriteFile(base, path, []byte("bundles@ctxloom.dev\n"), 0o644))
+	fs := denyOpenFs{Fs: base, deny: path}
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	cfg.SuppressedEmbeddedPrincipals()
+
+	assert.Contains(t, buf.String(), "distrusted_signers",
+		"an unreadable suppression file re-trusts a key the operator removed; that must be reported")
 }

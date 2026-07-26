@@ -159,14 +159,23 @@ func (c *Config) distrustedSignersPaths() []string {
 }
 
 // readPrincipalLines parses one distrusted_signers file: one principal per
-// non-empty, non-`#`-comment line. An absent or unreadable file simply
-// contributes nothing (mirrors parseAllowedSigners' degrade-toward-fewer-keys
-// default — here, degrading toward FEWER suppressions, i.e. MORE embedded
-// keys trusted, which is the pre-A2 status quo, never a new exposure this
-// mechanism itself introduces).
+// non-empty, non-`#`-comment line. An ABSENT file contributes nothing, which
+// is the overwhelmingly common shape (nobody has suppressed anything).
+//
+// A file that EXISTS but cannot be read is the mirror of
+// parseAllowedSigners' case with the DIRECTION REVERSED, and the old doc here
+// had it backwards: fewer suppressions means MORE embedded keys trusted, so
+// an unreadable file silently re-trusts a key the operator explicitly removed
+// — a human's "no" quietly reversed, which is the same shape as U137-F03 on
+// the reject path. It stays non-fatal (failing closed here would suppress
+// every embedded principal, i.e. withhold all first-party content over a
+// permissions problem), but it must never be silent.
 func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 	f, err := fs.Open(path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			clidiag.Warn("ctxloom", "distrusted_signers %s exists but cannot be read; any signer suppressed there is trusted again this session: %v", path, err)
+		}
 		return nil
 	}
 	defer func() { _ = f.Close() }()

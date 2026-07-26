@@ -321,18 +321,31 @@ func TestRunChannel_StopRunLineage(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, codes.PermissionDenied, resp.GetStatus().GetCode())
 
-	// The parent may.
+	// The parent may, and its `reason` is HONOURED (U016-F04): it used to be
+	// advertised in agent_stop's tool schema and discarded. It must reach the
+	// run's durable terminal detail, and a second stop must report it back.
 	resp, err = owner.Request(context.Background(), &agentcoordpb.AgentRequest{
-		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: out.RunID}},
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{
+			RunId:  out.RunID,
+			Reason: "superseded by a narrower brief",
+		}},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
-	assert.True(t, resp.GetStopRun().GetExitedWithinGrace())
 
 	rec := RunRecord{}
 	c.runs.View(func() { rec = *c.runsF.run(out.RunID) })
 	assert.True(t, rec.Ended)
 	assert.Equal(t, CauseStopped, rec.Cause)
+	assert.Contains(t, rec.Detail, "superseded by a narrower brief")
+
+	// Stopping it again reports the recorded reason rather than the bare cause.
+	resp, err = owner.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: out.RunID}},
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, codes.OK, resp.GetStatus().GetCode())
+	assert.Contains(t, resp.GetStatus().GetMessage(), "superseded by a narrower brief")
 }
 
 // TestRunChannel_RosterProjection: list_runs projects the roster fold with

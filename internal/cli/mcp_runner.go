@@ -684,6 +684,14 @@ func (p *artifactStamper) publish(ctx context.Context, home *coord.Home, c artif
 	if len(raw) > artifactPublishSizeCap {
 		return nil, fmt.Errorf("%s is %d bytes, over the %d-byte publish cap", c.absPath, len(raw), artifactPublishSizeCap)
 	}
+	// A FLOOR, not just a cap (U016-F18). Only the maximum was ever checked,
+	// so a 0-byte file uploaded, journaled, and returned a success receipt
+	// with a content-addressed id — "published my plan, got an id back,
+	// delivered nothing", this project's characteristic silent no-op. A file
+	// holding only whitespace is the same delivery of nothing.
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("%s is empty (%d bytes, no non-whitespace content) — refusing to publish an artifact with nothing in it", c.absPath, len(raw))
+	}
 	sum := sha256.Sum256(raw)
 	hexSum := hex.EncodeToString(sum[:])
 

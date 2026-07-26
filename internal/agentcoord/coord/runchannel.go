@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -144,9 +145,13 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	}
 	if err := stream.Send(&agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_HelloAck{
 		HelloAck: &agentcoordpb.HelloAck{
-			Accepted:     true,
-			CommittedSeq: hello.GetResumeFromSeq(), // trivially resume where the runner stands (B window: no durable event log yet)
-			EventWindow:  0,                        // effectively unbounded (Wave D adds credits when a real backpressure case exists)
+			Accepted: true,
+			// NOT an independent watermark: the coordinator keeps no durable
+			// event log, so it echoes the runner's own claim back. The proto
+			// says so at Hello.resume_from_seq / HelloAck.committed_seq
+			// (U016-F10) — nobody should build a client that trusts this as
+			// confirmation.
+			CommittedSeq: hello.GetResumeFromSeq(),
 			Capabilities: []string{"peer_messaging"},
 		},
 	}}); err != nil {
@@ -918,16 +923,32 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
 	}
 	if rec.Ended {
+		// The detail carries the earlier stop's `reason` when there was one,
+		// so a second agent_stop reports WHY it ended, not just that it did.
+		ended := rec.Cause
+		if rec.Detail != "" {
+			ended = rec.Cause + ": " + rec.Detail
+		}
 		return &agentcoordpb.CoordinatorResponse{
-			Status: okStatus(fmt.Sprintf("child %s had already ended (%s)", rec.Harp, rec.Cause)),
-			Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{ExitedWithinGrace: true}},
+			Status: okStatus(fmt.Sprintf("child %s had already ended (%s)", rec.Harp, ended)),
+			Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}},
 		}
 	}
-	c.audit("agent_stop", caller.Harp, map[string]string{"harp": rec.Harp, "run_id": runID})
-	c.terminateRun(runID, CauseStopped, fmt.Sprintf("stopped by %s", caller.Harp))
+	// U016-F04: `reason` was advertised to the model and thrown away. It is
+	// now the run's terminal DETAIL — what the roster, the journal and the
+	// audit record show for this stop. Absent, the detail keeps the exact
+	// wording that shipped.
+	detail := fmt.Sprintf("stopped by %s", caller.Harp)
+	audit := map[string]string{"harp": rec.Harp, "run_id": runID}
+	if reason := strings.TrimSpace(req.GetReason()); reason != "" {
+		detail = fmt.Sprintf("stopped by %s: %s", caller.Harp, reason)
+		audit["reason"] = reason
+	}
+	c.audit("agent_stop", caller.Harp, audit)
+	c.terminateRun(runID, CauseStopped, detail)
 	return &agentcoordpb.CoordinatorResponse{
 		Status: okStatus(fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)),
-		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{ExitedWithinGrace: true}},
+		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}},
 	}
 }
 

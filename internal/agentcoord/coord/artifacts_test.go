@@ -370,3 +370,18 @@ func sha256Sum(b []byte) []byte {
 	s := sha256.Sum256(b)
 	return s[:]
 }
+
+// TestUploadArtifact_RefusesAZeroByteArtifact pins the server half of
+// U016-F18: the upload service capped the maximum size and never the
+// minimum, so a 0-byte artifact uploaded, journaled, and returned a success
+// receipt carrying a content-addressed id.
+func TestUploadArtifact_RefusesAZeroByteArtifact(t *testing.T) {
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+	home := childHome(t, c, out.RunID)
+
+	_, err := home.UploadArtifact(context.Background(), "plan/empty", "empty.plan.md", "text/markdown",
+		sha256.Sum256(nil), 0, bytes.NewReader(nil))
+	require.Error(t, err, "a 0-byte artifact must not earn an upload receipt")
+	assert.Contains(t, err.Error(), "empty artifact")
+}

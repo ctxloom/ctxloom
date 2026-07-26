@@ -41,6 +41,7 @@ the fix.
 | A kiro or antigravity run whose context hash cannot be resolved | exit 0, steering file **removed** / AGENTS.md section **stripped**, launched with zero context | non-zero; the previous delivery is left intact |
 | A minimal (`--skip-setup`) claude oneshot — the distill/compaction path — that produced no output | exit 0, nil error, **zero bytes** written | non-zero, "claude produced no output (exit N)"; a non-zero CLI exit keeps its own code |
 | A `session_end` hook configured while running codex | written nowhere, said nothing | still written nowhere (codex has no such event) — now **warns** naming engine and kind; **exit code unchanged** |
+| `ctxloom run` on a run that ended **cancelled**, **timed out**, **over budget**, or with **no status at all** | exit 0 — success | exit 1, naming the terminal status |
 
 **Why:** a run that silently delivers no context looks identical to a working one. The
 "no fragments configured" case is still a legitimate success.
@@ -254,6 +255,49 @@ Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
 
 ---
 
+### MCP tool arguments the model was told about and the handler discarded
+
+Eight `agent_run` / `roster` / `agent_stop` / `agent_send` arguments were
+projected into the tool schemas models read, published as real in the generated
+[MCP tools reference](../website/src/content/docs/reference/mcp-tools.md), filled
+in by models, and thrown away. Passing one produced a success receipt for a
+request that was partly not performed.
+
+| Tool | Argument | Before | Now |
+|---|---|---|---|
+| `agent_run` | `budget`, `constraints`, `notify_on` | accepted, discarded | **removed from the schema** — no budget carve-out, constraint enforcement, or completion-notification machinery exists |
+| `agent_run` | result `child_task_id` | always an empty string | **removed** — ctxloom keys delegation on (harp, run_id) |
+| `roster` | `task_id`, `include_descendants` | accepted, discarded | **removed** — there is no task-id axis, and the roster is *already* the whole delegation tree, so `include_descendants: true` could only return the identical list |
+| `agent_stop` | `grace` | accepted, discarded | **removed** — the stop is a hard kill; there is no unwind window to grant |
+| `agent_stop` | `reason` | accepted, discarded | **honoured** — it becomes the run's durable terminal detail and an audit field; a second `agent_stop` on the same run reports it back |
+| `agent_stop` | result `exited_within_grace` | hardcoded `true`, including on the immediate-kill path | **removed** — a response field must not assert an unmeasured fact |
+| `agent_send` | `artifact_ids` | accepted, discarded | **removed** — use `agent_report` (which stamps a content-addressed manifest) plus `agent_fetch_artifact`, and name the id in `text`/`structured` |
+| `agent_recv` | result `messages[].artifacts` | advertised, never populated | **removed** |
+| `roster` | result `phase` | documented as a `StatusChanged.Phase` name or `"TERMINAL"` — an enum nothing constructs | **corrected** to the five real values: `queued`, `executing`, `parked`, `idle`, `ended` |
+
+**Why:** silent acceptance teaches the caller nothing and the model has no way to
+discover the failure. A rejection at least teaches; an argument that cannot be
+honoured should not be offered at all. A generator gate now fails the build if a
+projected input field has no reader in its handler.
+
+Two contract comments were also corrected rather than removed: `HarnessSpec.extra_args`
+claimed runner-side allowlist validation that did not exist (the field is gone), and
+`Hello.resume_from_seq` / `HelloAck.committed_seq` claimed an authoritative resume
+cursor and a credit window — the coordinator echoes back whatever the agent claimed,
+and the window was never implemented. Both are now labelled as such in the proto.
+
+### Artifacts
+
+- Publishing a **zero-byte** (or whitespace-only) file no longer succeeds. It used to
+  upload, journal, and return `{"journaled": true, "artifact_ids": [...]}` — a
+  content-addressed receipt for nothing (U016-F18). Auto-discovered `*.plan.md`
+  candidates are skipped; a file you named in `publish_paths` fails the report loudly.
+- A child run's failure text is now recorded for **any** non-success terminal, not only
+  an explicitly `FAILED` one. A run that ended with no status set, timed out, or blew
+  its budget used to have its dying words dropped (U016-F06).
+
+---
+
 ## Upgrading
 
 1. **Run your CI once and read the exit codes.** Anything newly failing was already
@@ -297,3 +341,9 @@ Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
   Only a manifest that exists and will not parse is an error.
 - A relaunch budget resets whenever the child actually **consumes** mail, so a
   long-lived child taking one turn per run is never throttled by it.
+- `agent_stop` without a `reason` still works and still records the exact wording it
+  always did (`stopped by <harp>`); the reason is additive detail, never required.
+- An artifact with real content of any size up to the 64 MiB cap publishes exactly as
+  before. Only *nothing* is refused.
+- `ctxloom run` on a run that genuinely **succeeded** still exits 0, and an
+  explicitly `FAILED` run still exits 1 with the same message.

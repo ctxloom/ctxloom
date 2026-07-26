@@ -4,18 +4,11 @@
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
-      "include_descendants": {
-        "type": "boolean"
-      },
       "include_terminal": {
         "type": "boolean"
       },
       "role": {
         "description": "filter",
-        "type": "string"
-      },
-      "task_id": {
-        "description": "Scope to one task, optionally including its descendant task tree — no prefix matching on opaque ids.",
         "type": "string"
       }
     },
@@ -81,7 +74,7 @@
               "type": "string"
             },
             "phase": {
-              "description": "StatusChanged.Phase name or \"TERMINAL\"",
+              "description": "The run's current state, one of exactly: \"queued\" | \"executing\" | \"parked\" | \"idle\" | \"ended\". These five strings are the whole vocabulary; \"ended\" is the only terminal one, and entries in it appear only when include_terminal is set. Produced from the roster fold's state (coord/folds.go), which a test pins this list against (U016-F03 — the documented vocabulary used to name an enum nothing constructs, so a consumer matching it never matched a single run).",
               "type": "string"
             },
             "run_id": {

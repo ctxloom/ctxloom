@@ -202,7 +202,7 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		if _, isKill := kind.(*agentcoordpb.RunnerRequest_KillRun); isKill {
 			return &agentcoordpb.RunnerResponse{Status: okStatus(""), Kind: &agentcoordpb.RunnerResponse_KillRun{KillRun: &agentcoordpb.KillRunResult{}}}
 		}
-		return &agentcoordpb.RunnerResponse{Status: okStatus(""), Kind: &agentcoordpb.RunnerResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{ExitedWithinGrace: true}}}
+		return &agentcoordpb.RunnerResponse{Status: okStatus(""), Kind: &agentcoordpb.RunnerResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}}}
 	default:
 		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Unimplemented, "request kind not offered by this runner")}
 	}

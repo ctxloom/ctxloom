@@ -130,6 +130,7 @@ Named profile definitions
 | `bundle_items` | string[] | Cherry-picked bundle items (e.g. remote/bundle:fragments/name) |
 | `bundles` | string[] | Bundle references (e.g. remote/bundle-name) |
 | `commands` | string[] | Slash-command exports curated for this profile (each a "<bundle>#commands/<name>" ref, optionally version-pinned with a trailing "@<commit>"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in). |
+| `deny_tools` | string[] | Per-engine tool identifiers this profile denies at launch (e.g. "Task" for Claude Code's built-in sub-agent tool). Accumulates through profile inheritance like exclude_mcp — a child cannot un-deny what a parent denied. Currently reaches the claude-code backend only; other backends ignore it. |
 | `description` | string | Human-readable description of this profile |
 | `exclude_fragments` | string[] | Fragment names to exclude from this profile (filtered after inheritance) |
 | `exclude_mcp` | string[] | MCP server names to exclude from this profile (filtered after inheritance) |

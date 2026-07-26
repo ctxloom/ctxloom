@@ -297,13 +297,25 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 					}
 				}
 			case *agentcoordpb.AgentEvent_RunCompleted:
-				if r := p.RunCompleted.GetResult(); r != nil && r.GetStatus() == agentcoordpb.Result_RUN_STATUS_FAILED {
-					if msg := r.GetError().GetMessage(); msg != "" {
-						clidiag.Warn("ctxloom", "container run failed: %s", msg)
-					}
-					return answer.String(), &ExitError{Code: 1}
+				// SUCCESS IS AN ALLOW-LIST (U016-F06). This used to test
+				// `== RUN_STATUS_FAILED`, which made the enum's zero value —
+				// and CANCELLED, TIMED_OUT, BUDGET_EXCEEDED, and any value
+				// proto3's open enums let through — exit 0. A run that was
+				// killed or ran out of time reported success to the shell.
+				// Same discipline as the approval ladder's
+				// interactionResolution: only SUCCEEDED succeeds.
+				r := p.RunCompleted.GetResult()
+				if r.GetStatus() == agentcoordpb.Result_RUN_STATUS_SUCCEEDED {
+					return answer.String(), nil
 				}
-				return answer.String(), nil
+				if msg := r.GetError().GetMessage(); msg != "" {
+					clidiag.Warn("ctxloom", "run failed: %s", msg)
+				} else if r == nil {
+					clidiag.Warn("ctxloom", "run ended with no terminal result — treating as a failure")
+				} else if r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
+					clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
+				}
+				return answer.String(), &ExitError{Code: 1}
 			}
 		case <-ctx.Done():
 			return answer.String(), ctx.Err()

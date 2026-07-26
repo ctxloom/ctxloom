@@ -102,6 +102,15 @@ func (s *artifactService) UploadArtifact(stream grpc.ClientStreamingServer[agent
 	if header.GetSizeBytes() > artifactUploadSizeCap {
 		return status.Errorf(codes.InvalidArgument, "upload: declared size %d exceeds the %d-byte cap", header.GetSizeBytes(), artifactUploadSizeCap)
 	}
+	// A FLOOR as well as a cap (U016-F18). Only the maximum was ever checked,
+	// so a 0-byte artifact uploaded, journaled, and returned a success
+	// receipt with a content-addressed id — a receipt for nothing. The runner
+	// refuses first (mcp_runner.go's artifactStamper.publish); this is the
+	// server's own guard, because the transfer service is a credentialed
+	// surface any runner reaches, not just ours.
+	if header.GetSizeBytes() == 0 {
+		return status.Error(codes.InvalidArgument, "upload: declared size is 0 — an empty artifact is a receipt for nothing, refusing it")
+	}
 
 	// Bridge the push-based Recv loop onto an io.Reader writeAtomic can
 	// drain: io.Pipe is synchronous (unbuffered), so chunk arrival and the

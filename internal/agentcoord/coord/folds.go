@@ -27,14 +27,19 @@ type RunRecord struct {
 	// session owner (depth 0 has no run_id of its own to be a parent of);
 	// set for a depth-2+ grandchild. Mirrors StartRun/RunStarted.parent_run_id
 	// (rev 5) on the read-side roster projection (D1's ListRunsResult.RunInfo).
-	ParentRunID      string
-	Runtime          string
-	CredHash         string
-	Depth            int
-	Prompt           string
-	State            string
-	Ended            bool
-	Cause            string
+	ParentRunID string
+	Runtime     string
+	CredHash    string
+	Depth       int
+	Prompt      string
+	State       string
+	Ended       bool
+	Cause       string
+	// Detail is the terminal fact's human-readable detail (runEnded.Detail):
+	// for an agent_stop, the stopping session plus the caller's `reason`
+	// (U016-F04 — `reason` used to be advertised to the model and discarded).
+	// Empty when the terminal cause carried no detail.
+	Detail           string
 	HarnessSessionID string
 	// Resumable is the run engine's LIVE resume capability (factRunResumable,
 	// from ChatSessionInfo.Resumable) — the one-shot gate's live half. A run
@@ -124,6 +129,7 @@ func (f *runsFold) apply(fact Fact) {
 			r.Ended = true
 			r.State = StateEnded
 			r.Cause = p.Cause
+			r.Detail = p.Detail
 			r.LastActivity = fact.At
 			// Revocation is part of the terminal fact: the credential dies
 			// with the run.

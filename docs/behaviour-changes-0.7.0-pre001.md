@@ -296,6 +296,39 @@ and the window was never implemented. Both are now labelled as such in the proto
   an explicitly `FAILED` one. A run that ended with no status set, timed out, or blew
   its budget used to have its dying words dropped (U016-F06).
 
+### The delegation watchdog (`liveness`)
+
+The watchdog that warns "agent X looks stalled" was reaching confident verdicts
+from failures of its own instruments, and reaching them about agents that had
+already finished. Nothing about this changes how any command exits; it changes
+which warnings you see on the console during a delegated run.
+
+- **A transcript that cannot be READ no longer reports as an engine that emitted
+  zero events.** An unreadable file (permissions, a directory in its place), a
+  mid-file scan abort, and a transcript path the coordinator could not resolve all
+  used to arrive at the ladder as `Exists:false` — indistinguishable from the file
+  being genuinely absent, which is a real progress signal — and past the launch
+  grace each produced `stalled: "no canonical transcript exists ... the engine has
+  emitted zero events"`. They now produce `unknown`, carrying the read failure
+  (U056-F01/F05/F09).
+- **A transcript longer than 20 000 lines is no longer judged on its first 20 000
+  lines.** The scan bound read the head, so a long-running healthy agent looked
+  quiet forever and a cleanly-finished one looked dead. A bounded seek to the last
+  1 MiB now recovers the last-record measurements (U056-F02).
+- **A run the coordinator has already ended is no longer warned about.** Every
+  cleanly-completed child used to be reported `stalled` roughly ten minutes after
+  it finished, because `Target.Ended` was passed to the monitor and read by nothing
+  (U056-F03). A run terminated with its turn still open is still reported as a
+  death — that distinction is the point.
+- **The `slow` verdict is gone**, along with the CPU machinery behind it. It could
+  never be reached: no pid ever reached the monitor (the spawner returns a kill
+  closure, not a pid), so the host probe reported "no pid known" on every call and
+  the CPU rung's shipped verdict was permanently its "no CPU evidence obtainable"
+  default. The same question — busy or hung? — is now answered from the agent's
+  **worktree mtime**, which the coordinator does know and now passes in (U056-F04).
+  Stall reasons name the three clocks (transcript, worktree, coordinator activity)
+  instead of citing CPU evidence that was never gathered.
+
 ---
 
 ## Upgrading
@@ -347,3 +380,6 @@ and the window was never implemented. Both are now labelled as such in the proto
   before. Only *nothing* is refused.
 - `ctxloom run` on a run that genuinely **succeeded** still exits 0, and an
   explicitly `FAILED` run still exits 1 with the same message.
+- The liveness watchdog still **reports only**. It has never terminated, relaunched
+  or reaped anything, and none of the above changes that; a quieter watchdog is a
+  watchdog whose warnings are worth reading.

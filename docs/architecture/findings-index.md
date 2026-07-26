@@ -20,19 +20,19 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **182** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **219** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,082** |
+| `open` | no commit names this ID | **2,045** |
 
-**Totals: 2268 findings across 162 units — 182 resolved, 2082 still open, 4 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 219 resolved, 2045 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-6` batch; the previous totals had not been carried forward by the intervening sweeps.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 60 | 315 (+1 refuted) |
-| MED | 999 | 31 | 968 |
-| LOW | 871 | 91 | 799 (+3 partial/escalated) |
+| HIGH | 376 | 95 | 280 (+1 refuted) |
+| MED | 999 | 32 | 967 |
+| LOW | 871 | 92 | 798 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -247,11 +247,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U054-F04 | open | `gitignore.go:252` | SILENTNOOP | `appendBlock` discards the `Close` error and never `Sync`s, so a write that never reaches disk is reported as complete success — and the worst instance leaves the project with **fewer** ignore rule... | U054.md |
 | U055-F01 | open | **`backend.go:38,55,153 vs settings.go:73,195`** | CORRECTNESS | Setting `agent:` in a kiro config produces a **broken launch**: ctxloom writes the agent JSON under the hardcoded `defaultAgentName` but passes the user's override to `--agent`, so kiro-cli is told... | U055.md |
 | U055-F06 | **RESOLVED** `abda01dc` | **`settings.go:230-234`** | SILENTNOOP | A failed or missing context read **removes the steering file and reports success**. `agent.ReadContextFile` returns `("", nil)` for a missing file (contextfile.go:174-176), which flows to `writeSte... | U055.md |
-| U056-F01 | open | `transcript.go:148-154, monitor.go:377-385, monitor.go:295-306` | ERRHANDLING | A transcript that exists but cannot be **opened** is converted into a confident `StateStalled` claiming the engine emitted zero events. | U056.md |
-| U056-F02 | open | `transcript.go:108-114, 160-165` | CORRECTNESS | The 20 000-line scan bound reads the **head** of the file, so for any transcript past that length `LastTS`, `Completes` and `TurnClosed` are permanently stale — producing a false `StateStalled` for... | U056.md |
-| U056-F03 | open | **`liveness.go:135-137; monitor.go (no reader); folds.go:395`** | CORRECTNESS | `Target.Ended` is populated by the coordinator and read by **nothing**, so every cleanly-completed child is reported `StateStalled` ten minutes after it finishes — the watchdog cries wolf on success. | U056.md |
-| U056-F04 | open | **`liveness.go:144-147; coord/liveness.go:161-171`** | NOPAY | Three of the five evidence sources are unreachable in production because the sole production caller never populates `Target.PID`, `Target.WorkDir` or `Target.ContainerID` — roughly 150 LOC of the u... | U056.md |
-| U056-F05 | open | `transcript.go:26-27 vs probe.go:21-33` | COHESION | `TranscriptStat` lacks the observability bit that `ProcState` has, so "file absent", "file unreadable" and "caller never asked" are indistinguishable — and only the first is a legitimate progress s... | U056.md |
+| U056-F01 | **RESOLVED** `3060b28c` | `transcript.go:148-154, monitor.go:377-385, monitor.go:295-306` | ERRHANDLING | A transcript that exists but cannot be **opened** is converted into a confident `StateStalled` claiming the engine emitted zero events. | U056.md |
+| U056-F02 | **RESOLVED** `3060b28c` | `transcript.go:108-114, 160-165` | CORRECTNESS | The 20 000-line scan bound reads the **head** of the file, so for any transcript past that length `LastTS`, `Completes` and `TurnClosed` are permanently stale — producing a false `StateStalled` for... | U056.md |
+| U056-F03 | **RESOLVED** `3060b28c` | **`liveness.go:135-137; monitor.go (no reader); folds.go:395`** | CORRECTNESS | `Target.Ended` is populated by the coordinator and read by **nothing**, so every cleanly-completed child is reported `StateStalled` ten minutes after it finishes — the watchdog cries wolf on success. | U056.md |
+| U056-F04 | **RESOLVED** `88979af5` | **`liveness.go:144-147; coord/liveness.go:161-171`** | NOPAY | Three of the five evidence sources are unreachable in production because the sole production caller never populates `Target.PID`, `Target.WorkDir` or `Target.ContainerID` — roughly 150 LOC of the u... | U056.md |
+| U056-F05 | **RESOLVED** `3060b28c` | `transcript.go:26-27 vs probe.go:21-33` | COHESION | `TranscriptStat` lacks the observability bit that `ProcState` has, so "file absent", "file unreadable" and "caller never asked" are indistinguishable — and only the first is a legitimate progress s... | U056.md |
 | U057-F01 | open | **`managed.go:465-472 + managed.go:39`** | CORRECTNESS | The trust gate binds a hook preimage that **includes** `PreToolFallback`, but the same hook set, shipped over gRPC from `AssembleManagedConfig`, arrives with the flag zeroed — so `AssembleManagedHo... | U057.md |
 | U057-F02 | open | **`commands.go:212-215`** | SILENTNOOP | A builtin slash command that fails to load is dropped with **zero** diagnostics; because the command writers reconcile by removing all ctxloom-managed files then re-adding the assembled set, the pr... | U057.md |
 | U058-F01 | open | **`doc.go:1-11` (+ `conformance_test.go:1`)`** | CORRECTNESS | **The suite is currently FAILING, and has been failing silently, because nothing runs it.** `doc.go` documents a contract that production code no longer honours. | U058.md |
@@ -871,7 +871,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U056-F06 | open | `monitor.go:322-327 vs liveness.go:120-122` | CORRECTNESS | A zero `StartedAt` **enables** the age-gated content rung instead of disabling it, contradicting the field's documented contract; and `cpuRung` is not age-gated at all, so the launch grace does not... | U056.md |
 | U056-F07 | open | `transcript.go:300-306, monitor.go:276-279` | CORRECTNESS | The zero-median branch emits a `Redelivery` with **no cadence proof**, and `loopRung` fires on `Repeats` alone with no grace period — contradicting `detectRedelivery`'s own "both conditions matter"... | U056.md |
 | U056-F08 | open | `transcript.go:388-389, 405-432` | ERRHANDLING | `NewestMTime`'s doc promises that a genuine walk error is returned; in fact the `WalkDir` callback swallows every error and the `walkErr` branch is unreachable, so a permission-denied worktree retu... | U056.md |
-| U056-F09 | open | `transcript.go:166-168, monitor.go:377-385` | ERRHANDLING | A mid-file scan failure returns a **partial** `TranscriptStat` alongside the error; `gather` keeps the partial data and warns, and the ladder then condemns on it. | U056.md |
+| U056-F09 | **RESOLVED** `3060b28c` | `transcript.go:166-168, monitor.go:377-385` | ERRHANDLING | A mid-file scan failure returns a **partial** `TranscriptStat` alongside the error; `gather` keeps the partial data and warns, and the ladder then condemns on it. | U056.md |
 | U056-F10 | open | `monitor.go:488-504` | DEAD | `Monitor.Watch` is test-only and duplicates `coord.livenessWatchdog`, which is the real production driver. | U056.md |
 | U056-F11 | open | `monitor.go:206-214, liveness.go:152-185, coord/liveness.go:182-184` | NOPAY | The whole package's production effect is one `clidiag.Warn` line per firing transition; the on-demand API and the entire JSON-serialisable `Evidence` trail have no production consumer. | U056.md |
 | U056-F18 | open | `monitor.go:432-437` | CORRECTNESS | A CPU counter that goes **backwards** is the signature of a relaunch — the exact incident being hunted — and it is silently discarded as an unusable pair rather than surfaced as loop evidence. | U056.md |

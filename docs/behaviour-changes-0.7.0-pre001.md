@@ -504,6 +504,46 @@ antigravity.
   forwarded, no error is propagated to the engine or the user's turn, and a
   successful capture is as silent as it always was (U144-F04).
 
+## `ctxloom run --format json` carries ten more fields (batch 19)
+
+This changes the **NDJSON stream on stdout** — the documented "contract a GUI
+frontend consumes", and the channel the ctxloom VSCode frontend actually reads.
+It is an **additive** change: every new key is optional and omitted when empty,
+so a stream from a backend that reports none of them is byte-identical to what
+0.7.0-pre001 emitted before this. Nothing is renamed, retyped or removed.
+
+`chatEventToJSON` is a third hand-written mirror of the same `agent.ChatEvent`
+the canonical transcript mirrors, and it had the same defect, worse. It was
+found by the U144 remediation, not by the review corpus — **no finding row
+names it**.
+
+- **`entry` events now carry the eight fields they were dropping.**
+  `sidechain` (this entry belongs to an engine's own in-harness subagent, not
+  the main thread — a frontend without it renders a subagent's whole
+  conversation as if the user had had it), `toolCallId` (the engine-native
+  tool-call id, so a consumer can pair a result with its call instead of
+  guessing by tool name), `toolKind` (the ACP category: execute | edit | read
+  | search | …), `toolLocations` (the file paths and lines a tool call
+  touches — ACP "follow-along"), `toolContent` (a tool result's structured
+  content: content blocks, diffs, terminal references, alongside the flattened
+  `toolOutput` that is unchanged), `contentBlocks` (structured message content
+  alongside the flattened `content`, unchanged), `systemKind`, and `plan` (the
+  agent's plan entries with priority and status).
+- **`session` events now carry `sessionId` and `resumable`.** `sessionId` is
+  the harness-native session id — the resume handle. Without it a frontend
+  could not offer "continue this conversation" at all, because the id never
+  reached it. `resumable` is the live half of the resume gate, the same field
+  batch 10 restored to the transcript.
+- **`complete` events are unchanged** — that variant was already complete.
+
+The mirror-parity gate batch 10 built for the transcript now covers this
+mirror too, extended rather than rebuilt (its engine moved to
+`internal/testsupport/parity` so a second package could declare pairs against
+it; a `_test.go` file is not importable). It also gained a third half — **bool
+isolation** — closing the blind spot batch 18 declared: the count-based half
+passes when a converter writes one source bool into two mirror slots and drops
+the other, which was verified by injecting exactly that defect.
+
 ---
 
 ## Upgrading
@@ -576,6 +616,10 @@ antigravity.
 - A chat whose transcript capture fails is otherwise **unchanged** — every event
   is still forwarded, nothing is propagated to the engine or the user's turn.
   Only the silence changed.
+- A `--format json` stream from a backend that reports none of the ten new fields
+  is **byte-identical** to before: every new key is `omitempty`. No existing key
+  was renamed, retyped or removed, so a frontend that ignores unknown keys needs
+  no change at all.
 - The liveness watchdog still **reports only**. It has never terminated, relaunched
   or reaped anything, and none of the above changes that; a quieter watchdog is a
   watchdog whose warnings are worth reading.

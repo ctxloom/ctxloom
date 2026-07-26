@@ -262,7 +262,7 @@ func fillValue(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
 		}
 		// Other opaque structs must be exempted explicitly; blindly filling
 		// their unexported state is meaningless.
-		if fv.NumField() == 0 || !hasExportedFields(fv.Type()) {
+		if exportedFieldCount(fv.Type()) == 0 {
 			t.Fatalf("parity gate: %s is an opaque struct (%s) with no exported fields — "+
 				"add it to the pair's Exempt map with a reason, or teach fillValue about it", path, fv.Type())
 		}
@@ -283,15 +283,6 @@ func exportedFieldCount(t reflect.Type) int {
 		}
 	}
 	return n
-}
-
-func hasExportedFields(t reflect.Type) bool {
-	for i := 0; i < t.NumField(); i++ {
-		if t.Field(i).PkgPath == "" {
-			return true
-		}
-	}
-	return false
 }
 
 // --- bool-isolation machinery ---------------------------------------------

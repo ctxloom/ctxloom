@@ -43,6 +43,7 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 - One row was refuted in a batch report **without** naming an ID (`confload.Merge`'s swallowing branches, established unreachable) — it is still marked `open` here because there is nothing to key on.
 - Where an ID was named by more than one commit, all of them are listed, earliest first.
 - The four release-blocking fixes (T1/T2/T4/T13/X9) resolved some rows via their **merge** commit body rather than a leaf commit; those carry the merge SHA.
+- **The census is not the whole truth about the code.** At least one real defect was found *by the remediation work* and has no row here at all: `chatEventToJSON` (`internal/cli/run_structured.go`), the `--format json` NDJSON mirror the VSCode frontend consumes, was silently dropping **ten** fields of `agent.ChatEvent` — the exact class of U144-F01/F02, on a third mirror. U041 reviewed those DTOs and returned "KEEP": a field-by-field drop is invisible to a review that reads the struct and the converter as a matching pair, because they *do* match each other. Fixed in `254ea304` with no ID to key on. Absence of a row is not evidence of absence.
 
 | category | count |
 |---|---|

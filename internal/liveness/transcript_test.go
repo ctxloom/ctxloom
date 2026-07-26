@@ -155,6 +155,53 @@ func TestNewestMTime_AbsentRootIsNotAnError(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// An unreadable worktree is a FAILED observation, not an observation of
+// stillness. The walk callback used to swallow every error and return nil, so
+// `filepath.WalkDir` consumed it and `chmod 000` came back as
+// (zero, false, nil) — indistinguishable from an empty directory, which drops
+// the filesystem clock out of `Quiet` and biases the verdict toward stalled
+// (U056-F08). This is the same absent-vs-error collapse as U056-F01/F05.
+func TestNewestMTime_UnreadableRootIsAnError(t *testing.T) {
+	requireNonRoot(t)
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("a"), 0o644))
+	require.NoError(t, os.Chmod(root, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+
+	_, ok, err := liveness.NewestMTime(root)
+	require.Error(t, err, "an unreadable worktree must not be reported as an empty one")
+	assert.False(t, ok, "nothing was observed, so ok must not claim otherwise")
+}
+
+// A subtree that cannot be read still lets the walk finish — the best
+// available answer is returned — but the failure is REPORTED alongside it
+// rather than dropped, so a caller can tell a complete observation from a
+// partial one.
+func TestNewestMTime_UnreadableSubtreeReportsBothAnswerAndError(t *testing.T) {
+	requireNonRoot(t)
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("a"), 0o644))
+	locked := filepath.Join(root, "locked")
+	require.NoError(t, os.MkdirAll(locked, 0o755))
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	newest, ok, err := liveness.NewestMTime(root)
+	require.Error(t, err, "an unreadable subtree must be reported")
+	assert.True(t, ok, "the readable part of the tree was still observed")
+	assert.False(t, newest.IsZero())
+}
+
+// requireNonRoot skips tests whose mechanism is a permission denial: root
+// ignores directory modes, so the provocation silently does not happen and the
+// test would pass without exercising anything.
+func requireNonRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions cannot deny this process, so the unreadable-walk path cannot be provoked")
+	}
+}
+
 func TestNewestMTime_FindsNewestFileAndSkipsGit(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".git"), 0o755))

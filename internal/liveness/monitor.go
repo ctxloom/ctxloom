@@ -334,14 +334,39 @@ func (m *Monitor) quietRung(t Target, ev Evidence, now time.Time) (State, string
 		return StateHealthy, fmt.Sprintf("active %s ago (seq %d, %d assistant turn(s), entry types: %s)",
 			quiet.Round(time.Second), tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
 	}
+	// Every rule below rests on the target being silent EVERYWHERE, and the
+	// worktree is one of the everywheres. A walk that was denied could be
+	// hiding a stream of writes, so "quiet on every clock" is not a sentence
+	// the monitor is entitled to say — exactly as with an unreadable
+	// transcript in graceRung (U056-F08).
+	if ev.FSError != "" {
+		return StateUnknown, fmt.Sprintf("quiet for %s on the clocks that could be read, but the worktree could not be walked, so filesystem activity cannot be ruled out: %s",
+			quiet.Round(time.Second), ev.FSError)
+	}
 	young := !t.StartedAt.IsZero() && ev.Age < m.thr.StartGrace
 	if !young {
 		if s, reason := m.contentRung(ev, quiet); s != "" {
 			return s, reason
 		}
 	}
-	return StateStalled, fmt.Sprintf("quiet for %s on every clock (last tool_use %s) — no transcript record, no worktree write, no coordinator activity",
-		quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now))
+	return StateStalled, fmt.Sprintf("quiet for %s on every clock (last tool_use %s) — no transcript record, %s, no coordinator activity",
+		quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now), fsClause(t, ev))
+}
+
+// fsClause says what the monitor actually saw of the worktree, which is three
+// states and not two: nobody gave it a path, it walked and found nothing
+// countable, or it walked and everything it found was old. Only the last is an
+// absence of writes; reporting the other two as one was how a reason claimed
+// an observation that had never been made.
+func fsClause(t Target, ev Evidence) string {
+	switch {
+	case t.WorkDir == "":
+		return "no worktree was looked at"
+	case !ev.FSObserved:
+		return "no countable file in the worktree"
+	default:
+		return "no worktree write"
+	}
 }
 
 // contentRung applies the shared definition's two CONTENT clauses — at least
@@ -383,6 +408,11 @@ func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence 
 	if t.WorkDir != "" {
 		mt, ok, err := m.newestFS(t.WorkDir)
 		if err != nil {
+			// Same rule as the transcript above: a walk that FAILED is not a
+			// worktree that was still. The failure is carried on the evidence
+			// so the ladder can decline to judge instead of counting a
+			// missing clock as a silent one (U056-F08).
+			ev.FSError = err.Error()
 			clidiag.Warn("ctxloom", "liveness: %s: walk worktree: %v", t.Harp, err)
 		}
 		ev.FSMTime, ev.FSObserved = mt, ok

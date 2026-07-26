@@ -67,9 +67,18 @@ import (
 //     defect the gate exists to catch.
 // ---------------------------------------------------------------------------
 
-// inputRecord names one caller-populated input record: a struct a DIFFERENT
-// package fills in and hands over, where the two halves of the contract can
-// drift apart silently.
+// inputRecord names one wired record: a struct whose two halves live in
+// different places and can therefore drift apart silently. Both DIRECTIONS of
+// that drift are the same defect and the same check —
+//
+//   - an INPUT record is filled by a caller and read by the package (a field
+//     nobody fills makes every rule that reads it unreachable: U056-F03/F04);
+//   - an OUTPUT record is filled by the package and read by a caller (a field
+//     nobody reads makes the work that produces it pointless, and — worse —
+//     lets a distinction the producer went to the trouble of recording be
+//     dropped by every consumer: U056-F08's FSObserved, gathered on every
+//     tick and consulted by nothing, so "the walk found nothing" and "the
+//     walk was denied" reached the verdict as the same fact).
 type inputRecord struct {
 	// pkgDir is the declaring package, module-relative.
 	pkgDir string
@@ -78,10 +87,14 @@ type inputRecord struct {
 	// qualifier is how importers of pkgDir name it in a selector
 	// (`liveness.Target`).
 	qualifier string
+	// role is "input" or "output" — it changes nothing about the check, only
+	// which side of a failure the message points at.
+	role string
 }
 
 var inputRecords = []inputRecord{
-	{pkgDir: "internal/liveness", typeName: "Target", qualifier: "liveness"},
+	{pkgDir: "internal/liveness", typeName: "Target", qualifier: "liveness", role: "input"},
+	{pkgDir: "internal/liveness", typeName: "Evidence", qualifier: "liveness", role: "output"},
 }
 
 func TestInputRecords_EveryFieldIsBothWrittenAndRead(t *testing.T) {
@@ -110,11 +123,11 @@ func TestInputRecords_EveryFieldIsBothWrittenAndRead(t *testing.T) {
 			sort.Strings(deadWrite)
 			sort.Strings(deadRead)
 			assert.Empty(t, deadWrite,
-				"%s.%s: no production code POPULATES these fields, so every rule that reads them is unreachable — wire them or delete them",
-				rec.qualifier, rec.typeName)
+				"%s.%s (%s record): no production code POPULATES these fields, so every rule that reads them is unreachable — wire them or delete them",
+				rec.qualifier, rec.typeName, rec.role)
 			assert.Empty(t, deadRead,
-				"%s.%s: no production code READS these fields, so every caller that fills them is doing nothing — consume them or delete them",
-				rec.qualifier, rec.typeName)
+				"%s.%s (%s record): no production code READS these fields, so the evidence they carry never reaches a decision — consume them or delete them",
+				rec.qualifier, rec.typeName, rec.role)
 		})
 	}
 }
@@ -210,6 +223,16 @@ func scanRecordUse(t *testing.T, path string, rec inputRecord, written, read map
 	matches := func(e ast.Expr) bool { return typeExprIs(e, local, inPkg, rec.typeName) }
 
 	bound := boundIdents(f, matches)
+	// assignTargets are the selector nodes that appear as the LHS of a plain
+	// assignment. Without this, `ev.FSObserved = ok` counts as a READ as well
+	// as a write — ast.Inspect descends into the LHS and the generic selector
+	// case fires on it — so a field the producer sets and nobody consults
+	// satisfies both halves of the gate by itself. That is precisely the
+	// wrong-evidence green this gate exists to refuse (it hid U056-F08's
+	// FSObserved). Traversal is pre-order, so the AssignStmt is always seen
+	// before its own LHS. Compound assignment (`x.N += 1`) and `x.N++` are
+	// deliberately NOT recorded: those genuinely read the old value.
+	assignTargets := map[ast.Node]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch v := n.(type) {
 		case *ast.CompositeLit:
@@ -224,12 +247,19 @@ func scanRecordUse(t *testing.T, path string, rec inputRecord, written, read map
 				}
 			}
 		case *ast.AssignStmt:
+			pure := v.Tok == token.ASSIGN || v.Tok == token.DEFINE
 			for _, lhs := range v.Lhs {
 				if name, ok := boundFieldSel(lhs, bound); ok {
 					written[name] = true
+					if pure {
+						assignTargets[lhs] = true
+					}
 				}
 			}
 		case *ast.SelectorExpr:
+			if assignTargets[n] {
+				return true
+			}
 			if name, ok := boundFieldSel(v, bound); ok {
 				read[name] = true
 			}

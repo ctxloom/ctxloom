@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **247** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **249** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,017** |
+| `open` | no commit names this ID | **2,015** |
 
-**Totals: 2268 findings across 162 units — 247 resolved, 2017 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 249 resolved, 2015 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 117 | 258 (+1 refuted) |
+| HIGH | 376 | 119 | 256 (+1 refuted) |
 | MED | 999 | 38 | 961 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -43,6 +43,7 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 - One row was refuted in a batch report **without** naming an ID (`confload.Merge`'s swallowing branches, established unreachable) — it is still marked `open` here because there is nothing to key on.
 - Where an ID was named by more than one commit, all of them are listed, earliest first.
 - The four release-blocking fixes (T1/T2/T4/T13/X9) resolved some rows via their **merge** commit body rather than a leaf commit; those carry the merge SHA.
+- **The same defect can sit under two IDs.** The review generated U030-F02 and U030-F04 from the U030 unit, while the same two defects were also raised — and fixed — as wave-1 items T4 and X9 under their own IDs. Nothing cross-referenced them, so the mechanical marking left both `open` long after the code was fixed. They were re-verified against the code on 2026-07-26 and marked RESOLVED: **U030-F02 = T4** (`8d9da20c` — `BundleSkill.ContentPayload` now takes an `afero.Fs` and derives the preimage from the real tree via `EffectiveManifest`; `loader_skills.go` documents in comment that the `len(entry.Files) > 0` predicate, which both emptied the preimage and skipped verification, is gone; `internal/bundles/skill_preimage_test.go` pins that a manifest-less skill never signs the empty constant). **U030-F04 = X9** (`40b49a7f` — `bool pre_tool_fallback = 8` at `llm.proto:536`, carried in `hookToProto` and `hookFromProto`; T7 total-struct proto parity keeps it there). The second half of U030-F04's suggested action — a gate coupling the SIGNED PREIMAGE to the wire type, an axis T7 does not reach — landed separately in `72c71ddc`.
 - **The census is not the whole truth about the code.** At least one real defect was found *by the remediation work* and has no row here at all: `chatEventToJSON` (`internal/cli/run_structured.go`), the `--format json` NDJSON mirror the VSCode frontend consumes, was silently dropping **ten** fields of `agent.ChatEvent` — the exact class of U144-F01/F02, on a third mirror. U041 reviewed those DTOs and returned "KEEP": a field-by-field drop is invisible to a review that reads the struct and the converter as a matching pair, because they *do* match each other. Fixed in `254ea304` with no ID to key on. Absence of a row is not evidence of absence.
 
 | category | count |
@@ -168,9 +169,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U028-F03 | open | **`agents.go:203-212`** | SILENTNOOP | `ParseAgent` succeeds on empty, comments-only, or entirely-mistyped input, producing a blank binding rather than failing — a named agent that composes nothing, created without a single diagnostic. | U028.md |
 | U029-F01 | **RESOLVED** `abda01dc` | **`antigravity.go:549-563`** | SILENTNOOP | A missing context file silently strips agy's entire context section — agent launches with zero delivered context, exit 0, no warning | U029.md |
 | U030-F01 | **RESOLVED** `5cd9bf90` `4e86b9a9` `04fda751` | **`bundles.go:724-766`** | SILENTNOOP | `ParseBundle` accepts a zero-byte, whitespace-only, comment-only, `---`-only or `null` document as a **valid empty bundle** with a nil error. A truncated bundle.yaml, an empty companion `loadout` p... | U030.md |
-| U030-F02 | open | **`bundles.go:496-528, loader_skills.go:105-110`** | CORRECTNESS | A skill's trust preimage covers **only** `BundleSkill.Files`. When `files:` is absent the preimage is the constant `{"preimage":"ctxloom-exec/1","manifest":[]}` — identical for every manifest-less ... | U030.md |
+| U030-F02 | **RESOLVED** `8d9da20c` | **`bundles.go:496-528, loader_skills.go:105-110`** | CORRECTNESS | A skill's trust preimage covers **only** `BundleSkill.Files`. When `files:` is absent the preimage is the constant `{"preimage":"ctxloom-exec/1","manifest":[]}` — identical for every manifest-less ... | U030.md |
 | U030-F03 | **RESOLVED** `4216bf29` `8d2abb91` | `loader_skills.go:98-99` | CORRECTNESS | `skillContent` derives the package directory as `filepath.Dir(bundle.Path)` unconditionally, but `Bundle.Path` is overloaded: it is `""` for companion-seeded bundles and a synthetic `"<remote>:<ref... | U030.md |
-| U030-F04 | open | **`bundles.go:609-641`** | CORRECTNESS | `hookContentPayload` puts `PreToolFallback` in the signed preimage, but proto `Hook` has no such field and the converters drop it — **the hook delivered over the wire is not the hook the grant/sign... | U030.md |
+| U030-F04 | **RESOLVED** `40b49a7f` `72c71ddc` | **`bundles.go:609-641`** | CORRECTNESS | `hookContentPayload` puts `PreToolFallback` in the signed preimage, but proto `Hook` has no such field and the converters drop it — **the hook delivered over the wire is not the hook the grant/sign... | U030.md |
 | U030-F06 | **RESOLVED** `4216bf29` | `loader.go:399-408` | SILENTNOOP | `Loader.List` cannot distinguish "no bundles" from "cannot read the bundles directory". `afero.DirExists`'s error is discarded into the same `continue` as "does not exist"; `afero.Walk`'s return is... | U030.md |
 | U030-F07 | **RESOLVED** `4216bf29` | `loader_content.go:411-415, loader_skills.go:59-63` | SILENTNOOP | `CommandsFromBundleRef` and `SkillsFromBundleRef` return `nil` on any bundle-load failure with **no diagnostic**, and both feed the export path that *writes* per-engine command and skill files. A p... | U030.md |
 | U031-F01 | open | `skill_archive.go:347-447, 247-276, 292-324` | SILENTNOOP | `HardenedExtract` returns **success having written zero files** for any archive whose entries are all single-segment. `processArchiveEntry` treats `len(rest)==0` as "the top-level dir marker — noth... | U031.md |

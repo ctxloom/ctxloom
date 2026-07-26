@@ -281,6 +281,35 @@ func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	assert.Contains(t, found[0].FixIt, "intact", "the fix-it reassures that the holds/retractions on disk were preserved, not destroyed")
 }
 
+// TestContentGate_CorruptLockfile_WithholdsRemoteContent is the
+// PRODUCTION-SHAPED case, and it exists because the corrupt-approvals-store
+// fix (taskloom rocky-motto) shipped a guard that turned out to be DEAD CODE
+// on the real call path: every production caller injected its Records, so the
+// gate — reachable only when Records was nil — never ran. Retraction has the
+// mirror-image shape: buildContentGate never sets contentGate.retraction
+// (nil is the production default), so buildLockfileRetraction runs per call
+// and the step-2a gate IS reached. This pins that, through the real
+// contentGate.allow entry point, so the guard can never quietly become
+// unreachable the same way.
+func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	baseDir := t.TempDir()
+	writeLockYAML(t, baseDir, corruptLockYAML)
+	cfg := testConfigWithSCMPath(baseDir)
+
+	// retraction left nil — exactly what buildContentGate produces.
+	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records(), fs: afero.NewOsFs()}
+
+	assert.False(t, g.allow(solidRef, pbytes("x"), rawForm, "publisher@example.com"),
+		"the real gate entry point must withhold remote content when retraction state cannot be established")
+
+	items := g.withheldItems()
+	require.Len(t, items, 1, "the gate records the withheld ref, so the advisory can say WHY it was withheld")
+	assert.Equal(t, solidRef, items[0].Ref)
+	assert.Equal(t, trust.SourcePending, items[0].Result.Source)
+}
+
 // TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues pins the
 // documented escape hatch: `--degraded` (CTXLOOM_DEGRADED=1) records no
 // finding, so no choke owner aborts. The DENY is not relaxed — degraded mode

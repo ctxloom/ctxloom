@@ -510,6 +510,47 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return tsFragmentNotReappeared(worldFrom(c))
 	})
 
+	// --- GAP D2: an unreadable lockfile withholds, rather than un-retracting --
+
+	ctx.Step(`^her lockfile is corrupted, an unparseable lock\.yaml$`, func(c context.Context) error {
+		w := worldFrom(c)
+		// The pull above wrote a real lock.yaml carrying this bundle's pin
+		// (and the field that records a publisher retraction). Replace it with
+		// a truncated/half-written file: it EXISTS — so this is genuine
+		// corruption, not the legitimate "no lockfile at all" case, which must
+		// keep working — and its unterminated quoted scalar fails the parse.
+		return w.env.WriteFile(filepath.Join(".ctxloom", "lock.yaml"),
+			"version: 1\nbundles:\n  broken:\n    sha: \"abc\n    pinned: true\n")
+	})
+
+	// Fail-closed, the same shape as the corrupted approvals store above: the
+	// unreadable lockfile records a fatal ClassTrust finding, so `profile
+	// materialize` ABORTS pre-write rather than delivering a surface built on
+	// retraction state nobody could read. The message discipline is asserted
+	// too, because this is a fault a user cannot otherwise diagnose — nothing
+	// they typed mentions lock.yaml — so the abort must name the file, say
+	// what it withheld and why, and name the recovery.
+	ctx.Step(`^her session refuses to start, telling her the retraction state cannot be established, and naming how to recover$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = tsAbortExcerpt(out)
+		if code := w.env.LastExitCode(); code == 0 {
+			return fmt.Errorf("materialize exited 0 on an unreadable lockfile; it must refuse to start. output:\n%s", out)
+		}
+		for _, want := range []string{
+			"cannot establish retraction state", // the reason
+			"lock.yaml",                         // the file
+			"withholding remote content",        // what it did, as policy
+			"ctxloom remote lock",               // the recovery
+			"left intact",                       // the reassurance: nothing was destroyed
+		} {
+			if !strings.Contains(out, want) {
+				return fmt.Errorf("materialize output is missing %q — an abort on a corrupt lockfile a user cannot otherwise diagnose must name the reason, the file, and the recovery; output:\n%s", want, out)
+			}
+		}
+		return nil
+	})
+
 	// --- GAP C: the decision that was RECORDED, not just the payload served ----
 	//
 	// Every scenario above reads the downstream materialized payload. None of

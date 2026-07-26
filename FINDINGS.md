@@ -39,6 +39,32 @@ Every finding carries a verification provenance. **This is the most important co
 | **CONFIRMED** | a synthesizer verified it against source and stated its method |
 | **CLAIMED** | asserted by a unit review, not re-verified — **do not act on these without checking** |
 
+### A blind spot in this review's own method — added 2026-07-26
+
+The per-unit reviews cannot see a **hand-mirrored struct that drops a field**, and this
+was demonstrated rather than theorised.
+
+`chatEventToJSON` (`internal/cli/run_structured.go`) mirrors `agent.ChatEvent` onto the
+`--format json` stream the VSCode frontend consumes. It dropped **ten** fields, including
+`sessionId` — the resume handle, so the frontend could not offer "continue this
+conversation" at all. **U041 §3 reviewed those exact DTOs and returned "KEEP."**
+
+The reason is structural: a reviewer reads the mirror struct and its converter *as a
+pair*, and **they agree with each other perfectly**. The drop is only visible against the
+*source* type, which is in another package and not part of that unit. No amount of care
+inside the unit would have found it.
+
+**Consequence for anyone using this register:** absence of a finding is not evidence of
+correctness, most of all for hand-mirrored types and for anything whose correctness is
+defined by a relationship to code the unit does not own. The remediation sweep has now
+found four such mirrors — two in the corpus, one out of it, one already correct — and
+every one was caught by a reflective class gate, never by reading.
+
+That is also the argument for the gates over the fixes: nine of them now exist, and
+several caught defects, and one caught *itself*, in code no unit review flagged.
+
+---
+
 ### This file is the action list, NOT a census — read both
 
 **Corrected 2026-07-25.** An earlier version of this section said "381 HIGH across 162 units" and let that stand in for the corpus. **That was wrong and it undersold the corpus by a factor of six.** The real totals, mechanically extracted:

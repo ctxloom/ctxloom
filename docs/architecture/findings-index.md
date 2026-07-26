@@ -20,18 +20,18 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **225** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **233** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,039** |
+| `open` | no commit names this ID | **2,031** |
 
-**Totals: 2268 findings across 162 units — 225 resolved, 2039 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-7` batch. The MED resolved count had drifted low by one again since the batch-6 recount, which is the second time these totals have needed correcting rather than incrementing — count them, never adjust them by hand.)
+**Totals: 2268 findings across 162 units — 233 resolved, 2031 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 100 | 275 (+1 refuted) |
-| MED | 999 | 33 | 966 |
+| HIGH | 376 | 105 | 270 (+1 refuted) |
+| MED | 999 | 36 | 963 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
@@ -309,11 +309,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U080-F01 | open | **`backend.go:172-197`** | SILENTNOOP | A oneshot run that produces no assistant text exits 0 with zero bytes written and no diagnostic; an empty prompt is likewise sent without a check. | U080.md |
 | U080-F02 | **RESOLVED** `46d713d5` | **`capabilities.go:233-251`** | SILENTNOOP | `parseOpencodeExport` returns an empty transcript with `nil` error whenever `opencode export`'s JSON shape drifts, because Go silently ignores unknown fields. `/recover` would then show an empty sc... | U080.md |
 | U080-F03 | **RESOLVED** `ef0880e3` | **`backend.go:95-100, chat.go:59-60, interactive.go:60`** | SILENTNOOP / COUPLING | `Setup` must run before `Chat`/`launchInteractive` or the run silently delivers no context, no commands and no skills — connascence of *execution order* with no assertion. This is the exact shape o... | U080.md |
-| U081-F01 | open | **`agents.go:191`** | CORRECTNESS | `SetAgent` is documented as "add or update" but is a whole-record replace that **silently destroys** every field the caller did not set — including `Escalation`, which `SetAgentRequest` cannot even... | U081.md |
-| U081-F04 | open | `bundle_distill.go:197` | SILENTNOOP | `distillOutcome` reports `Status: distilled` with a `ModelID` when the distillation produced **zero bytes**. The user is told an item was distilled; nothing was delivered, and a previously-good `Di... | U081.md |
-| U081-F06 | open | `bundle_transfer.go:146, bundle_move.go:251` | ERRHANDLING | Two `afero.Exists` errors are swallowed on the signature path, silently downgrading a signed bundle to unsigned — the precise failure the surrounding doc comments say these functions exist to preve... | U081.md |
-| U081-F08 | open | `bundle_refs.go:167` | CORRECTNESS | `RemoveLocalItems` feeds `remote.Reference.LocalPath` straight to `fs.Remove` with no containment check against the cache root, and `LocalRemoteName` can return `..`. A lockfile with a degenerate r... | U081.md |
-| U081-F10 | open | `bundle_transfer.go:200` | SILENTNOOP | `ImportBundle`'s doc says it "validates a bundle file"; it validates only YAML well-formedness. An **empty or comment-only** file imports successfully as a zero-item bundle, and a non-`.yaml` filen... | U081.md |
+| U081-F01 | **RESOLVED** `f8c13d8b` | **`agents.go:191`** | CORRECTNESS | `SetAgent` is documented as "add or update" but is a whole-record replace that **silently destroys** every field the caller did not set — including `Escalation`, which `SetAgentRequest` cannot even... | U081.md |
+| U081-F04 | **RESOLVED** `2b2daaf1` | `bundle_distill.go:197` | SILENTNOOP | `distillOutcome` reports `Status: distilled` with a `ModelID` when the distillation produced **zero bytes**. The user is told an item was distilled; nothing was delivered, and a previously-good `Di... | U081.md |
+| U081-F06 | **RESOLVED** `6e5d5128` | `bundle_transfer.go:146, bundle_move.go:251` | ERRHANDLING | Two `afero.Exists` errors are swallowed on the signature path, silently downgrading a signed bundle to unsigned — the precise failure the surrounding doc comments say these functions exist to preve... | U081.md |
+| U081-F08 | **RESOLVED** `5482f836` | `bundle_refs.go:167` | CORRECTNESS | `RemoveLocalItems` feeds `remote.Reference.LocalPath` straight to `fs.Remove` with no containment check against the cache root, and `LocalRemoteName` can return `..`. A lockfile with a degenerate r... | U081.md |
+| U081-F10 | **RESOLVED** `f03a03fc` | `bundle_transfer.go:200` | SILENTNOOP | `ImportBundle`'s doc says it "validates a bundle file"; it validates only YAML well-formedness. An **empty or comment-only** file imports successfully as a zero-item bundle, and a non-`.yaml` filen... | U081.md |
 | U082-F01 | open | **`bundles.go:1111, :1138`** | SILENTNOOP | **[routed #7 — CONFIRMED]** `distillFragments`/`distillPrompts` write whatever the `Distiller` returns into `Distilled` with no length, ratio, or sanity floor, and then stamp `ContentHash` so the i... | U082.md |
 | U082-F02 | **RESOLVED** `4e86b9a9` `04fda751` | **`bundles.go:633-639`** | SILENTNOOP | `PushBundle` publishes a **0-byte bundle** with status `"pushed"` and no warning, overwriting whatever is at the remote path. | U082.md |
 | U082-F03 | open | `context.go:112, :384` | SILENTNOOP | `AssembleContext` returns `Context: ""` with a nil error and no warning when the user's selection matches nothing. `ctxloom run -t <tag-that-matches-nothing>` exits 0 having delivered no context. | U082.md |
@@ -1006,8 +1006,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U078-F12 | open | **`plans.go:33-37`** | CORRECTNESS | `IsPlanFile`'s doc comment misdescribes its own regex, and the pattern does not match this project's documented session-plan naming. | U078.md |
 | U078-F14 | open | `compactor.go:93-98, :543, :565, :594` | COHESION | The `Compactor` opens the session index four separate times per `Compact`, and holds no field for the store it mutates. | U078.md |
 | U078-F18 | open | `compactor.go:825-862, :462-488, :896-915` | DUPLICATE | Three functions in this unit have acknowledged copies elsewhere in the repo, each drifting independently. | U078.md |
-| U079-F06 | open | `discovery.go:131-134` | ERRHANDLING | Every `os.Stat` failure is flattened into `Present=false`, so "unobservable" (EACCES, ENOTDIR, ELOOP, a broken mount) reads exactly like "not delivered" — in the record whose whole job is to distin... | U079.md |
-| U079-F07 | open | `discovery.go:166`, `:176-181` | ERRHANDLING | `hashDir` discards the walk error entirely and, per file, emits an `EntryRecord` with `Size 0` and an **empty** `SHA256` when the read fails — an unreadable file becomes an entry that looks like a ... | U079.md |
+| U079-F06 | **RESOLVED** `1609048f` | `discovery.go:131-134` | ERRHANDLING | Every `os.Stat` failure is flattened into `Present=false`, so "unobservable" (EACCES, ENOTDIR, ELOOP, a broken mount) reads exactly like "not delivered" — in the record whose whole job is to distin... | U079.md |
+| U079-F07 | **RESOLVED** `1609048f` | `discovery.go:166`, `:176-181` | ERRHANDLING | `hashDir` discards the walk error entirely and, per file, emits an `EntryRecord` with `Size 0` and an **empty** `SHA256` when the read fails — an unreadable file becomes an entry that looks like a ... | U079.md |
 | U079-F08 | open | `report.go:125-135` | CORRECTNESS | `canonicalRendering` excludes `Note`, so a probe that could not be **resolved** hashes identically to a probe that resolved and found **nothing** — the `DiscoveryDigest`, the one value tests are to... | U079.md |
 | U079-F09 | open | `discovery.go:78`, `cmd/mockengine/main.go:98` | ERRHANDLING | A self-inconsistent L1 declaration degrades **silently** into `present:false` rows instead of failing loudly: `EngineCLI.Validate()` — which exists exactly to catch this — is never called on the mo... | U079.md |
 | U079-F10 | open | `sentinel.go:68-72` | ERRHANDLING | A malformed `CTXLOOM_MOCK_EXIT_CODE` is silently ignored, so the mock's own fault-injection channel degrades to "success" on a typo. | U079.md |
@@ -1030,7 +1030,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U081-F05 | open | `bundle_distill.go:125` | CORRECTNESS | The save runs whenever there was at least one *target*, even when **every** distill failed. That re-marshals the user's YAML (losing comments and key order) and, via `fsStore.Save`'s `invalidateSta... | U081.md |
 | U081-F07 | open | **`bundle_reader.go:16`** | ERRHANDLING | `NewBundleReaderForConfig` discards two errors and returns a nil interface; downstream, nil is indistinguishable from "no bundle is installed", so a registry or lockfile load failure silently repor... | U081.md |
 | U081-F09 | open | `bundle_move.go:303` | CORRECTNESS | If the source `.sig` cannot be removed after a successful move, `MoveBundle` returns `nil, err` — so the CLI reports the move as **failed** even though the bundle was published/copied and the sourc... | U081.md |
-| U081-F11 | open | `bundle_move.go:185,213; bundle_transfer.go:222` | ERRHANDLING | Three `afero` stat errors are discarded with `_`, and in each case the error path degrades to the *permissive* answer | U081.md |
+| U081-F11 | **RESOLVED** `f03a03fc` | `bundle_move.go:185,213; bundle_transfer.go:222` | ERRHANDLING | Three `afero` stat errors are discarded with `_`, and in each case the error path degrades to the *permissive* answer | U081.md |
 | U081-F15 | open | `bundle_transfer.go:51, bundle_distill.go:73, agents.go:133, bundle_transfer.go:200, bundle_move.go:91` | COMPLEXITY | Five functions in this unit are at or above the CI gate of CCN 10: `ExportBundle` 16, `DistillBundleFile` 14, `SetAgent` 12, `ImportBundle` 12, `MoveBundle` 10 | U081.md |
 | U082-F05 | open | `context.go:59-63` | COUPLING | The mustache `TagType` enum is **re-declared as bare untyped integers** even though `cbroglie/mustache` exports the real constants. This is connascence of *value* with a third-party library — and i... | U082.md |
 | U082-F06 | open | `countersign_records.go:36, :64` | DEAD | `countersignRecords.now` and `timeNow()` are a test seam **no test uses**. | U082.md |

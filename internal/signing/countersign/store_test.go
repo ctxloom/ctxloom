@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -243,7 +244,8 @@ func TestStore_Index_AppendAndLatestApprove(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	_, found := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	_, found, err := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	require.NoError(t, err)
 	assert.False(t, found)
 
 	require.NoError(t, s.AppendIndex(IndexEntry{
@@ -255,7 +257,8 @@ func TestStore_Index_AppendAndLatestApprove(t *testing.T) {
 		Principal: "ben@abbitt.me", PayloadHash: "sha256:bbb", ReviewedAt: "2026-06-01T00:00:00Z",
 	}))
 
-	got, found := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	got, found, err := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "sha256:bbb", got.PayloadHash, "the LATEST entry (by reviewed_at) must win")
 }
@@ -338,4 +341,156 @@ func TestStore_Readable_FileWithinUnreadable_IsAnError(t *testing.T) {
 	err2 := s2.Readable()
 	require.Error(t, err2)
 	assert.Contains(t, err2.Error(), "permission denied")
+}
+
+// --- an unconfigured store must be an ERROR, never a CWD-relative store ------
+
+// U137-F01. A Store built over dir "" is not "a store with nothing in it" —
+// it is a store nobody configured, which happens for real when $HOME cannot
+// be resolved and operations' user-store construction swallows the error.
+// Readable() is the fail-closed gate EffectiveTrust consults, so an
+// unconfigured store MUST surface there: every rejection recorded in the user
+// store is invisible for the whole session otherwise.
+func TestStore_Readable_EmptyDir_IsAnError(t *testing.T) {
+	s := NewStore("", afero.NewOsFs())
+
+	err := s.Readable()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no directory configured")
+}
+
+// U137-F02. filepath.Join("", x) == x, so every read path on a dir "" store
+// resolves against the PROCESS WORKING DIRECTORY. Unsigned markers are
+// honoured with zero cryptographic verification, so a marker file committed
+// at a repo root would be an unconditional approval of attacker-chosen bytes.
+// An unconfigured store must read as nothing at all.
+func TestStore_UnconfiguredStore_DoesNotReadTheWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	fs := afero.NewOsFs()
+	configured := NewStore(dir, fs)
+	require.NoError(t, configured.WriteUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body")))
+
+	markers, err := afero.Glob(fs, filepath.Join(dir, "*.unsigned"))
+	require.NoError(t, err)
+	require.Len(t, markers, 1, "the marker must exist in the working directory for this test to mean anything")
+
+	unconfigured := NewStore("", fs)
+	assert.False(t, unconfigured.HasUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body")),
+		"an unconfigured store must not honour a marker sitting in the working directory")
+}
+
+// U137-F02, signed half: candidates() globs "<dir>/<hash>.*.sig", which for
+// dir "" is a working-directory-relative pattern.
+func TestStore_UnconfiguredStore_DoesNotVerifyFromTheWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	signer, pub := testSigner(t)
+	root := rootTrusting("reviewer@example.com", pub, signing.NamespaceReject)
+	fs := afero.NewOsFs()
+
+	configured := NewStore(dir, fs)
+	require.NoError(t, configured.WriteRefReject(signing.KindFragments, "acme#fragments/x", signer))
+	_, ok := configured.VerifiedRefReject(signing.KindFragments, "acme#fragments/x", root, time.Now())
+	require.True(t, ok, "the signature must verify from the configured store for this test to mean anything")
+
+	unconfigured := NewStore("", fs)
+	_, ok = unconfigured.VerifiedRefReject(signing.KindFragments, "acme#fragments/x", root, time.Now())
+	assert.False(t, ok, "an unconfigured store must not verify a signature sitting in the working directory")
+}
+
+// U137-F02, write half: an unconfigured store must refuse to write rather
+// than scatter approval records across the working directory.
+func TestStore_UnconfiguredStore_RefusesToWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	signer, _ := testSigner(t)
+	s := NewStore("", afero.NewOsFs())
+
+	assert.Error(t, s.WriteApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body"), signer))
+	assert.Error(t, s.WriteUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body")))
+	assert.Error(t, s.AppendIndex(IndexEntry{Ref: "acme#fragments/x"}))
+}
+
+// --- an approval that pinned nothing must not be written ---------------------
+
+// U137-F04. countersignRecords.Approved returns false for an empty payload
+// before it touches any store, so a record written over an empty payload can
+// never be honoured — yet the write succeeds and the user is shown
+// "approved" with a key fingerprint. Refusing the write is the fail-loud form
+// of a rule the reader already enforces.
+func TestStore_WriteApprove_EmptyPayload_IsRefused(t *testing.T) {
+	signer, _ := testSigner(t)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+
+	err := s.WriteApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, nil, signer)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty payload")
+
+	err = s.WriteUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty payload")
+}
+
+// The reject side is the mirror: a REF reject legitimately pins no bytes
+// (it blocks the ref whatever its content becomes), so it must still work.
+func TestStore_WriteRefReject_EmptyPayload_IsStillAllowed(t *testing.T) {
+	signer, _ := testSigner(t)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+
+	assert.NoError(t, s.WriteRefReject(signing.KindFragments, "acme#fragments/x", signer))
+	assert.NoError(t, s.WriteUnsignedRefReject(signing.KindFragments, "acme#fragments/x"))
+}
+
+// --- the sidecar index must not be destroyed by a corrupt read ---------------
+
+// U137-F08. readIndex() maps an unmarshal error onto nil, indistinguishable
+// from "no index yet", and AppendIndex then rewrites the whole file from that
+// nil — one truncated write destroys the entire approval history. The index
+// is display-only, but it is what labels an item UPDATE and supplies the diff
+// base, so losing it makes substituted bytes look like a first-time item.
+func TestStore_AppendIndex_CorruptIndex_RefusesRatherThanTruncates(t *testing.T) {
+	dir := t.TempDir()
+	fs := afero.NewOsFs()
+	s := NewStore(dir, fs)
+
+	corrupt := []byte("- ref: acme#fragments/x\n  this is not: [valid\n")
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "index.yaml"), corrupt, 0o644))
+
+	err := s.AppendIndex(IndexEntry{Ref: "acme#fragments/y", Kind: "fragments", Assertion: "approve"})
+	require.Error(t, err, "appending onto an unparseable index must fail, not silently replace it")
+
+	after, rerr := afero.ReadFile(fs, filepath.Join(dir, "index.yaml"))
+	require.NoError(t, rerr)
+	assert.Equal(t, corrupt, after, "the existing index must be left exactly as it was")
+}
+
+// LatestApprove is the display-side reader of the same file. A corrupt index
+// must not read as "there was never a prior approval" — that silently
+// relabels an UPDATE as NEW.
+func TestStore_LatestApprove_CorruptIndex_IsNotSilentlyEmpty(t *testing.T) {
+	dir := t.TempDir()
+	fs := afero.NewOsFs()
+	s := NewStore(dir, fs)
+
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "index.yaml"), []byte("- ref: x\n  bad: [\n"), 0o644))
+
+	_, found, err := s.LatestApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw)
+	require.Error(t, err, "an index this store cannot parse must not answer 'no prior approval'")
+	assert.False(t, found)
+}
+
+// An ABSENT index is the normal fresh shape and must stay quiet — the whole
+// point of the error channel is that it separates absent from corrupt.
+func TestStore_LatestApprove_AbsentIndex_IsNotAnError(t *testing.T) {
+	s := NewStore(t.TempDir(), afero.NewOsFs())
+
+	_, found, err := s.LatestApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw)
+	assert.NoError(t, err)
+	assert.False(t, found)
 }

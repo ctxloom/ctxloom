@@ -26,7 +26,7 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
 | `open` | no commit names this ID | **2,015** |
 
-**Totals: 2268 findings across 162 units — 249 resolved, 2015 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 249 resolved, 2015 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|

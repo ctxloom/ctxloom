@@ -133,20 +133,30 @@ jobs:
       - name: Generate JSON Schemas
         run: just -f justfile.container gen-schemas
 
-      # Runs BEFORE the full suite, and deliberately duplicates part of it:
-      # every TestArch_ gate also runs under "Run tests" below (they carry no
-      # build tag — opt-in gates are how this repo acquired gates that do not
-      # gate). The point is attribution. A violated architectural invariant
-      # would otherwise surface as one red test inside a 217-package run,
-      # indistinguishable from an ordinary break; here it turns THIS step red,
-      # under a name that says what class of thing broke. The recipe refuses to
-      # pass having selected zero tests, so a rename that breaks the naming
-      # convention fails this step rather than quietly emptying it.
+      # The suite is split into two steps that partition it — NOTHING runs
+      # twice. The TestArch_ gates carry `//go:build arch`, so only the step
+      # below with `-tags arch` compiles them, and "Run tests (default suite)"
+      # no longer contains them.
+      #
+      # The point is attribution. A violated architectural invariant used to
+      # surface as one red test inside a 217-package run, indistinguishable
+      # from an ordinary break; now it turns THIS step red, under a name that
+      # says what class of thing broke. The recipe refuses to pass having
+      # selected zero tests, so a rename that breaks the naming convention —
+      # or a mistyped build tag, which silently empties the group without a
+      # single compile error — fails this step instead of quietly passing.
+      #
+      # Both steps below MUST stay wired. `just test` is the aggregate that
+      # runs both groups, but it is for humans and agents; CI invokes the two
+      # targets individually so a red step names its group. If either step is
+      # deleted or renamed here, that whole group silently stops running in CI
+      # — the failure mode `test-conformance` already exhibits in this repo
+      # (red, and referenced by no workflow).
       - name: Architectural invariants (class gates)
         run: just -f justfile.container test-arch
 
-      - name: Run tests
-        run: just -f justfile.container test
+      - name: Run tests (default suite)
+        run: just -f justfile.container test-default
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

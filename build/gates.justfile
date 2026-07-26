@@ -112,28 +112,39 @@ _check-docker-skip-gate:
 # missing was ATTRIBUTION — a violated invariant surfaced as one red test
 # inside a 217-package run, indistinguishable from an ordinary break.
 #
-# NOT build-tagged, and must not be. A tag would take them out of `just test`,
-# making them opt-in — which is how this repo acquired gates that do not gate
-# (test-conformance is red and referenced by no workflow). Every test selected
-# here also runs in the ordinary suite; this recipe only changes how a failure
-# READS.
+# BUILD-TAGGED `//go:build arch`, following this repo's own precedent
+# (tests/integration is `-tags integration`, tests/acceptance is
+# `-tags "acceptance integration"`). The tag makes this recipe the only thing
+# that COMPILES them, which is what makes the group discrete: `test-default`
+# no longer runs them at all, so a red step here is unambiguously an
+# architectural violation and nothing else.
 #
-# ANTI-VACUOUS GUARD. A `-run` regex that matches nothing exits 0 from `go
-# test` — the same false green test-pkg guards against, and the same shape as
-# the gen-schemas bug. test-pkg's guard (grep for `[no tests to run]`) cannot
-# be reused verbatim: selecting a prefix across ./... means almost EVERY
-# package prints that message legitimately, so it would fire on a healthy run.
-# The module-wide equivalent is to COUNT what ran and refuse to pass on zero —
+# The tag does NOT make them opt-in. `just test` — the recipe humans and agents
+# actually type — runs `test-default` THEN `test-arch` and fails if either
+# fails. Opt-in gates are how this repo acquired gates that do not gate
+# (test-conformance is red and referenced by no workflow); the aggregate `test`
+# target is what keeps that from happening here, so it is the thing that must
+# stay honest.
+#
+# ANTI-VACUOUS GUARD — and the tag makes it matter MORE, not less. A `-run`
+# regex that matches nothing exits 0 from `go test`; so now does a MISSPELLED
+# TAG, which yields zero selected tests and zero compile errors, because the
+# tagged files simply drop out of the build. Both failure modes are invisible
+# without a count. test-pkg's guard (grep for `[no tests to run]`) cannot be
+# reused verbatim: selecting a prefix across ./... means almost EVERY package
+# prints that message legitimately, so it would fire on a healthy run. The
+# module-wide equivalent is to COUNT what ran and refuse to pass on zero —
 # `go test -v` prints one `--- PASS/FAIL/SKIP:` line per top-level test at
 # column 0 — and to report the count either way.
 #
-# No -race: `just test` already runs the whole suite under -race, and these are
-# reflection/AST/source-walk assertions with no concurrency of their own.
+# No -race: `test-default` already runs the whole untagged suite under -race,
+# and these are reflection/AST/source-walk assertions with no concurrency of
+# their own.
 test-arch: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
     set +e
-    output=$(go test -count=1 -run 'TestArch_' -v ./... 2>&1)
+    output=$(go test -count=1 -tags arch -run 'TestArch_' -v ./... 2>&1)
     status=$?
     set -e
     # Gates and package results only, not the "no tests to run" noise from the
@@ -149,9 +160,11 @@ test-arch: _require-generated
         exit "$status"
     fi
     if [ "$ran" -eq 0 ]; then
-        echo "error: -run 'TestArch_' selected NO tests — the gate ran nothing and would have" >&2
-        echo "exited 0 saying so. Either the naming convention was broken by a rename, or" >&2
-        echo "this recipe's pattern is wrong. Both are the gate failing." >&2
+        echo "error: -tags arch -run 'TestArch_' selected NO tests — the gate ran nothing and" >&2
+        echo "would have exited 0 saying so. Either the naming convention was broken by a" >&2
+        echo "rename, or this recipe's -run pattern is wrong, or the build tag is wrong and" >&2
+        echo "every //go:build arch file dropped silently out of the build. All three are the" >&2
+        echo "gate failing." >&2
         exit 1
     fi
     echo ""

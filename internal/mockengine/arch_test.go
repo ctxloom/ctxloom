@@ -1,3 +1,5 @@
+//go:build arch
+
 package mockengine_test
 
 import (

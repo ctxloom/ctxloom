@@ -206,12 +206,57 @@ _ensure-covdata:
     go build -o "$tooldir/covdata" cmd/covdata
     echo "ctxloom: built version-matched covdata into $tooldir/"
 
-# Run all tests (builds ctxloom first for acceptance tests).
+# THE developer/agent entry point: runs BOTH test groups and fails if EITHER
+# fails.
+#
+# `test` is an aggregate over two targets that can also be run alone:
+#
+#   test-default  the untagged suite (`go test ./...`, plain and -race)
+#   test-arch     the architectural class gates, behind `-tags arch`
+#
+# CI does NOT call this recipe — .github/workflows/ci.yml invokes test-default
+# and test-arch as two separate steps, so a red step names the class of thing
+# that broke. This aggregate exists because humans and agents type `just test`,
+# and every remediation batch in this programme is briefed to gate on its exit
+# code. A wrapper that ran both halves and returned only the LAST exit code
+# would report green while an architectural invariant was violated — a
+# false-green generator wired into the workflow that depends on it. Hence the
+# explicit per-group exit-code capture below rather than a bare dependency
+# list: both groups always run, both verdicts are printed, and ANY failure
+# exits non-zero naming the group.
+test:
+    #!/usr/bin/env bash
+    # No `set -e`: each group's exit code is captured and checked explicitly, so
+    # a failing first group cannot abort before the second runs and cannot be
+    # masked by the second succeeding.
+    set -uo pipefail
+    failed=()
+    echo "===== [1/2] default suite (untagged) — just test-default"
+    if ! just test-default; then failed+=("test-default"); fi
+    echo ""
+    echo "===== [2/2] architectural invariants (-tags arch) — just test-arch"
+    if ! just test-arch; then failed+=("test-arch"); fi
+    echo ""
+    if [ "${#failed[@]}" -ne 0 ]; then
+        echo "FAILED GROUP(S): ${failed[*]}" >&2
+        echo "  test-default = the ordinary untagged suite (go test ./..., plain + -race)" >&2
+        echo "  test-arch    = the architectural class gates (-tags arch, -run TestArch_)" >&2
+        echo "Re-run just that group to iterate on it." >&2
+        exit 1
+    fi
+    echo "both groups passed: test-default + test-arch"
+
+# The untagged suite — everything that is NOT an architectural class gate.
+# Builds ctxloom first for acceptance tests.
 # Coverage is filtered through .coverignore so generated files
 # (protobuf, gRPC) don't drag the reported number down.
 # vet-integration is the tag-gated-test compile rot gate (see its comment).
 #
-# SCOPE (soft-elm, measured 2026-07-21): exit 0 from `just test` means
+# Run `just test` (which adds test-arch) unless you specifically want this half
+# alone. This target carries no `-tags arch`, so the 38 TestArch_ gates do NOT
+# run here.
+#
+# SCOPE (soft-elm, measured 2026-07-21): exit 0 from `just test-default` means
 # unit/race suites green + `tests/integration/...` (the `-tags integration`
 # build fence) COMPILES — it does NOT mean the integration tests ran.
 # Neither `go test` invocation below carries `-tags integration`, so those
@@ -226,7 +271,7 @@ _ensure-covdata:
 # `just test-integration` (CLI/bundle/path changes) and `just test-acceptance`
 # (cross-surface journeys) explicitly for real local verification — see
 # README's Development section.
-test: build _ensure-covdata vet-integration
+test-default: build _ensure-covdata vet-integration
     #!/usr/bin/env bash
     set -e
     # Gate on BOTH configurations, not just -race. gremlins and `just cover`

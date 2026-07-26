@@ -1,3 +1,5 @@
+//go:build arch
+
 // Package arch holds the module-wide architectural gates — the ones whose
 // subject is the whole import graph rather than any one package, and which
 // therefore have nowhere else to live.

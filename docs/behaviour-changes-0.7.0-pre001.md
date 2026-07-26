@@ -234,6 +234,9 @@ in scoped and global listings alike — they are never hidden.
 | `ctxloom remote pull` where the remote's `manifest.yaml` exists but does not parse | treated as **not retracted**, pull proceeded | non-zero: the retraction status is UNKNOWN and the pull stops, `--force` included (U150-F04) |
 | A profile using `deny_tools` | `ctxloom run` aborted in strict mode; degraded mode printed "it is IGNORED", which was false | accepted, as the loader always honoured it (U049-F01) |
 | A container `--print` one-shot that streamed **zero answer bytes** | a warning, an empty file, **exit 0** | non-zero: the engine ran and answered nothing, so there is nothing to print or record (U041-F01) |
+| A **host** (go-plugin) `--print` one-shot that produced zero answer bytes | no check at all: an empty file, **exit 0**, nothing said | non-zero, through the same seam as the container arm (U041-F02) |
+| `broken-producer \| ctxloom run --print` where stdin cannot be read | the read error was discarded and the run launched with an empty prompt, **exit 0** | non-zero, naming the read failure (U041-F03) |
+| `ctxloom run --print` with no prompt from any source (flag, `--command`, args, pipe) | launched a headless engine that asked nothing, **exit 0** | non-zero: "nothing to run" (U041-F03) |
 
 Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
 
@@ -268,6 +271,8 @@ Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
 ## What is deliberately NOT changed
 
 - Legitimately empty results still succeed.
+- `ctxloom run` with **no** prompt and no `--print` still opens an interactive session. Only
+  the one-shot arm, which gets exactly one turn, refuses an empty prompt.
 - Version-only bundle skeletons still publish.
 - A skill that has been through `ctxloom skill sync` hashes exactly as before, and its
   existing approval stands — the preimage change reaches manifest-less skills only.

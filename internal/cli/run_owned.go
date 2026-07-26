@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // Phase 2a-B host side: a TOP-LEVEL container run that is --structured or a
@@ -216,28 +215,20 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 		return ctx.Err()
 	}
 
-	if text != "" {
-		if !strings.HasSuffix(text, "\n") {
-			fmt.Fprintln(stdout)
-		}
-		if terr := transcript.RecordOneshot(harp, backend, prompt, text); terr != nil {
-			clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
-		}
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		fmt.Fprintln(stdout)
 	}
+	// U041-F01/F02: BOTH --print arms close out through recordOneshotAnswer, so
+	// "the engine answered nothing" is one rule with one message rather than a
+	// warning on this arm and no check at all on the go-plugin one. Capture runs
+	// even on a nonzero exit (partial prose is still real memory of what
+	// happened), but the run's own failure takes precedence — it already said
+	// what went wrong.
+	captureErr := recordOneshotAnswer(harp, backend, prompt, text)
 	if runErr != nil {
 		return runErr
 	}
-	if text == "" {
-		// U041-F01: a green run that delivered zero bytes is this project's
-		// signature silent no-op. There is no such thing as a legitimately
-		// empty oneshot answer — the caller asked exactly one question and got
-		// no reply — so this exits nonzero instead of writing an empty file and
-		// reporting success. The run's own failure (runErr above) takes
-		// precedence: that one already said what went wrong.
-		clidiag.Warn("ctxloom", "oneshot container run produced no answer text: the engine started and finished without emitting a single answer byte, so there is nothing to print or record")
-		return &ExitError{Code: 1}
-	}
-	return nil
+	return captureErr
 }
 
 // ownedRenderResult carries the render goroutine's two outputs — the answer it

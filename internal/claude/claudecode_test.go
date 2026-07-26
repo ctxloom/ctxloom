@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -551,4 +552,83 @@ func TestParseClaudeJSONResult_InvalidJSON(t *testing.T) {
 	_, _, err := parseClaudeJSONResult([]byte("not json at all"))
 
 	assert.Error(t, err)
+}
+
+// U032-F02. The minimal-oneshot branch — the distill/compaction path — could
+// return ExitCode 0 with a nil error having written ZERO bytes to stdout, two
+// ways: the CLI exits 0 emitting nothing (the envelope fails to parse, the
+// empty buffer is copied through, and the nil error is returned), or the
+// envelope parses fine with an empty "result". An exit-code gate sees neither,
+// so a distill that produced nothing reads exactly like one that worked.
+func TestClaudeCode_MinimalOneshot_NoOutput_IsAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		emit  string
+		wants string
+	}{
+		{"CLI emitted nothing at all", "", "no output"},
+		{"envelope parsed with an empty result", `{"result":"","modelUsage":{}}`, "no output"},
+		{"envelope parsed with only whitespace", `{"result":"   \n","modelUsage":{}}`, "no output"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewClaudeCode()
+			b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, stdout, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+				_, _ = io.WriteString(stdout, tc.emit)
+				return 0, nil
+			})
+
+			var out, errBuf bytes.Buffer
+			res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
+				Mode:      agent.ModeOneshot,
+				SkipSetup: true,
+				Prompt:    &agent.Fragment{Content: "summarize this"},
+			}, &out, &errBuf)
+
+			require.Error(t, err, "a oneshot that produced no output must not report success")
+			assert.Contains(t, err.Error(), tc.wants)
+			if res != nil {
+				assert.NotEqual(t, int32(0), res.ExitCode, "and it must not exit 0")
+			}
+		})
+	}
+}
+
+// Real output must still succeed, and must still reach stdout — the guard
+// must not turn a working distill into a failure.
+func TestClaudeCode_MinimalOneshot_WithOutput_StillSucceeds(t *testing.T) {
+	b := NewClaudeCode()
+	b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, stdout, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		_, _ = io.WriteString(stdout, `{"result":"the summary","modelUsage":{"claude-x":{"outputTokens":5}}}`)
+		return 0, nil
+	})
+
+	var out, errBuf bytes.Buffer
+	res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
+		Mode: agent.ModeOneshot, SkipSetup: true, Prompt: &agent.Fragment{Content: "summarize this"},
+	}, &out, &errBuf)
+
+	require.NoError(t, err)
+	assert.Equal(t, "the summary", out.String())
+	require.NotNil(t, res)
+	assert.Equal(t, int32(0), res.ExitCode)
+	assert.Equal(t, "claude-x", res.ModelInfo.ModelName)
+}
+
+// A NON-ZERO exit with no output keeps the CLI's own exit code and error —
+// the guard must not mask a real failure with a synthesized one.
+func TestClaudeCode_MinimalOneshot_FailedRun_KeepsItsOwnExitCode(t *testing.T) {
+	b := NewClaudeCode()
+	b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, _, stderr io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		_, _ = io.WriteString(stderr, "boom")
+		return 3, nil
+	})
+
+	var out, errBuf bytes.Buffer
+	res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
+		Mode: agent.ModeOneshot, SkipSetup: true, Prompt: &agent.Fragment{Content: "summarize this"},
+	}, &out, &errBuf)
+
+	require.Error(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, int32(3), res.ExitCode, "the CLI's own exit code must survive")
 }

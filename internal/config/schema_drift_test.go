@@ -263,3 +263,69 @@ func TestConfigSchema_ShippedConfigsValidate(t *testing.T) {
 		})
 	}
 }
+
+// profileSchemaProperties returns the profile-object schema
+// (profiles.definitions.<name>) and whether it rejects unknown keys.
+func profileSchemaProperties(t *testing.T) (props map[string]json.RawMessage, additionalProps bool) {
+	t.Helper()
+	raw, err := resources.GetConfigSchema()
+	require.NoError(t, err)
+	var doc struct {
+		Properties struct {
+			Profiles struct {
+				Properties struct {
+					Definitions struct {
+						AdditionalProperties struct {
+							AdditionalProperties bool                       `json:"additionalProperties"`
+							Properties           map[string]json.RawMessage `json:"properties"`
+						} `json:"additionalProperties"`
+					} `json:"definitions"`
+				} `json:"properties"`
+			} `json:"profiles"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	def := doc.Properties.Profiles.Properties.Definitions.AdditionalProperties
+	return def.Properties, def.AdditionalProperties
+}
+
+// profileYAMLFields returns Profile's serializable yaml field names.
+func profileYAMLFields(t *testing.T) []string {
+	t.Helper()
+	rt := reflect.TypeFor[Profile]()
+	var names []string
+	for i := 0; i < rt.NumField(); i++ {
+		tag := rt.Field(i).Tag.Get("yaml")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// TestProfileSchema_CoversEveryProfileField closes the hole U049-F01 came
+// through: the drift gate above reflects configDoc and so covers the TOP LEVEL
+// ONLY. `deny_tools` had yaml+mapstructure tags and was honoured all the way
+// through mergeProfileValues → toProfile, yet appeared nowhere in the schema —
+// and profiles.definitions.<name> is additionalProperties:false, so using the
+// feature made `ctxloom run` abort in strict mode and print "it is IGNORED"
+// (which was false) in degraded mode. A field the parser honours but the
+// schema rejects is a feature that cannot be used.
+func TestProfileSchema_CoversEveryProfileField(t *testing.T) {
+	props, additional := profileSchemaProperties(t)
+	require.NotEmpty(t, props, "the profile object schema must be reachable for this gate to mean anything")
+	assert.False(t, additional,
+		"profiles.definitions.<name>.additionalProperties must stay false so a typo'd profile key is still caught")
+
+	for _, name := range profileYAMLFields(t) {
+		_, ok := props[name]
+		assert.Truef(t, ok,
+			"Profile has a serializable %q field but the profile object in config-schema has no property for it — "+
+				"a profile using it is rejected by additionalProperties:false and the run aborts in strict mode. "+
+				"Add it to resources/schema/input/config-schema.json.", name)
+	}
+}

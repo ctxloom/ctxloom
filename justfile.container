@@ -210,10 +210,45 @@ release: build-all compress-all
 
 # ===== Testing =====
 
-# Run tests. Coverage is filtered through .coverignore so the number CI uploads
-# to Codecov excludes generated files (protobuf, gRPC) — matching the host
-# justfile `test` recipe instead of reporting a raw, generated-file-diluted figure.
+# THE developer/agent entry point inside the container: runs BOTH test groups
+# and fails if EITHER fails. Mirrors the host justfile's `test` — see that
+# recipe's comment for why the exit codes are captured per group instead of
+# relying on a dependency list.
+#
+# CI does NOT call this: .github/workflows/ci.yml invokes `test-default` and
+# `test-arch` as two separate steps so a red step names the class of thing that
+# broke. Nothing runs twice.
 test:
+    #!/usr/bin/env bash
+    # No `set -e`: each group's exit code is captured and checked explicitly, so
+    # a failing first group cannot abort before the second runs and cannot be
+    # masked by the second succeeding.
+    set -uo pipefail
+    failed=()
+    echo "===== [1/2] default suite (untagged) — just test-default"
+    if ! just -f justfile.container test-default; then failed+=("test-default"); fi
+    echo ""
+    echo "===== [2/2] architectural invariants (-tags arch) — just test-arch"
+    if ! just -f justfile.container test-arch; then failed+=("test-arch"); fi
+    echo ""
+    if [ "${#failed[@]}" -ne 0 ]; then
+        echo "FAILED GROUP(S): ${failed[*]}" >&2
+        echo "  test-default = the ordinary untagged suite (go test ./..., plain + -race)" >&2
+        echo "  test-arch    = the architectural class gates (-tags arch, -run TestArch_)" >&2
+        echo "Re-run just that group to iterate on it." >&2
+        exit 1
+    fi
+    echo "both groups passed: test-default + test-arch"
+
+# The untagged suite — everything that is NOT an architectural class gate.
+# Coverage is filtered through .coverignore so the number CI uploads
+# to Codecov excludes generated files (protobuf, gRPC) — matching the host
+# justfile `test-default` recipe instead of reporting a raw,
+# generated-file-diluted figure.
+#
+# Carries no `-tags arch`, so the 38 TestArch_ gates do NOT run here; `test-arch`
+# is their execution path and `test` runs both.
+test-default:
     #!/usr/bin/env bash
     set -e
     # Mirrors the host justfile's `test`: gate on BOTH the plain (no-race) and

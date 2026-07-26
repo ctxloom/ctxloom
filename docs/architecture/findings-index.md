@@ -20,18 +20,18 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **177** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **181** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,087** |
+| `open` | no commit names this ID | **2,083** |
 
-**Totals: 2268 findings across 162 units — 177 resolved, 2087 still open, 4 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 181 resolved, 2083 still open, 4 adjudicated without a fix.**
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 56 | 319 (+1 refuted) |
-| MED | 999 | 30 | 969 |
+| HIGH | 376 | 59 | 316 (+1 refuted) |
+| MED | 999 | 31 | 968 |
 | LOW | 871 | 91 | 799 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
@@ -176,9 +176,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U031-F02 | open | `skill_archive.go:750-781` | CORRECTNESS | `InstallSkillPackage(…, manifest == nil, …)` performs **`RemoveAll(destDir)` followed by a rename of a possibly-empty staging tree, with no integrity check at all** — the hash verification is skipp... | U031.md |
 | U032-F01 | open | **`claudecode.go:258, 300-309, 338-342`** | CORRECTNESS | `buildArgs` can emit a **variadic** claude flag as the last token before the trailing prompt positional, and claude's commander parser then swallows the prompt as flag values. There is no `--` term... | U032.md |
 | U032-F02 | open | **`claudecode.go:132-150`** | SILENTNOOP | The minimal-oneshot branch can return `ExitCode 0, err nil` having written **zero bytes** to stdout. This is the distill/compaction path. | U032.md |
-| U032-F03 | open | **`claude.go:311-330`** | CORRECTNESS | A malformed `permissions` block is **warned about and then deleted from the file**. `saveSettings` writes the document without it. This destroys the user's `allow`/`ask`/`defaultMode`/`additionalDi... | U032.md |
-| U032-F04 | open | **`claude.go:100, 332-333`** | CORRECTNESS | `delete(raw, "mcpServers")` silently **destroys** a user's legacy `mcpServers` block in `settings.json`. The comment claims a migration to `.mcp.json`; no migration code exists. The struct field's ... | U032.md |
-| U032-F05 | open | **`claude.go:434-438`** | CORRECTNESS | An unparseable `.mcp.json` is warned about and replaced with an **empty** config, so `writeMCPConfig` then writes a file containing only ctxloom's servers — the user's servers are gone. | U032.md |
+| U032-F03 | **RESOLVED** `6e7a790a` | **`claude.go:311-330`** | CORRECTNESS | A malformed `permissions` block is **warned about and then deleted from the file**. `saveSettings` writes the document without it. This destroys the user's `allow`/`ask`/`defaultMode`/`additionalDi... | U032.md |
+| U032-F04 | **RESOLVED** `6e7a790a` | **`claude.go:100, 332-333`** | CORRECTNESS | `delete(raw, "mcpServers")` silently **destroys** a user's legacy `mcpServers` block in `settings.json`. The comment claims a migration to `.mcp.json`; no migration code exists. The struct field's ... | U032.md |
+| U032-F05 | **RESOLVED** `6e7a790a` | **`claude.go:434-438`** | CORRECTNESS | An unparseable `.mcp.json` is warned about and replaced with an **empty** config, so `writeMCPConfig` then writes a file containing only ctxloom's servers — the user's servers are gone. | U032.md |
 | U034-F01 | open | `internal/cli/bundle_items.go:74-98` | SILENTNOOP | An emptied editor buffer silently guts an MCP entry and reports success | U034.md |
 | U034-F02 | open | `internal/cli/bundle_distill.go:111-140` | CORRECTNESS | `bundle distill` exits 0 even when every input file failed and nothing was written | U034.md |
 | U034-F03 | open | `internal/cli/acp_cmd.go:149` | SILENTNOOP | `--workspace worktree` is silently discarded when `--agent` is absent — the user asks for worktree isolation, gets none, and is told nothing | U034.md |
@@ -648,7 +648,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U029-F02 | open | **`capabilities.go:26,31 + backend.go:49`** | DEAD | `AntigravityCommands` and `RegisterFromContent` are never invoked in production. The `agent.ContentCommands` value is stored in `LaunchBackend.commands` and that field is never read anywhere in the... | U029.md |
 | U029-F03 | open | **`hooks_wire.go:21-23, 34-35, 42, 77`** | DEAD | Eight wire declarations have zero readers anywhere in the repo, including tests | U029.md |
 | U029-F05 | open | **`antigravity.go:426-448`** | SILENTNOOP | A hook with an empty `Command` is written as a live-looking but dead entry | U029.md |
-| U029-F06 | open | **`antigravity.go:252-282`** | CORRECTNESS | An unparseable (or schema-changed) `hooks.json` is silently replaced with a ctxloom-only file — the user's hook configuration is destroyed | U029.md |
+| U029-F06 | **RESOLVED** `607f5379` | **`antigravity.go:252-282`** | CORRECTNESS | An unparseable (or schema-changed) `hooks.json` is silently replaced with a ctxloom-only file — the user's hook configuration is destroyed | U029.md |
 | U029-F07 | open | **`chat.go:301-303`** | ERRHANDLING | The only caller of `agyConversationMap.read()` discards the error that `read()`'s own doc says must be surfaced | U029.md |
 | U029-F11 | open | **`chat.go:57-195`** | COMPLEXITY | `Chat` has CCN 23 against a CI gate of 10 | U029.md |
 | U029-F14 | open | `capabilities.go (whole file)` | COHESION | `capabilities.go` holds two unrelated things: the command-file writer (`AntigravityCommands`, `WriteCommandFiles`) and agy's conversation-id cache reader (`agyConversationMap`), separated by 30 lin... | U029.md |

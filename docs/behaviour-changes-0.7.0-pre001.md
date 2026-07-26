@@ -74,6 +74,22 @@ per-file listing when you do. A skill that had already been through `ctxloom ski
 is **unaffected** — its preimage is byte-for-byte what it always was, and its approval
 stands. Run `ctxloom skill sync <bundle>` to move a skill to an authored manifest for good.
 
+### Engine settings files ctxloom round-trips
+
+| Surface | Before | Now |
+|---|---|---|
+| `hooks apply` / launch when `.claude/settings.json` has an unparseable `permissions` block | exit 0, warning, the user's `allow` / `ask` / `defaultMode` / `additionalDirectories` rules **deleted from the file**, no backup | non-zero; original untouched and backed up to `settings.json.corrupt-<ts>` |
+| …an unparseable `permissions.deny` | exit 0, warning, same loss | non-zero, same backup |
+| A legacy `mcpServers` block in `.claude/settings.json` | **deleted** on every write, including on uninstall | preserved verbatim |
+| …an unparseable `.mcp.json` | exit 0, warning, replaced with a file holding only ctxloom's servers | non-zero; original untouched and backed up |
+| …an unparseable `.agents/hooks.json` (antigravity) | exit 0, warning, replaced with a ctxloom-only file | non-zero; original untouched and backed up |
+| …an unparseable `hooks` field inside it | exit 0, warning, the user's hooks dropped from the file | non-zero, same backup |
+
+**Why:** these are files the user owns and ctxloom only edits. Each path read
+"tolerate a schema change and keep going", and each one implemented that by writing an
+empty structure over the thing it had failed to read. A **missing** file is still the
+normal first-run shape and still writes cleanly.
+
 ### The trust root and the approvals store
 
 | Surface | Before | Now |

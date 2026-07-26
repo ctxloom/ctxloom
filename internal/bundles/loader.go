@@ -405,14 +405,32 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 
 	// Search bundle directories recursively
 	for _, dir := range l.searchDirs {
+		// "Does not exist" and "cannot be read" are different facts and must
+		// not share an exit (U030-F06). A configured bundles root that is
+		// absent is ordinary — most searchDirs are speculative — but one that
+		// errors on stat is a fault, and folding it into the same `continue`
+		// produced an empty list with a nil error, so every downstream sweep
+		// then told the user their fragment did not exist when the truth was
+		// that their bundles directory could not be read.
 		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil || !exists {
+		if err != nil {
+			strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
+				"cannot read bundles directory %s: %v", dir, err)
+			continue
+		}
+		if !exists {
 			continue
 		}
 
-		_ = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
+		if werr := afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				return nil // Skip directories we can't read
+				// Per-entry walk failure: report and keep walking, so one
+				// unreadable subdirectory cannot hide every other bundle —
+				// the same warn-and-continue shape the per-bundle failure
+				// paths below use, but no longer SILENT.
+				strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
+					"skipping unreadable bundle path %s: %v", path, err)
+				return nil
 			}
 			if info.IsDir() {
 				// Check for bundle.yaml in directories
@@ -458,7 +476,12 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 				}
 			}
 			return nil
-		})
+		}); werr != nil {
+			// Walk itself gave up (the root could not be opened at all — the
+			// callback never even runs for that case). Previously `_`-assigned.
+			strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
+				"cannot walk bundles directory %s: %v", dir, werr)
+		}
 	}
 
 	// Sort by name

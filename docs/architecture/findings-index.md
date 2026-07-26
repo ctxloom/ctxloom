@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **244** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **247** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,020** |
+| `open` | no commit names this ID | **2,017** |
 
-**Totals: 2268 findings across 162 units — 244 resolved, 2020 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 247 resolved, 2017 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 114 | 261 (+1 refuted) |
+| HIGH | 376 | 117 | 258 (+1 refuted) |
 | MED | 999 | 38 | 961 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -169,10 +169,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U029-F01 | **RESOLVED** `abda01dc` | **`antigravity.go:549-563`** | SILENTNOOP | A missing context file silently strips agy's entire context section — agent launches with zero delivered context, exit 0, no warning | U029.md |
 | U030-F01 | **RESOLVED** `5cd9bf90` `4e86b9a9` `04fda751` | **`bundles.go:724-766`** | SILENTNOOP | `ParseBundle` accepts a zero-byte, whitespace-only, comment-only, `---`-only or `null` document as a **valid empty bundle** with a nil error. A truncated bundle.yaml, an empty companion `loadout` p... | U030.md |
 | U030-F02 | open | **`bundles.go:496-528, loader_skills.go:105-110`** | CORRECTNESS | A skill's trust preimage covers **only** `BundleSkill.Files`. When `files:` is absent the preimage is the constant `{"preimage":"ctxloom-exec/1","manifest":[]}` — identical for every manifest-less ... | U030.md |
-| U030-F03 | open | `loader_skills.go:98-99` | CORRECTNESS | `skillContent` derives the package directory as `filepath.Dir(bundle.Path)` unconditionally, but `Bundle.Path` is overloaded: it is `""` for companion-seeded bundles and a synthetic `"<remote>:<ref... | U030.md |
+| U030-F03 | **RESOLVED** `4216bf29` `8d2abb91` | `loader_skills.go:98-99` | CORRECTNESS | `skillContent` derives the package directory as `filepath.Dir(bundle.Path)` unconditionally, but `Bundle.Path` is overloaded: it is `""` for companion-seeded bundles and a synthetic `"<remote>:<ref... | U030.md |
 | U030-F04 | open | **`bundles.go:609-641`** | CORRECTNESS | `hookContentPayload` puts `PreToolFallback` in the signed preimage, but proto `Hook` has no such field and the converters drop it — **the hook delivered over the wire is not the hook the grant/sign... | U030.md |
-| U030-F06 | open | `loader.go:399-408` | SILENTNOOP | `Loader.List` cannot distinguish "no bundles" from "cannot read the bundles directory". `afero.DirExists`'s error is discarded into the same `continue` as "does not exist"; `afero.Walk`'s return is... | U030.md |
-| U030-F07 | open | `loader_content.go:411-415, loader_skills.go:59-63` | SILENTNOOP | `CommandsFromBundleRef` and `SkillsFromBundleRef` return `nil` on any bundle-load failure with **no diagnostic**, and both feed the export path that *writes* per-engine command and skill files. A p... | U030.md |
+| U030-F06 | **RESOLVED** `4216bf29` | `loader.go:399-408` | SILENTNOOP | `Loader.List` cannot distinguish "no bundles" from "cannot read the bundles directory". `afero.DirExists`'s error is discarded into the same `continue` as "does not exist"; `afero.Walk`'s return is... | U030.md |
+| U030-F07 | **RESOLVED** `4216bf29` | `loader_content.go:411-415, loader_skills.go:59-63` | SILENTNOOP | `CommandsFromBundleRef` and `SkillsFromBundleRef` return `nil` on any bundle-load failure with **no diagnostic**, and both feed the export path that *writes* per-engine command and skill files. A p... | U030.md |
 | U031-F01 | open | `skill_archive.go:347-447, 247-276, 292-324` | SILENTNOOP | `HardenedExtract` returns **success having written zero files** for any archive whose entries are all single-segment. `processArchiveEntry` treats `len(rest)==0` as "the top-level dir marker — noth... | U031.md |
 | U031-F02 | open | `skill_archive.go:750-781` | CORRECTNESS | `InstallSkillPackage(…, manifest == nil, …)` performs **`RemoveAll(destDir)` followed by a rename of a possibly-empty staging tree, with no integrity check at all** — the hash verification is skipp... | U031.md |
 | U032-F01 | **RESOLVED** `ad66c953` | **`claudecode.go:258, 300-309, 338-342`** | CORRECTNESS | `buildArgs` can emit a **variadic** claude flag as the last token before the trailing prompt positional, and claude's commander parser then swallows the prompt as flag values. There is no `--` term... | U032.md |

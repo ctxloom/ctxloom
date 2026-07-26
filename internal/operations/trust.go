@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -1047,7 +1046,15 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		// A skill has no distilled form (SKILL.md's description IS the
 		// progressive-disclosure mechanism; distilling it would defeat that) —
 		// one payload, mirroring KindMCP/KindHook.
-		payload, perr := skill.ContentPayload(loader.FS(), filepath.Dir(bundle.Path), tRef.Name)
+		// FSDir, not filepath.Dir(bundle.Path): this is a TRUST decision, and
+		// the overloaded Path resolves a companion/seeded bundle to "." — the
+		// process working directory — so the bytes hashed into the grant would
+		// be whatever happened to sit there (U030-F03).
+		skillDir, dirErr := bundle.SkillPreimageDir(skill)
+		if dirErr != nil {
+			return nil, nil, "", fmt.Errorf("skill %q: %w", tRef.Name, dirErr)
+		}
+		payload, perr := skill.ContentPayload(loader.FS(), skillDir, tRef.Name)
 		if perr != nil {
 			return nil, nil, "", fmt.Errorf("skill %q payload: %w", tRef.Name, perr)
 		}

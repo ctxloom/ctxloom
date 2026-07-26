@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -88,4 +89,93 @@ func TestPayloadConverterCopiesEveryAgentField(t *testing.T) {
 // writing one of them into both payload slots satisfies a count of trues.
 func TestPayloadBoolFieldsLandDistinctly(t *testing.T) {
 	parity.CheckBoolIsolation(t, parityPairs())
+}
+
+// ---------------------------------------------------------------------------
+// Half 4 — THE READ SIDE.
+//
+// The three halves above all gate the agent → payload direction. They are
+// blind, by construction, to the OTHER converter in this package's four-place
+// edit: a payload → agent reader that forgets a field leaves the bytes on disk
+// perfectly correct and simply never hands them back. Every write-side
+// assertion still passes; the data is lost anyway, at read time, for every
+// consumer of the canonical transcript (memory distillation, session-load
+// replay, `session list`, the resume picker).
+//
+// This is the same defect class that produced U144-F01 and U144-F02 on the
+// write side, and it has exactly one honest assertion: fill an agent value
+// totally by reflection, write it, read it back through the REAL bytes, and
+// require the whole struct. A named per-field check covers what its author
+// thought of; a field added tomorrow is covered here without editing this file.
+//
+// SCOPE — and why it is one pair and not four. This package writes four
+// payloads but reads back exactly ONE. entriesFromRecord (history.go) is the
+// only payload → agent converter in the repo: KindSession/KindComplete/
+// KindPermission lines are envelope metadata that ParseTranscriptFile reads
+// for their `ts` alone and never reconstitutes into agent.ChatSessionInfo /
+// agent.TurnMeta / agent.PermissionRequest. Those three are write-only today,
+// so there is no read side to gate — gating a converter that does not exist
+// would be a gate satisfiable by the wrong evidence. When a reader is added
+// for any of them, it gets a pair here.
+// ---------------------------------------------------------------------------
+
+// roundTripPairs is the transcript's set of agent-type ↔ on-disk-payload
+// projections that have BOTH converters.
+func roundTripPairs() []parity.RoundTripPair {
+	return []parity.RoundTripPair{
+		{
+			Name:      "SessionEntry→EntryPayload→SessionEntry",
+			AgentType: agent.SessionEntry{},
+			// No exemptions. Timestamp is exempt on the WRITE-side pairs above
+			// because it lives in the envelope rather than the payload, but the
+			// envelope is part of the round trip, so it must come back too —
+			// this half is strictly stronger there.
+			Exempt: map[string]string{},
+			RoundTrip: func(v reflect.Value) any {
+				t := parityT
+				e := v.Addr().Interface().(*agent.SessionEntry)
+
+				// Through the REAL on-disk bytes, not struct-to-struct: a
+				// writer and reader that disagree about a json tag round-trip
+				// perfectly in memory and lose the field on disk.
+				line, err := json.Marshal(Record{
+					V:         SchemaVersion,
+					Harp:      "parity-harp",
+					SessionID: "parity-session",
+					Engine:    "parity",
+					Seq:       0,
+					TS:        e.Timestamp,
+					Kind:      KindEntry,
+					Entry:     entryPayload(e),
+				})
+				if err != nil {
+					t.Fatalf("marshal record: %v", err)
+				}
+				var rec Record
+				if err := json.Unmarshal(line, &rec); err != nil {
+					t.Fatalf("unmarshal record: %v", err)
+				}
+
+				got := entriesFromRecord(rec)
+				if len(got) != 1 {
+					t.Fatalf("entriesFromRecord returned %d entries for a KindEntry record, want 1 — a dropped entry is total loss, not field loss (line: %s)", len(got), line)
+				}
+				return got[0]
+			},
+		},
+	}
+}
+
+// parityT is set by TestPayloadReadSideRoundTripsEveryField for the duration of
+// its run so the RoundTrip closure can fail loudly. RoundTrip's signature is
+// deliberately *T-free (the engine drives it), and a closure that swallowed a
+// marshal error would be the very silent-no-op this package exists to prevent.
+var parityT *testing.T
+
+// TestPayloadReadSideRoundTripsEveryField is half 4: the payload → agent
+// direction, which no other test in this repo covers.
+func TestPayloadReadSideRoundTripsEveryField(t *testing.T) {
+	parityT = t
+	t.Cleanup(func() { parityT = nil })
+	parity.CheckRoundTrip(t, roundTripPairs())
 }

@@ -2,7 +2,6 @@ package operations
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -236,16 +235,26 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 	}
 	for _, name := range bundle.SkillNames() {
 		skill := bundle.Skills[name]
+		// Bundle.Path is overloaded and filepath.Dir of a companion/seeded
+		// value is ".", which would hash files from the process working
+		// directory into what the user is asked to approve (U030-F03). Only a
+		// manifest-LESS skill actually needs the tree, so only that case is
+		// fatal here — see SkillPreimageDir.
+		skillDir, dirErr := bundle.SkillPreimageDir(skill)
+		if dirErr != nil {
+			clidiag.Warn("ctxloom", "bundle %q: cannot review skill %q: %v", bundleRef, name, dirErr)
+			continue
+		}
 		// The EFFECTIVE manifest — authored if synced, derived from the tree
 		// if not — is resolved once and used for BOTH the preimage the user
 		// is asked to approve and the file listing they are shown. Rendering
 		// the authored manifest while hashing a derived one would ask for
 		// approval of files review never displayed.
-		manifest, merr := skill.EffectiveManifest(e.fs, filepath.Dir(bundle.Path), name)
+		manifest, merr := skill.EffectiveManifest(e.fs, skillDir, name)
 		if merr != nil {
 			continue
 		}
-		payload, perr := skill.ContentPayload(e.fs, filepath.Dir(bundle.Path), name)
+		payload, perr := skill.ContentPayload(e.fs, skillDir, name)
 		if perr != nil {
 			continue
 		}

@@ -147,7 +147,11 @@ func itemContentPair(bundleFS afero.Fs, bundle *bundles.Bundle, tRef trust.Ref) 
 		// changed — the per-file-diff contract skills are stored as a tree
 		// to get. The EFFECTIVE manifest is used so an unsynced skill
 		// snapshots its real tree rather than an empty listing.
-		manifest, merr := skill.EffectiveManifest(bundleFS, filepath.Dir(bundle.Path), tRef.Name)
+		skillDir, dirErr := bundle.SkillPreimageDir(skill)
+		if dirErr != nil {
+			return "", "", false
+		}
+		manifest, merr := skill.EffectiveManifest(bundleFS, skillDir, tRef.Name)
 		if merr != nil {
 			return "", "", false
 		}

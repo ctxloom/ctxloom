@@ -34,16 +34,30 @@
 //     one true leaf, at a JSON key distinct from every other bool field's.
 //     This is the blind spot batch 18 declared and batch 19 closed.
 //
+//  4. ROUND TRIP (CheckRoundTrip) — the READ side. Halves 1-3 gate the
+//     agent → mirror direction only; a mirror → agent converter that drops a
+//     field is invisible to all three, because the byte it dropped was written
+//     correctly. Half 4 fills an agent value totally, runs the REAL write
+//     converter and the REAL read converter back to back (through the actual
+//     serialized bytes where the mirror has an on-disk form), and requires
+//     WHOLE-STRUCT equality with what it started from. This is the shape
+//     internal/lm/grpc's T7 total-struct proto parity already uses in both
+//     directions, and the reason it caught five dropped fields a per-field
+//     named assertion had missed: total equality of a fully-populated value is
+//     the only assertion that can see an ABSENT STATEMENT.
+//
 // A FOURTH mirror exists — the runner↔plugin gRPC wire (internal/lm/grpc) —
 // and is deliberately NOT a pair here: it already carries a stronger gate of
 // its own (its T7 total-struct proto parity, a reflection-filled round trip
 // requiring whole-struct equality in BOTH directions). Nothing is gained by
 // pointing a weaker one-directional gate at it.
 //
-// The remaining declared blind spot is the READ side: these halves gate the
-// agent → mirror direction only. A mirror → agent converter that drops a field
-// is not covered here (the `--format json` DTOs have no in-repo read side at
-// all; the transcript's history.go does).
+// Which mirror gets half 4 is decided by whether a read side EXISTS, not by
+// whether anyone remembered to gate it: the `--format json` NDJSON DTOs have
+// no in-repo mirror → agent converter at all (they are write-only wire), so
+// there is nothing to round-trip; the transcript's history.go does have one
+// (entriesFromRecord), and it is gated. If a read side is ever added to the
+// DTOs, it inherits this half.
 package parity
 
 import (
@@ -170,6 +184,142 @@ func CheckBoolIsolation(t *testing.T, pairs []Pair) {
 			}
 		})
 	}
+}
+
+// RoundTripPair is one agent type plus the production path that writes it to a
+// mirror and reads it back. Unlike Pair it names no mirror type: half 4 does
+// not care what shape the bytes took in between, only that nothing was lost
+// crossing them twice.
+type RoundTripPair struct {
+	Name string
+	// AgentType is a zero value of the type under gate, used for reflection.
+	AgentType any
+	// Exempt maps an agent field name that CANNOT survive the round trip to the
+	// reason. An exempt field is left zero on the way in and must come back
+	// zero — so an exemption weakens the gate to "this field is not carried",
+	// which is still an assertion, rather than removing it from the comparison.
+	// Adding an entry here is a deliberate act; "the reader forgot it" is a bug
+	// to fix, never an entry to add.
+	Exempt map[string]string
+	// RoundTrip runs the REAL write converter and the REAL read converter over
+	// a filled agent value (addressable, of AgentType) and returns what came
+	// back, as a value of AgentType. Where the mirror has a serialized form,
+	// RoundTrip must go through the actual bytes: a converter pair tested
+	// struct-to-struct still passes when the two sides disagree about a JSON
+	// tag.
+	RoundTrip func(v reflect.Value) any
+}
+
+// CheckRoundTrip is half 4: fill totally, write, read back, require the whole
+// struct.
+//
+// It asserts on TOTAL equality rather than on named fields deliberately. A
+// per-field assertion covers the fields whoever wrote it thought of, and a
+// field added tomorrow is silently uncovered — which is exactly how five
+// dropped fields survived underneath internal/lm/grpc's previous round-trip
+// test. Filling by reflection means a field added tomorrow is gated the day it
+// lands, with nobody editing this file.
+func CheckRoundTrip(t *testing.T, pairs []RoundTripPair) {
+	t.Helper()
+	for _, p := range pairs {
+		t.Run(p.Name, func(t *testing.T) {
+			at := reflect.TypeOf(p.AgentType)
+			filled := reflect.New(at).Elem()
+			var bag sentinelBag
+			fillSentinels(t, filled, at.Name(), p.Exempt, &bag)
+
+			for name := range p.Exempt {
+				if _, ok := at.FieldByName(name); !ok {
+					t.Errorf("Exempt map names %s.%s, which does not exist — stale exemption", at.Name(), name)
+				}
+			}
+
+			back := p.RoundTrip(filled)
+			gotV := reflect.ValueOf(back)
+			if gotV.Type() != at {
+				t.Fatalf("RoundTrip returned %s, want %s — half 4 compares whole structs and cannot do that across types", gotV.Type(), at)
+			}
+
+			diffs := fieldDiffs(filled, gotV, at.Name())
+			if len(diffs) > 0 {
+				t.Errorf("round trip lost or altered %d field(s) of %s:\n  %s\n"+
+					"A field the READ converter never copies is unrecoverable from bytes that "+
+					"were written correctly — the write-side halves of this gate cannot see it, "+
+					"because nothing is wrong with what went to disk. Either restore it in the "+
+					"read converter or add it to this pair's Exempt map with a reason.",
+					len(diffs), at.Name(), strings.Join(diffs, "\n  "))
+			}
+
+			// BOOL ISOLATION on the read side. The total-fill pass above sets
+			// EVERY bool true, which makes it blind to exactly the defect half 3
+			// exists to catch on the write side: a reader assigning one source
+			// bool into two destination slots (`Sidechain: e.IsError`) returns
+			// true == true and the whole struct still matches. Verified, not
+			// assumed — that mutation passed the total-fill pass green.
+			//
+			// Setting each bool ALONE tells them apart: with only IsError set,
+			// a Sidechain that comes back true is a diff. Every other field
+			// stays zero and must come back zero, so this also catches a reader
+			// that invents a value it was never given.
+			for _, bp := range boolPaths(at, at.Name(), p.Exempt) {
+				v := reflect.New(at).Elem()
+				if !buildOnly(v, at.Name(), bp) {
+					t.Fatalf("could not construct a value with only %s set — teach buildOnly about its shape", bp)
+				}
+				isoBack := p.RoundTrip(v)
+				isoGot := reflect.ValueOf(isoBack)
+				if d := fieldDiffs(v, isoGot, at.Name()); len(d) > 0 {
+					t.Errorf("round-trip bool isolation: with ONLY %s set true, %d field(s) came back wrong:\n  %s\n"+
+						"A read converter that fans one source bool into several destination slots "+
+						"(or invents a value it was never given) survives the whole-struct pass, "+
+						"because that pass sets every bool true and true == true.",
+						bp, len(d), strings.Join(d, "\n  "))
+				}
+			}
+		})
+	}
+}
+
+// fieldDiffs reports every leaf at which want and got disagree, by path.
+// time.Time is compared by instant (a mirror that serializes and re-parses a
+// timestamp legitimately rebuilds the struct), everything else by DeepEqual.
+func fieldDiffs(want, got reflect.Value, path string) []string {
+	if isTime(want.Type()) {
+		w := want.Interface().(time.Time)
+		g := got.Interface().(time.Time)
+		if !w.Equal(g) {
+			return []string{fmt.Sprintf("%s: wrote %s, read back %s", path, w.Format(time.RFC3339Nano), g.Format(time.RFC3339Nano))}
+		}
+		return nil
+	}
+	switch want.Kind() {
+	case reflect.Struct:
+		var out []string
+		typ := want.Type()
+		for i := 0; i < typ.NumField(); i++ {
+			if typ.Field(i).PkgPath != "" {
+				continue
+			}
+			out = append(out, fieldDiffs(want.Field(i), got.Field(i), path+"."+typ.Field(i).Name)...)
+		}
+		return out
+	case reflect.Slice:
+		if want.Type().Elem().Kind() == reflect.Uint8 { // json.RawMessage & friends
+			break
+		}
+		if want.Len() != got.Len() {
+			return []string{fmt.Sprintf("%s: wrote %d element(s), read back %d", path, want.Len(), got.Len())}
+		}
+		var out []string
+		for i := 0; i < want.Len(); i++ {
+			out = append(out, fieldDiffs(want.Index(i), got.Index(i), fmt.Sprintf("%s[%d]", path, i))...)
+		}
+		return out
+	}
+	if !reflect.DeepEqual(want.Interface(), got.Interface()) {
+		return []string{fmt.Sprintf("%s: wrote %#v, read back %#v", path, want.Interface(), got.Interface())}
+	}
+	return nil
 }
 
 func marshalConverted(t *testing.T, p Pair, filled reflect.Value) []byte {

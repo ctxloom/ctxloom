@@ -232,7 +232,13 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 		return nil, fmt.Errorf("skill %q: %w", req.Name, ErrItemExists)
 	}
 
-	bundleDir := filepath.Dir(bundle.Path)
+	// Bundle.Path is overloaded; FSDir refuses the values that are not
+	// filesystem paths rather than yielding "." and resolving this skill
+	// against the process working directory (U030-F03).
+	bundleDir, err := bundle.FSDir()
+	if err != nil {
+		return nil, err
+	}
 	entry := bundles.BundleSkill{}
 	dir, err := bundles.ResolveSkillDir(bundleDir, req.Name, entry)
 	if err != nil {
@@ -326,7 +332,13 @@ func SyncSkill(_ context.Context, cfg *config.Config, req SyncSkillRequest) (*Sy
 	}
 
 	fs := getFS(req.FS)
-	bundleDir := filepath.Dir(bundle.Path)
+	// Bundle.Path is overloaded; FSDir refuses the values that are not
+	// filesystem paths rather than yielding "." and resolving this skill
+	// against the process working directory (U030-F03).
+	bundleDir, err := bundle.FSDir()
+	if err != nil {
+		return nil, err
+	}
 	synced := make([]SyncedSkill, 0, len(targets))
 	for _, name := range targets {
 		entry := bundle.Skills[name]
@@ -424,7 +436,13 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	}
 
 	fs := getFS(req.FS)
-	bundleDir := filepath.Dir(bundle.Path)
+	// Bundle.Path is overloaded; FSDir refuses the values that are not
+	// filesystem paths rather than yielding "." and resolving this skill
+	// against the process working directory (U030-F03).
+	bundleDir, err := bundle.FSDir()
+	if err != nil {
+		return nil, err
+	}
 	dir, err := bundles.ResolveSkillDir(bundleDir, req.Name, entry)
 	if err != nil {
 		return nil, err
@@ -568,7 +586,13 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 		}
 	}
 
-	bundleDir := filepath.Dir(bundle.Path)
+	// Bundle.Path is overloaded; FSDir refuses the values that are not
+	// filesystem paths rather than yielding "." and resolving this skill
+	// against the process working directory (U030-F03).
+	bundleDir, err := bundle.FSDir()
+	if err != nil {
+		return nil, err
+	}
 	skillsParent := filepath.Join(bundleDir, "skills")
 	// Validation runs against the STAGING tree, so a malformed archive can
 	// never destroy the skill it was supposed to replace (U087-F25): the

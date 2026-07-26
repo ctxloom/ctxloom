@@ -101,7 +101,7 @@ var handlerScopes = map[string]handlerScope{
 	},
 }
 
-func TestGeneratedToolInputFieldsAreReadByTheirHandlers(t *testing.T) {
+func TestArch_MCPToolSchemas_EveryInputFieldIsReadByItsHandler(t *testing.T) {
 	tools, err := Tools()
 	require.NoError(t, err)
 	require.NotEmpty(t, tools, "no generated tool schemas — the gate would pass vacuously")
@@ -263,7 +263,7 @@ func snake(s string) string {
 	return b.String()
 }
 
-// TestRosterPhaseVocabularyMatchesTheFold pins the `phase` vocabulary the
+// TestArch_MCPToolSchemas_RosterPhaseVocabularyMatchesTheFold pins the `phase` vocabulary the
 // roster's OUTPUT schema documents to the roster fold's actual states
 // (U016-F03). The comment used to read "StatusChanged.Phase name or
 // \"TERMINAL\"" — a PHASE_* enum that is never constructed anywhere — and the
@@ -273,7 +273,7 @@ func snake(s string) string {
 // The source of truth is coord/folds.go's State* constants; this test reads
 // them out of the source (the coord package imports this one, so it cannot be
 // imported back) and requires each to appear in the projected description.
-func TestRosterPhaseVocabularyMatchesTheFold(t *testing.T) {
+func TestArch_MCPToolSchemas_RosterPhaseVocabularyMatchesTheFold(t *testing.T) {
 	states, err := rosterStateConstants("../coord/folds.go")
 	require.NoError(t, err)
 	require.Len(t, states, 5, "roster state constants changed — update roster.json's phase doc with them")

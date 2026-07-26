@@ -211,7 +211,7 @@ A dropped field is an **absent statement**, and no coverage, mutation, or comple
 
 **RESOLVED, built and landed with T2.** The helper populates every field at every depth with distinguishable non-zero values, round-trips, and requires the whole struct back. It **names no field**, so a field added later is covered without anyone updating the test. It covers all **27** hand-mirrored pairs in `internal/lm/grpc`, with an AST-walking gate that fails when a pair is added without a sweep entry; two exclusions, each with a written reason and an anti-rot test.
 
-**Verified non-vacuous, twice:** the sweep was run against unmodified source first and failed with ten subtests naming every dropped field; and independently by deleting the `Runtime` assignment and confirming `TestProtoParity/agent.ChatRequest` fails naming that field.
+**Verified non-vacuous, twice:** the sweep was run against unmodified source first and failed with ten subtests naming every dropped field; and independently by deleting the `Runtime` assignment and confirming `TestArch_ProtoConverters_MirrorEveryStructField/agent.ChatRequest` fails naming that field.
 
 **The runner-up is NOT done** — the 6 tests that pin silent no-ops as intended behaviour are untouched. So is the reach beyond `internal/lm/grpc`: the helper covers that package's 27 pairs, not every hand-mirrored converter in the repo.
 

@@ -56,7 +56,7 @@ flowchart LR
 
 The highlighted hop is hand-written and has no compiler link to the Go struct — it
 carries all 7 fields today, and a reflective total-struct parity sweep
-(`internal/lm/grpc/parity_test.go`, `40b49a7f`) is what keeps it that way. **It
+(`internal/lm/grpc/arch_test.go`, `40b49a7f`) is what keeps it that way. **It
 used to carry 5**, silently zeroing `Skills` and `DenyTools` in transit.
 
 ## Facts worth knowing before you read any source here
@@ -64,7 +64,7 @@ used to carry 5**, silently zeroing `Skills` and `DenyTools` in transit.
 These are documented in full on the pages above; they are collected here because
 each one contradicts what the surrounding code looks like it does.
 
-1. **The launch wire is hand-written and nothing but a test binds it to the Go struct.** `internal/shared/agent.ManagedConfig` and proto `ManagedConfig` agree on 7 fields today; they disagreed on 2 until `40b49a7f`, and `Skills` + `DenyTools` reached **no** launched engine for as long as that lasted. The guard is now `internal/lm/grpc/parity_test.go` — a reflective sweep that names no field, so it covers fields added after it. → [wire](grpc-wire.md), [matrix §3](capability-matrix.md)
+1. **The launch wire is hand-written and nothing but a test binds it to the Go struct.** `internal/shared/agent.ManagedConfig` and proto `ManagedConfig` agree on 7 fields today; they disagreed on 2 until `40b49a7f`, and `Skills` + `DenyTools` reached **no** launched engine for as long as that lasted. The guard is now `internal/lm/grpc/arch_test.go` — a reflective sweep that names no field, so it covers fields added after it. → [wire](grpc-wire.md), [matrix §3](capability-matrix.md)
 2. **antigravity's `--mode plan` is emitted and not enforced.** Live-verified 2026-07-15 against authenticated agy 1.1.2: a sentinel write landed exactly like the bypass control. The compensation is `EnforcesReadOnlyPlan("antigravity") == false`, which makes `CollapsePlanIfUnenforced` turn `plan` into `default`. → [antigravity](antigravity.md)
 3. ~~**`wire.Hook.PreToolFallback` is always `false` on the engine side**~~ — **RESOLVED `40b49a7f`.** It is persisted, bundled, trust-hashed and now carried, so its one consumer (antigravity, whose comment calls it "the only way it ever fires on agy") finally receives it. → [wire](grpc-wire.md)
 4. ~~**`ChatRequest.Runtime` does not cross the wire**~~ — **RESOLVED `40b49a7f`.** It used to mean a container-bound `ctxloom acp` session ran the engine on the host while the session summary reported container isolation. Repairing it *activated* an `internal/acp` path-confinement hole it had been masking, which is why confinement landed first (`73ea8d7f`). → [wire](grpc-wire.md)

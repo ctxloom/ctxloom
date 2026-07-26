@@ -7,9 +7,9 @@
 set positional-arguments := true
 
 # Gates that MUST be identical here and in justfile.container:
-# test-docker-integration (and its package list) plus the generated-protobuf
-# precondition. Imported, not duplicated — the docker-integration recipe used
-# to exist in both files under the same name with different package lists,
+# test-docker-integration (and its package list), test-arch, plus the
+# generated-protobuf precondition. Imported, not duplicated — the
+# docker-integration recipe used to exist in both files under the same name with different package lists,
 # which is how the whole internal/agentcoord/coord docker suite went unrun in
 # CI. See build/gates.justfile.
 import "build/gates.justfile"

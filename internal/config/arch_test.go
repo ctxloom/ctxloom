@@ -63,7 +63,7 @@ func configYAMLFields(t *testing.T) []string {
 	return names
 }
 
-func TestConfigSchema_CoversEveryConfigField(t *testing.T) {
+func TestArch_ConfigSchema_CoversEveryConfigField(t *testing.T) {
 	props, additional := configSchemaProperties(t)
 	assert.False(t, additional,
 		"config-schema top-level additionalProperties must be false so an unknown section is rejected")
@@ -77,7 +77,7 @@ func TestConfigSchema_CoversEveryConfigField(t *testing.T) {
 	}
 }
 
-func TestConfigSchema_NoUnknownTopLevelProperty(t *testing.T) {
+func TestArch_ConfigSchema_NoUnknownTopLevelProperty(t *testing.T) {
 	props, _ := configSchemaProperties(t)
 	fields := map[string]bool{}
 	for _, n := range configYAMLFields(t) {
@@ -93,13 +93,13 @@ func TestConfigSchema_NoUnknownTopLevelProperty(t *testing.T) {
 	}
 }
 
-// TestConfigSchema_AcceptsParserAcceptedNestedForms is the nested-drift gate:
+// TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms is the nested-drift gate:
 // every snippet here is a form the PARSER deliberately accepts, so the schema
 // must validate it too — otherwise each load emits a spurious validation
 // warning. Two real regressions are pinned: the FragmentRef struct form
 // ({name, priority} — FragmentRef.UnmarshalYAML) and an llm.configs entry
 // without `type` (defaulted by LLMConfig.EffectiveType).
-func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
+func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 	v, err := schema.NewConfigValidator()
 	require.NoError(t, err)
 
@@ -194,7 +194,7 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 	}
 }
 
-// TestConfigSchema_AgentBindingPermitsEveryAgentField is the one-level-deeper
+// TestArch_ConfigSchema_AgentBindingPermitsEveryAgentField is the one-level-deeper
 // drift gate for agent bindings: agents.Agent is the concrete struct backing
 // each entry under the top-level `agents` map (and .ctxloom/agents/*.yaml),
 // so every serializable Agent field must be permitted by the agent-binding
@@ -204,7 +204,7 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 // `coordinator`/`driving` drifted: added to the struct + CLI but never to this
 // schema). Mirrors bundles.TestFragmentSchema_LLMBlockPermitsEveryEngine's
 // nested-reflection approach.
-func TestConfigSchema_AgentBindingPermitsEveryAgentField(t *testing.T) {
+func TestArch_ConfigSchema_AgentBindingPermitsEveryAgentField(t *testing.T) {
 	raw, err := resources.GetConfigSchema()
 	require.NoError(t, err)
 
@@ -240,7 +240,7 @@ func TestConfigSchema_AgentBindingPermitsEveryAgentField(t *testing.T) {
 	}
 }
 
-func TestConfigSchema_ShippedConfigsValidate(t *testing.T) {
+func TestArch_ConfigSchema_ShippedConfigsValidate(t *testing.T) {
 	v, err := schema.NewConfigValidator()
 	require.NoError(t, err)
 
@@ -307,7 +307,7 @@ func profileYAMLFields(t *testing.T) []string {
 	return names
 }
 
-// TestProfileSchema_CoversEveryProfileField closes the hole U049-F01 came
+// TestArch_ProfileSchema_CoversEveryProfileField closes the hole U049-F01 came
 // through: the drift gate above reflects configDoc and so covers the TOP LEVEL
 // ONLY. `deny_tools` had yaml+mapstructure tags and was honoured all the way
 // through mergeProfileValues → toProfile, yet appeared nowhere in the schema —
@@ -315,7 +315,7 @@ func profileYAMLFields(t *testing.T) []string {
 // feature made `ctxloom run` abort in strict mode and print "it is IGNORED"
 // (which was false) in degraded mode. A field the parser honours but the
 // schema rejects is a feature that cannot be used.
-func TestProfileSchema_CoversEveryProfileField(t *testing.T) {
+func TestArch_ProfileSchema_CoversEveryProfileField(t *testing.T) {
 	props, additional := profileSchemaProperties(t)
 	require.NotEmpty(t, props, "the profile object schema must be reachable for this gate to mean anything")
 	assert.False(t, additional,

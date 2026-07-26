@@ -100,7 +100,7 @@ There is no compiler link between the Go struct and the proto message: adding a 
 field cannot fail a build and produces no warning — the field is simply zeroed in
 transit.
 
-**What now catches that is a test, not the compiler.** `internal/lm/grpc/parity_test.go`
+**What now catches that is a test, not the compiler.** `internal/lm/grpc/arch_test.go`
 (`40b49a7f`) is a reflective **total-struct parity sweep**: it populates every field
 at every depth with distinguishable non-zero values, round-trips, and requires the
 whole struct back. It **names no field**, so a field added later is covered without
@@ -191,7 +191,7 @@ Since `40b49a7f` the proto also carries `runtime = 9` and `resume_session_id = 1
 |---|---|---|
 | `Runtime` | yes — **added `40b49a7f`** | Carries the agent binding's resolved runtime axis. |
 | `ResumeSessionID` | yes — **added `40b49a7f`** | Return half is `ChatSessionInfo.session_id = 5` / `resumable = 6`, added in the same change. |
-| `ModelQuirk` | **no, deliberately** | Set **plugin-side** by the backend (`internal/claude/chat.go`), never sent host→plugin. It is a written, tested exclusion in the parity sweep (`parity_test.go:65`), not a drop. |
+| `ModelQuirk` | **no, deliberately** | Set **plugin-side** by the backend (`internal/claude/chat.go`), never sent host→plugin. It is a written, tested exclusion in the parity sweep (`internal/lm/grpc/arch_test.go:65`), not a drop. |
 
 > **Both used to be dropped, with consequences worth keeping on record.**
 > `Runtime` had no carrier of any kind — no proto field and no env var — so a
@@ -261,7 +261,7 @@ Values **added or defaulted on decode**, none of which the caller sent:
 1. Host and plugin are the same binary; the handshake cookie + `ProtocolVersion 1` is the whole compatibility story. A mismatch fails at `plugin.NewClient`/`Dispense` before any RPC.
 2. gRPC-only. `AllowedProtocols` pinning `ProtocolGRPC` is the sole thing preventing `LLMGRPCPlugin`'s nil-embedded `plugin.Plugin` (`server.go:18`) from nil-panicking on the net/rpc path — the guard (`client.go:247`, `:267`) is two files away from the hazard, with nothing linking them.
 3. One `Send` at a time per stream, enforced by a **shared pointer to one mutex** across both `streamWriter`s (`server.go:78-80`). Handing them different mutexes breaks the invariant with no compile error.
-4. "Every field the launch path depends on must survive the round trip" — **now enforced**, by the reflective total-struct parity sweep in `parity_test.go` (`40b49a7f`) rather than by the field-naming round-trip test that stated it and could not see the five fields it was violated by (`Skills`, `DenyTools`, `PreToolFallback`, `Runtime`, `ResumeSessionID`). The sweep names no field, so it covers fields added after it.
+4. "Every field the launch path depends on must survive the round trip" — **now enforced**, by the reflective total-struct parity sweep in `internal/lm/grpc/arch_test.go` (`40b49a7f`) rather than by the field-naming round-trip test that stated it and could not see the five fields it was violated by (`Skills`, `DenyTools`, `PreToolFallback`, `Runtime`, `ResumeSessionID`). The sweep names no field, so it covers fields added after it.
 
 **Lifecycle / ordering**
 

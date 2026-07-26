@@ -12,9 +12,9 @@
 set positional-arguments := true
 
 # Gates that MUST be identical here and in the host justfile:
-# test-docker-integration (and its package list) plus the generated-protobuf
-# precondition. Imported, not duplicated — this file used to carry its own
-# shorter copy of test-docker-integration under the same name, and since CI
+# test-docker-integration (and its package list), test-arch, plus the
+# generated-protobuf precondition. Imported, not duplicated — this file used
+# to carry its own shorter copy of test-docker-integration under the same name, and since CI
 # runs THIS file, the packages the host copy listed never ran there.
 import "build/gates.justfile"
 

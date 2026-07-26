@@ -392,9 +392,28 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// Execute), so a large task (a diff to review, a session to compact) can't
 	// exceed the OS argv length limit — the E2BIG that broke `ctxloom weave`
 	// synthesis. buildArgs omits it here for oneshot; claude -p reads it from stdin.
+	//
+	// The prompt is preceded by an explicit "--" terminator. Several of the
+	// flags above are VARIADIC in claude's own parser (`claude --help` declares
+	// --disallowedTools <tools...>, --tools <tools...>, --mcp-config
+	// <configs...>), so whichever one lands last before the positional
+	// SWALLOWS the prompt as flag values. Live repro, claude 2.1.220:
+	//
+	//	claude -p --tools "" --disallowedTools "Bash,Edit" "Reply with exactly: PROMPTOK"
+	//	  -> Permission deny rule "Reply" matches no known tool  (x4)
+	//	     Error: Input must be provided...
+	//
+	// and the same prompt turned into a path with --mcp-config. The reachable
+	// argv is ordinary: PermissionPlan + interactive + no --model + no harp +
+	// an isolated cell (which skips the surface flags above) emits
+	// `--permission-mode plan --disallowedTools Bash,Edit,Write,NotebookEdit
+	// <prompt>`. Before the terminator, safety here was incidental — it held
+	// only while --model or --name happened to follow (U032-F01). "--" is
+	// emitted only when there IS a positional; a trailing bare "--" would be
+	// noise, and claude has no other positional to protect.
 	if req.Mode == agent.ModeInteractive {
 		if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
-			args = append(args, prompt)
+			args = append(args, "--", prompt)
 		}
 	}
 

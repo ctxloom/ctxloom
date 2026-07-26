@@ -632,3 +632,86 @@ func TestClaudeCode_MinimalOneshot_FailedRun_KeepsItsOwnExitCode(t *testing.T) {
 	require.NotNil(t, res)
 	assert.Equal(t, int32(3), res.ExitCode, "the CLI's own exit code must survive")
 }
+
+// --- U032-F01: the prompt positional must survive a variadic flag ------------
+
+// LIVE REPRO (claude 2.1.220):
+//
+//	claude -p --tools "" --disallowedTools "Bash,Edit" "Reply with exactly: PROMPTOK"
+//	  -> Permission deny rule "Reply" matches no known tool  (x4)
+//	     Error: Input must be provided...
+//
+// claude --help declares --disallowedTools, --tools and --mcp-config as
+// VARIADIC (`<tools...>`), so any one of them landing last before the prompt
+// positional makes the parser swallow the prompt as flag values: the run
+// starts with no task, or with a mangled one, and nothing says so. Today's
+// safety is incidental — it holds only while --model or --name happens to
+// follow.
+//
+// The reachable argv: PermissionPlan + ModeInteractive + empty Model + no
+// harp + an isolated cell (which skips the surface flags entirely).
+func TestClaudeCode_BuildArgs_PromptIsTerminated(t *testing.T) {
+	backend := NewClaudeCode()
+	const task = "Reply with exactly: PROMPTOK"
+
+	args := backend.buildArgs(&agent.ExecuteRequest{
+		Mode:        agent.ModeInteractive,
+		Permissions: agent.PermissionPlan,
+		Prompt:      &agent.Fragment{Content: task},
+		CellKind:    agent.CellKindDirectoryIsolated,
+	})
+
+	require.GreaterOrEqual(t, len(args), 2)
+	assert.Equal(t, task, args[len(args)-1], "the prompt is the trailing positional")
+	assert.Equal(t, "--", args[len(args)-2],
+		"a variadic flag immediately before the prompt swallows it; -- is what stops the parser")
+}
+
+// The terminator must NOT appear when there is no positional to protect —
+// an argv ending in a bare `--` is noise, and claude has no other positional.
+func TestClaudeCode_BuildArgs_NoTerminatorWithoutPrompt(t *testing.T) {
+	backend := NewClaudeCode()
+
+	for _, req := range []*agent.ExecuteRequest{
+		{Mode: agent.ModeInteractive},
+		{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "off argv"}},
+		{Mode: agent.ModeOneshot, SkipSetup: true},
+	} {
+		assert.NotContains(t, backend.buildArgs(req), "--",
+			"no prompt positional means no terminator")
+	}
+}
+
+// Anti-drift: whatever else buildArgs learns to emit, EVERY interactive shape
+// that carries a prompt must terminate it. This is the assertion that makes
+// the fix survive a future flag being appended after the prompt block, which
+// is precisely how the original defect became reachable.
+func TestClaudeCode_BuildArgs_EveryPromptShapeIsTerminated(t *testing.T) {
+	backend := NewClaudeCode()
+	const task = "do the thing"
+
+	for _, perm := range []agent.PermissionMode{
+		agent.PermissionDefault, agent.PermissionBypass,
+		agent.PermissionAcceptEdits, agent.PermissionPlan,
+	} {
+		for _, model := range []string{"", "sonnet"} {
+			for _, cell := range []agent.CellKind{agent.CellKindDirectoryIsolated, agent.CellKindShared} {
+				args := backend.buildArgs(&agent.ExecuteRequest{
+					Mode:        agent.ModeInteractive,
+					Permissions: perm,
+					Model:       model,
+					CellKind:    cell,
+					Prompt:      &agent.Fragment{Content: task},
+				})
+				if !assert.Equal(t, task, args[len(args)-1]) {
+					continue
+				}
+				if !assert.GreaterOrEqual(t, len(args), 2) {
+					continue
+				}
+				assert.Equal(t, "--", args[len(args)-2],
+					"perm=%v model=%q cell=%v", perm, model, cell)
+			}
+		}
+	}
+}

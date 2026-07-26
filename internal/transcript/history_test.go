@@ -390,3 +390,63 @@ func splitLines(data []byte) []string {
 	}
 	return lines
 }
+
+// TestParseTranscriptFile_NothingDecoded_FailsLoud pins U144-F03: three states
+// must stay distinguishable at this seam, and before this test only two of
+// them were.
+//
+//  1. A conversation that legitimately carried no ENTRIES (only session/
+//     complete envelope lines) → (Session with 0 entries, nil error).
+//  2. A file that yielded no RECORDS AT ALL — every line corrupt, or zero
+//     bytes — → an ERROR. This is not "an empty conversation"; the writer
+//     opens the file lazily on the first SUCCESSFUL Record (see NewRecorder),
+//     so a canonical transcript that decodes to nothing is a failed or
+//     destroyed capture. Returning (empty, nil) made it indistinguishable
+//     from state 1 AND suppressed lm/grpc/canonical_source.go's legacy
+//     fallback, which only runs when GetSession errors — so the caller got a
+//     confidently empty history instead of the transcript that did exist.
+//  3. A partially readable file → everything before the break, nil error
+//     (already pinned by TestParseTranscriptFile_TruncatedLine_...).
+func TestParseTranscriptFile_NothingDecoded_FailsLoud(t *testing.T) {
+	testsupport.Isolate(t)
+
+	t.Run("every line corrupt", func(t *testing.T) {
+		dst := writeTempTranscript(t, "all-corrupt-harp",
+			[]byte("{not json at all\nalso not json\n"))
+
+		sess, err := ParseTranscriptFile(dst, "all-corrupt-harp")
+		require.Error(t, err, "a transcript whose every line failed to decode must not report an empty conversation")
+		assert.Nil(t, sess)
+		assert.Contains(t, err.Error(), "2 line", "the error must say how much was there but unreadable")
+	})
+
+	t.Run("zero-byte file", func(t *testing.T) {
+		dst := writeTempTranscript(t, "zero-byte-harp", nil)
+
+		sess, err := ParseTranscriptFile(dst, "zero-byte-harp")
+		require.Error(t, err, "the writer never creates a zero-byte transcript; one on disk is a failed capture, not an empty chat")
+		assert.Nil(t, sess)
+	})
+
+	t.Run("envelope-only file is legitimately zero entries", func(t *testing.T) {
+		lines := `{"v":1,"harp":"envelope-only-harp","engine":"codex","seq":0,"ts":"2026-07-25T00:00:00Z","kind":"session","session":{"model":"m"}}` + "\n" +
+			`{"v":1,"harp":"envelope-only-harp","engine":"codex","seq":1,"ts":"2026-07-25T00:00:01Z","kind":"complete","complete":{"num_turns":1}}` + "\n"
+		dst := writeTempTranscript(t, "envelope-only-harp", []byte(lines))
+
+		sess, err := ParseTranscriptFile(dst, "envelope-only-harp")
+		require.NoError(t, err, "records decoded fine; they simply carry no entries — that is a real, empty conversation")
+		require.NotNil(t, sess)
+		assert.Empty(t, sess.Entries)
+	})
+
+	t.Run("one good line among corrupt ones still degrades to partial", func(t *testing.T) {
+		lines := "{garbage\n" +
+			`{"v":1,"harp":"partial-harp","engine":"codex","seq":1,"ts":"2026-07-25T00:00:01Z","kind":"entry","entry":{"type":"user","content":"hi"}}` + "\n" +
+			"{more garbage\n"
+		dst := writeTempTranscript(t, "partial-harp", []byte(lines))
+
+		sess, err := ParseTranscriptFile(dst, "partial-harp")
+		require.NoError(t, err)
+		require.Len(t, sess.Entries, 1)
+	})
+}

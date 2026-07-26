@@ -78,9 +78,20 @@ that appears twice in `--help` and twice in shell completion.
 - An empty synthesis output prints one blank line and exits 0 (`:145` —
   `fmt.Fprintln(w, result.Report)` with no emptiness check). `operations.Weave`
   sets `result.Report = synth.Output` without checking it either.
-- The task is never validated non-empty, and the stdin read error is swallowed
-  (`:89-94` has no `rerr != nil` branch), so `ctxloom weave` can fan real agents
-  out over an empty task.
-- `saveParts` returns `nil` after writing zero files when `parts` is empty, and
-  silently overwrites when two parts sanitize to the same filename — `--agents
-  review -p review`, or `-p a/b -p a_b`, both collide.
+- ~~The task is never validated non-empty, and the stdin read error is swallowed,
+  so `ctxloom weave` can fan real agents out over an empty task.~~ —
+  **RESOLVED `749b1a85`** (U043-F08). `readTask` returns the read error, and an
+  empty task is rejected when there are members to fan out. A parts-only run
+  legitimately has no task and stays green. This was several billed engine
+  launches over nothing, triggered by a broken pipe.
+- ~~`saveParts` returns `nil` after writing zero files, and silently overwrites
+  when two parts sanitize to the same filename.~~ — **RESOLVED `749b1a85`**
+  (U043-F05). Empty is now an error; colliding names get a probed `-N` suffix, so
+  a member literally named `a-2` cannot be clobbered by the disambiguation either.
+- Also resolved in `749b1a85`: the "nothing to weave" guard tested the **flags**
+  rather than the resolved parts (U043-F03) — `--parts-from <empty-dir>` resolved
+  to zero parts and went on to "synthesize" them; it now runs after
+  `collectInjectedParts`. And an empty synthesis printed one blank line and exited
+  0 (U043-F02); it now falls back to the labeled parts exactly as a synthesis
+  *error* does, and fails when there is neither report nor parts. The floor is
+  checked before emit, so `--format json` fails too.

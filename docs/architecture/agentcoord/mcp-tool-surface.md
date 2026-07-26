@@ -129,13 +129,16 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   source info** (`gen/main.go:71-78`), but the package spans **two** `.proto` files
   (`coordination.proto:188`, `artifacts.proto:66`), so it is an existential check where
   the intent is universal.
-- **The generator can write zero files and exit 0.** The loop is
-  `for _, b := range mcpschema.CoordinationBindings()` with no length check, and the only
-  stdout line is inside the loop (`gen/main.go:53-63`). It also never prunes: a renamed or
-  deleted binding leaves its old `<tool>.json`, which `//go:embed schemas/*.json` keeps
-  serving, and `git diff --exit-code` cannot see a file the generator merely stopped
-  writing. Both are caught by `binding_test.go:24` rather than by the generator or CI's
-  diff.
+- ~~**The generator can write zero files and exit 0.**~~ — **RESOLVED `20451f26`**
+  (U027-F01). The loop is now `generateSchemas()`, which **refuses an empty binding
+  table** and returns a count the caller prints from **outside** the loop; `just
+  gen-mcp-schemas` exits 1 on an empty table where it previously exited 0. The old
+  shape is the characteristic defect stated exactly: the only stdout line was inside
+  the loop, so a generator that did nothing had no way to say so.
+  **Still open — it never prunes.** A renamed or deleted binding leaves its old
+  `<tool>.json`, which `//go:embed schemas/*.json` keeps serving, and `git diff
+  --exit-code` cannot see a file the generator merely stopped writing. Caught by
+  `binding_test.go:24` rather than by the generator or CI's diff.
 - **A mistyped `-out` silently succeeds** into a newly created directory
   (`gen/main.go:28,50` — `os.MkdirAll` creates whatever it is given) while the tracked
   goldens go unchanged and the CI diff passes.

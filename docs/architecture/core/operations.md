@@ -299,7 +299,10 @@ flowchart LR
    in this package (`lockfile.go:51`, `upgrade.go:24`); `SetItemPin` (`lockfile_hold.go:24`) and
    `RemoveLocalItems` (`bundle_refs.go:163`) perform entry-level edits, and
    `checkInstalledRetraction` (`sync.go:554`) writes the retraction flag through
-   `RetractionChecker.RecordRetraction`. All of them go through `remote.LockfileManager.Save`.
+   `RetractionChecker.RecordRetraction`. All of them go through `remote.LockfileManager.Save`,
+   which since `fd0d87d6` **reads the current file back and can refuse**: empty-over-populated
+   and any write over a corrupt lockfile. A caller that empties the lock deliberately passes
+   `remote.AllowEmpty()`; there is no override for the corrupt case.
 4. **`InitializeProject` (`init.go:58`) is the only writer of a project's initial `config.yaml`
    and `remotes.yaml`.** All later config writes go through `config.Manager.Update` →
    `Config.saveLocked`; see [config.md](./config.md).

@@ -168,8 +168,8 @@ This is the architecture behind the observed 846 zombies / 208 orphaned runners.
 |---|---|
 | `complexity-check` | **exit 1** — red and ignored |
 | `test-conformance` | **exit 1** *and in no workflow* — it caught a real claude-vs-codex divergence nobody is watching |
-| `gen-schemas` (untagged) | **exit 0 having emitted zero bytes** |
-| `validate` | **exit 0 validating 0 files** (`git ls-files .ctxloom` → 0; `.ctxloom/*` gitignored) |
+| `gen-schemas` (untagged) | **exit 0 having emitted zero bytes** — the *untagged* stub (`U003-F01`) is **untouched**. Separately **RESOLVED `20451f26`**: `just gen-schemas` now exits 1 on an empty target list, and `just gen-mcp-schemas` on an empty binding table |
+| `validate` | ~~exit 0 validating 0 files~~ **RESOLVED `e479306b`** — targets are typed (the gitignored project config OPTIONAL, the three tracked `resources/*-config.yaml` REQUIRED), a zero-document run is an error, and each validated path is printed by name. A textbook CI-vs-local asymmetry: the file exists locally, so the same command looked like it worked |
 | `gen-schemas-check`, `extract-defaults -check` | **do not exist** — despite comments citing them as protection |
 | gofmt | **no gate anywhere**; 19 dirty files |
 

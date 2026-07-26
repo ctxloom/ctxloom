@@ -9,8 +9,8 @@ Everything above it (`internal/cli`, `internal/operations`, `internal/memory`,
 so a backend can run host-local, self-invoked, or containerized without any caller
 changing.
 
-The contract it owns is `internal/lm/grpc/llm.proto` (576 lines, the **only**
-git-tracked wire artifact): one service `LLM`, 7 RPCs, 50 messages, 2 enums, plus
+The contract it owns is `internal/lm/grpc/llm.proto` (657 lines, the **only**
+git-tracked wire artifact): one service `LLM`, 7 RPCs, 52 messages, 2 enums, plus
 the go-plugin handshake identity at `internal/lm/grpc/shared.go:15-27`.
 
 > **Generated code is not in the repo.** `.gitignore:26` is `*.pb.go`. `llm.pb.go`
@@ -34,8 +34,8 @@ sequenceDiagram
     CLI->>ASM: config + profiles + bundles
     ASM-->>CLI: *agent.ManagedConfig (7 fields)
     CLI->>CONV: ManagedConfigToProto(managed)
-    Note over CONV: Skills + DenyTools dropped here<br/>managed.go:22-28
-    CONV-->>CLI: *pb.ManagedConfig (5 fields)
+    Note over CONV: all 7 carried<br/>skills=6, deny_tools=7 added 40b49a7f
+    CONV-->>CLI: *pb.ManagedConfig (7 fields)
 
     CLI->>GP: dialLLMConnection(cmd, env, verbosity)
     Note over GP: exec.Command(selfexec.Path(),<br/>"llm","serve",backend[,--label L])<br/>client.go:359-369
@@ -47,9 +47,9 @@ sequenceDiagram
     GP-->>CLI: *LLMRunner
 
     CLI->>SRV: Run stream — first frame MUST be RunInput{start}
-    SRV->>SRV: managedConfigFromProto (5 fields back)
+    SRV->>SRV: managedConfigFromProto (7 fields back)
     SRV->>BE: Setup(SetupRequest{WorkDir, Fragments, Env, Managed, CellKind})
-    Note over BE: setupViaCells → SurfaceInputs<br/>reads .Skills / .DenyTools → always empty
+    Note over BE: setupViaCells → SurfaceInputs<br/>reads .Skills / .DenyTools
     SRV->>BE: Execute(ExecuteRequest{...})
     BE->>ENG: spawn vendor binary (pty for interactive)
     ENG-->>BE: stdout / stderr / exit
@@ -97,62 +97,85 @@ sequenceDiagram
 This is the section to read before assuming a field reaches a backend. Every
 converter in this package is a **hand-written, exhaustive-looking struct literal**.
 There is no compiler link between the Go struct and the proto message: adding a Go
-field cannot fail a build, cannot fail a test, and produces no warning — the field
-is simply zeroed in transit.
+field cannot fail a build and produces no warning — the field is simply zeroed in
+transit.
 
-### `ManagedConfig` — 7 Go fields, 5 proto fields
+**What now catches that is a test, not the compiler.** `internal/lm/grpc/parity_test.go`
+(`40b49a7f`) is a reflective **total-struct parity sweep**: it populates every field
+at every depth with distinguishable non-zero values, round-trips, and requires the
+whole struct back. It **names no field**, so a field added later is covered without
+anyone updating the test. It covers all **27** hand-mirrored pairs in this package,
+with an AST-walking gate that fails when a pair is added without a sweep entry; two
+exclusions each carry a written reason and an anti-rot test.
 
-| Go field (`internal/shared/agent/backend.go:348-363`) | Proto (`llm.proto:425-431`) | Crosses? |
+> **Why this section exists at all.** Until `40b49a7f` **eight** fields on this seam
+> had no proto number and were silently dropped in both directions. The previous
+> round-trip test asserted `req.MCPServers == back.MCPServers` — one *named* field,
+> not `req == back` — so it could not see them. A dropped field is an **absent
+> statement**: no coverage, mutation or complexity metric can point at a line nobody
+> wrote. Three of the eight were found *by the parity sweep*, not by the review that
+> prompted it.
+
+### `ManagedConfig` — 7 Go fields, 7 proto fields
+
+| Go field (`internal/shared/agent/backend.go:348-363`) | Proto (`llm.proto:458-478`) | Crosses? |
 |---|---|---|
 | `Commands []CommandExport` (`:349`) | `repeated CommandExport commands = 1` | yes |
-| `Skills []SkillExport` (`:350`) | — | **no** |
-| `Hooks *wire.HooksConfig` (`:351`) | `HooksConfig hooks = 2` | yes (minus `PreToolFallback`, below) |
+| `Skills []SkillExport` (`:350`) | `repeated SkillExport skills = 6` | yes — **added `40b49a7f`** |
+| `Hooks *wire.HooksConfig` (`:351`) | `HooksConfig hooks = 2` | yes (including `PreToolFallback`, below) |
 | `MCP *wire.MCPConfig` (`:352`) | `MCPConfig mcp = 3` | yes |
 | `BundleMCP map[string]wire.MCPServer` (`:353`) | `map<string, MCPServer> bundle_mcp = 5` | yes |
 | `ManageStatusline bool` (`:354`) | `bool manage_statusline = 4` | yes |
-| `DenyTools []string` (`:362`) | — | **no** |
+| `DenyTools []string` (`:362`) | `repeated string deny_tools = 7` | yes — **added `40b49a7f`** |
 
-`ManagedConfigToProto` (`internal/lm/grpc/managed.go:18`) sets exactly five fields
-at `:22-28`; `managedConfigFromProto` (`:33`) reads the same five back at `:37-43`.
-`rg -in "skill|deny" llm.proto` returns zero hits.
+`ManagedConfigToProto` (`internal/lm/grpc/managed.go:18`) sets all seven;
+`managedConfigFromProto` reads all seven back.
 
 **The full chain, end to end:**
 
-1. The host populates both fields — `internal/lm/backends/managed.go:52` (`Skills:`) and `:57` (`DenyTools:`), reached from `internal/cli/run.go:972` and `internal/operations/oneshot.go:406`.
-2. `ManagedConfigToProto` drops them (`managed.go:22-28`).
-3. `managedConfigFromProto` cannot restore what was never sent (`managed.go:37-43`).
-4. `internal/lm/grpc/server.go:204` is the **only** site in the repo that constructs `SetupRequest.Managed`, so there is no in-process bypass — every backend's `Setup` sees the 5-field version.
-5. `setupViaCells` reads both into `SurfaceInputs` — `internal/shared/agent/launch_backend.go:255` (`Skills: req.Managed.Skills`) and `:257` (`DenyTools: req.Managed.DenyTools`) — where they are always empty.
-6. `SurfaceInputs` is otherwise fully wired for them (`internal/shared/agent/cells.go:166`, `:181`), and five of seven registered engines declare a `skillExports` function (`internal/lm/backends/registry.go:315`, `:341`, `:369`, `:436`, plus claude's at `:292`).
+1. The host populates both fields — `internal/lm/backends/managed.go:52` (`Skills:`) and `:57` (`DenyTools:`), reached from `internal/cli/run.go` and `internal/operations/oneshot.go`.
+2. `ManagedConfigToProto` carries them (`managed.go:26`, `:31`).
+3. `managedConfigFromProto` restores them (`managed.go:43`, `:48`).
+4. `internal/lm/grpc/server.go` is the **only** site in the repo that constructs `SetupRequest.Managed`, so there is no in-process bypass — and no bypass is needed any more.
+5. `setupViaCells` reads both into `SurfaceInputs` (`internal/shared/agent/launch_backend.go`).
+6. `SurfaceInputs` is fully wired for them (`internal/shared/agent/cells.go:166`, `:181`), and five of seven registered engines declare a `skillExports` function.
 
-Net observable behavior: **every engine launched over this wire receives zero Agent
-Skills and applies zero `deny_tools`, with exit 0 and no diagnostic.** `DenyTools`
-is security-relevant by its own doc (`backend.go:355-362`) — it exists to block
-Claude Code's built-in sub-agent `Task` tool, "which ctxloom cannot mediate".
+> **This was broken and it mattered.** Before `40b49a7f`, every engine launched over
+> this wire received **zero** Agent Skills and applied **zero** `deny_tools`, with
+> exit 0 and no diagnostic. `DenyTools` is security-relevant by its own doc
+> (`backend.go:355-362`) — it exists to block Claude Code's built-in sub-agent `Task`
+> tool, "which ctxloom cannot mediate" — so the hole its comment calls "the
+> deny-tools.md root-cause fix" was inert from the day it was written. Note that
+> `DenyTools` and `Skills` *did* reach engines by **other** routes the whole time
+> (`AssembleManagedDenyTools` writing settings files directly; each engine's own
+> `surfaces.go`); it was the **launch path specifically** that dropped them.
 
-The package's own round-trip test states the violated invariant in its comment —
-*"every field the launch path depends on must survive the proto round-trip"*
-(`internal/lm/grpc/managed_test.go:12-13`) — but populates only `MCP`, `BundleMCP`
-and `ManageStatusline`, so it cannot observe the drop.
+### `wire.Hook` — 9 Go fields, 8 proto fields
 
-### `wire.Hook` — 9 Go fields, 7 proto fields
+Proto `Hook` (`llm.proto:516`): `matcher=1, command=2, type=3, prompt=4,
+timeout=5, async=6, scm=7, pre_tool_fallback=8`.
 
-Proto `Hook` (`llm.proto:447-455`): `matcher=1, command=2, type=3, prompt=4,
-timeout=5, async=6, scm=7`.
+`wire.Hook` (`internal/shared/wire/hooks.go:14-39`) has one field that does not cross:
 
-`wire.Hook` (`internal/shared/wire/hooks.go:14-39`) adds two more:
+- `ContextHash` — correctly excluded (`mapstructure:"-"`, in-process only), and deliberately re-derived agent-side.
 
-- `ContextHash` — correctly excluded (`mapstructure:"-"`, in-process only).
-- **`PreToolFallback` (`hooks.go:38`) — dropped** by `hookToProto` (`managed.go:91`) and `hookFromProto` (`managed.go:103`), so proto→wire always yields `false`.
+**`PreToolFallback` (`hooks.go:38`) crosses since `40b49a7f`** — `hookToProto`
+(`managed.go:180`) and `hookFromProto` (`managed.go:196`) both carry it. It is
+persisted (`yaml:"pre_tool_fallback"`), carried through bundles
+(`internal/bundles/bundles.go:148`, `:639`), part of the hook **trust preimage**, and
+read at launch by its sole consumer `internal/antigravity/antigravity.go:388` — whose
+own comment calls it "the only way it ever fires on agy".
 
-It is persisted (`yaml:"pre_tool_fallback"`), carried through bundles
-(`internal/bundles/bundles.go:148`, `:639`), part of the hook **trust preimage**
-(`internal/lm/backends/managed.go:466`), and read at launch by its sole consumer
-`internal/antigravity/antigravity.go:388` — whose own comment calls it "the only way
-it ever fires on agy". Consequence: an antigravity `session_start` hook declared
-`pre_tool_fallback: true` fires correctly under `ctxloom apply-hooks`
-(`internal/operations/hooks.go:436-440` keeps the flag) and never fires under
-`ctxloom run`.
+> **It used to be dropped**, so an antigravity `session_start` hook declared
+> `pre_tool_fallback: true` fired under `ctxloom apply-hooks` and never under
+> `ctxloom run`. The trust consequence is worth stating precisely, because it is easy
+> to over- or under-claim: the exec preimage is built **host-side**
+> (`internal/lm/backends/managed.go`'s `hookExecPayload`) from the `wire.Hook` that
+> always carried the true flag, so **the gate never hashed a wrong value and no
+> signature, hash, grant or countersignature changed** when the field was added.
+> What was broken was the other half of the correspondence — the hook *delivered* to
+> the engine had the flag cleared, so it differed from the hook the grant covered.
+> No `ExecPreimageContract` bump was needed or wanted.
 
 ### `ChatRequest` — 11 Go fields, 8 proto fields
 
@@ -160,17 +183,29 @@ Proto `ChatStart` (`llm.proto:189-221`): `work_dir=1, model=2, env=3,
 permission_mode=4, forward_permissions=5, mcp_servers=6, transcript_raw_policy=7,
 forward_terminal=8`.
 
-`chatStartToProto` (`chat.go:23-45`) and `chatStartFromProto` (`chat.go:47-69`) set
-exactly those. Three Go fields never cross:
+Since `40b49a7f` the proto also carries `runtime = 9` and `resume_session_id = 10`
+(`llm.proto:228`, `:234`), and `chatStartToProto` / `chatStartFromProto` carry both
+(`chat.go:33`, `:34`, `:59`, `:60`). One Go field still does not cross:
 
-| Dropped field | Producer | Dead consumer | Observable effect |
-|---|---|---|---|
-| `Runtime` | `internal/operations/engine_session.go:322` | `internal/acp/acp.go:329` → gate at `acp.go:456` | A container-bound `ctxloom acp` session runs the engine **on the host**, while `engine_session.go:940` reports container isolation in the session summary. |
-| `ResumeSessionID` | `coord/children.go:1671` → `coord/spawner.go:423` → `internal/operations/delegate.go:857` | `internal/acp/session.go:367`, `internal/antigravity/chat.go:69` | Resume silently starts a fresh session under the resumed id's name. Both plugin-side guards are unreachable. |
-| `ModelQuirk` | (no production setter today) | — | Latent. |
+| Field | Crosses? | Why |
+|---|---|---|
+| `Runtime` | yes — **added `40b49a7f`** | Carries the agent binding's resolved runtime axis. |
+| `ResumeSessionID` | yes — **added `40b49a7f`** | Return half is `ChatSessionInfo.session_id = 5` / `resumable = 6`, added in the same change. |
+| `ModelQuirk` | **no, deliberately** | Set **plugin-side** by the backend (`internal/claude/chat.go`), never sent host→plugin. It is a written, tested exclusion in the parity sweep (`parity_test.go:65`), not a drop. |
 
-`rg -i resume llm.proto` → 0 hits. There is no env-var carrier either
-(`rg CTXLOOM_RUNTIME` → 0 hits).
+> **Both used to be dropped, with consequences worth keeping on record.**
+> `Runtime` had no carrier of any kind — no proto field and no env var — so a
+> container-bound `ctxloom acp` session ran the engine **on the host** while
+> `engine_session.go` reported container isolation in the session summary. That is
+> also why repairing this wire had to wait: fixing `Runtime` *activates* the
+> `internal/acp` path-confinement hole it was masking, so confinement landed first
+> (`73ea8d7f`) and this second (`40b49a7f`). See fix-ordering constraint 1 in
+> `FINDINGS.md`.
+> `ResumeSessionID` dropping meant a delegated child's resume silently started a
+> fresh session under the resumed id's name, with both plugin-side "fail loudly"
+> guards unreachable. Its **return** half (`ChatSessionInfo.session_id`,
+> `.resumable`) was found by the parity sweep rather than by the review — fixing
+> only the request side would have shipped a half-wired feature.
 
 `transcript_raw_policy` always carries `""` today — a documented deferral
 (`llm.proto:210-216`), not a drop.
@@ -204,7 +239,7 @@ unset/true/false tri-state. Everywhere else, absent and zero are indistinguishab
 
 | Family | Location | Note |
 |---|---|---|
-| Managed | `managed.go:18-300` | `ManagedConfigToProto`/`…FromProto` (drops 2), `commandExports*` (`:48`/`:67`, all 7 fields), `hookToProto`/`hookFromProto` (`:91`/`:103`, drops `PreToolFallback`; `Timeout: int32(...)` at `:97` is the one narrowing over user-authored YAML), `unifiedHooks*` (`:140`/`:151`, 6-event vocabulary), `hooksConfig*` (`:165`/`:183`, `fromProto` materializes a non-nil `Plugins` map to match the host shape), `mcpServer*` (`:204`/`:215`, all 6), `mcpServerMap*` (`:233`/`:244`, `len==0 → nil` is load-bearing for round-trip identity), `mcpConfig*` (`:255`/`:279`) |
+| Managed | `managed.go:18-300` | `ManagedConfigToProto`/`…FromProto` (all 7 fields since `40b49a7f`), `commandExports*` (all 7 fields), `hookToProto`/`hookFromProto` (`:174`/`:190`, all 8 including `PreToolFallback`; the `Timeout: int32(...)` narrowing is the one lossy conversion over user-authored YAML), `unifiedHooks*` (`:140`/`:151`, 6-event vocabulary), `hooksConfig*` (`:165`/`:183`, `fromProto` materializes a non-nil `Plugins` map to match the host shape), `mcpServer*` (`:204`/`:215`, all 6), `mcpServerMap*` (`:233`/`:244`, `len==0 → nil` is load-bearing for round-trip identity), `mcpConfig*` (`:255`/`:279`) |
 | Chat | `chat.go:23-236` | ~215 lines of pure conversion. `chatEventToProto`/`…FromProto` (`:71`/`:88`) dispatch a 5-pointer tagged union; `fromProto`'s `default:` degrades an unknown variant to Raw-only (deliberate forward-compat). `turnMeta*` (`:170`/`:189`) performs 8 unchecked `int→int32` narrowings. |
 | Session | `sessionhistory.go:21-233` | `timeToUnix` (`:21`) / `unixToTime` (`:28`) overload `0` as the zero-time sentinel and discard sub-second precision. `EntryToProto` (`:39`) is the 15-field transcript-turn converter shared by `sessionhistory`, `sessionwatch`, `chat`, and `operations/sessionfeed`. |
 | Server | `server.go:298-360` | `CellKindToProto` (`:298`) / `cellKindFromProto` (`:312`) — total, explicit, pinned by `cellkind_test.go:39`. `convertFragment` (`:324`), `convertModelInfoToProto` (`:351`). |
@@ -226,7 +261,7 @@ Values **added or defaulted on decode**, none of which the caller sent:
 1. Host and plugin are the same binary; the handshake cookie + `ProtocolVersion 1` is the whole compatibility story. A mismatch fails at `plugin.NewClient`/`Dispense` before any RPC.
 2. gRPC-only. `AllowedProtocols` pinning `ProtocolGRPC` is the sole thing preventing `LLMGRPCPlugin`'s nil-embedded `plugin.Plugin` (`server.go:18`) from nil-panicking on the net/rpc path — the guard (`client.go:247`, `:267`) is two files away from the hazard, with nothing linking them.
 3. One `Send` at a time per stream, enforced by a **shared pointer to one mutex** across both `streamWriter`s (`server.go:78-80`). Handing them different mutexes breaks the invariant with no compile error.
-4. "Every field the launch path depends on must survive the round trip" (`managed_test.go:12-13`) — currently not upheld for `Skills`, `DenyTools`, `PreToolFallback`, `Runtime`, `ResumeSessionID`.
+4. "Every field the launch path depends on must survive the round trip" — **now enforced**, by the reflective total-struct parity sweep in `parity_test.go` (`40b49a7f`) rather than by the field-naming round-trip test that stated it and could not see the five fields it was violated by (`Skills`, `DenyTools`, `PreToolFallback`, `Runtime`, `ResumeSessionID`). The sweep names no field, so it covers fields added after it.
 
 **Lifecycle / ordering**
 
@@ -278,10 +313,7 @@ Values **added or defaulted on decode**, none of which the caller sent:
 
 *Stated factually. Triage and severity live in `FINDINGS.md`.*
 
-- **`ManagedConfig` carries 5 of its 7 documented fields** (`managed.go:22-43` vs `backend.go:348-363`). Skills never install; `deny_tools` never applies. Exit 0, no diagnostic.
-- **`wire.Hook.PreToolFallback` is persisted, bundled, trust-hashed, and read at launch — and is always `false` on the far side** (`managed.go:91`, `:103`).
-- **`ChatRequest.Runtime` is dropped**, so `internal/acp/acp.go:456`'s container branch is unreachable over this transport while `engine_session.go:940` still reports container isolation.
-- **`ChatRequest.ResumeSessionID` is dropped**; the field's own doc (`internal/shared/agent/chat.go:71-77`) promises a loud failure when resume is impossible, and the guards that would produce it are dead code.
+- ~~`ManagedConfig` carries 5 of its 7 documented fields~~ · ~~`wire.Hook.PreToolFallback` is always `false` on the far side~~ · ~~`ChatRequest.Runtime` is dropped~~ · ~~`ChatRequest.ResumeSessionID` is dropped~~ — **all RESOLVED in `40b49a7f`**, along with `ChatPermissionRequest.kind`, `ChatSessionInfo.session_id` and `ChatSessionInfo.resumable`. Eight fields, one proto change, one regen. Kept struck rather than deleted because the parity sweep above exists *because of* these, and a reader who finds the sweep should be able to find what it was built to catch.
 - **`CanonicalFallbackSource.ListSessions` returns `(nil, nil)` on a failed index read** for any retired-scraper backend (`canonical_source.go:185`, `:187-192`), which consumers render as "no sessions".
 - **`CanonicalFallbackSource.GetSession` discards the first canonical error** (`canonical_source.go:131`), collapsing three distinct causes that `internal/transcript/history.go:81,83,85` distinguishes into one "no canonical transcript" message.
 - **`RunWithModelInfo` cannot distinguish "exit 0" from "stream ended with no exit code"** (`client.go:134`, `:137-139`, `:156`) — there is no seen-flag. Defensive today, since `server.go:138` always sends it.

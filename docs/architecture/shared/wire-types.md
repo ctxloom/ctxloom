@@ -24,7 +24,7 @@ flowchart TD
     YAML -->|decode| MC
     HC -->|"UnifiedHooks.Append / HooksConfig.HasAny"| ASM["internal/lm/backends<br/>AssembleManagedConfig"]
     MC -->|MergeMCPConfig| ASM
-    ASM --> PROTO["internal/lm/grpc<br/>hookToProto / hookFromProto / mcpServerToProto<br/>LOSSY: PreToolFallback has no proto field"]
+    ASM --> PROTO["internal/lm/grpc<br/>hookToProto / hookFromProto / mcpServerToProto<br/>total: guarded by the parity sweep"]
     PROTO --> LIFE["internal/shared/agent<br/>BaseLifecycle.MergeManaged<br/>MergeHooksConfig lives HERE, not in wire"]
     LIFE --> WRITERS["engine writers<br/>claude · codex · antigravity · kiro · opencode"]
     WRITERS --> NATIVE["settings.json · config.toml · opencode.json"]
@@ -32,10 +32,11 @@ flowchart TD
     CHAT["internal/shared/agent.ChatMCPServer<br/>Transport/URL/Headers — remote MCP"]
     MS -.->|"ComposeChatMCPServers hard-codes stdio<br/>chat_mcp.go:33-35"| CHAT
 
-    style PROTO fill:#fdd,stroke:#c00
 ```
 
-`*` `Hook.ContextHash` is in-process only (`yaml:"-" json:"-"`) and is deliberately re-derived agent-side by `agent.NewContextInjectionHooks` (`internal/shared/agent/context_hooks.go:24-76`), so its non-serialization is compensated. `PreToolFallback` has no such compensation.
+`*` `Hook.ContextHash` is in-process only (`yaml:"-" json:"-"`) and is deliberately re-derived agent-side by `agent.NewContextInjectionHooks` (`internal/shared/agent/context_hooks.go:24-76`), so its non-serialization is compensated.
+
+> **History (2026-07-25, `40b49a7f`).** `PreToolFallback` had **no proto field** and was dropped in both directions, so it arrived `false` at every backend and the Antigravity fallback was dead code. It is now `Hook.pre_tool_fallback = 8` and carried both ways. This converter is hand-written, which is why the drop was invisible for so long — the durable guard is the total-struct parity sweep described under *Serialization* below, not this diagram.
 
 ## `internal/shared/wire` — types
 
@@ -129,7 +130,9 @@ The persisted MCP document.
 - Schema asymmetry to know about: the `mcpServer` def is `additionalProperties: false` and does **not** list `_ctxloom`, while the `hook` def is `additionalProperties: true` (which is how the same marker is tolerated on hooks). No production writer currently persists an SCM-marked server, so this is latent.
 - Tag sets are inconsistent: `Hook` and `MCPServer` carry `json` tags; `UnifiedHooks`, `HooksConfig`, `BackendHooks`, and `MCPConfig` carry none, so a `json.Marshal` of any container would emit Go field names (`"PreTool"`, `"AutoRegisterCtxloom"`) while its elements emit snake/marker names. No production code marshals the containers today.
 - Real vs documented: every `mapstructure` tag in this package (~13) is dead metadata. viper was deliberately removed (`internal/shared/confload/confload.go:90`, `internal/config/config.go:1400`), the only non-test `mapstructure.Decode` (`internal/lm/backends/config_registry.go:37`) decodes `agent.BackendConfig` implementations rather than wire types, and docs are generated from the JSON Schema (`internal/docsgen/config.go:13-18`) rather than from tags. `hooks.go:30`'s `mapstructure:"-"` is an exclusion tag for a decoder that never runs.
-- Real vs documented: `Hook.PreToolFallback` **does not survive the gRPC round-trip**. The proto `Hook` message (`internal/lm/grpc/llm.proto:447-455`) has fields 1-7 (`matcher, command, type, prompt, timeout, async, scm`) and no `pre_tool_fallback`; `hookToProto` (`internal/lm/grpc/managed.go:91-101`) and `hookFromProto` (`:104-115`) both omit it. Every `ctxloom run` ships this path (`internal/cli/run.go:984`, `internal/operations/oneshot.go:405`). The flag is set from bundles at `internal/config/config_bundles.go:685`, is the only thing `internal/antigravity/antigravity.go:388` keys on, and is part of the **signed** executable preimage (`internal/bundles/bundles.go:632-641`, `internal/lm/backends/managed.go:466`), so a delivered hook no longer matches the bytes its trust grant signed.
+- **`Hook.PreToolFallback` survives the gRPC round-trip** (since `40b49a7f`). The proto `Hook` message (`internal/lm/grpc/llm.proto:516`) carries `pre_tool_fallback = 8`, and both `hookToProto` and `hookFromProto` (`internal/lm/grpc/managed.go:180`, `:196`) carry it. The flag is set from bundles at `internal/config/config_bundles.go:685` and is the only thing `internal/antigravity/antigravity.go:388` keys on.
+  **This used to be dropped, and that history is why the parity gate exists.** The field had no proto number at all, so it arrived `false` at every backend on every `ctxloom run` — and because it is part of the **signed** executable preimage (`internal/bundles/bundles.go:632-641`), the hook *delivered* differed from the bytes the trust grant covered. Note what was *not* broken: the preimage is built host-side from the `wire.Hook` that always carried the true flag, so the gate never hashed a wrong value and no signature, hash or grant changed when the field was added.
+- **The durable guard is a total-struct parity sweep** (`internal/lm/grpc/parity_test.go`, `40b49a7f`). It populates every field at every depth with distinguishable non-zero values, round-trips, and requires the whole struct back; it **names no field**, so a field added later is covered without anyone updating the test. It covers all 27 hand-mirrored pairs in `internal/lm/grpc`, with an AST-walking gate that fails when a pair is added without a sweep entry. This replaced a round-trip test that asserted one *named* field (`req.MCPServers == back.MCPServers`) rather than `req == back` — which is precisely why eight dropped fields were invisible to it.
 
 **Merging**
 
@@ -147,4 +150,4 @@ The persisted MCP document.
 - `MCPServer` can express **only a stdio (command) server**. Remote MCP exists end-to-end through a second, parallel type — `internal/shared/agent.ChatMCPServer` (`chat.go:248-267`) with `Transport`/`URL`/`Headers`, consumed by `internal/opencode/settings.go:133-135` and `internal/acp/session.go:524` — but everything sourced from config, profiles, or bundles goes through `ComposeChatMCPServers` (`internal/shared/agent/chat_mcp.go:33-35`), which always builds the stdio form. Two MCP representations coexist with asymmetric capability.
 - `ComposeChatMCPServers` passes `s.Env` through **without cloning**, bypassing the aliasing protection `MergeMCPConfig` provides. `internal/agentcoord/coord/enginehost.go:665-681` then writes into `servers[i].Env`; it is safe only because the mutation targets the entry named `agent.MCPServerName`, which is constructed with a nil `Env` and gets a fresh map.
 - Three of eight `Hook` fields are silently ignored by most consumers, and **no consumer declares which fields it honours**. Adding a seventh unified event means editing roughly eight places: this type, the proto `UnifiedHooks` (`internal/lm/grpc/llm.proto:464-471`), the JSON Schema `unifiedHooks` def, and the six-way switch in every engine writer.
-- `Hook`'s field set is connascent-by-algorithm with `bundles.BundleHook`, which hashes `Matcher+Type+Command+Prompt+PreToolFallback` as the signed preimage a trust grant binds to (`internal/bundles/bundles.go:632-641`), and with the proto `Hook` message. All three must gain a field together and nothing enforces it.
+- `Hook`'s field set is connascent-by-algorithm with `bundles.BundleHook`, which hashes `Matcher+Type+Command+Prompt+PreToolFallback` as the signed preimage a trust grant binds to (`internal/bundles/bundles.go:632-641`), and with the proto `Hook` message. All three must gain a field together. **Two of the three legs are now enforced** — the parity sweep fails if `wire.Hook` gains a field the proto does not carry — but nothing binds the *preimage* leg, so a field added to `wire.Hook` and to the proto without being added to `ContentPayload` still passes CI.

@@ -290,6 +290,13 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)
 	setOrDelete(existing, "isolation_base_containerfile", c.isolationBaseContainerfile != "", c.isolationBaseContainerfile)
+	// Agent-observation viewer settings (prefix key + surround bar). Declared
+	// on configDoc/Fixture when the viewer landed but never wired here — the
+	// THIRD instance of the bug dirty_tree_handler and agent_turn_cap above
+	// each document (U049-F03). Pruned when neither field is set; Surround is
+	// a *bool precisely so an explicit `surround: false` is distinguishable
+	// from unset and survives the round trip.
+	setOrDelete(existing, "ui", c.ui.PrefixKey != "" || c.ui.Surround != nil, c.ui)
 	if c.isolationDevcontainerBase != nil {
 		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)
 	} else {

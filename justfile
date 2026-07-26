@@ -7,9 +7,9 @@
 set positional-arguments := true
 
 # Gates that MUST be identical here and in justfile.container:
-# test-docker-integration (and its package list) plus the generated-protobuf
-# precondition. Imported, not duplicated — the docker-integration recipe used
-# to exist in both files under the same name with different package lists,
+# test-docker-integration (and its package list), test-arch, plus the
+# generated-protobuf precondition. Imported, not duplicated — the
+# docker-integration recipe used to exist in both files under the same name with different package lists,
 # which is how the whole internal/agentcoord/coord docker suite went unrun in
 # CI. See build/gates.justfile.
 import "build/gates.justfile"
@@ -562,61 +562,6 @@ test-pkg PKG *ARGS: _require-generated
         echo "error: -run matched no tests in $pkg (typo'd or renamed test name?)" >&2
         exit 1
     fi
-
-# Run the architectural-invariant gates as a discrete, attributable set.
-#
-# These are the CLASS gates — the tests that fail when a new instance of a
-# known-bad class appears (a proto field that no converter mirrors, an enum
-# value no table covers, a config key that Save() drops, a package importing
-# test-only machinery). They are named `TestArch_<Subject>_<Property>` for
-# exactly one reason: so this recipe can select them.
-#
-# They are NOT tagged, and MUST NOT be. A build tag would take them out of
-# `just test`, making them opt-in — which is how this repo ended up with gates
-# that do not gate (see test-conformance, red and called by no workflow). Every
-# test selected here also runs in the ordinary suite; this recipe only changes
-# how a failure READS, from "one red test among 217 packages" to "an
-# architectural invariant was violated".
-#
-# ANTI-VACUOUS GUARD. A `-run` regex that matches nothing exits 0 from `go
-# test` — the same false green test-pkg above guards against, and the same bug
-# shape as gen-schemas. test-pkg's guard (grep for `[no tests to run]`) cannot
-# be reused verbatim here: selecting across ./... means almost EVERY package
-# reports that message legitimately, so it would fire on a healthy run. The
-# module-wide equivalent is to count what actually ran and refuse to pass on
-# zero — `go test -v` prints one `--- PASS/FAIL/SKIP: <name>` line per
-# top-level test at column 0, so the count is the number of gates that
-# executed, and the recipe reports it whether it passes or fails.
-#
-# No -race: `just test` already runs the whole suite under -race, and these are
-# reflection/AST/source-walk assertions with no concurrency of their own.
-test-arch: _require-generated
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set +e
-    output=$(go test -count=1 -run 'TestArch_' -v ./... 2>&1)
-    status=$?
-    set -e
-    # Only the gates and package results, not the per-package "no tests to run"
-    # noise from the 200-odd packages that hold none.
-    grep -E '^(--- |    --- |FAIL|ok .*[0-9]s)' <<<"$output" | grep -vE '^ok .*\[no tests to run\]' || true
-    ran=$(grep -cE '^--- (PASS|FAIL|SKIP): TestArch_' <<<"$output" || true)
-    if [ "$status" -ne 0 ]; then
-        echo "" >&2
-        echo "ARCHITECTURAL INVARIANT VIOLATED — $ran arch gate(s) ran, at least one failed." >&2
-        echo "This is not an ordinary test break: a class of bug the codebase has already" >&2
-        echo "paid for has reappeared. Read the failure above; it names the instance." >&2
-        printf '%s\n' "$output" >&2
-        exit "$status"
-    fi
-    if [ "$ran" -eq 0 ]; then
-        echo "error: -run 'TestArch_' selected NO tests — the gate ran nothing and would have" >&2
-        echo "exited 0 saying so. Either the naming convention was broken by a rename, or" >&2
-        echo "this recipe's pattern is wrong. Both are the gate failing." >&2
-        exit 1
-    fi
-    echo ""
-    echo "architectural invariants: $ran gate(s) passed"
 
 # ===== Mutation testing =====
 

@@ -12,9 +12,9 @@
 set positional-arguments := true
 
 # Gates that MUST be identical here and in the host justfile:
-# test-docker-integration (and its package list) plus the generated-protobuf
-# precondition. Imported, not duplicated — this file used to carry its own
-# shorter copy of test-docker-integration under the same name, and since CI
+# test-docker-integration (and its package list), test-arch, plus the
+# generated-protobuf precondition. Imported, not duplicated — this file used
+# to carry its own shorter copy of test-docker-integration under the same name, and since CI
 # runs THIS file, the packages the host copy listed never ran there.
 import "build/gates.justfile"
 
@@ -285,41 +285,6 @@ test-pkg PKG *ARGS:
         echo "error: -run matched no tests in $pkg (typo'd or renamed test name?)" >&2
         exit 1
     fi
-
-# Run the architectural-invariant gates as a discrete, attributable set. This
-# is the copy CI runs (.github/workflows/ci.yml, "Architectural invariants") —
-# see the host justfile's test-arch for the full rationale, in particular why
-# these are named rather than build-tagged, and why test-pkg's `[no tests to
-# run]` guard cannot be reused across ./... (almost every package reports it
-# legitimately, so it would fire on a healthy run). The module-wide equivalent
-# is to COUNT the gates that executed and refuse to pass on zero: a `-run`
-# regex matching nothing exits 0 from `go test`, so without this the step would
-# be a gate that gates nothing.
-test-arch:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set +e
-    output=$(go test -count=1 -run 'TestArch_' -v ./... 2>&1)
-    status=$?
-    set -e
-    grep -E '^(--- |    --- |FAIL|ok .*[0-9]s)' <<<"$output" | grep -vE '^ok .*\[no tests to run\]' || true
-    ran=$(grep -cE '^--- (PASS|FAIL|SKIP): TestArch_' <<<"$output" || true)
-    if [ "$status" -ne 0 ]; then
-        echo "" >&2
-        echo "ARCHITECTURAL INVARIANT VIOLATED — $ran arch gate(s) ran, at least one failed." >&2
-        echo "This is not an ordinary test break: a class of bug the codebase has already" >&2
-        echo "paid for has reappeared. Read the failure above; it names the instance." >&2
-        printf '%s\n' "$output" >&2
-        exit "$status"
-    fi
-    if [ "$ran" -eq 0 ]; then
-        echo "error: -run 'TestArch_' selected NO tests — the gate ran nothing and would have" >&2
-        echo "exited 0 saying so. Either the naming convention was broken by a rename, or" >&2
-        echo "this recipe's pattern is wrong. Both are the gate failing." >&2
-        exit 1
-    fi
-    echo ""
-    echo "architectural invariants: $ran gate(s) passed"
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build

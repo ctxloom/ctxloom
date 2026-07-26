@@ -22,7 +22,7 @@ import (
 //
 // The three halves and what each is for are documented on the shared engine,
 // internal/testsupport/parity — which the `--format json` NDJSON DTOs
-// (internal/cli/chat_json_parity_test.go) now ride too, after the SAME class
+// (internal/cli/arch_test.go) now ride too, after the SAME class
 // of drop was found on that third mirror.
 // ---------------------------------------------------------------------------
 
@@ -76,18 +76,18 @@ func parityPairs() []parity.Pair {
 	}
 }
 
-func TestPayloadMirrorsAgentTypeFieldCount(t *testing.T) {
+func TestArch_TranscriptPayload_MirrorsAgentFieldCount(t *testing.T) {
 	parity.CheckFieldCount(t, parityPairs())
 }
 
-func TestPayloadConverterCopiesEveryAgentField(t *testing.T) {
+func TestArch_TranscriptPayload_ConverterCopiesEveryAgentField(t *testing.T) {
 	parity.CheckConverterCopies(t, parityPairs())
 }
 
-// TestPayloadBoolFieldsLandDistinctly closes the blind spot the count-based
+// TestArch_TranscriptPayload_BoolFieldsLandDistinctly closes the blind spot the count-based
 // half left: SessionEntry has TWO bools (IsError, Sidechain), and a converter
 // writing one of them into both payload slots satisfies a count of trues.
-func TestPayloadBoolFieldsLandDistinctly(t *testing.T) {
+func TestArch_TranscriptPayload_BoolFieldsLandDistinctly(t *testing.T) {
 	parity.CheckBoolIsolation(t, parityPairs())
 }
 
@@ -166,15 +166,15 @@ func roundTripPairs() []parity.RoundTripPair {
 	}
 }
 
-// parityT is set by TestPayloadReadSideRoundTripsEveryField for the duration of
+// parityT is set by TestArch_TranscriptPayload_ReadSideRoundTripsEveryField for the duration of
 // its run so the RoundTrip closure can fail loudly. RoundTrip's signature is
 // deliberately *T-free (the engine drives it), and a closure that swallowed a
 // marshal error would be the very silent-no-op this package exists to prevent.
 var parityT *testing.T
 
-// TestPayloadReadSideRoundTripsEveryField is half 4: the payload → agent
+// TestArch_TranscriptPayload_ReadSideRoundTripsEveryField is half 4: the payload → agent
 // direction, which no other test in this repo covers.
-func TestPayloadReadSideRoundTripsEveryField(t *testing.T) {
+func TestArch_TranscriptPayload_ReadSideRoundTripsEveryField(t *testing.T) {
 	parityT = t
 	t.Cleanup(func() { parityT = nil })
 	parity.CheckRoundTrip(t, roundTripPairs())

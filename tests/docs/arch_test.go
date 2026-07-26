@@ -111,9 +111,9 @@ func parseIndex(t *testing.T, body string) (got tally, claimed map[string]int) {
 	return got, claimed
 }
 
-// TestFindingsIndex_SectionHeadingsMatchTheirRows is the gate proper: each
+// TestArch_FindingsIndex_SectionHeadingsMatchTheirRows is the gate proper: each
 // "## HIGH (376)" heading must equal the number of rows beneath it.
-func TestFindingsIndex_SectionHeadingsMatchTheirRows(t *testing.T) {
+func TestArch_FindingsIndex_SectionHeadingsMatchTheirRows(t *testing.T) {
 	body := readIndex(t)
 	got, claimed := parseIndex(t, body)
 
@@ -127,10 +127,10 @@ func TestFindingsIndex_SectionHeadingsMatchTheirRows(t *testing.T) {
 	}
 }
 
-// TestFindingsIndex_StatusTableMatchesTheRows checks the per-status counts in
+// TestArch_FindingsIndex_StatusTableMatchesTheRows checks the per-status counts in
 // the "Status — what happened to each row" table, which is the table that has
 // actually drifted.
-func TestFindingsIndex_StatusTableMatchesTheRows(t *testing.T) {
+func TestArch_FindingsIndex_StatusTableMatchesTheRows(t *testing.T) {
 	body := readIndex(t)
 	got, _ := parseIndex(t, body)
 
@@ -161,9 +161,9 @@ func TestFindingsIndex_StatusTableMatchesTheRows(t *testing.T) {
 	}
 }
 
-// TestFindingsIndex_TotalsLineMatchesTheRows checks the prose "Totals:" line,
+// TestArch_FindingsIndex_TotalsLineMatchesTheRows checks the prose "Totals:" line,
 // which is what a reader actually quotes.
-func TestFindingsIndex_TotalsLineMatchesTheRows(t *testing.T) {
+func TestArch_FindingsIndex_TotalsLineMatchesTheRows(t *testing.T) {
 	body := readIndex(t)
 	got, _ := parseIndex(t, body)
 
@@ -186,11 +186,11 @@ func TestFindingsIndex_TotalsLineMatchesTheRows(t *testing.T) {
 	check("still open", m[4], got.byStatus["open"])
 }
 
-// TestFindingsIndex_SeverityTableMatchesTheRows checks the per-severity
+// TestArch_FindingsIndex_SeverityTableMatchesTheRows checks the per-severity
 // count/resolved/open table. Cells may carry a trailing annotation
 // ("275 (+1 refuted)"); only the leading integer is compared, because the
 // annotation is prose about the adjudicated rows and is not itself a count.
-func TestFindingsIndex_SeverityTableMatchesTheRows(t *testing.T) {
+func TestArch_FindingsIndex_SeverityTableMatchesTheRows(t *testing.T) {
 	body := readIndex(t)
 	got, _ := parseIndex(t, body)
 
@@ -219,12 +219,12 @@ func TestFindingsIndex_SeverityTableMatchesTheRows(t *testing.T) {
 	}
 }
 
-// TestFindingsIndexGate_CatchesDrift proves the gate can FAIL. A gate that has
+// TestArch_FindingsIndex_GateCatchesDrift proves the gate can FAIL. A gate that has
 // only ever been run against a correct file is a gate nobody has tested; this
 // runs the same parser over a doctored copy and requires a mismatch to be
 // reported. Without it, a parser that silently matched nothing would pass
 // every check above forever.
-func TestFindingsIndexGate_CatchesDrift(t *testing.T) {
+func TestArch_FindingsIndex_GateCatchesDrift(t *testing.T) {
 	const good = "## HIGH (2)\n\n| ID | Status |\n|---|---|\n| U001-F01 | open |\n| U001-F02 | **RESOLVED** `abc1234` |\n"
 
 	got, claimed := parseIndex(t, good)

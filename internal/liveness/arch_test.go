@@ -97,7 +97,7 @@ var inputRecords = []inputRecord{
 	{pkgDir: "internal/liveness", typeName: "Evidence", qualifier: "liveness", role: "output"},
 }
 
-func TestInputRecords_EveryFieldIsBothWrittenAndRead(t *testing.T) {
+func TestArch_InputRecords_EveryFieldIsBothWrittenAndRead(t *testing.T) {
 	root := moduleRoot(t)
 	files := moduleGoFiles(t, root)
 

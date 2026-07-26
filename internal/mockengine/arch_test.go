@@ -124,7 +124,7 @@ func runLimb(t *testing.T, r limbRun) mockengine.Report {
 	return rep
 }
 
-func TestReport_EveryEvidenceLimbCanSayNo(t *testing.T) {
+func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 	// A synthetic declaration is the only way to exercise StripEnv: no shipped
 	// backend declares one today, and a limb with no production declaration is
 	// exactly the limb that rots.
@@ -224,10 +224,10 @@ func TestReport_EveryEvidenceLimbCanSayNo(t *testing.T) {
 	}
 }
 
-// TestReport_EnvViolationsNamesEveryBreach proves the env section answers the
+// TestArch_EvidenceReport_EnvViolationsNameEveryBreach proves the env section answers the
 // question it exists for in one call, so a caller need not re-derive the
 // honoured/violated rule that the record already knows.
-func TestReport_EnvViolationsNamesEveryBreach(t *testing.T) {
+func TestArch_EvidenceReport_EnvViolationsNameEveryBreach(t *testing.T) {
 	cli := codexOneshot(t)
 	cli.StripEnv = []string{"ANTHROPIC_API_KEY"}
 	rep := runLimb(t, limbRun{

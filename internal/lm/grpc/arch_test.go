@@ -43,13 +43,13 @@ import (
 // interfaces, oneof unions) must be handled EXPLICITLY: the filler fails loudly
 // on a kind it cannot reach, unions are enumerated variant by variant, and the
 // only escape hatch is parityExclusions — a named field with a written reason,
-// which TestProtoParity_ExclusionsAreLive proves still exists.
+// which TestArch_ProtoConverters_ExclusionsAreLive proves still exists.
 // ---------------------------------------------------------------------------
 
 // parityExclusions names every field the total-parity sweep deliberately does
 // NOT require to survive a round trip, keyed by "<pkg>.<Type>.<Field>" with the
 // reason it is exempt. This is the ONLY way a field escapes the sweep, and
-// TestProtoParity_ExclusionsAreLive fails if an entry here never matches a real
+// TestArch_ProtoConverters_ExclusionsAreLive fails if an entry here never matches a real
 // field — so a rename or deletion cannot leave a stale exemption behind,
 // silently un-covering whatever field inherits the name.
 //
@@ -254,7 +254,7 @@ func checkParity[G any, P any](t *testing.T, hits map[string]bool, name string, 
 }
 
 // parityHits records which parityExclusions entries the sweep actually met, so
-// TestProtoParity_ExclusionsAreLive can fail on a stale one.
+// TestArch_ProtoConverters_ExclusionsAreLive can fail on a stale one.
 var parityHits = map[string]bool{}
 
 // chatMessageFromInputOrFail adapts the production decoder's (value, ok) shape
@@ -268,10 +268,10 @@ func chatMessageFromInputOrFail(t *testing.T) func(*ChatInput) agent.ChatMessage
 	}
 }
 
-// TestProtoParity sweeps EVERY hand-mirrored converter pair in this package.
+// TestArch_ProtoConverters_MirrorEveryStructField sweeps EVERY hand-mirrored converter pair in this package.
 // Adding a converter pair without adding it here is the one gap this design
-// cannot close by reflection — see TestProtoParity_CoversEveryConverterPair.
-func TestProtoParity(t *testing.T) {
+// cannot close by reflection — see TestArch_ProtoConverters_EveryPairIsSwept.
+func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 	hits := parityHits
 
 	// --- managed.go: the host-assembled setup payload ---
@@ -326,7 +326,7 @@ func TestProtoParity(t *testing.T) {
 // oneWayConverters names every ToProto/FromProto function in this package that
 // has NO opposite number, with the reason. A one-way converter cannot be
 // round-tripped, so parity says nothing about it — listing it here is an
-// admission, not a pass. TestProtoParity_CoversEveryConverterPair fails if an
+// admission, not a pass. TestArch_ProtoConverters_EveryPairIsSwept fails if an
 // entry stops naming a real function.
 var oneWayConverters = map[string]string{
 	// Encode-only: the host reports a backend's model identity outward over
@@ -335,13 +335,13 @@ var oneWayConverters = map[string]string{
 	"convertModelInfoToProto": "encode-only (GetModelInfo response); no decoder exists to pair with",
 }
 
-// TestProtoParity_CoversEveryConverterPair closes the one hole reflection
-// cannot: TestProtoParity is a hand-written LIST, so a converter pair added
+// TestArch_ProtoConverters_EveryPairIsSwept closes the one hole reflection
+// cannot: TestArch_ProtoConverters_MirrorEveryStructField is a hand-written LIST, so a converter pair added
 // later is covered only if somebody remembers to add it. This walks the
 // package's own source for every <x>ToProto/<x>FromProto (and ToInput/FromInput)
 // pair and fails when one is missing from the sweep — turning "remember to add
 // it" into a gate.
-func TestProtoParity_CoversEveryConverterPair(t *testing.T) {
+func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
 		return !strings.HasSuffix(fi.Name(), "_test.go")
@@ -380,7 +380,7 @@ func TestProtoParity_CoversEveryConverterPair(t *testing.T) {
 	}
 	require.NotEmpty(t, encoders, "found no converters at all — the source walk is broken, not the package")
 
-	src, err := os.ReadFile("parity_test.go")
+	src, err := os.ReadFile("arch_test.go")
 	require.NoError(t, err)
 	sweep := string(src)
 	mentioned := func(name string) bool {
@@ -417,21 +417,21 @@ func TestProtoParity_CoversEveryConverterPair(t *testing.T) {
 	sort.Strings(staleOneWay)
 
 	require.Empty(t, uncovered,
-		"converter pair(s) exist in this package but are NOT in TestProtoParity's sweep — every field they carry is uncovered, which is exactly how eight fields went missing under a green test. Add a checkParity line.")
+		"converter pair(s) exist in this package but are NOT in TestArch_ProtoConverters_MirrorEveryStructField's sweep — every field they carry is uncovered, which is exactly how eight fields went missing under a green test. Add a checkParity line.")
 	require.Empty(t, unpaired,
 		"converter(s) have no opposite number and are not declared one-way — either add the inverse, or add it to oneWayConverters with a written reason.")
 	require.Empty(t, staleOneWay,
 		"oneWayConverters names function(s) that no longer exist — delete the stale entry so a future function inheriting the name is not silently exempted.")
 }
 
-// TestProtoParity_ExclusionsAreLive fails when parityExclusions names a field
+// TestArch_ProtoConverters_ExclusionsAreLive fails when parityExclusions names a field
 // the sweep never met — a stale exemption is a silently un-covered field the
-// moment something else inherits the name. Runs after TestProtoParity by
+// moment something else inherits the name. Runs after TestArch_ProtoConverters_MirrorEveryStructField by
 // alphabetical order within the file's single sweep; it re-runs the sweep's
 // population itself rather than trusting ordering.
-func TestProtoParity_ExclusionsAreLive(t *testing.T) {
+func TestArch_ProtoConverters_ExclusionsAreLive(t *testing.T) {
 	// Re-run the sweep into a private hit set so this test does not depend on
-	// having run after TestProtoParity.
+	// having run after TestArch_ProtoConverters_MirrorEveryStructField.
 	hits := map[string]bool{}
 	t.Run("sweep", func(t *testing.T) {
 		checkParity(t, hits, "agent.ChatRequest", chatStartToProto, chatStartFromProto)
@@ -446,5 +446,5 @@ func TestProtoParity_ExclusionsAreLive(t *testing.T) {
 	}
 	sort.Strings(missing)
 	require.Empty(t, missing,
-		"parityExclusions names field(s) the parity sweep never encountered — either the field was renamed/removed (delete the entry) or nothing sweeps its type (add the converter pair to TestProtoParity). A stale exemption silently un-covers whatever inherits the name.")
+		"parityExclusions names field(s) the parity sweep never encountered — either the field was renamed/removed (delete the entry) or nothing sweeps its type (add the converter pair to TestArch_ProtoConverters_MirrorEveryStructField). A stale exemption silently un-covers whatever inherits the name.")
 }

@@ -199,7 +199,7 @@ type chatEntryJSON struct {
 	// --- IR2 (2026-07) richness. Mirrors agent.SessionEntry field for field;
 	// all optional, a zero value meaning "the producing backend had none".
 	// These were silently absent from this channel until the mirror-parity
-	// gate (chat_json_parity_test.go) was pointed at it.
+	// gate (internal/cli/arch_test.go) was pointed at it.
 	ToolCallID    string                 `json:"toolCallId,omitempty"`
 	ToolKind      string                 `json:"toolKind,omitempty"`
 	ToolLocations []chatToolLocationJSON `json:"toolLocations,omitempty"`

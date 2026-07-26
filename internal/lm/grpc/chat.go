@@ -511,7 +511,7 @@ func chatMessageToInput(msg agent.ChatMessage) *ChatInput {
 // chatMessageFromInput maps one ChatInput frame back to its host-side chat
 // message — the exact inverse of chatMessageToInput, and named (rather than
 // inlined in the server's receive loop) so the pair can be asserted for TOTAL
-// field parity, not just for the fields a test happened to name (parity_test.go).
+// field parity, not just for the fields a test happened to name (arch_test.go).
 // ok is false for a frame that carries no chat message at all (a stray start, or
 // a variant this build does not know), which the server skips.
 func chatMessageFromInput(in *ChatInput) (agent.ChatMessage, bool) {

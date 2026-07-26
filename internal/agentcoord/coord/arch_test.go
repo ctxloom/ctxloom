@@ -23,10 +23,10 @@ import (
 // kind the table does not cover, and the table must be kept covering the whole
 // proto enum in the first place.
 
-// TestLadderFromFact_UnknownKindNeverBecomesCatchAll is the load-bearing
+// TestArch_ApprovalKinds_UnknownKindNeverBecomesCatchAll is the load-bearing
 // assertion: a rung journaled with kinds must come back still targeted,
 // whatever those kind names were.
-func TestLadderFromFact_UnknownKindNeverBecomesCatchAll(t *testing.T) {
+func TestArch_ApprovalKinds_UnknownKindNeverBecomesCatchAll(t *testing.T) {
 	// The shape a rung takes on the log once a later ctxloom has journaled a
 	// kind this build's table does not know.
 	facts := []ladderRungFact{{
@@ -46,10 +46,10 @@ func TestLadderFromFact_UnknownKindNeverBecomesCatchAll(t *testing.T) {
 	}
 }
 
-// TestLadderFromFact_KnownKindsStillMatch keeps the fail-closed defence from
+// TestArch_ApprovalKinds_KnownKindsStillMatch keeps the fail-closed defence from
 // swallowing the ordinary case: a mix of known and unknown names must still
 // answer for the known ones, and only those.
-func TestLadderFromFact_KnownKindsStillMatch(t *testing.T) {
+func TestArch_ApprovalKinds_KnownKindsStillMatch(t *testing.T) {
 	facts := []ladderRungFact{{
 		Action: string(ActionAutoAccept),
 		Kinds:  []string{"TOOL_USE", "APPROVAL_KIND_SOMETHING_NEW"},
@@ -65,13 +65,13 @@ func TestLadderFromFact_KnownKindsStillMatch(t *testing.T) {
 		"an unrelated kind must not match a rung that never named it")
 }
 
-// TestApprovalKindNames_CoversTheWholeEnum is the tripwire the fail-closed
+// TestArch_ApprovalKinds_NameTableCoversTheWholeEnum is the tripwire the fail-closed
 // replay behaviour deserves as a companion: the hand-written short-form table
 // is deliberately not derived from proto reflection (agent YAML stays readable
 // and prefix-free), so nothing but this test notices when the enum grows and
 // the table does not. Without it, adding an ApprovalKind quietly produces
 // rungs that fail closed forever.
-func TestApprovalKindNames_CoversTheWholeEnum(t *testing.T) {
+func TestArch_ApprovalKinds_NameTableCoversTheWholeEnum(t *testing.T) {
 	for num, wireName := range agentcoordpb.ApprovalRequest_ApprovalKind_name {
 		kind := agentcoordpb.ApprovalRequest_ApprovalKind(num)
 		if kind == agentcoordpb.ApprovalRequest_APPROVAL_KIND_UNSPECIFIED {
@@ -86,10 +86,10 @@ func TestApprovalKindNames_CoversTheWholeEnum(t *testing.T) {
 	}
 }
 
-// TestLadderRoundTrip_EveryKind is the property the hand-written table exists
+// TestArch_ApprovalKinds_LadderRoundTripsEveryKind is the property the hand-written table exists
 // to satisfy: every enum value survives ladderToFact → ladderFromFact as
 // itself, matching only itself.
-func TestLadderRoundTrip_EveryKind(t *testing.T) {
+func TestArch_ApprovalKinds_LadderRoundTripsEveryKind(t *testing.T) {
 	for num := range agentcoordpb.ApprovalRequest_ApprovalKind_name {
 		kind := agentcoordpb.ApprovalRequest_ApprovalKind(num)
 		if kind == agentcoordpb.ApprovalRequest_APPROVAL_KIND_UNSPECIFIED {

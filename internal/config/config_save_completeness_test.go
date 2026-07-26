@@ -75,11 +75,11 @@ func persistedYAMLKeys(t *testing.T) []string {
 	return keys
 }
 
-// TestMarshal_PersistsEveryConfigDocField is the class assertion. It is
+// TestArch_ConfigSave_PersistsEveryConfigDocField is the class assertion. It is
 // deliberately reflective: a new persisted field added to configDoc and
 // Fixture but forgotten in applyConfigSections fails HERE, at the moment it is
 // added, instead of silently dropping users' settings.
-func TestMarshal_PersistsEveryConfigDocField(t *testing.T) {
+func TestArch_ConfigSave_PersistsEveryConfigDocField(t *testing.T) {
 	cfg := NewFixture(fullyPopulatedFixture())
 
 	data, err := cfg.Marshal()
@@ -96,10 +96,10 @@ func TestMarshal_PersistsEveryConfigDocField(t *testing.T) {
 	}
 }
 
-// TestMarshal_PrunesUnsetSections keeps the completeness assertion honest: it
+// TestArch_ConfigSave_PrunesUnsetSections keeps the completeness assertion honest: it
 // must not be satisfiable by emitting every key unconditionally. An unset
 // section is still pruned, so an empty config stays empty on disk.
-func TestMarshal_PrunesUnsetSections(t *testing.T) {
+func TestArch_ConfigSave_PrunesUnsetSections(t *testing.T) {
 	cfg := NewFixture(Fixture{Version: CurrentConfigVersion})
 
 	data, err := cfg.Marshal()

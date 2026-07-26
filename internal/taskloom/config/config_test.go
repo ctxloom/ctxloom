@@ -232,7 +232,7 @@ func TestHoming_MissingConfigIsSilent(t *testing.T) {
 }
 
 // TestSchema_TopLevelAdditionalPropertiesFalse mirrors
-// internal/config/schema_drift_test.go's TestConfigSchema_CoversEveryConfigField
+// internal/config/arch_test.go's TestArch_ConfigSchema_CoversEveryConfigField
 // for taskloom's own, much smaller schema: additionalProperties:false at the
 // top level is the mechanism TestConfig_UnknownKeyFailsLoud depends on — a
 // schema that lost this would silently accept any key again.

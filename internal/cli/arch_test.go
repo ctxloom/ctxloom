@@ -62,18 +62,18 @@ func chatJSONParityPairs() []parity.Pair {
 	}
 }
 
-func TestChatJSONMirrorsAgentTypeFieldCount(t *testing.T) {
+func TestArch_ChatJSON_MirrorsAgentFieldCount(t *testing.T) {
 	parity.CheckFieldCount(t, chatJSONParityPairs())
 }
 
-func TestChatJSONConverterCopiesEveryAgentField(t *testing.T) {
+func TestArch_ChatJSON_ConverterCopiesEveryAgentField(t *testing.T) {
 	parity.CheckConverterCopies(t, chatJSONParityPairs())
 }
 
-// TestChatJSONBoolFieldsLandDistinctly closes the count-based half's blind
+// TestArch_ChatJSON_BoolFieldsLandDistinctly closes the count-based half's blind
 // spot on the frontend-facing channel: SessionEntry carries two bools
 // (IsError, Sidechain) and dropping one while duplicating the other keeps the
 // count of `true` leaves right.
-func TestChatJSONBoolFieldsLandDistinctly(t *testing.T) {
+func TestArch_ChatJSON_BoolFieldsLandDistinctly(t *testing.T) {
 	parity.CheckBoolIsolation(t, chatJSONParityPairs())
 }

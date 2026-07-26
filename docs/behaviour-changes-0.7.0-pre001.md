@@ -546,6 +546,44 @@ the other, which was verified by injecting exactly that defect.
 
 ---
 
+## The bundle loader stops failing silently (batch 20)
+
+Three loader paths reported "nothing here" when the truth was "I could not find
+out". All three now say so.
+
+- **A bundle that will not load no longer exports zero files in silence.**
+  `CommandsFromBundleRef`/`SkillsFromBundleRef` feed the code that *writes*
+  per-engine command and skill files. A profile naming an unloadable bundle used
+  to write nothing and exit 0, which looked exactly like a bundle that ships no
+  commands. You now get a `skipping unresolved bundle "<ref>": <why>` warning —
+  the same one you already got when a profile referenced an unresolvable bundle
+  for its fragments.
+- **An unreadable bundles directory is no longer an empty bundle list.**
+  `ctxloom` used to fold "this directory cannot be read" into the same path as
+  "this directory does not exist", so a permissions problem on your bundles root
+  surfaced downstream as *fragment not found* — blaming your ref for a problem
+  with your filesystem. It now warns naming the directory and the underlying
+  error, and in strict mode records a fatal-class finding. A bundles directory
+  that simply **does not exist** is still ordinary and still silent.
+- **Skills in companion, remote and seeded bundles are no longer resolved from
+  your working directory.** A bundle's `Path` is a real file path only for
+  on-disk bundles; companion bundles (which ctxloom reads from a companion
+  binary's `loadout` output) have none, and remote/seeded ones carry a synthetic
+  `<remote>:…` marker. Taking the directory of those yielded `.`, so such a
+  bundle's skills resolved to `./skills/<name>` **relative to wherever you ran
+  ctxloom** — arbitrary project-local files loaded, trust-gated, shown to you
+  for approval, and materialized under that bundle's identity. Those skills are
+  now withheld with a warning naming the skill.
+
+### What this may change for you
+
+If a companion or remote bundle appeared to ship a file-backed skill, that skill
+was never really its own — it was whatever sat at that path in your working
+directory. It is now withheld, and you will see a warning saying the bundle has
+no directory to resolve files against. A skill with a synced (authored) manifest
+is unaffected: those are hashed from the manifest and never touched the
+filesystem, so companion and remote bundles carry them exactly as before.
+
 ## Upgrading
 
 1. **Run your CI once and read the exit codes.** Anything newly failing was already
@@ -620,6 +658,13 @@ the other, which was verified by injecting exactly that defect.
   is **byte-identical** to before: every new key is `omitempty`. No existing key
   was renamed, retyped or removed, so a frontend that ignores unknown keys needs
   no change at all.
+- A bundles directory that genuinely does not exist is still skipped silently —
+  most search directories are speculative, and "absent" is not "unreadable".
+- A bundle that genuinely ships no commands or skills still exports nothing, with
+  no warning. Only a bundle that *failed to load* is now loud.
+- A skill with a synced (authored) manifest in a companion or remote bundle is
+  unaffected: its preimage never touched the filesystem, so it needs no bundle
+  directory and none is now demanded of it.
 - The liveness watchdog still **reports only**. It has never terminated, relaunched
   or reaped anything, and none of the above changes that; a quieter watchdog is a
   watchdog whose warnings are worth reading.

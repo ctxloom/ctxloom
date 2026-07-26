@@ -523,6 +523,17 @@ func buildOnlyValue(fv reflect.Value, path, target string) bool {
 // trueKeys returns the JSON key path of every `true` leaf in raw, sorted.
 func trueKeys(t *testing.T, raw []byte) []string {
 	t.Helper()
+	return TrueKeys(t, raw)
+}
+
+// TrueKeys returns the dotted JSON key path of every `true` leaf in raw,
+// sorted. Exported because bool ISOLATION — set one bool alone, require exactly
+// one true leaf, at a key no other bool lands on — is the only shape that can
+// tell a carried bool from a fanned one, and gates outside this package need
+// it: internal/config's T10 signed-preimage↔wire parity reuses it rather than
+// keeping a second copy that could drift in what it counts as a leaf.
+func TrueKeys(t *testing.T, raw []byte) []string {
+	t.Helper()
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal mirror: %v", err)

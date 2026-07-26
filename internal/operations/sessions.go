@@ -29,6 +29,15 @@ func isUnrecoverable(e sessions.Entry) bool {
 	if e.Summary != "" || len(e.Detail) > 0 {
 		return false // distilled: essence.md is still viewable
 	}
+	// ctxloom's OWN capture (transcript.jsonl) is a full fallback for a
+	// vendor transcript the vendor has since pruned — the whole point of
+	// capturing runner-side. Missing this check made the reap delete
+	// perfectly recoverable sessions (U087-F05). Manager.Reconcile fills this
+	// computed-on-read field on the entry it judges; without that fill the
+	// check here can never fire, which is why the fix had two halves.
+	if e.CanonicalTranscriptPath != "" {
+		return false
+	}
 	if e.TranscriptPath == "" {
 		return false // pending/unbound: the session is still in progress
 	}

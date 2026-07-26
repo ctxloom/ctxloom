@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +43,17 @@ func TestIsUnrecoverable(t *testing.T) {
 		// must stay recoverable rather than be silently forgotten.
 		notDir := filepath.Join(present, "child.jsonl")
 		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: notDir}))
+	})
+
+	t.Run("canonical transcript present, vendor transcript pruned -> recoverable", func(t *testing.T) {
+		// U087-F05: ctxloom's own capture is a full fallback. This is the
+		// predicate half of the fix; TestListSessions_KeepsSessionWithOnly
+		// ACanonicalTranscript covers the Reconcile half that makes the field
+		// non-empty in the first place.
+		assert.False(t, isUnrecoverable(sessions.Entry{
+			TranscriptPath:          missing,
+			CanonicalTranscriptPath: present,
+		}))
 	})
 }
 
@@ -101,4 +114,50 @@ func TestSelectPreviousEntry(t *testing.T) {
 		require.NotNil(t, ref)
 		assert.Equal(t, "s-self", ref.SessionID, "no active harp to skip → newest bound entry")
 	})
+}
+
+// TestListSessions_KeepsSessionWithOnlyACanonicalTranscript is U087-F05's
+// end-to-end red: a session whose VENDOR transcript was pruned but whose
+// ctxloom-captured canonical transcript.jsonl survives must not be reaped.
+// The reap is a saveLocked — irreversible — so this exercises the real
+// ListSessions path against a real HOME rather than calling isUnrecoverable
+// directly: the defect was structural (Reconcile judged RAW entries, and
+// CanonicalTranscriptPath is computed-on-read), so a unit test on the
+// predicate alone would have stayed green while the session still vanished.
+func TestListSessions_KeepsSessionWithOnlyACanonicalTranscript(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	e, err := mgr.AssignHarp("/proj", "claude")
+	require.NoError(t, err)
+
+	// Vendor transcript: bound, then pruned by the vendor.
+	vendor := filepath.Join(t.TempDir(), "vendor-transcript.jsonl")
+	require.NoError(t, mgr.BindSession(e.HarpName, "sess-1", vendor))
+
+	// ctxloom's OWN capture survives.
+	canonical, err := paths.ResolveHarpCanonicalTranscriptPath(e.HarpName)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(canonical), 0o755))
+	require.NoError(t, os.WriteFile(canonical, []byte("{}\n"), 0o644))
+
+	got, err := ListSessions()
+	require.NoError(t, err)
+
+	var names []string
+	for _, s := range got {
+		names = append(names, s.HarpName)
+	}
+	assert.Contains(t, names, e.HarpName,
+		"a session with a surviving canonical transcript must not be reaped")
+
+	// And the reap is persisted, so re-reading the index must agree.
+	idx, err := mgr.Load()
+	require.NoError(t, err)
+	var onDisk []string
+	for _, s := range idx.Sessions {
+		onDisk = append(onDisk, s.HarpName)
+	}
+	assert.Contains(t, onDisk, e.HarpName, "the index on disk must still hold the entry")
 }

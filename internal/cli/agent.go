@@ -267,15 +267,31 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		entry, err := operations.SetAgent(config.DefaultManager(), cfg, operations.SetAgentRequest{
-			Name:        name,
-			Engine:      agentSetEngine,
-			Profiles:    agentSetProfiles,
-			Runtime:     agentSetRuntime,
-			Permissions: agentSetPermissions,
-			Coordinator: agentSetCoordinator,
-			Driving:     agentSetDriving,
-		})
+		// Only the flags the user actually TYPED are sent. A nil field means
+		// "not named", which SetAgent keeps at its existing value — so
+		// `agent set dev --runtime container` no longer wipes dev's engine,
+		// profiles, posture, coordinator flag and escalation ladder. An
+		// explicitly-supplied empty value (--engine "") still clears.
+		req := operations.SetAgentRequest{Name: name}
+		if cmd.Flags().Changed("engine") {
+			req.Engine = &agentSetEngine
+		}
+		if cmd.Flags().Changed("profiles") {
+			req.Profiles = &agentSetProfiles
+		}
+		if cmd.Flags().Changed("runtime") {
+			req.Runtime = &agentSetRuntime
+		}
+		if cmd.Flags().Changed("permissions") {
+			req.Permissions = &agentSetPermissions
+		}
+		if cmd.Flags().Changed("coordinator") {
+			req.Coordinator = &agentSetCoordinator
+		}
+		if cmd.Flags().Changed("driving") {
+			req.Driving = &agentSetDriving
+		}
+		entry, err := operations.SetAgent(config.DefaultManager(), cfg, req)
 		if err != nil {
 			return err
 		}

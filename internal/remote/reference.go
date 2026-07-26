@@ -505,6 +505,40 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 // For canonical URLs, this extracts a meaningful identifier; for URL-less
 // (local) refs it is empty.
 func (r *Reference) LocalRemoteName() string {
+	return containRemoteName(r.localRemoteName())
+}
+
+// containRemoteName neutralises path traversal in a computed remote directory
+// name. The name is derived from a remote URL, which reaches us from a
+// lockfile, and it is then joined onto the cache root by LocalPath — whose
+// result callers hand to fs.Remove and friends. None of the derivations below
+// strip traversal: httpHostPath's path.Join CLEANS, so "https://x/../.."
+// collapses to "..", and sanitizePath only rewrites "://", ":" and "@". A
+// ".." segment therefore used to escape .ctxloom/cache/bundles entirely
+// (U081-F08).
+//
+// Traversal segments are REWRITTEN rather than dropped so two degenerate
+// remotes cannot silently collide onto one cache directory.
+func containRemoteName(name string) string {
+	if name == "" {
+		return ""
+	}
+	segs := strings.Split(filepath.ToSlash(name), "/")
+	out := segs[:0]
+	for _, seg := range segs {
+		switch seg {
+		case "", ".":
+			// A leading/duplicated separator or a no-op segment: drop it.
+		case "..":
+			out = append(out, "__")
+		default:
+			out = append(out, seg)
+		}
+	}
+	return path.Join(out...)
+}
+
+func (r *Reference) localRemoteName() string {
 	if r.URL == "" {
 		return ""
 	}

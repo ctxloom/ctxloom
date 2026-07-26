@@ -311,7 +311,16 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 // previously recorded anywhere — the gap that left a forced/sync re-pull of
 // retracted content just as exposed as before.
 func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) (retracted bool, reason string, err error) {
-	retracted, reason, _ = CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
+	// The determination failure is NOT discarded (U150-F04). CheckRetracted's
+	// error slot is useless if the caller drops it: an "I could not determine
+	// this" would otherwise carry on indistinguishably from "clean", which is
+	// the exposure the retraction channel exists to prevent. A pull whose
+	// retraction status is unknown does not proceed — not even under Force,
+	// which waives the publisher's WARNING, not the check itself.
+	retracted, reason, err = CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
+	if err != nil {
+		return false, "", err
+	}
 	if !retracted {
 		return false, "", nil
 	}

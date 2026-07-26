@@ -36,7 +36,6 @@ type HarnessSpecInput struct {
 	Harness         string
 	Model           string
 	Workspace       string
-	ExtraArgs       []string
 	Env             map[string]string
 	MCPServers      []agent.ChatMCPServer
 	SessionHarp     string
@@ -90,7 +89,6 @@ func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
 		Harness:         in.Harness,
 		Model:           in.Model,
 		Workspace:       in.Workspace,
-		ExtraArgs:       in.ExtraArgs,
 		Config:          cfg,
 		ResumeSessionId: in.ResumeSessionID,
 		PermissionMode:  in.Permission.String(),

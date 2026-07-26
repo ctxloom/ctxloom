@@ -19,7 +19,6 @@ func TestHarnessSpec_RoundTrip(t *testing.T) {
 		Harness:   "claude-code",
 		Model:     "claude-sonnet-5",
 		Workspace: "/work/child-1",
-		ExtraArgs: []string{"--verbose"},
 		Env:       map[string]string{"CTXLOOM_PROJECT_ID": "proj-1"},
 		MCPServers: []agent.ChatMCPServer{
 			{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}},
@@ -33,7 +32,6 @@ func TestHarnessSpec_RoundTrip(t *testing.T) {
 	assert.Equal(t, "claude-code", spec.Harness)
 	assert.Equal(t, "claude-sonnet-5", spec.Model)
 	assert.Equal(t, "/work/child-1", spec.Workspace)
-	assert.Equal(t, []string{"--verbose"}, spec.ExtraArgs)
 	assert.Equal(t, "bypass", spec.PermissionMode, "the typed field carries the wire spelling")
 	assert.Equal(t, "native-sess-1", spec.ResumeSessionId)
 

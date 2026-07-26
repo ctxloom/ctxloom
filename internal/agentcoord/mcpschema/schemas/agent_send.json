@@ -4,13 +4,6 @@
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
-      "artifact_ids": {
-        "description": "by reference, never by value",
-        "items": {
-          "type": "string"
-        },
-        "type": "array"
-      },
       "in_reply_to": {
         "description": "Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in `structured`; a resolved approval reports delivery: DELIVERY_DELIVERED, so DELIVERY_QUEUED on an approval reply means it was NOT honoured.",
         "examples": [

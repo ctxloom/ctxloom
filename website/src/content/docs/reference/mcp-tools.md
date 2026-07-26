@@ -55,10 +55,7 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `budget` | object | No | carved from the parent's budget |
-| `constraints` | object | No | Optional model/tools/sandbox hints (unused today; the agent's own binding decides) |
 | `input` | object | Yes | Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` ("none"\|"worktree"): "none" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); "worktree" carves the child its own git worktree, checked out at HEAD (it will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's. Optional `dirty_tree_handler` ("commit"\|"copy"\|"stale"\|"fail"), relevant only when this spawn resolves to a worktree and the parent tree has uncommitted changes (a worktree checkout only ever sees committed state): "commit" auto-commits the parent's dirty state first (requires the project to have set dirty_tree_commit_ack: true in its config — this per-call field can never grant that; absent the ack, the spawn is refused, naming the config key); "copy" carves the worktree at HEAD then reproduces the changes inside it as uncommitted WIP, nothing committed; "stale" proceeds with the child seeing committed state only; "fail" refuses the spawn, naming the uncommitted paths. Empty defers to the project's dirty_tree_handler config default, then to the built-in default ("commit") |
-| `notify_on` | string | No | One of: `NOTIFY_ON_UNSPECIFIED`, `NOTIFY_ON_COMPLETION`, `NOTIFY_ON_NOTHING` |
 | `role` | string | Yes | Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`) |
 
 ### agent_send
@@ -67,7 +64,6 @@ Send a message to another agent session. Coordinators address their children by 
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `artifact_ids` | string[] | No | by reference, never by value |
 | `in_reply_to` | string | No | Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in `structured`; a resolved approval reports delivery: DELIVERY_DELIVERED, so DELIVERY_QUEUED on an approval reply means it was NOT honoured. |
 | `structured` | object | No | Optional structured companion. Ordinarily an envelope whose `kind` names the message kind: result \| question \| error. ANSWERING A RELAYED approval_request is the exception — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {"decision": "DECISION_ACCEPT" \| "DECISION_ACCEPT_FOR_SESSION" \| "DECISION_DECLINE" \| "DECISION_CANCEL", "note": "..."}. `kind` may ride alongside the decision and is ignored; any OTHER key is rejected, and the send fails naming the accepted shape. Answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent. |
 | `text` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
@@ -80,8 +76,7 @@ Stop a delegated child run: its engine (or container) is killed, its execution s
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `grace` | string | No | Duration, e.g. "3s" |
-| `reason` | string | No |  |
+| `reason` | string | No | Why you are stopping this child. Recorded on the run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on ("superseded by a narrower brief", "wrong base commit") |
 | `run_id` | string | Yes | The child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id) |
 
 ### assemble_context
@@ -157,10 +152,8 @@ List this session's delegated children (the roster): each entry's harp (agent_id
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `include_descendants` | boolean | No |  |
 | `include_terminal` | boolean | No |  |
 | `role` | string | No | filter |
-| `task_id` | string | No | Scope to one task, optionally including its descendant task tree — no prefix matching on opaque ids. |
 
 ### search_content
 

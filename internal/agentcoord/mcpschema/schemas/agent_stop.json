@@ -4,11 +4,11 @@
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
-      "grace": {
-        "description": "Duration, e.g. \"3s\"",
-        "type": "string"
-      },
       "reason": {
+        "description": "Why you are stopping this child. Recorded on the run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"wrong base commit\")",
+        "examples": [
+          "superseded by a narrower brief"
+        ],
         "type": "string"
       },
       "run_id": {
@@ -22,11 +22,7 @@
     "type": "object"
   },
   "outputSchema": {
-    "properties": {
-      "exited_within_grace": {
-        "type": "boolean"
-      }
-    },
+    "properties": {},
     "type": "object"
   }
 }

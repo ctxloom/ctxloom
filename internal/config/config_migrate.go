@@ -560,6 +560,13 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 
 	agentsMap := upgrade.EnsureMap(root, "agents")
 	// Don't clobber a hand-authored agents.default; the user's binding wins.
+	//
+	// But the delete above already ran, so on THIS branch the user's default
+	// profile list is gone with nowhere to go — an irreversible on-disk loss
+	// (the migration rewrites the file), after which the next run launches with
+	// a different profile set than the one they configured. Report it the way
+	// migrateLLMv3 reports its own lossy branch: recordMigrationWarning,
+	// surfaced as WarnKindMigrationLossy, fatal in strict mode (U049-F06).
 	if upgrade.MapValue(agentsMap, "default") == nil {
 		entry := upgrade.EnsureMap(agentsMap, "default")
 		// engine ← llm.defaults.primary (when present), so the synthesized default
@@ -574,6 +581,8 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 		// Move the defaults seq node itself so its item comments survive.
 		upgrade.MapSet(entry, "profiles", defaultsSeq)
 		upgrade.MapSet(entry, "runtime", upgrade.ScalarNode("host"))
+	} else {
+		recordMigrationWarning("config migration: dropped profiles.defaults %v (agents.default already exists); re-add them under agents.<name>.profiles", scalarSeqValues(defaultsSeq))
 	}
 
 	// Point default_agent at the synthesized (or pre-existing) default agent,
@@ -581,4 +590,22 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 	if upgrade.MapValue(root, "default_agent") == nil {
 		upgrade.MapSet(root, "default_agent", upgrade.ScalarNode("default"))
 	}
+}
+
+// scalarSeqValues renders a YAML sequence node's scalar items for a
+// diagnostic. A lossy-migration message has to NAME what it dropped —
+// "dropped your defaults" is not something a user can act on — and the node
+// is the only place those values still exist by the time the warning is
+// written.
+func scalarSeqValues(seq *yaml.Node) []string {
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return nil
+	}
+	out := make([]string, 0, len(seq.Content))
+	for _, item := range seq.Content {
+		if item.Kind == yaml.ScalarNode {
+			out = append(out, item.Value)
+		}
+	}
+	return out
 }

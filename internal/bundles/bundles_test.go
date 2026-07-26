@@ -481,7 +481,7 @@ func TestBundleSkill_ContentPayload_IsHashPreimage(t *testing.T) {
 		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
 	}}
 
-	payload, err := skill.ContentPayload()
+	payload, err := skill.ContentPayload(nil, "", "")
 	require.NoError(t, err)
 	assert.JSONEq(t,
 		`{"preimage":"ctxloom-exec/1","manifest":[`+
@@ -489,7 +489,7 @@ func TestBundleSkill_ContentPayload_IsHashPreimage(t *testing.T) {
 			`{"path":"scripts/run.sh","sha256":"sha256:script1","mode":"0755"}]}`,
 		string(payload))
 
-	assert.Equal(t, hashContent(payload), skill.ComputeContentHash())
+	assert.Equal(t, hashContent(payload), skill.ComputeContentHash(nil, "", ""))
 }
 
 // TestBundleSkill_ComputeContentHash proves editing ANY single file in the
@@ -501,16 +501,16 @@ func TestBundleSkill_ComputeContentHash(t *testing.T) {
 		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
 		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
 	}}
-	baseHash := base.ComputeContentHash()
+	baseHash := base.ComputeContentHash(nil, "", "")
 	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
-	assert.Equal(t, baseHash, base.ComputeContentHash(), "deterministic across calls")
+	assert.Equal(t, baseHash, base.ComputeContentHash(nil, "", ""), "deterministic across calls")
 
 	// Map iteration order must not affect the hash (Serialize sorts by path).
 	reordered := BundleSkill{Files: map[string]SkillFileMeta{
 		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
 		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
 	}}
-	assert.Equal(t, baseHash, reordered.ComputeContentHash())
+	assert.Equal(t, baseHash, reordered.ComputeContentHash(nil, "", ""))
 
 	// A script's content hash changing (a tampered/edited scripts/run.sh)
 	// changes the whole-package hash.
@@ -518,14 +518,14 @@ func TestBundleSkill_ComputeContentHash(t *testing.T) {
 		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
 		"scripts/run.sh": {SHA256: "sha256:different", Mode: "0755"},
 	}}
-	assert.NotEqual(t, baseHash, contentChanged.ComputeContentHash(), "editing a file's content must change the package hash")
+	assert.NotEqual(t, baseHash, contentChanged.ComputeContentHash(nil, "", ""), "editing a file's content must change the package hash")
 
 	// A mode flip alone (e.g. an exec bit added/removed) also changes the hash.
 	modeChanged := BundleSkill{Files: map[string]SkillFileMeta{
 		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
 		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0644"},
 	}}
-	assert.NotEqual(t, baseHash, modeChanged.ComputeContentHash(), "a mode-only change (e.g. losing the exec bit) must change the package hash")
+	assert.NotEqual(t, baseHash, modeChanged.ComputeContentHash(nil, "", ""), "a mode-only change (e.g. losing the exec bit) must change the package hash")
 
 	// Adding or removing a file changes the hash.
 	fileAdded := BundleSkill{Files: map[string]SkillFileMeta{
@@ -533,7 +533,7 @@ func TestBundleSkill_ComputeContentHash(t *testing.T) {
 		"scripts/run.sh":   {SHA256: "sha256:script1", Mode: "0755"},
 		"assets/README.md": {SHA256: "sha256:extra", Mode: "0644"},
 	}}
-	assert.NotEqual(t, baseHash, fileAdded.ComputeContentHash(), "adding a file must change the package hash")
+	assert.NotEqual(t, baseHash, fileAdded.ComputeContentHash(nil, "", ""), "adding a file must change the package hash")
 }
 
 // =============================================================================

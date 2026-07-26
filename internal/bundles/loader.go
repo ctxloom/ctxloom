@@ -211,6 +211,15 @@ func (l *Loader) Gate() ContentGate {
 	return l.gate
 }
 
+// FS returns the filesystem this loader reads bundle trees from. A skill's
+// trust preimage is derived from its on-disk tree (BundleSkill.ContentPayload),
+// so a caller computing that preimage for an item this loader resolved MUST
+// use this same filesystem — computing it against a different fs would produce
+// a different hash for the same skill and silently withhold it.
+func (l *Loader) FS() afero.Fs {
+	return l.fs
+}
+
 // Withheld returns the item refs the trust gate withheld over this loader's
 // lifetime, deduplicated and sorted. Empty when no gate is set or nothing was
 // withheld. Callers surface the count so the user knows content was hidden;

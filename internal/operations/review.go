@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -235,7 +236,16 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 	}
 	for _, name := range bundle.SkillNames() {
 		skill := bundle.Skills[name]
-		payload, perr := skill.ContentPayload()
+		// The EFFECTIVE manifest — authored if synced, derived from the tree
+		// if not — is resolved once and used for BOTH the preimage the user
+		// is asked to approve and the file listing they are shown. Rendering
+		// the authored manifest while hashing a derived one would ask for
+		// approval of files review never displayed.
+		manifest, merr := skill.EffectiveManifest(e.fs, filepath.Dir(bundle.Path), name)
+		if merr != nil {
+			continue
+		}
+		payload, perr := skill.ContentPayload(e.fs, filepath.Dir(bundle.Path), name)
 		if perr != nil {
 			continue
 		}
@@ -250,7 +260,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		if !ok {
 			continue
 		}
-		item.CurrentContent = renderSkillSurface(skill)
+		item.CurrentContent = renderSkillSurface(manifest)
 		out = append(out, item)
 	}
 	return out
@@ -427,9 +437,12 @@ func renderHookSurface(entry bundles.HookEntry) string {
 // listing (readTrustSnapshot / unifiedReviewDiff) surfaces exactly which
 // file(s) changed, added, or were removed, including a mode flip on a
 // scripts/ entry (0644 -> 0755), not merely "the skill changed".
-func renderSkillSurface(skill bundles.BundleSkill) string {
+// It takes the resolved EFFECTIVE manifest rather than the entry so that what
+// is displayed is exactly what the trust preimage covers, for a synced and an
+// unsynced skill alike.
+func renderSkillSurface(manifest bundles.SkillManifest) string {
 	var b strings.Builder
-	for _, entry := range skill.ToManifest() {
+	for _, entry := range manifest {
 		fmt.Fprintf(&b, "%s  %s  mode:%s\n", entry.Path, entry.SHA256, entry.Mode)
 	}
 	return b.String()

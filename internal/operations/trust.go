@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -929,7 +930,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		// A skill has no distilled form (SKILL.md's description IS the
 		// progressive-disclosure mechanism; distilling it would defeat that) —
 		// one payload, mirroring KindMCP/KindHook.
-		payload, perr := skill.ContentPayload()
+		payload, perr := skill.ContentPayload(loader.FS(), filepath.Dir(bundle.Path), tRef.Name)
 		if perr != nil {
 			return nil, nil, "", fmt.Errorf("skill %q payload: %w", tRef.Name, perr)
 		}

@@ -507,7 +507,9 @@ func seededSkillPayload() []byte {
 	skill := bundles.BundleSkill{Files: map[string]bundles.SkillFileMeta{
 		"SKILL.md": {SHA256: "sha256:abc123", Mode: "0644"},
 	}}
-	payload, err := skill.ContentPayload()
+	// An authored manifest is present, so the preimage never consults the
+	// filesystem (BundleSkill.EffectiveManifest short-circuits).
+	payload, err := skill.ContentPayload(nil, "", "reviewer")
 	if err != nil {
 		panic(err)
 	}

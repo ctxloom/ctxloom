@@ -20,18 +20,18 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **238** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **244** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,026** |
+| `open` | no commit names this ID | **2,020** |
 
-**Totals: 2268 findings across 162 units — 238 resolved, 2026 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 244 resolved, 2020 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/findings_index_test.go` recomputes every header number from the rows and fails on a mismatch. Update rows, run `just test-pkg ./tests/docs/`, and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 110 | 265 (+1 refuted) |
-| MED | 999 | 36 | 963 |
+| HIGH | 376 | 114 | 261 (+1 refuted) |
+| MED | 999 | 38 | 961 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
@@ -449,10 +449,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U140-F02 | open | `:83-86` | CORRECTNESS | **When `os.Getwd()` fails, `resolveBase` invents a project root: the bare relative string `"."`.** That value flows all the way into the project registry, where it can be minted as a permanent iden... | U140.md |
 | U141-F01 | open | `gate.go:87,96,99` | ERRHANDLING | `OutputGate.Release` discards the error from all three `dst.Write` calls, so a failing tty silently loses the *entire* replay of held engine output — the ring has already been drained, so the bytes... | U141.md |
 | U142-F01 | open | `testsupport.go:34-53, 63-68` | CORRECTNESS | `TestEnvKeysCoversProductionReads` enforces only variables read as **string literals** through `os.Getenv`/`os.LookupEnv`. Ten of the 24 entries are exempt from that enforcement — seven read via Go... | U142.md |
-| U144-F01 | open | `record.go:179-184, 375-385` | CORRECTNESS | `SessionPayload` silently drops `agent.ChatSessionInfo.Resumable`, so the one-shot resume capability flag is lost from every canonical transcript | U144.md |
-| U144-F02 | open | `record.go:213-224, 403-414` | CORRECTNESS | `PermissionPayload` silently drops `agent.PermissionRequest.ToolCallID`, so a recorded permission request cannot be re-paired with its tool call | U144.md |
-| U144-F03 | open | `history.go:182-184, 204-207` | SILENTNOOP | A transcript whose every line fails to parse (or a zero-byte file) returns a Session with **zero entries and a nil error**, which downstream is indistinguishable from "an empty conversation" and ac... | U144.md |
-| U144-F04 | open | `recorder.go:211, 238, 260; coordinated.go:80, 82` | SILENTNOOP | Every `Record`/`Close` error on the live capture path is discarded with `_ =` and **no counter, no warn, no metric**, so a full disk / EACCES / bad path yields a green chat and zero captured bytes ... | U144.md |
+| U144-F01 | **RESOLVED** `e7631e88` | `record.go:179-184, 375-385` | CORRECTNESS | `SessionPayload` silently drops `agent.ChatSessionInfo.Resumable`, so the one-shot resume capability flag is lost from every canonical transcript | U144.md |
+| U144-F02 | **RESOLVED** `e7631e88` | `record.go:213-224, 403-414` | CORRECTNESS | `PermissionPayload` silently drops `agent.PermissionRequest.ToolCallID`, so a recorded permission request cannot be re-paired with its tool call | U144.md |
+| U144-F03 | **RESOLVED** `5f893278` | `history.go:182-184, 204-207` | SILENTNOOP | A transcript whose every line fails to parse (or a zero-byte file) returns a Session with **zero entries and a nil error**, which downstream is indistinguishable from "an empty conversation" and ac... | U144.md |
+| U144-F04 | **RESOLVED** `71cb25a2` | `recorder.go:211, 238, 260; coordinated.go:80, 82` | SILENTNOOP | Every `Record`/`Close` error on the live capture path is discarded with `_ =` and **no counter, no warn, no metric**, so a full disk / EACCES / bad path yields a green chat and zero captured bytes ... | U144.md |
 | U145-F01 | open | `driver.go:29-45` | SILENTNOOP | `ConvertJSONLLines` returns `nil` after recording ZERO events, so a vendor format that has drifted out from under an adapter converts "successfully" to an empty result, forever, with a success mess... | U145.md |
 | U145-F02 | open | `driver.go:31-42` | CORRECTNESS | A conversion that fails partway leaves a partial canonical transcript on disk, and `ConvertVendorTranscript`'s presence-based idempotency guard then treats that truncated file as complete **permane... | U145.md |
 | U146-F01 | open | `brain.go:64-84` | SILENTNOOP | `convertLines` returns `nil` after discarding every line of a file, producing zero entries; combined with the lazy Recorder this yields a permanent, self-repeating false success. | U146.md |
@@ -1410,8 +1410,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U144-F06 | open | `record.go:260-306; recorder.go:46-58` | NOPAY | The entire `RawPolicy` / `RecorderOption` / `WithRawPolicy` apparatus (~55 lines + a `ChatRequest` field + a proto field) has no production reachability: nothing ever sets `agent.ChatRequest.Transc... | U144.md |
 | U144-F07 | open | `history.go:139-144` | CORRECTNESS | `CurrentSession` returns the **first** candidate's `GetSession` error rather than skipping to the next, so one stale index entry (file pruned by retention reap, permissions change) makes "current s... | U144.md |
 | U144-F08 | open | `history.go:185-187` | COUPLING | The fail-loud schema-version contract has no teeth end to end: three of the four consumers swallow the hard error | U144.md |
-| U144-F09 | open | `recorder.go:116-178` | COMPLEXITY | `fileRecorder.Record` has CCN 12 against a CI gate that fails above 10 (brief baseline; the only such function in the unit) | U144.md |
-| U144-F10 | open | `record.go:308-414 ↔ history.go:215-285` | DUPLICATE | Eight hand-written mirror converters plus ten mirror structs mean each new `agent` field must be edited in four places with nothing enforcing parity — F01 and F02 are proof it has already silently ... | U144.md |
+| U144-F09 | **RESOLVED** `71cb25a2` | `recorder.go:116-178` | COMPLEXITY | `fileRecorder.Record` has CCN 12 against a CI gate that fails above 10 (brief baseline; the only such function in the unit) | U144.md |
+| U144-F10 | **RESOLVED** `e7631e88` | `record.go:308-414 ↔ history.go:215-285` | DUPLICATE | Eight hand-written mirror converters plus ten mirror structs mean each new `agent` field must be edited in four places with nothing enforcing parity — F01 and F02 are proof it has already silently ... | U144.md |
 | U144-F11 | open | `coordinated.go:74-77, 100-106` | CORRECTNESS | `Submit` after the final `ProducerDone` — or any construction with `producers == 0` — panics with "send on closed channel" **inside the live chat's goroutine**, the exact thing this package's contr... | U144.md |
 | U145-F03 | open | `entries.go:9-18` | CORRECTNESS | `NonEmptyRaw`'s doc comment states a factually false rationale: an empty-but-non-nil `json.RawMessage` does NOT "round-trip to a literal `null`" on the canonical write path. With `omitempty` (which... | U145.md |
 | U145-F04 | open | `driver.go:29` | DUPLICATE | `ConvertJSONLLines` is presented (`driver.go:11-13`, "the pattern every JSONL-per-session engine's Convert copies") as the shared driver, but only 2 of the 4 adapters call it; the other 2 re-implem... | U145.md |

@@ -177,6 +177,12 @@ type PlanEntry struct {
 // SessionPayload is the KindSession payload — agent.ChatSessionInfo minus
 // SessionID (hoisted to the envelope).
 type SessionPayload struct {
+	// Resumable mirrors agent.ChatSessionInfo.Resumable: the LIVE half of the
+	// one-shot resume gate (the connected adapter's own handshake advertising
+	// session/load), as distinct from the static per-backend capability
+	// table. Without it on disk, a transcript cannot answer "could this
+	// native session have been resumed?" after the fact (U144-F01).
+	Resumable      bool        `json:"resumable,omitempty"`
 	Model          string      `json:"model,omitempty"`
 	PermissionMode string      `json:"permission_mode,omitempty"`
 	ContextWindow  int         `json:"context_window,omitempty"`
@@ -221,6 +227,13 @@ type PermissionPayload struct {
 	// vocabulary ("execute"|"edit"|"delete"|"move"|"read"|"search"|"fetch"|
 	// "think"|"other"), advisory metadata about the tool being requested.
 	Kind string `json:"kind,omitempty"`
+	// ToolCallID mirrors agent.PermissionRequest.ToolCallID — the
+	// engine-native tool-call id this request refers to. Without it a
+	// recorded permission request cannot be re-paired with the tool call it
+	// gated, leaving only name-based guessing (U144-F02). The published
+	// schema (docs/transcript.schema.json) already declared this key before
+	// the Go struct carried it.
+	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
 // PermissionOption is one decision the engine offers for a permission request
@@ -374,6 +387,7 @@ func planEntriesPayload(entries []agent.PlanEntry) []PlanEntry {
 
 func sessionPayload(s *agent.ChatSessionInfo) *SessionPayload {
 	p := &SessionPayload{
+		Resumable:      s.Resumable,
 		Model:          s.Model,
 		PermissionMode: s.PermissionMode,
 		ContextWindow:  s.ContextWindow,
@@ -402,10 +416,11 @@ func completePayload(m *agent.TurnMeta) *CompletePayload {
 
 func permissionPayload(p *agent.PermissionRequest) *PermissionPayload {
 	out := &PermissionPayload{
-		ID:        p.ID,
-		ToolName:  p.ToolName,
-		ToolInput: p.ToolInput,
-		Kind:      p.Kind,
+		ID:         p.ID,
+		ToolName:   p.ToolName,
+		ToolInput:  p.ToolInput,
+		Kind:       p.Kind,
+		ToolCallID: p.ToolCallID,
 	}
 	for _, o := range p.Options {
 		out.Options = append(out.Options, PermissionOption{ID: o.ID, Kind: o.Kind, Name: o.Name})

@@ -464,6 +464,46 @@ that cannot fail is worse than no instrument, and several of its limbs could not
   path is read before extraction rather than after. A successful import behaves
   exactly as before (U087-F25).
 
+## The canonical transcript (batch 10)
+
+These change what ctxloom writes into, and reads back out of, a harp's own
+`persist/transcript.jsonl` — the record that replaced the four per-engine
+scrapers and is now the only memory source for codex/kiro/claude-code/
+antigravity.
+
+- **Two fields that were being dropped are now on disk.** `session` lines
+  carry `resumable` (whether the connected adapter advertised it can resume
+  that native session — the live half of the one-shot resume gate), and
+  `permission` lines carry `tool_call_id` (the engine-native id of the tool
+  call the request gated). Both were declared on the in-memory types and
+  silently lost by the on-disk converters, so no transcript ctxloom has ever
+  written contains them. `docs/transcript.schema.json` already declared
+  `tool_call_id`; `resumable` is added to it. Both keys are optional and
+  omitted when empty, so existing transcripts and any consumer of them stay
+  valid (U144-F01, U144-F02).
+- **A transcript that decodes to nothing is now an error, not an empty
+  conversation.** A `transcript.jsonl` whose every line failed to parse — or a
+  zero-byte one — used to read back as a successful, empty session. That was
+  indistinguishable from a real conversation with no entries, and it
+  suppressed the fallback to a vendor transcript, which only runs when the
+  canonical read fails. So a user whose capture was corrupted saw a
+  confidently empty history instead of the transcript that still existed.
+  Reading such a file now fails loudly, and `session list` skips that one harp
+  with a warning instead of hiding the rest. **A file that decodes fine but
+  carries no conversation entries — only `session`/`complete` envelope lines —
+  is still a legitimate empty session and still reads back without error**
+  (U144-F03).
+- **A failed transcript write is now visible.** Transcript capture is
+  deliberately invisible to the chat it shadows: every capture seam discards
+  write errors so a failing disk can never stall or break a live
+  conversation. With nothing behind that, a full disk or an unwritable
+  `persist/` dir produced a completely green chat, zero captured bytes and no
+  diagnostic at all. The recorder now prints one warning on the first failure
+  (not one per event) and a total on close, including the case where no file
+  was ever created. **Nothing about the chat changes** — every event is still
+  forwarded, no error is propagated to the engine or the user's turn, and a
+  successful capture is as silent as it always was (U144-F04).
+
 ---
 
 ## Upgrading
@@ -527,6 +567,15 @@ that cannot fail is worse than no instrument, and several of its limbs could not
 - A session with genuinely no transcript and no essence is still reaped — it is
   unactionable. It just says so now.
 - A successful `ctxloom skill import` behaves exactly as before, staging and all.
+- A transcript that decodes to real records but carries no conversation entries
+  (only `session`/`complete` envelope lines) is still a legitimate empty session,
+  and still reads back without error. Only a file from which *nothing* decoded is
+  a failure.
+- A partially readable transcript still degrades to partial exactly as before:
+  the readable lines come back with no error.
+- A chat whose transcript capture fails is otherwise **unchanged** — every event
+  is still forwarded, nothing is propagated to the engine or the user's turn.
+  Only the silence changed.
 - The liveness watchdog still **reports only**. It has never terminated, relaunched
   or reaped anything, and none of the above changes that; a quieter watchdog is a
   watchdog whose warnings are worth reading.

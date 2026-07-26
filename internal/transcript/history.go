@@ -67,7 +67,9 @@ func NewCanonicalHistory(workDir string, store sessions.Store) *CanonicalHistory
 // transcript was ever captured for this harp: the mirror image of the
 // Recorder's empty-input contract (NewRecorder leaves no file for a chat that
 // produced zero events, recorder.go), so "no file" and "captured, empty"
-// never get confused on the read side either.
+// never get confused on the read side either — and, since U144-F03, nor does
+// "a file that decoded to nothing", which ParseTranscriptFile now also
+// errors on rather than returning as an empty conversation.
 func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agent.Session, error) {
 	if harpName == "" {
 		return nil, fmt.Errorf("transcript: GetSession requires a non-empty harp")
@@ -167,14 +169,27 @@ func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, 
 //     file: silently re-interpreting an evolved shape under the old rules is
 //     exactly the silent-mis-parse failure mode the versioned envelope exists
 //     to prevent ("isolation-must-not-negotiate": fail loud, never guess).
+//   - A file from which NOT ONE record decoded — every line corrupt, or zero
+//     bytes — is a HARD error too (U144-F03). Degrading to partial only means
+//     anything when there IS a part; "the whole file was unreadable" and "the
+//     conversation was empty" are different facts, and returning an empty
+//     Session with a nil error asserted the second when only the first was
+//     known. It also suppressed lm/grpc/canonical_source.go's legacy fallback,
+//     which runs only when this errors. Note the discrimination that matters:
+//     zero ENTRIES is legitimate (a file of session/complete envelope lines is
+//     a real, entry-less conversation and returns nil); zero RECORDS is not,
+//     because the writer creates the file lazily on the first SUCCESSFUL
+//     Record (see NewRecorder), so it cannot legitimately decode to nothing.
 func ParseTranscriptFile(path, id string) (*agent.Session, error) {
 	store := agent.NewSessionStore()
 
 	var (
-		start, end time.Time
-		versionErr error
+		lines, decoded int
+		start, end     time.Time
+		versionErr     error
 	)
 	sess, err := store.ParseSessionFile(path, id, func(line []byte) []agent.SessionEntry {
+		lines++
 		if versionErr != nil {
 			return nil // already fatal; stop contributing further lines
 		}
@@ -192,6 +207,7 @@ func ParseTranscriptFile(path, id string) (*agent.Session, error) {
 		if rec.TS.After(end) {
 			end = rec.TS
 		}
+		decoded++
 		return entriesFromRecord(rec)
 	})
 	if err != nil {
@@ -199,6 +215,12 @@ func ParseTranscriptFile(path, id string) (*agent.Session, error) {
 	}
 	if versionErr != nil {
 		return nil, versionErr
+	}
+	if decoded == 0 {
+		if lines == 0 {
+			return nil, fmt.Errorf("transcript: %s: file carries no lines at all — the writer creates a canonical transcript only on the first SUCCESSFULLY recorded event, so a zero-byte one is a failed or truncated capture, not an empty conversation", path)
+		}
+		return nil, fmt.Errorf("transcript: %s: read %d line(s) but decoded 0 canonical records — the file exists yet nothing in it is readable as a transcript (corrupted or foreign capture); refusing to report this as an empty conversation", path, lines)
 	}
 
 	if !start.IsZero() {

@@ -233,6 +233,7 @@ in scoped and global listings alike — they are never hidden.
 | Retry-budget exhaustion for a cause other than `launch_failed` | silent; the child's mail stayed queued and nobody was told | the parent's mailbox and stderr both learn (U023-F02) |
 | `ctxloom remote pull` where the remote's `manifest.yaml` exists but does not parse | treated as **not retracted**, pull proceeded | non-zero: the retraction status is UNKNOWN and the pull stops, `--force` included (U150-F04) |
 | A profile using `deny_tools` | `ctxloom run` aborted in strict mode; degraded mode printed "it is IGNORED", which was false | accepted, as the loader always honoured it (U049-F01) |
+| A container `--print` one-shot that streamed **zero answer bytes** | a warning, an empty file, **exit 0** | non-zero: the engine ran and answered nothing, so there is nothing to print or record (U041-F01) |
 
 Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
 
@@ -242,6 +243,11 @@ Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
   reached the log (U023-F24).
 - The `ui:` config section (`prefix_key`, `surround`) is now actually written by
   `Save()`/`Marshal()`. It had been accepted and silently discarded (U049-F03).
+- A container `--print` one-shot's answer is no longer read across a data race. The
+  render goroutine kept appending to the answer buffer while the main goroutine read
+  it at the turn boundary, and both wrote stdout at once — so an answer could be
+  truncated, or the trailing newline could land mid-answer, on a run that reported
+  success (U041-F04).
 
 ---
 

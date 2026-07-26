@@ -114,10 +114,14 @@ func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, forma
 	defer cancel()
 	runID := sess.outcome.RunID
 
-	turnIdle := make(chan struct{}, 256)
+	// Buffered and drained only for its arrival signal: the REPL counts turn
+	// boundaries, it does not collect the answer (capture=false, so every value
+	// is empty).
+	turnIdle := make(chan string, 256)
 	renderErr := make(chan error, 1)
 	go func() {
-		renderErr <- renderOwnedRunEvents(ctx, stdout, format, runID, sess.events, turnIdle, nil)
+		_, err := renderOwnedRunEvents(ctx, stdout, format, runID, sess.events, turnIdle, false)
+		renderErr <- err
 	}()
 
 	lines := make(chan string)
@@ -180,50 +184,84 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 	defer cancel()
 	runID := sess.outcome.RunID
 
-	turnIdle := make(chan struct{}, 4)
-	var answer strings.Builder
-	renderErr := make(chan error, 1)
+	// The answer buffer belongs to the RENDER goroutine, and the accumulated
+	// text is handed over the turn-boundary channel (U041-F04). It used to be a
+	// strings.Builder shared with this goroutine, read the instant turnIdle
+	// fired — but that boundary is signalled from inside the very loop that
+	// keeps appending, so the read raced every delta still in flight. A race
+	// here does not merely trip the detector: it truncates or garbles the
+	// answer of a run that reports success.
+	turnIdle := make(chan string, 4)
+	rendered := make(chan ownedRenderResult, 1)
 	go func() {
-		renderErr <- renderOwnedRunEvents(ctx, stdout, formatText, runID, sess.events, turnIdle, &answer)
+		text, err := renderOwnedRunEvents(ctx, stdout, formatText, runID, sess.events, turnIdle, true)
+		rendered <- ownedRenderResult{text: text, err: err}
 	}()
 
+	var text string
 	var runErr error
 	select {
-	case <-turnIdle:
-		// One turn completed: the answer is fully streamed.
-	case runErr = <-renderErr:
+	case text = <-turnIdle:
+		// One turn completed: the answer is fully streamed. Stop the renderer
+		// and WAIT for it before this goroutine touches stdout below — it is
+		// still selecting on events, and two goroutines writing the same
+		// stdout is how the trailing newline ends up in the middle of the
+		// answer (the second half of U041-F04).
+		cancel()
+		<-rendered
+	case res := <-rendered:
 		// The run terminated before/at the first boundary.
+		text, runErr = res.text, res.err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
-	text := answer.String()
-	if !strings.HasSuffix(text, "\n") && text != "" {
-		fmt.Fprintln(stdout)
-	}
 	if text != "" {
+		if !strings.HasSuffix(text, "\n") {
+			fmt.Fprintln(stdout)
+		}
 		if terr := transcript.RecordOneshot(harp, backend, prompt, text); terr != nil {
 			clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
 		}
-	} else {
-		// A green run that delivered zero bytes is this project's signature
-		// silent no-op — surface it rather than pretend success.
-		clidiag.Warn("ctxloom", "oneshot container run produced no answer text")
 	}
 	if runErr != nil {
 		return runErr
 	}
+	if text == "" {
+		// U041-F01: a green run that delivered zero bytes is this project's
+		// signature silent no-op. There is no such thing as a legitimately
+		// empty oneshot answer — the caller asked exactly one question and got
+		// no reply — so this exits nonzero instead of writing an empty file and
+		// reporting success. The run's own failure (runErr above) takes
+		// precedence: that one already said what went wrong.
+		clidiag.Warn("ctxloom", "oneshot container run produced no answer text: the engine started and finished without emitting a single answer byte, so there is nothing to print or record")
+		return &ExitError{Code: 1}
+	}
 	return nil
+}
+
+// ownedRenderResult carries the render goroutine's two outputs — the answer it
+// accumulated and why it stopped — over one channel, so neither is read from
+// the goroutine's own memory by anybody else.
+type ownedRenderResult struct {
+	text string
+	err  error
 }
 
 // renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
 // forwards FINAL-channel message deltas (text mode → prose to out; json mode →
 // the NDJSON entry contract runStructuredREPL's frontend already consumes),
-// signals each turn boundary on turnIdle (non-blocking), optionally accumulates
-// the FINAL text into answer (oneshot capture), and returns nil at RunCompleted
-// or ctx.Err() on cancellation. REASONING/LOG channels are excluded — the host
+// signals each turn boundary on turnIdle (non-blocking) carrying the answer
+// text accumulated so far, and returns that text plus nil at RunCompleted or
+// ctx.Err() on cancellation. REASONING/LOG channels are excluded — the host
 // renders the answer, not the scratchpad, exactly like accumulateFinalText.
-func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- struct{}, answer *strings.Builder) error {
+//
+// The accumulator is LOCAL by construction (U041-F04): every read by another
+// goroutine goes through turnIdle or the return value, so there is no shared
+// buffer to race on. capture=false skips accumulation entirely for the REPL,
+// which only counts boundaries.
+func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
+	var answer strings.Builder
 	final := map[string]bool{}
 	enc := json.NewEncoder(out)
 	for {
@@ -245,7 +283,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				if text == "" {
 					continue
 				}
-				if answer != nil {
+				if capture {
 					answer.WriteString(text)
 				}
 				switch format {
@@ -253,17 +291,17 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 					if err := enc.Encode(chatEventJSON{Type: "entry", Entry: &chatEntryJSON{
 						Type: string(agent.EntryTypeAssistant), Content: text,
 					}}); err != nil {
-						return err
+						return answer.String(), err
 					}
 				default:
 					if _, err := io.WriteString(out, text); err != nil {
-						return err
+						return answer.String(), err
 					}
 				}
 			case *agentcoordpb.AgentEvent_Custom:
 				if p.Custom.GetName() == coord.CustomTurnIdle {
 					select {
-					case turnIdle <- struct{}{}:
+					case turnIdle <- answer.String():
 					default:
 					}
 				}
@@ -272,12 +310,12 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 					if msg := r.GetError().GetMessage(); msg != "" {
 						clidiag.Warn("ctxloom", "container run failed: %s", msg)
 					}
-					return &ExitError{Code: 1}
+					return answer.String(), &ExitError{Code: 1}
 				}
-				return nil
+				return answer.String(), nil
 			}
 		case <-ctx.Done():
-			return ctx.Err()
+			return answer.String(), ctx.Err()
 		}
 	}
 }

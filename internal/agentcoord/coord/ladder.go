@@ -7,6 +7,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // C2 — THE ESCALATION LADDER (policy surface). A ladder is an ORDERED list
@@ -75,6 +76,20 @@ var approvalKindNames = map[string]agentcoordpb.ApprovalRequest_ApprovalKind{
 	"ARTIFACT_REVIEW":       agentcoordpb.ApprovalRequest_APPROVAL_KIND_ARTIFACT_REVIEW,
 	"CUSTOM":                agentcoordpb.ApprovalRequest_APPROVAL_KIND_CUSTOM,
 }
+
+// unrecognisedApprovalKind is the fail-closed placeholder ladderFromFact
+// substitutes for a journaled kind name this build's approvalKindNames does
+// not cover — a rung written by a LATER ctxloom that added an ApprovalKind.
+//
+// It exists because dropping such a name was a privilege escalation
+// (U023-F01): a rung whose only kind was unrecognised came back with
+// Kinds == nil, and matches() reads an empty Kinds list as a CATCH-ALL, so an
+// auto_accept rung meant for one narrow kind replayed as "auto-accept
+// everything". Keeping a value in the list preserves "this rung is targeted";
+// choosing one outside the proto's value space guarantees it answers for
+// nothing. Negative is safe: proto enum values are non-negative, so no real
+// ApprovalKind can ever collide with it, now or later.
+const unrecognisedApprovalKind = agentcoordpb.ApprovalRequest_ApprovalKind(-1)
 
 // presetLadder derives the degenerate ladder the existing permissions:
 // enum implies (kind-lilac compat — the enum keeps working unchanged for
@@ -237,10 +252,16 @@ func ladderToFact(l Ladder) []ladderRungFact {
 	return out
 }
 
-// ladderFromFact is ladderToFact's inverse. An unparseable timeout or an
-// unknown kind name (should not happen — buildLadder validated before this
-// was ever journaled) is dropped rather than failing replay: a fold must
-// never error on its own store's history.
+// ladderFromFact is ladderToFact's inverse. An unparseable timeout is dropped
+// rather than failing replay: a fold must never error on its own store's
+// history.
+//
+// An unrecognised kind name is NOT dropped. Dropping it was U023-F01: the rung
+// came back with an empty Kinds list, which matches() reads as a catch-all, so
+// a narrowly-targeted auto_accept rung journaled by a later ctxloom replayed
+// as "auto-accept everything". It is replaced by unrecognisedApprovalKind
+// instead, which keeps the rung TARGETED and answers for nothing — a rung this
+// build cannot understand is a rung this build must not act on.
 func ladderFromFact(facts []ladderRungFact) Ladder {
 	if len(facts) == 0 {
 		return nil
@@ -256,7 +277,11 @@ func ladderFromFact(facts []ladderRungFact) Ladder {
 		for _, k := range f.Kinds {
 			if kind, ok := approvalKindNames[k]; ok {
 				r.Kinds = append(r.Kinds, kind)
+				continue
 			}
+			clidiag.Warn("ctxloom", "coordinator: journaled approval kind %q is not one this build understands "+
+				"(%s); the ladder rung is kept but will never match — it was written by a newer ctxloom", k, knownKindNames())
+			r.Kinds = append(r.Kinds, unrecognisedApprovalKind)
 		}
 		out = append(out, r)
 	}

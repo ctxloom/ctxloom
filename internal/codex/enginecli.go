@@ -90,9 +90,11 @@ func codexCommonFlags() []agent.CLIFlag {
 		{Name: flagModel, Value: agent.ValueString,
 			Note: "empty req.Model omits the flag entirely so codex resolves its own account-scoped default; codex also accepts -m, which ctxloom never emits"},
 		{Name: flagSandbox, Value: agent.ValueString,
+			Enum: []string{"read-only", "workspace-write", "danger-full-access"},
 			Note: "read-only | workspace-write | danger-full-access; EVERY posture names its tier rather than inheriting codex's default, so an upstream default change cannot silently relax ctxloom's stated posture. Absent under bypass, which carries the escape-hatch flag instead"},
 		{Name: flagBypassApprovalsAndSandbox, Value: agent.ValueNone,
-			Note: "PermissionBypass; codex's own full-access escape hatch, the peer of claude's --dangerously-skip-permissions. Mutually exclusive with --sandbox within one argv"},
+			ConflictsWith: []string{flagSandbox},
+			Note:          "PermissionBypass; codex's own full-access escape hatch, the peer of claude's --dangerously-skip-permissions. Mutually exclusive with --sandbox within one argv"},
 	}
 }
 

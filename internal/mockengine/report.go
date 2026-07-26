@@ -61,9 +61,56 @@ type ProbeRecord struct {
 	// Head is a bounded prefix of the content for eyeballing (never the
 	// assertion target — hashes are). Omitted for directories and absent paths.
 	Head string `json:"head,omitempty"`
+	// Fallback marks a ScopeEnvDir probe whose env var was UNSET, so the root
+	// came from $HOME/<EnvHomeDefault> instead. It is in the digest because
+	// the alternative is a false green on the host path: a developer with a
+	// real ~/.codex gets present:true and a hash of their personal config for
+	// a surface ctxloom never delivered (U079-F04). Root would show it, but
+	// Root is machine-specific and deliberately outside the digest.
+	Fallback bool `json:"fallback,omitempty"`
 	// Note carries the vendor precedence/merge rule or a resolution caveat
 	// ("flag absent from argv", "inline JSON literal in argv, not a file").
 	Note string `json:"note,omitempty"`
+}
+
+// EnvRecord is one observation of the engine's DECLARED environment contract
+// (agent.EngineCLI SetEnv/StripEnv). That contract existed with no observer at
+// all (U079-F05): a run in which ctxloom stopped setting CTXLOOM_CONTEXT_FILE,
+// or stopped stripping a credential, produced a report identical to one where
+// it did — in the instrument whose entire job is to prove delivery.
+type EnvRecord struct {
+	// Name is the variable.
+	Name string `json:"name"`
+	// Expect is what the declaration says must be true of it on the child:
+	// EnvExpectSet (ctxloom sets it) or EnvExpectStripped (ctxloom removes it).
+	Expect string `json:"expect"`
+	// Present is whether the variable reached the child at all.
+	Present bool `json:"present"`
+	// Empty distinguishes "set to the empty string" from "set" — the same
+	// distinction ProbeRecord draws between an empty directory and an absent
+	// one, and this project's own silent-no-op shape: a delivery mechanism
+	// that ran, reported success, and passed nothing.
+	Empty bool `json:"empty,omitempty"`
+}
+
+// Env expectations. Values are the strings that appear in the report JSON and
+// in the discovery digest, so they are part of the assertable contract.
+const (
+	// EnvExpectSet means the declaration lists the variable in SetEnv.
+	EnvExpectSet = "set"
+	// EnvExpectStripped means the declaration lists it in StripEnv.
+	EnvExpectStripped = "stripped"
+)
+
+// Honored reports whether the observation matches the declaration. A set
+// variable must be present and non-empty; a stripped variable must be absent.
+// It is derived rather than stored so the rule has one home and cannot drift
+// from the fields it is derived from across the JSON boundary.
+func (e EnvRecord) Honored() bool {
+	if e.Expect == EnvExpectStripped {
+		return !e.Present
+	}
+	return e.Present && !e.Empty
 }
 
 // EntryRecord is one file inside a directory surface.
@@ -82,9 +129,20 @@ type Report struct {
 	Surface string `json:"surface"`
 	// Records are the probe observations in declaration order.
 	Records []ProbeRecord `json:"records"`
+	// Env is the declared environment contract, observed. One record per
+	// SetEnv/StripEnv variable, in declaration order.
+	Env []EnvRecord `json:"env"`
+	// PromptPresent is whether ANY prompt bytes arrived on the surface's
+	// declared channel. It is separate from the hash for the reason
+	// ProbeRecord.Present is separate from ProbeRecord.SHA256: zero bytes is a
+	// first-class observation, and it is the one this project's characteristic
+	// bug produces (U079-F03).
+	PromptPresent bool `json:"promptPresent"`
 	// PromptSHA256 is sha256 over the EXACT prompt bytes the engine received
 	// (stdin for oneshot), so a test can prove the composed context reached the
-	// child unmangled.
+	// child unmangled. EMPTY when no bytes arrived — never the hash of the
+	// empty string, which is indistinguishable from a real delivery to anyone
+	// not holding a table of well-known digests.
 	PromptSHA256 string `json:"promptSha256"`
 	// PromptSize is the prompt's byte length.
 	PromptSize int64 `json:"promptSize"`
@@ -122,30 +180,61 @@ func hashBytes(b []byte) string {
 // but NOT the absolute Root/Path, which vary by machine and would make the
 // digest un-assertable. Two deliveries of the same bytes to the same declared
 // surfaces render identically here regardless of where on disk they landed.
-func canonicalRendering(recs []ProbeRecord) string {
+func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 	var b strings.Builder
 	for _, r := range recs {
-		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s\n",
-			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256)
+		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t\n",
+			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback)
 		for _, e := range r.Entries {
 			fmt.Fprintf(&b, "  entry|%s|%d|%s\n", e.Name, e.Size, e.SHA256)
 		}
 	}
+	// The env contract is rendered by NAME and OUTCOME only: a variable's value
+	// is a machine-specific path or harp, and folding it in would make the
+	// digest un-assertable for the same reason Root and Path are excluded.
+	for _, e := range env {
+		fmt.Fprintf(&b, "env|%s|%s|%t|%t\n", e.Name, e.Expect, e.Present, e.Empty)
+	}
 	return b.String()
 }
 
-// BuildReport assembles the discovery records and prompt into a Report, filling
-// the prompt hash and the single discovery digest.
-func BuildReport(engine, surface string, recs []ProbeRecord, prompt []byte) Report {
-	return Report{
+// BuildReport assembles the discovery records, the observed env contract and
+// the prompt into a Report, filling the prompt hash and the single discovery
+// digest.
+//
+// A zero-byte prompt yields PromptPresent=false and an EMPTY PromptSHA256,
+// mirroring ProbeRecord's "SHA256 is empty when Present is false": hashing
+// nothing produces e3b0c442…, a perfectly ordinary-looking hash, and the field
+// that exists to prove delivery then proves it on every run (U079-F03).
+func BuildReport(engine, surface string, recs []ProbeRecord, env []EnvRecord, prompt []byte) Report {
+	rep := Report{
 		Engine:          engine,
 		Surface:         surface,
 		Records:         recs,
-		PromptSHA256:    hashBytes(prompt),
+		Env:             env,
+		PromptPresent:   len(prompt) > 0,
 		PromptSize:      int64(len(prompt)),
 		PromptHead:      head(prompt),
-		DiscoveryDigest: hashBytes([]byte(canonicalRendering(recs))),
+		DiscoveryDigest: hashBytes([]byte(canonicalRendering(recs, env))),
 	}
+	if rep.PromptPresent {
+		rep.PromptSHA256 = hashBytes(prompt)
+	}
+	return rep
+}
+
+// EnvViolations returns every env observation that does NOT match the
+// declaration — a variable ctxloom was supposed to set and did not (or set to
+// nothing), or one it was supposed to strip and did not. Empty means the
+// declared environment contract was honoured in full.
+func (r Report) EnvViolations() []EnvRecord {
+	var out []EnvRecord
+	for _, e := range r.Env {
+		if !e.Honored() {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Record returns the first record of the given kind, or false — a convenience

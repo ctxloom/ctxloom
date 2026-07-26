@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -409,4 +410,27 @@ func mustCLI(t *testing.T, clis []agent.EngineCLI, surface agent.CLISurface) age
 	cli, ok := agent.EngineCLIFor(clis, surface)
 	require.True(t, ok, "no declaration for surface %s", surface)
 	return cli
+}
+
+// TestEngineCLI_DeclaresCodexArgvConstraints pins the two whole-line rules
+// codex's own help states and a name-only grammar could not enforce: --sandbox
+// takes one of three tiers, and the bypass escape hatch may not accompany it.
+// Without these the mock accepts `--sandbox nonsense` and both flags together
+// — argv lines the real binary exits 2 on — and reports a green run for a
+// launch that never started (U079-F01).
+func TestEngineCLI_DeclaresCodexArgvConstraints(t *testing.T) {
+	oneshot, ok := agent.EngineCLIFor(CodexEngineCLIs(), agent.CLISurfaceOneshot)
+	require.True(t, ok)
+	require.NoError(t, oneshot.Validate())
+
+	_, err := oneshot.ParseArgv([]string{"exec", "--sandbox", "nonsense"})
+	var badVal *agent.ValueNotAllowedError
+	assert.True(t, errors.As(err, &badVal), "an undeclared sandbox tier must not parse: %v", err)
+
+	_, err = oneshot.ParseArgv([]string{"exec", "--sandbox", "read-only", "--dangerously-bypass-approvals-and-sandbox"})
+	var conflict *agent.ConflictingFlagsError
+	assert.True(t, errors.As(err, &conflict), "the bypass flag must not parse alongside --sandbox: %v", err)
+
+	_, err = oneshot.ParseArgv([]string{"exec", "--sandbox", "workspace-write"})
+	assert.NoError(t, err, "a declared tier on its own is legal")
 }

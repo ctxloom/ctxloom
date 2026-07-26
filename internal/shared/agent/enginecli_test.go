@@ -123,3 +123,58 @@ func TestEngineCLIFor_SelectsBySurface(t *testing.T) {
 	_, ok = EngineCLIFor(list, CLISurface("acp"))
 	assert.False(t, ok, "an undeclared surface is absent, not fabricated")
 }
+
+// TestParseArgv_EnforcesTheWHOLEDeclaredGrammar is the anti-fiction test for
+// the three constraints the declaration carries beyond flag NAMES. A grammar
+// that checks only "is this name declared" accepts argv lines the real vendor
+// binary rejects with exit 2 — and the stand-in that runs on that grammar then
+// reports a fully green run for a launch that could never have started
+// (U079-F01/F02). The constraints are enforced HERE, in the shared reader, so
+// the driver's own anti-drift test and the fake get the same answer.
+func TestParseArgv_EnforcesTheWHOLEDeclaredGrammar(t *testing.T) {
+	strict := grammar()
+	strict.Flags = []CLIFlag{
+		{Name: "--print", Value: ValueNone, Required: true},
+		{Name: "--sandbox", Value: ValueString, Enum: []string{"read-only", "workspace-write"}},
+		{Name: "--bypass", Value: ValueNone, ConflictsWith: []string{"--sandbox"}},
+	}
+	strict.Probes = nil
+	require.NoError(t, strict.Validate())
+
+	ok, err := strict.ParseArgv([]string{"exec", "--print", "--sandbox", "read-only"})
+	require.NoError(t, err, "the declared-legal line must still parse")
+	assert.True(t, ok.Has("--print"))
+
+	var missing *MissingFlagError
+	_, err = strict.ParseArgv([]string{"exec", "--sandbox", "read-only"})
+	require.Error(t, err, "a required flag left out must not parse")
+	assert.True(t, errors.As(err, &missing), "got %T: %v", err, err)
+
+	var badVal *ValueNotAllowedError
+	_, err = strict.ParseArgv([]string{"exec", "--print", "--sandbox", "nonsense"})
+	require.Error(t, err, "a value outside the declared enum must not parse")
+	assert.True(t, errors.As(err, &badVal), "got %T: %v", err, err)
+
+	var conflict *ConflictingFlagsError
+	_, err = strict.ParseArgv([]string{"exec", "--print", "--sandbox", "read-only", "--bypass"})
+	require.Error(t, err, "two flags declared mutually exclusive must not parse together")
+	assert.True(t, errors.As(err, &conflict), "got %T: %v", err, err)
+
+	// The conflict is symmetric: declaring it on one side must reject either
+	// argv order, or the constraint is a coin toss.
+	_, err = strict.ParseArgv([]string{"exec", "--print", "--bypass", "--sandbox", "read-only"})
+	assert.Error(t, err, "the exclusion must hold in either argv order")
+}
+
+// TestValidate_RejectsUnenforceableConstraints proves a constraint that names
+// something undeclared fails at the declaration rather than silently never
+// firing — a typo'd ConflictsWith is a rule that is always satisfied.
+func TestValidate_RejectsUnenforceableConstraints(t *testing.T) {
+	typo := grammar()
+	typo.Flags = append(typo.Flags, CLIFlag{Name: "--x", ConflictsWith: []string{"--nope"}})
+	assert.Error(t, typo.Validate(), "a conflict naming an undeclared flag can never fire")
+
+	enumOnBool := grammar()
+	enumOnBool.Flags = append(enumOnBool.Flags, CLIFlag{Name: "--y", Value: ValueNone, Enum: []string{"a"}})
+	assert.Error(t, enumOnBool.Validate(), "a valueless flag cannot constrain a value it never takes")
+}

@@ -23,6 +23,13 @@ type Runtime struct {
 	Res Resolver
 	// Getenv reads the controlling environment (sentinel knobs, report file).
 	Getenv func(string) string
+	// LookupEnv is the TWO-VALUE reader used for the declared env-contract
+	// observation (os.LookupEnv in production). It exists separately from
+	// Getenv because that half of the contract turns on the difference between
+	// an unset variable and one set to the empty string, which the one-value
+	// form cannot express — and "set to nothing" is exactly what a delivery
+	// that ran and passed nothing looks like.
+	LookupEnv func(string) (string, bool)
 	// Stdin is the child's stdin — the oneshot prompt channel.
 	Stdin io.Reader
 	// Stdout is the vendor wire output.
@@ -40,6 +47,22 @@ func (r *Runtime) getenv(k string) string {
 	return r.Getenv(k)
 }
 
+// lookupenv is the nil-safe two-value environment reader. When only the
+// one-value seam is injected it is derived from that, degrading to "empty
+// means unset" rather than reaching past the seam into the real process
+// environment.
+func (r *Runtime) lookupenv(k string) (string, bool) {
+	switch {
+	case r.LookupEnv != nil:
+		return r.LookupEnv(k)
+	case r.Getenv != nil:
+		v := r.Getenv(k)
+		return v, v != ""
+	default:
+		return os.LookupEnv(k)
+	}
+}
+
 // Run executes the mock end to end and returns the process exit code. The
 // discovery report is emitted UNCONDITIONALLY — before the sentinel can fail the
 // run — because a probe of what context arrived is exactly the evidence a
@@ -48,7 +71,8 @@ func (r *Runtime) Run() int {
 	prompt := r.readPrompt()
 
 	recs := Walk(r.CLI, r.Argv, r.Res)
-	report := BuildReport(r.CLI.Engine, string(r.CLI.Surface), recs, prompt)
+	env := ObserveEnv(r.CLI, r.lookupenv)
+	report := BuildReport(r.CLI.Engine, string(r.CLI.Surface), recs, env, prompt)
 	r.emitReport(report)
 
 	outcome := Dispatch(string(prompt), r.getenv)

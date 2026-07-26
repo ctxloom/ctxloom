@@ -101,9 +101,32 @@ type CLIFlag struct {
 	// emission-coverage assertion: they may be declared for grammar fidelity
 	// without ctxloom ever emitting them.
 	Ignored bool
+	// Required declares that this surface's argv is INVALID without the flag.
+	// It is the surface's DISCRIMINATOR where one exists — claude's oneshot is
+	// `claude --print` and nothing else, and a driver that stopped emitting it
+	// while still piping the prompt on stdin hangs the real binary on a
+	// terminal handshake while a name-only grammar reports a perfect run
+	// (U079-F02).
+	Required bool
+	// Enum is the closed set of legal values, when the vendor declares one
+	// ("read-only | workspace-write | danger-full-access"). Empty means any
+	// token of the declared shape. A grammar that accepted `--sandbox
+	// nonsense` would green a line the real binary exits 2 on (U079-F01).
+	Enum []string
+	// ConflictsWith names flags that may not appear in the same argv as this
+	// one. The relation is enforced SYMMETRICALLY, so declaring it on either
+	// side is enough — a constraint that depended on argv order would be a
+	// coin toss.
+	ConflictsWith []string
 	// Note carries verification provenance for a non-obvious entry ("empty
 	// string is a separate argv token", "value is inline JSON under SkipSetup").
 	Note string
+}
+
+// AllowsValue reports whether v is legal for this flag: any token when no enum
+// is declared, otherwise a member of it.
+func (f CLIFlag) AllowsValue(v string) bool {
+	return len(f.Enum) == 0 || slices.Contains(f.Enum, v)
 }
 
 // TakesValue reports whether this flag consumes the NEXT argv token.
@@ -285,6 +308,19 @@ func (c EngineCLI) Validate() error {
 			return fmt.Errorf("%s/%s: flag %s declared twice", c.Engine, c.Surface, f.Name)
 		}
 		seen[f.Name] = true
+		if len(f.Enum) > 0 && !f.TakesValue() {
+			return fmt.Errorf("%s/%s: flag %s declares an enum but takes no value", c.Engine, c.Surface, f.Name)
+		}
+	}
+	// A constraint that names something undeclared is a rule that can never
+	// fire, which is worse than no rule: the declaration reads as if the
+	// exclusion were enforced.
+	for _, f := range c.Flags {
+		for _, other := range f.ConflictsWith {
+			if !seen[other] {
+				return fmt.Errorf("%s/%s: flag %s conflicts with undeclared flag %q", c.Engine, c.Surface, f.Name, other)
+			}
+		}
 	}
 	for _, p := range c.Probes {
 		switch p.Scope {
@@ -397,6 +433,51 @@ func (e *SubcommandError) Error() string {
 	return fmt.Sprintf("%s/%s: expected leading subcommand %q, got %q", e.Engine, e.Surface, e.Want, e.Got)
 }
 
+// MissingFlagError is a declared REQUIRED flag absent from the argv line —
+// the surface's discriminator left out, which the real binary rejects.
+type MissingFlagError struct {
+	Engine  string
+	Surface CLISurface
+	Flag    string
+	Argv    []string
+}
+
+// Error renders the missing-flag report.
+func (e *MissingFlagError) Error() string {
+	return fmt.Sprintf("%s/%s: required flag %s is absent — the real binary rejects this line (argv: %s)",
+		e.Engine, e.Surface, e.Flag, strings.Join(e.Argv, " "))
+}
+
+// ValueNotAllowedError is a value token outside a flag's declared enum.
+type ValueNotAllowedError struct {
+	Engine  string
+	Surface CLISurface
+	Flag    string
+	Value   string
+	Allowed []string
+}
+
+// Error renders the illegal-value report.
+func (e *ValueNotAllowedError) Error() string {
+	return fmt.Sprintf("%s/%s: flag %s value %q is not one of [%s]",
+		e.Engine, e.Surface, e.Flag, e.Value, strings.Join(e.Allowed, " | "))
+}
+
+// ConflictingFlagsError is two flags the declaration says are mutually
+// exclusive appearing in one argv line.
+type ConflictingFlagsError struct {
+	Engine  string
+	Surface CLISurface
+	Flag    string
+	Other   string
+}
+
+// Error renders the exclusion report.
+func (e *ConflictingFlagsError) Error() string {
+	return fmt.Sprintf("%s/%s: flags %s and %s are mutually exclusive within one argv",
+		e.Engine, e.Surface, e.Flag, e.Other)
+}
+
 // ParseArgv reads an argv line against this surface's declared grammar. It is
 // the SHARED reader both consumers use: the driver's anti-drift test runs its
 // own buildArgs output through it (an undeclared flag is a red test), and a
@@ -451,10 +532,39 @@ func (c EngineCLI) ParseArgv(argv []string) (ParsedArgv, error) {
 			}
 			i++
 			pf.Value = argv[i]
+			if !f.AllowsValue(pf.Value) {
+				return out, &ValueNotAllowedError{Engine: c.Engine, Surface: c.Surface,
+					Flag: f.Name, Value: pf.Value, Allowed: f.Enum}
+			}
 		}
 		out.Flags = append(out.Flags, pf)
 	}
-	return out, nil
+	return out, c.checkConstraints(out, argv)
+}
+
+// checkConstraints applies the whole-LINE rules — the ones no single token can
+// break on its own: every Required flag present, and no declared mutual
+// exclusion violated. They run after the scan because both are statements
+// about the set of flags, not about a token.
+func (c EngineCLI) checkConstraints(out ParsedArgv, argv []string) error {
+	for _, f := range c.Flags {
+		if f.Required && !out.Has(f.Name) {
+			return &MissingFlagError{Engine: c.Engine, Surface: c.Surface, Flag: f.Name, Argv: argv}
+		}
+	}
+	// The exclusion is symmetric: a rule that only fired when the declaring
+	// flag came first would pass or fail on argv order alone.
+	for _, f := range c.Flags {
+		if !out.Has(f.Name) {
+			continue
+		}
+		for _, other := range f.ConflictsWith {
+			if out.Has(other) {
+				return &ConflictingFlagsError{Engine: c.Engine, Surface: c.Surface, Flag: f.Name, Other: other}
+			}
+		}
+	}
+	return nil
 }
 
 // EngineCLIProvider is implemented by a backend that declares its native CLI

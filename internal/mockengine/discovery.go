@@ -47,6 +47,42 @@ func Walk(cli agent.EngineCLI, argv agent.ParsedArgv, res Resolver) []ProbeRecor
 	return out
 }
 
+// ObserveEnv reads the engine's DECLARED environment contract off the child's
+// actual environment: one record per SetEnv variable (ctxloom promised to set
+// it) and one per StripEnv variable (ctxloom promised to remove it), in
+// declaration order.
+//
+// This is the same inversion the probe walk performs, applied to the other half
+// of the delivery contract. agent.EngineCLI declares StripEnv precisely because
+// "a strip that silently stopped happening is otherwise invisible" — and until
+// U079-F05 nothing read either list, so invisible is exactly what it was. A
+// variable that is set but EMPTY is recorded as such: a delivery that ran and
+// passed nothing is this project's characteristic bug, not a delivery.
+// lookup is the TWO-VALUE environment reader, because "unset" and "set to the
+// empty string" must not collapse here of all places. It is never defaulted to
+// the real process environment behind a caller's back: a walk that quietly
+// reads the developer's own environment is the same false green as the $HOME
+// probe fallback (U079-F04).
+func ObserveEnv(cli agent.EngineCLI, lookup func(string) (string, bool)) []EnvRecord {
+	if lookup == nil {
+		lookup = func(string) (string, bool) { return "", false }
+	}
+	out := make([]EnvRecord, 0, len(cli.SetEnv)+len(cli.StripEnv))
+	for _, name := range cli.SetEnv {
+		out = append(out, observeEnvOne(name, EnvExpectSet, lookup))
+	}
+	for _, name := range cli.StripEnv {
+		out = append(out, observeEnvOne(name, EnvExpectStripped, lookup))
+	}
+	return out
+}
+
+// observeEnvOne records one variable.
+func observeEnvOne(name, expect string, lookup func(string) (string, bool)) EnvRecord {
+	val, ok := lookup(name)
+	return EnvRecord{Name: name, Expect: expect, Present: ok, Empty: ok && val == ""}
+}
+
 // probeOne resolves and observes a single probe.
 func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.ParsedArgv, res Resolver) ProbeRecord {
 	rec := ProbeRecord{
@@ -70,7 +106,16 @@ func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.Parse
 	case agent.ScopeEnvDir:
 		root := res.getenv(p.EnvVar)
 		if root == "" {
+			// The fallback is RECORDED, not silent. ctxloom points CODEX_HOME
+			// at a per-run directory; a run where it did not is a run where
+			// this surface was never delivered, and the fallback root is the
+			// DEVELOPER's own ~/.codex — which statts present:true and hashes
+			// their personal config. Without this marker the two runs render
+			// identically in the digest, so the host path greens on evidence
+			// ctxloom never produced (U079-F04).
 			root = filepath.Join(res.Home, p.EnvHomeDefault)
+			rec.Fallback = true
+			rec.Note = joinNote(rec.Note, "env "+p.EnvVar+" unset — fell back to $HOME/"+p.EnvHomeDefault)
 		}
 		rec.Root = root
 		return observePath(rec, filepath.Join(root, p.Rel), p.Dir)

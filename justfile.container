@@ -18,6 +18,11 @@ set positional-arguments := true
 # runs THIS file, the packages the host copy listed never ran there.
 import "build/gates.justfile"
 
+# Every CI step, as a recipe — see build/ci.justfile. Imported here as well as
+# in the host justfile because the containerized CI jobs set
+# JUST_JUSTFILE=justfile.container and then call these by bare name.
+import "build/ci.justfile"
+
 # Containers build in plain module mode: github.com/ctxloom/* come from the
 # go.mod pins (module cache/proxy), never from a host go.work or sibling
 # checkouts. Push sibling changes and bump the pin to pick them up here.
@@ -27,6 +32,22 @@ export GOWORK := "off"
 # code, owns that binary's build/compress, and shares the common build logic via
 # `import "build/common.justfile"`. Their recipes are reachable as
 # ctxloom::build, ltk::build, taskloom::build, etc.
+#
+# Recipes below invoke these as `just -f justfile.container <mod>::<recipe>`,
+# and the `-f` is LOAD-BEARING — a bare `just ctxloom::build` is broken and was
+# broken in CI. just does not export JUST_JUSTFILE to a recipe's environment,
+# so a nested bare `just` searches for a justfile from scratch and finds the
+# HOST `justfile`, which declares none of these modules:
+#
+#   error: Justfile does not contain submodule `ctxloom`
+#
+# It looked fine for as long as it did because the local path never takes it:
+# `just dev-*` mounts THIS file over `justfile` inside the container (the host
+# justfile's `_run` overlay), so there the bare call resolves to this file and
+# the modules are there. CI does not mount anything — it runs
+# `just -f justfile.container build` against a checkout holding both files —
+# so only CI hit the broken resolution, and only in a job that a red upstream
+# job had been skipping.
 mod ctxloom "cmd/ctxloom/justfile"
 mod ltk "cmd/ltk/justfile"
 mod taskloom "cmd/taskloom/justfile"
@@ -66,7 +87,7 @@ default: build
 # `.github/workflows/ci.yml`'s "Check generated reference docs are current"
 # step regenerates and fails the build on any diff instead.
 build: validate proto gen-schemas
-    just ctxloom::build
+    just -f justfile.container ctxloom::build
 
 # Build without CGO - static
 build-static:
@@ -89,38 +110,38 @@ build-full: validate proto
 # Build the ltk companion into bin/ltk — delegated to the ltk module
 # (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-ltk:
-    just ltk::build
+    just -f justfile.container ltk::build
 
 # Build the taskloom companion into bin/taskloom — delegated to the taskloom
 # module (cmd/taskloom/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-taskloom:
-    just taskloom::build
+    just -f justfile.container taskloom::build
 
 # Build the standalone harp ID-generator binary into bin/harp — delegated to
 # the harp module (cmd/harp/justfile). No codegen prerequisites (pure-Go, no
 # CGO). Independently distributable (plan WS-7); not one of the three
 # binaries `install` puts on the host PATH.
 build-harp:
-    just harp::build
+    just -f justfile.container harp::build
 
 # Build + compress all four binaries (UPX). Codegen prerequisites run here for
 # ctxloom, then each module's build-compressed builds and UPX-compresses its
 # binary. Used by the host `install`/`build-compressed`.
 build-compressed: validate proto gen-schemas
-    just ctxloom::build-compressed
-    just ltk::build-compressed
-    just taskloom::build-compressed
-    just harp::build-compressed
+    just -f justfile.container ctxloom::build-compressed
+    just -f justfile.container ltk::build-compressed
+    just -f justfile.container taskloom::build-compressed
+    just -f justfile.container harp::build-compressed
 
 # Build all four binaries UNCOMPRESSED (ctxloom + ltk + taskloom + harp).
 # Codegen prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
 # decompression adds ~1.5s/exec, so local installs stay uncompressed; UPX is
 # reserved for release artifacts (see .goreleaser.yml).
 build-all-bins: validate proto gen-schemas
-    just ctxloom::build
-    just ltk::build
-    just taskloom::build
-    just harp::build
+    just -f justfile.container ctxloom::build
+    just -f justfile.container ltk::build
+    just -f justfile.container taskloom::build
+    just -f justfile.container harp::build
 
 # ===== Release validation (goreleaser, in-container only) =====
 
@@ -203,7 +224,7 @@ compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
 # Compress the main ctxloom binary (for local dev) — delegated to the ctxloom
 # module. For all three binaries use `build-compressed`.
 compress:
-    just ctxloom::compress
+    just -f justfile.container ctxloom::compress
 
 # Build and compress all platforms
 release: build-all compress-all

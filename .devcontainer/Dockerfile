@@ -66,6 +66,7 @@ ARG GREMLINS_VERSION
 ARG VERSIONATOR_VERSION
 ARG GORELEASER_VERSION
 ARG LIZARD_VERSION
+ARG JUST_VERSION
 
 RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
     && : "${UPX_VERSION:?missing --build-arg UPX_VERSION — see .devcontainer/tool-versions.env}" \
@@ -77,7 +78,8 @@ RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-imag
     && : "${GREMLINS_VERSION:?missing --build-arg GREMLINS_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${VERSIONATOR_VERSION:?missing --build-arg VERSIONATOR_VERSION — see .devcontainer/tool-versions.env}" \
     && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
-    && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}"
+    && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${JUST_VERSION:?missing --build-arg JUST_VERSION — see .devcontainer/tool-versions.env}"
 
 # Install Go
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xzf -
@@ -115,8 +117,12 @@ ENV CGO_LDFLAGS="-ldl -lm -pthread"
 RUN mkdir -p /opt/onnxruntime-embed && \
     cp /opt/onnxruntime/lib/libonnxruntime.so.${ONNX_VERSION} /opt/onnxruntime-embed/libonnxruntime.so
 
-# Install just (command runner)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+# Install just (command runner). Pinned, like every other tool here: `just`
+# is not incidental tooling — it IS the CI contract now that every workflow
+# step is a `just` target, so the runner bootstrap
+# (.github/actions/setup-just) and this image must install the same version.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+    | bash -s -- --tag "${JUST_VERSION}" --to /usr/local/bin
 
 # Install lizard (cross-language per-function complexity analyzer). Ubuntu 24.04
 # marks its Python env externally-managed (PEP 668), so --break-system-packages

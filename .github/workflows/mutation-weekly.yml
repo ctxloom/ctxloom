@@ -4,6 +4,8 @@ name: Weekly Mutation
 # diff-only mutation (see ci.yml); this catches efficacy regressions across the
 # entire tree that a diff can't see. It gates nothing — a failure surfaces in
 # the Actions tab, and GitHub emails the repo admins when a scheduled run fails.
+#
+# Every step is a `just` target — see the header of ci.yml and build/ci.justfile.
 on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
@@ -22,6 +24,8 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
@@ -30,10 +34,16 @@ jobs:
           fetch-depth: 0
 
       - name: Mark workspace as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: just ci-git-safe-directory
 
       - name: Generate protobuf code
-        run: buf generate
+        run: just proto
 
+      # `just test-mutation`, not a bare `gremlins unleash`. gremlins copies the
+      # whole Go module into TMPDIR once per worker; on a tmpfs /tmp that
+      # exhausts RAM and wedges the machine (it has emptied a 16G tmpfs on a dev
+      # box). The recipe pins TMPDIR to disk and sweeps the copies afterwards.
+      # This step called gremlins directly and had none of that — the exact
+      # workflow-vs-recipe drift build/ci.justfile exists to end.
       - name: Run full mutation tests
-        run: gremlins unleash
+        run: just test-mutation

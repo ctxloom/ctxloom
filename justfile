@@ -14,6 +14,12 @@ set positional-arguments := true
 # CI. See build/gates.justfile.
 import "build/gates.justfile"
 
+# Every CI step, as a recipe. .github/workflows/ invokes these by name instead
+# of carrying its own `run:` shell, so a CI step is something you can run
+# locally and there is one definition rather than a workflow copy that drifts.
+# Imported by justfile.container too. See build/ci.justfile.
+import "build/ci.justfile"
+
 # Default recipe
 default: build
 
@@ -610,21 +616,13 @@ test-pkg PKG *ARGS: _require-generated
 
 # ===== Mutation testing =====
 
-# gremlins copies the whole Go module into TMPDIR once per worker. On a tmpfs
-# /tmp that exhausts RAM and wedges the machine (it has emptied a 16G tmpfs
-# here), so both recipes pin TMPDIR to disk and sweep the copies afterwards.
-mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
-
-# Run mutation tests with gremlins (requires gremlins installed).
-# "$@" (not {{ARGS}}) so a value containing shell metacharacters (e.g. a
-# `|`-alternation regex) reaches gremlins intact instead of being re-parsed
-# by this script's shell — see test-pkg above for the failure mode.
-test-mutation *ARGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    TMPDIR="{{mutation_tmp}}" gremlins unleash "$@"
+# `mutation_tmp` and the whole-tree `test-mutation` come from build/ci.justfile
+# (imported at the top of this file AND by justfile.container), alongside the
+# diff-only `test-mutation-diff` that gates every push. They live there because
+# CI runs them: mutation-weekly.yml used to call a bare `gremlins unleash`,
+# which is the same operation WITHOUT the TMPDIR pinning below — the recipe
+# existed here and CI ran past it. The recipes below are host-only and keep
+# using the shared `mutation_tmp`.
 
 # Run mutation tests on specific package
 # gremlins appends /... to the target itself; passing it here yields
@@ -931,9 +929,9 @@ help:
 docs:
     cd website && npm run dev
 
-# Build docs for production
-docs-build:
-    cd website && npm run build
+# `docs-deps` (npm ci) and `docs-build` (npm run build) come from
+# build/ci.justfile — .github/workflows/docs.yml runs them, so they are shared
+# with justfile.container rather than defined only here.
 
 # Preview production docs build
 docs-preview:

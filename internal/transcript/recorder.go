@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
@@ -41,6 +42,19 @@ type fileRecorder struct {
 	file      *os.File // nil until the first successful Record call
 	seq       int
 	sessionID string // latched from the first KindSession line seen
+
+	// failures counts events handed to Record that were NOT captured, and
+	// warned/closeWarned keep that observable without flooding (U144-F04).
+	// Every live capture seam — Tee, TeeAndClose, RecordUserText,
+	// CoordinatedRecorder — deliberately discards Record's error so a
+	// transcript failure can never perturb the chat it shadows. That is the
+	// right call, but with nothing behind it the whole class ("full disk /
+	// EACCES / bad path") produced a green chat, zero captured bytes and not
+	// one diagnostic. The recorder is the only party that knows, so the
+	// recorder is what says so.
+	failures    int
+	warned      bool
+	closeWarned bool
 }
 
 // RecorderOption configures optional NewRecorder behavior. Additive: every
@@ -112,8 +126,51 @@ func (r *fileRecorder) rawToPersist(ev agent.ChatEvent, kind Kind) json.RawMessa
 	return nil // RawLossyOnly, and Raw only SUPPLEMENTS another payload
 }
 
-// Record implements Recorder.
+// Record implements Recorder. Every failure is also counted and (once)
+// warned about — see fileRecorder.failures and noteFailure — because the
+// callers that swallow this error are structurally unable to report it.
 func (r *fileRecorder) Record(ev agent.ChatEvent) error {
+	err := r.record(ev)
+	if err != nil {
+		r.noteFailure(err)
+	}
+	return err
+}
+
+// noteFailure counts one uncaptured event and warns on the first one only:
+// a failing disk must surface, but it must not turn one broken chat into N
+// identical warnings. Close reports the running total.
+func (r *fileRecorder) noteFailure(err error) {
+	r.mu.Lock()
+	first := !r.warned
+	r.warned = true
+	r.failures++
+	r.mu.Unlock()
+
+	if first {
+		clidiag.Warn("ctxloom", "transcript capture failed for harp %q (%s): %v — this chat continues, but its canonical transcript is incomplete; further failures are counted, not repeated", r.harp, r.path, err)
+	}
+}
+
+// ensureFile lazily creates the persist dir and opens the append-only file.
+// Extracted from record so the write path stays under the project's
+// complexity gate (U144-F09).
+func (r *fileRecorder) ensureFile() error {
+	if r.file != nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
+		return fmt.Errorf("transcript: create persist dir: %w", err)
+	}
+	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("transcript: open %s: %w", r.path, err)
+	}
+	r.file = f
+	return nil
+}
+
+func (r *fileRecorder) record(ev agent.ChatEvent) error {
 	kind, entry, session, complete, permission, err := payloadFromChatEvent(ev)
 	if err != nil {
 		return err
@@ -159,15 +216,8 @@ func (r *fileRecorder) Record(ev agent.ChatEvent) error {
 	}
 	line = append(line, '\n')
 
-	if r.file == nil {
-		if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
-			return fmt.Errorf("transcript: create persist dir: %w", err)
-		}
-		f, err := os.OpenFile(r.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			return fmt.Errorf("transcript: open %s: %w", r.path, err)
-		}
-		r.file = f
+	if err := r.ensureFile(); err != nil {
+		return err
 	}
 
 	if _, err := r.file.Write(line); err != nil {
@@ -181,6 +231,14 @@ func (r *fileRecorder) Record(ev agent.ChatEvent) error {
 func (r *fileRecorder) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Report the total ONCE, even when no file was ever opened — the
+	// "couldn't create the dir at all" case is precisely the one that leaves
+	// zero bytes and would otherwise pass for a chat that simply had nothing
+	// to record (U144-F04).
+	if r.failures > 0 && !r.closeWarned {
+		r.closeWarned = true
+		clidiag.Warn("ctxloom", "transcript capture for harp %q lost %d event(s); %s is incomplete or absent", r.harp, r.failures, r.path)
+	}
 	if r.file == nil {
 		return nil
 	}

@@ -207,6 +207,12 @@ in scoped and global listings alike — they are never hidden.
 | A `map`/`weave` member (or delegated child) whose **named profiles** assemble to nothing | ran context-free, produced plausible output | non-zero — a run naming no profile is still legitimately context-free |
 | `ctxloom manage hooks uninstall --backend <typo>` | `Status: "removed"` listing the typo, nothing removed | non-zero, naming the supported backends |
 
+### Agent coordination (additional)
+
+| Surface | Before | Now |
+|---|---|---|
+| A child relaunch, turn boundary, or wake whose mail-consume fails to journal | read as "no mail": the child was driven with **no prompt** / parked idle holding undelivered mail, and the message became permanently invisible (its reservation was never released) | the reservation is released so the message stays queued, and the child is failed with the journal error rather than driven promptless |
+
 ### Build and generator gates (contributors)
 
 | Surface | Before | Now |

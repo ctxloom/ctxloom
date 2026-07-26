@@ -167,7 +167,13 @@ func (r Report) Firing() bool { return r.State.Firing() }
 // from a re-run.
 type Evidence struct {
 	Transcript TranscriptStat `json:"transcript"`
-	Proc       ProcState      `json:"proc"`
+	// TranscriptError is the reader's failure text when the transcript could
+	// not be observed (TranscriptStat.Observed false because the read broke,
+	// rather than because nobody asked). Carried into the reason so an
+	// operator sees WHY the monitor has nothing to say, instead of a
+	// confident verdict manufactured from the failure.
+	TranscriptError string    `json:"transcript_error,omitempty"`
+	Proc            ProcState `json:"proc"`
 	// FSMTime is the newest mtime under Target.WorkDir; FSObserved says
 	// whether the walk succeeded at all.
 	FSMTime    time.Time `json:"fs_mtime,omitempty"`

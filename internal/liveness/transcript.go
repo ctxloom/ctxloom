@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,9 +22,29 @@ import (
 // the only thing allowed to draw a conclusion, so that the definition and its
 // application stay separable and separately arguable.
 type TranscriptStat struct {
+	// Observed reports that this projection was reached by actually LOOKING
+	// at the path — the same absent-vs-error discipline ProcState.Observed
+	// carries, and for the same reason. It is true for a file read to a
+	// conclusion AND for a file conclusively absent (see Exists); it is
+	// FALSE when the observation itself broke: the path could not be opened,
+	// the scan aborted part-way, or the caller never asked. Every rule that
+	// draws a conclusion from ABSENCE must check this first — without it,
+	// "the engine emitted zero events" and "we could not look" are the same
+	// zero value, which is how a broken observation becomes a confident
+	// stall verdict.
+	Observed bool `json:"observed"`
+	// Truncated reports that the file was longer than the scan bound
+	// (maxTranscriptScan) so Records, Malformed, EntryRecords,
+	// AssistantEntries, EntryTypes, Completes and Redelivery describe only
+	// the HEAD of the file. The last-record measurements (LastTS, MaxSeq,
+	// TurnClosed, PendingPermission, LastToolUse) are recovered from a tail
+	// pass and stay trustworthy; the counting fields are floors, never
+	// totals, and no absence-based rule may fire on them.
+	Truncated bool `json:"truncated,omitempty"`
 	// Exists reports whether the file was there at all. FALSE IS A SIGNAL,
 	// NOT AN ERROR: transcript.NewRecorder opens lazily on first successful
 	// Record, so no file means the engine emitted literally zero events.
+	// Only meaningful when Observed is true.
 	Exists bool `json:"exists"`
 	// Records is the number of parseable JSONL lines.
 	Records int `json:"records"`
@@ -105,13 +126,28 @@ type envelope struct {
 	} `json:"entry"`
 }
 
-// maxTranscriptScan bounds how many lines ReadTranscript will parse. A
-// runaway re-delivery loop is exactly the case where the file grows without
-// bound, so the monitor reading it must not itself become the expensive thing
-// — and the signals it needs (seq pinning, entry variety, a repeat cadence)
-// are all established within a handful of records. 20000 lines is far past
-// any threshold in this package while staying a sub-second read.
+// maxTranscriptScan bounds how many lines ReadTranscript will parse from the
+// HEAD of the file. A runaway re-delivery loop is exactly the case where the
+// file grows without bound, so the monitor reading it must not itself become
+// the expensive thing — and the COUNTING signals it needs (seq pinning, entry
+// variety, a repeat cadence) are all established within a handful of records.
+// 20000 lines is far past any threshold in this package while staying a
+// sub-second read.
+//
+// The LAST-RECORD signals are the opposite: LastTS, TurnClosed, MaxSeq and
+// PendingPermission live at the END of the file and drive four rungs each. A
+// head-only bound made them permanently stale past 20000 lines, so a healthy
+// long-running agent read as stalled and a cleanly-finished one as dead
+// (U056-F02). maxTailBytes is the bounded suffix re-read to recover them.
 const maxTranscriptScan = 20000
+
+// maxTailBytes bounds the suffix re-read that recovers the last-record
+// measurements from a transcript longer than maxTranscriptScan. It is a BYTE
+// bound rather than a line bound because it is applied by seeking, which is
+// what keeps the tail pass O(1) in the file's length — the whole point of
+// having a bound at all. 1 MiB comfortably holds the trailing records of any
+// engine while staying one read.
+const maxTailBytes = 1 << 20
 
 // maxLineBytes bounds one JSONL line. A composed-context block re-delivered in
 // a loop is large, so the default bufio.Scanner limit (64 KiB) is genuinely
@@ -148,25 +184,86 @@ func ReadTranscriptWith(path string, thr Thresholds) (TranscriptStat, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return TranscriptStat{Exists: false}, nil
+			// Conclusively absent — that IS an observation, and the loudest
+			// one this package has.
+			return TranscriptStat{Observed: true, Exists: false}, nil
 		}
+		// A broken instrument. Observed stays false so no absence rule can
+		// mistake this for "the engine emitted zero events" (U056-F01/F05).
 		return TranscriptStat{}, fmt.Errorf("liveness: open transcript %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	sn := newTxScan()
+	truncated, err := scanHead(f, sn)
+	if err != nil {
+		return unobserved(sn.finish(thr)), fmt.Errorf("liveness: read transcript %s: %w", path, err)
+	}
+	if truncated {
+		if err := scanTail(f, sn); err != nil {
+			return unobserved(sn.finish(thr)), fmt.Errorf("liveness: read transcript tail %s: %w", path, err)
+		}
+	}
+	st := sn.finish(thr)
+	st.Truncated = truncated
+	return st, nil
+}
+
+// unobserved stamps a partial projection as what it is. A scan that aborted
+// part-way leaves REAL counts from the lines it did read, and those counts are
+// exactly what the absence rules would condemn on ("zero assistant turns in 0
+// records"), so the partial data is kept for the evidence trail and the bit
+// that makes it unusable as proof of absence is cleared.
+func unobserved(st TranscriptStat) TranscriptStat {
+	st.Observed = false
+	return st
+}
+
+// scanHead folds the bounded head of f. truncated reports that the bound was
+// hit with lines still unread — i.e. that every counting field is now a floor
+// and the last-record fields need scanTail.
+func scanHead(f *os.File, sn *txScan) (truncated bool, err error) {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 	for sc.Scan() {
 		if sn.st.Records+sn.st.Malformed >= maxTranscriptScan {
-			break
+			return true, nil
 		}
 		sn.line(sc.Bytes())
 	}
-	if err := sc.Err(); err != nil {
-		return sn.finish(thr), fmt.Errorf("liveness: read transcript %s: %w", path, err)
+	return false, sc.Err()
+}
+
+// scanTail re-reads a bounded SUFFIX of f to recover the last-record
+// measurements the head bound cannot see. It seeks rather than continuing the
+// head scan, so its cost is independent of how far the file has run — which is
+// the property the bound exists to protect.
+//
+// The first line after a non-zero seek is discarded: a byte offset lands
+// mid-record, and half a JSONL line is not a malformed record, it is not a
+// record at all.
+func scanTail(f *os.File, sn *txScan) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
 	}
-	return sn.finish(thr), nil
+	off := info.Size() - maxTailBytes
+	if off < 0 {
+		off = 0
+	}
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
+	if off > 0 && !sc.Scan() {
+		return sc.Err()
+	}
+	sn.tail = &txTail{userIdx: -1, completeIdx: -1}
+	for sc.Scan() {
+		sn.tailLine(sc.Bytes())
+	}
+	return sc.Err()
 }
 
 // txScan folds a transcript's lines into a TranscriptStat. Split out of
@@ -181,11 +278,32 @@ type txScan struct {
 	lastUserIdx     int
 	lastCompleteIdx int
 	lastKind        string
+	// tail is the bounded suffix fold, non-nil only when the head bound was
+	// hit. Its measurements OVERRIDE the head's for every last-record field,
+	// because on a truncated file the head's answer is not merely imprecise,
+	// it is about a different part of the file.
+	tail *txTail
+}
+
+// txTail is the last-record fold: the handful of measurements that describe
+// where the transcript ENDED rather than how much of it there is. Kept
+// separate from txScan's counting state so the tail pass can never inflate a
+// count it only saw part of.
+type txTail struct {
+	lastTS      time.Time
+	maxSeq      int
+	lastToolUse time.Time
+	lastKind    string
+	// userIdx/completeIdx are positions WITHIN the tail (-1 = not seen), which
+	// is all TurnClosed needs: whether a `complete` came after the last `user`.
+	userIdx     int
+	completeIdx int
+	n           int
 }
 
 func newTxScan() *txScan {
 	return &txScan{
-		st:              TranscriptStat{Exists: true},
+		st:              TranscriptStat{Exists: true, Observed: true},
 		types:           map[string]bool{},
 		groups:          map[[2]string][]time.Time{},
 		lastUserIdx:     -1,
@@ -256,6 +374,79 @@ func (s *txScan) finish(thr Thresholds) TranscriptStat {
 	st.TurnClosed = s.lastCompleteIdx > s.lastUserIdx
 	st.PendingPermission = s.lastKind == "permission"
 	st.Redelivery = detectRedelivery(s.groups, thr)
+	return s.applyTail(st)
+}
+
+// tailLine folds one line of the bounded suffix. Only last-record state is
+// touched: nothing here may add to a count whose head the tail pass did not
+// read.
+func (s *txScan) tailLine(raw []byte) {
+	if len(raw) == 0 {
+		return
+	}
+	var e envelope
+	if err := json.Unmarshal(raw, &e); err != nil {
+		return
+	}
+	t := s.tail
+	idx := t.n
+	t.n++
+	if e.Seq > t.maxSeq {
+		t.maxSeq = e.Seq
+	}
+	if !e.TS.IsZero() {
+		t.lastTS = e.TS
+	}
+	t.lastKind = e.Kind
+	switch e.Kind {
+	case "complete":
+		t.completeIdx = idx
+	case "entry":
+		t.entry(idx, e)
+	}
+}
+
+func (t *txTail) entry(idx int, e envelope) {
+	if e.Entry == nil {
+		return
+	}
+	switch e.Entry.Type {
+	case "tool_use":
+		t.lastToolUse = e.TS
+	case "user":
+		t.userIdx = idx
+	}
+}
+
+// applyTail overlays the bounded-suffix fold. A truncated file's head answers
+// "how much" and its tail answers "where it ended"; keeping the head's
+// last-record answers would be reporting the state of the 20000th record as
+// the state of the run (U056-F02).
+func (s *txScan) applyTail(st TranscriptStat) TranscriptStat {
+	t := s.tail
+	if t == nil {
+		return st
+	}
+	if !t.lastTS.IsZero() {
+		st.LastTS = t.lastTS
+	}
+	if t.maxSeq > st.MaxSeq {
+		st.MaxSeq = t.maxSeq
+		// A seq that advances anywhere in the file disproves the pinned-at-0
+		// relaunch signature the head inferred from its own slice.
+		st.SeqPinned = false
+	}
+	if !t.lastToolUse.IsZero() {
+		st.LastToolUse = t.lastToolUse
+	}
+	if t.lastKind != "" {
+		st.PendingPermission = t.lastKind == "permission"
+	}
+	// Only speak about the turn boundary if the tail actually saw one of its
+	// two markers; otherwise the head's answer is still the best available.
+	if t.completeIdx >= 0 || t.userIdx >= 0 {
+		st.TurnClosed = t.completeIdx > t.userIdx
+	}
 	return st
 }
 

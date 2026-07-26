@@ -223,6 +223,7 @@ func (m *Monitor) verdict(t Target, ev Evidence, now time.Time) (State, string) 
 	for _, r := range []rung{
 		m.approvalRung,
 		m.deathRung,
+		m.endedRung,
 		m.loopRung,
 		m.graceRung,
 		m.quietRung,
@@ -264,8 +265,37 @@ func (m *Monitor) deathRung(_ Target, ev Evidence, _ time.Time) (State, string) 
 	if tx.TurnClosed {
 		return StateHealthy, fmt.Sprintf("the run ended after a completed turn (%d complete record(s)) — a clean end, not a death", tx.Completes)
 	}
+	if !tx.Observed {
+		// The runtime being gone is a POSITIVE observation and still fires;
+		// the turn boundary is not, so the reason must not claim one.
+		return StateDied, fmt.Sprintf("the runtime is gone and the transcript could not be read, so a clean end cannot be ruled out [%s]",
+			orUnknown(ev.Proc.Detail))
+	}
 	return StateDied, fmt.Sprintf("the runtime is gone with no `complete` for the in-flight turn (%d record(s), %d complete) [%s]",
 		tx.Records, tx.Completes, orUnknown(ev.Proc.Detail))
+}
+
+// endedRung: a run the coordinator has ALREADY terminated cannot be stalled.
+//
+// Target.Ended used to be passed in and read by nothing (U056-F03), while the
+// coordinator's roster fold is never pruned and reapEndedRuns never reaps a
+// harp's current run — so every cleanly-finished child kept being enumerated,
+// went quiet (because it was done), lost its runner (so no probe could see
+// it), and was condemned ten minutes later. The watchdog cried wolf on every
+// success, which is precisely how a monitor gets ignored.
+//
+// It sits BELOW deathRung on purpose: a run that ended with its runtime
+// observably gone and its turn still open is a death, and saying so is the
+// whole point of the rung above.
+func (m *Monitor) endedRung(t Target, ev Evidence, _ time.Time) (State, string) {
+	if !t.Ended {
+		return "", ""
+	}
+	tx := ev.Transcript
+	if tx.Observed && tx.TurnClosed {
+		return StateHealthy, fmt.Sprintf("the coordinator has ended this run and its last turn closed (%d complete record(s)) — a clean end", tx.Completes)
+	}
+	return StateUnknown, "the coordinator has ended this run; a terminated run makes no further progress, so there is nothing left to judge"
 }
 
 // loopRung: POSITIVE evidence of a loop. Both rules here are observations of a
@@ -293,6 +323,16 @@ func (m *Monitor) loopRung(_ Target, ev Evidence, _ time.Time) (State, string) {
 // transcript at all means the engine emitted zero events (the recorder creates
 // the file on its first record), which is a stall.
 func (m *Monitor) graceRung(t Target, ev Evidence, _ time.Time) (State, string) {
+	// A transcript that could not be OBSERVED is a broken instrument, not an
+	// engine that emitted zero events, and every rule below this line reasons
+	// from absence. Answering "unknown" with the failure attached is the only
+	// honest verdict available (U056-F01/F05).
+	if !ev.Transcript.Observed {
+		if ev.TranscriptError != "" {
+			return StateUnknown, "the transcript could not be read, so there is no evidence to judge progress by: " + ev.TranscriptError
+		}
+		return StateUnknown, "no transcript was looked at for this run (no path resolved), so there is no evidence to judge progress by"
+	}
 	if ev.Transcript.Exists {
 		return "", ""
 	}
@@ -377,9 +417,13 @@ func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence 
 		st, err := m.readTx(t.TranscriptPath)
 		ev.Transcript = st
 		if err != nil {
-			// A broken READ is not an observation of stillness. Exists is
-			// left as the reader returned it and the ladder's absence rules
-			// still apply only past the launch grace.
+			// A broken READ is not an observation of stillness. Observed is
+			// forced false here as well as in the reader, because readTx is
+			// an injectable seam and a seam that reported an error while
+			// leaving Observed set would put the ladder right back to
+			// condemning on a failure (U056-F01).
+			ev.Transcript.Observed = false
+			ev.TranscriptError = err.Error()
 			clidiag.Warn("ctxloom", "liveness: %s: read transcript: %v", t.Harp, err)
 		}
 	}

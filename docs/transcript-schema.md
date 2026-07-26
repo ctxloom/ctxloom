@@ -206,8 +206,9 @@ machine-checkable shape.
   `EntryTypeSystem`'s two producers), `plan` (structured
   `[{content, priority, status}]` entries when `system_kind=="plan"`).
 - **`session`** (`agent.ChatSessionInfo`, minus `SessionID` — hoisted to the
-  envelope): `model`, `permission_mode`, `context_window`,
-  `mcp_servers: [{name, status}]`.
+  envelope): `resumable` (the connected adapter advertised it can resume this
+  native session by `session_id` on a later spawn), `model`,
+  `permission_mode`, `context_window`, `mcp_servers: [{name, status}]`.
 - **`complete`** (`agent.TurnMeta`, carried in **FULL** — every field, not a
   trimmed subset, because this schema is a lossless superset): `input_tokens`,
   `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`,

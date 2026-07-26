@@ -160,6 +160,7 @@
       "additionalProperties": false,
       "description": "One-time session metadata (agent.ChatSessionInfo minus SessionID, which is hoisted to the envelope).",
       "properties": {
+        "resumable": { "type": "boolean", "description": "The connected adapter advertised it can RESUME this native session by its envelope session_id on a later spawn (the live half of the one-shot resume gate)." },
         "model": { "type": "string" },
         "permission_mode": { "type": "string" },
         "context_window": { "type": "integer", "minimum": 0 },

@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **181** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **182** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,083** |
+| `open` | no commit names this ID | **2,082** |
 
-**Totals: 2268 findings across 162 units — 181 resolved, 2083 still open, 4 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 182 resolved, 2082 still open, 4 adjudicated without a fix.**
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 59 | 316 (+1 refuted) |
+| HIGH | 376 | 60 | 315 (+1 refuted) |
 | MED | 999 | 31 | 968 |
 | LOW | 871 | 91 | 799 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -175,7 +175,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U031-F01 | open | `skill_archive.go:347-447, 247-276, 292-324` | SILENTNOOP | `HardenedExtract` returns **success having written zero files** for any archive whose entries are all single-segment. `processArchiveEntry` treats `len(rest)==0` as "the top-level dir marker — noth... | U031.md |
 | U031-F02 | open | `skill_archive.go:750-781` | CORRECTNESS | `InstallSkillPackage(…, manifest == nil, …)` performs **`RemoveAll(destDir)` followed by a rename of a possibly-empty staging tree, with no integrity check at all** — the hash verification is skipp... | U031.md |
 | U032-F01 | open | **`claudecode.go:258, 300-309, 338-342`** | CORRECTNESS | `buildArgs` can emit a **variadic** claude flag as the last token before the trailing prompt positional, and claude's commander parser then swallows the prompt as flag values. There is no `--` term... | U032.md |
-| U032-F02 | open | **`claudecode.go:132-150`** | SILENTNOOP | The minimal-oneshot branch can return `ExitCode 0, err nil` having written **zero bytes** to stdout. This is the distill/compaction path. | U032.md |
+| U032-F02 | **RESOLVED** `70abd7fc` | **`claudecode.go:132-150`** | SILENTNOOP | The minimal-oneshot branch can return `ExitCode 0, err nil` having written **zero bytes** to stdout. This is the distill/compaction path. | U032.md |
 | U032-F03 | **RESOLVED** `6e7a790a` | **`claude.go:311-330`** | CORRECTNESS | A malformed `permissions` block is **warned about and then deleted from the file**. `saveSettings` writes the document without it. This destroys the user's `allow`/`ask`/`defaultMode`/`additionalDi... | U032.md |
 | U032-F04 | **RESOLVED** `6e7a790a` | **`claude.go:100, 332-333`** | CORRECTNESS | `delete(raw, "mcpServers")` silently **destroys** a user's legacy `mcpServers` block in `settings.json`. The comment claims a migration to `.mcp.json`; no migration code exists. The struct field's ... | U032.md |
 | U032-F05 | **RESOLVED** `6e7a790a` | **`claude.go:434-438`** | CORRECTNESS | An unparseable `.mcp.json` is warned about and replaced with an **empty** config, so `writeMCPConfig` then writes a file containing only ctxloom's servers — the user's servers are gone. | U032.md |

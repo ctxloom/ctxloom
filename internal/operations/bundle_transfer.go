@@ -143,7 +143,14 @@ func staleSignatureError(bundlePath string, err error) error {
 func readSignature(fs afero.Fs, srcBundle string) ([]byte, error) {
 	srcSig := srcBundle + sigSuffix
 	exists, err := afero.Exists(fs, srcSig)
-	if err != nil || !exists {
+	if err != nil {
+		// Absent is not the same state as unreadable. afero.Exists reports
+		// (false, err) for any non-IsNotExist stat failure — EACCES on the
+		// directory, an I/O error — and collapsing that into "unsigned" is
+		// precisely the downgrade this function exists to prevent (U081-F06).
+		return nil, fmt.Errorf("stat signature %s: %w", srcSig, err)
+	}
+	if !exists {
 		return nil, nil
 	}
 	data, err := afero.ReadFile(fs, srcSig)
@@ -193,7 +200,9 @@ type ImportBundleResult struct {
 	SigDest string `json:"sig_dest,omitempty"`
 }
 
-// ImportBundle validates a bundle file and copies it into the project's
+// ImportBundle validates a bundle file — its name (*.yaml, since that is all
+// the loader ever looks for) and its content (bundles.ParseBundle refuses a
+// document that declares nothing) — and copies it into the project's
 // committed content bundles directory (symlink-guarded, like CreateBundle),
 // carrying its detached `.sig` sibling when one exists. Refuses to overwrite
 // without Force.
@@ -202,6 +211,15 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
+	// The destination filename is the SOURCE basename, and bundles.Loader only
+	// ever looks for <name>.yaml or <name>/bundle.yaml — so importing
+	// "seed.txt" writes a file no loader can ever find: exit 0, "imported",
+	// nothing usable (U081-F10). Refuse instead of reporting a success that
+	// delivered nothing.
+	if ext := strings.ToLower(filepath.Ext(req.SourcePath)); ext != ".yaml" && ext != ".yml" {
+		return nil, fmt.Errorf("import %s: a bundle file must be named *.yaml (the loader only ever looks for <name>.yaml or <name>/bundle.yaml, so %q would import to a path nothing can read)",
+			req.SourcePath, filepath.Base(req.SourcePath))
+	}
 	srcData, err := afero.ReadFile(fs, req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)

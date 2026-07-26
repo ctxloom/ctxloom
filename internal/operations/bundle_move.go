@@ -247,13 +247,15 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 	// is trusted, the bytes do not match, and every consumer reads it as tampering
 	// and withholds the bundle. PushBundle verifies the pair and refuses it, so a
 	// stale signature stops here rather than at the user's tamper alarm.
-	var signature []byte
-	if exists, _ := afero.Exists(fs, src+sigSuffix); exists {
-		data, err := afero.ReadFile(fs, src+sigSuffix)
-		if err != nil {
-			return nil, fmt.Errorf("read signature %s: %w", src+sigSuffix, err)
-		}
-		signature = data
+	//
+	// Read through readSignature rather than a local exists-then-read: a stat
+	// error on the .sig used to be discarded, which left signature nil, which
+	// skipped the "published but its signature did not" guard below, which let
+	// removeMoveSource delete the signed local source. An unreadable signature
+	// now stops the move (U081-F06).
+	signature, err := readSignature(fs, src)
+	if err != nil {
+		return nil, fmt.Errorf("move %q: %w", name, err)
 	}
 
 	res, err := PushBundle(ctx, cfg, PushBundleRequest{

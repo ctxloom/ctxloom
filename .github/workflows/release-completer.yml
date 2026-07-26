@@ -1,5 +1,9 @@
 name: Release Completer
 
+# Every step is a `just` target — see the header of ci.yml and build/ci.justfile.
+# The two exceptions are the apt-get that provides curl and the `just`
+# bootstrap it enables; both are marked below.
+
 on:
   push:
     tags:
@@ -23,6 +27,12 @@ jobs:
       # 1.25.x) so the release builds on the same major.minor as CI without an
       # implicit GOTOOLCHAIN download at release time.
       image: ghcr.io/goreleaser/goreleaser-cross:v1.25
+    env:
+      # This job has no docker-in-docker, so it must use the CONTAINER
+      # justfile: the host justfile's same-named `proto`/`validate` recipes
+      # delegate into `just dev-image`, which would try to build the
+      # devcontainer image from inside goreleaser-cross.
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
@@ -34,73 +44,51 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
+      # The one step that cannot be a `just` target: it is what makes curl
+      # available for the `just` bootstrap on the next line. goreleaser-cross
+      # is not the devcontainer image and ships none of this.
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y git curl upx unzip
 
+      - uses: ./.github/actions/setup-just
+
       - name: Mark workspace as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: just ci-git-safe-directory
 
-      # .devcontainer/tool-versions.env is the single source of truth for
-      # every pinned tool version below — this job runs in goreleaser-cross,
-      # not the devcontainer image, so it can't just inherit them and must
-      # install its own copies. Loading the file into $GITHUB_ENV (instead of
-      # hand-copying version numbers into this workflow) is what makes that
-      # impossible to silently drift: internal/buildpins' drift-gate test
-      # fails if this step's referenced names ever stop matching the file, or
-      # if the file and .devcontainer/Dockerfile disagree.
-      - name: Load tool versions
-        run: grep -v '^#' .devcontainer/tool-versions.env | grep -v '^$' >> "$GITHUB_ENV"
+      # .devcontainer/tool-versions.env is the single source of truth for every
+      # pinned tool version. This job runs in goreleaser-cross, not the
+      # devcontainer image, so it can't inherit the toolchain and must install
+      # its own copies — `release-install-tools` sources that same file rather
+      # than hand-copying version numbers, which is what makes drift
+      # impossible instead of merely checked for. internal/buildpins' drift
+      # gate fails if this workflow stops routing through that recipe, or if
+      # the recipe stops deriving from the file.
+      - name: Install build tools (versionator, buf, protoc plugins)
+        run: just release-install-tools
 
-      - name: Install build tools
-        run: |
-          # Install just
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-          # Install versionator (releases >= v0.1.1 ship as tarballs).
-          curl -sSL "https://github.com/benjaminabbitt/versionator/releases/download/v${VERSIONATOR_VERSION}/versionator-linux-amd64.tar.gz" -o /tmp/versionator.tar.gz
-          tar -xzf /tmp/versionator.tar.gz -C /tmp
-          install /tmp/versionator-linux-amd64 /usr/local/bin/versionator
-          # Install buf.
-          curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" -o /usr/local/bin/buf
-          chmod +x /usr/local/bin/buf
-
+      # buf.gen.yaml uses `local:` plugins (not BSR `remote:` ones — see
+      # buf.gen.yaml's comment), so protoc-gen-go/protoc-gen-go-grpc must be on
+      # PATH at the SAME pinned versions CI generates against; the step above
+      # installed them and put GOPATH/bin on PATH. Before the local-plugin
+      # switch (commit b334605) codegen here ran on remote BSR plugins needing
+      # no local install, and a release's codegen silently depending on
+      # whatever happened to be on PATH is the failure internal/buildpins
+      # exists to prevent.
       - name: Generate protobuf code
-        run: |
-          # buf.gen.yaml uses `local:` plugins (not BSR `remote:` ones — see
-          # buf.gen.yaml's comment), so protoc-gen-go/protoc-gen-go-grpc must be
-          # on PATH. This job doesn't run in the devcontainer image, so it
-          # can't inherit those from there; install the SAME pinned versions
-          # (from .devcontainer/tool-versions.env, loaded above) that
-          # .devcontainer/Dockerfile installs. Before the local-plugin switch
-          # (buf.gen.yaml history, commit b334605) this step ran fine on
-          # `remote:` BSR plugins requiring no local install; missing this
-          # update after that switch would make a release's codegen silently
-          # depend on whatever (if anything) happened to already be on PATH,
-          # or fail outright.
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          buf generate
+        run: just proto
 
       - name: Validate schemas
-        run: go run ./cmd/validate
+        run: just validate
 
+      # .goreleaser.yml interpolates these into the published install
+      # instructions, so they must be the hashes of the exact bytes released.
       - name: Compute install script hashes
         id: script_hashes
-        run: |
-          HASH_SH=$(sha256sum scripts/install.sh | cut -d' ' -f1)
-          HASH_PS1=$(sha256sum scripts/install.ps1 | cut -d' ' -f1)
-
-          echo "install.sh SHA256: $HASH_SH"
-          echo "install.ps1 SHA256: $HASH_PS1"
-
-          # Export for goreleaser
-          echo "HASH_INSTALL_SH=$HASH_SH" >> $GITHUB_ENV
-          echo "HASH_INSTALL_PS1=$HASH_PS1" >> $GITHUB_ENV
+        run: just install-script-hashes
 
       - name: Run GoReleaser
-        run: goreleaser release --clean
+        run: just release-publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # PAT with push access to ctxloom/homebrew-tap (cask publish).

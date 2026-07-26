@@ -1,0 +1,43 @@
+name: Setup just
+description: >-
+  Install the `just` version pinned in .devcontainer/tool-versions.env onto a
+  runner that does not already have it.
+
+# Every CI step in this repo is a `just` target (see build/ci.justfile), which
+# leaves exactly one thing that cannot be: getting `just` onto the runner.
+# That bootstrap is the shell below, and it is the ONLY inline shell any
+# workflow here is meant to carry.
+#
+# Jobs that need this are the ones NOT running in the devcontainer image
+# (which installs the same pinned version itself): version-guard and
+# build-container in ci.yml, auto-release, engine-drift-detect, and
+# release-completer (goreleaser-cross).
+#
+# Deliberately a local composite action rather than a third-party
+# setup-just: it adds no new supply-chain dependency, and it reads the version
+# from .devcontainer/tool-versions.env — the same file the Dockerfile reads —
+# so a runner and the image can never install different `just` versions.
+# internal/buildpins' drift gate covers that agreement.
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned just
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="$(grep -E '^JUST_VERSION=' .devcontainer/tool-versions.env | cut -d= -f2-)"
+        if [ -z "$version" ]; then
+          echo "::error::JUST_VERSION not found in .devcontainer/tool-versions.env" >&2
+          exit 1
+        fi
+        if command -v just >/dev/null 2>&1 && [ "$(just --version)" = "just $version" ]; then
+          echo "just $version already present"
+          exit 0
+        fi
+        dest="${RUNNER_TEMP:-/tmp}/just-bin"
+        mkdir -p "$dest"
+        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+          | bash -s -- --tag "$version" --to "$dest"
+        echo "$dest" >> "$GITHUB_PATH"
+        "$dest/just" --version

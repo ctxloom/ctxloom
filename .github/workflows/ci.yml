@@ -1,5 +1,22 @@
 name: CI
 
+# EVERY STEP BELOW IS A `just` TARGET. The shell that used to live in these
+# `run:` blocks lives in build/ci.justfile, imported by both root justfiles.
+# Two consequences worth keeping:
+#
+#   - any CI step can be reproduced locally by typing its target;
+#   - a step and the recipe doing the same job can no longer drift apart,
+#     which is how CI came to run a bare `gremlins unleash` while the recipe
+#     next to it pinned TMPDIR to stop gremlins emptying a tmpfs.
+#
+# The only exception is the `just` bootstrap itself (./.github/actions/setup-just)
+# on jobs that do not run in the devcontainer image. Please keep it that way:
+# new logic goes in build/ci.justfile and is invoked from here by name.
+#
+# Containerized jobs set JUST_JUSTFILE=justfile.container at the JOB level, so
+# steps read `just <target>` with no `-f`. Without it a bare `just` finds the
+# host justfile, whose same-named recipes delegate into docker.
+
 on:
   # 'release/*' covers integration lines (release/0.7 today, release/0.8 next,
   # ...) so a new release line is covered automatically instead of needing
@@ -34,18 +51,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: ./.github/actions/setup-just
+
       - name: Fail if VERSION is already tagged
-        run: |
-          V="$(tr -d '[:space:]' < VERSION)"
-          if [ -z "$V" ]; then
-            echo "::error::VERSION file is empty"; exit 1
-          fi
-          TAG="v${V#v}"
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "::error file=VERSION::VERSION $V is already tagged ($TAG). Bump it (versionator set <next>) before merging."
-            exit 1
-          fi
-          echo "VERSION $V ($TAG) is not yet tagged — OK to merge and release."
+        run: just version-untagged-check
 
   build-container:
     name: Build Dev Container
@@ -60,6 +70,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-just
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -84,17 +96,12 @@ jobs:
       # every pinned tool version the Dockerfile installs; its ARGs are
       # deliberately default-less (see the Dockerfile's guard RUN), so this
       # step is what makes a plain build-push-action build resolve them —
-      # this mirrors what `just dev-image` does for a local build. The
-      # build-args input takes the exact same newline-delimited KEY=VALUE
-      # format as the file, once comments/blank lines are stripped.
+      # this mirrors what `just dev-image` does for a local build. The recipe
+      # emits the file's KEY=VALUE pairs as this step's `args` output, in the
+      # newline-delimited format the build-args input takes.
       - name: Load tool versions for build-args
         id: tool_versions
-        run: |
-          {
-            echo 'args<<TOOL_VERSIONS_EOF'
-            grep -v '^#' .devcontainer/tool-versions.env | grep -v '^$'
-            echo 'TOOL_VERSIONS_EOF'
-          } >> "$GITHUB_OUTPUT"
+        run: just tool-version-args
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -117,6 +124,8 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
@@ -125,13 +134,13 @@ jobs:
           fetch-depth: 0
 
       - name: Mark workspace as safe for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: just ci-git-safe-directory
 
       - name: Generate protobuf code
-        run: buf generate
+        run: just proto
 
       - name: Generate JSON Schemas
-        run: just -f justfile.container gen-schemas
+        run: just gen-schemas
 
       # The suite is split into two steps that partition it — NOTHING runs
       # twice. The TestArch_ gates carry `//go:build arch`, so only the step
@@ -153,10 +162,10 @@ jobs:
       # — the failure mode `test-conformance` already exhibits in this repo
       # (red, and referenced by no workflow).
       - name: Architectural invariants (class gates)
-        run: just -f justfile.container test-arch
+        run: just test-arch
 
       - name: Run tests (default suite)
-        run: just -f justfile.container test-default
+        run: just test-default
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -174,39 +183,42 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # The generated-docs drift gate below runs `git diff` inside the
+      # devcontainer image, so the checkout has to be marked safe first.
+      - name: Mark workspace as safe for git
+        run: just ci-git-safe-directory
+
       - name: Generate protobuf code
-        run: buf generate
+        run: just proto
 
       - name: Run golangci-lint
-        run: just -f justfile.container lint
+        run: just lint
 
       - name: Enforce cyclomatic complexity (CCN ≤ 10)
-        run: just -f justfile.container complexity-check
+        run: just complexity-check
 
       - name: Generate JSON Schemas (verify the generator runs clean)
-        run: just -f justfile.container gen-schemas
+        run: just gen-schemas
 
       # Drift gate for every generated reference page — ctxloom, taskloom, and
       # ltk: regenerate from each cobra command tree (plus the MCP registrations
       # and the config schema) and fail if the checked-in website pages are
-      # stale or a newly generated page was never committed. The safe.directory
-      # mark is needed because the recipe runs `git diff` inside the devcontainer
-      # image.
+      # stale or a newly generated page was never committed.
       - name: Check generated reference docs are current (ctxloom, taskloom, ltk)
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          just -f justfile.container gen-docs-check
+        run: just gen-docs-check
 
       # Drift gate for the proto-canonical MCP tool schemas: regenerate from
       # the buf-built descriptor set and fail if the checked-in goldens are
       # stale.
       - name: Check generated MCP tool schemas are current
-        run: just -f justfile.container gen-mcp-schemas-check
+        run: just gen-mcp-schemas-check
 
   build-and-integration:
     name: Build & Integration Tests
@@ -217,6 +229,8 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
@@ -225,18 +239,19 @@ jobs:
           fetch-depth: 0
 
       - name: Mark workspace as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: just ci-git-safe-directory
 
       - name: Build
-        run: just -f justfile.container build
+        run: just build
 
+      # tests/integration and the godog suite exec the real ctxloom binary as a
+      # subprocess and resolve it from PATH; `build` writes ./ctxloom into the
+      # workspace.
       - name: Add binaries to PATH
-        run: |
-          echo "$GITHUB_WORKSPACE" >> $GITHUB_PATH
-          echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+        run: just ci-path
 
       - name: Run integration tests
-        run: just -f justfile.container test-integration
+        run: just test-integration
 
       # Docker-gated container proof: builds minimal images, spawns real
       # containers, and proves the gRPC transport + force-removal boundary
@@ -256,7 +271,7 @@ jobs:
       - name: Run docker-gated container integration tests
         env:
           CTXLOOM_REQUIRE_DOCKER: "1"
-        run: just -f justfile.container test-docker-integration
+        run: just test-docker-integration
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -275,6 +290,8 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
@@ -283,18 +300,18 @@ jobs:
           fetch-depth: 0
 
       - name: Mark workspace as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: just ci-git-safe-directory
 
-      # The godog suite execs the real ctxloom binary as a subprocess; it resolves
-      # it from PATH (or CTXLOOM_BINARY). `build` writes ./ctxloom into the
-      # workspace, so add the workspace to PATH before running.
+      # The godog suite execs the real ctxloom binary as a subprocess; it
+      # resolves it from PATH (or CTXLOOM_BINARY). `test-acceptance` depends on
+      # `build`, which writes ./ctxloom into the workspace.
       - name: Add binaries to PATH
-        run: echo "$GITHUB_WORKSPACE" >> $GITHUB_PATH
+        run: just ci-path
 
       # Hermetic only (~@live && ~@network): real CLI subprocesses + a real MCP
       # server + the mock LLM backend. No network, no real agent, no secrets.
       - name: Run acceptance suite
-        run: just -f justfile.container test-acceptance
+        run: just test-acceptance
 
   mutation:
     name: Mutation Testing
@@ -305,6 +322,8 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
 
     steps:
       - name: Checkout code
@@ -313,31 +332,22 @@ jobs:
           fetch-depth: 0
 
       - name: Mark workspace as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: just ci-git-safe-directory
 
       - name: Generate protobuf code
-        run: buf generate
+        run: just proto
 
       # Diff-only mutation on both PR and push, so a green PR runs the same
       # check that gates the release on main. The whole-codebase run is too slow
       # for every PR; it runs weekly instead (mutation-weekly.yml).
+      #
+      # The base is the one thing here that is genuinely GitHub's to compute —
+      # everything the recipe does with it (the no-base and no-mutable-Go skips,
+      # the TMPDIR pinning gremlins needs) is in build/ci.justfile.
       - name: Run mutation tests (diff)
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="origin/${{ github.base_ref }}"
-          else
-            base="${{ github.event.before }}"
-          fi
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            echo "No base commit to diff against — skipping mutation testing."; exit 0
-          fi
-          # gremlins fails an empty changeset (0 mutants => 0% efficacy => exit
-          # 10); skip when the diff has no mutable Go (mirrors .gremlins.yaml
-          # exclude-files) so docs/workflow/test-only changes aren't blocked.
-          mutable="$(git diff --name-only "$base"...HEAD -- '*.go' \
-            | grep -vE '(_test\.go$|\.pb\.go$|/mock_[^/]*\.go$|(^|/)testdata/|(^|/)tests/integration/)' || true)"
-          if [ -z "$mutable" ]; then
-            echo "No mutable Go files changed vs $base — skipping mutation testing."; exit 0
-          fi
-          echo "Mutable Go files in diff:"; printf '  %s\n' $mutable
-          gremlins unleash --diff "$base"
+        env:
+          MUTATION_BASE: >-
+            ${{ github.event_name == 'pull_request'
+                && format('origin/{0}', github.base_ref)
+                || github.event.before }}
+        run: just test-mutation-diff "$MUTATION_BASE"

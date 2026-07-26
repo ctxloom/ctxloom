@@ -19,6 +19,9 @@ name: Engine Drift Detect
 # `ubuntu-latest` runner (which already ships Node/npm, curl, and `gh`) is
 # both simpler and correct. The devcontainer only becomes necessary for the
 # later capture/validate/self-heal stages, which run `just test-vendor-*`.
+# The one thing the bare runner does lack is `just` itself, since every step
+# below is a recipe (build/ci.justfile); ./.github/actions/setup-just installs
+# the pinned one.
 #
 # GH Actions cron caveats (verified in the plan's research pass -- not
 # assumed): 5-field UTC only, minimum 5-minute interval, schedules fire ONLY
@@ -57,84 +60,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Every step here is a `just` target (see build/ci.justfile); this bare
+      # runner has no `just` of its own, so it gets the pinned one first.
+      - uses: ./.github/actions/setup-just
+
       - name: Resolve latest published version
         id: latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          version="$(.github/scripts/detect-engine-version.sh "${{ matrix.engine }}")"
-          if [ -z "$version" ]; then
-            echo "::error::detect-engine-version.sh ${{ matrix.engine }} produced no output"
-            exit 1
-          fi
-          echo "Resolved ${{ matrix.engine }} latest = $version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: just engine-latest-version "${{ matrix.engine }}"
 
       - name: Read tested-version lock
         id: pinned
-        run: |
-          pinned="$(grep -E "^${{ matrix.lock_key }}=" .github/engine-versions.env | cut -d= -f2-)"
-          if [ -z "$pinned" ]; then
-            echo "::error::${{ matrix.lock_key }} not found in .github/engine-versions.env"
-            exit 1
-          fi
-          echo "Pinned ${{ matrix.engine }} lock = $pinned"
-          echo "version=$pinned" >> "$GITHUB_OUTPUT"
+        run: just engine-pinned-version "${{ matrix.lock_key }}"
 
       - name: Alert on drift
         if: steps.latest.outputs.version != steps.pinned.outputs.version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          engine="${{ matrix.engine }}"
-          latest="${{ steps.latest.outputs.version }}"
-          pinned="${{ steps.pinned.outputs.version }}"
-          title="engine-drift: $engine $pinned -> $latest"
-
-          # Idempotent per new version: ensure the two labels this issue
-          # needs exist (no-op if they already do), then only open a new
-          # issue if one with this EXACT title isn't already open -- a daily
-          # cron would otherwise open a fresh duplicate every single run
-          # until a human bumps the lock.
-          gh label create "engine-drift" --color "B60205" \
-            --description "A new engine CLI version was detected that ctxloom's importer has not been validated against" \
-            --force
-          gh label create "engine-drift:$engine" --color "5319E7" \
-            --description "Drift alert for the $engine engine specifically" \
-            --force
-
-          existing="$(gh issue list --state open --label "engine-drift:$engine" --search "\"$title\" in:title" --json title --jq --arg t "$title" '.[] | select(.title == $t) | .title')"
-          if [ -n "$existing" ]; then
-            echo "An open issue already tracks $title; not creating a duplicate."
-            exit 0
-          fi
-
-          body="$(cat <<EOF
-          A new **$engine** CLI version was detected that is newer than the tested-version lock.
-
-          | | |
-          |---|---|
-          | Pinned (\`.github/engine-versions.env\`) | \`$pinned\` |
-          | Latest detected | \`$latest\` |
-          | Detected by | \`.github/workflows/engine-drift-detect.yml\` (run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})) |
-
-          This is an **alert-only** notification (P0 of the self-healing engine-format
-          pipeline) -- nothing has been installed, captured, or changed. A human should:
-
-          1. Confirm \`internal/transcript/importer/$engine\` (or the closest match --
-             \`claude-code\` -> the \`claude\` importer package) still parses a transcript
-             produced by \`$latest\`.
-          2. If it does, bump \`$engine\`'s key in \`.github/engine-versions.env\` to
-             \`$latest\` in a PR (internal/enginepins will fail CI if the bump isn't a
-             valid semver or the workflow stops referencing the key by name).
-          3. If it does not, file/track the parser fix separately -- this issue is only
-             the drift signal, not the fix.
-
-          (Later phases of the pipeline automate capture + the drift oracle + self-heal
-          for the headless-capable engines; this repo does not yet run any of that.)
-          EOF
-          )"
-
-          gh issue create --title "$title" --label "engine-drift" --label "engine-drift:$engine" --body "$body"
+        run: >-
+          just engine-drift-alert
+          "${{ matrix.engine }}"
+          "${{ steps.pinned.outputs.version }}"
+          "${{ steps.latest.outputs.version }}"
+          "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

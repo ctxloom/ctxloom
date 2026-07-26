@@ -18,6 +18,11 @@ set positional-arguments := true
 # runs THIS file, the packages the host copy listed never ran there.
 import "build/gates.justfile"
 
+# Every CI step, as a recipe — see build/ci.justfile. Imported here as well as
+# in the host justfile because the containerized CI jobs set
+# JUST_JUSTFILE=justfile.container and then call these by bare name.
+import "build/ci.justfile"
+
 # Containers build in plain module mode: github.com/ctxloom/* come from the
 # go.mod pins (module cache/proxy), never from a host go.work or sibling
 # checkouts. Push sibling changes and bump the pin to pick them up here.

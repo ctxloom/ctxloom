@@ -411,6 +411,11 @@ func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt Bundle
 func (l *Loader) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
+		// Same silent-export defect as SkillsFromBundleRef, same fix, same
+		// warner expandBundleRef already uses (U030-F07): writing zero command
+		// files because the bundle would not load must not look like a bundle
+		// that ships no commands.
+		unresolvedBundleWarner.unresolved(bundleRef, err)
 		return nil
 	}
 	names := make([]string, 0, len(bundle.Commands))

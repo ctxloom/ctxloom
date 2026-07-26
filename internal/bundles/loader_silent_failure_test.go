@@ -1,0 +1,174 @@
+package bundles
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+)
+
+// ---------------------------------------------------------------------------
+// U030-F03 / U030-F06 / U030-F07 — three silent failures in the bundle loader.
+//
+// All three share one shape, the one this project calls characteristic: a
+// determination FAILED, and the caller was handed the same value it would get
+// if there had legitimately been nothing to do. `nil` commands because the
+// bundle would not load looks exactly like `nil` commands because the bundle
+// ships none; an empty bundle list because the directory is unreadable looks
+// exactly like an empty list because there are no bundles. Exit 0, no
+// diagnostic, zero bytes written.
+//
+// The discriminator this project applies: "nothing to do, legitimately" is a
+// correct exit 0; "nothing happened because determining what to do failed" must
+// be loud.
+// ---------------------------------------------------------------------------
+
+// captureBundleWarner swaps the process-wide unresolved-bundle warner for one
+// writing to a buffer, and restores it. It also gives each test a FRESH dedup
+// set — the production warner dedups per ref for the life of the process, so a
+// second test asking about the same ref would otherwise see silence and read it
+// as "no warning emitted".
+func captureBundleWarner(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := unresolvedBundleWarner
+	unresolvedBundleWarner = newBundleWarner(&buf)
+	t.Cleanup(func() { unresolvedBundleWarner = prev })
+	return &buf
+}
+
+// TestCommandsFromBundleRef_WarnsWhenBundleUnloadable is U030-F07 for commands.
+//
+// CommandsFromBundleRef feeds the export path that WRITES per-engine command
+// files. A profile naming a bundle that will not load exported zero commands,
+// silently, exit 0 — indistinguishable from a bundle that ships no commands.
+// The sibling expandBundleRef already warns in the identical situation through
+// the identical warner; the inconsistency was the tell.
+func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
+	buf := captureBundleWarner(t)
+	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()))
+
+	got := l.CommandsFromBundleRef("no-such-bundle-cmds")
+
+	require.Empty(t, got, "an unloadable bundle still yields no commands")
+	require.Contains(t, buf.String(), "no-such-bundle-cmds",
+		"the ref that failed to load must be named in a diagnostic: writing zero command "+
+			"files because the bundle would not load is indistinguishable from a bundle that "+
+			"ships no commands unless someone says so")
+}
+
+// TestSkillsFromBundleRef_WarnsWhenBundleUnloadable is U030-F07 for skills —
+// the same defect, the same export path, the same silence.
+func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
+	buf := captureBundleWarner(t)
+	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()))
+
+	got := l.SkillsFromBundleRef("no-such-bundle-skills")
+
+	require.Empty(t, got, "an unloadable bundle still yields no skills")
+	require.Contains(t, buf.String(), "no-such-bundle-skills",
+		"the ref that failed to load must be named in a diagnostic")
+}
+
+// TestList_UnreadableBundlesDirIsLoud is U030-F06.
+//
+// A bundles root that cannot be read returned an EMPTY LIST WITH A NIL ERROR,
+// and every downstream sweep then reported "fragment not found" — blaming the
+// user's ref for what was actually a permissions fault on their bundles
+// directory. Two lines below, the PER-BUNDLE failure path already routes
+// through strictness.Fail; only the directory-level one was silent.
+//
+// Real chmod on a real OsFs: afero's MemMapFs has no permission enforcement, so
+// a fake here would report success against a defect that only exists on a real
+// filesystem.
+func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 does not deny root, so this defect cannot be reproduced")
+	}
+
+	dir := filepath.Join(t.TempDir(), "bundles")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	// A real bundle inside, so "the list is empty" is unambiguously the fault
+	// and not an genuinely empty directory.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "demo"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "demo", "bundle.yaml"), []byte("version: 1.0.0\n"), 0o644))
+	require.NoError(t, os.Chmod(dir, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	strictness.Reset()
+	strictness.SetDegraded(false)
+	t.Cleanup(strictness.Reset)
+	restore := clidiag.SetSink(&bytes.Buffer{})
+	t.Cleanup(restore)
+
+	mark := strictness.Checkpoint()
+	l := NewLoader([]string{dir}, false, WithFS(afero.NewOsFs()))
+	got, err := l.List()
+	require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
+
+	require.Empty(t, got, "the directory genuinely cannot be read, so nothing can be listed")
+	findings := strictness.Since(mark)
+	require.NotEmpty(t, findings,
+		"an unreadable bundles root must record a fatal-class finding: an empty list with a "+
+			"nil error tells every downstream sweep 'you have no bundles', so the user is told "+
+			"their fragment does not exist when in truth their bundles directory could not be read")
+}
+
+// TestSkillContent_RefusesNonFilesystemBundlePath is U030-F03.
+//
+// Bundle.Path is overloaded: a real filesystem path for on-disk bundles, but ""
+// for companion-seeded bundles and a synthetic "<remote>:…"/"<remote-version>:…"
+// /"<seeded>:…" sentinel for the others. skillContent took filepath.Dir of it
+// unconditionally, and filepath.Dir("") is ".", so a companion bundle's skills
+// resolved against the PROCESS WORKING DIRECTORY — arbitrary project-local
+// files loaded, trusted and materialized as that companion's skill package.
+//
+// The test builds exactly that: a bundle with an empty Path declaring a skill,
+// and a "skills/<name>" tree at the filesystem root that is NOT the bundle's.
+// Before the fix the tree is happily loaded; after it, the skill is withheld.
+func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"companion-seeded (empty Path)", ""},
+		{"remote-seeded sentinel", "<remote>:some/bundle@abc123"},
+		{"remote-version sentinel", "<remote-version>:some/bundle@abc123"},
+		{"seeded sentinel", "<seeded>:some-bundle"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			// The cwd-relative tree the overloaded Path would resolve onto.
+			require.NoError(t, afero.WriteFile(fs, filepath.Join("skills", "helper", "SKILL.md"),
+				[]byte("---\nname: helper\ndescription: not the bundle's skill\n---\n\nbody\n"), 0o644))
+
+			b := &Bundle{
+				Name:   "companion",
+				Path:   tc.path,
+				Skills: map[string]BundleSkill{"helper": {}},
+			}
+			l := NewLoader(nil, false, WithFS(fs), WithSeededBundles(map[string]*Bundle{"companion": b}))
+
+			var warnings bytes.Buffer
+			restore := clidiag.SetSink(&warnings)
+			t.Cleanup(restore)
+
+			got := l.skillContent(b, "helper", b.Skills["helper"])
+
+			require.Nil(t, got,
+				"a bundle whose Path is not a real filesystem path has no directory to resolve "+
+					"skills against; resolving anyway loads whatever happens to sit at that "+
+					"relative path in the process working directory")
+			require.True(t, strings.Contains(warnings.String(), "helper"),
+				"the withheld skill must be named — a skill that vanishes silently is "+
+					"indistinguishable from a bundle that ships none (got: %q)", warnings.String())
+		})
+	}
+}

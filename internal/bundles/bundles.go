@@ -69,7 +69,15 @@ type Bundle struct {
 
 	// Internal fields (not serialized)
 	Name string `yaml:"-"` // Bundle name (from path)
-	Path string `yaml:"-"` // File path for saving
+	// Path is OVERLOADED, and callers must not treat it as a filesystem path
+	// without asking. It is a real path to the bundle.yaml for an on-disk
+	// bundle, but it is "" for a companion-seeded bundle (config/companions.go
+	// sets Name and the signer and never a Path) and a synthetic sentinel
+	// ("<remote>:…", "<remote-version>:…", "<seeded>:…") for the seeded kinds.
+	// Anything that needs the DIRECTORY a bundle's files live in must go
+	// through fsDir, which refuses the non-filesystem values instead of
+	// silently yielding "." (see fsDir's doc for what that cost).
+	Path string `yaml:"-"` // File path for saving; see fsDir before using as one
 	// sourceRef is the bundle's canonical ref when it was seeded from a remote
 	// (cloned) source — the lockfile key shape, e.g. "https://…@bundles/x". It is
 	// empty for a project (fs) bundle. Set at seed time (WithSeededBundles).
@@ -130,6 +138,50 @@ func (b *Bundle) contentSourceRef() string {
 		return b.sourceRef
 	}
 	return b.Name
+}
+
+// nonFilesystemPathPrefixes are the synthetic Bundle.Path sentinels. None of
+// them is a filesystem path, and none may be handed to filepath.Dir and used
+// as one. They are listed here rather than at their producers so a new sentinel
+// added anywhere fails fsDir loudly instead of silently reopening U030-F03 —
+// the values are matched by prefix, and every current producer uses the
+// "<word>:" shape (config/config.go's "<remote>:", loader_version.go's
+// "<remote-version>:", loader.go's seededPath "<seeded>:").
+var nonFilesystemPathPrefixes = []string{"<remote>:", "<remote-version>:", seededPathPrefix}
+
+// fsDir returns the DIRECTORY this bundle's files live in, or an error when the
+// bundle has none — which is the common case, not an exotic one: companion-,
+// remote- and seeded-bundle values of Path are not filesystem paths at all.
+//
+// Callers used filepath.Dir(b.Path) directly, and the two ways that fails are
+// both silent:
+//
+//   - filepath.Dir("") is ".", and so is filepath.Dir("<seeded>:some-bundle")
+//     (no separator in it). A companion or seeded bundle's files therefore
+//     resolved against the PROCESS WORKING DIRECTORY — whatever happened to sit
+//     at ./skills/<name> was loaded, trust-gated and materialized AS that
+//     bundle's content. Arbitrary project-local files, adopted under a
+//     bundle's identity.
+//   - filepath.Dir("<remote>:some/bundle@sha") is "<remote>:some", a garbage
+//     relative path that simply does not exist, so a remote bundle's skills
+//     were unloadable with no diagnostic.
+//
+// Refusing is the correct answer for both: a bundle with no directory has no
+// files to resolve, and guessing at one is how the first case happened. The
+// error names the offending value so the caller's warning is diagnosable.
+func (b *Bundle) fsDir() (string, error) {
+	if b == nil {
+		return "", fmt.Errorf("bundle is nil")
+	}
+	if b.Path == "" {
+		return "", fmt.Errorf("bundle %q has no filesystem path (companion-seeded bundles carry none), so it has no directory to resolve files against", b.Name)
+	}
+	for _, prefix := range nonFilesystemPathPrefixes {
+		if strings.HasPrefix(b.Path, prefix) {
+			return "", fmt.Errorf("bundle %q has the synthetic path %q, not a filesystem path, so it has no directory to resolve files against", b.Name, b.Path)
+		}
+	}
+	return filepath.Dir(b.Path), nil
 }
 
 // BundleHook is the bundle-authoring shape of a hook: the wire.Hook fields a

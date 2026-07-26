@@ -59,6 +59,12 @@ type LoadedSkillFile struct {
 func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
+		// This feeds the export path that WRITES per-engine skill files, so a
+		// bare `return nil` exported zero skills, exit 0, in silence —
+		// indistinguishable from a bundle that ships none (U030-F07). The
+		// sibling expandBundleRef already warns here through this same warner;
+		// that inconsistency was the tell.
+		unresolvedBundleWarner.unresolved(bundleRef, err)
 		return nil
 	}
 	names := make([]string, 0, len(bundle.Skills))
@@ -88,7 +94,15 @@ func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 // either case — a mismatch (tampered script, drifted content) withholds the
 // skill loudly rather than materializing a partial/tampered package.
 func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *LoadedSkill {
-	bundleDir := filepath.Dir(bundle.Path)
+	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
+	// or seeded bundle Dir() of it is ".", which resolved this skill against
+	// the process working directory and materialized whatever sat there as
+	// the bundle's own content (U030-F03). fsDir refuses those values.
+	bundleDir, err := bundle.fsDir()
+	if err != nil {
+		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
+		return nil
+	}
 	dir, err := ResolveSkillDir(bundleDir, name, entry)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skipping skill %q: %v", name, err)

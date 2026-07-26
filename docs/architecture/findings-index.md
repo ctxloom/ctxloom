@@ -14,25 +14,25 @@ This is the counterpart to [`FINDINGS.md`](../../FINDINGS.md), and the two answe
 
 ## Status — what happened to each row
 
-**Updated 2026-07-26** against `release/0.7` at `9492dd16`. The census was extracted at `0f59fbae`; the remediation sweep and the five release-blocking fixes have landed since.
+**Updated 2026-07-26** against `release/0.7` at `9492dd16`, then again by the HIGH-severity sweep on `chore/findings-sweep-high-1`. The census was extracted at `0f59fbae`; the remediation sweep and the five release-blocking fixes have landed since.
 
 Every row now carries a **Status**. It is derived **mechanically from the commit record** (`git log 0f59fbae..HEAD`, matching the row's ID in commit messages) — no row's claim text was re-judged, so `open` means *no commit named this ID*, **not** *verified still broken*.
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **168** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **177** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,096** |
+| `open` | no commit names this ID | **2,087** |
 
-**Totals: 2268 findings across 162 units — 168 resolved, 2096 still open, 4 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 177 resolved, 2087 still open, 4 adjudicated without a fix.**
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 47 | 328 (+1 refuted) |
+| HIGH | 376 | 56 | 319 (+1 refuted) |
 | MED | 999 | 30 | 969 |
-| LOW | 871 | 91 | 777 (+3 partial/escalated) |
+| LOW | 871 | 91 | 799 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -433,16 +433,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U135-F01 | open | `351-357, 274-285, 370-373` | ERRHANDLING | ssh-agent I/O failures are converted into confident negatives — the exact "error squashed into a negative answer" pattern. Three sites. | U135.md |
 | U135-F02 | open | `402-415` | CORRECTNESS | The `.pub`-sibling fallback cannot fire for the case its own comment names, so the zero-config git path breaks for a common real setup — and private key bytes are slurped into memory in the process. | U135.md |
 | U135-F03 | open | `499 + 307-317` | ERRHANDLING | A swallowed `ag.List()` error silently disables comment matching entirely, turning an agent RPC failure into "no ssh-agent identity comment matches %q". | U135.md |
-| U136-F01 | open | `write.go:21-30` | SILENTNOOP | `FormatEntry` accepts a principal containing whitespace and emits a line that `Parse` rejects on every subsequent read — `signer add` reports success and a fingerprint while delivering zero trust. | U136.md |
-| U136-F02 | open | `write.go:63-66` | CORRECTNESS | `FormatEntry` writes `Comment` verbatim, so a newline in it makes the function emit **two** `allowed_signers` lines — appending a second fully-trusted signer the CLI's confirmation prompt never dis... | U136.md |
-| U136-F03 | open | **`parse.go:58`** | ERRHANDLING | `Parse`'s `[]*ParseError` is a *droppable* second return value, and 2 of 4 production call sites drop it with `_` — so a malformed line silently revokes a signer nobody revoked, with no diagnostic ... | U136.md |
+| U136-F01 | **RESOLVED** `eba5fc65` | `write.go:21-30` | SILENTNOOP | `FormatEntry` accepts a principal containing whitespace and emits a line that `Parse` rejects on every subsequent read — `signer add` reports success and a fingerprint while delivering zero trust. | U136.md |
+| U136-F02 | **RESOLVED** `eba5fc65` | `write.go:63-66` | CORRECTNESS | `FormatEntry` writes `Comment` verbatim, so a newline in it makes the function emit **two** `allowed_signers` lines — appending a second fully-trusted signer the CLI's confirmation prompt never dis... | U136.md |
+| U136-F03 | **RESOLVED** `eba5fc65` | **`parse.go:58`** | ERRHANDLING | `Parse`'s `[]*ParseError` is a *droppable* second return value, and 2 of 4 production call sites drop it with `_` — so a malformed line silently revokes a signer nobody revoked, with no diagnostic ... | U136.md |
 | U136-F04 | open | **`store.go:13`, `:35`, `parse.go:82`** | CORRECTNESS | The API cannot express "the trust root failed to load" — an unreadable, absent, empty, and entirely-garbage store are all the same value. This is the API-level enabler of the confirmed `config/trus... | U136.md |
-| U136-F05 | open | **`parse.go:116-126`** | CORRECTNESS | The declared key-type token is never checked against the key blob, so ctxloom grants trust from lines real `ssh-keygen` calls "invalid key" and refuses to verify against. This directly falsifies th... | U136.md |
-| U137-F01 | open | **`store.go:84-94` (with `operations/countersign_records.go:208-212`)`** | CORRECTNESS | **CONFIRMED — the reported HIGH is real.** `Readable()` cannot distinguish "no path configured" from "path absent", so a store built with `dir == ""` reports readable, and the fail-closed gate at `... | U137.md |
-| U137-F02 | open | **`store.go:191`, `store.go:279`** | CORRECTNESS | **Worse than reported: the `dir == ""` store does not read as empty — it reads the process CWD.** `filepath.Join("", x) == x`, a relative pattern, so `candidates`' `Glob` and `hasUnsigned`'s `Exist... | U137.md |
+| U136-F05 | **RESOLVED** `eba5fc65` | **`parse.go:116-126`** | CORRECTNESS | The declared key-type token is never checked against the key blob, so ctxloom grants trust from lines real `ssh-keygen` calls "invalid key" and refuses to verify against. This directly falsifies th... | U136.md |
+| U137-F01 | **RESOLVED** `47c6efe2` | **`store.go:84-94` (with `operations/countersign_records.go:208-212`)`** | CORRECTNESS | **CONFIRMED — the reported HIGH is real.** `Readable()` cannot distinguish "no path configured" from "path absent", so a store built with `dir == ""` reports readable, and the fail-closed gate at `... | U137.md |
+| U137-F02 | **RESOLVED** `47c6efe2` | **`store.go:191`, `store.go:279`** | CORRECTNESS | **Worse than reported: the `dir == ""` store does not read as empty — it reads the process CWD.** `filepath.Join("", x) == x`, a relative pattern, so `candidates`' `Glob` and `hasUnsigned`'s `Exist... | U137.md |
 | U137-F03 | open | **`store.go:79-83`, `store.go:222-227` (with `signing/countersign_verify.go:36-40`)`** | CORRECTNESS | **Answering the coordinator's question: yes.** A countersignature verification failure is read as "not countersigned", and on the **reject** path "not countersigned" is benign — so a corrupted-but-... | U137.md |
-| U137-F04 | open | **`store.go:163-166`, `store.go:284-287`** | SILENTNOOP | `WriteApprove` / `WriteUnsignedApprove` accept an empty `payload` and succeed, but the reader can never honour the record: `countersignRecords.Approved` returns false for `len(payload) == 0` before... | U137.md |
-| U137-F08 | open | **`store.go:348-360`, `store.go:366-379`** | CORRECTNESS | `readIndex` returns `nil` on an unmarshal error (`store.go:357-359`) — indistinguishable from "no index yet". `AppendIndex` then does `append(s.readIndex(), e)` and **overwrites** `index.yaml`, so ... | U137.md |
+| U137-F04 | **RESOLVED** `47c6efe2` | **`store.go:163-166`, `store.go:284-287`** | SILENTNOOP | `WriteApprove` / `WriteUnsignedApprove` accept an empty `payload` and succeed, but the reader can never honour the record: `countersignRecords.Approved` returns false for `len(payload) == 0` before... | U137.md |
+| U137-F08 | **RESOLVED** `47c6efe2` | **`store.go:348-360`, `store.go:366-379`** | CORRECTNESS | `readIndex` returns `nil` on an unmarshal error (`store.go:357-359`) — indistinguishable from "no index yet". `AppendIndex` then does `append(s.readIndex(), e)` and **overwrites** `index.yaml`, so ... | U137.md |
 | U138-F01 | open | `:322-326` | ERRHANDLING | **A schema-compile failure degrades to "valid".** `Load` discards the validator error entirely — not returned, not logged, not warned — and *skips validation altogether*, returning `(cfg, nil)`. Ev... | U138.md |
 | U138-F09 | open | `resources/schema/input/taskloom-config-schema.json` (`homing.description`) vs `:348-359` | CORRECTNESS | **The user-facing schema documentation states the exact opposite of what the code does**, and that description is what the docs generator publishes | U138.md |
 | U140-F01 | open | `:76-123` vs `internal/projectroot/projectroot.go:25-106` | DUPLICATE | **`resolveBase` is the third implementation of one resolution chain, and `fromEnv` duplicates its counterpart verbatim — including the warning string.** The env-var literal is declared twice and th... | U140.md |
@@ -467,7 +467,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U149-F03 | open | **`mapping.go:190-194`** | CORRECTNESS | The locator fallback makes `sessionInfo` unconditionally non-nil, defeating `importer.SessionInfoBuilder`'s documented contract and creating a transcript file that permanently blocks re-import. | U149.md |
 | U150-F01 | open | `internal/trust/trust.go:239-275` | CORRECTNESS | `CanonicalRepoURL` is not total over same-repo spellings, so the **ref-level sticky rejection can be escaped by respelling the remote URL** — and for a bundle with a verified publisher signature th... | U150.md |
 | U150-F02 | open | `docs/trust-model.md:123-126` vs `internal/signing/countersign/store.go:218-228` | CORRECTNESS | **Doc and code disagree on the direction of failure.** The doc asserts globally that "a malformed `allowed_signers` file, a corrupted countersignature, or a deleted countersignature store all degra... | U150.md |
-| U150-F03 | open | `internal/operations/countersign_records.go:207-212`; `internal/signing/countersign/store.go:88-94` | CORRECTNESS | `$HOME` unresolvable ⇒ user approvals store is built over dir `""` ⇒ `Readable()` maps the resulting ENOENT to `nil` ⇒ the fail-closed gate at `operations/trust.go:262-283` never fires **and every ... | U150.md |
+| U150-F03 | **RESOLVED** `47c6efe2` | `internal/operations/countersign_records.go:207-212`; `internal/signing/countersign/store.go:88-94` | CORRECTNESS | `$HOME` unresolvable ⇒ user approvals store is built over dir `""` ⇒ `Readable()` maps the resulting ENOENT to `nil` ⇒ the fail-closed gate at `operations/trust.go:262-283` never fires **and every ... | U150.md |
 | U150-F04 | open | `internal/remote/retract.go:12-45`; `internal/operations/trust.go:399-401` | ERRHANDLING | **Retraction (deny step 2) has no error channel end-to-end.** Every fault on the path recorded-at-sync → read-at-exposure resolves to "not retracted", so a publisher's withdrawal of content **they ... | U150.md |
 | U150-F05 | open | `docs/trust-model.md:57-134` vs `internal/operations/trust.go:193-243` | CORRECTNESS | **The normative doc documents a SIX-step decision function; the code implements SEVEN.** Retraction — an entire top-of-cascade DENY step and an entire `Source` value — is **absent from `docs/trust-... | U150.md |
 | U152-F01 | open | `dockerexec.go:154-157` | SILENTNOOP | Given a nil `spec.Stdout`, the output pump discards the **entire interactive session's output** and `Wait` still returns `ExitStatus{Code: 0}, nil` — exit 0, success, zero bytes delivered. | U152.md |

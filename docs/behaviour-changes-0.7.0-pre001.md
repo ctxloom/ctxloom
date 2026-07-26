@@ -74,6 +74,26 @@ per-file listing when you do. A skill that had already been through `ctxloom ski
 is **unaffected** — its preimage is byte-for-byte what it always was, and its approval
 stands. Run `ctxloom skill sync <bundle>` to move a skill to an authored manifest for good.
 
+### The trust root and the approvals store
+
+| Surface | Before | Now |
+|---|---|---|
+| Any trust decision when `$HOME` cannot be resolved | the user approvals store silently resolved against the **process working directory**, so personal rejections went unseen and a `*.approve.unsigned` file at a repo root was an unconditional approval | the store reports itself unconfigured; the existing fail-closed gate denies all items and names the cause |
+| Approving an item whose payload is empty | exit 0, "approved" with a key fingerprint, item stays pending forever | non-zero: an approval that pinned nothing is refused (ref-**rejections**, which pin no bytes by design, are unaffected) |
+| Appending to a corrupt/truncated `approvals/index.yaml` | exit 0, the whole approval history silently overwritten | non-zero, the existing file left untouched; the write is now temp+rename |
+| `ctxloom review` when the approvals index cannot be read | item silently labelled **NEW** | warns and labels it **UPDATE** (the conservative reading); **exit code unchanged** |
+| `ctxloom bundle distill` when the approvals index cannot be read | item silently omitted from the invalidation report | warns and reports it as invalidated; **exit code unchanged** |
+| `ctxloom signer add` with whitespace or a comma inside a principal | exit 0, success line + fingerprint, entry unusable on every later read | non-zero |
+| `ctxloom signer add --comment` containing a line break | exit 0, a **second** fully-trusted signer appended that the prompt never displayed | non-zero |
+| An `allowed_signers` line whose declared key type does not match the key blob | trusted (real `ssh-keygen` calls it "invalid key") | dropped and reported |
+| `ctxloom signer list` / `show` over a store with an unreadable line | the line was silently omitted from the audit listing | listed as an `(unreadable)` row + a warning; **exit code unchanged** |
+| `ctxloom signer remove` finding nothing in a store whose lines it could not fully read | exit 0, "no entry for X" | non-zero (a fully-parseable store without that principal still exits 0) |
+| `ctxloom signer list` / `remove` where the store exists but cannot be opened | silently treated as absent | reported |
+
+**Why:** every one of these reported trust that was not there, or granted trust that a
+real `ssh-keygen` refuses. "Nothing was recorded" and "I could not read what was
+recorded" are different answers, and only the first one is safe to act on.
+
 ### Dependencies and the lockfile
 
 `.ctxloom/lock.yaml` is the only on-disk record of your dependency pins, your holds

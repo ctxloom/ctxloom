@@ -214,6 +214,38 @@ exactly such a malformed ref and confirms the tool fails closed, in its own
 words, rather than guessing local.
 <!-- /doc:scenario -->
 
+<!-- doc:scenario: An unreadable lockfile withholds remote content, rather than silently un-retracting it -->
+Retraction is the only control on this page that is not the reader's own
+decision. Everything else here — approve, reject — is something a human did
+about bytes they looked at. A retraction is the PUBLISHER saying "withdraw
+this," and the reason they usually say it is that the content turned out to be
+harmful. That record lives in one place on disk, `.ctxloom/lock.yaml`, learned
+at the last sync that had the network in hand.
+
+Which raises a question the rest of this page never asks: what happens when
+that file cannot be read? "I cannot read the retraction record" and "nothing
+is retracted" are different statements, and for a long time the tool collapsed
+them into the second one — so a corrupt lockfile quietly served the withdrawn
+bundle again, exit 0, no warning. A control that switches itself off when its
+own state goes missing is not a control.
+
+This scenario proves the posture is now the other one. It delivers the
+publisher's fragment normally, corrupts the lockfile, and asks for another
+session: the content is withheld and the session refuses to start. The refusal
+is deliberately talkative, because this is a fault nobody can diagnose from
+what they typed — nothing about `ctxloom run` mentions a lockfile — so it
+names the file, says what it withheld and why, and names the recovery. It can
+afford to say "the file is left intact" because a companion guard makes that
+true: nothing overwrites an unparseable lockfile, so the holds and retractions
+inside it are still there to read by hand.
+
+The boundary this must NOT trip is the ordinary one: a project with no
+lockfile at all has no pins and legitimately nothing retracted, and it keeps
+working untouched. Absent is not corrupt. That case is pinned in the unit
+suite rather than here, because it is the ABSENCE of behaviour and there is no
+scenario to watch.
+<!-- /doc:scenario -->
+
 <!-- doc:outro -->
 Read as a single artifact, this page closes the gap the rest of the suite left
 open: before it, "can this be rejected" had real proof for exactly two of five

@@ -38,6 +38,24 @@ const (
 	// concurrent subprocesses (and provider rate pressure) while still cutting
 	// wall-clock from sum-of-chunks to roughly slowest-chunk × ceil(n/limit).
 	distillConcurrency = 4
+
+	// MaxEssenceChars is the hard ceiling, in characters, on the distilled
+	// essence body Compact will save or hand back to a caller. It is the
+	// backstop against a pipeline that "succeeds" (every LLM call exits 0)
+	// but fails to actually COMPRESS: quit-eagle found recover_session
+	// returning a ~381,000-char essence — the map step produced per-chunk
+	// output that was never meaningfully smaller than its input, and the
+	// reduce pass that was supposed to unify it into one bounded summary
+	// either wasn't enough or (see finalCompressionPass) failed and fell back
+	// to the un-reduced concatenation. Either way, the caller got something
+	// indistinguishable from a raw transcript passthrough. Compact now
+	// refuses to write or return a body over this bound — see its use in
+	// Compact and finalCompressionPass. ~100,000 chars is ~25,000 tokens at
+	// this package's CharsPerToken estimate, comfortably under the ~25k-token
+	// ceiling common MCP clients (including Claude Code's own tool-result
+	// cap) enforce on a single tool result, with headroom for the JSON
+	// envelope wrapping it.
+	MaxEssenceChars = 100_000
 )
 
 // CompactionConfig holds settings for session compaction.
@@ -257,7 +275,16 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// output — no frontmatter, no Open Items. Single-chunk sessions already
 	// produce one canonical map output, so they skip it.
 	if len(chunks) > 1 {
-		combined = c.finalCompressionPass(ctx, combined)
+		reduced, rerr := c.finalCompressionPass(ctx, combined)
+		if rerr != nil {
+			// finalCompressionPass only returns an error when the reduce call
+			// failed AND its un-reduced input was itself over MaxEssenceChars
+			// (see its doc comment) — a genuine "cannot bound the output"
+			// case, not a normal degrade. Fail loud rather than save/return
+			// the oversized, un-reduced combined text.
+			return nil, rerr
+		}
+		combined = reduced
 		result.TotalTokensOut = estimateTokens(combined)
 	}
 
@@ -268,6 +295,17 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	if !hadFM {
 		c.warnf("distillation lacks YAML frontmatter; deriving summary from body")
 		cleanedBody = strings.TrimSpace(combined)
+	}
+
+	// Fail-loud backstop (quit-eagle): even a "successful" pipeline (every
+	// LLM call exited 0, reduce ran without error) can still hand back
+	// something enormous if the model didn't actually compress — this is the
+	// general case finalCompressionPass's own check above only covers for its
+	// specific failure mode. Never save or return a body over the bound; the
+	// caller (e.g. recover_session) must see an honest failure instead of an
+	// unbounded payload.
+	if len(cleanedBody) > MaxEssenceChars {
+		return nil, fmt.Errorf("distilled essence for session %s is %d chars, over the %d-char bound (MaxEssenceChars); refusing to save or return an unbounded summary", session.ID, len(cleanedBody), MaxEssenceChars)
 	}
 
 	return c.finishDistill(session, harpName, sourceSize, plans, result, summary, cleanedBody, start)
@@ -533,17 +571,29 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 // finalCompressionPass merges the per-chunk distillations into one coherent
 // essence using the dedicated reduce prompt (which knows its input is already-
 // distilled partial summaries to unify, not a raw transcript to re-summarize,
-// and re-asserts the mandatory YAML frontmatter + identifier preservation). On
-// failure it warns and returns the input unchanged — a too-large summary beats
-// no summary.
-func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) string {
+// and re-asserts the mandatory YAML frontmatter + identifier preservation).
+//
+// On failure, the old behavior was to warn and return combined unchanged — "a
+// too-large summary beats no summary". That is exactly the quit-eagle fail-open
+// bug: the reduce pass is the ONE step that unifies a multi-chunk session into
+// a bounded essence, so falling back to its un-reduced input on failure means
+// falling back to something that can be arbitrarily large (roughly
+// chunk-count × per-chunk-summary-size). That reasoning still holds when
+// combined is small — a failed reduce on a short summary is still worth
+// returning unreduced — so the fallback stays, but only up to MaxEssenceChars.
+// Past that, returning combined would just be a slower-motion version of the
+// same passthrough, so this fails loud instead.
+func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) (string, error) {
 	c.progressf("ctxloom: final compression pass...\n")
 	final, err := c.runDistill(ctx, sessionDistillReducePrompt, combined)
 	if err != nil {
+		if len(combined) > MaxEssenceChars {
+			return "", fmt.Errorf("final compression pass failed (%w) and the un-reduced input is %d chars, over the %d-char bound (MaxEssenceChars) — refusing to fall back to an unbounded summary", err, len(combined), MaxEssenceChars)
+		}
 		c.warnf("final pass failed, using combined: %v", err)
-		return combined
+		return combined, nil
 	}
-	return final
+	return final, nil
 }
 
 // assembleBody re-attaches the verbatim plan blocks after the LLM summary so

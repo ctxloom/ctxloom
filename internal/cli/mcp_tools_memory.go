@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -630,6 +632,27 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if err != nil {
 		// Degrade a lookup failure to a usable "couldn't load" message rather than a
 		// tool error — recovery must never block the agent (CLAUDE.md).
+		//
+		// quit-eagle #3: a harp with no captured canonical transcript (an
+		// interactive session — capture itself is a separate, tracked gap,
+		// petty-green) gets a special-cased message naming the harp AND the
+		// concrete remedy, instead of making the caller decode a bare
+		// "no canonical transcript captured"/"legacy scraper reader retired"
+		// wrapper error.
+		var noCanon *transcript.NoCanonicalTranscriptError
+		if errors.As(err, &noCanon) {
+			return nil, &loadSessionResult{
+				Loaded: false,
+				Message: fmt.Sprintf(
+					"No transcript was captured for session %s (harp %q): %v. "+
+						"Interactive-session capture only runs at process exit today, so a "+
+						"mid-session /recover can find nothing yet — this is a known gap, not "+
+						"a bug in recover itself. Run `ctxloom session backfill %s` to convert "+
+						"that session's own transcript into one recover_session can read, then "+
+						"try again.",
+					sessionID, noCanon.Harp, err, noCanon.Harp),
+			}, nil
+		}
 		return nil, &loadSessionResult{
 			Loaded:  false,
 			Message: fmt.Sprintf("Couldn't load session %s: %v", sessionID, err),
@@ -663,13 +686,22 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		}
 	}
 
-	// Cached path: reuse the essence when the transcript hasn't moved past it.
+	// Cached path: reuse the essence when the transcript hasn't moved past it —
+	// UNLESS the cached body itself is over MaxEssenceChars. That should never
+	// happen for anything Compact wrote after quit-eagle (Compact now refuses
+	// to save an oversized body at all), but an essence written by an older
+	// binary, or by some other writer, could still be sitting on disk; treating
+	// it as unusable and falling through to a fresh (now-bounded) distill is
+	// the fail-loud backstop for recover_session specifically — a cache hit is
+	// exactly the path that would otherwise hand back stale, oversized content
+	// with no compaction pipeline in the loop at all to catch it.
 	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
 		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
-		if (known && !stale) || (!known && !redistillWhenUnknown) {
+		withinBound := len(cached.Content) <= memory.MaxEssenceChars
+		if withinBound && ((known && !stale) || (!known && !redistillWhenUnknown)) {
 			return nil, cached, nil
 		}
-		// stale, or indeterminate with a re-distill bias: fall through.
+		// stale, oversized, or indeterminate with a re-distill bias: fall through.
 	}
 
 	// workDir (resolved above) feeds CompactionConfig for compatibility; the

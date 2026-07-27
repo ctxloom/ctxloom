@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -127,6 +128,28 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 	require.Len(t, failed, 1, "an unreadable allowed_signers location must survive as a failed source")
 	assert.Equal(t, path, failed[0].Path)
 	require.Error(t, failed[0].Err)
+}
+
+// TestTrustRoot_UnreadableStore_EscalatesViaStrictness (U050-F02) proves an
+// unreadable allowed_signers is not just recorded (the prior test) but
+// ESCALATED — strictness.Fail(ClassTrust, ...), matching EffectiveTrust's
+// fail-closed posture for a corrupt trust store, in addition to the stderr
+// warning. Without this, a `chmod 000`/EACCES/directory-in-its-place could
+// disarm the whole on-disk trust root with only a line easy to miss in a
+// noisy startup, no structured finding a choke owner could act on.
+func TestTrustRoot_UnreadableStore_EscalatesViaStrictness(t *testing.T) {
+	resetConfigStrictness(t)
+	base := afero.NewMemMapFs()
+	path := paths.AllowedSignersPath(".ctxloom")
+	require.NoError(t, afero.WriteFile(base, path, []byte("# whatever\n"), 0o644))
+	fs := denyOpenFs{Fs: base, deny: path}
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+	mark := strictness.Checkpoint()
+	cfg.TrustRoot()
+
+	findings := strictness.Since(mark)
+	require.NotEmpty(t, findings, "an unreadable allowed_signers must be escalated, not just warned to stderr")
 }
 
 // The control: an ABSENT file is the overwhelmingly common case and is not a

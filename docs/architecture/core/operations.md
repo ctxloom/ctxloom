@@ -361,8 +361,6 @@ flowchart LR
   `SyncOnStartup` hard-codes `Lock: true, ApplyHooks: true`.
 - `TrustStamper` documents "no per-item file I/O" (`trust.go:1091`) but its default retraction
   source reloads `lock.yaml` per item (`trust.go:286`).
-- `cmd/gen-schemas`'s doc claims a `just gen-schemas-check` CI step gates schema drift; no such
-  recipe exists and the output directory is gitignored. See [schema.md](./schema.md).
 - `EvaluateTriggersResult`'s doc states that degraded/fallback verdicts are never cached and that
   `Degraded` is set whenever any chunk failed; round-two chunk failures do not set `Degraded`
   (`task_triggers.go:640` vs `:258`) and fallback verdicts do reach the cache.

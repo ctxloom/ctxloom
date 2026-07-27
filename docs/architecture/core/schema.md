@@ -128,12 +128,10 @@ flowchart TD
 
 ### Where documented and real behavior diverge
 
-- `cmd/gen-schemas/main.go:6` states that a CI step `just gen-schemas-check` fails on any git diff.
-  No such recipe exists, and it could not work against a gitignored output directory.
 - `Generate(dir, nil)` creates the directory, iterates zero times and returns nil;
   `cmd/gen-schemas` then prints "wrote 0 schemas" and exits 0. Because the output tree is
-  gitignored and the claimed CI check is absent, an empty target list produces a green build with
-  an empty embedded schema set.
+  gitignored and nothing diffs it against a prior run, an empty target list produces a green
+  build with an empty embedded schema set.
 - `Generate` sorts the caller's `targets` slice in place; since it writes one file per target, the
   sort buys no output determinism.
 - `name` returns `""` for an unnamed type, which would write `-schema.json`.

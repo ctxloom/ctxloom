@@ -122,7 +122,7 @@ func customFillEvent(seq uint64) *agentcoordpb.AgentEvent {
 // broadcast the next drained seq skips exactly the one evicted event.
 func TestWatchHub_Broadcast_TerminalEvictsOnFullBufferAndNonTerminalStillDrops(t *testing.T) {
 	h := newWatchHub()
-	ch, cancel := h.subscribe(nil)
+	ch, cancel, _ := h.subscribe(nil)
 	defer cancel()
 
 	// Baseline: one event, drained immediately (mirrors PART 1's own
@@ -200,6 +200,62 @@ drain:
 // some other one) is what gets evicted, and the terminal event lands right
 // after it — one eviction, one successful retry, well inside
 // terminalEvictAttempts.
+// TestWatchHub_Narrow_ScopesToOneRun is U041-F06 PART 1's hub-level contract
+// test. startContainerOwnedRun must subscribe BEFORE the run's ID exists
+// (StartOwnedRun mints it internally, mid-call — see run_owned.go's own
+// comment on that ordering), so subscribe(nil) — hub-wide — is unavoidable at
+// that instant. But staying hub-wide for the run's ENTIRE lifetime means
+// every other concurrent run sharing this coordinator competes for the same
+// watchRingSize-slot ring, silently stealing this run's own delivery budget.
+// narrow lets the caller re-scope the SAME subscription, in place, the
+// moment it learns its run's ID — proven here by broadcasting an unrelated
+// run's events both before and after narrowing: they arrive while
+// unscoped, and are excluded from the ring entirely (not merely
+// client-filtered) once narrowed.
+func TestWatchHub_Narrow_ScopesToOneRun(t *testing.T) {
+	h := newWatchHub()
+	ch, cancel, narrow := h.subscribe(nil)
+	defer cancel()
+
+	other := &agentcoordpb.AgentEvent{
+		Seq: 1, RunId: "other-run",
+		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+	}
+	h.broadcast(other)
+	select {
+	case ev := <-ch:
+		assert.Equal(t, "other-run", ev.GetRunId(), "unscoped (nil filter): every run's events reach this subscriber")
+	default:
+		t.Fatal("an unscoped subscription must receive every run's events")
+	}
+
+	narrow("target-run")
+
+	// Now unrelated events must never even enter the ring — proven by
+	// filling the ring past capacity with them and confirming it never
+	// reports full to a non-blocking broadcast, unlike the shared-ring test
+	// above.
+	for i := 0; i < watchRingSize+1; i++ {
+		h.broadcast(&agentcoordpb.AgentEvent{
+			Seq: uint64(2 + i), RunId: "other-run",
+			Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+		})
+	}
+	assert.Empty(t, ch, "after narrowing, a foreign run's events must never occupy this subscriber's ring at all")
+
+	mine := &agentcoordpb.AgentEvent{
+		Seq: 999, RunId: "target-run",
+		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+	}
+	h.broadcast(mine)
+	select {
+	case ev := <-ch:
+		assert.Equal(t, "target-run", ev.GetRunId(), "the narrowed run's own events must still arrive")
+	default:
+		t.Fatal("the narrowed-to run's events must still be delivered")
+	}
+}
+
 func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
 	ch := make(chan *agentcoordpb.AgentEvent, 2)
 	ch <- &agentcoordpb.AgentEvent{Seq: 1}

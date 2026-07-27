@@ -29,7 +29,7 @@ import (
 // simplification (most ACP usage is one active session per editor window).
 func acpChildWatcher(c *coord.Coordinator) func(ctx context.Context) (<-chan acpagent.ChildUpdate, func()) {
 	return func(ctx context.Context) (<-chan acpagent.ChildUpdate, func()) {
-		snapshot, events, cancel := c.WatchRuns(nil)
+		snapshot, events, cancel, _ := c.WatchRuns(nil)
 		out := make(chan acpagent.ChildUpdate, 32)
 		go adaptChildWatch(ctx, snapshot, events, out)
 		return out, cancel

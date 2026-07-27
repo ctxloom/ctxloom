@@ -81,8 +81,15 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 		owner = coord.Identity{Harp: harp}
 	}
 
-	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is missed.
-	_, events, cancel := c.WatchRuns(nil)
+	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is
+	// missed — StartOwnedRun mints the run's ID internally, mid-call, so it
+	// cannot be known yet: subscribe(nil) is genuinely hub-wide at this
+	// instant. U041-F06: narrow() re-scopes this SAME subscription down to
+	// just this run the moment StartOwnedRun returns with the real ID below,
+	// so this run only shares its ring's delivery budget with every other
+	// concurrent run on this coordinator for the brief window before that —
+	// not for its whole lifetime.
+	_, events, cancel, narrow := c.WatchRuns(nil)
 
 	lead := operations.JoinLeadBlocks(contextText, prompt)
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
@@ -100,6 +107,7 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 		cancel()
 		return handle, nil, err
 	}
+	narrow(outcome.RunID)
 	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel}, nil
 }
 
@@ -255,11 +263,29 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 	var answer strings.Builder
 	final := map[string]bool{}
 	enc := json.NewEncoder(out)
+	// U041-F06: the watchHub ring (consumer.go) this channel is fed from is a
+	// lossy, per-subscriber buffer that a busy coordinator's OTHER concurrent
+	// runs can also fill (this run's subscription is scoped, but the ring
+	// still drops under sustained overload); nothing upstream re-sends a
+	// dropped event. Every event this run's own EngineHost emits carries a
+	// strictly contiguous per-run Seq (home.go's emitEvent), so a hole in
+	// that sequence is the only signal available that this stream has
+	// silently lost data. lastSeq tracks the highest Seq observed for THIS
+	// run; Seq 0 (unset — e.g. test fixtures, or any future event type that
+	// does not route through emitEvent) is never treated as a gap.
+	var lastSeq uint64
 	for {
 		select {
 		case ev := <-events:
 			if ev.GetRunId() != runID {
 				continue
+			}
+			if seq := ev.GetSeq(); seq != 0 {
+				if lastSeq != 0 && seq > lastSeq+1 {
+					missed := seq - lastSeq - 1
+					clidiag.Warn("ctxloom", "run %s: lost %d event(s) between seq %d and %d — the coordinator's live event buffer was full (likely other concurrent runs competing for it) and dropped them; this run's rendered output may be INCOMPLETE", runID, missed, lastSeq, seq)
+				}
+				lastSeq = seq
 			}
 			switch p := ev.GetPayload().(type) {
 			case *agentcoordpb.AgentEvent_MessageStarted:

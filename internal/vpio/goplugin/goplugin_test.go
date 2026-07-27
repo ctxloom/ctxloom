@@ -154,6 +154,52 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 	}
 }
 
+// TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation inverts
+// U153-F02: the ctx-done watcher goroutine and the resize channel are tied
+// to the CALLER's context, not to the session's own lifetime (Start's
+// `go func() { <-ctx.Done(); s.stop() }()`), so both outlive a session that
+// has already completed — Wait returning releases nothing. For a one-shot
+// `ctxloom run` this is harmless, but any caller holding one long-lived ctx
+// across multiple turns (internal/cli/run.go does exactly this) accumulates
+// a goroutine and an open channel per turn.
+//
+// The correct contract: once Wait returns, the session is DONE and its
+// resources are released on their own, with ctx cancellation only as the
+// early-abort path — not the only path. This test starts a session, lets it
+// finish, calls Wait, and — WITHOUT ever cancelling ctx — requires the
+// session to already be stopped.
+//
+// Production is NOT fixed yet (Session.Wait only reads the result channel;
+// nothing there calls s.stop()) — this is the RED half of the inversion,
+// kept skipped so `just test` stays green until U153-F02's fix lands
+// (findings-index.md). Un-skip once the Run-completion goroutine calls
+// s.stop() itself (see goplugin.go's own suggested fix), and re-check this
+// still passes alongside TestSession_ResizeRelaysOntoTheWire, whose
+// pre-Wait Resize calls must keep working.
+func TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation(t *testing.T) {
+	t.Skip("pins the correct release contract for U153-F02 (findings-index.md); production only releases on ctx.Done() — un-skip once Wait's completion path calls stop() itself")
+
+	fc := &fakeClient{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // safety net only; must not be required for the assertion below
+
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := sess.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	s := sess.(*Session)
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if !closed {
+		t.Fatal("session must be stopped once Wait returns, without needing ctx cancellation")
+	}
+}
+
 func TestSession_ResizeAfterCloseDoesNotPanicOrBlock(t *testing.T) {
 	fc := &fakeClient{}
 	ctx, cancel := context.WithCancel(context.Background())

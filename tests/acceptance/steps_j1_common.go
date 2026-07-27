@@ -309,11 +309,14 @@ func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
 
 // promptSection extracts the "=== Prompt ===" section the mock backend
 // records (internal/lm/backends/mock.go's recordMockInput) — the exact text
-// the discovery session handed the engine as its interview prompt.
-func promptSection(recorded string) string {
+// the discovery session handed the engine as its interview prompt. The
+// marker's absence is a harness/product break (a mock that recorded
+// something other than a prompt, or a record-file format change) — not an
+// empty prompt — so it fails loud rather than returning "".
+func promptSection(recorded string) (string, error) {
 	i := strings.Index(recorded, "=== Prompt ===\n")
 	if i < 0 {
-		return ""
+		return "", fmt.Errorf("the mock's record carries no \"=== Prompt ===\" section; recorded:\n%s", recorded)
 	}
-	return recorded[i+len("=== Prompt ===\n"):]
+	return recorded[i+len("=== Prompt ===\n"):], nil
 }

@@ -364,9 +364,24 @@ func (c *MCPClient) listNames(method, array, field string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("%s: result is not a map", method)
 	}
-	items, ok := result[array].([]any)
+	return parseNamedArray(result, array, field)
+}
+
+// parseNamedArray extracts a string field from each element of a named array
+// in result, returning an ERROR (not a nil slice) when the array key is
+// absent or not an array — a malformed response must not be
+// indistinguishable from a well-formed empty list (U163-F05: a server
+// advertising zero tools/resources looked identical to one whose response
+// never parsed, and the acceptance suite's only completeness gate passed
+// vacuously against either).
+func parseNamedArray(result map[string]any, array, field string) ([]string, error) {
+	raw, present := result[array]
+	if !present {
+		return nil, fmt.Errorf("result has no %q key", array)
+	}
+	items, ok := raw.([]any)
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("result[%q] is not an array (got %T)", array, raw)
 	}
 	out := make([]string, 0, len(items))
 	for _, it := range items {
@@ -420,9 +435,13 @@ func (c *MCPClient) ListToolDetails() ([]ToolDetail, error) {
 	if !ok {
 		return nil, fmt.Errorf("tools/list: result is not a map")
 	}
-	items, ok := result["tools"].([]any)
+	rawTools, present := result["tools"]
+	if !present {
+		return nil, fmt.Errorf("tools/list: result has no \"tools\" key")
+	}
+	items, ok := rawTools.([]any)
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("tools/list: result[\"tools\"] is not an array (got %T)", rawTools)
 	}
 	out := make([]ToolDetail, 0, len(items))
 	for _, it := range items {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -215,10 +216,21 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	if stdout != nil {
 		dst = stdout
 	}
+	// U116-F02: io.Copy's error used to be discarded outright (`_, _ =`), so
+	// a write failure on dst (the caller's stdout writer — a gRPC stream,
+	// which CAN fail mid-run on a broken pipe/connection reset) left
+	// RunInteractive reporting the child's exit code as success having
+	// delivered nothing after the failure. trackWriter isolates the WRITE
+	// side specifically: a read error from ptty is EXPECTED once this
+	// function intentionally closes it below (drainPTY + ptty.Close), so
+	// io.Copy's own combined return can't distinguish "we hung up on
+	// ourselves on purpose" from "the destination failed" — only the write
+	// side can.
+	tw := &trackWriter{dst: dst}
 	copyDone := make(chan struct{})
 	go func() {
 		defer close(copyDone)
-		_, _ = io.Copy(dst, ptty)
+		_, _ = io.Copy(tw, ptty)
 	}()
 
 	// Wait for command to finish first
@@ -250,5 +262,41 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 		}
 	}
 
+	// U116-F02: a write failure delivering the child's output must not be
+	// reported as success — the child may have exited 0 having produced
+	// output that never reached anyone.
+	if werr := tw.err(); werr != nil {
+		return nil, fmt.Errorf("interactive session output delivery failed: %w", werr)
+	}
+
 	return result, nil
+}
+
+// trackWriter wraps a destination io.Writer, recording the first write
+// error it observes (io.Copy stops on the first error, so there is at most
+// one) without changing Write's own return values. mu guards the field
+// against a caller reading it (via err()) from a different goroutine than
+// the copy loop that writes it.
+type trackWriter struct {
+	dst      io.Writer
+	mu       sync.Mutex
+	firstErr error
+}
+
+func (w *trackWriter) Write(p []byte) (int, error) {
+	n, err := w.dst.Write(p)
+	if err != nil {
+		w.mu.Lock()
+		if w.firstErr == nil {
+			w.firstErr = err
+		}
+		w.mu.Unlock()
+	}
+	return n, err
+}
+
+func (w *trackWriter) err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.firstErr
 }

@@ -1399,7 +1399,10 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		return nil
 	}
 
-	merged := confload.Merge(layers...)
+	merged, mergeErr := confload.Merge(layers...)
+	if mergeErr != nil {
+		return fmt.Errorf("merging config layers: %w", mergeErr)
+	}
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
 		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})

@@ -206,13 +206,21 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
-	base = Merge(base, envLayer)
+	merged, mergeErr := Merge(base, envLayer)
+	if mergeErr != nil {
+		return nil, mergeErr
+	}
+	base = merged
 
 	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true)
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
-	base = Merge(base, flagLayer)
+	merged, mergeErr = Merge(base, flagLayer)
+	if mergeErr != nil {
+		return nil, mergeErr
+	}
+	base = merged
 
 	return base, errors.Join(errs...)
 }

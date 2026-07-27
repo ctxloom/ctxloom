@@ -7,6 +7,8 @@ import (
 	"go/ast"
 	"go/printer"
 	"go/token"
+	"sort"
+	"testing"
 
 	"github.com/gtramontina/ooze/viruses"
 )
@@ -43,6 +45,16 @@ import (
 type guardNegate struct {
 	// targets holds the rendered source text of each condition to negate.
 	targets map[string]string // rendered condition -> human label
+	// matched records which targets' labels actually fired during the
+	// Incubate walk. Nothing counted matches before U164-F01 and nothing
+	// asserted a minimum: a refactor of any of the five conditions
+	// (extracting a variable, inverting a guard, renaming a parameter,
+	// reordering arguments) silently drops that step's matches to zero, the
+	// source-text key in targets simply never matches again, and the
+	// mutation run then reports CLEAN — indistinguishable from "this step
+	// is covered". AssertAllTargetsMatched turns that silent zero into a
+	// loud failure.
+	matched map[string]bool
 }
 
 // cascadeGuards are the EffectiveTrust decision steps that the stock viruses
@@ -58,6 +70,7 @@ func newGuardNegate() *guardNegate {
 			"req.Ref.IsBuiltin":                      "cascade step 4 BUILTIN",
 			"records.Approved(req.Ref, req.Payload, req.Form)": "cascade step 6 APPROVED",
 		},
+		matched: map[string]bool{},
 	}
 }
 
@@ -82,6 +95,7 @@ func (v *guardNegate) Incubate(node ast.Node) []*viruses.Infection {
 	if !matches {
 		return nil
 	}
+	v.matched[label] = true
 
 	original := stmt.Cond
 	negated := &ast.UnaryExpr{Op: token.NOT, X: &ast.ParenExpr{X: original}}
@@ -92,5 +106,34 @@ func (v *guardNegate) Incubate(node ast.Node) []*viruses.Infection {
 			func() { stmt.Cond = negated },
 			func() { stmt.Cond = original },
 		),
+	}
+}
+
+// missingTargets returns the labels of every cascadeGuards entry that never
+// matched during the Incubate walk, sorted for a stable report. Empty means
+// every guard this virus exists to attack was actually found and mutated at
+// least once.
+func (v *guardNegate) missingTargets() []string {
+	var missing []string
+	for _, label := range v.targets {
+		if !v.matched[label] {
+			missing = append(missing, label)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+// AssertAllTargetsMatched fails t unless every cascade guard this virus
+// targets fired at least once during the AST walk (U164-F01). Call it AFTER
+// ooze.Release has walked the whole file — a missing target means a refactor
+// of trust.go silently moved that guard's rendered source text out from
+// under cascadeGuards' literal keys, so this virus attacked nothing for that
+// step and the mutation run reported clean with no attack having happened at
+// all.
+func (v *guardNegate) AssertAllTargetsMatched(t *testing.T) {
+	t.Helper()
+	for _, label := range v.missingTargets() {
+		t.Errorf("guardNegate never matched cascade guard %q — its rendered source text no longer appears in trust.go (or trust.go was never walked); the mutation run attacked NOTHING for this step, which is indistinguishable from a clean pass", label)
 	}
 }

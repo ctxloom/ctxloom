@@ -758,7 +758,7 @@ type chatSession struct {
 	// still tracks the engine rather than defaulting to permitting anything.
 	workspaceRoot string
 
-	termMu sync.Mutex
+	termMu      sync.Mutex
 	termSeq     int64
 	pendingTerm map[string]chan agent.TerminalResponse
 	termNoInput bool // input closed: no terminal answers can arrive anymore

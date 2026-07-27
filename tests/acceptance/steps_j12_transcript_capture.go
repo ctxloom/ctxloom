@@ -221,9 +221,9 @@ var j12EngineTurnChecks = map[string][]j12EngineTurnCheck{
 // the same content — confirmed the same way — which is what
 // j12QueueInterleavedFixture reproduces for the delivered second prompt.
 const (
-	j12SecondPrompt = "Also, what's the capital of France?"
+	j12SecondPrompt  = "Also, what's the capital of France?"
 	j12RemovedPrompt = "nevermind, skip that, I changed my mind"
-	j12FirstAnswer  = "6 times 7 is 42."
+	j12FirstAnswer   = "6 times 7 is 42."
 )
 
 // j12QueueInterleavedFixture builds a claude-shaped vendor transcript where:

@@ -333,7 +333,7 @@ It works. Here's the hook catching this project's own coding agent reaching for
 `go test` while building ltk:
 
 ```
-● Bash(go test ./tools/extract-defaults/ ./cmd/ltk/ 2>&1 | tail -20)
+● Bash(go test ./internal/ltk/tools/extract-defaults/ ./cmd/ltk/ 2>&1 | tail -20)
   ⎿  Error: Run tests through the task runner so the whole suite (incl. the README-driven acceptance tests)
      runs the same way CI does.
 

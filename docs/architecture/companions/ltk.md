@@ -430,12 +430,18 @@ flowchart LR
   stopping at the first `.git` (the **repo boundary rule**, `submodules.go:19-22` — a parent
   repo's `.gitmodules` describes paths relative to the parent and would mis-target inside a
   nested repo). It returns `nil` for absent, unreadable, and unparseable alike.
-- `extract-defaults` gates on fenced-block count and `rules.Parse` success — neither of which
-  can detect a **zero-rule** result. Its `-check` flag (`main.go:54`) has no invoker: `justfile:191`
-  runs the no-arg form and `lefthook.yml` contains no extract-defaults entry, although
-  `main.go:4-5` and `justfile:187-189` both state a pre-commit hook runs it.
-  *(Documented mechanism does not exist; `TestEmbeddedSampleMatchesDoc` enforces the same
-  invariant under `go test`.)*
+- `extract-defaults`'s `assemble` (`main.go:34`) now gates on the assembled rule
+  **count**, not just fenced-block count and `rules.Parse` success: zero rules is
+  refused outright, and fewer than `minDefaultRules` (8) is refused as an
+  implausible drop from the doc's real count of 16 (fixed U077-F01, commit
+  `20451f26`; red/green in `main_test.go`'s `TestAssembleRejectsARuleFreeDocument`
+  and `TestAssembleRejectsAnImplausiblyShortRuleSet`). What remains unfixed is
+  wiring, not detection: the `-check` flag (`main.go:54`) has no invoker —
+  `justfile:197` runs the no-arg form, and `lefthook.yml` has no extract-defaults
+  entry — so a doc/binary drift is only caught when someone runs `just defaults`
+  by hand, not gated automatically. *(`TestEmbeddedSampleMatchesDoc` enforces the
+  doc-matches-binary invariant under `go test`, but that test itself only runs
+  when the test suite is run — it is not a commit- or push-time gate either.)*
 
 ---
 

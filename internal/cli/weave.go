@@ -326,4 +326,3 @@ func init() {
 	_ = weaveCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 }
-

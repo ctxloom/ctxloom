@@ -2,9 +2,10 @@
 
 // Command gen-schemas reflects ctxloom's JSON output structs into published JSON
 // Schema files under resources/schema/. Run via `just gen-schemas`
-// (go run -tags schemagen ./cmd/gen-schemas). The schemas are checked in and a
-// CI step (`just gen-schemas-check`) regenerates them and fails on any git diff,
-// so a struct change without a matching schema update is caught.
+// (go run -tags schemagen ./cmd/gen-schemas). The schemas are NOT checked in —
+// schemaDir below is gitignored — and are regenerated as a build dependency
+// (`just build`) and in CI (see .github/workflows/ci.yml) each run, like
+// generated protobuf.
 package main
 
 import (

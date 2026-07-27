@@ -875,6 +875,7 @@ func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, originalContent, string(backupData), "backup should contain original content")
 }
+
 // This test used to assert the OPPOSITE — that a malformed .mcp.json was
 // warned about and then overwritten, described as "resilience" (U032-F05).
 // What it actually pinned was the deletion of every MCP server the user had:

@@ -151,7 +151,7 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 
 	go func() {
 		defer close(s.outDone)
-		var dst io.Writer = io.Discard
+		dst := io.Discard
 		if spec.Stdout != nil {
 			dst = spec.Stdout
 		}

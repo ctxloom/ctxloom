@@ -68,7 +68,7 @@ func (f *fakeSources) sources() Sources {
 			}
 			return f.exportDir, nil
 		},
-		Now:       func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
+		Now: func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
 		Inject: func(harp, text string) (string, error) {
 			f.injected = append(f.injected, [2]string{harp, text})
 			if f.injectErr != nil {

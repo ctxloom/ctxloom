@@ -86,7 +86,10 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the interview prompt the mock engine receives includes ctxloom's built-in setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
-		prompt := promptSection(w.j1bRecorded)
+		prompt, err := promptSection(w.j1bRecorded)
+		if err != nil {
+			return err
+		}
 		// Real evidence: the mock's recorded prompt was already attached to
 		// "it launches a mock engine for the configuration interview" (the
 		// step that actually launched it), so this Then — which re-inspects
@@ -101,7 +104,10 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^it includes the company's onboarding steps$`, func(c context.Context) error {
 		w := worldFrom(c)
-		prompt := promptSection(w.j1bRecorded)
+		prompt, err := promptSection(w.j1bRecorded)
+		if err != nil {
+			return err
+		}
 		w.docStepMaterialized = j5Excerpt(prompt, j1bCompanyOnboarding, 2)
 		if !strings.Contains(prompt, j1bCompanyOnboarding) {
 			return fmt.Errorf("interview prompt does not contain the company's onboarding steps; prompt:\n%s", prompt)
@@ -111,7 +117,10 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^it includes her personal setup preferences$`, func(c context.Context) error {
 		w := worldFrom(c)
-		prompt := promptSection(w.j1bRecorded)
+		prompt, err := promptSection(w.j1bRecorded)
+		if err != nil {
+			return err
+		}
 		w.docStepMaterialized = j5Excerpt(prompt, j1bPersonalPreference, 2)
 		if !strings.Contains(prompt, j1bPersonalPreference) {
 			return fmt.Errorf("interview prompt does not contain her personal setup preferences; prompt:\n%s", prompt)
@@ -149,7 +158,10 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^it includes reprise's setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
-		prompt := promptSection(w.j1bRecorded)
+		prompt, err := promptSection(w.j1bRecorded)
+		if err != nil {
+			return err
+		}
 		w.docStepMaterialized = j5Excerpt(prompt, j1bCompanionMarker, 2)
 		if !strings.Contains(prompt, j1bCompanionMarker) {
 			return fmt.Errorf("interview prompt does not contain reprise's setup guidance; prompt:\n%s", prompt)
@@ -171,7 +183,9 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			a.copyCreds(realHomeDir, w.env.HomeDir)
+			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+				return err
+			}
 		}
 		command := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanyCodeword))
 		_, err := seedSource(w, "company", "commands", "agent-setup", j1bCompanyCodeword, command, true, true)
@@ -228,7 +242,9 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			a.copyCreds(realHomeDir, w.env.HomeDir)
+			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+				return err
+			}
 		}
 		bundleYAML := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanionCodeword))
 		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")

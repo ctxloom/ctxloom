@@ -58,10 +58,12 @@ const (
 type j7State struct {
 	companyBare string // bare repo path (no file:// prefix) for the company's signed bundle remote, for AdvanceRemote
 
-	carolSyncOutput   string // Carol's own retraction-sync `remote pull` output, captured before materialize overwrites w.env.LastOutput()
-	carolMaterialized string // Carol's own retraction-sync `profile materialize` output (carries the withheld advisory)
-	bobSyncOutput     string // Bob's own retraction-sync `remote pull` output (his own runBob-captured stream, separate from w.env)
-	bobMaterialized   string // Bob's own retraction-sync `profile materialize` output
+	// Carol's own retraction-sync {pull, materialize} outputs are read via
+	// w.env.NthLastOutput(1) / .LastOutput() at assertion time (U163-F01) —
+	// no snapshot fields needed since nothing else runs a command between
+	// "Carol runs her next routine sync" and the Then steps below.
+	bobSyncOutput   string // Bob's own retraction-sync `remote pull` output (his own runBob-captured stream, separate from w.env — a distinct single-slot register, out of U163-F01's scope)
+	bobMaterialized string // Bob's own retraction-sync `profile materialize` output
 
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
 	embeddedRemoveOutput string // `signer remove <embedded principal> --project` output
@@ -213,15 +215,12 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Carol runs her next routine sync$`, func(c context.Context) error {
 		w := worldFrom(c)
-		j7 := j7Of(w)
 		if err := runOK(w, "remote", "pull"); err != nil {
 			return err
 		}
-		j7.carolSyncOutput = w.env.LastOutput() // capture before materialize overwrites it
 		if _, err := materializeDefault(w, "out"); err != nil {
 			return err
 		}
-		j7.carolMaterialized = w.env.LastOutput() // the materialize command's own stdout (carries the withheld advisory)
 		return nil
 	})
 
@@ -241,14 +240,19 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Carol is told the bundle was retracted, and her assistant no longer receives it$`, func(c context.Context) error {
 		w := worldFrom(c)
-		j7 := j7Of(w)
-		w.docStepMaterialized = j7.carolSyncOutput + "\n" + j7.carolMaterialized
-		if !strings.Contains(j7.carolSyncOutput, "retracted") {
-			return fmt.Errorf("Carol's sync output does not mention retraction; output:\n%s", j7.carolSyncOutput)
+		// "Carol runs her next routine sync" ran pull then materialize, in
+		// that order, with nothing else in between: NthLastOutput(1) is the
+		// pull's own output, LastOutput() the materialize's (U163-F01) — no
+		// snapshot fields needed.
+		carolSyncOutput := w.env.NthLastOutput(1)
+		carolMaterialized := w.env.LastOutput()
+		w.docStepMaterialized = carolSyncOutput + "\n" + carolMaterialized
+		if !strings.Contains(carolSyncOutput, "retracted") {
+			return fmt.Errorf("Carol's sync output does not mention retraction; output:\n%s", carolSyncOutput)
 		}
 		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j7RetractReason)
-		if !strings.Contains(j7.carolMaterialized, wantWarn) {
-			return fmt.Errorf("Carol's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, j7.carolMaterialized)
+		if !strings.Contains(carolMaterialized, wantWarn) {
+			return fmt.Errorf("Carol's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
 		}
 		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
 		if err != nil {

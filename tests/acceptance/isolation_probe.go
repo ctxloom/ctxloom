@@ -268,7 +268,13 @@ func probeDecideAuthPath(backendType string) (probeAuthPath, string) {
 		return probeAuthNone, fmt.Sprintf("could not probe host credential file: %v", err)
 	}
 	defer os.RemoveAll(probe)
-	a.copyCreds(realHomeDir, probe)
+	// The dry copy's own error is deliberately not checked here: this
+	// function's whole job is to DECIDE whether a host credential file
+	// exists, and the census emptiness check right below is that decision —
+	// a copy error (zero files copied) and "no census entries" are the same
+	// outcome for this purpose (see U158-F07's evidence: this call site
+	// already gates on the copy's real effect, unlike the @live gate steps).
+	_ = a.copyCreds(realHomeDir, probe)
 	roots, _ := probeCensusRoots(backendType)
 	census, _ := probeCensus(probe, roots)
 	if len(census) == 0 {
@@ -642,21 +648,6 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	return b.String()
 }
 
-// probeWorkspaceFlag maps the axis onto the `ctxloom run --workspace` value:
-// worktree axis uses "worktree" (the isolated checkout under test);
-// container axis deliberately uses "none" — NOT "worktree" — per the probe's
-// own design constraint (see features/isolation_probe.feature's doc): a
-// synthetic container HOME with no worktree mount keeps every writable-layer
-// path attributable to either the container's fresh HOME or the plain
-// project-dir bind mount, with no worktree-checkout machinery in between to
-// confuse the picture.
-func probeWorkspaceFlag(axis probeAxis) string {
-	if axis == probeAxisContainer {
-		return "none"
-	}
-	return string(axis)
-}
-
 // probeWorktreeAuthAvailable mirrors worktree.go's seedCredentials
 // precedence for the ONE engine where the worktree axis's own auth gate is
 // NOT simply "env key or host file", the same divergence
@@ -738,10 +729,8 @@ type probeResult struct {
 	Output     string
 
 	// worktree axis
-	Scratch    probeScratchSnapshot
-	HostBefore map[string]probeCensusEntry
-	HostAfter  map[string]probeCensusEntry
-	HostDiff   []string
+	Scratch  probeScratchSnapshot
+	HostDiff []string // U158-F03: the before/after censuses themselves were written but never read anywhere; only their diff is consumed
 
 	// container axis
 	Container     probeContainerSnapshot
@@ -791,14 +780,20 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 		return nil, err
 	}
 	if authPath == probeAuthSeeded {
-		a.copyCreds(realHomeDir, w.env.HomeDir)
+		// probeDecideAuthPath already confirmed (via its own dry copy) that
+		// a host credential file exists; a zero-files-copied error here
+		// means the real copy disagreed with that dry probe (a race, a
+		// permission change) — an anomaly worth failing loud on rather than
+		// silently proceeding with an empty isolated credential dir.
+		if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+			return nil, fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
+		}
 	}
 
 	before, err := probeCensus(w.env.HomeDir, roots)
 	if err != nil {
 		return nil, fmt.Errorf("census before: %w", err)
 	}
-	res.HostBefore = before
 
 	token := probeToken()
 	res.Token = token
@@ -842,7 +837,6 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 	if err != nil {
 		return nil, fmt.Errorf("census after: %w", err)
 	}
-	res.HostAfter = after
 	res.HostDiff = probeCensusDiff(before, after)
 
 	return res, nil
@@ -850,8 +844,11 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 
 // runProbeContainer drives one live container-axis cell end to end: decide
 // container auth availability (probeContainerAuthAvailable), write config
-// with runtime: container and workspace "none" (see probeWorkspaceFlag's
-// doc — deliberately NOT worktree), run `ctxloom run` in the background
+// with runtime: container and workspace "none" — deliberately NOT worktree:
+// a synthetic container HOME with no worktree mount keeps every
+// writable-layer path attributable to either the container's fresh HOME or
+// the plain project-dir bind mount, with no worktree-checkout machinery in
+// between to confuse the picture — run `ctxloom run` in the background
 // while watchContainerDiff races the container's own `--rm` teardown, and
 // check the token file directly in the bind-mounted project dir (a plain
 // bind mount, unlike the worktree axis's ephemeral checkout — the project
@@ -876,7 +873,9 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 	// stand-in host the same way for both axes.
 	if authPath == probeAuthSeeded {
 		key := backendTypeToLiveKey(backendType)
-		liveAgents[key].copyCreds(realHomeDir, w.env.HomeDir)
+		if err := liveAgents[key].copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+			return nil, fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
+		}
 	}
 
 	token := probeToken()

@@ -87,7 +87,7 @@ _check-docker-skip-gate:
     offenders=""
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        hits="$(grep -n '\bt\.Skipf\?(' "$f" || true)"
+        hits="$(grep -nE '\bt\.Skip(f|Now)?\(' "$f" || true)"
         if [ -n "$hits" ]; then
             offenders+="$f"$'\n'"$(sed 's/^/    /' <<<"$hits")"$'\n'
         fi

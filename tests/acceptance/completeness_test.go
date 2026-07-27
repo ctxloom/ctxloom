@@ -348,6 +348,22 @@ func TestCompleteness(t *testing.T) {
 
 	tools, resources, templates := liveSurface(t)
 
+	// U163-F05: listNames/ListToolDetails used to return (nil, nil) when the
+	// server's response array was missing or malformed, so "the server
+	// advertised zero tools" and "the response never parsed" looked
+	// identical — and the loop below iterates an empty slice and passes
+	// vacuously either way. mcpclient.go's parseNamedArray now errors on a
+	// malformed response (liveSurface already t.Fatalf's on that), but a
+	// genuinely empty registration is itself a real regression this
+	// completeness gate exists to catch — an explicit floor makes that case
+	// loud too, independent of the parse-error path.
+	if len(tools) == 0 {
+		t.Fatal("the live MCP server advertised zero tools — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
+	}
+	if len(resources) == 0 {
+		t.Fatal("the live MCP server advertised zero resources — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
+	}
+
 	t.Run("mcp tools", func(t *testing.T) {
 		var uncovered []string
 		for _, name := range tools {

@@ -22,10 +22,11 @@ type World struct {
 	mcp   *testenv.MCPClient       // mock agent: JSON-RPC stdio client (lazy)
 	tlMCP *testenv.MCPClient       // J11: taskloom's own MCP server (see steps_j11_taskloom.go), eager (started explicitly, not lazily)
 
-	lastTool  testenv.ToolResult // last tools/call envelope
-	lastInner map[string]any     // unwrapped inner result of lastTool
-	lastRes   string             // last resources/read text
-	lastMime  string             // last resources/read MIME type
+	lastTool     testenv.ToolResult // last tools/call envelope
+	lastInner    map[string]any     // unwrapped inner result of lastTool
+	lastInnerErr error              // error from lastTool.Inner(), if the envelope could not be unwrapped (U162-F04)
+	lastRes      string             // last resources/read text
+	lastMime     string             // last resources/read MIME type
 
 	remoteBare map[string]string // seeded remote name -> bare repo dir (for advancing)
 

@@ -177,7 +177,9 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			a.copyCreds(realHomeDir, w.env.HomeDir)
+			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+				return err
+			}
 		}
 		if _, err := seedSource(w, "personal", "fragments", "marker", j1LivePersonalMark, fragmentSourceYAML(j1LivePersonalMark), true, true); err != nil {
 			return err

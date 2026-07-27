@@ -50,6 +50,19 @@
 // TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode. See
 // j9_isolation.doc.md for the full accounting of what is and is not proven
 // where.
+//
+// U161-F02 RE-VERIFIED 2026-07-26 (flow/testbed testbed batch): the finding
+// claimed "the Examples table still lists opencode alongside four engines
+// whose payload is checked" — re-checked against features/j9_isolation.feature
+// as it stands today and that is no longer true. The ONE Examples table that
+// asserts on spy payload ("A worktree run copies the host credential ...")
+// lists only claude-code and codex; opencode appears only in the two
+// pre-spawn-only outlines named above, which read the run's OUTPUT, never
+// the spy. So the specific misleading-coverage-claim harm the finding named
+// does not hold against the current file — REFUTED, not fixed (nothing to
+// fix). The underlying limitation (opencode's spy is never invoked, because
+// its real launch is a stateful ACP handshake) is real and stays documented
+// above; only the "the Examples table hides that" half was refuted.
 package acceptance
 
 import (
@@ -71,6 +84,10 @@ out="$CTXLOOM_ISOSPY_OUT"
 {
   echo "===ENV==="
   env
+  echo "===ARGV==="
+  printf '%s\n' "$@"
+  echo "===STDIN==="
+  cat
   echo "===CLAUDE_CONFIG_DIR_CREDS==="
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
   echo "===CODEX_HOME_CREDS==="
@@ -418,6 +435,36 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		if strings.Contains(out, "aborting startup") {
 			return fmt.Errorf("run unexpectedly aborted (should be a non-fatal warning, not a ClassIsolation fatal); output:\n%s", out)
 		}
+		return nil
+	})
+
+	ctx.Step(`^the spy "([^"]*)" process's ARGV contains "([^"]*)"$`, func(c context.Context, engine, want string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		argv := isoParseSpySection(body, "===ARGV===")
+		if !strings.Contains(argv, want) {
+			return fmt.Errorf("spy %s process's argv does not contain %q; argv:\n%s", engine, want, argv)
+		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process argv:\n%s", engine, argv)
+		return nil
+	})
+
+	ctx.Step(`^the spy "([^"]*)" process's STDIN contains "([^"]*)"$`, func(c context.Context, engine, want string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		stdin := isoParseSpySection(body, "===STDIN===")
+		if !strings.Contains(stdin, want) {
+			return fmt.Errorf("spy %s process's stdin does not contain %q; stdin:\n%s", engine, want, stdin)
+		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process stdin:\n%s", engine, stdin)
 		return nil
 	})
 

@@ -217,11 +217,19 @@ func TestTrustCascadeGuardMutation(t *testing.T) {
 		t.Fatalf("setting ACCEPTANCE_PATHS: %v", err)
 	}
 
+	v := newGuardNegate()
 	ooze.Release(t,
 		ooze.WithRepositoryRoot(root),
 		ooze.IgnoreSourceFiles(ignorePattern.String()),
 		ooze.WithTestCommand(testCmd),
-		ooze.WithViruses(newGuardNegate()),
+		ooze.WithViruses(v),
 		ooze.WithMinimumThreshold(0),
 	)
+	// U164-F01: a clean mutation report from the line above is not evidence
+	// this virus actually attacked all five cascade guards — it could mean
+	// a refactor silently moved a guard's rendered source text out from
+	// under cascadeGuards' literal keys, so ooze walked the file and this
+	// virus emitted zero mutants for that step. Fail loud instead of
+	// reading a floor-less "no survivors" as coverage.
+	v.AssertAllTargetsMatched(t)
 }

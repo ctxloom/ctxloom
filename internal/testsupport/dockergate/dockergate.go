@@ -45,9 +45,6 @@ const EnvRequireDocker = "CTXLOOM_REQUIRE_DOCKER"
 // the exact failure this package exists to remove.
 var required = os.Getenv(EnvRequireDocker) == "1"
 
-// Required reports whether this run demands a reachable container runtime.
-func Required() bool { return required }
-
 // RequireRuntime gates a test on container-runtime REACHABILITY. available is
 // the caller's probe (isolation.Docker{}.Available()); what names the test in
 // the resulting message, e.g. "the container-progress integration test".
@@ -64,6 +61,15 @@ func RequireRuntime(t testing.TB, available bool, what string) {
 			"A skip here would report green for a suite that executed zero container tests; "+
 			"fix the runner's docker socket, or unset %s to go back to skipping.",
 			EnvRequireDocker, what, EnvRequireDocker)
+		// Real *testing.T.Fatalf never returns (it calls FailNow, which stops
+		// the goroutine via runtime.Goexit()) — this return is defensive
+		// documentation of that contract, not load-bearing against a real
+		// *testing.T, but it stops a testing.TB that merely RECORDS the
+		// failure (found by this package's own new test, dockergate_test.go)
+		// from silently falling through to the Skipf below and reporting
+		// "skipped" for what CTXLOOM_REQUIRE_DOCKER=1 demands must be a hard
+		// failure.
+		return
 	}
 	t.Skipf("docker unavailable; skipping %s (set %s=1 to make this a failure instead)",
 		what, EnvRequireDocker)

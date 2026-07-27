@@ -27,7 +27,10 @@
 package agents
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -202,11 +205,21 @@ type EscalationRung struct {
 // not set (they are not encoded in the file); callers assign them.
 func ParseAgent(data []byte) (*Agent, error) {
 	var s Agent
-	if err := yaml.Unmarshal(data, &s); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&s); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 	if err := ValidateDriving(s.Driving); err != nil {
 		return nil, err
+	}
+	// U028-F03: a named agent binding "one or more composed profiles" (see
+	// the package doc) that declares zero is not a degenerate-but-valid
+	// binding, it is the signature of a mistyped key (`profils:` for
+	// `profiles:`) or a zero-byte/comments-only file — reject it loudly
+	// rather than emit a blank binding that composes nothing.
+	if len(s.Profiles) == 0 {
+		return nil, fmt.Errorf("agent declares no profiles (need at least one under 'profiles:')")
 	}
 	return &s, nil
 }

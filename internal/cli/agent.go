@@ -97,6 +97,9 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Driving != "" {
 			w.Printf("    driving: %s\n", s.Driving)
 		}
+		if len(s.Escalation) > 0 {
+			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))
+		}
 	}
 	return w.Err()
 }
@@ -159,6 +162,16 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	}
 	if def.Driving != "" {
 		w.Printf("Driving: %s\n", def.Driving)
+	}
+	if len(def.Escalation) > 0 {
+		w.Printf("Escalation: %d rung(s)\n", len(def.Escalation))
+		for _, r := range def.Escalation {
+			kinds := "all kinds"
+			if len(r.Kinds) > 0 {
+				kinds = strings.Join(r.Kinds, ",")
+			}
+			w.Printf("  - %s: %s\n", kinds, r.Action)
+		}
 	}
 	writeBulletList(w, "Profiles", def.Profiles)
 	if rerr != nil {

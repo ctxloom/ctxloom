@@ -72,11 +72,11 @@ func TestParseAgent_DrivingRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, DrivingMode(""), sub.Driving, "absent driving: leaves the zero value (conversational)")
 
-	sub, err = ParseAgent([]byte("engine: fast\ndriving: conversational\n"))
+	sub, err = ParseAgent([]byte("engine: fast\nprofiles: [p1]\ndriving: conversational\n"))
 	require.NoError(t, err)
 	assert.Equal(t, DrivingConversational, sub.Driving)
 
-	sub, err = ParseAgent([]byte("engine: fast\ndriving: oneshot\n"))
+	sub, err = ParseAgent([]byte("engine: fast\nprofiles: [p1]\ndriving: oneshot\n"))
 	require.NoError(t, err)
 	assert.Equal(t, DrivingOneshot, sub.Driving)
 }
@@ -104,6 +104,47 @@ func TestLoader_FaultTolerantBadDriving(t *testing.T) {
 
 	list, err := NewLoader([]string{dir}).List()
 	require.NoError(t, err, "a bad driving value must not fail the whole list")
+	require.Len(t, list, 1)
+	assert.Equal(t, "good", list[0].Name)
+}
+
+// TestParseAgent_NoProfilesRejected (U028-F03) proves an empty, comments-only,
+// or mistyped-key agent file is REJECTED rather than silently producing a
+// blank binding that composes nothing (agents.go's own doc: a binding of an
+// engine to "one or more composed profiles").
+func TestParseAgent_NoProfilesRejected(t *testing.T) {
+	cases := map[string]string{
+		"zero-byte":       "",
+		"comments-only":   "# just a comment\n",
+		"engine, no list": "engine: fast\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseAgent([]byte(body))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "no profiles")
+		})
+	}
+}
+
+// TestParseAgent_UnknownKeyRejected (U028-F03) proves a typo'd top-level key
+// is caught at parse time (KnownFields) instead of being silently dropped.
+func TestParseAgent_UnknownKeyRejected(t *testing.T) {
+	_, err := ParseAgent([]byte("engine: fast\nprofils: [p1]\n"))
+	require.Error(t, err)
+}
+
+// TestLoader_FaultTolerantNoProfiles (U028-F03) proves the Loader's
+// warn-and-skip fault tolerance extends to a profile-less agent file: it is
+// skipped rather than emitted as a blank binding, and the rest of the
+// directory still loads.
+func TestLoader_FaultTolerantNoProfiles(t *testing.T) {
+	dir := t.TempDir()
+	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
+	writeAgentFile(t, dir, "empty.yaml", "")
+
+	list, err := NewLoader([]string{dir}).List()
+	require.NoError(t, err, "a profile-less agent file must not fail the whole list")
 	require.Len(t, list, 1)
 	assert.Equal(t, "good", list[0].Name)
 }

@@ -37,22 +37,42 @@ type TestEnvironment struct {
 	// originalEnv stores original environment variables for restoration
 	originalEnv map[string]string
 
-	// lastOutput stores the output from the last command
-	lastOutput string
+	// runs is the ordered history of every CLI invocation (Run / RunWithStdin),
+	// oldest first — replacing a single mutable lastOutput/lastError/
+	// lastExitCode slot (U163-F01). A single slot forced any scenario that
+	// ran two commands to lose the first's output the moment the second
+	// ran; five acceptance journeys had invented private snapshot fields to
+	// work around exactly that. LastOutput/LastExitCode/LastError read the
+	// newest entry; NthLastOutput(n) reaches back further.
+	runs []RunRecord
+}
 
-	// lastError stores the error from the last command
-	lastError error
+// RunRecord captures everything TestEnvironment observed about one CLI
+// invocation: the argv, its combined stdout+stderr, exit code, and any error.
+type RunRecord struct {
+	Args     []string
+	Output   string // combined stdout+stderr
+	ExitCode int
+	Err      error
+}
 
-	// lastExitCode stores the exit code from the last command
-	lastExitCode int
-
-	// runCount is a monotonic count of CLI invocations (Run / RunWithStdin)
-	// whose output landed in lastOutput. It lets a caller distinguish "a
-	// command ran this step and happened to produce output identical to the
-	// previous step's" from "no command ran, lastOutput is just stale" — a
-	// difference lastOutput alone cannot express. Used by the @doc capture
-	// sidecar; harmless otherwise.
-	runCount int
+// recordRun derives a RunRecord's ExitCode from err (the same classification
+// Run/RunWithStdin used to do inline: 0 on success, -1 for a non-ExitError
+// failure, else the process's real exit code) and appends it to runs.
+func (e *TestEnvironment) recordRun(args []string, output string, err error) {
+	rec := RunRecord{
+		Args:   append([]string(nil), args...),
+		Output: output,
+		Err:    err,
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		rec.ExitCode = exitErr.ExitCode()
+	} else if err != nil {
+		rec.ExitCode = -1
+	} else {
+		rec.ExitCode = 0
+	}
+	e.runs = append(e.runs, rec)
 }
 
 // forceRemoveAll removes dir even when it contains read-only files or
@@ -472,34 +492,44 @@ func (e *TestEnvironment) Run(args ...string) error {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	e.lastOutput = stdout.String() + stderr.String()
-	e.lastError = err
-	e.runCount++
-
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		e.lastExitCode = exitErr.ExitCode()
-	} else if err != nil {
-		e.lastExitCode = -1
-	} else {
-		e.lastExitCode = 0
-	}
-
+	e.recordRun(args, stdout.String()+stderr.String(), err)
 	return err
 }
 
 // LastOutput returns the combined stdout/stderr from the last command.
 func (e *TestEnvironment) LastOutput() string {
-	return e.lastOutput
+	return e.NthLastOutput(0)
+}
+
+// NthLastOutput returns the combined stdout/stderr of the n-th most recent
+// command (n=0 is the same value LastOutput returns, n=1 the command before
+// that, and so on), or "" if fewer than n+1 commands have run yet. Lets a
+// scenario recover an EARLIER command's output after a later command has
+// run and LastOutput now reflects that one instead — the exact need five
+// acceptance journeys previously met by inventing a private snapshot field
+// (U163-F01).
+func (e *TestEnvironment) NthLastOutput(n int) string {
+	idx := len(e.runs) - 1 - n
+	if idx < 0 || idx >= len(e.runs) {
+		return ""
+	}
+	return e.runs[idx].Output
 }
 
 // LastExitCode returns the exit code from the last command.
 func (e *TestEnvironment) LastExitCode() int {
-	return e.lastExitCode
+	if len(e.runs) == 0 {
+		return 0
+	}
+	return e.runs[len(e.runs)-1].ExitCode
 }
 
 // LastError returns the error from the last command.
 func (e *TestEnvironment) LastError() error {
-	return e.lastError
+	if len(e.runs) == 0 {
+		return nil
+	}
+	return e.runs[len(e.runs)-1].Err
 }
 
 // GitCommit creates a git commit with the given message.
@@ -563,22 +593,11 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	_ = stdinPipe.Close()
 
 	err = cmd.Wait()
-	e.lastOutput = stdout.String() + stderr.String()
-	e.lastError = err
-	e.runCount++
-
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		e.lastExitCode = exitErr.ExitCode()
-	} else if err != nil {
-		e.lastExitCode = -1
-	} else {
-		e.lastExitCode = 0
-	}
-
+	e.recordRun(args, stdout.String()+stderr.String(), err)
 	return err
 }
 
-// RunCount returns the monotonic number of CLI invocations whose output landed
-// in lastOutput. A change between two observations means a command actually ran
-// in the interim (see the runCount field).
-func (e *TestEnvironment) RunCount() int { return e.runCount }
+// RunCount returns the monotonic number of CLI invocations recorded so far
+// (see runs). A change between two observations means a command actually ran
+// in the interim.
+func (e *TestEnvironment) RunCount() int { return len(e.runs) }

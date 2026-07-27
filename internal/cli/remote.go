@@ -247,17 +247,20 @@ Examples:
 // Skipped items are NOT a failure (pull never moves an existing pin, by
 // design — see renderPullSummary's doc comment); Errors and Retracted are.
 func pullResultErr(result *operations.SyncDependenciesResult) error {
-	if result.Errors == 0 && len(result.Retracted) == 0 {
+	// Retracted is NOT a failure: it is the retraction mechanism working as
+	// designed — a bad dependency detected and withheld automatically while
+	// the rest of the sync proceeds (see j3/j7/trust_surface's acceptance
+	// journeys, whose entire narrative is "the sync still succeeds; the
+	// retracted content just never reaches the user"). Only Errors (a real
+	// fetch/apply failure) makes the pull itself fail.
+	if result.Errors == 0 {
 		return nil
 	}
 	var refs []string
 	for _, item := range result.Failed {
 		refs = append(refs, item.Reference)
 	}
-	for _, item := range result.Retracted {
-		refs = append(refs, item.Reference)
-	}
-	return fmt.Errorf("remote pull: %d failed, %d retracted (%s)", result.Errors, len(result.Retracted), strings.Join(refs, ", "))
+	return fmt.Errorf("remote pull: %d failed (%s)", result.Errors, strings.Join(refs, ", "))
 }
 
 // renderPullSummary prints a completed pull.

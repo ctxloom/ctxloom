@@ -155,17 +155,21 @@ jobs:
       # or a mistyped build tag, which silently empties the group without a
       # single compile error — fails this step instead of quietly passing.
       #
-      # Both steps below MUST stay wired. `just test` is the aggregate that
-      # runs both groups, but it is for humans and agents; CI invokes the two
-      # targets individually so a red step names its group. If either step is
-      # deleted or renamed here, that whole group silently stops running in CI
-      # — the failure mode `test-conformance` already exhibits in this repo
-      # (red, and referenced by no workflow).
+      # All three steps below MUST stay wired. `just test` is the aggregate
+      # that runs the first two groups, but it is for humans and agents; CI
+      # invokes the targets individually so a red step names its group. If any
+      # step is deleted or renamed here, that whole group silently stops
+      # running in CI — the failure mode `test-conformance` used to exhibit in
+      # this repo (red, and referenced by no workflow) before it was wired in
+      # below.
       - name: Architectural invariants (class gates)
         run: just test-arch
 
       - name: Run tests (default suite)
         run: just test-default
+
+      - name: Cross-agent conformance (test-conformance)
+        run: just test-conformance
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

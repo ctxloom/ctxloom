@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **273** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 2 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 4 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **1,990** |
+| `open` | no commit names this ID | **1,988** |
 
-**Totals: 2268 findings across 162 units — 273 resolved, 1990 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 273 resolved, 1988 still open, 7 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
@@ -48,13 +48,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | category | count |
 |---|---|
-| CORRECTNESS | 672 |
+| CORRECTNESS | 674 |
 | ERRHANDLING | 303 |
 | SILENTNOOP | 282 |
 | COUPLING | 197 |
 | DEAD | 155 |
 | DUPLICATE | 147 |
-| NOPAY | 135 |
+| NOPAY | 136 |
 | TRIVIAL | 123 |
 | COMPLEXITY | 83 |
 | COHESION | 75 |
@@ -79,7 +79,6 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | SILENTNOOP + CORRECTNESS | 1 |
 | SILENTNOOP / CORRECTNESS | 1 |
 | SILENTNOOP / COUPLING | 1 |
-| CORRECTNESS / security | 1 |
 | COMPLEXITY / DUPLICATE | 1 |
 | DUPLICATE / COHESION | 1 |
 | DUPLICATE / NOPAY | 1 |
@@ -88,18 +87,14 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | NOPAY / DEAD | 1 |
 | COMPLEXITY / NOPAY | 1 |
 | DUPLICATE / COUPLING | 1 |
-| DEAD / COUPLING | 1 |
+| DEAD / COUPLING | 2 |
 | TRIVIAL / DEAD | 1 |
-| CORRECTNESS (docs) | 1 |
 | SIMPLIFY | 1 |
 | COHESION / NOPAY | 1 |
-| NOPAY (docs) | 1 |
-| DEAD (test-only) / COUPLING | 1 |
 | TRIVIAL / DUPLICATE | 1 |
 | COHESION / DEAD | 1 |
 | TRIVIAL / NOPAY | 1 |
-| — (routed item #2: REFUTED) | 1 |
-| (routed #8 resolution) | 1 |
+| — | 2 |
 
 **67 source files carry findings from more than one review unit** — those are the likeliest true duplicates and the likeliest cross-cutting causes. Marked `**` in the Loc column below.
 
@@ -360,7 +355,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U094-F02 | open | **`publish.go:201-211, 274-279, 331`** | SILENTNOOP | Publishing a **0-byte** bundle file succeeds, overwrites the remote bundle with nothing, and produces a **valid publisher signature over zero bytes**. | U094.md |
 | U094-F05 | open | **`pull.go:367, 374-376`** | SILENTNOOP | A lockfile save failure is demoted to a printed warning while `Pull` returns success — for bundles the lockfile is the **only** on-disk record, so the pull persists nothing and reports a `SHA` and ... | U094.md |
 | U094-F16 | open | **`pull.go:314, 211`** | ERRHANDLING / CORRECTNESS | The retraction check **fails open**: any failure to obtain or parse the remote manifest is indistinguishable from "not retracted", and `confirmRetraction` additionally discards the error. | U094.md |
-| U094-F19 | open | `reference.go:493-530, 577-583` | CORRECTNESS / security | `Reference.LocalRemoteName` can return a path containing `..`, and `Reference.LocalPath` joins it under the app dir with **no containment check** — so a ref whose URL carries traversal produces an ... | U094.md |
+| U094-F19 | open | `reference.go:493-530, 577-583` | CORRECTNESS | `Reference.LocalRemoteName` can return a path containing `..`, and `Reference.LocalPath` joins it under the app dir with **no containment check** — so a ref whose URL carries traversal produces an ... | U094.md |
 | U095-F01 | open | `repo_cache.go:292-310, :127` | CORRECTNESS | `safeRepoPath` uses `c.baseDir` as its "unsafe" sentinel; the caller immediately `os.RemoveAll`s the returned path, so a degenerate repo URL **deletes the entire clone cache**. A bare-host URL dele... | U095.md |
 | U095-F02 | open | `retract.go:12-44` | CORRECTNESS | `CheckRetracted` **can never return a non-nil error**: a failed default-branch lookup (:15), a failed manifest fetch (:21) and a malformed manifest (:27) all return `(false, "", nil)` — indistingui... | U095.md |
 | U095-F03 | open | `vcs.go:213-215, :217-227` | SILENTNOOP | `fsVCS.ListItems` swallows the `afero.DirExists` error and every per-file walk error, so an unreadable/permission-denied local content directory reports "no items" with success. | U095.md |
@@ -1628,7 +1623,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U024-F21 | open | `runchannel.go:332-336, :358-368, :871-886` | ERRHANDLING | Malformed `ctxloom/*` custom events no-op silently: an empty/absent `message_ids`, a missing `session_id`, a non-string list element. The `harness_session` case matters most — a missing id means th... | U024.md |
 | U024-F22 | open | `runchannel.go (whole file, 901 lines)` | COHESION | The file holds two responsibilities: stream/frame plumbing (`RunChannel`…`clearReqTrack`, ~530 lines) and the plane-2 **verb implementations** (`servePeerSend`…`serveCustom`, ~180 lines) which are ... | U024.md |
 | U024-F23 | open | `runnerlink.go:149-195` | DUPLICATE | The `mu`/`wg`/`closing` + `goTracked`/`waitTracked` + close-budget idiom is duplicated four times across the package family (`Coordinator`, `Home`, `EngineHost`, `RunnerLink`), each with its own bu... | U024.md |
-| U024-F24 | open | `spawner.go:102-119` | CORRECTNESS (docs) | `ResumeMode`'s doc contradicts the code: it says one-shot is "not yet executed", "today's only behavior" is persistent, and one-shot is "(v0.8, Slice 4)" — while `Resolve` (:361-375) and `oneShotSu... | U024.md |
+| U024-F24 | open | `spawner.go:102-119` | CORRECTNESS | `ResumeMode`'s doc contradicts the code: it says one-shot is "not yet executed", "today's only behavior" is persistent, and one-shot is "(v0.8, Slice 4)" — while `Resolve` (:361-375) and `oneShotSu... | U024.md |
 | U024-F25 | open | `runnerlink.go:108-141` | DUPLICATE | The three-line unwind `cancel(); _ = conn.Close(); return nil, fmt.Errorf(...)` appears four times in `DialRunner`. | U024.md |
 | U025-F04 | open | `discover.go:38-41` | CORRECTNESS | `Endpoint` carries a bearer credential in a plain exported `string` field with no redaction affordance, so any `%v`/`%+v` of an `Endpoint` (or a slice of them) prints a live token. | U025.md |
 | U025-F05 | **RESOLVED** `72f7f6bf` | `discover.go:58`, `:63` | TRIVIAL | Inconsistent nil-vs-empty return: the `UserHomeDir` failure path returns a `nil` slice, every other path returns a non-nil `make(…, 0, n)` slice. | U025.md |
@@ -1810,10 +1805,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U047-F10 | **RESOLVED** `5fdf8767` | `internal/config/companions.go:273-321` | TRIVIAL | `ProbeCompanionLoadouts` — the most important exported function in the file — has **no doc comment**; its intended 18-line doc is glued to the `companionsDisabled` var block instead. | U047.md |
 | U047-F13 | open | `internal/config/accessors.go:120-124` | DUPLICATE | `config.cloneMCPServer` is a verbatim reimplementation of `wire.cloneMCPServer`, in the package that owns the type. | U047.md |
 | U047-F14 | open | `internal/config/companions.go:31-43, 198, 203, 257` | CORRECTNESS | The exec/PATH seams are unsynchronised package vars that are **read from goroutines** while the exported `Set*ForTesting` helpers write them without a lock. | U047.md |
-| U048-F11 | open | **`config.go:573-586, 609`** | NOPAY (docs) | `GetEditorCommand`'s doc comment is glued to the front of `IsolationImageFor`'s, so `go doc` attributes the editor-resolution policy to the isolation-image accessor, and `GetEditorCommand` (609) ha... | U048.md |
+| U048-F11 | open | **`config.go:573-586, 609`** | NOPAY | `GetEditorCommand`'s doc comment is glued to the front of `IsolationImageFor`'s, so `go doc` attributes the editor-resolution policy to the isolation-image accessor, and `GetEditorCommand` (609) ha... | U048.md |
 | U048-F12 | open | **`config.go:1997-2006`** | DEAD | `SourceName` is test-only. | U048.md |
 | U048-F13 | open | **`config.go:647-650, 721-724`** | DEAD | `ProfileDefinition` is test-only; `GetDefaultLLMModel` has no non-test caller outside this package. | U048.md |
-| U048-F14 | open | **`config.go:489, 1802, 2029`** | DEAD (test-only) / COUPLING | Three exported mutators exist solely for tests, and two of them (`SetFS`, `DisableCompanionProbe`) mutate an instance `Load()` may be sharing with every other holder — contradicting the whole "ever... | U048.md |
+| U048-F14 | open | **`config.go:489, 1802, 2029`** | DEAD / COUPLING | Three exported mutators exist solely for tests, and two of them (`SetFS`, `DisableCompanionProbe`) mutate an instance `Load()` may be sharing with every other holder — contradicting the whole "ever... | U048.md |
 | U048-F15 | open | **`config.go:1038, 1043, 1061, 1070`** | NOPAY | `ambientErr` is write-only state: it is stored and reset but never returned, and the `ambientErr == nil` guard is redundant because `loadUncached` returns `(nil, err)` on failure, so `ambientCfg !=... | U048.md |
 | U048-F16 | **RESOLVED** `12f375ce` | **`config.go:480-482, 943-948, 1051-1053`** | TRIVIAL | Three single-expression pass-throughs. `CurrentOverrides` (`return confload.ProcessOverrides()`) has no caller outside this package; `lockfileFSOptions` has exactly one call site; `LoadFresh` is a ... | U048.md |
 | U048-F18 | open | **`config.go:1211-1221`** | CORRECTNESS | `ParseConfig` pre-populates both `lm.Configs` and `profiles.Definitions` (1212-1213) but re-guards only `lm.Configs` after unmarshal (1218-1220). An explicit `profiles: null` in the document leaves... | U048.md |
@@ -2374,8 +2369,8 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 
 | ID | Status | Loc | Category | Raw severity | Claim | Source |
 |---|---|---|---|---|---|---|
-| U081-F18 | open | `bundle_distill.go:130` | — (routed item #2: REFUTED) | — | The claim that `bundle_distill.go:130` is "the one `Store.Save` call site that never applies `requireSafeBundlePath`" is technically true but **not a defect**: the guard is inapplicable here by design | U081.md |
-| U088-F19 | open | `task_triggers.go:420-449` | (routed #8 resolution) | — | **REFUTED for this clone.** Routed item #8 asked whether `runTriageCall`/`runTriageChunks` inherit `internal/memory/compactor.go`'s "exit-0-with-empty-stdout is success" defect. They do not. | U088.md |
+| U081-F18 | **REFUTED** `c12cab12` | `bundle_distill.go:130` | — | — | The claim that `bundle_distill.go:130` is "the one `Store.Save` call site that never applies `requireSafeBundlePath`" is technically true but **not a defect**: the guard is inapplicable here by design | U081.md |
+| U088-F19 | **REFUTED** `c12cab12` | `task_triggers.go:420-449` | — | — | **REFUTED for this clone.** Routed item #8 asked whether `runTriageCall`/`runTriageChunks` inherit `internal/memory/compactor.go`'s "exit-0-with-empty-stdout is success" defect. They do not. | U088.md |
 | U097-F05 | open | `schemagen.go:19-20` | LOW | CORRECTNESS | The doc cites a path that does not exist: `schema/input/{config,fragment}-schema.json`. The real location is `resources/schema/input/`. | U097.md |
 | U097-F07 | open | `doc.go:2-4`; `go.mod:36` | LOW | COUPLING | The package doc claims the build tag means "neither it nor its reflection dependency is compiled into the production binary". True of the *binary*; **not** true of the module graph — `google/jsonsc... | U097.md |
 | U109-F07 | open | `filelock_unix.go:16` vs `filelock.go:43` | LOW | CORRECTNESS | Permission asymmetry: the lock *directory* is created 0o755 but the lock *file* 0644 (note: written as `0644`, not `0o644` — inconsistent with `0o755` two files over). In a shared/multi-user `~/.ct... | U109.md |

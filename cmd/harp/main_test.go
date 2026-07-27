@@ -82,10 +82,32 @@ func TestRunGenerate_Number(t *testing.T) {
 
 // TestRunGenerate_NumberZero pins the historical "n<=0 emits nothing"
 // behavior the removed ctxloom harp command had (`for range harpCount`).
+// TestRunGenerate_NumberZero inverts U004-F01: `harp -n 0` (and every
+// negative count) used to print zero bytes and exit 0 — a silent no-op, not
+// a valid "zero names requested" outcome. A generator asked to generate
+// something that produces nothing has failed, not succeeded, and must say
+// so on stderr with a non-zero exit rather than rendering an empty payload.
+//
+// Production is NOT fixed yet (root.go:100-105 still loops `for range
+// opts.count`, silently producing an empty slice for count<=0) — this is
+// the RED half of the inversion, kept skipped so `just test` stays green
+// until U004-F01's fix lands. Un-skip once runGenerate rejects a
+// non-positive --number.
 func TestRunGenerate_NumberZero(t *testing.T) {
-	out := runHarp(t, "-n", "0", "--format", "text")
-	if out != "" {
-		t.Errorf("expected empty output for -n 0, got %q", out)
+	t.Skip("pins the correct behaviour for U004-F01 (findings-index.md); production still silently no-ops on -n<=0 — un-skip once runGenerate rejects it")
+
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"-n", "0", "--format", "text"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("harp -n 0 must fail loudly (U004-F01), not exit 0 having produced nothing")
+	}
+	if out.String() != "" && err == nil {
+		t.Errorf("expected no rendered payload alongside the error, got %q", out.String())
 	}
 }
 

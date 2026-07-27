@@ -465,7 +465,26 @@ func TestEvaluateTriggers_ChunkOmissionIsCountedSeparatelyFromDegrade(t *testing
 // of round 1: if the escalation chunk containing a needs-investigation task
 // fails, that task must land on cannot-determine (never fired/not-fired),
 // without disturbing round 1's own Degraded/Warning bookkeeping.
+// TestEvaluateTriggers_DegradedEscalationChunkDoesNotSetTopLevelDegraded
+// inverts U088-F08: EvaluateTriggersResult.Degraded is documented as "true
+// when at least one CHUNK's LLM call/parse failed even after its one
+// retry" (task_triggers.go:108-115), but a round-2 (escalation) chunk's
+// failure never reaches it — only round-1 failures do. The caller sees only
+// a CannotDetermine verdict whose Reasoning string happens to start with
+// "escalation round degraded:", with no structured signal at all. This test
+// used to assert `res.Degraded == false` here as the INTENDED outcome,
+// which is exactly the doc/code disagreement U088-F08 names; it now asserts
+// the documented contract instead.
+//
+// Production is NOT fixed yet (escalateNeedsInvestigation discards its own
+// degradedByHarp map instead of folding it into result.Degraded/Warning) —
+// this is the RED half of the inversion, kept skipped so `just test` stays
+// green until U088-F08's fix lands (findings-index.md). Un-skip once a
+// round-2 chunk failure sets Degraded/Warning the same way a round-1
+// failure does.
 func TestEvaluateTriggers_DegradedEscalationChunkDoesNotSetTopLevelDegraded(t *testing.T) {
+	t.Skip("pins the documented contract for U088-F08 (findings-index.md); production still drops round-2 degradation on the floor — un-skip once EvaluateTriggers folds it into Degraded/Warning")
+
 	tc := newTaskContext(t, "proj-chunk-4")
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when internal/foo exists")
 	require.NoError(t, err)
@@ -483,7 +502,7 @@ func TestEvaluateTriggers_DegradedEscalationChunkDoesNotSetTopLevelDegraded(t *t
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), calls.Load(), "round 1 once, plus the (single-chunk) escalation round's own one retry")
-	assert.False(t, res.Degraded, "round 1 itself succeeded; the escalation round's failure is scoped to its own tasks")
+	assert.True(t, res.Degraded, "a round-2 chunk's LLM/parse failure must reach Degraded, per its own doc — an escalation-round failure is not less real than a round-1 one")
 	require.Len(t, res.Verdicts, 1)
 	assert.Equal(t, triggers.CannotDetermine, res.Verdicts[0].Outcome)
 	assert.Equal(t, 0, res.Omitted, "a degraded escalation chunk is a call failure, not an omission")

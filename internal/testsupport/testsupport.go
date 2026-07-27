@@ -44,6 +44,16 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
 	"CTXLOOM_CELL_WORKDIR",
+	// coord.EnvAgentCoordinator, read via os.Getenv(coord.EnvAgentCoordinator)
+	// in internal/cli/llm_runner_common.go — same const-read shape as the
+	// quintet above. Found by U142-F01's widened
+	// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads sweep, which
+	// now resolves identifier reads back to their declaring constant instead
+	// of requiring a literal "CTXLOOM_..." string.
+	"CTXLOOM_AGENT_COORDINATOR",
+	// internal/lm/isolation/traceprobe.go's probeTraceEnv const, read via
+	// os.Getenv(probeTraceEnv) — same shape, same discovery.
+	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",
 	// The container launch-retry budget's operator overrides (lunar-boat
 	// item 1): read via the coord.EnvLaunch* constants
 	// (os.LookupEnv(EnvLaunchMaxAttempts), not a literal "CTXLOOM_..."

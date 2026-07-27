@@ -67,15 +67,98 @@ func TestChangeDir_ChangesAndRestoresCwd(t *testing.T) {
 // silently fails to clear it and tests could inherit it from the host session.
 func TestEnvKeysCoversProductionReads(t *testing.T) {
 	root := moduleRoot(t)
-	re := regexp.MustCompile(`os\.(?:Getenv|LookupEnv)\("(CTXLOOM_[A-Z0-9_]+)"\)`)
 	known := make(map[string]bool, len(EnvKeys))
 	for _, k := range EnvKeys {
 		known[k] = true
 	}
 
-	uncovered := make(map[string][]string)
-	for _, sub := range []string{"internal", "cmd"} {
-		_ = filepath.WalkDir(filepath.Join(root, sub), func(path string, d fs.DirEntry, err error) error {
+	uncovered := findUncoveredEnvReads(t, []string{filepath.Join(root, "internal"), filepath.Join(root, "cmd")}, known)
+
+	for key, files := range uncovered {
+		t.Errorf("production reads %s but it is missing from testsupport.EnvKeys, so Isolate won't clear it (seen in %v)", key, files)
+	}
+}
+
+// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads pins U142-F01: a
+// CTXLOOM_* variable read only through a named constant
+// (os.Getenv(pkg.EnvFoo), the exact shape of coord.EnvMCPSocket and friends)
+// must be just as visible to the sweep as a literal os.Getenv("CTXLOOM_FOO")
+// call. Before this widened, the sweep's regex only matched string literals,
+// so a *new* constant-read variable could go live in production with no
+// signal anywhere — the incident CTXLOOM_MCP_SOCKET's own comment records.
+func TestFindUncoveredEnvReads_CatchesConstantIdentifierReads(t *testing.T) {
+	dir := t.TempDir()
+	src := `package fixture
+
+import "os"
+
+const EnvFixtureThing = "CTXLOOM_FIXTURE_THING"
+
+func read() string {
+	return os.Getenv(EnvFixtureThing)
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "fixture.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	uncovered := findUncoveredEnvReads(t, []string{dir}, map[string]bool{})
+
+	if _, ok := uncovered["CTXLOOM_FIXTURE_THING"]; !ok {
+		t.Fatalf("expected CTXLOOM_FIXTURE_THING (read only via a named constant) to be reported uncovered; got %v", uncovered)
+	}
+}
+
+// TestFindUncoveredEnvReads_StillCatchesLiterals is the literal-string
+// regression the pre-widening sweep already covered; the widened version
+// must not lose it.
+func TestFindUncoveredEnvReads_StillCatchesLiterals(t *testing.T) {
+	dir := t.TempDir()
+	src := `package fixture
+
+import "os"
+
+func read() string {
+	return os.Getenv("CTXLOOM_LITERAL_THING")
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "fixture.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	uncovered := findUncoveredEnvReads(t, []string{dir}, map[string]bool{})
+
+	if _, ok := uncovered["CTXLOOM_LITERAL_THING"]; !ok {
+		t.Fatalf("expected CTXLOOM_LITERAL_THING (read via a string literal) to be reported uncovered; got %v", uncovered)
+	}
+}
+
+// findUncoveredEnvReads walks dirs recursively (skipping _test.go files) and
+// reports every CTXLOOM_* variable read via os.Getenv/os.LookupEnv that is
+// absent from known, whether the read names the variable as a string literal
+// or via a package-level constant declared anywhere among dirs.
+func findUncoveredEnvReads(t *testing.T, dirs []string, known map[string]bool) map[string][]string {
+	t.Helper()
+	literalRe := regexp.MustCompile(`os\.(?:Getenv|LookupEnv)\("(CTXLOOM_[A-Z0-9_]+)"\)`)
+	identRe := regexp.MustCompile(`os\.(?:Getenv|LookupEnv)\(([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\)`)
+	constRe := regexp.MustCompile(`(?m)^\s*(?:const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:string\s*)?=\s*"(CTXLOOM_[A-Z0-9_]+)"`)
+
+	// constValues maps a bare identifier (the last component of a possibly
+	// package-qualified name) to the CTXLOOM_* string it was declared equal
+	// to, gathered from every file under dirs before reads are resolved —
+	// declaration and use can be in different packages entirely (e.g.
+	// coord.EnvMCPSocket declared in internal/agentcoord/coord, read from
+	// internal/mcp).
+	constValues := map[string]string{}
+	type hit struct {
+		literal string // resolved CTXLOOM_* value for a literal read, else ""
+		ident   string // bare identifier for an identifier read, else ""
+		file    string
+	}
+	var hits []hit
+
+	for _, dir := range dirs {
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return nil
 			}
@@ -86,19 +169,43 @@ func TestEnvKeysCoversProductionReads(t *testing.T) {
 			if err != nil {
 				return nil
 			}
-			for _, m := range re.FindAllStringSubmatch(string(data), -1) {
-				if !known[m[1]] {
-					rel, _ := filepath.Rel(root, path)
-					uncovered[m[1]] = append(uncovered[m[1]], rel)
+			text := string(data)
+			for _, m := range constRe.FindAllStringSubmatch(text, -1) {
+				constValues[m[1]] = m[2]
+			}
+			for _, m := range literalRe.FindAllStringSubmatch(text, -1) {
+				hits = append(hits, hit{literal: m[1], file: path})
+			}
+			for _, m := range identRe.FindAllStringSubmatch(text, -1) {
+				name := m[1]
+				if i := strings.LastIndex(name, "."); i >= 0 {
+					name = name[i+1:]
 				}
+				hits = append(hits, hit{ident: name, file: path})
 			}
 			return nil
 		})
 	}
 
-	for key, files := range uncovered {
-		t.Errorf("production reads %s but it is missing from testsupport.EnvKeys, so Isolate won't clear it (seen in %v)", key, files)
+	uncovered := make(map[string][]string)
+	for _, h := range hits {
+		key := h.literal
+		if key == "" {
+			v, ok := constValues[h.ident]
+			if !ok {
+				// Identifier does not resolve to a known CTXLOOM_* constant
+				// among the scanned dirs (could be a non-CTXLOOM var like
+				// os.Getenv(homeVar), or a constant declared outside the
+				// scanned tree) — nothing to flag.
+				continue
+			}
+			key = v
+		}
+		if !known[key] {
+			uncovered[key] = append(uncovered[key], h.file)
+		}
 	}
+	return uncovered
 }
 
 func moduleRoot(t *testing.T) string {

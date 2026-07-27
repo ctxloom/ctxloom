@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **252** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **253** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,012** |
+| `open` | no commit names this ID | **2,011** |
 
-**Totals: 2268 findings across 162 units — 252 resolved, 2012 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 253 resolved, 2011 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 122 | 253 (+1 refuted) |
+| HIGH | 376 | 123 | 252 (+1 refuted) |
 | MED | 999 | 38 | 961 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -479,7 +479,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U158-F07 | open | `live_engine_registry.go:659,675,708,732,760` | SILENTNOOP | Every `copy*Credentials` function **succeeds while copying zero bytes** when the source is absent or unreadable: each `continue`s or `return`s on `os.ReadFile` error and every `os.WriteFile`/`Mkdir... | U158.md |
 | U158-F08 | open | `steps_cli.go:86` | CORRECTNESS | `ctxloomArgs` splits the feature-file command line on **bare whitespace**, so the acceptance suite structurally cannot express a quoted argument, an argument containing spaces, or a flag whose valu... | U158.md |
 | U159-F01 | **RESOLVED** `932461df` | `steps_fixture.go:229-240` | SILENTNOOP | The `the mock LLM responds "…"` step calls `SetupMockLM`, whose `WriteConfig` **overwrites the project's config.yaml wholesale**, preserving only a top-level `profiles:` section — silently destroyi... | U159.md |
-| U159-F06 | open | `steps_j1_common.go:313-319` | SILENTNOOP | `promptSection` returns `""` when the `=== Prompt ===` marker is absent — a mock that recorded *something other than a prompt* (or a record-file format change) yields an empty prompt, and every one... | U159.md |
+| U159-F06 | **RESOLVED** `59d3626b` | `steps_j1_common.go:313-319` | SILENTNOOP | `promptSection` returns `""` when the `=== Prompt ===` marker is absent — a mock that recorded *something other than a prompt* (or a record-file format change) yields an empty prompt, and every one... | U159.md |
 | U161-F01 | open | `steps_j9_isolation_matrix.go:69-85` | CORRECTNESS | The engine spy — the suite's **only** observation of what a real engine binary is handed — records the ENVIRONMENT and never the ARGV or STDIN. `isoMatrixSpyScript` runs `env`, `cat`s two credentia... | U161.md |
 | U161-F02 | open | `steps_j9_isolation_matrix.go:40-52` | CORRECTNESS | opencode's spy is **never invoked at all** — its real launch is a stateful ACP handshake a dump-and-exit script cannot complete — so every opencode row in the matrix asserts only the pre-spawn fail... | U161.md |
 | U162-F04 | open | `steps_mcp.go:130` | SILENTNOOP | `callTool` discards `Inner()`'s error, leaving `w.lastInner` **nil**. Every `the tool result field "X" is set` / `equals "…"` assertion then reports "field is absent" — a *malformed or error* envel... | U162.md |

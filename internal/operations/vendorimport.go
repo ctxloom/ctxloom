@@ -136,6 +136,12 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // when Convert or Recorder construction fails (so a caller can tell "genuinely
 // nothing to import" from "tried and failed" — the two need different UX,
 // silence vs. a warning/report row) — it does not swallow errors itself.
+//
+// A Convert failure that happened AFTER some lines were already recorded
+// (U145-F02) has its partial canonical file removed before returning: without
+// that, hasCanonicalTranscript's presence-only guard would treat the partial
+// file as a complete one forever, silently masking the original failure on
+// every later call for this harp instead of allowing a genuine retry.
 func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
 	reg, ok := vendorImportRegistry[e.Backend]
 	if !ok || e.HarpName == "" {
@@ -153,9 +159,26 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 	if err != nil {
 		return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)
 	}
-	defer func() { _ = rec.Close() }()
 
-	if cerr := reg.adapter.Convert(ctx, rec, src); cerr != nil {
+	cerr := reg.adapter.Convert(ctx, rec, src)
+	_ = rec.Close()
+	if cerr != nil {
+		// U145-F02: Convert can fail AFTER already recording some lines (a
+		// bad byte partway through a large transcript), and
+		// transcript.Recorder creates its file on the first SUCCESSFUL
+		// Record (recorder.go's NewRecorder doc) — so a failure here can
+		// still leave a real, non-empty canonical file on disk.
+		// hasCanonicalTranscript's guard is presence-only (by design: see
+		// its own doc comment on why content-diffing is wrong), so without
+		// cleanup THIS partial file would be indistinguishable from a
+		// complete one on every future call for this harp — permanently
+		// masking the failure instead of allowing a retry once the vendor
+		// format or a parser bug is fixed. Best-effort: removal failing is
+		// not itself reported, since the conversion error is already the
+		// actionable fact.
+		if p, perr := paths.HarpCanonicalTranscriptPath(e.HarpName); perr == nil {
+			_ = os.Remove(p)
+		}
 		return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
 	}
 	return true, nil

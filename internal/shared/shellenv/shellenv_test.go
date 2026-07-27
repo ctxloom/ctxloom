@@ -12,19 +12,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fakeFencedShellCmd builds the fake shim every test below uses in place of
+// the real shell invocation: it execs /bin/sh -c 'printf ...' emitting
+// banner (optional junk text a real rc file might print), then the fenced
+// PATH the real probeLoginShellPath now expects (U117-F01), so these tests
+// exercise the same extractFencedPath contract production code does rather
+// than a shape only the fake ever produced.
+func fakeFencedShellCmd(ctx context.Context, banner, fakePath string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c",
+		`[ -n "$FAKE_SHELLENV_BANNER" ] && printf '%s\n' "$FAKE_SHELLENV_BANNER"; `+
+			`printf '%s\n%s\n%s\n' "$FAKE_SHELLENV_BEGIN" "$FAKE_SHELLENV_PATH" "$FAKE_SHELLENV_END"`)
+	cmd.Env = append(os.Environ(),
+		"FAKE_SHELLENV_BANNER="+banner,
+		"FAKE_SHELLENV_BEGIN="+pathSentinelBegin,
+		"FAKE_SHELLENV_PATH="+fakePath,
+		"FAKE_SHELLENV_END="+pathSentinelEnd,
+	)
+	return cmd
+}
+
 // withFakeShellProbe swaps execCommandContext for a fake that ignores the
-// real shell invocation and instead runs a tiny Go-less shim: it execs
-// /bin/sh -c 'printf %s "$FAKE_SHELLENV_PATH"' so the test controls exactly
-// what "PATH" the probe observes, without depending on the actual dev
-// container's login shell or rc files. Restored via t.Cleanup, and the
-// process-lifetime cache is reset so each test gets a fresh probe.
+// real shell invocation and instead runs fakeFencedShellCmd, so the test
+// controls exactly what "PATH" the probe observes, without depending on the
+// actual dev container's login shell or rc files. Restored via t.Cleanup,
+// and the process-lifetime cache is reset so each test gets a fresh probe.
 func withFakeShellProbe(t *testing.T, fakePath string) {
 	t.Helper()
 	orig := execCommandContext
 	execCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", `printf %s "$FAKE_SHELLENV_PATH"`)
-		cmd.Env = append(os.Environ(), "FAKE_SHELLENV_PATH="+fakePath)
-		return cmd
+		return fakeFencedShellCmd(ctx, "", fakePath)
 	}
 	resetCacheForTest()
 	t.Cleanup(func() {
@@ -78,6 +94,58 @@ func TestResolve_FallsBackToLoginShellPATH(t *testing.T) {
 	assert.Equal(t, fakeBin, got)
 }
 
+
+// TestResolve_RcFileBannerDoesNotPolluteResolvedPath pins U117-F01: an
+// interactive login shell SOURCES the user's real rc files, and a startup
+// banner/update-nag/fastfetch-style splash printed to stdout on every
+// interactive start is common. Before fencing, that banner text became PATH
+// entries verbatim (a bare, un-delimited `echo $PATH` capture). This proves
+// the fenced probe still resolves correctly with a banner ahead of it.
+func TestResolve_RcFileBannerDoesNotPolluteResolvedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "banner-fake-engine-binary")
+	require.NoError(t, os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755))
+
+	orig := execCommandContext
+	execCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		return fakeFencedShellCmd(ctx, "Welcome! Your shell has 3 updates available.\nfetch: cpu=fake, mem=fake", dir)
+	}
+	resetCacheForTest()
+	t.Cleanup(func() {
+		execCommandContext = orig
+		resetCacheForTest()
+	})
+
+	got, err := Resolve("banner-fake-engine-binary")
+	require.NoError(t, err, "a banner ahead of the fenced PATH must not break resolution")
+	assert.Equal(t, fakeBin, got)
+}
+
+// TestExtractFencedPath_MissingMarkersFailsLoud is the unit-level pin for the
+// parsing primitive itself: unfenced (or truncated/redirected) shell output
+// must error, never silently return the raw banner text as if it were PATH.
+func TestExtractFencedPath_MissingMarkersFailsLoud(t *testing.T) {
+	_, err := extractFencedPath("/usr/bin:/bin\n")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "begin marker not found")
+
+	_, err = extractFencedPath(pathSentinelBegin + "\n/usr/bin:/bin\n")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "end marker not found")
+}
+
+// TestExtractFencedPath_HappyPath pins the parsing primitive's success shape
+// directly, independent of any shell invocation.
+func TestExtractFencedPath_HappyPath(t *testing.T) {
+	raw := "some banner noise\n" + pathSentinelBegin + "\n/usr/local/bin:/usr/bin:/bin\n" + pathSentinelEnd + "\nmore noise\n"
+	got, err := extractFencedPath(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "/usr/local/bin:/usr/bin:/bin", got)
+}
+
 func TestResolve_UnresolvableNameReturnsOriginalLookPathError(t *testing.T) {
 	withFakeShellProbe(t, t.TempDir()) // empty dir: shell PATH resolves nothing either
 
@@ -97,9 +165,7 @@ func TestResolve_LoginShellPathIsCachedAcrossCalls(t *testing.T) {
 	orig := execCommandContext
 	execCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		calls++
-		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", `printf %s "$FAKE_SHELLENV_PATH"`)
-		cmd.Env = append(os.Environ(), "FAKE_SHELLENV_PATH="+dir)
-		return cmd
+		return fakeFencedShellCmd(ctx, "", dir)
 	}
 	resetCacheForTest()
 	t.Cleanup(func() {
@@ -127,9 +193,7 @@ func TestResolve_EmptySHELLFallsBackToBinBash(t *testing.T) {
 	orig := execCommandContext
 	execCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		sawShell = name
-		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", `printf %s "$FAKE_SHELLENV_PATH"`)
-		cmd.Env = append(os.Environ(), "FAKE_SHELLENV_PATH="+dir)
-		return cmd
+		return fakeFencedShellCmd(ctx, "", dir)
 	}
 	resetCacheForTest()
 	t.Cleanup(func() {

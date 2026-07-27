@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 // resolveTimeout bounds the login-shell probe so a slow or hanging rc file
@@ -127,6 +129,18 @@ func loginShellPath() (string, error) {
 	return shellPathCache.path, shellPathCache.err
 }
 
+// pathSentinelBegin/pathSentinelEnd fence the probed PATH value against
+// anything else the shell's startup files print to stdout (U117-F01): a
+// login+interactive invocation SOURCES the user's real rc files, and an rc
+// file printing a banner, an update nag, or a fastfetch/neofetch splash on
+// every interactive start is common — un-fenced, that text was taken
+// verbatim as PATH. Sufficiently unlikely to appear in real shell output that
+// no quoting/escaping is needed around them.
+const (
+	pathSentinelBegin = "__ctxloom_shellenv_path_begin__"
+	pathSentinelEnd   = "__ctxloom_shellenv_path_end__"
+)
+
 // probeLoginShellPath runs the user's login+interactive shell once to print
 // its resolved PATH. POSIX-only (mirrors ctxloom-vscode's shell-env.ts,
 // which skips win32 outright — Windows has no login-shell rc-file PATH
@@ -143,13 +157,32 @@ func probeLoginShellPath() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
 	defer cancel()
 
-	cmd := execCommandContext(ctx, shell, loginShellArgs(shell, "echo $PATH")...)
+	probe := fmt.Sprintf("echo %s; echo \"$PATH\"; echo %s", pathSentinelBegin, pathSentinelEnd)
+	cmd := execCommandContext(ctx, shell, loginShellArgs(shell, probe)...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("login shell PATH probe (%s) failed: %w", shell, err)
 	}
-	return strings.TrimSpace(out.String()), nil
+	return extractFencedPath(out.String())
+}
+
+// extractFencedPath pulls the PATH value from between the two sentinel
+// lines, discarding anything printed before or after them by the shell's own
+// startup files. Returns an error (never a banner-polluted guess) when
+// either sentinel is missing — e.g. an rc file that redirects or swallows
+// stdout for a non-interactive-looking probe.
+func extractFencedPath(raw string) (string, error) {
+	begin := strings.Index(raw, pathSentinelBegin)
+	if begin == -1 {
+		return "", fmt.Errorf("login shell PATH probe: begin marker not found in shell output (a startup file may have swallowed or redirected stdout): %q", textutil.TruncateBytes(raw, 200))
+	}
+	rest := raw[begin+len(pathSentinelBegin):]
+	end := strings.Index(rest, pathSentinelEnd)
+	if end == -1 {
+		return "", fmt.Errorf("login shell PATH probe: end marker not found in shell output: %q", textutil.TruncateBytes(raw, 200))
+	}
+	return strings.TrimSpace(rest[:end]), nil
 }
 
 // loginShellArgs builds the shell invocation that sources the user's startup

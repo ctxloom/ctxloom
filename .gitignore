@@ -134,6 +134,10 @@ AGENTS.md
 .ctxloom/pieces/
 .ctxloom/sessions/
 
+# Serena's per-project LSP state (project config, symbol cache, its own memories).
+# Local and rebuildable — serena re-derives it from the checkout on first activation.
+.serena/
+
 # Working decisions log — for human review during a work session, not part of
 # the repo record. FINDINGS.md and docs/behaviour-changes-*.md are the committed
 # artifacts; this is the scratch ledger behind them.

@@ -1,8 +1,11 @@
 package kiro
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +13,51 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
+
+// TestKiro_SetupExecute_AgreeOnAgentName is the end-to-end PAYLOAD test for
+// U055-F01: a configured `agent:` override used to reach buildArgs'
+// `--agent <name>` while Setup's writeAgentConfig kept writing the
+// materialized custom-agent JSON under the hardcoded defaultAgentName, both
+// as the file's path AND its "name" field — so kiro-cli was told to select an
+// agent that was never materialized (or a stale/default one), a broken
+// launch. Setup and buildArgs must resolve to the SAME name.
+func TestKiro_SetupExecute_AgreeOnAgentName(t *testing.T) {
+	b := NewKiro()
+	b.Configure(&KiroConfig{Agent: "myagent"})
+
+	work := t.TempDir()
+	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:  work,
+		CellKind: agent.CellKindDirectoryIsolated,
+		Managed:  &agent.ManagedConfig{},
+	}))
+
+	// buildArgs launches with the configured override.
+	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "hi"}}, "")
+	require.Contains(t, args, "--agent")
+	idx := -1
+	for i, a := range args {
+		if a == "--agent" {
+			idx = i
+		}
+	}
+	require.NotEqual(t, -1, idx)
+	launchedName := args[idx+1]
+	assert.Equal(t, "myagent", launchedName)
+
+	// The file Setup actually materialized must exist AT that exact name, and
+	// its own "name" field (what kiro-cli itself uses to identify the agent)
+	// must agree too.
+	path := filepath.Join(work, ".kiro", "agents", launchedName+".json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "the agent Setup materialized must be the one buildArgs selects with --agent")
+
+	var decoded struct {
+		Name string `json:"name"`
+	}
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	assert.Equal(t, "myagent", decoded.Name, "the materialized agent's own name field must match what --agent selects")
+}
 
 func TestKiroConfig_BackendType(t *testing.T) {
 	assert.Equal(t, "kiro", KiroConfig{}.BackendType())

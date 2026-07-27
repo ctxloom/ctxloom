@@ -108,13 +108,15 @@ func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 // writeAgentConfig. kiro's hooks live inside this agent JSON, so settings + hooks
 // are one surface. Delivery-ONLY.
 //
-// NOTE (Phase 2): the agent's NAME (defaultAgentName) is what `--agent <name>`
-// selects at launch — kiro's per-agent isolation lever. Writing distinct
-// per-agent JSON files and passing the matching --agent is a buildArgs concern
-// deferred to the launch-path cutover; this surface only materializes the file.
+// agentName (U055-F01, closing the Phase 2 note this used to carry): the
+// agent's NAME is what `--agent <name>` selects at launch — kiro's per-agent
+// isolation lever. It must be the SAME name buildArgs launches with, so it
+// rides in.AgentName from NewSurfaces (empty uses defaultAgentName, unchanged
+// from before this field existed).
 type settingsSurface struct {
-	hooks *wire.HooksConfig
-	fs    afero.Fs
+	hooks     *wire.HooksConfig
+	fs        afero.Fs
+	agentName string
 }
 
 // Deliver maps the hooks into kiro's agent-JSON hook block and writes
@@ -127,7 +129,7 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
-	w := &KiroWriter{FS: s.fs}
+	w := &KiroWriter{FS: s.fs, agentName: s.agentName}
 	_, agentHooks := w.mapHooks(hooks.Unified, hooks.Plugins["kiro"])
 	if err := w.writeAgentConfig(dir, agentHooks); err != nil {
 		return nil, err
@@ -220,7 +222,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}
 	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
-	settings := &settingsSurface{hooks: in.Hooks, fs: fs}
+	settings := &settingsSurface{hooks: in.Hooks, fs: fs, agentName: in.AgentName}
 	commands, skills := agent.NewSkillShapedCommandsAndSkills("kiro", "kiro", kiroSkillsDir, in, fs,
 		func(dir string, cmds []agent.CommandExport, fs afero.Fs) error {
 			return WriteCommandFiles(dir, cmds, agent.WithCommandFS(fs))

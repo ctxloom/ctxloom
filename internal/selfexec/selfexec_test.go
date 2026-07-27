@@ -1,11 +1,14 @@
 package selfexec
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // stubExecutable / stubStat install temporary overrides for the Path seams
@@ -42,7 +45,15 @@ func TestPath_OSExecutableError(t *testing.T) {
 		return nil, nil
 	})
 
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
 	assert.Equal(t, "ctxloom", Path())
+	// U098-F01: a resolution failure used to be indistinguishable from a
+	// correctly-resolved absolute path — agent.CtxloomCommand's own invariant
+	// is that the bare-name fallback is a stated exception, not a silent one.
+	assert.Contains(t, buf.String(), "could not resolve", "the fallback must be visible, not silent")
 }
 
 func TestPath_DeletedSuffixStripped(t *testing.T) {
@@ -69,7 +80,15 @@ func TestPath_DeletedAndMissingFallsBack(t *testing.T) {
 		return nil, errors.New("no such file")
 	})
 
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
 	assert.Equal(t, "ctxloom", Path())
+	// U098-F01: this fallback must be visible too, not just the osExecutable
+	// error branch — both failures were mapped onto the same silent success
+	// value before the fix.
+	assert.Contains(t, buf.String(), "no longer points at a live file")
 }
 
 func TestPath_PathMissingFallsBack(t *testing.T) {

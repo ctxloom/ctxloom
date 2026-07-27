@@ -39,7 +39,12 @@ var PrivateStatePatterns = []string{
 // fills it with per-conversation subagent scratch that should never be
 // committed, while for Codex only config.toml is generated, so only that file
 // is ignored.
-var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".agents/", ".codex/config.toml"}
+//
+// .codex/auth.json (U045-F01): internal/lm/isolation/auth.go's SeedCodexHome
+// actively copies the host's ~/.codex/auth.json here on every plain
+// (non-isolated) codex run — a live credential, not a config artifact, but it
+// must be kept out of the tree the exact same way.
+var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".agents/", ".codex/config.toml", ".codex/auth.json"}
 
 // WorktreeComment is the header under which the per-agent-worktree exclude block
 // is grouped in .git/info/exclude.
@@ -74,6 +79,7 @@ var WorktreeArtifactPatterns = []string{
 	".claude/",
 	".agents/",
 	".codex/config.toml",
+	".codex/auth.json",
 	".kiro/",
 	".ctxloom/cache/",
 	"CLAUDE.md",

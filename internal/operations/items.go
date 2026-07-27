@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -35,6 +36,11 @@ func (k ItemKind) valid() bool { return k == ItemKindFragment || k == ItemKindCo
 var (
 	ErrItemExists   = errors.New("item already exists")
 	ErrItemNotFound = errors.New("item not found")
+	// ErrItemContentEmpty guards SetItemContent's floor (U084-F02): this is the
+	// frontend-agnostic operations layer any caller (CLI, MCP, a future
+	// frontend) reaches directly, so the empty-buffer floor belongs here, not
+	// only in the CLI's own editItem/checkEditedContent pre-check.
+	ErrItemContentEmpty = errors.New("refusing to overwrite existing content with an empty buffer")
 )
 
 // GetItemRequest identifies a single fragment/prompt to read.
@@ -212,6 +218,16 @@ type SetItemContentResult struct {
 func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentRequest) (*SetItemContentResult, error) {
 	if !req.Kind.valid() {
 		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
+	}
+	// U084-F02: this used to accept Content: "" unconditionally, silently
+	// overwriting an authored fragment/command with zero bytes and reporting
+	// status: "updated" — the CLI's own editItem path is guarded by
+	// checkEditedContent, but that guard sits above this frontend-agnostic
+	// function (ADR-0026: operations is what CLI AND MCP call into), so any
+	// other caller reached the same silent no-op. strings.TrimSpace matches
+	// checkEditedContent's own criterion (whitespace-only is still empty).
+	if strings.TrimSpace(req.Content) == "" {
+		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemContentEmpty)
 	}
 	store := bundleStore(cfg, req.Store)
 	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)

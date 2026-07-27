@@ -156,6 +156,12 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 				Factory:  req.Factory,
 			})
 			if err != nil {
+				// U084-F03 investigated and REFUTED as a live MapProfiles defect:
+				// runResolvedAgent's own tail (oneshot.go's U085-F06 fix) already
+				// turns a clean-exit-zero-bytes result into an error here, so a
+				// zero-output member always takes THIS branch, not the success
+				// one below. Confirmed by
+				// TestMapProfiles_EmptyOutputIsFailed.
 				parts[i] = Part{Profile: req.Members[i], Err: err.Error()}
 				return
 			}
@@ -252,6 +258,12 @@ func Weave(ctx context.Context, cfg *config.Config, req WeaveRequest) (*WeaveRes
 		Factory:   req.Factory,
 	})
 	if err != nil {
+		// U084-F03 investigated and REFUTED as a live defect on the synthesizer
+		// half too: RunOneshot's own tail (oneshot.go's U085-F06 fix) already
+		// errors on a clean-exit-zero-bytes result before ever returning here,
+		// so `result.Report = ""` alongside a nil error is unreachable — this
+		// branch is what actually fires. Confirmed by
+		// TestWeave_SynthesizerEmptyOutputErrors.
 		return result, fmt.Errorf("synthesis: %w", err)
 	}
 	result.Report = synth.Output

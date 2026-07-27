@@ -993,6 +993,32 @@ Examples:
 		// here, consumed by the structured/oneshot branches below; nil on every
 		// other arm.
 		var ownedRun *ownedRunSession
+		// Teardown: kill the go-plugin client (host/worktree/oneshot/structured
+		// arms) OR the docker-exec keepalive container (Phase 2a-A interactive
+		// arm — RunnerHandle.Kill is Phase 1's rm -f + removeReportsGone). Exactly
+		// one is non-nil per run; the container arm never constructs a client.
+		//
+		// Registered HERE, before any of the branches below that can return
+		// early, rather than after the whole if/else chain (U041-F05): a defer
+		// only protects returns that happen AFTER it is reached, so a defer
+		// placed after the chain never fires for an early return out of the
+		// chain itself — exactly the case where startContainerOwnedRun starts a
+		// real container, then fails a LATER step and returns handle non-nil
+		// alongside the error. Registering the cleanup up front, and having
+		// every branch below assign into runnerHandle/ownedRun/client BEFORE
+		// checking its own error, means every early return in between is
+		// covered instead of only the successful-setup path.
+		defer func() {
+			if client != nil {
+				client.Kill()
+			}
+			if runnerHandle != nil {
+				runnerHandle.Kill()
+			}
+			if ownedRun != nil {
+				ownedRun.cancel()
+			}
+		}()
 		if llmBinary != "" {
 			// The external plugin binary is spawned DIRECTLY — isolation wraps the
 			// built-in serve transport, not a user-supplied binary — so it can be
@@ -1117,11 +1143,17 @@ Examples:
 				// host watches it via WatchRuns. No go-plugin client; no
 				// in-container listener.
 				handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName), permMode, mode, runStructured, runnerSpawnEnv)
+				// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
+				// can return a non-nil handle ALONGSIDE a non-nil error (the
+				// container started; a later step in StartOwnedRun failed) — if
+				// the assignment waited for the error check, that early return
+				// would discard the handle before the teardown defer above ever
+				// sees it, leaking the running container.
+				runnerHandle = handle
+				ownedRun = sess
 				if oerr != nil {
 					return fmt.Errorf("failed to start container structured/oneshot run: %w", oerr)
 				}
-				runnerHandle = handle
-				ownedRun = sess
 			} else {
 				// Spawn through the policy, carrying the resolved label so serve
 				// configures exactly this entry (not the first map-ordered entry of the
@@ -1132,21 +1164,6 @@ Examples:
 				}
 			}
 		}
-		// Teardown: kill the go-plugin client (host/worktree/oneshot/structured
-		// arms) OR the docker-exec keepalive container (Phase 2a-A interactive
-		// arm — RunnerHandle.Kill is Phase 1's rm -f + removeReportsGone). Exactly
-		// one is non-nil per run; the container arm never constructs a client.
-		defer func() {
-			if client != nil {
-				client.Kill()
-			}
-			if runnerHandle != nil {
-				runnerHandle.Kill()
-			}
-			if ownedRun != nil {
-				ownedRun.cancel()
-			}
-		}()
 
 		// --structured: drive the session as a structured turn REPL (the gRPC
 		// WatchSession + user_message interface) instead of owning the terminal.

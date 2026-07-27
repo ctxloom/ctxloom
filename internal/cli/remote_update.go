@@ -141,7 +141,10 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 		itemType = remote.ItemTypeBundle
 	}
 
-	latestSHA, ok := latestWithinConstraint(ctx, fetcher, ref.URL, entry.RequestedVersion)
+	latestSHA, ok, lerr := latestWithinConstraint(ctx, fetcher, ref.URL, entry.RequestedVersion)
+	if lerr != nil {
+		return updateInfo{}, false, fmt.Errorf("failed to resolve latest version for %s: %w", refStr, lerr)
+	}
 	if !ok {
 		return updateInfo{}, false, fmt.Errorf("failed to resolve latest version for %s", refStr)
 	}
@@ -222,14 +225,22 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	// Refresh every unique remote once (one git fetch per repo, not 2×N API
 	// calls), then resolve the latest SHA for each entry.
 	refreshRemoteRepos(cmd.Context(), cfg, lockfile)
-	bundleUpdates, skippedEmpty := detectUpdates(cmd.Context(), os.Stdout, cfg, auth, lockfile)
+	bundleUpdates, skippedEmpty, failedChecks := detectUpdates(cmd.Context(), os.Stdout, cfg, auth, lockfile)
 
 	if skippedEmpty > 0 {
 		fmt.Printf("Skipped %d entries with empty SHA (run 'ctxloom remote pull' to clean up)\n\n", skippedEmpty)
 	}
 
 	if len(bundleUpdates) == 0 {
-		fmt.Println("All items are up to date!")
+		// U040-F02: "up to date" is a claim about entries that were actually
+		// CHECKED. When some entries' checks failed (see the warnings above),
+		// saying so unconditionally reads as "everything was verified current"
+		// when in fact part of the closure was never resolved at all.
+		if failedChecks > 0 {
+			fmt.Printf("No updates found among the entries that could be checked — %d entry(ies) could not be checked (see warnings above).\n", failedChecks)
+		} else {
+			fmt.Println("All items are up to date!")
+		}
 		return nil
 	}
 
@@ -345,7 +356,7 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 // per-entry resolution failures are skipped (the refresh pass already surfaced
 // fetch errors). The only per-entry message printed here is for a reference that
 // carries no repository URL.
-func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile) (bundleUpdates []updateInfo, skipped int) {
+func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile) (bundleUpdates []updateInfo, skipped, failed int) {
 	cachedFactory := operations.NewCachedFetcherFactory(cfg)
 	fetcherByURL := map[string]remote.Fetcher{}
 	fetcherFor := func(url string) (remote.Fetcher, error) {
@@ -372,23 +383,41 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 		}
 		ref, err := remote.ParseReference(e.Ref)
 		if err != nil {
+			// U040-F02: this used to `continue` with ZERO diagnostic — a
+			// lockfile entry with a reference this build can no longer parse
+			// silently dropped out of the update check entirely, and if every
+			// entry hit this, "All items are up to date!" printed with nothing
+			// having actually been checked.
+			clidiag.Warn("ctxloom", "%s: could not parse reference (%v); skipping the update check for it", e.Ref, err)
+			failed++
 			continue
 		}
 		if ref.URL == "" {
 			fmt.Fprintf(out, "  %s: reference has no repository URL\n", e.Ref)
+			failed++
 			continue
 		}
 		fetcher, err := fetcherFor(ref.URL)
 		if err != nil {
+			// U040-F02: same silent shape — a fetcher construction failure
+			// (auth, network, a malformed URL the factory rejects) looked
+			// identical to "this entry is already at the latest commit."
+			clidiag.Warn("ctxloom", "%s: could not reach %s (%v); skipping the update check for it", e.Ref, ref.URL, err)
+			failed++
 			continue
 		}
-		latest, ok := latestWithinConstraint(ctx, fetcher, ref.URL, e.Entry.RequestedVersion)
+		latest, ok, lerr := latestWithinConstraint(ctx, fetcher, ref.URL, e.Entry.RequestedVersion)
+		if lerr != nil {
+			clidiag.Warn("ctxloom", "%s: could not resolve %q (%v); skipping the update check for it", e.Ref, e.Entry.RequestedVersion, lerr)
+			failed++
+			continue
+		}
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}
 		bundleUpdates = append(bundleUpdates, updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion, Kind: e.Entry.SelectorKind(), Version: e.Entry.Version})
 	}
-	return bundleUpdates, skipped
+	return bundleUpdates, skipped, failed
 }
 
 // latestWithinConstraint returns the newest commit the entry's version
@@ -397,16 +426,25 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 // constraint resolves to itself, so it is never reported outdated. ok=false on
 // any failure. This is what makes `update` constraint-aware: it reports an update
 // only when a newer commit actually satisfies what the manifest asked for.
-func latestWithinConstraint(ctx context.Context, fetcher remote.Fetcher, url, constraint string) (sha string, ok bool) {
+// latestWithinConstraint resolves constraint against url's available
+// versions. err is non-nil only for a genuine resolution FAILURE (a
+// malformed URL, a network/auth error reaching the forge); ok=false with a
+// nil err means resolution ran cleanly and found nothing satisfying
+// constraint — U040-F02's fix depends on callers being able to tell these
+// two cases apart instead of both collapsing into "no update, all good."
+func latestWithinConstraint(ctx context.Context, fetcher remote.Fetcher, url, constraint string) (sha string, ok bool, err error) {
 	owner, repo, err := remote.ParseRepoURL(url)
 	if err != nil {
-		return "", false
+		return "", false, err
 	}
 	res, rerr := remote.ResolveConstraint(ctx, constraint, remote.NewFetcherRepoVersions(fetcher, owner, repo))
-	if rerr != nil || res.SHA == "" {
-		return "", false
+	if rerr != nil {
+		return "", false, rerr
 	}
-	return res.SHA, true
+	if res.SHA == "" {
+		return "", false, nil
+	}
+	return res.SHA, true, nil
 }
 
 // printAvailableUpdates lists pending bundle updates; the section is omitted when

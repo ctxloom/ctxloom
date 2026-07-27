@@ -256,3 +256,56 @@ func TestCanonicalFallbackSource_ListSessions_MergesAndDedupes(t *testing.T) {
 	assert.False(t, ids["backend-uuid-covered"], "the same session must not also appear under its legacy id")
 	assert.True(t, ids["backend-uuid-uncovered"], "a legacy session with no canonical counterpart must still be listed")
 }
+
+// erroringListStore embeds a real MemStore (satisfying every other
+// sessions.Store method faithfully via promotion) but forces ListForProject
+// to fail — the only hermetic way to make CanonicalHistory.ListSessions
+// return a genuine error, since MemStore's own ListForProject never fails.
+type erroringListStore struct {
+	*sessions.MemStore
+	err error
+}
+
+func (e *erroringListStore) ListForProject(projectDir string) ([]sessions.Entry, error) {
+	return nil, e.err
+}
+
+// TestCanonicalFallbackSource_ListSessions_NoLegacy_CanonicalErrorPropagates
+// pins U059-F03: legacy==nil is the RetiredScraperBackends case (codex, kiro,
+// antigravity, claude-code — S5, canonical is the ONLY source). Before the
+// fix, `canonMetas, _ := f.canonical.ListSessions(ctx)` discarded the error
+// and returned (nil, nil) — a confident "no sessions" indistinguishable from
+// a project that genuinely has none. With no legacy leg to degrade to, the
+// canonical failure IS the failure and must be reported.
+func TestCanonicalFallbackSource_ListSessions_NoLegacy_CanonicalErrorPropagates(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := &erroringListStore{MemStore: sessions.NewMemStore(), err: fmt.Errorf("boom: session index unreadable")}
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	metas, err := src.ListSessions(ctx)
+	require.Error(t, err, "a canonical read failure with no legacy leg to fall back to must be reported, not silently reported as zero sessions")
+	assert.Nil(t, metas)
+	assert.Contains(t, err.Error(), "boom: session index unreadable")
+}
+
+// TestCanonicalFallbackSource_ListSessions_CanonicalErrorsButLegacyHasSessions
+// is the companion case: legacy != nil and legacy succeeds, so the existing
+// degrade-to-what-succeeded behavior (already exercised in the mirror
+// direction by MergesAndDedupes/legacy-fails) must still return the legacy
+// listing rather than erroring the whole call — a canonical failure must not
+// regress a still-transitional project that has a working legacy leg.
+func TestCanonicalFallbackSource_ListSessions_CanonicalErrorsButLegacyHasSessions(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := &erroringListStore{MemStore: sessions.NewMemStore(), err: fmt.Errorf("boom: session index unreadable")}
+	legacy := &fakeSessionSource{metas: []agent.SessionMeta{{ID: "legacy-only-session"}}}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	metas, err := src.ListSessions(ctx)
+	require.NoError(t, err)
+	require.Len(t, metas, 1)
+	assert.Equal(t, "legacy-only-session", metas[0].ID)
+}

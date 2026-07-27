@@ -54,12 +54,22 @@ func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, err
 
 	fmt.Println("Resolving latest commits for pinned dependencies...")
 
-	advanced, err := operations.UpgradeDependencies(cmd.Context(), cfg)
+	advanced, incomplete, err := operations.UpgradeDependencies(cmd.Context(), cfg)
 	if err != nil {
 		return err
 	}
 	if advanced == 0 {
-		fmt.Println("Everything is up to date.")
+		// U040-F12: "Everything is up to date." used to print unconditionally
+		// here, even on a round where part of the dependency closure could not
+		// be reached (a warning about it prints separately, but the terminal
+		// message still claimed a clean, complete check). advanced==0 only
+		// means nothing that WAS resolved needed to move — it says nothing
+		// about the part that was never resolved at all.
+		if incomplete {
+			fmt.Println("No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
+		} else {
+			fmt.Println("Everything is up to date.")
+		}
 		return nil
 	}
 

@@ -8,6 +8,8 @@ package selfexec
 import (
 	"os"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // osExecutable and osStat are seams the tests override to drive the Path
@@ -55,6 +57,14 @@ func Path() string {
 	}
 	exe, err := osExecutable()
 	if err != nil {
+		// U098-F01: this fallback IS the one place agent.CtxloomCommand's own
+		// invariant ("a surface names the absolute path of the binary that
+		// materialized it... falls back to the bare name only if self-lookup
+		// fails") gets violated — and until now nothing told the caller it
+		// happened, so a materialized surface carrying the unqualified
+		// "ctxloom" was indistinguishable from a correctly-resolved absolute
+		// path. Warn rather than silently guess.
+		clidiag.Warn("ctxloom", "could not resolve the running binary's own path (%v); re-invoking via a bare PATH lookup for \"ctxloom\" instead of the exact binary that is running now", err)
 		return fallback
 	}
 	// Linux: "/path/ctxloom (deleted)" after the running inode is unlinked.
@@ -62,6 +72,7 @@ func Path() string {
 		exe = trimmed
 	}
 	if _, err := osStat(exe); err != nil {
+		clidiag.Warn("ctxloom", "the running binary's resolved path %q no longer points at a live file (%v); re-invoking via a bare PATH lookup for \"ctxloom\" instead", exe, err)
 		return fallback
 	}
 	return exe

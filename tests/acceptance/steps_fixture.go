@@ -106,6 +106,18 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return runFixture(c, "profile", "create", name, "-b", bundle, "-d", "acceptance fixture profile")
 	})
 
+	// A directory profile carrying deny_tools, written directly (no CLI surface
+	// sets deny_tools at creation time). This is the launch-flow's T2 regression
+	// fixture: deny_tools/skills were silently dropped crossing
+	// internal/lm/grpc's proto wire (fixed at 40b49a7f/48eedc61), and this step
+	// plus "the mock recorded input contains" is what lets a scenario prove the
+	// field survives ctxloom run end to end, not just the unit-level proto
+	// round-trip.
+	ctx.Step(`^a profile "([^"]*)" with bundle "([^"]*)" and deny_tools "([^"]*)"$`, func(c context.Context, name, bundle, tool string) error {
+		body := "description: acceptance fixture profile\nbundles:\n  - " + bundle + "\ndeny_tools:\n  - " + tool + "\n"
+		return worldFrom(c).env.WriteFile(".ctxloom/profiles/"+name+".yaml", body)
+	})
+
 	// An INLINE profile, written straight into config.yaml's `profiles:
 	// definitions:` map — as opposed to `profile create`, which always writes a
 	// directory profile (.ctxloom/profiles/<name>.yaml). `ctxloom manage config
@@ -236,6 +248,26 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("set mock response: %w", err)
 		}
 		w.mock = mock
+		return nil
+	})
+
+	// Asserts against the mock backend's RECORDED SETUP INPUT (what actually
+	// crossed the launch wire and reached Setup/Execute), not the CLI's stdout —
+	// this is what makes it possible for a scenario to prove a field like
+	// deny_tools survived the whole tip-to-tail flow rather than merely that the
+	// command exited 0.
+	ctx.Step(`^the mock recorded input contains "([^"]*)"$`, func(c context.Context, marker string) error {
+		w := worldFrom(c)
+		if w.mock == nil {
+			return fmt.Errorf(`no mock LLM configured for this scenario (missing a "the mock LLM responds" step)`)
+		}
+		recorded, err := w.mock.GetRecordedInput()
+		if err != nil {
+			return fmt.Errorf("read mock recorded input: %w", err)
+		}
+		if !strings.Contains(recorded, marker) {
+			return fmt.Errorf("mock recorded input does not contain %q; recorded:\n%s", marker, recorded)
+		}
 		return nil
 	})
 }

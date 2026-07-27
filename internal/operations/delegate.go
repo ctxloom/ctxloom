@@ -587,7 +587,15 @@ const commitDirtyTreeAckKey = "dirty_tree_commit_ack"
 // landing EMPTY due to an index-clobbering pre-commit-hook bug (since
 // fixed), and a post-commit stat is not proof a commit landed.
 func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, listed []string, more int) error {
-	branch, _ := gitClient.CurrentBranch(ctx, workDir) // best-effort naming only; never blocks on a naming failure
+	branch, berr := gitClient.CurrentBranch(ctx, workDir)
+	// U083-F03: an error here used to be discarded (`branch, _ :=`), leaving
+	// branch=="" — which is NOT "HEAD", so the detached-HEAD guard below never
+	// fired. An unresolvable branch name is exactly the condition this guard
+	// exists to catch (the caller cannot tell whether this is a bare
+	// checkout), so failing loud here is strictly safer than guessing.
+	if berr != nil {
+		return fmt.Errorf(`dirty_tree_handler "commit": could not determine %s's current branch: %w (this guard exists specifically to catch a detached-HEAD checkout, and an unresolvable branch name is the one condition it must not silently treat as safe) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir, berr)
+	}
 	if branch == "HEAD" {
 		return fmt.Errorf(`dirty_tree_handler "commit": %s is a detached-HEAD checkout (this looks like a delegated child's OWN isolated worktree, not a branch checkout — committing here would land on no branch and could be silently discarded when that worktree is later torn down) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir)
 	}

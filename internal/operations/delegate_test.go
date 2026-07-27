@@ -745,6 +745,28 @@ func TestHandleDirtyParentTree_Commit_DetachedHeadRefuses(t *testing.T) {
 	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
 }
 
+// TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses pins U083-F03:
+// before the fix, `branch, _ := gitClient.CurrentBranch(...)` discarded the
+// error, leaving branch=="" — which is NOT "HEAD", so the detached-HEAD guard
+// above never fired and the commit proceeded on an unresolvable branch name.
+// An unresolvable branch is exactly the condition the guard exists to catch
+// (the caller cannot tell whether this is a bare checkout), so it must refuse
+// rather than silently treat the error as "not detached".
+func TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{
+		Dirty:            map[string]bool{"/child-wt": true},
+		Changes:          []string{" M f.go"},
+		CurrentBranchErr: fmt.Errorf("git rev-parse: unknown revision or path not in the working tree"),
+	}
+	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true}) // even acknowledged, this must still refuse
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", DirtyTreeHandlerCommit)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not determine", "names the failure rather than silently guessing a branch")
+	assert.Contains(t, err.Error(), "unknown revision", "carries the underlying git error")
+	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
+}
+
 // TestHandleDirtyParentTree_Commit_NoAckRefusesAndNamesKey is the first-time
 // consent requirement: an absent project acknowledgement refuses the spawn
 // (never commits), and the message is fully actionable — the branch, the

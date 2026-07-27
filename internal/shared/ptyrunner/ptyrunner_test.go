@@ -11,6 +11,7 @@ package ptyrunner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -288,6 +289,49 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	assert.Contains(t, stdout.String(), "line1")
 	assert.Contains(t, stdout.String(), "line2")
 	assert.Contains(t, stdout.String(), "line3")
+}
+
+// failingWriter fails every Write after the first n bytes (n==0 fails
+// immediately), simulating a destination that goes away mid-stream (a gRPC
+// stream on a broken pipe/connection reset).
+type failingWriter struct {
+	n     int
+	err   error
+	wrote int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	if w.wrote >= w.n {
+		return 0, w.err
+	}
+	take := len(p)
+	if w.wrote+take > w.n {
+		take = w.n - w.wrote
+	}
+	w.wrote += take
+	if take < len(p) {
+		return take, w.err
+	}
+	return take, nil
+}
+
+// TestRunInteractive_StdoutWriteFailureReportsError pins U116-F02: a write
+// failure delivering the child's PTY output used to be discarded
+// (`_, _ = io.Copy(dst, ptty)`), so RunInteractive reported the child's exit
+// code (often 0) as success even though delivery failed partway through.
+func TestRunInteractive_StdoutWriteFailureReportsError(t *testing.T) {
+	ctx := context.Background()
+	// A child that writes enough to guarantee at least one PTY read/write
+	// cycle happens before it exits.
+	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
+
+	dst := &failingWriter{n: 0, err: errors.New("simulated broken pipe")}
+	result, err := RunInteractive(ctx, cmd, nil, dst, nil, nil)
+
+	require.Error(t, err, "a stdout delivery failure must not be reported as success")
+	assert.Contains(t, err.Error(), "output delivery failed")
+	assert.Contains(t, err.Error(), "simulated broken pipe")
+	assert.Nil(t, result)
 }
 
 // TestRunInteractive_ClosesPipeReaderWhenCopierExits is the regression for the

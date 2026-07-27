@@ -24,6 +24,11 @@ import (
 type Mock struct {
 	agent.BaseBackend
 	fragments []*agent.Fragment
+	// managed is the host-assembled setup payload from the last Setup call —
+	// stashed so Execute's recordMockInput can prove fields like DenyTools/
+	// Skills actually survived the wire (T2's launch-flow regression guard).
+	// nil is a legitimate value (skip_setup/distill paths send none).
+	managed *agent.ManagedConfig
 }
 
 // MockConfig is the test backend's typed LLM config. Env carries the
@@ -51,6 +56,7 @@ func (b *Mock) History() agent.SessionHistory { return &NilSessionHistory{} }
 func (b *Mock) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
 	b.fragments = req.Fragments
+	b.managed = req.Managed
 	return nil
 }
 
@@ -77,7 +83,7 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	contextStr := agent.AssembleContext(b.fragments)
 	promptContent := agent.GetPromptContent(req.Prompt)
 
-	recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, contextStr, promptContent, len(b.fragments), stderr)
+	recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, b.managed, contextStr, promptContent, len(b.fragments), stderr)
 
 	customResponse := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
 	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments))
@@ -116,7 +122,7 @@ var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
 // showed the SAME cwd as --workspace none). req.WorkDir is the actually
 // resolved isolation workspace and is what a hermetic test must read to
 // observe the workspace boundary; cwd is kept alongside it for diagnostics.
-func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
+func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agent.ManagedConfig, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
 	if recordFile == "" {
 		return
 	}
@@ -134,6 +140,22 @@ func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, p
 	for _, key := range configHomeEnvKeys {
 		if v := getEnvFromMap(req.Env, key); v != "" {
 			_, _ = fmt.Fprintf(&input, "%s=%s\n", key, v)
+		}
+	}
+	// Managed setup payload — proves the launch-flow wire actually carried
+	// these fields (T2: deny_tools/skills were silently dropped here; see
+	// TestArch_ProtoConverters_MirrorEveryStructField in internal/lm/grpc).
+	// Recorded even when empty, so a scenario asserting ABSENCE is possible too.
+	input.WriteString("=== DenyTools ===\n")
+	if managed != nil {
+		for _, t := range managed.DenyTools {
+			_, _ = fmt.Fprintf(&input, "%s\n", t)
+		}
+	}
+	input.WriteString("=== Skills ===\n")
+	if managed != nil {
+		for _, s := range managed.Skills {
+			_, _ = fmt.Fprintf(&input, "%s\n", s.Name)
 		}
 	}
 	input.WriteString("=== Context ===\n")

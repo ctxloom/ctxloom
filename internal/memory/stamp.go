@@ -18,8 +18,13 @@ import (
 //   - File starts with `---\n...\n---\n` → parse frontmatter, add harp to
 //     `sessions:` list if absent, rewrite atomically.
 //   - File has no frontmatter → prepend a minimal one with just our session.
-//   - Malformed YAML frontmatter → no-op (caller logs; we don't want a
-//     stamping hook to corrupt user files).
+//   - Malformed YAML, or an unterminated frontmatter block → the file is
+//     left untouched (never corrupt it by guessing) AND a non-nil error is
+//     returned (U078-F11: it used to be a silent nil-error no-op here, which
+//     made this comment's own "caller logs" claim false — the caller,
+//     hook_stamp_plan.go, only logs when err != nil).
+//   - Harp already present in `sessions:` → a genuine no-op (nil, file
+//     untouched) — the one case above that is NOT a failure.
 //   - Empty file → prepend frontmatter, body remains empty.
 //
 // Designed to be invoked from a PostFileEdit hook with stdin-supplied JSON,
@@ -68,7 +73,13 @@ func updateFrontmatter(path, content, harpName string) error {
 	default:
 		end := strings.Index(rest, "\n---")
 		if end < 0 {
-			return nil // opening `---` but no closing — bail without modifying
+			// U078-F11: a genuine failure to stamp, not a silent no-op — the
+			// file is still left untouched (never corrupt an unterminated
+			// block by guessing where it ends), but the caller must be able
+			// to tell "nothing changed because there was nothing to change"
+			// (harp already present, below) apart from "nothing changed
+			// because this file couldn't be parsed at all."
+			return fmt.Errorf("stamp: %s: opening frontmatter `---` has no closing `---`; refusing to guess where it ends", path)
 		}
 		block = rest[:end]
 		// Normalize leading body whitespace so re-stamping yields exactly one
@@ -78,10 +89,13 @@ func updateFrontmatter(path, content, harpName string) error {
 
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(block), &root); err != nil {
-		return nil // malformed; refuse to corrupt
+		// U078-F11: same reasoning as the unterminated-block case above —
+		// "refuse to corrupt" and "silently do nothing" are different
+		// outcomes, and only the first was ever intended.
+		return fmt.Errorf("stamp: %s: frontmatter is not valid YAML, refusing to modify it: %w", path, err)
 	}
 	if !addHarpToSessionsNode(&root, harpName) {
-		return nil // already present, no change
+		return nil // already present, no change — a genuine no-op
 	}
 
 	var buf strings.Builder

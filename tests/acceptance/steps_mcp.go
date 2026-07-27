@@ -24,20 +24,7 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^the tool call succeeds$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// Inspect the CallToolResult's isError flag, not just the JSON-RPC
-		// envelope error: the MCP SDK reports handler/validation failures as a
-		// result with isError=true and a nil envelope error.
-		//
-		// Real evidence for the @doc capture sidecar (set-and-consume; no-op
-		// when capture is off): the actual tool result envelope this call
-		// returned, not a restatement of "it succeeded". MCP traffic never
-		// touches w.env's CLI stream, so nothing captures this automatically.
-		w.docStepMaterialized = w.lastTool.JSON()
-		if isErr, msg := w.lastTool.IsError(); isErr {
-			return fmt.Errorf("tool call returned an error: %s\nresult:\n%s", msg, w.lastTool.JSON())
-		}
-		return nil
+		return assertToolCallSucceeds(worldFrom(c))
 	})
 
 	ctx.Step(`^the tool call fails$`, func(c context.Context) error {
@@ -58,6 +45,9 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the tool result field "([^"]*)" is set$`, func(c context.Context, path string) error {
 		w := worldFrom(c)
+		if w.lastInnerErr != nil {
+			return fmt.Errorf("tool result envelope could not be unwrapped: %v; result:\n%s", w.lastInnerErr, w.lastTool.JSON())
+		}
 		v, ok := lookupField(w.lastInner, path)
 		if !ok || v == nil || v == "" {
 			return fmt.Errorf("tool result field %q is not set; result:\n%s", path, w.lastTool.JSON())
@@ -67,6 +57,9 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the tool result field "([^"]*)" equals "([^"]*)"$`, func(c context.Context, path, want string) error {
 		w := worldFrom(c)
+		if w.lastInnerErr != nil {
+			return fmt.Errorf("tool result envelope could not be unwrapped: %v; result:\n%s", w.lastInnerErr, w.lastTool.JSON())
+		}
 		v, ok := lookupField(w.lastInner, path)
 		if !ok {
 			return fmt.Errorf("tool result field %q is absent; result:\n%s", path, w.lastTool.JSON())
@@ -127,7 +120,33 @@ func callTool(c context.Context, name string, args map[string]any) error {
 		return err
 	}
 	w.lastTool = res
-	w.lastInner, _ = res.Inner()
+	w.lastInner, w.lastInnerErr = res.Inner()
+	return nil
+}
+
+// assertToolCallSucceeds is "the tool call succeeds"'s body, named so it is
+// directly unit-testable without going through godog. Checks two distinct
+// failure shapes: the CallToolResult's isError flag (the MCP SDK reports
+// handler/validation failures as a result with isError=true and a nil
+// envelope error, not just a JSON-RPC error), AND — U162-F04 — whether the
+// envelope could be unwrapped at all. Before this, an envelope that failed
+// to unwrap (a malformed/error payload Inner() couldn't parse) left
+// w.lastInner nil with no signal, so every subsequent "the tool result
+// field X is set" assertion reported the misleading "field is absent"
+// instead of naming the real unwrap failure, and "the tool call succeeds"
+// itself could pass on a payload that never parsed.
+func assertToolCallSucceeds(w *World) error {
+	// Real evidence for the @doc capture sidecar (set-and-consume; no-op
+	// when capture is off): the actual tool result envelope this call
+	// returned, not a restatement of "it succeeded". MCP traffic never
+	// touches w.env's CLI stream, so nothing captures this automatically.
+	w.docStepMaterialized = w.lastTool.JSON()
+	if isErr, msg := w.lastTool.IsError(); isErr {
+		return fmt.Errorf("tool call returned an error: %s\nresult:\n%s", msg, w.lastTool.JSON())
+	}
+	if w.lastInnerErr != nil {
+		return fmt.Errorf("tool result envelope could not be unwrapped: %v\nresult:\n%s", w.lastInnerErr, w.lastTool.JSON())
+	}
 	return nil
 }
 

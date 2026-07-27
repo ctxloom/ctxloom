@@ -68,3 +68,42 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 	assert.True(t, converted2, "a prior failed attempt must not permanently block retry")
 	assert.Error(t, err2)
 }
+
+// zeroLineAdapter succeeds (nil error) without ever calling rec.Record —
+// standing in for a legitimately-empty-but-parseable vendor transcript
+// (every line malformed-but-skippable, or a genuinely empty session):
+// importer.VendorAdapter's own contract treats this as a valid outcome, not
+// a failure.
+type zeroLineAdapter struct{}
+
+func (zeroLineAdapter) Convert(_ context.Context, _ transcript.Recorder, _ string) error {
+	return nil
+}
+
+// U089-F03: ConvertVendorTranscript returned (true, nil) — "converted" —
+// whenever Convert itself succeeded, with NO check that any bytes actually
+// landed on disk. transcript.Recorder creates its canonical file only on the
+// FIRST SUCCESSFUL Record (recorder.go's NewRecorder doc), so a Convert that
+// writes zero lines leaves no canonical file at all — yet `session backfill`
+// reported "converted: <harp>" for it anyway. Because hasCanonicalTranscript
+// then still sees no file, EVERY subsequent backfill run repeats the same
+// false "converted" report — not a one-time lie, a standing one.
+func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "convert-zero-lines-harp"
+
+	orig := vendorImportRegistry["codex"]
+	vendorImportRegistry["codex"] = vendorImportEntry{
+		adapter: zeroLineAdapter{},
+		locate:  orig.locate,
+	}
+	defer func() { vendorImportRegistry["codex"] = orig }()
+
+	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath}
+
+	converted, err := ConvertVendorTranscript(context.Background(), e)
+	require.NoError(t, err)
+	assert.False(t, converted,
+		"a Convert that wrote zero canonical lines must not be reported as \"converted\" — nothing was actually delivered")
+	assert.False(t, hasCanonicalTranscript(harp), "no canonical file should exist when nothing was recorded")
+}

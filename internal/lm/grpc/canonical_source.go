@@ -182,9 +182,17 @@ func (f *CanonicalFallbackSource) CurrentSession(ctx context.Context) (*agent.Se
 // index's SessionID and so never deduped against canonical; there is simply
 // no legacy leg left to produce that mismatch).
 func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.SessionMeta, error) {
-	canonMetas, _ := f.canonical.ListSessions(ctx)
+	canonMetas, canonErr := f.canonical.ListSessions(ctx)
 
 	if f.legacy == nil {
+		// No legacy leg to fall back to (RetiredScraperBackends: codex, kiro,
+		// antigravity, claude-code): a failed canonical read is the WHOLE
+		// listing's failure, not "zero sessions" (U059-F03). Discarding canonErr
+		// here used to report a confident empty list indistinguishable from a
+		// project that genuinely has none.
+		if canonErr != nil {
+			return nil, canonErr
+		}
 		sort.SliceStable(canonMetas, func(i, j int) bool {
 			return canonMetas[i].StartTime.After(canonMetas[j].StartTime)
 		})
@@ -203,6 +211,12 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 	legacyMetas, err := f.legacy.ListSessions(ctx)
 	if err != nil {
 		if len(canonMetas) == 0 {
+			// Neither leg produced anything: prefer canonical's error when BOTH
+			// failed — it is the primary source now (this file's own doc), so
+			// its failure is the more actionable one to surface.
+			if canonErr != nil {
+				return nil, canonErr
+			}
 			return nil, err
 		}
 		// Canonical still has something to show even though legacy failed —

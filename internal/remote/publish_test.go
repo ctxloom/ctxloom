@@ -211,6 +211,39 @@ func TestPublishManager_Publish(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to read local file")
 	})
 
+	// U094-F02: loadPublishContent had no emptiness guard, so a 0-byte local
+	// file published straight through, overwriting whatever real content
+	// already existed at the remote path with nothing — success reported,
+	// SHA returned, content silently destroyed. (The SIGNED half of this
+	// finding — "a valid publisher signature over zero bytes" — is already
+	// closed independently by signing.Sign's own U134-F01 floor; this pins
+	// the UNSIGNED publish path, which Sign's floor cannot reach at all.)
+	t.Run("refuses to publish an empty local file", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll("/local", 0755))
+		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte(""), 0644))
+
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+		mp := newMockPublisher()
+		mf := newMockFetcher()
+
+		pm := NewPublishManager(registry, AuthConfig{},
+			WithPublishFS(fs),
+			WithPublisherFactory(mockPublisherFactory(mp)),
+			WithPublishFetcherFactory(mockFetcherFactory(mf)),
+		)
+
+		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+			ItemType: ItemTypeBundle,
+			Branch:   "main",
+		})
+
+		require.Error(t, err, "publishing a 0-byte file must be refused, not overwrite the remote with nothing")
+		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
+	})
+
 	t.Run("detects update vs create", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/local", 0755))

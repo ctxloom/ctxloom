@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -73,6 +74,39 @@ func TestResolveHarpName(t *testing.T) {
 		c := &Compactor{config: CompactionConfig{}}
 		if got := c.resolveHarpName(); got != "" {
 			t.Fatalf("got %q, want empty", got)
+		}
+	})
+
+	// U039-F01: an explicit SessionID naming a DIFFERENT, real harp than the
+	// caller's own must route output to THAT harp, not the caller's — the
+	// defect was: compact_session with an explicit session_id distilled
+	// someone else's session but always wrote the essence, session bind, and
+	// summary into the CALLER's own harp dir/index entry.
+	t.Run("explicit SessionID naming a real, different harp wins over caller's own HarpName", func(t *testing.T) {
+		testsupport.Isolate(t)
+		mgr, err := sessions.Open("")
+		if err != nil {
+			t.Fatalf("open index: %v", err)
+		}
+		target, err := mgr.AssignHarp("/proj", "claude-code")
+		if err != nil {
+			t.Fatalf("assign harp: %v", err)
+		}
+
+		c := &Compactor{config: CompactionConfig{HarpName: "caller-own-harp", SessionID: target.HarpName}}
+		if got := c.resolveHarpName(); got != target.HarpName {
+			t.Fatalf("got %q, want the target harp %q — compacting someone else's session must not attribute output to the caller's own harp", got, target.HarpName)
+		}
+	})
+
+	// A SessionID that does NOT resolve to any real harp (a bare engine-native
+	// session id, a typo) must still fall back to the caller's own harp —
+	// there is nowhere else to attribute output to.
+	t.Run("explicit SessionID that is not a real harp falls back to caller's own HarpName", func(t *testing.T) {
+		testsupport.Isolate(t)
+		c := &Compactor{config: CompactionConfig{HarpName: "caller-own-harp", SessionID: "not-a-real-harp-anywhere"}}
+		if got := c.resolveHarpName(); got != "caller-own-harp" {
+			t.Fatalf("got %q, want caller-own-harp", got)
 		}
 	})
 }

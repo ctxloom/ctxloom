@@ -373,7 +373,14 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via
-	// the SHA recorded here. A lockfile failure warns but does not fail the pull.
+	// the SHA recorded here, and this is also where THIS pull's own fresh
+	// retraction verdict gets persisted. A failed write here (U094-F05) used
+	// to be demoted to a printed warning while Pull still returned success —
+	// so a pull whose sole persistent record failed to write reported a SHA
+	// and LocalPath for a pin that does not exist on disk, and on a retracted
+	// item silently dropped the Retracted verdict, leaving
+	// operations.EffectiveTrust with nothing to withhold against. The lockfile
+	// is the only record; its write failing means the pull failed.
 	requestedVersion := item.requestedVersion
 	if opts.RequestedVersion != nil {
 		// Caller pins the content SHA but wants the manifest constraint preserved
@@ -381,7 +388,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		requestedVersion = *opts.RequestedVersion
 	}
 	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason); err != nil {
-		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
+		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
 
 	return &PullResult{

@@ -20,19 +20,19 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **269** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **270** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 2 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **1,994** |
+| `open` | no commit names this ID | **1,993** |
 
-**Totals: 2268 findings across 162 units — 269 resolved, 1994 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 270 resolved, 1993 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
 | HIGH | 376 | 130 | 245 (+2 refuted) |
 | MED | 999 | 38 | 961 |
-| LOW | 871 | 101 | 767 (+3 partial/escalated) |
+| LOW | 871 | 102 | 766 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -2348,7 +2348,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U159-F07 | **RESOLVED** `c55d150e` | `steps_j1_common.go:44` | DEAD | `(*j1Source).ref()` has zero call sites; the two places that need an item ref build it inline instead, so the canonical grammar this method names is not the one actually used | U159.md |
 | U159-F08 | open | `steps_j1_common.go:190` | TRIVIAL | `ensureProjectWithEngine` is a single pass-through expression | U159.md |
 | U159-F09 | open | `steps_isolation_probe.go:188-197` | CORRECTNESS | The container-axis token-file check runs `w.env.FileExists` then, in the `else if`, re-reads the file — but the `else if assertErr == nil` branch is only reached when `FileExists` returned true, ma... | U159.md |
-| U159-F10 | open | `steps_j11_taskloom.go:99-103, :199-203` | DUPLICATE | The "parse the harp id out of `taskloom add` stdout" logic appears twice, verbatim | U159.md |
+| U159-F10 | **RESOLVED** `57a896bf` | `steps_j11_taskloom.go:99-103, :199-203` | DUPLICATE | The "parse the harp id out of `taskloom add` stdout" logic appears twice, verbatim | U159.md |
 | U160-F03 | open | `steps_j2_team.go:57` | COHESION | `j2State` is a misnomer: J4, J7 and J8 all depend on it as generic two-checkout plumbing, and each has to explain in prose that "j2State … is not actually J2-specific despite the field's name" | U160.md |
 | U160-F05 | **RESOLVED** `4dfdb65c` | `steps_j4_onboarding.go:447-461` | TRIVIAL | `j4ScrubRepriseFromPath` declares an `error` return it can never produce | U160.md |
 | U160-F06 | **RESOLVED** `4dfdb65c` | `steps_j4_onboarding.go:447 ↔ steps_j8_guardrails.go:149` | DUPLICATE | `j4ScrubRepriseFromPath` and `j8ScrubFromPath` are the same 14-line function, one hardcoded to `"reprise"` and one parameterized — and J8's version documents the duplication as a deliberate file-ow... | U160.md |

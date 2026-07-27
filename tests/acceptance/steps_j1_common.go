@@ -39,12 +39,6 @@ type j1Source struct {
 	principal  string
 }
 
-// ref returns this source's bundle item ref once it has been added as a
-// remote under its own name (e.g. "personal/onboarding#fragments/marker").
-func (s *j1Source) ref() string {
-	return fmt.Sprintf("%s/%s#%s/%s", s.name, s.bundleName, s.itemKind, s.itemName)
-}
-
 // source returns (lazily creating) the named j1Source for this scenario.
 func (w *World) source(name string) *j1Source {
 	if w.j1Sources == nil {

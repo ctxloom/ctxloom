@@ -207,20 +207,34 @@ func (v *fsVCS) ReadFile(_ context.Context, path string) ([]byte, error) {
 // ListItems walks <root>/<kind>/ on the filesystem and returns each .yaml
 // item's path relative to that base (suffix stripped). A root without the
 // directory lists empty. Current working set only — fsVCS has no history.
+//
+// U095-F03: "cannot tell if the directory exists" (a stat failure — the
+// unreadable/permission-denied case) and "the directory genuinely does not
+// exist" are DIFFERENT facts. Local content is auto-trusted (ctxloom:local,
+// EffectiveTrust step 3), so collapsing a permission failure into "no items"
+// silently hides content that should have been found — success reported
+// regardless — rather than surfacing that the listing could not actually
+// run. Only a genuine, cleanly-answered "not there" degrades to empty.
 func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
 	base := filepath.Join(v.root, kind.DirName())
 	exists, err := afero.DirExists(v.fs, base)
-	if err != nil || !exists {
+	if err != nil {
+		return nil, fmt.Errorf("check %s exists: %w", base, err)
+	}
+	if !exists {
 		return nil, nil
 	}
 	var items []string
 	walkErr := afero.Walk(v.fs, base, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
+		if err != nil {
+			return fmt.Errorf("walk %s: %w", p, err)
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
 			return nil
 		}
 		rel, relErr := filepath.Rel(base, p)
 		if relErr != nil {
-			return nil
+			return fmt.Errorf("relativize %s under %s: %w", p, base, relErr)
 		}
 		items = append(items, strings.TrimSuffix(filepath.ToSlash(rel), ".yaml"))
 		return nil

@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -10,6 +11,21 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
+
+// denyStatFs makes Stat fail with a chosen error for named paths, leaving
+// every other operation to the wrapped fs — for simulating a permission-
+// denied (or otherwise unreadable) directory without a real filesystem.
+type denyStatFs struct {
+	afero.Fs
+	deny map[string]error
+}
+
+func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
+	if err, ok := f.deny[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Stat(name)
+}
 
 func TestGitForgeVCS_ListItems_NestedTreeWalk(t *testing.T) {
 	// A repo tree with a top-level bundle, a nested path, and a non-yaml file
@@ -59,6 +75,26 @@ func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 	bundles, err := vcs.ListItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"foo", "team/standards"}, bundles)
+}
+
+// TestFSVCS_ListItems_UnreadableDirIsAnError pins U095-F03: a permission-
+// denied (or otherwise unreadable) local content directory must not report
+// "no items" — that is indistinguishable from the ordinary, legitimate
+// "nothing here yet" case (TestFSVCS_ListItems_MissingDirIsEmpty), but the two
+// are very different facts. Local content is auto-trusted (ctxloom:local,
+// step 3 of EffectiveTrust), so a broken listing here silently hides content
+// that should have been found, with success reported regardless.
+func TestFSVCS_ListItems_UnreadableDirIsAnError(t *testing.T) {
+	base := afero.NewMemMapFs()
+	root := "/proj/.ctxloom/content"
+	require.NoError(t, afero.WriteFile(base, root+"/bundles/foo.yaml", []byte("x"), 0o644))
+
+	fs := denyStatFs{Fs: base, deny: map[string]error{root + "/bundles": os.ErrPermission}}
+	vcs := &fsVCS{fs: fs, root: root}
+
+	items, err := vcs.ListItems(context.Background(), ItemTypeBundle)
+	require.Error(t, err, "a stat failure on the kind directory must be reported, not read as \"no items\"")
+	assert.Empty(t, items)
 }
 
 func TestFSVCS_ListItems_MissingDirIsEmpty(t *testing.T) {

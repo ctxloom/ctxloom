@@ -71,6 +71,10 @@ out="$CTXLOOM_ISOSPY_OUT"
 {
   echo "===ENV==="
   env
+  echo "===ARGV==="
+  printf '%s\n' "$@"
+  echo "===STDIN==="
+  cat
   echo "===CLAUDE_CONFIG_DIR_CREDS==="
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
   echo "===CODEX_HOME_CREDS==="
@@ -418,6 +422,36 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		if strings.Contains(out, "aborting startup") {
 			return fmt.Errorf("run unexpectedly aborted (should be a non-fatal warning, not a ClassIsolation fatal); output:\n%s", out)
 		}
+		return nil
+	})
+
+	ctx.Step(`^the spy "([^"]*)" process's ARGV contains "([^"]*)"$`, func(c context.Context, engine, want string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		argv := isoParseSpySection(body, "===ARGV===")
+		if !strings.Contains(argv, want) {
+			return fmt.Errorf("spy %s process's argv does not contain %q; argv:\n%s", engine, want, argv)
+		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process argv:\n%s", engine, argv)
+		return nil
+	})
+
+	ctx.Step(`^the spy "([^"]*)" process's STDIN contains "([^"]*)"$`, func(c context.Context, engine, want string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		stdin := isoParseSpySection(body, "===STDIN===")
+		if !strings.Contains(stdin, want) {
+			return fmt.Errorf("spy %s process's stdin does not contain %q; stdin:\n%s", engine, want, stdin)
+		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process stdin:\n%s", engine, stdin)
 		return nil
 	})
 

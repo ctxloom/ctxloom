@@ -272,3 +272,18 @@ Feature: Isolation axes — where an agent's workspace and runtime actually land
     When Alice runs the isolated "antigravity" agent under workspace "worktree"
     Then the run aborts with an isolation finding naming "AUTHENTICATION escapes it"
     And the run aborts with an isolation finding naming "FILE WRITES escape it"
+
+  # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own
+  # environment; it never emitted "$@" and never read stdin, so every argv
+  # defect (a flag whose value is dropped, a variadic flag swallowing the
+  # prompt, a missing required flag, a mutually exclusive pair emitted
+  # together) was structurally invisible to this suite, in the one place
+  # that could have seen it — the actual argv/stdin a real engine binary
+  # receives. This scenario puts claude-code's per-engine argv/stdin payload
+  # under acceptance coverage for the first time.
+  Scenario: The spy captures the real argv and stdin a live engine binary would receive
+    Given Alice has a git-backed project
+    And Alice has set the "claude-code" API key in the environment
+    When Alice runs the isolated "claude-code" agent under workspace "worktree"
+    Then the spy "claude-code" process's ARGV contains "--print"
+    And the spy "claude-code" process's STDIN contains "hello"

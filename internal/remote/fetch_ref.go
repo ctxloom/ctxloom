@@ -14,6 +14,14 @@ func FetchRefBytes(ctx context.Context, factory FetcherFactory, auth AuthConfig,
 	if ref == nil || !ref.IsCanonical() {
 		return nil, fmt.Errorf("not a canonical reference")
 	}
+	// U093-F01: same floor as BundleReader.fetchAtLockedSHA — a hash-pinned
+	// read is the security property this primitive exists to provide (its own
+	// doc: "reading it needs nothing but the clone at that sha"). An empty
+	// sha is not "no preference"; every Fetcher resolves "" to the default
+	// branch tip, silently downgrading a pinned read to a latest read.
+	if sha == "" {
+		return nil, fmt.Errorf("refusing to fetch %s: no SHA pinned (a hash-pinned read must never resolve an empty ref to the latest commit)", ref.String())
+	}
 	fetcher, err := factory(ref.URL, auth)
 	if err != nil {
 		return nil, fmt.Errorf("create fetcher for %s: %w", ref.URL, err)

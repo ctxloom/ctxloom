@@ -152,6 +152,15 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
+	// U093-F01: the pin IS the security control — EffectiveTrust's content
+	// gate keys on bytes read at THIS exact commit. An empty SHA is not "no
+	// preference"; every Fetcher implementation resolves "" to the default
+	// branch TIP, so a blank pin (a hand-edited, truncated, or future-written
+	// lockfile) would silently convert a pinned read into a latest read with
+	// no error anywhere. A pinned reader must refuse to read unpinned.
+	if entry.SHA == "" {
+		return nil, fmt.Errorf("bundle %q has no SHA pinned in the lockfile — refusing to read (a pinned reader must never resolve an empty ref to the latest commit)", bundleName)
+	}
 
 	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the
 	// repo URL and item path.

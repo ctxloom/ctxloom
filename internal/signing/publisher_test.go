@@ -142,6 +142,20 @@ func TestVerifyPublisher_ApproveSignatureIsNotAPublishSignature(t *testing.T) {
 	assert.Empty(t, principal)
 }
 
+// U134-F04: a nil trust root must not let a STRUCTURALLY INVALID signature
+// blob downgrade to "unsigned to you" — that is exactly the corrupt-.sig
+// downgrade TestVerifyPublisher_StructurallyInvalidSignatureIsTamper guards
+// against for a non-nil root. The nil-root branch used to run BEFORE the
+// unarmor check, so a nil root swallowed this case too: `("", nil)` for
+// EVERY input, including a blob that cannot even be parsed as a signature —
+// the exact signed→unsigned downgrade the package's own doc says must never
+// happen.
+func TestVerifyPublisher_NilRootWithCorruptSignatureIsStillTamper(t *testing.T) {
+	principal, err := VerifyPublisher([]byte("bundle"), []byte("-----BEGIN SSH SIGNATURE-----\ngarbage\n"), nil, time.Now())
+	require.ErrorIs(t, err, ErrSignatureTampered)
+	assert.Empty(t, principal)
+}
+
 // A nil trust root trusts nothing — every signature is unsigned content.
 // Deleting allowed_signers denies everything (spec §10.5: every deletion moves
 // toward less exposure).

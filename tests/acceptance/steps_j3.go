@@ -55,8 +55,6 @@ type j3State struct {
 
 	extraMarkers []string // scenario 6: additional company-signed bundles' markers
 
-	lastSyncOutput string // scenario 2/5: the pull's own output, captured before materialize overwrites LastOutput()
-
 	reviewPTYOutput string // scenario 7: captured `ctxloom review --project` pty output
 	reviewPTYExit   int
 }
@@ -272,7 +270,6 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		if err := j3EnsureReferenced(w); err != nil {
 			return err
 		}
-		j3Of(w).lastSyncOutput = w.env.LastOutput() // capture the pull's own output before materialize overwrites it
 		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
 		return nil
 	})
@@ -371,10 +368,11 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice is told the content was retracted$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := j3Of(w).lastSyncOutput
-		// The retraction notice lives in the pull's OWN output, captured before
-		// the subsequent materialize overwrote w.env.LastOutput() — so surface
-		// it explicitly to the @doc sidecar, which only sees w.env otherwise.
+		// The retraction notice lives in the pull's OWN output — the run
+		// immediately before the materialize that followed it in "Alice
+		// syncs her project", so NthLastOutput(1) reaches it even though
+		// LastOutput() now reflects the later materialize (U163-F01).
+		out := w.env.NthLastOutput(1)
 		w.docStepMaterialized = out
 		if !strings.Contains(out, "retracted") {
 			return fmt.Errorf("sync output does not mention retraction; output:\n%s", out)

@@ -132,5 +132,13 @@ func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string)
 			return err
 		}
 	}
+	// U149-F01/F02: a conversation with real history turns that converts to
+	// zero canonical entries (every turn's user/assistant content union
+	// unrecognized) must not report success — see converter.entries' doc
+	// comment for why the per-turn Complete boundary doesn't count. Mirrors
+	// claude/codex/antigravity's identically-motivated checkFloor.
+	if len(doc.History) > 0 && c.entries == 0 {
+		return fmt.Errorf("kiro: conversation %s has %d history turn(s) but converted ZERO transcript entries — the vendor format this build parses no longer matches the document", conversationID, len(doc.History))
+	}
 	return nil
 }

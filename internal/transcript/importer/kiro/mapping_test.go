@@ -175,11 +175,27 @@ func TestNz(t *testing.T) {
 	assert.Equal(t, 0, nz(nil))
 }
 
-func TestSessionInfo_FallsBackToLocatorConversationID(t *testing.T) {
-	doc := &conversationDoc{ConversationID: ""}
+// U149-F03: the locator's conversationID is Convert's own lookup key, known
+// unconditionally for EVERY call — including a document that carries no
+// session metadata of its own. Falling back to it unconditionally used to
+// make sessionInfo non-nil for every conversation, defeating
+// SessionInfoBuilder's "nil means nothing observed" contract. The fallback
+// now only fills in the id once real metadata (here: ModelInfo) already
+// proved the document itself has something worth a Session event for.
+func TestSessionInfo_FallsBackToLocatorConversationIDOnlyWhenOtherMetadataFound(t *testing.T) {
+	doc := &conversationDoc{ConversationID: "", ModelInfo: &modelInfo{ModelID: "claude-sonnet-4.5"}}
 	info := sessionInfo("from-locator", doc)
 	require.NotNil(t, info)
 	assert.Equal(t, "from-locator", info.SessionID)
+}
+
+// The defect itself: a document with NO real session metadata at all must
+// yield no Session event, regardless of what the locator's own conversation
+// id happens to be — an empty doc.ConversationID is not, by itself, signal.
+func TestSessionInfo_LocatorIDAloneIsNotEnoughToManufactureASession(t *testing.T) {
+	doc := &conversationDoc{ConversationID: ""}
+	info := sessionInfo("from-locator", doc)
+	assert.Nil(t, info, "the locator id alone (with no other document metadata) must not manufacture a Session event")
 }
 
 func TestSessionInfo_NilWhenNothingFound(t *testing.T) {

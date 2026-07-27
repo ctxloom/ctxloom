@@ -648,21 +648,6 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	return b.String()
 }
 
-// probeWorkspaceFlag maps the axis onto the `ctxloom run --workspace` value:
-// worktree axis uses "worktree" (the isolated checkout under test);
-// container axis deliberately uses "none" — NOT "worktree" — per the probe's
-// own design constraint (see features/isolation_probe.feature's doc): a
-// synthetic container HOME with no worktree mount keeps every writable-layer
-// path attributable to either the container's fresh HOME or the plain
-// project-dir bind mount, with no worktree-checkout machinery in between to
-// confuse the picture.
-func probeWorkspaceFlag(axis probeAxis) string {
-	if axis == probeAxisContainer {
-		return "none"
-	}
-	return string(axis)
-}
-
 // probeWorktreeAuthAvailable mirrors worktree.go's seedCredentials
 // precedence for the ONE engine where the worktree axis's own auth gate is
 // NOT simply "env key or host file", the same divergence
@@ -744,10 +729,8 @@ type probeResult struct {
 	Output     string
 
 	// worktree axis
-	Scratch    probeScratchSnapshot
-	HostBefore map[string]probeCensusEntry
-	HostAfter  map[string]probeCensusEntry
-	HostDiff   []string
+	Scratch  probeScratchSnapshot
+	HostDiff []string // U158-F03: the before/after censuses themselves were written but never read anywhere; only their diff is consumed
 
 	// container axis
 	Container     probeContainerSnapshot
@@ -811,7 +794,6 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 	if err != nil {
 		return nil, fmt.Errorf("census before: %w", err)
 	}
-	res.HostBefore = before
 
 	token := probeToken()
 	res.Token = token
@@ -855,7 +837,6 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 	if err != nil {
 		return nil, fmt.Errorf("census after: %w", err)
 	}
-	res.HostAfter = after
 	res.HostDiff = probeCensusDiff(before, after)
 
 	return res, nil
@@ -863,8 +844,11 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 
 // runProbeContainer drives one live container-axis cell end to end: decide
 // container auth availability (probeContainerAuthAvailable), write config
-// with runtime: container and workspace "none" (see probeWorkspaceFlag's
-// doc — deliberately NOT worktree), run `ctxloom run` in the background
+// with runtime: container and workspace "none" — deliberately NOT worktree:
+// a synthetic container HOME with no worktree mount keeps every
+// writable-layer path attributable to either the container's fresh HOME or
+// the plain project-dir bind mount, with no worktree-checkout machinery in
+// between to confuse the picture — run `ctxloom run` in the background
 // while watchContainerDiff races the container's own `--rm` teardown, and
 // check the token file directly in the bind-mounted project dir (a plain
 // bind mount, unlike the worktree axis's ephemeral checkout — the project

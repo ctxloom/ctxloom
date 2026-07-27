@@ -64,6 +64,15 @@ Examples:
 		}
 
 		if result.Count == 0 {
+			// U040-F01: a total search failure (every configured source
+			// errored — today that is the sole GitHub fetcher, so any Error
+			// here means the WHOLE search failed) used to print the exact
+			// same "No ctxloom repositories found" a genuinely-empty,
+			// successful search prints. The warnings above already named the
+			// failure; the terminal line must not still claim a clean search.
+			if len(result.Errors) > 0 {
+				return fmt.Errorf("repository search failed (see warning(s) above); no results could be retrieved")
+			}
 			fmt.Println("\nNo ctxloom repositories found.")
 			if query != "" {
 				fmt.Printf("Try a different search term or remove the filter.\n")

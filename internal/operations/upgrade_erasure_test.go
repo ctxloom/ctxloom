@@ -62,7 +62,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 
 	// The config failed to load: `remote upgrade` proceeds on the empty
 	// fallback, so the closure is empty and there is nothing to propose.
-	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
+	_, _, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
 	require.Error(t, err, "an upgrade that resolved no dependencies must fail, not silently erase the lock")
 	assert.ErrorIs(t, err, remote.ErrLockfileWouldErase)
 
@@ -100,7 +100,7 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	lf.AddEntry(remote.ItemTypeBundle, ref, entry)
 	require.NoError(t, mgr.Save(lf))
 
-	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
+	_, _, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
 	require.Error(t, err)
 
 	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
@@ -117,12 +117,12 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	baseDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(baseDir, 0o755))
 
-	advanced, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
+	advanced, _, err := UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
 	require.NoError(t, err, "an empty project has nothing to upgrade and nothing to lose")
 	assert.Equal(t, 0, advanced)
 
 	// Same again once an empty lockfile actually exists on disk.
-	advanced, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
+	advanced, _, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
 	require.NoError(t, err)
 	assert.Equal(t, 0, advanced)
 }

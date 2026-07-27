@@ -21,7 +21,12 @@ import (
 // (EffectiveTrust) — changed content from an untrusted source re-hashes to
 // pending and is withheld until `ctxloom review` accepts it. Returns the number
 // of entries whose SHA advanced.
-func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
+// UpgradeDependencies's third return, incomplete, is true when part of the
+// dependency closure could not be reached this round (U040-F12): the caller
+// must not report "everything is up to date" on that basis alone — advanced
+// counts only what WAS resolved, and an incomplete closure means part of the
+// project was never actually checked against upstream.
+func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int, incomplete bool, err error) {
 	loader := profileLoader(cfg)
 	// The closure roots must match FlattenDependencies' canonical set (inline
 	// config.yaml definitions, directory profiles, and config-default remote
@@ -35,7 +40,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
 	active, err := remote.NewLockfileManager(baseDir).Load()
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	// Advance every referenced clone to live HEAD (and fetch tags) so resolution
@@ -50,15 +55,16 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
 	proposed, conflicts, unexpanded := flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
 	if len(conflicts) > 0 {
-		return 0, ConflictError(conflicts)
+		return 0, false, ConflictError(conflicts)
 	}
 	// U083-F02: closureRoots' OWN failures (a root that could not load) used
 	// to be invisible to the preserve-existing-entries guard below — only
 	// the walker's internal unexpanded set fed it. Merge both.
 	unexpanded = append(unexpanded, rootsUnexpanded...)
+	incomplete = len(unexpanded) > 0
 
 	newActive := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
-	advanced := 0
+	advanced = 0
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
 		// A held entry never advances — carry its current pin forward unchanged.
@@ -78,7 +84,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	// closure no longer reaches, so the wholesale Save(newActive) below cannot
 	// lose lock state to a transient fetch failure. The unexpanded subtrees'
 	// entries simply don't advance this round.
-	if len(unexpanded) > 0 {
+	if incomplete {
 		preserved := 0
 		for _, e := range active.AllEntries() {
 			if _, ok := newActive.GetEntry(e.Type, e.Ref); !ok {
@@ -92,9 +98,9 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	}
 
 	if serr := remote.NewLockfileManager(baseDir).Save(newActive); serr != nil {
-		return advanced, serr
+		return advanced, incomplete, serr
 	}
-	return advanced, nil
+	return advanced, incomplete, nil
 }
 
 // directRepoURLs returns the unique repo URLs of the direct remote refs across

@@ -51,7 +51,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), ".ctxloom/content/bundles/demo2.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	advanced, err := UpgradeDependencies(ctx, cfg)
+	advanced, _, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, 1, advanced)
 
@@ -82,7 +82,7 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), ".ctxloom/content/bundles/demo2.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	advanced, err := UpgradeDependencies(ctx, cfg)
+	advanced, _, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
 	assert.Equal(t, 0, advanced, "a held entry is never advanced by upgrade")
 
@@ -131,7 +131,7 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	a2 := addFileToLocalRepo(t, srcA, ".ctxloom/content/bundles/demoA2.yaml", "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 
-	advanced, err := UpgradeDependencies(ctx, cfg)
+	advanced, _, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
 	require.Equal(t, 1, advanced, "repo A advanced")
 

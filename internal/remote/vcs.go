@@ -386,7 +386,11 @@ func ClonedRepoVCSFactory(cache *RepoCache) VCSFactory {
 			return nil, fmt.Errorf("parse repo URL %s: %w", loc, err)
 		}
 		// PlainOpen of the cache dir — no clone/fetch. Absent clone → error.
-		fetcher, err := NewGitCloneFetcher(cache.RepoDirForURL(loc), normalizeCloneURL(loc), forgeType, nil)
+		repoDir, err := cache.RepoDirForURL(loc)
+		if err != nil {
+			return nil, fmt.Errorf("resolve cache dir for %s: %w", loc, err)
+		}
+		fetcher, err := NewGitCloneFetcher(repoDir, normalizeCloneURL(loc), forgeType, nil)
 		if err != nil {
 			return nil, err
 		}

@@ -708,6 +708,14 @@ func transcriptSize(harpName string) int64 {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
+		// U078-F03: unlike the branches above (no harp, no index, no path
+		// bound at all — all ordinary "nothing to fingerprint" states), a
+		// BOUND path that can't be stat'd is a real, surprising degradation
+		// (deleted/rotated/permission-denied). Silently returning 0 here
+		// permanently zeroed the staleness fingerprint with no diagnostic —
+		// warn, naming the harp and path, so an operator has something to
+		// act on.
+		clidiag.Warn("ctxloom", "transcript size: harp %q: stat %s: %v — staleness fingerprint stamped as 0", harpName, path, err)
 		return 0
 	}
 	return info.Size()

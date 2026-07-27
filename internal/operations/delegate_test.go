@@ -745,7 +745,6 @@ func TestHandleDirtyParentTree_Commit_DetachedHeadRefuses(t *testing.T) {
 	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
 }
 
-
 // TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses pins U083-F03:
 // before the fix, `branch, _ := gitClient.CurrentBranch(...)` discarded the
 // error, leaving branch=="" — which is NOT "HEAD", so the detached-HEAD guard

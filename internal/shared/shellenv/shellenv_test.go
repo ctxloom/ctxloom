@@ -94,7 +94,6 @@ func TestResolve_FallsBackToLoginShellPATH(t *testing.T) {
 	assert.Equal(t, fakeBin, got)
 }
 
-
 // TestResolve_RcFileBannerDoesNotPolluteResolvedPath pins U117-F01: an
 // interactive login shell SOURCES the user's real rc files, and a startup
 // banner/update-nag/fastfetch-style splash printed to stdout on every

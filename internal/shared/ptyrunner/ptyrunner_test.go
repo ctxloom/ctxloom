@@ -291,7 +291,6 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	assert.Contains(t, stdout.String(), "line3")
 }
 
-
 // failingWriter fails every Write after the first n bytes (n==0 fails
 // immediately), simulating a destination that goes away mid-stream (a gRPC
 // stream on a broken pipe/connection reset).

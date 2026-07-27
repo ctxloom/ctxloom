@@ -75,7 +75,6 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 	assert.NotContains(t, content, "KIRO_HOME=")
 }
 
-
 // TestRecordMockInput_CapturesDenyToolsAndSkills pins the mock backend's half
 // of the flow-level regression guard for T2 (deny_tools/skills were silently
 // dropped crossing internal/lm/grpc's proto wire — see

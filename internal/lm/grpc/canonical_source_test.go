@@ -257,7 +257,6 @@ func TestCanonicalFallbackSource_ListSessions_MergesAndDedupes(t *testing.T) {
 	assert.True(t, ids["backend-uuid-uncovered"], "a legacy session with no canonical counterpart must still be listed")
 }
 
-
 // erroringListStore embeds a real MemStore (satisfying every other
 // sessions.Store method faithfully via promotion) but forces ListForProject
 // to fail — the only hermetic way to make CanonicalHistory.ListSessions

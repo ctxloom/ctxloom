@@ -91,7 +91,6 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	assert.Equal(t, []string{"h1111111", "h2222222"}, conflicts[0].Hashes)
 }
 
-
 // TestDepWalker_RecurseParent_MalformedRefRecordsUnexpanded pins U083-F02's
 // worst-of-the-three gap: a parent ref that fails to even PARSE used to lose
 // its whole subtree with NO diagnostic at all (not even a warning) — worse

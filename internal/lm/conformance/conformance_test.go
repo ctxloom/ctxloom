@@ -8,6 +8,8 @@
 package conformance
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -77,21 +79,60 @@ func standardHooks() *wire.HooksConfig {
 
 const projectDir = "/project"
 
-// TestConformance_FaultTolerantLoad: a corrupt existing settings file must not
-// block hook application — the writer warns and continues, never erroring.
-func TestConformance_FaultTolerantLoad(t *testing.T) {
+// TestConformance_RefusesToOverwriteUnparseableSettings: a corrupt existing
+// settings file must NEVER be overwritten. WriteSettings must refuse (return a
+// non-nil error naming the offending file) and must leave the original bytes
+// on disk exactly as they were. This is the opposite of what this test used to
+// assert — it formerly required WriteSettings to succeed and apply hooks over
+// the corrupt file, which is precisely the silent-data-loss shape production
+// now refuses (see agent.RefuseCorrupt). claude-code and antigravity also back
+// the corrupt bytes up to a sibling "<path>.corrupt-<unix-ts>" file before
+// refusing; that backup is asserted per-engine below since codex's writer
+// (internal/codex/settings.go loadSettings/load) returns a bare error with no
+// backup file — a genuine behavioural divergence between engines, not
+// something this test papers over.
+func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
+	const corrupt = "!!! not valid !!!"
+
+	// engines whose writer backs the corrupt original up to a sibling
+	// "<path>.corrupt-<ts>" file before refusing to write. codex is
+	// deliberately absent: its loader (internal/codex/settings.go) returns a
+	// bare "refusing to write over a config.toml ctxloom could not read"
+	// error with no backup file at all.
+	backsUpCorruptFile := map[string]bool{
+		"claude-code": true,
+		"antigravity": true,
+		"codex":       false,
+	}
+
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			w := a.newWriter(agent.SettingsOptions{FS: fs})
-			require.NoError(t, afero.WriteFile(fs, w.SettingsPath(projectDir), []byte("!!! not valid !!!"), 0644))
+			path := w.SettingsPath(projectDir)
+			require.NoError(t, afero.WriteFile(fs, path, []byte(corrupt), 0644))
 
-			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir),
-				"WriteSettings must not error on a corrupt prior file")
+			err := w.WriteSettings(standardHooks(), nil, nil, projectDir)
+			require.Error(t, err, "WriteSettings must refuse rather than overwrite an unparseable prior file")
+			assert.Contains(t, err.Error(), path, "the refusal error must name the offending file")
 
-			st, err := w.Status(projectDir)
-			require.NoError(t, err)
-			assert.True(t, st.HooksPresent, "hooks applied despite the corrupt prior file")
+			data, readErr := afero.ReadFile(fs, path)
+			require.NoError(t, readErr)
+			assert.Equal(t, corrupt, string(data), "the original corrupt bytes must be left untouched, never overwritten")
+
+			if backsUpCorruptFile[a.name] {
+				entries, dirErr := afero.ReadDir(fs, filepath.Dir(path))
+				require.NoError(t, dirErr)
+				prefix := filepath.Base(path) + ".corrupt-"
+				found := false
+				for _, e := range entries {
+					if strings.HasPrefix(e.Name(), prefix) {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "%s must back the corrupt original up to a sibling %q file", a.name, prefix+"<unix-ts>")
+			}
 		})
 	}
 }

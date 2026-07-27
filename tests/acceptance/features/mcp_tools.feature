@@ -44,15 +44,17 @@ Feature: MCP tools
   # large session — the map/reduce distillation pipeline "succeeded" (every
   # LLM call exited 0) but never actually compressed enough, and there was no
   # ceiling anywhere to catch it. This drives recover_session through the
-  # REAL MCP surface against a synthetic session sized and shaped like a
-  # genuine large capture (see steps_recover_session.go), with the mock LLM
-  # standing in for a distillation that fails to compress. If the bound
-  # regressed, this comes back with the oversized text (or times out); with
-  # the fix, it comes back small no matter how large the input was.
+  # REAL MCP surface against a synthetic session sized like the original
+  # incident (see steps_recover_session.go), with the mock LLM standing in
+  # for a distillation that never actually compresses (its default response
+  # echoes the prompt it was sent verbatim — exit 0, zero compression). If
+  # the bound regressed, this comes back with the oversized text; with the
+  # fix, it comes back small — an honest failure — no matter how large the
+  # input was.
   Scenario: recover_session bounds an oversized distillation instead of passing it through
     Given an initialized ctxloom project
     And a captured session "big-session-harp" with a large canonical transcript
-    And the mock LLM responds with an oversized distillation
+    And the compaction LLM is a mock that never compresses
     When the agent calls tool "recover_session" with:
       | session_id | big-session-harp |
     Then the tool call succeeds

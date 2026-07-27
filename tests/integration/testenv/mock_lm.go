@@ -1,12 +1,15 @@
 package testenv
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	ctxloomconfig "github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // MockLM provides a fake language model for testing.
@@ -53,8 +56,14 @@ func (m *MockLM) SetExitCode(code int) error {
 	return m.WriteConfig()
 }
 
-// WriteConfig updates the mock plugin configuration in .ctxloom/config.yaml.
-// Preserves existing profiles and other config while updating mock plugin settings.
+// WriteConfig merges the mock plugin configuration into .ctxloom/config.yaml,
+// touching only llm.configs.mock, llm.defaults.primary, config.use_distilled,
+// and version — every other top-level key (agents, default_agent, workspace,
+// any other engine's llm.configs entry, profiles, llm.defaults.fast, …) that
+// was already on disk survives untouched. Before U159-F01/U163-F02 this
+// rebuilt the whole file from scratch, preserving only a hand-extracted
+// profiles: section and silently destroying everything else a prior step
+// (a journey Given, another engine's WriteConfig call) had written.
 func (m *MockLM) WriteConfig() error {
 	if m.ProjectDir == "" {
 		return fmt.Errorf("ProjectDir not set; call SetupMockLM first")
@@ -62,77 +71,68 @@ func (m *MockLM) WriteConfig() error {
 
 	configPath := filepath.Join(m.ProjectDir, ".ctxloom", "config.yaml")
 
-	// Read existing config if present
-	existingConfig := ""
-	if data, err := os.ReadFile(configPath); err == nil {
-		existingConfig = string(data)
+	var doc yaml.Node
+	if data, err := os.ReadFile(configPath); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if uerr := yaml.Unmarshal(data, &doc); uerr != nil {
+			return fmt.Errorf("parse existing config.yaml: %w", uerr)
+		}
 	}
-
-	// Extract sections to preserve (profiles only - defaults will be rebuilt)
-	profilesSection := extractYAMLSection(existingConfig, "profiles:")
-
-	// Build config with mock settings (current schema: labeled configs + role
-	// map, config.use_distilled under the config: section). Pinned to
-	// ctxloomconfig.CurrentConfigVersion rather than a hardcoded number so this
-	// fixture can never itself fall behind the schema again: a stale version
-	// here would make loading apply an in-memory upgrade, which on a real pty
-	// (both stdin and stdout a tty) fires the interactive "rewrite to the
-	// current format?" confirmUpgrade prompt (internal/cli/run.go) — exactly
-	// what forced the F2 pty tests to carry -y.
-	var config strings.Builder
-	_, _ = fmt.Fprintf(&config, "version: %d\n", ctxloomconfig.CurrentConfigVersion)
-	config.WriteString("llm:\n")
-	config.WriteString("  configs:\n")
-	config.WriteString("    mock:\n")
-	config.WriteString("      type: mock\n")
-	config.WriteString("      env:\n")
-	_, _ = fmt.Fprintf(&config, "        CTXLOOM_MOCK_RECORD_FILE: \"%s\"\n", m.RecordedInputPath)
-	_, _ = fmt.Fprintf(&config, "        CTXLOOM_MOCK_RESPONSE: \"%s\"\n", escapeYAMLString(m.Response))
-	_, _ = fmt.Fprintf(&config, "        CTXLOOM_MOCK_EXIT_CODE: \"%d\"\n", m.ExitCode)
-	config.WriteString("  defaults:\n")
-	config.WriteString("    primary: mock\n")
-
-	config.WriteString("config:\n")
-	config.WriteString("  use_distilled: false\n")
-
-	if profilesSection != "" {
-		config.WriteString(profilesSection)
-	} else {
-		config.WriteString("profiles: {}\n")
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		doc.Kind = yaml.DocumentNode
+		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
 	}
+	root := doc.Content[0]
 
-	return os.WriteFile(configPath, []byte(config.String()), 0644)
+	// Pinned to ctxloomconfig.CurrentConfigVersion rather than a hardcoded
+	// number so this fixture can never itself fall behind the schema again:
+	// a stale version here would make loading apply an in-memory upgrade,
+	// which on a real pty (both stdin and stdout a tty) fires the
+	// interactive "rewrite to the current format?" confirmUpgrade prompt
+	// (internal/cli/run.go) — exactly what forced the F2 pty tests to carry
+	// -y.
+	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
+
+	llm := upgrade.EnsureMap(root, "llm")
+	configs := upgrade.EnsureMap(llm, "configs")
+	mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	upgrade.MapSet(mockNode, "type", upgrade.ScalarNode("mock"))
+	env := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	upgrade.MapSet(env, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))
+	upgrade.MapSet(env, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(m.Response))
+	upgrade.MapSet(env, "CTXLOOM_MOCK_EXIT_CODE", quotedYAMLString(fmt.Sprint(m.ExitCode)))
+	upgrade.MapSet(mockNode, "env", env)
+	// Only the mock entry is touched — any other engine's llm.configs entry
+	// survives untouched (that survival is the whole point of the fix).
+	upgrade.MapSet(configs, "mock", mockNode)
+
+	defaults := upgrade.EnsureMap(llm, "defaults")
+	upgrade.MapSet(defaults, "primary", upgrade.ScalarNode("mock"))
+
+	cfgSection := upgrade.EnsureMap(root, "config")
+	useDistilled := upgrade.ScalarNode("false")
+	useDistilled.Tag = "!!bool"
+	upgrade.MapSet(cfgSection, "use_distilled", useDistilled)
+
+	// profiles: left exactly as found if present; created empty only for a
+	// brand new file so downstream readers see a valid (if empty) section.
+	upgrade.EnsureMap(root, "profiles")
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return fmt.Errorf("marshal config.yaml: %w", err)
+	}
+	_ = enc.Close()
+
+	return os.WriteFile(configPath, buf.Bytes(), 0644)
 }
 
-// extractYAMLSection extracts a top-level YAML section from config content.
-// Returns empty string if section not found. The key is matched only at column 0
-// (a true top-level key), so an indented/nested 'profiles:' sub-key or one inside
-// a quoted value or comment is not mistaken for the section.
-func extractYAMLSection(config, sectionKey string) string {
-	lines := strings.Split(config, "\n")
-	start := -1
-	for i, line := range lines {
-		if strings.HasPrefix(line, sectionKey) {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return ""
-	}
-
-	var result strings.Builder
-	for i := start; i < len(lines); i++ {
-		line := lines[i]
-		// Stop at the next top-level key (non-space, non-empty, non-comment).
-		if i > start && len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
-			break
-		}
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
+// quotedYAMLString builds a double-quoted string scalar node, letting the
+// yaml library own the escaping rather than hand-rolling it (the old
+// escapeYAMLString covered only backslash/quote/newline).
+func quotedYAMLString(v string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v, Style: yaml.DoubleQuotedStyle}
 }
 
 // GetRecordedInput returns the input that was sent to the mock LM.
@@ -173,13 +173,4 @@ func (e *TestEnvironment) SetupMockLM() (*MockLM, error) {
 	}
 
 	return mockLM, nil
-}
-
-// escapeYAMLString escapes special characters for YAML string values.
-func escapeYAMLString(s string) string {
-	// Replace newlines and quotes for safe YAML embedding
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	return s
 }

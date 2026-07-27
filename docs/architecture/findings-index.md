@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **328** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 6 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **329** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 5 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 4 |
 | `open` | no commit names this ID | **1,920** |
 
-**Totals: 2268 findings across 162 units — 328 resolved, 1920 still open, 20 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
+**Totals: 2268 findings across 162 units — 329 resolved, 1920 still open, 20 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -64,7 +64,7 @@ not to ship an unverifiable platform-specific behavior change.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 181 | 195 (+6 refuted, +2 escalated, +5 partial) |
+| HIGH | 376 | 182 | 195 (+6 refuted, +2 escalated, +5 partial) |
 | MED | 999 | 41 | 956 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -246,7 +246,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F03 | **RESOLVED** `749b1a85` | `weave.go:77` | SILENTNOOP | The "nothing to weave" guard tests the *flags*, not the *resolved parts*, so `--parts-from <empty-or-all-dirs>` passes the guard and synthesizes zero parts. | U043.md |
 | U044-F01 | **RESOLVED** `cfea9f18` | `export.go:75, :31, :63; model.go:464, :482` | SILENTNOOP | Transcript export writes a 0-byte file and reports `saved <path>` | U044.md |
 | U044-F02 | **RESOLVED** `cfea9f18` | `export.go:104-115, :97; model.go:491-505` | SILENTNOOP | `y` on an all-notice feed silently **clears** the user's clipboard and reports success | U044.md |
-| U045-F01 | **PARTIAL** `8fef544f` | **`backend.go:287`** | CORRECTNESS | On every plain host run, ctxloom copies the user's OpenAI credentials into the project working tree, un-gitignored and never cleaned up | U045.md |
+| U045-F01 | **RESOLVED** `e7bbe9ae` | **`backend.go:287`** | CORRECTNESS | On every plain host run, ctxloom copies the user's OpenAI credentials into the project working tree, un-gitignored and never cleaned up | U045.md |
 | U045-F02 | **RESOLVED** `e28fa43e` | **`settings.go:195-201`** | SILENTNOOP | `save` writes a **0-byte** `config.toml` when the table is empty; `agent.AtomicWriteFile` has no zero-length guard, so the previous contents are destroyed with exit 0 and a success path | U045.md |
 | U045-F03 | **RESOLVED** `e28fa43e` | **`settings.go:187-190`** | ERRHANDLING | A TOML parse failure is converted to an *empty* table and then written back, silently replacing every user key in `config.toml` with ctxloom's tables | U045.md |
 | U046-F01 | open | `compressor.go:124` + `code_treesitter.go:92-101` + `internal/cli/bundle_distill.go:351-355` | SILENTNOOP / CORRECTNESS | **Prose whose first seven bytes are `package` is parsed as Go and compressed to near-nothing; the result is written over the item's delivered form with no floor and no guard.** `sniffContentType` m... | U046.md |

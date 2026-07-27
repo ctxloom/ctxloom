@@ -794,6 +794,23 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 	},
 }
 
+// CredentialSeedEngineNames returns the backend names credentialSeedSpecs
+// covers (T12: one of the four independently-maintained engine-identity
+// rosters found spread across the codebase — see
+// tests/arch/engine_identity_arch_test.go's TestArch_EngineIdentityRosters_
+// MembersAreRegisteredBackends, which validates every name returned here is
+// still a real, currently-registered internal/lm/backends name). Exported
+// read-only so that gate can reach this package's otherwise-unexported
+// roster without isolation importing backends (which would cycle: backends
+// already imports isolation).
+func CredentialSeedEngineNames() []string {
+	names := make([]string, 0, len(credentialSeedSpecs))
+	for name := range credentialSeedSpecs {
+		names = append(names, name)
+	}
+	return names
+}
+
 // SeedCodexHome seeds destDir/.codex (a codex "virtual project dir" —
 // cellScopedCodexHome joins ".codex" onto it, see
 // internal/codex/backend.go's resolveCodexProjectDir) with the host's codex

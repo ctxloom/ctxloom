@@ -358,6 +358,18 @@ func composableEngines() []string {
 	return []string{"antigravity", "claude-code", "codex", "kiro", "opencode"}
 }
 
+// ComposableEngines exports composableEngines() (T12: one of the four
+// independently-maintained engine-identity rosters found spread across the
+// codebase — see tests/arch/engine_identity_arch_test.go's
+// TestArch_EngineIdentityRosters_MembersAreRegisteredBackends, which
+// validates every name returned here is still a real, currently-registered
+// internal/lm/backends name). Exported read-only so that gate can reach this
+// package's otherwise-unexported roster without isolation importing backends
+// (which would cycle: backends already imports isolation).
+func ComposableEngines() []string {
+	return composableEngines()
+}
+
 // resolveEngines normalizes a configured isolation_engines set (config /
 // --engines) against composableEngines(): empty/nil means "every known
 // fragment" (the default, biggest-image, "one instance runs any engine"

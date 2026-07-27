@@ -74,6 +74,23 @@ var vendorImportRegistry = map[string]vendorImportEntry{
 	"kiro":                   {adapter: kiroimporter.New(), locate: locateKiroConversation},
 }
 
+// VendorImportEngineNames returns the backend names vendorImportRegistry
+// covers (T12: one of the four independently-maintained engine-identity
+// rosters found spread across the codebase — see
+// tests/arch/engine_identity_arch_test.go's TestArch_EngineIdentityRosters_
+// MembersAreRegisteredBackends, which validates every name returned here is
+// still a real, currently-registered internal/lm/backends name). Exported
+// read-only so that gate can reach this package's otherwise-unexported
+// roster without operations importing backends any more than it already
+// does, and without the gate importing operations' internals.
+func VendorImportEngineNames() []string {
+	names := make([]string, 0, len(vendorImportRegistry))
+	for name := range vendorImportRegistry {
+		names = append(names, name)
+	}
+	return names
+}
+
 // locateBoundTranscript is the locate func shared by every JSONL-per-session
 // engine (claude/codex/antigravity): sessions.Entry.TranscriptPath already
 // carries the vendor file's path (bound forward by the SessionStart hook or

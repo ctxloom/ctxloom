@@ -20,20 +20,20 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **273** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **279** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 4 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 6 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **1,988** |
+| `open` | no commit names this ID | **1,980** |
 
-**Totals: 2268 findings across 162 units — 273 resolved, 1988 still open, 7 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 279 resolved, 1980 still open, 9 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 130 | 245 (+2 refuted) |
-| MED | 999 | 38 | 961 |
-| LOW | 871 | 105 | 763 (+3 partial/escalated) |
-| (unparsed) | 22 | 0 | 22 |
+| HIGH | 376 | 132 | 242 (+2 refuted) |
+| MED | 999 | 41 | 956 (+2 refuted) |
+| LOW | 871 | 106 | 762 (+3 partial/escalated) |
+| (unparsed) | 22 | 0 | 20 (+2 refuted) |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -106,7 +106,7 @@ Full evidence and the suggested action for any row live in its source review at 
 
 | ID | Status | Loc | Category | Claim | Source |
 |---|---|---|---|---|---|
-| U003-F01 | open | `stub.go:8` | SILENTNOOP | `go run ./cmd/gen-schemas` (i.e. forgetting `-tags schemagen`) prints nothing, writes nothing, and **exits 0**. This is the exact defect class the project treats as characteristic: a generator that... | U003.md |
+| U003-F01 | **RESOLVED** `9a61c77e` | `stub.go:8` | SILENTNOOP | `go run ./cmd/gen-schemas` (i.e. forgetting `-tags schemagen`) prints nothing, writes nothing, and **exits 0**. This is the exact defect class the project treats as characteristic: a generator that... | U003.md |
 | U004-F01 | open | **`root.go:100-105`** | SILENTNOOP | **`harp -n 0` prints zero bytes and exits 0** — and so does every negative count. `for range opts.count` runs zero times for any `count <= 0`, producing an empty `[]string`; `clifmt`'s text rendere... | U004.md |
 | U005-F01 | open | `check.go:93-98`, `evaluate.go:150-174` | SILENTNOOP | The CLI has **no channel** for "ltk could not analyze this". A parse failure and a clean allow are byte-identical on both surfaces. | U005.md |
 | U005-F02 | **RESOLVED** `bfd6abca` | **`manage.go:106,152,219-232`** | SILENTNOOP | `writeFile` will atomically write **zero bytes** over the user's settings file and report success. Nothing checks `len(data)`. | U005.md |
@@ -291,7 +291,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U073-F03 | **RESOLVED** `55edc2ab` | `rules.go:644-677` | SILENTNOOP | `validateRule` does not require `message` (or `suggest`), so a valid config produces a deny that carries no explanation to the model. | U073.md |
 | U073-F04 | open | `rules.go:432` vs `rules.go:328` | CORRECTNESS | Backslash handling is inconsistent across the unit's three entry points, so a `command:` rule cannot fire on a Windows-style absolute program path — under the very shells (`cmd`, `pwsh`) the unit g... | U073.md |
 | U073-F10 | open | `rules.go:540-569` | CORRECTNESS | `expandShortClusters` is gated on the *script's* shell rather than the *invoked program's*, so a PowerShell long parameter run from a bash prompt is shredded into single letters — producing a false... | U073.md |
-| U074-F01 | open | `submodules.go:26-27`, `:30` | SILENTNOOP | Every failure mode collapses into `nil`, which downstream silently deletes the operator's `@submodules` deny rule. An unreadable or malformed `.gitmodules` disables a protection rather than reporti... | U074.md |
+| U074-F01 | **RESOLVED** `55edc2ab` | `submodules.go:26-27`, `:30` | SILENTNOOP | Every failure mode collapses into `nil`, which downstream silently deletes the operator's `@submodules` deny rule. An unreadable or malformed `.gitmodules` disables a protection rather than reporti... | U074.md |
 | U076-F01 | open | `confirm.go:34`, `:39`, `:46` | SILENTNOOP | All three `Save` errors are discarded, so a persistence failure silently converts confirm-by-repeat into a permanent, un-completable loop — while the message shown to the agent promises the opposit... | U076.md |
 | U077-F01 | **RESOLVED** `20451f26` | **`main.go:37-39`, `:47-49`** | SILENTNOOP | `assemble`'s validation cannot detect an assembled rule set containing **zero rules**, so the generator will happily ship an empty default configuration — which means ltk installs a guard that perm... | U077.md |
 | U078-F01 | **RESOLVED** `cb00291e` | `compactor.go:852-861, :462-488, :242-248, :974` | SILENTNOOP | **Compaction can write an empty essence over a good one and report success.** An LLM plugin that exits 0 with empty stdout is not treated as a failure anywhere in the chain. | U078.md |
@@ -491,7 +491,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U001-F03 | open | **`engine.go:150-257`** | COMPLEXITY / DUPLICATE | `runTurn` is CCN 34 (repo maximum) and two of its six branches are structural clones. `SentinelCancelMe` (152-169) and `SentinelRaceComplete` (170-195) differ only in one content string and the fin... | U001.md |
 | U002-F01 | open | **`main.go:38`, `main.go:42`** | ERRHANDLING | Both logger constructors have their error discarded into `_`, and both return `(nil, err)` on failure. A nil `logger` then flows into `zap.ReplaceGlobals(nil)` (line 44) — which installs a nil glob... | U002.md |
 | U002-F03 | open | **`main.go:36-45`** | DUPLICATE | ctxloom carries **two** diagnostics systems, and this 10-line block is the entire reason the zap dependency exists in the shipped binary. Measured: `zap.L()`/`zap.S()` appears at **16** call sites ... | U002.md |
-| U003-F02 | open | **`main.go:3-7` vs `main.go:19-23`** | CORRECTNESS | The package doc comment asserts a safety net that **does not exist**, and contradicts a comment 15 lines below it. It says: "The schemas are checked in and a CI step (`just gen-schemas-check`) rege... | U003.md |
+| U003-F02 | **RESOLVED** `9a61c77e` | **`main.go:3-7` vs `main.go:19-23`** | CORRECTNESS | The package doc comment asserts a safety net that **does not exist**, and contradicts a comment 15 lines below it. It says: "The schemas are checked in and a CI step (`just gen-schemas-check`) rege... | U003.md |
 | U003-F03 | open | **`main.go:23` (whole unit)`** | NOPAY | **Nothing reads the generated schemas.** 70 files / 284 KB are generated on every container build and CI run and embedded into the shipped binary, and I can find no consumer. `resources.GetSchema` ... | U003.md |
 | U003-F04 | open | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
 | U003-F05 | open | **`main.go:30`** | CORRECTNESS | The generator never prunes, so a renamed or deleted result type leaves its old schema on disk forever — and, because `//go:embed all:schema` sweeps the directory, **ships it inside the binary as a ... | U003.md |
@@ -555,7 +555,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F10 | open | `fsupstream.go:90-91, 151-162` | CORRECTNESS | The reach-back socket is gated **only** on the editor's `ReadTextFile` capability, but the handler also relays `fs/write_text_file`. `clientFs.WriteTextFile` is read nowhere in the repo (verified: ... | U014.md |
 | U014-F11 | open | `wire.go:43-99` | NOPAY | `modelState`/`modelWire`/`modelStateWire` and the `models` field on both response bodies emit a shape the current spec does not define (its own doc says so at wire.go:60-63), duplicating data `conf... | U014.md |
 | U014-F12 | open | **`server.go:1077-1271`** | COHESION | Eight functions in `server.go` (`promptText`, `mediaPlaceholderLine`, `binaryResourcePlaceholder`, `embeddedResourceText`, `resourceLinkText`, `contentBlocksFromACP`, `mcpServersFromACP`, `httpHead... | U014.md |
-| U014-F15 | open | `announce.go:38-53` | SILENTNOOP | The ISO3/ISO4 session-initialization summary — which the doc says carries the agent-not-found **warning** and the MCP status that "must be a message no conformant client can silently drop" (announc... | U014.md |
+| U014-F15 | **REFUTED** `46daceaa` | `announce.go:38-53` | SILENTNOOP | The ISO3/ISO4 session-initialization summary — which the doc says carries the agent-not-found **warning** and the MCP status that "must be a message no conformant client can silently drop" (announc... | U014.md |
 | U014-F22 | open | `l0_conformance_test.go:212-261` | CORRECTNESS | The L0 suite's frame-to-label mapping is positional (`labels[i]`), and the length gate is `GreaterOrEqual(len(turnUpdates), 5)` while seven labels are expected. If an emitter drops or reorders a fr... | U014.md |
 | U014-F23 | open | `l0_conformance_test.go:287-293 vs server.go:471-475` | CORRECTNESS | `session/load`'s response body is asserted **nowhere**. The L0 capture validates it against `$defs/LoadSessionResponse`, which has **no `required` array at all** — `{}` passes. `TestServe_SessionLo... | U014.md |
 | U014-F24 | open | `internal/acptest/acp-schema-v1.json (all 142 `$defs`)` | CORRECTNESS | L0 can detect a **missing required** field but can never detect an **extra or misnamed** one: zero of the schema's 142 `$defs` set `additionalProperties: false`. Concretely, the non-spec `models` f... | U014.md |
@@ -586,7 +586,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U020-F08 | open | **`children.go:551-554`** | CORRECTNESS | A load-bearing comment states the legacy chat path is effectively unreachable in production; it is in fact the path two shipped backends take. | U020.md |
 | U020-F09 | open | `consumer.go:188-191` | CORRECTNESS | `sendTerminal`'s eviction is payload-blind and can evict *another run's* terminal event — destroying the very invariant the function exists to protect. | U020.md |
 | U020-F10 | open | `consumer.go:180-187` | ERRHANDLING | When the bounded retry is exhausted the terminal event is dropped with no log line at all. | U020.md |
-| U020-F12 | open | **`children.go:356-460, 367, coordinator.go:193`** | NOPAY | An entire launch-settlement subsystem — `launchArmed` (map of channel slices), `armLaunch`, `markAttached`, `childRt.attached`, `awaitChildUp`, `waitAnyClosed` (a `reflect.Select` fan-in) plus ~90 ... | U020.md |
+| U020-F12 | **REFUTED** `f1b1af37` | **`children.go:356-460, 367, coordinator.go:193`** | NOPAY | An entire launch-settlement subsystem — `launchArmed` (map of channel slices), `armLaunch`, `markAttached`, `childRt.attached`, `awaitChildUp`, `waitAnyClosed` (a `reflect.Select` fan-in) plus ~90 ... | U020.md |
 | U020-F13 | open | **`children.go:1299-1440`** | COMPLEXITY | `terminateRun` is CCN 16 against a CI gate of 10, and does eight distinguishable jobs. | U020.md |
 | U021-F03 | open | `coordinator.go:763, 775` | SILENTNOOP | `Inject` accepts empty `text`, durably journals (and fsyncs) an empty-body mail, and returns a success delivery mode. Zero bytes delivered, exit 0. | U021.md |
 | U021-F04 | open | `coordinator.go:779` | CORRECTNESS | The O3 "mirror notice fires on EVERY successful injection" invariant is asserted but not enforced: a run with an empty `ParentHarp` gets a mail durably queued to role `""` that nothing ever drains,... | U021.md |
@@ -663,7 +663,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U031-F05 | open | `skill_archive.go:91-130` | SILENTNOOP | `ExportSkillZip` with an empty `pkg.Manifest` writes a valid, empty 22-byte zip and returns `nil` — the loop at :99 simply never runs. The only guard is `pkg == nil` (:92). `operations.ExportSkill`... | U031.md |
 | U031-F06 | open | `skill.go:112-120` | CORRECTNESS | `SkillManifest.Serialize()` swallows a marshal error and returns the **constant** `[]byte("ctxloom:skill-manifest-serialize-error")`. This value is a *signature preimage*: two different manifests t... | U031.md |
 | U031-F07 | open | **`store.go:19-22, 160`** | DEAD | The `Source` interface is used **nowhere**: `rg -n 'bundles\.Source'` → 0 hits repo-wide. Its only effect is to contribute `LoadFile` to `Store`, which is never called through either interface (`rg... | U031.md |
-| U031-F08 | open | **`store.go:127-177`** | NOPAY | `MemStore` (50 lines, 6 methods) has exactly **one** call site in the repo — `store_test.go:44`. Its stated purpose ("demonstrate that operations are storage-agnostic") is a claim, not a capability... | U031.md |
+| U031-F08 | **RESOLVED** `fd563b80` | **`store.go:127-177`** | NOPAY | `MemStore` (50 lines, 6 methods) has exactly **one** call site in the repo — `store_test.go:44`. Its stated purpose ("demonstrate that operations are storage-agnostic") is a claim, not a capability... | U031.md |
 | U031-F10 | open | `skill_archive.go:347-447` | COMPLEXITY | `processArchiveEntry` is CCN **23** against a CI gate of 10, takes **9 parameters**, two of which (`topDir *string`, `total *int64`) are mutable accumulators threaded through both extractor loops —... | U031.md |
 | U031-F11 | open | `skill_archive.go:588-595, 774-778` | CORRECTNESS | Both `ImportSkillArchive` and `InstallSkillPackage` do `RemoveAll(dest)` **then** `Rename(staging, dest)`. If the rename fails (cross-device, EACCES, a concurrent hold), the previously-good tree at... | U031.md |
 | U031-F12 | open | **`store.go:101-104`** | ERRHANDLING | `invalidateStaleSignature` swallows **every** `ReadFile` error as "no signature": `if err != nil { return nil }`. A `.sig` that exists but cannot be read (permissions, I/O error, a directory at tha... | U031.md |
@@ -1144,7 +1144,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F06 | open | `detect.go:141-167` | CORRECTNESS | `NormalizeURL` silently reassigns any bare host-qualified URL to github.com, disagreeing with its own sibling `normalizeCloneURL`, and its documented final fallback is unreachable. | U093.md |
 | U093-F07 | open | `forge.go:74-78` | CORRECTNESS | An unknown `forge:` label on a remote is silently ignored and falls through to host matching, binding the remote to a different endpoint and a different token env. | U093.md |
 | U093-F08 | open | **`bundle_reader.go:203-205`** | SILENTNOOP | `LoadAllBytes(ctx, nil)` returns empty `loaded` **and** empty `failures` with no error: "loaded every bundle, zero failures" when nothing was read. | U093.md |
-| U093-F09 | open | **`lockfile.go:184,200,255,265,279`** | DEAD | Five `Lockfile` methods totalling ~100 lines — including `GetCanonicalURL`, the **highest-complexity function in this unit at CCN 15** — are test-only. | U093.md |
+| U093-F09 | **RESOLVED** `3ca8d99d` | **`lockfile.go:184,200,255,265,279`** | DEAD | Five `Lockfile` methods totalling ~100 lines — including `GetCanonicalURL`, the **highest-complexity function in this unit at CCN 15** — are test-only. | U093.md |
 | U093-F11 | open | `detect.go:93-134` | CORRECTNESS | `ParseRepoURL` accepts empty owner or repo segments and reports success. | U093.md |
 | U093-F12 | open | `detect.go:50-60; github.go:54-56` | COUPLING | A github.com personal access token is sent to a non-github.com host: a GitHub Enterprise forge whose `token_env` is unset receives `GITHUB_TOKEN`. | U093.md |
 | U093-F13 | open | `detect.go:82-85` | CORRECTNESS | `DetectForge` returns success with a meaningless base URL for host-less input. | U093.md |
@@ -1963,7 +1963,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U076-F07 | open | `confirm.go:39` | NOPAY | The too-early branch calls `Save` although nothing changed, so every over-eager repeat performs a temp-file write, an `fsync`, and a rename for no state delta. | U076.md |
 | U077-F04 | open | **`main.go:64-67`** | ERRHANDLING | `-check` conflates "cannot read the generated file" with "the generated file drifted", so a missing or permission-denied `sample.ltk.yaml` is reported as drift and the operator is told to run `just... | U077.md |
 | U077-F05 | open | **`main.go:19-20`** | COUPLING | `source` and `generated` are module-root-relative, so the tool is only correct when invoked from the repository root — an unwritten precondition (connascence of **execution context**). | U077.md |
-| U077-F06 | open | `docs/ltk/DEFAULTS.md:6`, `docs/ltk/README.md:336` | CORRECTNESS | The docs point at a path this package no longer occupies: `tools/extract-defaults` and `../tools/extract-defaults`, whereas it lives at `internal/ltk/tools/extract-defaults`. The DEFAULTS.md link i... | U077.md |
+| U077-F06 | **RESOLVED** `0a211a71` | `docs/ltk/DEFAULTS.md:6`, `docs/ltk/README.md:336` | CORRECTNESS | The docs point at a path this package no longer occupies: `tools/extract-defaults` and `../tools/extract-defaults`, whereas it lives at `internal/ltk/tools/extract-defaults`. The DEFAULTS.md link i... | U077.md |
 | U078-F10 | open | `compactor.go:89` | DEAD | `CompactionResult.Error string` is never assigned and never read. | U078.md |
 | U078-F13 | open | `compactor.go:740` | COHESION | `chunkText` is declared as a method on `*Compactor` but never references the receiver — both inputs arrive as parameters. | U078.md |
 | U078-F15 | open | `stamp.go (whole file)` | COHESION | `stamp.go` shares no type, function, or data with `compactor.go`/`plans.go`; its only link to the package is the word "plan". | U078.md |

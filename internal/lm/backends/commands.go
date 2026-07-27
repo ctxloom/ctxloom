@@ -198,6 +198,13 @@ func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 	return c
 }
 
+// getBuiltinCommandFn is the seam onto resources.GetBuiltinCommand — a package
+// var (mirrors internal/codex/backend.go's seedCodexHomeFn) so a test can force
+// the per-name read to fail without needing a broken embed.FS, which is
+// otherwise immutable at runtime and never fails for a name ListBuiltinCommands
+// itself just enumerated.
+var getBuiltinCommandFn = resources.GetBuiltinCommand
+
 // builtinCommands returns ctxloom's built-in slash command prompts. These are
 // embedded in the ctxloom binary and always available.
 func builtinCommands() []*bundles.LoadedContent {
@@ -209,8 +216,15 @@ func builtinCommands() []*bundles.LoadedContent {
 
 	var prompts []*bundles.LoadedContent
 	for _, name := range names {
-		content, err := resources.GetBuiltinCommand(name)
+		content, err := getBuiltinCommandFn(name)
 		if err != nil {
+			// U057-F02: this used to `continue` with zero diagnostics. Because
+			// the command writers reconcile by removing every ctxloom-managed
+			// file then re-adding the assembled set, a dropped builtin simply
+			// vanishes from the next materialize with no signal at all — warn
+			// so the loss is visible even though degrading (never blocking
+			// launch over one missing embedded file) is still right.
+			clidiag.Warn("ctxloom", "builtin command %q unavailable: %v", name, err)
 			continue
 		}
 

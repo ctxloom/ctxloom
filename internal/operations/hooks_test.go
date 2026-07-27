@@ -1087,6 +1087,89 @@ fragments:
 // regenerated context file. regenerateContext is a second assembly of the
 // same fragments — without substitution the agent-injected context ships
 // literal {{var}} tags whenever profiles define variables.
+// TestApplyHooks_RegenerateContextFailure_PreservesExistingNativeContext
+// pins U084-F01: a genuine context-regeneration FAILURE (RegenerateContext:
+// true, but the regen write itself errors — degraded mode warns and does
+// not abort) must never silently strip a native-file backend's
+// PREVIOUSLY-installed managed context (.agents/AGENTS.md), and must never
+// report status "applied" — the signature "success reported, bytes
+// destroyed" bug. This is distinct from the LEGITIMATE RegenerateContext:
+// false path (which never attempts regeneration at all, and is unaffected
+// by this fix) and from a genuinely-empty fragment set (attempted, no
+// error — see hooks.go's maybeRegenerateContext for how the cases differ).
+func TestApplyHooks_RegenerateContextFailure_PreservesExistingNativeContext(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle
+fragments:
+  security-rules:
+    tags: ["security"]
+    content: |
+      ## Security Rules
+      - Always validate input
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return config.NewFixture(config.Fixture{
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+			Profiles: config.ProfilesConfig{
+				Definitions: map[string]config.Profile{
+					"default": {SelectTags: []string{"security"}},
+				},
+			},
+		}), nil
+	}
+
+	agentsMDPath := filepath.Join(tmpDir, ".agents", "AGENTS.md")
+
+	// First apply: succeeds, installs real managed context.
+	result1, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:           "antigravity",
+		RegenerateContext: true,
+		ExecPath:          "/usr/bin/ctxloom",
+		ConfigLoader:      mockConfigLoader,
+		WorkDir:           tmpDir,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "applied", result1.Status)
+	before, err := os.ReadFile(agentsMDPath)
+	require.NoError(t, err, ".agents/AGENTS.md must carry the assembled context after the first apply")
+	require.Contains(t, string(before), "Always validate input")
+
+	// Force the NEXT regeneration to genuinely fail: WriteContextFile's
+	// context-cache directory (workDir/.ctxloom/cache/context) needs
+	// .ctxloom/cache to be a directory it can MkdirAll under — the first
+	// apply above already created it as one, so replace it with a plain
+	// file at that same path component: the real os.MkdirAll call then
+	// errors, exactly like a real disk/permission failure would.
+	require.NoError(t, os.RemoveAll(filepath.Join(appDir, "cache")))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache"), []byte("blocking file"), 0644))
+
+	result2, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:           "antigravity",
+		RegenerateContext: true,
+		ExecPath:          "/usr/bin/ctxloom",
+		ConfigLoader:      mockConfigLoader,
+		WorkDir:           tmpDir,
+	})
+	require.NoError(t, err, "ApplyHooks itself must not hard-fail in degraded mode")
+	assert.NotEqual(t, "applied", result2.Status,
+		"a genuine context-regeneration failure must never report status \"applied\"")
+
+	after, err := os.ReadFile(agentsMDPath)
+	require.NoError(t, err, "the existing native context file must still exist after a failed regeneration")
+	assert.Equal(t, string(before), string(after),
+		"a failed regeneration must never strip or alter existing native-file managed context")
+}
+
 func TestApplyHooks_RegenerateContextSubstitutesVariables(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")

@@ -108,15 +108,33 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	execGate := NewExecutableTrustGate(freshCfg)
 	freshCfg.SetExecutableTrustGate(execGate.Gate())
 
-	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
+	contextHash, regenFailed := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
+
+	// U084-F01: skipContext is true whenever this round must NOT touch a
+	// native-file backend's managed context surface at all — covering BOTH
+	// the legitimate "don't regenerate" request (req.RegenerateContext ==
+	// false, which deliberately means leave existing context alone) AND a
+	// genuine regeneration FAILURE (regenFailed). Neither case has fresh
+	// content to write, and unlike a genuinely-empty fragment set (handled
+	// inside regenerateContext itself, which still returns "" with
+	// regenFailed == false — a real, if unwelcome, current state worth
+	// reflecting), a failure or a no-op request must never be indistinguishable
+	// from "the context is now empty" at the write layer: WriteManagedContext
+	// (antigravity) and writeSteering (kiro) both treat Context: "" as "clear
+	// this," which is exactly right for a real empty state and exactly wrong
+	// for "we don't know" or "we couldn't tell you." Applied below by
+	// omitting WithContext(...) from the surface selection entirely, which is
+	// a true skip (no write, nothing stripped) — see cells.go's Select doc
+	// ("opt-in selection... with NOTHING selected").
+	skipContext := !req.RegenerateContext || regenFailed
 
 	// The native-context backends (antigravity/kiro) read context from their own
 	// file, not the injection hook, so apply materializes it from the assembled
 	// context STRING — the same content regenerateContext hashed into the cache the
 	// hook backends (claude/codex) read, so the two paths agree. Assembled only when
-	// context was regenerated this round (contextHash != ""); otherwise "" strips
-	// their managed native-context section. Fault tolerant: a failed assembly leaves
-	// it "" (the native surface then strips), never blocking the apply.
+	// context was regenerated this round (contextHash != ""); otherwise "" would
+	// strip their managed native-context section, which skipContext now prevents
+	// whenever the emptiness is not a genuine, error-free current state.
 	var assembledContext string
 	if contextHash != "" {
 		if asm, aerr := AssembleContext(ctx, freshCfg, AssembleContextRequest{Profiles: freshCfg.DefaultAgentProfiles()}); aerr == nil {
@@ -137,12 +155,23 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		workDir:          workDir,
 		contextHash:      contextHash,
 		assembledContext: assembledContext,
+		skipContext:      skipContext,
 		bundleMCP:        bundleMCP,
 		prompts:          prompts,
 		fs:               fs,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// U084-F01: a genuine regen failure must never be reported as a clean
+	// "applied" — fold it into the same partial-success accounting a
+	// per-backend apply failure already uses, rather than inventing a
+	// second status taxonomy. maybeRegenerateContext already recorded the
+	// fatal-class strictness finding with the real underlying error; this is
+	// the caller-visible echo of it.
+	if regenFailed {
+		applyErrors = append(applyErrors, "context regeneration failed; existing native-file managed context left untouched rather than cleared (see the warning above for the underlying error)")
 	}
 
 	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
@@ -260,17 +289,27 @@ func checkHookTargetScope(workDir, backend string, force bool) error {
 // SessionStart-injected context silently going stale/absent is exactly what
 // fail-loudly exists to catch); in degraded mode it stays a warning and the
 // injection hook is simply omitted this round.
-func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []agent.ContextFileOption) string {
+// maybeRegenerateContext regenerates the injected context when requested,
+// returning its hash and whether the attempt genuinely failed. A regen
+// failure is fatal-class in strict mode (the SessionStart-injected context
+// silently going stale/absent is exactly what fail-loudly exists to catch);
+// in degraded mode it stays a warning and the injection hook is simply
+// omitted this round — but regenFailed (U084-F01) still tells the caller
+// this was a genuine FAILURE, not the legitimate "don't regenerate" request
+// (req.RegenerateContext == false), so ApplyHooks can refuse to let a
+// failure silently strip a native-file backend's existing managed context
+// while still reporting success.
+func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []agent.ContextFileOption) (hash string, regenFailed bool) {
 	if !req.RegenerateContext {
-		return ""
+		return "", false
 	}
 	contextHash, err := regenerateContext(freshCfg, workDir, bundleLoaderOpts(req), contextOpts...)
 	if err != nil {
 		strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
 			"regenerate context failed: %v", err)
-		return ""
+		return "", true
 	}
-	return contextHash
+	return contextHash, false
 }
 
 // hookBackendNames resolves the backend filter to the list of backends to apply.
@@ -288,9 +327,13 @@ type hookApplyParams struct {
 	workDir          string
 	contextHash      string
 	assembledContext string
-	bundleMCP        map[string]wire.MCPServer
-	prompts          []*bundles.LoadedContent
-	fs               afero.Fs
+	// skipContext (U084-F01): true whenever this apply must not touch the
+	// context surface at all — see ApplyHooks' skipContext doc for the two
+	// cases this covers (no-op request, genuine regen failure).
+	skipContext bool
+	bundleMCP   map[string]wire.MCPServer
+	prompts     []*bundles.LoadedContent
+	fs          afero.Fs
 }
 
 // applyHooksToBackends applies hooks to each backend, returning the backends
@@ -358,10 +401,19 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	}, p.fs)
 
 	sel := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile)
-	if contextViaHook(set) {
-		sel = sel.WithContext(agent.ContextWriteHook)
-	} else {
-		sel = sel.WithContext(agent.ContextWriteUnsafeFile)
+	// U084-F01: skipContext omits WithContext entirely rather than selecting
+	// it with empty content — Select's opt-in model means an unselected
+	// surface is never delivered at all (cells.go), so this is a true no-op:
+	// nothing is written, nothing is stripped. Selecting ContextWriteUnsafeFile
+	// with p.assembledContext == "" is what used to reach the native-file
+	// writers and get interpreted as "clear the managed section" regardless of
+	// WHY it was empty.
+	if !p.skipContext {
+		if contextViaHook(set) {
+			sel = sel.WithContext(agent.ContextWriteHook)
+		} else {
+			sel = sel.WithContext(agent.ContextWriteUnsafeFile)
+		}
 	}
 	if len(p.prompts) > 0 {
 		sel = sel.WithCommands(agent.CommandsWriteUnsafeFile)
@@ -445,18 +497,33 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	}
 
 	if len(backendFrags) == 0 {
+		// U084-F01 (second trigger): this is NOT an error — regenerateContext
+		// legitimately produced nothing (an empty default profile set is a
+		// valid configuration) — but it silently reached the exact same
+		// downstream effect as a real failure (native-file backends strip
+		// their managed context to match) with zero diagnostic at all. Warn
+		// so a user is not left wondering why their AGENTS.md/steering file
+		// went empty; still return ("", nil) — a genuinely-empty context IS
+		// the honest current state (matching what `ctxloom run` would also
+		// assemble), so stripping to match it is correct, just no longer
+		// silent.
+		clidiag.Warn("ctxloom", "context regeneration produced no fragments (default profiles resolved zero content) — any existing native-file managed context will be cleared to match; check your default profiles' fragment set if this is unexpected")
 		return "", nil
 	}
 
 	contextHash, err := agent.WriteContextFile(workDir, backendFrags, opts...)
 	if err != nil {
-		// Fatal-class in strict mode (context regen failure); degraded mode
-		// degrades — the SessionStart injection hook is simply omitted, but
-		// says so rather than leaving the user wondering where their context
-		// went.
-		strictness.Fail(strictness.ClassApply, "fix the write failure, then re-apply (ctxloom manage hooks install)",
-			"context file write failed; SessionStart injection skipped: %v", err)
-		return "", nil
+		// U084-F01: this used to be swallowed here (strictness.Fail + return
+		// "", nil), collapsing a genuine write failure into the SAME shape
+		// maybeRegenerateContext sees for a legitimately-empty fragment set —
+		// nil error either way, so its caller could not tell "nothing to
+		// write" from "tried to write and broke." Propagate the real error
+		// instead; maybeRegenerateContext is now the single place that both
+		// records the fatal-class strictness finding and reports regenFailed
+		// to ApplyHooks, so a write failure can no longer be reported as a
+		// clean "applied" while silently stripping a native-file backend's
+		// existing managed context.
+		return "", fmt.Errorf("context file write failed: %w", err)
 	}
 	return contextHash, nil
 }

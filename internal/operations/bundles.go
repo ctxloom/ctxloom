@@ -1120,6 +1120,35 @@ func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleCommandInp
 // philosophy in CLAUDE.md). A nil Distiller is a no-op. The returned set names
 // the items whose attempt FAILED — a re-distill failure leaves the old
 // Distilled/DistilledBy intact, so post-state alone cannot reveal it.
+// Distillation floor (U082-F01): distillFragments/distillPrompts previously
+// stamped ANY non-empty Distiller result as accepted — no length, ratio, or
+// sanity floor — so a 16-byte distillation of a 1,428-byte fragment (a
+// truncated or degenerate model response) was indistinguishable from a real
+// summary, and resolveEffective serves it whenever it is non-empty. The
+// empty-string case is already self-healing (staleDistill treats "" as
+// never-distilled and re-queues it); this floor catches the truncation case
+// that slips past that check. minDistillAbsoluteBytes rejects a distillation
+// too short to be any summary at all, regardless of the source's size;
+// minDistillRatio additionally rejects one that kept less than this fraction
+// of a LARGER source, which the absolute floor alone would not catch.
+const (
+	minDistillAbsoluteBytes = 4
+	minDistillRatio         = 0.02
+)
+
+// distillTooShort reports whether distilled is too small, relative to
+// original, to plausibly be a real distillation rather than a truncated or
+// degenerate model response.
+func distillTooShort(original, distilled string) bool {
+	if len(distilled) < minDistillAbsoluteBytes {
+		return true
+	}
+	if len(original) == 0 {
+		return false
+	}
+	return float64(len(distilled))/float64(len(original)) < minDistillRatio
+}
+
 func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
 	failed := collections.NewSet[string]()
 	if d == nil || len(names) == 0 {
@@ -1144,6 +1173,14 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 			// previously-good distillation with "" and let distillOutcome
 			// report "distilled" for content nobody can use (U081-F04).
 			clidiag.Warn("ctxloom", "distill of fragment %q produced no content; keeping the previous distillation", name)
+			failed.Add(name)
+			continue
+		}
+		if distillTooShort(frag.Content, res.Distilled) {
+			// U082-F01: non-empty but implausibly short (truncated/degenerate)
+			// is the same class of failure as empty — treat it the same way,
+			// and do NOT stamp ContentHash for a rejected result.
+			clidiag.Warn("ctxloom", "distill of fragment %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", name, len(res.Distilled), len(frag.Content))
 			failed.Add(name)
 			continue
 		}
@@ -1176,6 +1213,11 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		}
 		if res.Distilled == "" {
 			clidiag.Warn("ctxloom", "distill of prompt %q produced no content; keeping the previous distillation", name)
+			failed.Add(name)
+			continue
+		}
+		if distillTooShort(p.Content, res.Distilled) {
+			clidiag.Warn("ctxloom", "distill of prompt %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", name, len(res.Distilled), len(p.Content))
 			failed.Add(name)
 			continue
 		}

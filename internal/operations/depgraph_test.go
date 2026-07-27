@@ -7,8 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // newTestWalker builds a depWalker whose remote reads are served by fetcher.
@@ -87,6 +89,99 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	require.Len(t, conflicts, 1)
 	assert.Equal(t, urlX+"@bundles/x", conflicts[0].Item)
 	assert.Equal(t, []string{"h1111111", "h2222222"}, conflicts[0].Hashes)
+}
+
+
+// TestDepWalker_RecurseParent_MalformedRefRecordsUnexpanded pins U083-F02's
+// worst-of-the-three gap: a parent ref that fails to even PARSE used to lose
+// its whole subtree with NO diagnostic at all (not even a warning) — worse
+// than the remote-fetch failures a few lines below it in the same function,
+// which already warn-and-record via markUnexpanded.
+func TestDepWalker_RecurseParent_MalformedRefRecordsUnexpanded(t *testing.T) {
+	w := newTestWalker(remote.NewMockFetcher())
+	w.recurseParent("::::not-a-valid-reference-at-all")
+	_, _, unexpanded := w.result()
+	require.Len(t, unexpanded, 1)
+	assert.Equal(t, "::::not-a-valid-reference-at-all", unexpanded[0])
+}
+
+// TestDepWalker_RecurseParent_LocalLoadFailureRecordsUnexpanded pins the
+// second gap: an unreadable LOCAL parent profile is the same
+// "subtree missing from pins" hazard as an unreadable REMOTE one (which this
+// function already handles correctly a few lines below), but was silently
+// skipped instead of recorded.
+func TestDepWalker_RecurseParent_LocalLoadFailureRecordsUnexpanded(t *testing.T) {
+	w := newTestWalker(remote.NewMockFetcher())
+	w.loader = profiles.NewLoader([]string{t.TempDir()}) // empty dir: Load always fails
+	w.recurseParent("ctxloom:local@bundles/does-not-exist")
+	_, _, unexpanded := w.result()
+	require.Len(t, unexpanded, 1)
+	assert.Equal(t, "does-not-exist", unexpanded[0])
+}
+
+// TestDepWalker_RecurseParent_NotBundleProfileRefRecordsUnexpanded pins the
+// third gap: a remote parent ref that isn't a bundle-profile reference (a
+// retired top-level @profiles/ parent, or a malformed one) loses its subtree
+// exactly like the two cases above, and the function's own comment already
+// says so ("its subtree is gone") without ever recording it.
+func TestDepWalker_RecurseParent_NotBundleProfileRefRecordsUnexpanded(t *testing.T) {
+	w := newTestWalker(remote.NewMockFetcher())
+	// A well-formed, PARSEABLE remote bundle ref that is NOT the
+	// <url>@bundles/x#profiles/y shape SplitBundleProfileRef requires (no
+	// "#profiles/" selector at all) — it must parse successfully and reach
+	// SplitBundleProfileRef to actually exercise that function's `!ok`
+	// branch, rather than failing earlier at ParseReference.
+	ref := "https://github.com/o/r@bundles/x@hAAAAAAA"
+	w.recurseParent(ref)
+	_, _, unexpanded := w.result()
+	require.Len(t, unexpanded, 1)
+	assert.Equal(t, ref, unexpanded[0])
+}
+
+// TestNamedRoots_LoadFailureRecordsUnexpanded pins the root-level half of
+// U083-F02: a profile root that fails to load NARROWS the closure (the entry
+// is silently dropped from `roots`), but before this fix nothing recorded
+// which name was lost — only the warning printed to stderr. Callers rebuild
+// the lockfile wholesale from `roots`, and the `unexpanded` return is the ONE
+// mechanism protecting existing lockfile entries from being erased when the
+// closure narrows; a root failure had no way to reach it.
+func TestNamedRoots_LoadFailureRecordsUnexpanded(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{})
+	loader := profiles.NewLoader([]string{t.TempDir()}) // empty dir: nothing loads
+
+	roots, unexpanded := namedRoots(cfg, loader, []string{"missing-profile"})
+	assert.Empty(t, roots)
+	require.Len(t, unexpanded, 1)
+	assert.Equal(t, "missing-profile", unexpanded[0])
+}
+
+// TestNamedRoots_InlineDefinitionNeverUnexpanded is the negative companion:
+// an inline config.yaml profile definition never touches the loader at all,
+// so it must never appear in the unexpanded set.
+func TestNamedRoots_InlineDefinitionNeverUnexpanded(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"inline": {Bundles: []string{"ctxloom:local@bundles/x"}},
+		}},
+	})
+	loader := profiles.NewLoader([]string{t.TempDir()})
+
+	roots, unexpanded := namedRoots(cfg, loader, []string{"inline"})
+	assert.Len(t, roots, 1)
+	assert.Empty(t, unexpanded)
+}
+
+// TestFlattenDependencies_RootLoadFailureSurfacesInUnexpanded is the
+// integration-level pin: FlattenDependencies (the public entry point
+// UpgradeDependencies and `remote lock` both call) must merge namedRoots'
+// own failures into its returned unexpanded set, not just the walker's.
+func TestFlattenDependencies_RootLoadFailureSurfacesInUnexpanded(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{})
+	testsupport.Isolate(t)
+
+	_, _, unexpanded := FlattenDependencies(context.Background(), cfg, []string{"missing-profile"})
+	require.Len(t, unexpanded, 1)
+	assert.Equal(t, "missing-profile", unexpanded[0])
 }
 
 func TestConflictError(t *testing.T) {

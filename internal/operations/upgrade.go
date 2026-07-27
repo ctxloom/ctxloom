@@ -28,7 +28,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	// profiles). A narrower set omits deps rooted in inline/config-default
 	// profiles, and the wholesale Save(newActive) below would then erase their
 	// active lock entries.
-	roots := closureRoots(cfg, loader)
+	roots, rootsUnexpanded := closureRoots(cfg, loader)
 
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
@@ -52,6 +52,10 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (int, error) {
 	if len(conflicts) > 0 {
 		return 0, ConflictError(conflicts)
 	}
+	// U083-F02: closureRoots' OWN failures (a root that could not load) used
+	// to be invisible to the preserve-existing-entries guard below — only
+	// the walker's internal unexpanded set fed it. Merge both.
+	unexpanded = append(unexpanded, rootsUnexpanded...)
 
 	newActive := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
 	advanced := 0

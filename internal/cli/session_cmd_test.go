@@ -252,16 +252,12 @@ func (errReader) Read([]byte) (int, error) {
 // origWd when the entry has no ProjectDir, rather than leaving the process
 // wherever the last chdir left it.
 func TestSituateForEntry(t *testing.T) {
-	testsupport.Isolate(t)
-	origWd, err := os.Getwd()
-	require.NoError(t, err)
-	defer func() { _ = os.Chdir(origWd) }()
-
+	origWd := testsupport.ProjectDir(t) // isolates + chdirs here, restored on cleanup
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 
 	t.Run("chdirs into a non-empty ProjectDir", func(t *testing.T) {
-		require.NoError(t, os.Chdir(origWd))
+		testsupport.ChangeDir(t, origWd)
 		require.NoError(t, situateForEntry(&sessions.Entry{ProjectDir: dirA}, origWd))
 		cwd, err := os.Getwd()
 		require.NoError(t, err)
@@ -271,7 +267,7 @@ func TestSituateForEntry(t *testing.T) {
 	t.Run("an empty ProjectDir restores origWd, not wherever a prior entry left the process", func(t *testing.T) {
 		// Simulate the sequence a real loop produces: a previous entry with
 		// ProjectDir=dirB left the process there.
-		require.NoError(t, os.Chdir(dirB))
+		testsupport.ChangeDir(t, dirB)
 		require.NoError(t, situateForEntry(&sessions.Entry{ProjectDir: ""}, origWd))
 		cwd, err := os.Getwd()
 		require.NoError(t, err)

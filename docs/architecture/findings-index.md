@@ -20,19 +20,19 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **261** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **264** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 2 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,002** |
+| `open` | no commit names this ID | **1,999** |
 
-**Totals: 2268 findings across 162 units — 261 resolved, 2002 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 264 resolved, 1999 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
 | HIGH | 376 | 130 | 245 (+2 refuted) |
 | MED | 999 | 38 | 961 |
-| LOW | 871 | 93 | 775 (+3 partial/escalated) |
+| LOW | 871 | 96 | 772 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -2279,9 +2279,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U142-F02 | open | `testsupport.go:54-62` | COHESION | `CTXLOOM_REQUIRE_DOCKER` is in a list documented as "host/session environment variables ctxloom **production code** reads", and it is neither: it is U143's CI-only test knob. The comment concedes t... | U142.md |
 | U142-F03 | open | `testsupport.go:124-144` | NOPAY | `ScrubbedEnv` — the documented "subprocess analog of `Isolate`" — has **one** caller in the entire module, while the subprocess isolation the test suites actually rely on is `testenv.isolatedEnv`/`... | U142.md |
 | U142-F04 | open | `testsupport.go:80-82` | CORRECTNESS | `Isolate` clears each key with `t.Setenv(k, "")` — setting it to the empty string rather than unsetting it. Production code that distinguishes *unset* from *empty* (`os.LookupEnv`, which four of th... | U142.md |
-| U143-F01 | open | `dockergate.go:49` | DEAD | `Required()` has **zero call sites** anywhere in the module — it is an exported getter over a package-private bool that nothing reads. `deadcode` flags it alongside `RequireRuntime` and `SkipCapabi... | U143.md |
-| U143-F04 | open | `dockergate.go:19-23` | CORRECTNESS | The doc says `_check-docker-skip-gate` "fails the build on any `t.Skip`/`t.Skipf` inside a docker_integration-tagged file". The implementation greps `\bt\.Skipf\?(` — which does not match `t.SkipNo... | U143.md |
-| U143-F05 | open | `dockergate.go:63-66` | CORRECTNESS | The `Fatalf` message interpolates `EnvRequireDocker` as the *first* `%s`, producing "no container runtime is reachable, but **CTXLOOM_REQUIRE_DOCKER**=1 demands one: <what> ran NOTHING" — correct, ... | U143.md |
+| U143-F01 | **RESOLVED** `076ec521` | `dockergate.go:49` | DEAD | `Required()` has **zero call sites** anywhere in the module — it is an exported getter over a package-private bool that nothing reads. `deadcode` flags it alongside `RequireRuntime` and `SkipCapabi... | U143.md |
+| U143-F04 | **RESOLVED** `076ec521` | `dockergate.go:19-23` | CORRECTNESS | The doc says `_check-docker-skip-gate` "fails the build on any `t.Skip`/`t.Skipf` inside a docker_integration-tagged file". The implementation greps `\bt\.Skipf\?(` — which does not match `t.SkipNo... | U143.md |
+| U143-F05 | **RESOLVED** `076ec521` | `dockergate.go:63-66` | CORRECTNESS | The `Fatalf` message interpolates `EnvRequireDocker` as the *first* `%s`, producing "no container runtime is reachable, but **CTXLOOM_REQUIRE_DOCKER**=1 demands one: <what> ran NOTHING" — correct, ... | U143.md |
 | U144-F12 | open | `record.go:419-424` | TRIVIAL | `chatEventSessionID` is a six-line nil-guard getter with one call site that has **already** established the guard | U144.md |
 | U144-F13 | open | `recorder.go:233` | NOPAY | `Tee` is exported but has zero external callers; only `TeeAndClose` (same file) and in-package tests use it, and every capture seam needs the Close half anyway | U144.md |
 | U144-F14 | open | `recorder.go:173-177` | CORRECTNESS | A short/partial `Write` leaves a truncated JSON fragment on disk **and** leaves `seq` unadvanced, so the next successful record reuses the same seq — breaking the "monotonic, no gaps" invariant rea... | U144.md |

@@ -1142,7 +1142,7 @@ Examples:
 				// (an `llm host` runner WITH the run-id trio → EngineHost); the
 				// host watches it via WatchRuns. No go-plugin client; no
 				// in-container listener.
-				handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName), permMode, mode, runStructured, runnerSpawnEnv)
+				handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]), permMode, mode, runStructured, runnerSpawnEnv)
 				// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
 				// can return a non-nil handle ALONGSIDE a non-nil error (the
 				// container started; a later step in StartOwnedRun failed) — if
@@ -1175,7 +1175,7 @@ Examples:
 			if ownedRun != nil {
 				return runStructuredREPLViaCoord(ctx, ownedRun, outputFormatOf(cmd), os.Stdin, os.Stdout)
 			}
-			return runStructuredREPL(ctx, client, req, managed.ChatMCPServers(backendName), outputFormatOf(cmd), os.Stdin, os.Stdout)
+			return runStructuredREPL(ctx, client, req, managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]), outputFormatOf(cmd), os.Stdin, os.Stdout)
 		}
 
 		// Phase 2a-B: a container-policy --print ONESHOT (not --structured, which

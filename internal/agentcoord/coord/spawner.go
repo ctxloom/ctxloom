@@ -508,7 +508,14 @@ func (s *prodSpawner) MarkSessionEnded(harp string) {
 // process env only (the engine's MCP subprocesses inherit it), and the
 // credential must never land in an MCP config structure.
 func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
-	servers := agent.ComposeChatMCPServers(plan.Backend,
+	// U100-F03: ComposeChatMCPServers now takes a command override so a
+	// runtime:container agent's structured chat can emit the in-container
+	// ctxloom path instead of the host's. prodSpawner has no isolation.Policy
+	// in scope here to resolve one from (plan.Runtime names the runtime but
+	// nothing here maps it to a container binary path) — out of scope for the
+	// materialize flow's fix; left "" (unchanged behavior) and noted in
+	// DECISIONS.md as a residual for the delegation flow to pick up.
+	servers := agent.ComposeChatMCPServers(plan.Backend, "",
 		backends.AssembleManagedMCP(s.cfg, plan.Profiles),
 		s.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
 	s.gate.WarnWithheld()

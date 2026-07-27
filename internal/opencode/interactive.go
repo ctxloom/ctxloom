@@ -58,7 +58,7 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	// posture-matrix test can't diverge. Read-only for plan/SkipSetup is the genuine
 	// deny-edit/deny-bash block slice 2 proved (readOnlyPermission); the TUI honors it
 	// via config-level permission resolution, so read-only is real in the TUI too.
-	mc := interactiveManaged(req, model, b.pendingContext, b.ManagedChatMCPServers())
+	mc := interactiveManaged(req, model, b.pendingContext, b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]))
 
 	// When instructions are in play, materialize the assembled context as the
 	// ctxloom-owned .opencode/ctxloom-context.md the instructions key points at —

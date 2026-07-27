@@ -58,7 +58,7 @@ func (b *ACP) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, st
 			// config/profile servers) merged by Setup rides session/new — the
 			// ACP child reads no engine settings file, so this injection is
 			// the structured path's counterpart of Setup's settings write.
-			MCPServers: b.ManagedChatMCPServers(),
+			MCPServers: b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]),
 		}, in, out)
 	}()
 

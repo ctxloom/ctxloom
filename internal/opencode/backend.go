@@ -172,7 +172,7 @@ func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdou
 			Model:       req.Model,
 			Env:         req.Env,
 			Permissions: req.Permissions,
-			MCPServers:  b.ManagedChatMCPServers(),
+			MCPServers:  b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]),
 		}, in, out)
 	}()
 

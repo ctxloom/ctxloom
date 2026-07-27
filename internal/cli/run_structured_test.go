@@ -203,7 +203,7 @@ func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
 	}
 	var out bytes.Buffer
 	require.NoError(t, runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}},
-		managed.ChatMCPServers("claude-code"), formatJSON, strings.NewReader(""), &out))
+		managed.ChatMCPServers("claude-code", ""), formatJSON, strings.NewReader(""), &out))
 
 	require.Len(t, captured.MCPServers, 2)
 	// Command names the self-exec absolute path (agent.CtxloomCommand), not

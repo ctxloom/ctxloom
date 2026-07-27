@@ -101,10 +101,13 @@ func (b *LaunchBackend) History() SessionHistory { return b.history }
 // injection (ChatRequest.MCPServers), or nil when the lifecycle holds no
 // managed payload or lacks the capability. A structured Execute path uses this
 // to deliver the same server set Setup writes to the engine's settings file —
-// probed by capability so a bare ManagedLifecycle fake stays valid.
-func (b *LaunchBackend) ManagedChatMCPServers() []ChatMCPServer {
-	if l, ok := b.lifecycle.(interface{ ChatMCPServers() []ChatMCPServer }); ok {
-		return l.ChatMCPServers()
+// probed by capability so a bare ManagedLifecycle fake stays valid. override
+// is ComposeChatMCPServers' command override (U100-F03) — callers pass
+// req.Env[MCPCommandOverrideEnv], populated ONLY for an isolated-container
+// cell; empty everywhere else is a no-op.
+func (b *LaunchBackend) ManagedChatMCPServers(override string) []ChatMCPServer {
+	if l, ok := b.lifecycle.(interface{ ChatMCPServers(string) []ChatMCPServer }); ok {
+		return l.ChatMCPServers(override)
 	}
 	return nil
 }

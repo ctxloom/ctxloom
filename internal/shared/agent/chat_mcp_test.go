@@ -21,7 +21,7 @@ func TestComposeChatMCPServers_ManagedSet(t *testing.T) {
 		"taskloom": {Command: "taskloom", Args: []string{"mcp"}},
 	}
 
-	got := ComposeChatMCPServers("claude-code", mcp, bundle, nil)
+	got := ComposeChatMCPServers("claude-code", "", mcp, bundle, nil)
 
 	require.Len(t, got, 3)
 	assert.Equal(t, ChatMCPServer{Name: MCPServerName, Command: CtxloomCommand(), Args: CtxloomMCPArgs}, got[0])
@@ -33,7 +33,7 @@ func TestComposeChatMCPServers_ManagedSet(t *testing.T) {
 // suppresses the ctxloom entry, exactly like the settings write.
 func TestComposeChatMCPServers_AutoRegisterOff(t *testing.T) {
 	off := false
-	assert.Nil(t, ComposeChatMCPServers("acp", &wire.MCPConfig{AutoRegisterCtxloom: &off}, nil, nil))
+	assert.Nil(t, ComposeChatMCPServers("acp", "", &wire.MCPConfig{AutoRegisterCtxloom: &off}, nil, nil))
 }
 
 // TestComposeChatMCPServers_ExistingNameWins: a caller-supplied server with a
@@ -42,7 +42,7 @@ func TestComposeChatMCPServers_AutoRegisterOff(t *testing.T) {
 func TestComposeChatMCPServers_ExistingNameWins(t *testing.T) {
 	bundle := map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}}
 
-	got := ComposeChatMCPServers("acp", &wire.MCPConfig{}, bundle,
+	got := ComposeChatMCPServers("acp", "", &wire.MCPConfig{}, bundle,
 		[]ChatMCPServer{{Name: MCPServerName, Command: "/custom/ctxloom"}})
 
 	require.Len(t, got, 1)
@@ -53,7 +53,7 @@ func TestComposeChatMCPServers_ExistingNameWins(t *testing.T) {
 // no managed payload was assembled (skip-setup / failed config load) — nothing
 // is injected, mirroring the lifecycle Flush no-op.
 func TestComposeChatMCPServers_NoManagedPayload(t *testing.T) {
-	assert.Nil(t, ComposeChatMCPServers("acp", nil, nil, nil))
+	assert.Nil(t, ComposeChatMCPServers("acp", "", nil, nil, nil))
 }
 
 // TestComposeChatMCPServers_OverrideOrder: config servers override same-name
@@ -69,7 +69,7 @@ func TestComposeChatMCPServers_OverrideOrder(t *testing.T) {
 	}
 	bundle := map[string]wire.MCPServer{"dup": {Command: "bundle-loses"}}
 
-	got := ComposeChatMCPServers("claude-code", mcp, bundle, nil)
+	got := ComposeChatMCPServers("claude-code", "", mcp, bundle, nil)
 
 	byName := make(map[string]ChatMCPServer, len(got))
 	for _, s := range got {
@@ -80,18 +80,37 @@ func TestComposeChatMCPServers_OverrideOrder(t *testing.T) {
 	assert.NotContains(t, byName, "other")
 }
 
+// TestComposeChatMCPServers_CommandOverride pins U100-F03: the structured-chat
+// MCP path hardcoded CtxloomCommand() (the HOST self-exec absolute path)
+// instead of honoring a command override, so a runtime:container agent's
+// structured chat baked the host's binary path into its own mcpServers
+// instead of the in-container path Setup's settings write already uses
+// (ResolveMCPCommand) — the engine's `ctxloom mcp` stdio shim then never
+// launches inside the container.
+func TestComposeChatMCPServers_CommandOverride(t *testing.T) {
+	got := ComposeChatMCPServers("claude-code", "/in-container/ctxloom", &wire.MCPConfig{}, nil, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, "/in-container/ctxloom", got[0].Command,
+		"a non-empty override must win over the host self-exec-absolute default, matching ResolveMCPCommand")
+
+	// Empty override is a no-op — the host self-exec-absolute invariant is untouched.
+	got = ComposeChatMCPServers("claude-code", "", &wire.MCPConfig{}, nil, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, CtxloomCommand(), got[0].Command)
+}
+
 // TestManagedConfigChatMCPServers: the ManagedConfig-shaped entry point — the
 // structured run path composes from the SAME payload RunStart ships to Setup;
 // a nil managed payload injects nothing.
 func TestManagedConfigChatMCPServers(t *testing.T) {
 	var nilManaged *ManagedConfig
-	assert.Nil(t, nilManaged.ChatMCPServers("claude-code"))
+	assert.Nil(t, nilManaged.ChatMCPServers("claude-code", ""))
 
 	m := &ManagedConfig{
 		MCP:       &wire.MCPConfig{},
 		BundleMCP: map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}},
 	}
-	got := m.ChatMCPServers("claude-code")
+	got := m.ChatMCPServers("claude-code", "")
 	require.Len(t, got, 2)
 	assert.Equal(t, MCPServerName, got[0].Name)
 	assert.Equal(t, "taskloom", got[1].Name)
@@ -101,13 +120,13 @@ func TestManagedConfigChatMCPServers(t *testing.T) {
 // managed payload; one that never saw MergeManaged (skip-setup) yields nil.
 func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 	l := NewBaseLifecycle("acp")
-	assert.Nil(t, l.ChatMCPServers(), "no managed payload merged → nothing to inject")
+	assert.Nil(t, l.ChatMCPServers(""), "no managed payload merged → nothing to inject")
 
 	l.MergeManaged(&ManagedConfig{
 		BundleMCP: map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}},
 	}, "/work", "")
 
-	got := l.ChatMCPServers()
+	got := l.ChatMCPServers("")
 	require.Len(t, got, 2)
 	assert.Equal(t, MCPServerName, got[0].Name)
 	assert.Equal(t, "taskloom", got[1].Name)

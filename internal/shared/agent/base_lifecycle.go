@@ -87,8 +87,8 @@ func (l *BaseLifecycle) ensureMCP() {
 // chat-injectable server entries (see ComposeChatMCPServers). nil until
 // MergeManaged has folded a managed payload in — a skip-setup run merges nothing,
 // so it injects nothing.
-func (l *BaseLifecycle) ChatMCPServers() []ChatMCPServer {
-	return ComposeChatMCPServers(l.backendName, l.mcp, l.bundleMCP, nil)
+func (l *BaseLifecycle) ChatMCPServers(override string) []ChatMCPServer {
+	return ComposeChatMCPServers(l.backendName, override, l.mcp, l.bundleMCP, nil)
 }
 
 // GetHooks returns the current hooks configuration.

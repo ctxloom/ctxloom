@@ -525,7 +525,13 @@ func buildSessionCommands(ctx context.Context, cfg *config.Config) (*SessionComm
 // which re-loads config from the process cwd) so the session's own config and
 // its attached trust gate are honored.
 func acpSessionMCPServers(cfg *config.Config, backendName string, profiles []string, existing []agent.ChatMCPServer) []agent.ChatMCPServer {
-	return agent.ComposeChatMCPServers(backendName,
+	// U100-F03: ComposeChatMCPServers now takes a command override so a
+	// runtime:container agent's structured chat can emit the in-container
+	// ctxloom path instead of the host's. An ACP session (this flow) has no
+	// isolation.Policy in scope to resolve one from — out of scope for the
+	// materialize flow's fix; left "" (unchanged behavior) and noted in
+	// DECISIONS.md as a residual for the acp/delegation flows to pick up.
+	return agent.ComposeChatMCPServers(backendName, "",
 		backends.AssembleManagedMCP(cfg, profiles),
 		cfg.ResolveBundleMCPServers(profiles),
 		existing)

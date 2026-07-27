@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -116,10 +117,11 @@ type taskCompletePayload struct {
 // second pass in the file's own order for every entry/accounting event.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
 	c := &converter{record: importer.RecordFunc(rec, "codex")}
-	return importer.ConvertJSONLLines(ctx, rec, lines, "codex", scanSessionInfo(lines),
+	err := importer.ConvertJSONLLines(ctx, rec, lines, "codex", scanSessionInfo(lines),
 		func(line []byte) error {
 			var env rolloutLine
-			if err := json.Unmarshal(line, &env); err != nil {
+			if jsonErr := json.Unmarshal(line, &env); jsonErr != nil {
+				c.malformed++
 				return nil // malformed line: skip, never fatal (see importer.VendorAdapter doc)
 			}
 			switch env.Type {
@@ -137,6 +139,31 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 			return nil
 		},
 		c.flushPending)
+	if err != nil {
+		return err
+	}
+	return c.checkFloor(len(lines))
+}
+
+// checkFloor is codex's counterpart to claude's identically-shaped method
+// (claude/session.go, U147-F01's fix): a rollout file that decodes cleanly
+// and even contains response_item lines this adapter claims to understand,
+// yet converts to zero canonical entries, must not report success — the
+// vendor format drifted out from under this build. transcript.Recorder only
+// creates its file on the first SUCCESSFUL Record (recorder.go's NewRecorder
+// doc), so without this the same drifted file would silently "succeed"
+// again on every future retry, forever (U148-F01).
+func (c *converter) checkFloor(total int) error {
+	if c.entries > 0 {
+		return nil
+	}
+	switch {
+	case c.conversational > 0:
+		return fmt.Errorf("codex: read %d line(s) including %d response_item line(s) this adapter claims to understand, but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", total, c.conversational)
+	case c.malformed > 0 && c.malformed == total:
+		return fmt.Errorf("codex: all %d line(s) failed to parse as JSON — not a rollout this build can read", total)
+	}
+	return nil
 }
 
 // scanSessionInfo makes one pass over every line looking for the three
@@ -207,6 +234,16 @@ func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
 type converter struct {
 	record  func(agent.ChatEvent) error
 	pending *agent.TurnMeta
+
+	// Import accounting, read by checkFloor once the stream is done — mirrors
+	// claude's identically-named fields (claude/session.go's converter doc
+	// comment): how many response_item/event_msg lines this adapter claims to
+	// understand (recognized envelope Type, whatever its sub-variant), how
+	// many canonical entries actually came out, and how many lines failed to
+	// parse as JSON at all.
+	conversational int
+	malformed      int
+	entries        int
 }
 
 // flushPending records a still-open Complete boundary at end of file (a
@@ -242,10 +279,12 @@ func (c *converter) handleResponseItem(raw json.RawMessage) error {
 	default:
 		return nil // an unmodeled/future response_item variant: skip, not fatal
 	}
+	c.conversational++
 	for _, ev := range evs {
 		if err := c.record(ev); err != nil {
 			return err
 		}
+		c.entries++
 	}
 	return nil
 }
@@ -370,7 +409,17 @@ func joinSummaryText(items []json.RawMessage) string {
 // functionCallEvents maps a "function_call" response_item to exactly one
 // tool_use entry.
 func functionCallEvents(p responseItemPayload) []agent.ChatEvent {
-	return []agent.ChatEvent{importer.ToolUseEvent(p.Name, p.CallID, argumentsToRaw(p.Arguments))}
+	input := argumentsToRaw(p.Arguments)
+	// U148-F02: ToolUseEvent (unlike TextEntry) always returns a populated
+	// event, even when name/call_id/input all decoded empty — a fully
+	// drifted function_call payload would otherwise still emit a hollow
+	// tool_use entry, breaking the emptiness discipline TextEntry enforces
+	// for the message/reasoning sibling paths. Nothing recognizable at all:
+	// contribute nothing, same as an unmodeled response_item variant.
+	if p.Name == "" && p.CallID == "" && len(input) == 0 {
+		return nil
+	}
+	return []agent.ChatEvent{importer.ToolUseEvent(p.Name, p.CallID, input)}
 }
 
 // argumentsToRaw converts function_call's `arguments` field — documented and
@@ -407,5 +456,11 @@ func argumentsToRaw(args string) json.RawMessage {
 // This adapter does not fabricate a boolean from prose — an honest gap, not
 // a silent guess.
 func functionCallOutputEvents(p responseItemPayload) []agent.ChatEvent {
+	// U148-F02: mirror functionCallEvents' emptiness discipline — a
+	// call_id-less, output-less function_call_output is nothing recognizable,
+	// not a hollow tool_result to emit anyway.
+	if p.CallID == "" && p.Output == "" {
+		return nil
+	}
 	return []agent.ChatEvent{importer.ToolResultEvent(p.CallID, p.Output, false)}
 }

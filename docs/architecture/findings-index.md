@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **353** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 6 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **370** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 7 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 4 |
-| `open` | no commit names this ID | **1,895** |
+| `open` | no commit names this ID | **1,877** |
 
-**Totals: 2268 findings across 162 units — 353 resolved, 1895 still open, 21 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
+**Totals: 2268 findings across 162 units — 370 resolved, 1877 still open, 21 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -97,10 +97,34 @@ but fixed at its source too — `853caf35`), U107-F01 (companionloadout's
 loadout wire contract's subcommand/flag/format-value strings, shared as
 exported constants — `850dd642`). Recounted: RESOLVED 349->353, open
 1899->1895, HIGH resolved 202->206.
+Updated again 2026-07-27 during the trust-flow batch (`flow/trust-wave1`):
+30 open HIGH rows across U043/U086/U088/U089/U093/U094/U095/U131/U134/U135
+(the publisher-signs -> delivered-or-retracted flow), extracted from the unit
+.md files matching BOTH plain `HIGH` and bolded `**HIGH**` in the Severity
+column (18 rows had already been marked RESOLVED/PARTIAL against this same
+census by an earlier sweep — U043-F02/F03, U134-F01, U136-F01..F05,
+U137-F01/F02/F03/F04/F08, U150-F01..F05 — leaving 30 open). Of the 30: 14
+fixed this wave with a red-then-green test each (U089-F01 1a27dd9c,
+U094-F05 93beec3b, U134-F04 b4b2385f, U134-F03 42c1e2ba, U135-F01/F03
+c4c4ff16, U135-F02 abcd14c6, U095-F01+U086-F07 d556ec56, U093-F01 ae02bb16,
+U093-F02 5b68d6ee, U095-F03 d3e29524, U089-F03 c6bdca23, U094-F02 deee1e67);
+3 were ALREADY FIXED under a different ID/commit, never cross-referenced
+(U134-F02 = T4 @ 28f723a6; U094-F16 = U150-F04 @ 6b265cf5; U094-F19 =
+U081-F08 @ 5482f836); 1 PARTIAL (U095-F02 = U150-F04 @ 6b265cf5: the
+unparseable-manifest half is fixed, the fetch-failure-ambiguity half is the
+SAME already-ESCALATED three-valued-determination decision DECISIONS.md
+records for U150-F04 — ESCALATED once, not re-decided here). 12 rows remain
+open, deliberately not fixed this wave — see the batch's own report and
+DECISIONS.md for why each was deferred (U043-F01; U086-F17/F18; U088-F01
+shares U095-F02's PAUSE-tier root cause and U088-F02/F03/F04; U093-F04;
+U131-F01/F02/F04 — the last three need an Upgrader.Apply signature change
+propagated across ~5 production call sites and ~30 test call sites in 4
+packages, out of scope for this wave's remaining budget). Recounted:
+RESOLVED 353->370, PARTIAL 6->7, open 1895->1877, HIGH resolved 206->223.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 206 | 170 (+6 refuted, +2 escalated, +6 partial) |
+| HIGH | 376 | 223 | 152 (+6 refuted, +2 escalated, +7 partial) |
 | MED | 999 | 41 | 956 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -397,7 +421,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U085-F04 | **RESOLVED** `d21a765d` | `profile_transfer.go:109-131` | SILENTNOOP | `ImportProfile` imports an empty or comment-only file as a valid profile (`Status: "imported"`), by the same yaml.v3 hole; `ExportProfile:72-83` likewise copies a 0-byte profile out without complaint. | U085.md |
 | U085-F05 | open | `profile_materialize.go:91-94, 145` | SILENTNOOP | An assembled context of `""` is never floored: materialize writes the whole native surface tree (settings, MCP, commands, skills) with **no context payload** and reports success. The artifact is me... | U085.md |
 | U085-F06 | **RESOLVED** `6b4e275e` | **`oneshot.go:452-482`** | SILENTNOOP | Exit 0 with empty stdout is reported as a successful run: `Output: ""` propagates into `WeaveResult.Report`, `Part.Output` and the delegated child's assistant entry with no error anywhere. This is ... | U085.md |
-| U086-F07 | open | `remotes.go:827 (also :718)` | CORRECTNESS | A degenerate remote URL causes `os.RemoveAll` of **the entire clone cache root**, and both reachable call sites drop or downgrade the error so the user is told the remote was "added" | U086.md |
+| U086-F07 | **RESOLVED** `d556ec56` | `remotes.go:827 (also :718)` | CORRECTNESS | A degenerate remote URL causes `os.RemoveAll` of **the entire clone cache root**, and both reachable call sites drop or downgrade the error so the user is told the remote was "added" | U086.md |
 | U086-F17 | open | `resume.go:16, 41` | SILENTNOOP | A resume whose recorded transcript yields zero main-thread entries succeeds while priming **zero bytes** of history, and no call site notices | U086.md |
 | U086-F18 | open | `resume.go:63-70` | SILENTNOOP | The 32 KiB tail budget can drop **100% of the history** while still emitting a block that announces history follows | U086.md |
 | U087-F02 | **REFUTED** `5cd9bf90` | **`sign.go:140-153`** | SILENTNOOP | `SignBundleFile` will happily sign a **zero-byte bundle file** and report success, producing a `.sig` that verifies over nothing. | U087.md |
@@ -410,25 +434,25 @@ Full evidence and the suggested action for any row live in its source review at 
 | U088-F02 | open | `task_triggers_query.go:241-245, 304-306` | SILENTNOOP | **A non-glob `path_glob` naming a hidden directory searches ZERO files and reports "no matches" — positive evidence of absence for a search that never ran.** | U088.md |
 | U088-F03 | open | `task_triggers.go:646-670 + 290-299` | CORRECTNESS | **Round-2 fallback verdicts ARE written to the verdict cache, contradicting the invariant documented at task_triggers.go:113-115** ("Degraded/cannot-determine fallback verdicts are never written to... | U088.md |
 | U088-F04 | open | `tooling.go:112-114` | SILENTNOOP | **`ScaffoldContainerBase` reports success while writing nothing when `isolation_base_containerfile` points at a file that does not exist.** | U088.md |
-| U089-F01 | open | **`upgrade.go:65`** | CORRECTNESS | `ctxloom remote upgrade` **silently un-retracts every non-held bundle**, violating an invariant documented on the field itself. | U089.md |
+| U089-F01 | **RESOLVED** `1a27dd9c` | **`upgrade.go:65`** | CORRECTNESS | `ctxloom remote upgrade` **silently un-retracts every non-held bundle**, violating an invariant documented on the field itself. | U089.md |
 | U089-F02 | open | **`upgrade.go:56-93`** | SILENTNOOP | An **empty proposed closure wipes lock.yaml and reports success** — exit 0, "Everything is up to date.", all pins destroyed. | U089.md |
-| U089-F03 | open | `vendorimport.go:122-145, vendorimport_backfill.go:47-48` | SILENTNOOP | `session backfill` reports **"converted: `<harp>`"** for sessions where zero canonical bytes were written. | U089.md |
+| U089-F03 | **RESOLVED** `c6bdca23` | `vendorimport.go:122-145, vendorimport_backfill.go:47-48` | SILENTNOOP | `session backfill` reports **"converted: `<harp>`"** for sessions where zero canonical bytes were written. | U089.md |
 | U090-F01 | open | **`paths.go:182 (`HarpDir`)`** | CORRECTNESS | `HarpDir` accepts an unvalidated harp: `""` silently aliases the **sessions root**, and a harp containing `/` or `..` escapes it. The invariant is enforced downstream in only ~half the call sites, ... | U090.md |
 | U091-F01 | **RESOLVED** `e28fa43e` | **`profiles.go:599-604, 753-865`** | SILENTNOOP | A zero-byte, `{}`, fully-commented-out, or key-with-no-items profile resolves with `err=nil` to a completely empty `ResolvedProfile` and records **zero** strictness findings — a session launched on... | U091.md |
 | U091-F02 | **RESOLVED** `065fbcbd` | **`profiles.go:780-829 (`cloneVisited` at 790, `l.Load` at 748)`** | COMPLEXITY | Parent resolution is **exponential and unmemoized**: every parent branch gets a cloned `visited` map, so a shared ancestor is re-`Load`ed (re-read from disk, re-run through the 3-stage upgrade pipe... | U091.md |
 | U092-F01 | open | **`worktree.go:89-95`** | CORRECTNESS | **`MainRoot` is silently wrong for a linked worktree of a bare clone or a `--separate-git-dir` repo.** The derivation assumes the common dir is named `.git` and sits inside the main worktree. When ... | U092.md |
 | U092-F02 | open | `projectroot.go:85-88` | CORRECTNESS | **`WorkDir` can return `"."`** — a relative path — where its three other branches return cleaned absolute paths and all 8 callers treat the result as a stable project root. Nothing in the signature... | U092.md |
 | U092-F03 | open | `projectroot.go:78-106 vs `internal/taskloom/workdir/workdir.go:32-121` | DUPLICATE | **The resolution chain is implemented three times.** `WorkDir`, `RootFromFallback`, and `taskloom/workdir.resolveBase` each independently encode `CTXLOOM_ROOT → git root → cwd → "."`, with a duplic... | U092.md |
-| U093-F01 | open | **`bundle_reader.go:185; fetch_ref.go:26`** | SILENTNOOP | An empty `entry.SHA` silently converts a *pinned* read into a *latest* read — the pin, which is the security control, evaporates with no error. | U093.md |
-| U093-F02 | open | **`lockfile.go:66-101`** | SILENTNOOP | A present-but-empty `lock.yaml` loads as a valid empty lockfile with a nil error, and every remote bundle then vanishes from the session with no diagnostic. | U093.md |
+| U093-F01 | **RESOLVED** `ae02bb16` | **`bundle_reader.go:185; fetch_ref.go:26`** | SILENTNOOP | An empty `entry.SHA` silently converts a *pinned* read into a *latest* read — the pin, which is the security control, evaporates with no error. | U093.md |
+| U093-F02 | **RESOLVED** `5b68d6ee` | **`lockfile.go:66-101`** | SILENTNOOP | A present-but-empty `lock.yaml` loads as a valid empty lockfile with a nil error, and every remote bundle then vanishes from the session with no diagnostic. | U093.md |
 | U093-F04 | open | `detect.go:66-86` | CORRECTNESS | `DetectForge` rejects scp-style SSH URLs that the rest of the package documents and accepts, so a bundle whose lockfile key uses that form cannot be read at all. | U093.md |
-| U094-F02 | open | **`publish.go:201-211, 274-279, 331`** | SILENTNOOP | Publishing a **0-byte** bundle file succeeds, overwrites the remote bundle with nothing, and produces a **valid publisher signature over zero bytes**. | U094.md |
-| U094-F05 | open | **`pull.go:367, 374-376`** | SILENTNOOP | A lockfile save failure is demoted to a printed warning while `Pull` returns success — for bundles the lockfile is the **only** on-disk record, so the pull persists nothing and reports a `SHA` and ... | U094.md |
-| U094-F16 | open | **`pull.go:314, 211`** | ERRHANDLING / CORRECTNESS | The retraction check **fails open**: any failure to obtain or parse the remote manifest is indistinguishable from "not retracted", and `confirmRetraction` additionally discards the error. | U094.md |
-| U094-F19 | open | `reference.go:493-530, 577-583` | CORRECTNESS | `Reference.LocalRemoteName` can return a path containing `..`, and `Reference.LocalPath` joins it under the app dir with **no containment check** — so a ref whose URL carries traversal produces an ... | U094.md |
-| U095-F01 | open | `repo_cache.go:292-310, :127` | CORRECTNESS | `safeRepoPath` uses `c.baseDir` as its "unsafe" sentinel; the caller immediately `os.RemoveAll`s the returned path, so a degenerate repo URL **deletes the entire clone cache**. A bare-host URL dele... | U095.md |
-| U095-F02 | open | `retract.go:12-44` | CORRECTNESS | `CheckRetracted` **can never return a non-nil error**: a failed default-branch lookup (:15), a failed manifest fetch (:21) and a malformed manifest (:27) all return `(false, "", nil)` — indistingui... | U095.md |
-| U095-F03 | open | `vcs.go:213-215, :217-227` | SILENTNOOP | `fsVCS.ListItems` swallows the `afero.DirExists` error and every per-file walk error, so an unreadable/permission-denied local content directory reports "no items" with success. | U095.md |
+| U094-F02 | **RESOLVED** `deee1e67` | **`publish.go:201-211, 274-279, 331`** | SILENTNOOP | Publishing a **0-byte** bundle file succeeds, overwrites the remote bundle with nothing, and produces a **valid publisher signature over zero bytes**. | U094.md |
+| U094-F05 | **RESOLVED** `93beec3b` | **`pull.go:367, 374-376`** | SILENTNOOP | A lockfile save failure is demoted to a printed warning while `Pull` returns success — for bundles the lockfile is the **only** on-disk record, so the pull persists nothing and reports a `SHA` and ... | U094.md |
+| U094-F16 | **RESOLVED** `6b265cf5` | **`pull.go:314, 211`** | ERRHANDLING / CORRECTNESS | The retraction check **fails open**: any failure to obtain or parse the remote manifest is indistinguishable from "not retracted", and `confirmRetraction` additionally discards the error. | U094.md |
+| U094-F19 | **RESOLVED** `5482f836` | `reference.go:493-530, 577-583` | CORRECTNESS | `Reference.LocalRemoteName` can return a path containing `..`, and `Reference.LocalPath` joins it under the app dir with **no containment check** — so a ref whose URL carries traversal produces an ... | U094.md |
+| U095-F01 | **RESOLVED** `d556ec56` | `repo_cache.go:292-310, :127` | CORRECTNESS | `safeRepoPath` uses `c.baseDir` as its "unsafe" sentinel; the caller immediately `os.RemoveAll`s the returned path, so a degenerate repo URL **deletes the entire clone cache**. A bare-host URL dele... | U095.md |
+| U095-F02 | **PARTIAL** `6b265cf5` | `retract.go:12-44` | CORRECTNESS | `CheckRetracted` **can never return a non-nil error**: a failed default-branch lookup (:15), a failed manifest fetch (:21) and a malformed manifest (:27) all return `(false, "", nil)` — indistingui... | U095.md |
+| U095-F03 | **RESOLVED** `d3e29524` | `vcs.go:213-215, :217-227` | SILENTNOOP | `fsVCS.ListItems` swallows the `afero.DirExists` error and every per-file walk error, so an unreadable/permission-denied local content directory reports "no items" with success. | U095.md |
 | U096-F01 | open | **`schema.go:21,37` (contract); `config/config.go:1158-1162,1485`; `taskloom/config/config.go:322`** | SILENTNOOP | A schema **compile failure degrades to "everything is valid"** — the answer to the brief's question is yes, in three places, and one of them discards the error entirely. | U096.md |
 | U096-F02 | open | **`schema.go:105` vs `config/unknown_keys.go:173-227`** | DUPLICATE | `config.knownKeysAt` + `configSchemaDocument` re-implement this package's walker against the **raw** JSON and get it wrong; ~55 lines are deletable. | U096.md |
 | U096-F03 | open | **`schema.go:132`** | CORRECTNESS | `convertToJSON` is a no-op deep copy that **misses the only two conversions it exists to perform**, and the resulting error is not a `*jsonschema.ValidationError`, silently defeating the config pac... | U096.md |
@@ -494,12 +518,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U132-F03 | open | **`watch.go:52`** | SILENTNOOP | **`New` creates the directory it was asked to watch.** A nonexistent, typo'd, or wrongly-resolved root therefore produces a healthy watcher on an empty directory that streams zero events forever, a... | U132.md |
 | U133-F01 | **RESOLVED** `40b49a7f` | **`hooks.go:38` (+ `internal/lm/grpc/llm.proto:447-455`, `internal/lm/grpc/managed.go:91-115`)`** | SILENTNOOP | `Hook.PreToolFallback` does not survive the gRPC round-trip, so on the `ctxloom run` path an antigravity fallback hook is delivered with the flag cleared and therefore never registered — and the de... | U133.md |
 | U134-F01 | **RESOLVED** `5cd9bf90` | **`sign.go:29`** | SILENTNOOP | `Sign` signs a zero-byte payload and reports success. **Confirms** the `operations.SignBundleFile` finding — there is no floor in `SignBundleFile` *and none in `signing.Sign`.* | U134.md |
-| U134-F02 | open | `payload.go:56` + `internal/bundles/loader_skills.go:105` | CORRECTNESS | **Confirmed independently.** A manifest-less skill's preimage is the constant `{"preimage":"ctxloom-exec/1","manifest":[]}`, invariant under every byte in the skill's tree — and the integrity check... | U134.md |
-| U134-F03 | open | `loadout.go:59`, `loadout.go:97` | SILENTNOOP | The loadout envelope has no payload floor on either side: an empty bundle encodes to a well-formed envelope, and decodes to `(zero bytes, verifiedPrincipal, nil)`. | U134.md |
-| U134-F04 | open | `publisher.go:116-120` | ERRHANDLING | With `root == nil`, `VerifyPublisher` returns `("", nil)` — "unsigned" — for **every** input, including a structurally invalid blob. That is precisely the signed→unsigned downgrade the package's ow... | U134.md |
-| U135-F01 | open | `351-357, 274-285, 370-373` | ERRHANDLING | ssh-agent I/O failures are converted into confident negatives — the exact "error squashed into a negative answer" pattern. Three sites. | U135.md |
-| U135-F02 | open | `402-415` | CORRECTNESS | The `.pub`-sibling fallback cannot fire for the case its own comment names, so the zero-config git path breaks for a common real setup — and private key bytes are slurped into memory in the process. | U135.md |
-| U135-F03 | open | `499 + 307-317` | ERRHANDLING | A swallowed `ag.List()` error silently disables comment matching entirely, turning an agent RPC failure into "no ssh-agent identity comment matches %q". | U135.md |
+| U134-F02 | **RESOLVED** `28f723a6` | `payload.go:56` + `internal/bundles/loader_skills.go:105` | CORRECTNESS | **Confirmed independently.** A manifest-less skill's preimage is the constant `{"preimage":"ctxloom-exec/1","manifest":[]}`, invariant under every byte in the skill's tree — and the integrity check... | U134.md |
+| U134-F03 | **RESOLVED** `42c1e2ba` | `loadout.go:59`, `loadout.go:97` | SILENTNOOP | The loadout envelope has no payload floor on either side: an empty bundle encodes to a well-formed envelope, and decodes to `(zero bytes, verifiedPrincipal, nil)`. | U134.md |
+| U134-F04 | **RESOLVED** `b4b2385f` | `publisher.go:116-120` | ERRHANDLING | With `root == nil`, `VerifyPublisher` returns `("", nil)` — "unsigned" — for **every** input, including a structurally invalid blob. That is precisely the signed→unsigned downgrade the package's ow... | U134.md |
+| U135-F01 | **RESOLVED** `c4c4ff16` | `351-357, 274-285, 370-373` | ERRHANDLING | ssh-agent I/O failures are converted into confident negatives — the exact "error squashed into a negative answer" pattern. Three sites. | U135.md |
+| U135-F02 | **RESOLVED** `abcd14c6` | `402-415` | CORRECTNESS | The `.pub`-sibling fallback cannot fire for the case its own comment names, so the zero-config git path breaks for a common real setup — and private key bytes are slurped into memory in the process. | U135.md |
+| U135-F03 | **RESOLVED** `c4c4ff16` | `499 + 307-317` | ERRHANDLING | A swallowed `ag.List()` error silently disables comment matching entirely, turning an agent RPC failure into "no ssh-agent identity comment matches %q". | U135.md |
 | U136-F01 | **RESOLVED** `eba5fc65` | `write.go:21-30` | SILENTNOOP | `FormatEntry` accepts a principal containing whitespace and emits a line that `Parse` rejects on every subsequent read — `signer add` reports success and a fingerprint while delivering zero trust. | U136.md |
 | U136-F02 | **RESOLVED** `eba5fc65` | `write.go:63-66` | CORRECTNESS | `FormatEntry` writes `Comment` verbatim, so a newline in it makes the function emit **two** `allowed_signers` lines — appending a second fully-trusted signer the CLI's confirmation prompt never dis... | U136.md |
 | U136-F03 | **RESOLVED** `eba5fc65` | **`parse.go:58`** | ERRHANDLING | `Parse`'s `[]*ParseError` is a *droppable* second return value, and 2 of 4 production call sites drop it with `_` — so a malformed line silently revokes a signer nobody revoked, with no diagnostic ... | U136.md |

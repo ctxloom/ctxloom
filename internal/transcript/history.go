@@ -60,6 +60,21 @@ func NewCanonicalHistory(workDir string, store sessions.Store) *CanonicalHistory
 	return &CanonicalHistory{workDir: workDir, store: store}
 }
 
+// NoCanonicalTranscriptError reports that harpName has no captured canonical
+// transcript on disk — GetSession's os.IsNotExist case. It is a distinct type
+// (not a bare fmt.Errorf) so a caller several layers up (e.g. the
+// recover_session MCP handler) can errors.As it to extract the harp and
+// produce an actionable message, rather than pattern-matching the error text.
+// Error() keeps the original wording so existing callers that only check for
+// "an error" (never the text) see no behavior change.
+type NoCanonicalTranscriptError struct {
+	Harp string
+}
+
+func (e *NoCanonicalTranscriptError) Error() string {
+	return fmt.Sprintf("transcript: no canonical transcript captured for harp %q", e.Harp)
+}
+
 // GetSession materializes harpName's canonical transcript. harpName IS the
 // lookup key — there is no separate backend-native session id to resolve, the
 // exact simplification the canonical schema buys (every line already carries
@@ -80,7 +95,7 @@ func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agen
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		if os.IsNotExist(statErr) {
-			return nil, fmt.Errorf("transcript: no canonical transcript captured for harp %q", harpName)
+			return nil, &NoCanonicalTranscriptError{Harp: harpName}
 		}
 		return nil, fmt.Errorf("transcript: stat %s: %w", path, statErr)
 	}

@@ -286,9 +286,13 @@ var excludedLeaves = map[string]string{
 // uncovered — a real gap, not a documented, accepted one — and show RED
 // below rather than being quietly excluded. Tracked as a follow-up (Phase 0
 // only fixes the gate; it doesn't backfill the missing scenarios).
-var excludedTools = map[string]string{
-	"recover_session": "resolves the most-recent backend session; requires a real backend transcript",
-}
+//
+// recover_session used to be listed here too ("requires a real backend
+// transcript"), which was also unearned: a MOCK backend plus a directly
+// seeded canonical transcript.jsonl (see steps_recover_session.go) reaches it
+// hermetically, no real backend needed. quit-eagle's flow-level regression
+// scenario in mcp_tools.feature now drives it for real — pruned.
+var excludedTools = map[string]string{}
 
 // excludedTemplates are resource templates with no hermetic scenario. Currently
 // none — every templated resource is exercised, including remotes/{name}/contents

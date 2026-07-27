@@ -839,6 +839,127 @@ func TestCompact_MultiChunk_RunsReducePassUnderThreshold(t *testing.T) {
 	assert.True(t, sawReduce, "reduce pass must run for multi-chunk sessions even when combined output is under ChunkSize")
 }
 
+// TestCompact_EnforcesMaxEssenceChars pins quit-eagle requirement 1: even a
+// "successful" distillation pipeline (every LLM call exits 0) must never save
+// or return an essence body over the named MaxEssenceChars ceiling. Here the
+// reduce call itself exits 0 but its OWN output is oversized — a distinct
+// failure mode from "the reduce call errored" (covered by
+// TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined below): the
+// pipeline behaved, the model just didn't compress enough.
+func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
+	testsupport.Isolate(t)
+	tmpDir := t.TempDir()
+
+	big := strings.Repeat("the session worked through many decisions and edits. ", 200)
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "oversized-reduce-session",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: big},
+				{Type: agent.EntryTypeAssistant, Content: big},
+			},
+		},
+	}}
+
+	oversized := strings.Repeat("z", MaxEssenceChars+1)
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			if strings.Contains(req.Prompt.Content, sessionDistillReducePrompt) {
+				// Reduce "succeeds" (exit 0) but its own output is over the bound.
+				_, _ = stdout.Write([]byte(oversized))
+				return 0, nil
+			}
+			_, _ = stdout.Write([]byte("small chunk summary"))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+		ChunkSize:       50, // 200 chars/chunk → many chunks, so reduce runs
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.Error(t, err, "an essence over the MaxEssenceChars bound must fail loud, not save")
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), fmt.Sprintf("%d", MaxEssenceChars),
+		"the error must name the ceiling constant, not a magic number")
+
+	// Nothing must have been written for this session — a refusal must never
+	// leave the oversized body on disk either.
+	entries, rerr := os.ReadDir(tmpDir)
+	require.NoError(t, rerr)
+	for _, e := range entries {
+		data, rerr := os.ReadFile(filepath.Join(tmpDir, e.Name()))
+		require.NoError(t, rerr)
+		assert.NotContains(t, string(data), oversized[:1000], "refused essence must not have been written to disk")
+	}
+}
+
+// TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined is the
+// fail-open REGRESSION test for quit-eagle: recover_session on session
+// sixth-moist-kite once returned a ~381,000-char essence because the reduce
+// pass failed and the OLD code unconditionally fell back to combined (the
+// concatenated, un-reduced per-chunk map output) — "a too-large summary beats
+// no summary". When that un-reduced combined text is itself over
+// MaxEssenceChars, returning it is indistinguishable from a raw-transcript
+// passthrough. Pin: on this failure, Compact must return an error, and the
+// raw combined text must never be saved or otherwise reach a caller.
+func TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined(t *testing.T) {
+	testsupport.Isolate(t)
+	tmpDir := t.TempDir()
+
+	// A marker unique to this test's map output, so a later "did the raw
+	// combined leak anywhere on disk" scan is unambiguous.
+	const chunkMarker = "QUIT-EAGLE-CHUNK-MARKER"
+	chunkOutput := chunkMarker + strings.Repeat("y", 5000)
+
+	big := strings.Repeat("the session worked through many decisions and edits. ", 400)
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "reduce-fails-session",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: big},
+				{Type: agent.EntryTypeAssistant, Content: big},
+			},
+		},
+	}}
+
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			if strings.Contains(req.Prompt.Content, sessionDistillReducePrompt) {
+				// The reduce call itself fails outright.
+				return 1, nil
+			}
+			_, _ = stdout.Write([]byte(chunkOutput))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+		ChunkSize:       50, // 200 chars/chunk → many chunks; combined » MaxEssenceChars
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.Error(t, err, "a failed reduce pass over an oversized combined must fail loud, never fall back to raw combined")
+	assert.Nil(t, result)
+
+	entries, rerr := os.ReadDir(tmpDir)
+	require.NoError(t, rerr)
+	for _, e := range entries {
+		data, rerr := os.ReadFile(filepath.Join(tmpDir, e.Name()))
+		require.NoError(t, rerr)
+		assert.NotContains(t, string(data), chunkMarker, "the raw, un-reduced combined text must never be saved or returned")
+	}
+}
+
 // TestCompact_DeliversSystemPromptUnderSkipSetup pins the fragment-delivery
 // fix: distillation runs with SkipSetup, and the server only hands req.Fragments
 // to the backend through Setup — which SkipSetup bypasses. So the distill
@@ -1470,7 +1591,8 @@ func TestCompactor_FinalCompressionPass_UsesReducePrompt(t *testing.T) {
 		clientFactory: pb.MockClientFactory(mock),
 	}
 
-	out := c.finalCompressionPass(context.Background(), "partial one\n---\npartial two")
+	out, err := c.finalCompressionPass(context.Background(), "partial one\n---\npartial two")
+	require.NoError(t, err)
 	assert.Equal(t, "merged essence", out)
 	assert.Contains(t, gotPrompt, sessionDistillReducePrompt, "final pass must use the reduce prompt")
 	assert.NotContains(t, gotPrompt, sessionDistillPrompt, "final pass must not reuse the map prompt")

@@ -41,6 +41,11 @@ func newTestIdentity(t *testing.T, comment string) (ssh.Signer, string) {
 type fakeAgent struct {
 	signers  []ssh.Signer
 	comments []string
+	// signersErr, when set, makes Signers() fail — simulating an ssh-agent
+	// RPC/protocol failure (agent locked via `ssh-add -x`, a wedged socket)
+	// distinct from "the agent is reachable but does not hold this key"
+	// (U135-F01/F03).
+	signersErr error
 }
 
 func (f *fakeAgent) List() ([]*agent.Key, error) {
@@ -62,7 +67,12 @@ func (f *fakeAgent) Remove(key ssh.PublicKey) error { return errors.New("not use
 func (f *fakeAgent) RemoveAll() error               { return errors.New("not used") }
 func (f *fakeAgent) Lock(passphrase []byte) error   { return errors.New("not used") }
 func (f *fakeAgent) Unlock(passphrase []byte) error { return errors.New("not used") }
-func (f *fakeAgent) Signers() ([]ssh.Signer, error) { return f.signers, nil }
+func (f *fakeAgent) Signers() ([]ssh.Signer, error) {
+	if f.signersErr != nil {
+		return nil, f.signersErr
+	}
+	return f.signers, nil
+}
 
 func discovererWithAgent(ag agent.Agent, gitSigningKey string, gitErr error) *Discoverer {
 	return &Discoverer{
@@ -173,6 +183,46 @@ func TestDiscover_GitNamesKeyNotLoadedInAgent_HardError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no signing key found")
 }
 
+// U135-F01(a): an ssh-agent RPC/protocol failure (agent locked, wedged
+// socket) while resolving a git-named key must NOT be reported as "it is not
+// loaded in ssh-agent — ssh-add it" — that message tells the user to load a
+// key that IS loaded; the agent just could not be asked. The real cause
+// (findByPublicKey's listing failure) must reach the user.
+func TestDiscover_GitSigningKey_AgentListingFailure_NotMisreportedAsNotLoaded(t *testing.T) {
+	_, namedLine := newTestIdentity(t, "named")
+	ag := &fakeAgent{signersErr: errAgentLockedSentinel}
+
+	d := discovererWithAgent(ag, namedLine, nil)
+
+	_, err := d.Discover(context.Background(), "")
+	require.Error(t, err)
+	var noKeyErr *NoKeyError
+	require.ErrorAs(t, err, &noKeyErr)
+	assert.Contains(t, noKeyErr.Detail, "agent locked",
+		"the real listing failure must reach the user, not a generic 'not loaded' guess")
+	assert.NotContains(t, noKeyErr.Detail, "ssh-add it",
+		"telling the user to ssh-add a key that IS loaded (the agent just could not be asked) sends them to fix the wrong thing")
+}
+
+// U135-F01(c): the same listing-failure distinction for step 3 of the chain
+// (the sole-agent-identity fallback, no git config, no --key). The underlying
+// cause must also be reachable via errors.Is/As, not flattened into a Detail
+// string nobody outside this package can match on.
+var errAgentLockedSentinel = errors.New("agent locked")
+
+func TestDiscover_SoleAgentIdentity_AgentListingFailure_SurfacesRealCause(t *testing.T) {
+	ag := &fakeAgent{signersErr: errAgentLockedSentinel}
+	d := discovererWithAgent(ag, "", nil)
+
+	_, err := d.Discover(context.Background(), "")
+	require.Error(t, err)
+	var noKeyErr *NoKeyError
+	require.ErrorAs(t, err, &noKeyErr)
+	assert.Contains(t, noKeyErr.Detail, "agent locked")
+	assert.ErrorIs(t, err, errAgentLockedSentinel,
+		"the underlying cause must be reachable via errors.Is, not flattened into a string nobody can match on")
+}
+
 func TestDiscover_NoAgentRunning_GitNamesKey_HardError(t *testing.T) {
 	_, namedLine := newTestIdentity(t, "named")
 	d := &Discoverer{
@@ -276,6 +326,22 @@ func TestDiscover_ExplicitKeyName_NoMatch_ClearError(t *testing.T) {
 	var ambigErr *AmbiguousKeyNameError
 	assert.False(t, errors.As(err, &ambigErr), "a zero-match name must not be reported as ambiguous")
 	assert.Contains(t, err.Error(), "nobody-here")
+}
+
+// U135-F01(b): a --key NAME that falls through to the comment-matching
+// fallback, on an agent whose Signers() listing itself fails (not merely
+// "no comment matched"), must surface that real cause — resolveByComment's
+// "listing ssh-agent identities: <rpc err>" was silently dropped by
+// resolveExplicit unless it was an *AmbiguousKeyNameError, replaced by the
+// generic "not a recognized fingerprint, public key, or ssh-agent key name".
+func TestDiscover_ExplicitKeyName_AgentListingFailure_SurfacesRealCause(t *testing.T) {
+	ag := &fakeAgent{signersErr: errAgentLockedSentinel}
+	d := discovererWithAgent(ag, "", nil)
+
+	_, err := d.Discover(context.Background(), "nobody-here")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent locked",
+		"the real ssh-agent listing failure must reach the user, not just a generic 'not recognized' message")
 }
 
 // TestDiscover_ExplicitKeyName_EmptyCommentNeverMatched: a key with no

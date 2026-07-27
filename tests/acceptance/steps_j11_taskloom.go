@@ -96,11 +96,10 @@ func registerJ11Steps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return fmt.Errorf("add task %q: %w: %s", name, err, stderr)
 			}
-			fields := strings.SplitN(strings.TrimSpace(out), "\t", 2)
-			if len(fields) == 0 || fields[0] == "" {
-				return fmt.Errorf("add task %q: could not parse harp id from output %q", name, out)
+			harpID, perr := parseTaskloomAddHarp(out)
+			if perr != nil {
+				return fmt.Errorf("add task %q: %w", name, perr)
 			}
-			harpID := fields[0]
 			j11.harpByName[name] = harpID
 			j11.nameByHarp[harpID] = name
 		}
@@ -196,11 +195,11 @@ func registerJ11Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("add task: %w: %s", err, stderr)
 		}
-		fields := strings.SplitN(strings.TrimSpace(out), "\t", 2)
-		if len(fields) == 0 || fields[0] == "" {
-			return fmt.Errorf("add task: could not parse harp id from output %q", out)
+		harpID, perr := parseTaskloomAddHarp(out)
+		if perr != nil {
+			return fmt.Errorf("add task: %w", perr)
 		}
-		j11.harp = fields[0]
+		j11.harp = harpID
 		return j11.snapshotTaskLog(w)
 	})
 
@@ -553,6 +552,18 @@ func j11ToolDetail(w *World, toolName string) (*testenv.ToolDetail, error) {
 		names[i] = t.Name
 	}
 	return nil, fmt.Errorf("tool %q not found; available: %v", toolName, names)
+}
+
+// parseTaskloomAddHarp extracts the harp id `taskloom add` printed to
+// stdout — its first tab-separated field. Shared by both "taskloom has
+// tasks:" (a table of several) and "taskloom adds a task ..." (a single
+// one), which previously duplicated this verbatim (U159-F10).
+func parseTaskloomAddHarp(out string) (string, error) {
+	fields := strings.SplitN(strings.TrimSpace(out), "\t", 2)
+	if len(fields) == 0 || fields[0] == "" {
+		return "", fmt.Errorf("could not parse harp id from output %q", out)
+	}
+	return fields[0], nil
 }
 
 // splitCSV splits a comma-separated cell value into trimmed, non-empty

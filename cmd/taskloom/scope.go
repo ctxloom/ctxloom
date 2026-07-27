@@ -53,7 +53,7 @@ type compactTaskRow struct {
 func compactRows(rows []taskRow) []compactTaskRow {
 	out := make([]compactTaskRow, len(rows))
 	for i, r := range rows {
-		out[i] = compactTaskRow{CompactTask: r.Task.Compact(), ProjectID: r.ProjectID, ProjectDir: r.ProjectDir}
+		out[i] = compactTaskRow{CompactTask: r.Compact(), ProjectID: r.ProjectID, ProjectDir: r.ProjectDir}
 	}
 	return out
 }

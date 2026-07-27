@@ -217,8 +217,6 @@ func countRead(reads []TraceRead, path, syscall, result string) int {
 	return n
 }
 
-func containsArg(args []string, want string) bool { return argIndex(args, want) >= 0 }
-
 func argIndex(args []string, want string) int {
 	for i, a := range args {
 		if a == want {

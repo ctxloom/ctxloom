@@ -20,18 +20,16 @@ import (
 // CTXLOOM_MCP_SOCKET (no coordinator dial-home), there is nothing to share
 // with the container and no bridge to stand up — regardless of host OS.
 func TestContainerReachBackEnv_NoSocket_ReturnsNothing(t *testing.T) {
-	// t.Setenv("", "") would panic on an empty key; Unsetenv plus a t.Cleanup
-	// restore is the standard pattern for clearing (not just overriding) an
-	// AMBIENT var — this process may be running inside a real ctxloom
-	// session whose runner already exported CTXLOOM_MCP_SOCKET into this
-	// shell, and this test must isolate from that regardless.
-	prev, had := os.LookupEnv(mcpSocketEnvVar)
+	// t.Setenv registers a cleanup that restores whatever this process's
+	// environment held for mcpSocketEnvVar BEFORE this test touched it
+	// (Unsetenv, if it was unset) — that capture happens on this call, before
+	// we mutate anything further. This process may be running inside a real
+	// ctxloom session whose runner already exported CTXLOOM_MCP_SOCKET into
+	// this shell, so the test still isolates from that: it unsets the var
+	// again immediately below, and t.Setenv's cleanup restores the ORIGINAL
+	// (pre-test) state regardless of that later mutation.
+	t.Setenv(mcpSocketEnvVar, "unused-placeholder")
 	require.NoError(t, os.Unsetenv(mcpSocketEnvVar))
-	t.Cleanup(func() {
-		if had {
-			_ = os.Setenv(mcpSocketEnvVar, prev)
-		}
-	})
 
 	for _, goos := range []string{"linux", "darwin", "windows"} {
 		env, mounts, closeFn, err := containerReachBackEnv(isolation.Docker{}, goos)

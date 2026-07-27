@@ -20,19 +20,19 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **254** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **256** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,010** |
+| `open` | no commit names this ID | **2,008** |
 
-**Totals: 2268 findings across 162 units — 254 resolved, 2010 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 256 resolved, 2008 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 124 | 251 (+1 refuted) |
+| HIGH | 376 | 125 | 250 (+1 refuted) |
 | MED | 999 | 38 | 961 |
-| LOW | 871 | 92 | 776 (+3 partial/escalated) |
+| LOW | 871 | 93 | 775 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -476,7 +476,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U154-F02 | open | **`text.go:16`, `markdown.go:13`, `noderender.go:25`, `marshal.go:87`** | SILENTNOOP | Four distinct inputs render **zero bytes and return nil**: an all-`omitempty` struct (text and markdown), an empty scalar slice (text/markdown), and `nil` (toml). Same values produce `{}` / `null` ... | U154.md |
 | U156-F01 | open | **`main.go:40-47`** | CORRECTNESS | The MCP surface ctxloom **documents** and the MCP surface the acceptance suite **measures for completeness** are two different servers with different tool sets and different schemas — so the runner... | U156.md |
 | U157-F01 | open | **`render.go:207-216`** | SILENTNOOP | `stepIsAssertion` returns `false` when it cannot classify a step's governing keyword, and the doc endorses it: "A step whose keyword this generator can't classify (empty …) is treated as non-assert... | U157.md |
-| U158-F07 | open | `live_engine_registry.go:659,675,708,732,760` | SILENTNOOP | Every `copy*Credentials` function **succeeds while copying zero bytes** when the source is absent or unreadable: each `continue`s or `return`s on `os.ReadFile` error and every `os.WriteFile`/`Mkdir... | U158.md |
+| U158-F07 | **RESOLVED** `835be6a7` | `live_engine_registry.go:659,675,708,732,760` | SILENTNOOP | Every `copy*Credentials` function **succeeds while copying zero bytes** when the source is absent or unreadable: each `continue`s or `return`s on `os.ReadFile` error and every `os.WriteFile`/`Mkdir... | U158.md |
 | U158-F08 | **RESOLVED** `771a2b0b` | `steps_cli.go:86` | CORRECTNESS | `ctxloomArgs` splits the feature-file command line on **bare whitespace**, so the acceptance suite structurally cannot express a quoted argument, an argument containing spaces, or a flag whose valu... | U158.md |
 | U159-F01 | **RESOLVED** `932461df` | `steps_fixture.go:229-240` | SILENTNOOP | The `the mock LLM responds "…"` step calls `SetupMockLM`, whose `WriteConfig` **overwrites the project's config.yaml wholesale**, preserving only a top-level `profiles:` section — silently destroyi... | U159.md |
 | U159-F06 | **RESOLVED** `59d3626b` | `steps_j1_common.go:313-319` | SILENTNOOP | `promptSection` returns `""` when the `=== Prompt ===` marker is absent — a mock that recorded *something other than a prompt* (or a record-file format change) yields an empty prompt, and every one... | U159.md |
@@ -2343,7 +2343,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U158-F04 | open | `isolation_probe.go:635` | ERRHANDLING | `probeConfigYAML` indexes `liveAgents[key]` with no `ok` check; an unregistered engine yields a zero `liveAgent` and a config with an empty base, producing a confusing downstream failure rather tha... | U158.md |
 | U158-F05 | open | `isolation_probe.go:653` | DEAD | `probeWorkspaceFlag` has **zero call sites**; the two drivers hardcode `"worktree"` and `"none"` instead, so the documented axis→flag mapping is unenforced | U158.md |
 | U158-F10 | open | `steps_doc_capture.go:3-19` | CORRECTNESS | The package doc says the sidecar "is not wired into `just test-acceptance` or CI" — stale. `.github/workflows/docs.yml:77` runs `just -f justfile.container gen-living-docs`, which sets `CTXLOOM_DOC... | U158.md |
-| U158-F11 | open | `live_engine_registry.go:83` | CORRECTNESS | `liveAgent.copyCreds`'s doc says "nil for engines with no working live path today (codex)" — every registered engine now has a non-nil copier, codex included | U158.md |
+| U158-F11 | **RESOLVED** `835be6a7` | `live_engine_registry.go:83` | CORRECTNESS | `liveAgent.copyCreds`'s doc says "nil for engines with no working live path today (codex)" — every registered engine now has a non-nil copier, codex included | U158.md |
 | U158-F12 | open | `isolation_probe.go:1024 vs steps_isolation_probe.go:39` | CORRECTNESS | `probeSkip` always prints `authPath=no-credentials`, even for skips whose real resolved path is `seeded-from-host-file` (the forced-env-key scenario), so the printed report can misattribute why a c... | U158.md |
 | U159-F07 | open | `steps_j1_common.go:44` | DEAD | `(*j1Source).ref()` has zero call sites; the two places that need an item ref build it inline instead, so the canonical grammar this method names is not the one actually used | U159.md |
 | U159-F08 | open | `steps_j1_common.go:190` | TRIVIAL | `ensureProjectWithEngine` is a single pass-through expression | U159.md |

@@ -29,6 +29,38 @@ func TestLoadoutEnvelope_RoundTrip_Unsigned(t *testing.T) {
 	assert.Empty(t, signer, "unsigned loadout: empty verified signer")
 }
 
+// U134-F03: the loadout envelope had no payload floor on either side. An
+// empty bundle encoded to a well-formed-looking envelope, and — even worse —
+// an empty ENVELOPE (or one whose "bundle" field decodes to zero bytes)
+// decoded successfully to (zero bytes, "", nil): a companion malfunctioning
+// this way contributed nothing while looking exactly like a healthy,
+// successfully-decoded probe. In production this is currently caught one
+// layer up (companionloadout.Emit floors the encode side; bundles.ParseBundle
+// floors the decode side), but the primitive itself — the one place a FUTURE
+// caller (e.g. the org drop-in/MDM channel the trust model's Known Gap #7
+// describes) would also go through — had no floor of its own.
+func TestEncodeLoadoutEnvelope_RefusesEmptyBundle(t *testing.T) {
+	_, err := EncodeLoadoutEnvelope(nil, nil, "")
+	require.Error(t, err, "an empty bundle attests to nothing and must not encode as a well-formed envelope")
+}
+
+func TestDecodeLoadoutEnvelope_RefusesEnvelopeDecodingToEmptyBundle(t *testing.T) {
+	raw, err := EncodeLoadoutEnvelope([]byte("x"), nil, "")
+	require.NoError(t, err)
+	// Tamper the encoded envelope down to an empty "bundle" field directly,
+	// bypassing EncodeLoadoutEnvelope's own floor — this is exactly the shape
+	// a malfunctioning or hostile companion (or a hand-built MDM payload)
+	// could send over the wire.
+	raw = []byte(`{"contract":"` + LoadoutContract + `","bundle":""}`)
+
+	_, pub := newTestSigner(t)
+	root := rootWith("bundles@ctxloom.dev", pub, NamespacePublish)
+
+	_, signer, err := DecodeLoadoutEnvelope(raw, root, time.Now())
+	require.Error(t, err, "a loadout envelope decoding to zero bundle bytes must be withheld, not silently accepted")
+	assert.Empty(t, signer)
+}
+
 // TestLoadoutEnvelope_RoundTrip_SignedByTrustedKey proves a loadout signed by
 // a key the caller trusts for the publish namespace resolves to that key's
 // verified principal — the "signed by a trusted key -> allowed" contract

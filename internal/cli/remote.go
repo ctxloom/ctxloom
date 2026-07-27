@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -235,8 +236,28 @@ Examples:
 		}
 
 		renderPullSummary(cmd.OutOrStdout(), result)
-		return nil
+		return pullResultErr(result)
 	},
+}
+
+// pullResultErr is U039-F02's fix: `remote pull` used to exit 0 even when
+// dependencies failed or were retracted — the failures were printed to
+// stdout by renderPullSummary above, but RunE always returned nil regardless,
+// so a caller scripting on exit code (not scraping stdout text) saw success.
+// Skipped items are NOT a failure (pull never moves an existing pin, by
+// design — see renderPullSummary's doc comment); Errors and Retracted are.
+func pullResultErr(result *operations.SyncDependenciesResult) error {
+	if result.Errors == 0 && len(result.Retracted) == 0 {
+		return nil
+	}
+	var refs []string
+	for _, item := range result.Failed {
+		refs = append(refs, item.Reference)
+	}
+	for _, item := range result.Retracted {
+		refs = append(refs, item.Reference)
+	}
+	return fmt.Errorf("remote pull: %d failed, %d retracted (%s)", result.Errors, len(result.Retracted), strings.Join(refs, ", "))
 }
 
 // renderPullSummary prints a completed pull.

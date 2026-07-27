@@ -35,3 +35,40 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 	renderPullSummary(&out, &operations.SyncDependenciesResult{})
 	assert.Contains(t, out.String(), "No remote dependencies to pull.")
 }
+
+// U039-F02: `ctxloom remote pull` exited 0 even when dependencies failed or
+// were retracted — the failures were printed to stdout (renderPullSummary)
+// but RunE always returned nil regardless. pullResultErr is the extracted
+// decision `remotePullCmd`'s RunE defers to, so a caller scripting on exit
+// code (not scraping stdout) can actually tell.
+func TestPullResultErr(t *testing.T) {
+	t.Run("clean pull is nil", func(t *testing.T) {
+		assert.NoError(t, pullResultErr(&operations.SyncDependenciesResult{
+			Total: 2, Installed: 2,
+		}))
+	})
+
+	t.Run("skipped-at-locked-commit is not itself a failure", func(t *testing.T) {
+		assert.NoError(t, pullResultErr(&operations.SyncDependenciesResult{
+			Total: 1, Skipped: []operations.SyncItem{{Reference: "a"}},
+		}))
+	})
+
+	t.Run("any Errors makes the pull fail", func(t *testing.T) {
+		err := pullResultErr(&operations.SyncDependenciesResult{
+			Total: 2, Installed: 1, Errors: 1,
+			Failed: []operations.SyncItem{{Reference: "b", Error: "boom"}},
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "b")
+	})
+
+	t.Run("any Retracted item makes the pull fail", func(t *testing.T) {
+		err := pullResultErr(&operations.SyncDependenciesResult{
+			Total: 2, Installed: 1,
+			Retracted: []operations.SyncItem{{Reference: "c", Error: "retracted upstream"}},
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "c")
+	})
+}

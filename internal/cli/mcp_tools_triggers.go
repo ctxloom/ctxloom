@@ -56,11 +56,7 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve working directory: %w", err)
 	}
-	tc := tasksops.TaskContext{
-		WorkDir:     cwd,
-		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
-		SessionHarp: os.Getenv("CTXLOOM_SESSION_HARP"),
-	}
+	tc := evaluateTriggersTaskContext(s, cwd)
 	res, err := operations.EvaluateTriggers(ctx, s.cfg, operations.EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     cwd,
@@ -79,4 +75,24 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 		Omitted:     res.Omitted,
 		Verdicts:    res.Verdicts,
 	}, nil
+}
+
+// evaluateTriggersTaskContext builds the TaskContext handleEvaluateTriggers
+// evaluates triggers against. SessionHarp comes from s.self — the call-scoped
+// identity every sibling handler in this package uses (mcp_tools_memory.go's
+// s.self.Harp) — never from process env (U039-F04): env is process-wide, so
+// on any path where one process serves more than one caller, reading it here
+// would attribute the call to whichever caller's env happened to be set last,
+// not the actual caller. ProjectID is left as a live env read: unlike
+// SessionHarp, ctxServer carries no per-call project-id equivalent to
+// substitute (s.self.Project is a directory, not the minted project-id), and
+// operations/tasks' own documented design (TaskResult's doc comment) is that
+// a pinned CTXLOOM_PROJECT_ID deliberately wins over a live resolution — this
+// fix does not touch that intentional choice.
+func evaluateTriggersTaskContext(s *ctxServer, cwd string) tasksops.TaskContext {
+	return tasksops.TaskContext{
+		WorkDir:     cwd,
+		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
+		SessionHarp: s.self.Harp,
+	}
 }

@@ -135,6 +135,43 @@ func TestSetItemContent_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
+
+// TestSetItemContent_EmptyContentRefuses pins U084-F02: SetItemContent used
+// to accept Content: "" unconditionally, silently overwriting an authored
+// fragment's content with zero bytes and reporting status: "updated" — this
+// is the frontend-agnostic operations layer (ADR-0026), so the floor belongs
+// here, not only in the CLI's checkEditedContent pre-check.
+func TestSetItemContent_EmptyContentRefuses(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "v1"})
+	require.NoError(t, err)
+
+	_, err = SetItemContent(context.Background(), cfg, SetItemContentRequest{
+		Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "",
+	})
+	require.ErrorIs(t, err, ErrItemContentEmpty)
+
+	// The original content must survive untouched.
+	got, err := GetItemContent(context.Background(), cfg, GetItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f"})
+	require.NoError(t, err)
+	assert.Equal(t, "v1", got.Content, "a refused empty-content edit must not touch the saved item")
+}
+
+// TestSetItemContent_WhitespaceOnlyContentRefuses is the companion case:
+// checkEditedContent's own criterion is TrimSpace-empty, not byte-empty, so
+// this operations-layer floor must match it exactly or a whitespace-only
+// buffer would still slip through here even though the CLI path blocks it.
+func TestSetItemContent_WhitespaceOnlyContentRefuses(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "v1"})
+	require.NoError(t, err)
+
+	_, err = SetItemContent(context.Background(), cfg, SetItemContentRequest{
+		Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "   \n\t  ",
+	})
+	require.ErrorIs(t, err, ErrItemContentEmpty)
+}
+
 // A distiller error during an edit must not be reported as a successful
 // distill: applyFragmentEdits already cleared the stale distilled form, so the
 // saved item has none and Distilled must be false.

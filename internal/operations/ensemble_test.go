@@ -70,6 +70,35 @@ func TestMapProfiles_OrderLabelingAndFaultTolerance(t *testing.T) {
 	}
 }
 
+
+// TestMapProfiles_EmptyOutputIsFailed investigates U084-F03 as filed
+// ("a weave member... that produces zero bytes is recorded as a successful
+// Part") at the MapProfiles layer: REFUTED here — runResolvedAgent's own
+// tail (oneshot.go's U085-F06 fix, "agent produced no output") already turns
+// a clean-exit-zero-bytes result into an error before MapProfiles ever builds
+// a success Part, so the zero-byte member comes back Failed()==true via the
+// existing error path, not a silent success.
+func TestMapProfiles_EmptyOutputIsFailed(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := mapTestConfig()
+
+	factory := func(backendName, _ string, _ int) (pb.Client, error) {
+		return &stubClient{out: ""}, nil
+	}
+
+	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
+		Members: []string{"a"},
+		Task:    "review",
+		Loader:  loader,
+		Factory: factory,
+	})
+
+	require.Len(t, parts, 1)
+	assert.True(t, parts[0].Failed(), "a zero-byte member must be recorded as failed, not silently successful")
+	assert.Empty(t, parts[0].Output)
+	assert.Contains(t, parts[0].Err, "agent produced no output", "surfaces the U085-F06 floor's own diagnostic")
+}
+
 func TestFormatParts_LabeledStreamWithErrors(t *testing.T) {
 	out := FormatParts([]Part{
 		{Profile: "code-review/security", Label: "claude-fast", Output: "no issues"},
@@ -127,6 +156,44 @@ func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 	assert.Contains(t, res.Report, "===== part: a")
 	assert.Contains(t, res.Report, "===== part: legacy")
 	assert.Contains(t, res.Report, "old finding")
+}
+
+
+// TestWeave_SynthesizerEmptyOutputErrors investigates U084-F03's synthesizer
+// half as filed ("...or the synthesizer... is recorded as a successful
+// Part/Report") — REFUTED here too: RunOneshot's own tail (oneshot.go's
+// U085-F06 fix) already errors on a clean-exit-zero-bytes result, so
+// Weave never reaches `result.Report = ""` with a nil error. The member
+// ("a", backend claude-code) gets real output; only the synthesizer's
+// backend (antigravity) is rigged empty, isolating which half tripped.
+func TestWeave_SynthesizerEmptyOutputErrors(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := withProfileDefs(mapTestConfig(), map[string]config.Profile{
+		"synth": {LLM: "agy-code"},
+	})
+
+	factory := func(backendName, _ string, _ int) (pb.Client, error) {
+		if backendName == "antigravity" {
+			return &stubClient{out: ""}, nil // the synthesizer's backend
+		}
+		return &stubClient{out: "member output"}, nil
+	}
+
+	res, err := Weave(context.Background(), cfg, WeaveRequest{
+		Members:    []string{"a"},
+		Synthesize: "synth",
+		Task:       "review the diff",
+		Loader:     loader,
+		Factory:    factory,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent produced no output", "surfaces the U085-F06 floor's own diagnostic")
+
+	// Partial results survive a synthesis failure (documented contract).
+	require.Len(t, res.Parts, 1)
+	assert.Equal(t, "member output", res.Parts[0].Output)
+	assert.Empty(t, res.Report)
+	assert.Nil(t, res.Synthesizer)
 }
 
 func TestWeave_NoSynthesizeEmitsPartsOnly(t *testing.T) {

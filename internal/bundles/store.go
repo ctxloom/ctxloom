@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -128,50 +126,6 @@ func (s *fsStore) Delete(name string) error {
 // operations are storage-agnostic (ADR 0026) and to give tests a
 // filesystem-free backend. Keyed by name (a bundle's Path is set to its name on
 // Seed/Save so a load-modify-save round-trips).
-type MemStore struct {
-	mu      sync.Mutex
-	bundles map[string]*Bundle
-}
-
 // NewMemStore returns an empty in-memory bundle store.
-func NewMemStore() *MemStore {
-	return &MemStore{bundles: map[string]*Bundle{}}
-}
-
 // Seed inserts a bundle under name, setting its Path to name so a later Save
 // round-trips to the same key.
-func (m *MemStore) Seed(name string, b *Bundle) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	b.Path = name
-	m.bundles[name] = b
-}
-
-func (m *MemStore) Load(name string) (*Bundle, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	b, ok := m.bundles[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
-	}
-	return b, nil
-}
-
-func (m *MemStore) LoadFile(path string) (*Bundle, error) { return m.Load(path) }
-
-func (m *MemStore) Save(b *Bundle) error {
-	if b.Path == "" {
-		return fmt.Errorf("bundle has no path/key set")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.bundles[b.Path] = b
-	return nil
-}
-
-func (m *MemStore) Delete(name string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.bundles, name)
-	return nil
-}

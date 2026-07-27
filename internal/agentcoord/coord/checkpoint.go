@@ -37,13 +37,17 @@ func itemsSnapshotPath(stateDir string) string {
 // leaves a torn snapshot the loader would need to detect). Best-effort: a
 // failure warns — the journal remains the source of truth regardless.
 func (c *Coordinator) writeItemsSnapshot() {
-	offset, err := c.items.Offset()
+	// U019-F01: offset and fold state MUST be read atomically (OffsetView),
+	// not as Offset() followed by a separate View() — a concurrent Exec
+	// landing in that gap would tag a snapshot of NEWER state with an OLDER
+	// offset, and a later tail replay from that offset would re-apply facts
+	// the snapshot already counted.
+	var snap itemsSnapshot
+	_, err := c.items.OffsetView(func(offset int64) { snap = c.itemsF.snapshot(offset) })
 	if err != nil {
 		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: read items journal offset: %v", err)
 		return
 	}
-	var snap itemsSnapshot
-	c.items.View(func() { snap = c.itemsF.snapshot(offset) })
 
 	raw, err := json.Marshal(snap)
 	if err != nil {

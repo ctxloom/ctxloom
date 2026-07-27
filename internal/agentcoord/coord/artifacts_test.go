@@ -385,3 +385,42 @@ func TestUploadArtifact_RefusesAZeroByteArtifact(t *testing.T) {
 	require.Error(t, err, "a 0-byte artifact must not earn an upload receipt")
 	assert.Contains(t, err.Error(), "empty artifact")
 }
+
+// TestUploadArtifact_RejectsSizeMismatch pins U019-F02's surviving slice: the
+// zero-byte floor (U016-F18, above) only refuses a DECLARED size of 0. A
+// client that declares a non-zero header.size_bytes but then delivers fewer
+// (here, zero) actual chunk bytes sails past both the cap and the floor
+// checks — writeAtomic happily hashes an empty reader and the handler used
+// to return an OK receipt claiming SizeBytes: 0, silently contradicting the
+// caller's own declared size. sha256 stays optional by design (the server's
+// own hash is authoritative, never the uploader's claim — see
+// artifactstore.go's writeAtomic doc), so the cross-check has to be on size.
+func TestUploadArtifact_RejectsSizeMismatch(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+	env := waitForChildEnv(t, c, out.RunID)
+	client := dialArtifactClient(t, c, env[EnvCoordCred])
+
+	stream, err := client.UploadArtifact(context.Background())
+	require.NoError(t, err)
+	// Declare 1000 bytes, then send NO chunks at all before closing.
+	sendErr := stream.Send(&agentcoordpb.ArtifactUploadRequest{Kind: &agentcoordpb.ArtifactUploadRequest_Header{Header: &agentcoordpb.ArtifactUploadHeader{
+		RunId:      out.RunID,
+		ArtifactId: "plan/short-delivery",
+		Name:       "short-delivery",
+		MediaType:  "text/markdown",
+		SizeBytes:  1000,
+		// sha256 deliberately omitted — optional by design; the size
+		// cross-check must catch this on its own.
+	}}})
+	require.NoError(t, sendErr)
+
+	_, err = stream.CloseAndRecv()
+	require.Error(t, err, "a declared size of 1000 bytes with zero bytes actually delivered must not earn a success receipt")
+	assert.Equal(t, codes.InvalidArgument, statusCode(err))
+
+	entries, rerr := os.ReadDir(filepath.Join(c.stateDir, artifactStoreDirName))
+	require.NoError(t, rerr)
+	assert.Empty(t, entries, "a size-mismatched upload must not be published to the store")
+}

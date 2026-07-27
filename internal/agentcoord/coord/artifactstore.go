@@ -53,19 +53,29 @@ func (s *artifactStore) path(shaHex string) string {
 // header's sha256 is a CLAIM, verified here, never trusted).
 var errArtifactSHAMismatch = errors.New("coord: artifact content does not match its declared sha256")
 
+// errArtifactSizeMismatch is returned by writeAtomic when the caller's
+// declared size_bytes does not match what was actually written (U019-F02):
+// sha256 is optional on the wire, so a truncated/short delivery with no
+// declared hash would otherwise sail through as a "success" that silently
+// contradicts the caller's own declared size.
+var errArtifactSizeMismatch = errors.New("coord: artifact content does not match its declared size")
+
 // writeAtomic drains r, hashing as it goes, and stores the bytes under the
 // hash it actually computed — content addressing by construction, so the
 // stored name is never a caller-supplied value. If declaredSHA is non-empty
 // it is checked against the computed hash BEFORE the file is published
 // (temp file removed, errArtifactSHAMismatch returned) — this is the
 // upload-side half of E1e's mandatory integrity rule; the coordinator's own
-// hash is authoritative, never the uploader's declared one.
+// hash is authoritative, never the uploader's declared one. Likewise, if
+// declaredSize is non-zero it is checked against the actual byte count
+// BEFORE publish (errArtifactSizeMismatch) — both checks exist so a
+// mismatched upload never earns a name in the store, matching or not.
 //
 // Idempotent: if content already exists under its hash, the temp file is
 // discarded and the existing one wins — safe under a concurrent upload of
 // the SAME content (both writers produce byte-identical files; whichever
 // rename lands last is indistinguishable from the other).
-func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte) (shaHex string, size int64, err error) {
+func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte, declaredSize uint64) (shaHex string, size int64, err error) {
 	tmp, err := os.CreateTemp(s.dir, ".upload-*")
 	if err != nil {
 		return "", 0, fmt.Errorf("coord: artifact store: temp file: %w", err)
@@ -87,6 +97,15 @@ func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte) (shaHex str
 	sum := h.Sum(nil)
 	if len(declaredSHA) > 0 && !bytes.Equal(sum, declaredSHA) {
 		return "", 0, errArtifactSHAMismatch
+	}
+	// U019-F02: the size cross-check lives HERE, before publish, for the
+	// same reason the sha check does — a declared size that does not match
+	// what was actually received must never earn a name in the
+	// content-addressed store, or a truncated/short delivery would be
+	// published (under its own, honest hash) and still leave an orphan
+	// blob behind even though the caller's receipt was refused.
+	if declaredSize != 0 && uint64(n) != declaredSize {
+		return "", 0, errArtifactSizeMismatch
 	}
 	shaHex = hex.EncodeToString(sum)
 	if err := tmp.Close(); err != nil {

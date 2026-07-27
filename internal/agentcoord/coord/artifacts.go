@@ -169,7 +169,7 @@ func (s *artifactService) UploadArtifact(stream grpc.ClientStreamingServer[agent
 		}
 	}()
 
-	shaHex, size, werr := c.artifacts.writeAtomic(pr, header.GetSha256())
+	shaHex, size, werr := c.artifacts.writeAtomic(pr, header.GetSha256(), header.GetSizeBytes())
 	_ = pr.Close()
 	if cerr := <-chunkErrCh; cerr != nil {
 		if se, ok := status.FromError(cerr); ok {
@@ -178,10 +178,23 @@ func (s *artifactService) UploadArtifact(stream grpc.ClientStreamingServer[agent
 		return status.Errorf(codes.Internal, "upload: %v", cerr)
 	}
 	if werr != nil {
-		if errors.Is(werr, errArtifactSHAMismatch) {
+		switch {
+		case errors.Is(werr, errArtifactSHAMismatch):
 			return status.Errorf(codes.InvalidArgument, "upload: received content (sha256 %s) does not match the declared sha256", shaHex)
+		case errors.Is(werr, errArtifactSizeMismatch):
+			// U019-F02: the floor above only catches a DECLARED size of 0.
+			// A client that declares a non-zero size_bytes but delivers
+			// fewer bytes (in the limit, none) sails past both the cap and
+			// the floor — sha256 is optional by design (writeAtomic's own
+			// hash is authoritative), so this is the only thing standing
+			// between a truncated delivery and a receipt that silently
+			// contradicts the caller's own declared size. Checked inside
+			// writeAtomic, before publish, so a mismatched upload never
+			// earns a name in the content-addressed store.
+			return status.Errorf(codes.InvalidArgument, "upload: declared size %d does not match the bytes actually received", header.GetSizeBytes())
+		default:
+			return status.Errorf(codes.Internal, "upload: %v", werr)
 		}
-		return status.Errorf(codes.Internal, "upload: %v", werr)
 	}
 
 	c.audit("artifact.uploaded", id.Harp, map[string]string{

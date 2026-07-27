@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **349** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **353** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 6 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 4 |
-| `open` | no commit names this ID | **1,899** |
+| `open` | no commit names this ID | **1,895** |
 
-**Totals: 2268 findings across 162 units — 349 resolved, 1899 still open, 21 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
+**Totals: 2268 findings across 162 units — 353 resolved, 1895 still open, 21 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -82,10 +82,25 @@ acceptance scenario added (run.feature) pinning U082-F03 — the
 happy-path journeys covering this flow (j1/j1b/j2/j4,
 fragment/bundle/profile/skill.feature) are genuinely payload-asserting
 but caught none of the 21 rows' defects.
+Correction, same batch: the initial per-unit HIGH-row extraction used a
+plain-text match against the Severity column and missed 4 rows whose
+unit .md markdown BOLDS the value (`**HIGH**` vs `HIGH`) —
+U046-F01/F02, U107-F01/F02, in the two units (U046, U107) also listed
+under this flow. Caught by a second pass recounting severities directly
+from the unit files rather than trusting the first extraction. All 4
+adjudicated and fixed: U046-F01 (Go content-sniff false-positived on
+prose starting with the word "package", deleted rather than hardened —
+`853caf35`), U046-F02 (the AST extractor's empty-output case, already
+transitively mitigated by U081-F04's/this batch's distillation guards
+but fixed at its source too — `853caf35`), U107-F01 (companionloadout's
+`Emit` accepted a zero-byte bundle — `850dd642`), U107-F02 (the
+loadout wire contract's subcommand/flag/format-value strings, shared as
+exported constants — `850dd642`). Recounted: RESOLVED 349->353, open
+1899->1895, HIGH resolved 202->206.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 202 | 174 (+6 refuted, +2 escalated, +6 partial) |
+| HIGH | 376 | 206 | 170 (+6 refuted, +2 escalated, +6 partial) |
 | MED | 999 | 41 | 956 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -270,8 +285,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U045-F01 | **RESOLVED** `e7bbe9ae` | **`backend.go:287`** | CORRECTNESS | On every plain host run, ctxloom copies the user's OpenAI credentials into the project working tree, un-gitignored and never cleaned up | U045.md |
 | U045-F02 | **RESOLVED** `e28fa43e` | **`settings.go:195-201`** | SILENTNOOP | `save` writes a **0-byte** `config.toml` when the table is empty; `agent.AtomicWriteFile` has no zero-length guard, so the previous contents are destroyed with exit 0 and a success path | U045.md |
 | U045-F03 | **RESOLVED** `e28fa43e` | **`settings.go:187-190`** | ERRHANDLING | A TOML parse failure is converted to an *empty* table and then written back, silently replacing every user key in `config.toml` with ctxloom's tables | U045.md |
-| U046-F01 | open | `compressor.go:124` + `code_treesitter.go:92-101` + `internal/cli/bundle_distill.go:351-355` | SILENTNOOP / CORRECTNESS | **Prose whose first seven bytes are `package` is parsed as Go and compressed to near-nothing; the result is written over the item's delivered form with no floor and no guard.** `sniffContentType` m... | U046.md |
-| U046-F02 | open | `code_treesitter.go:85-101` | SILENTNOOP | **The code compressor can return an empty `Content` with a nil error, and does so for any content the routed grammar finds no recognised nodes in.** `result` is a fresh `strings.Builder`; if no `ex... | U046.md |
+| U046-F01 | **RESOLVED** `853caf35` | `compressor.go:124` + `code_treesitter.go:92-101` + `internal/cli/bundle_distill.go:351-355` | SILENTNOOP / CORRECTNESS | **Prose whose first seven bytes are `package` is parsed as Go and compressed to near-nothing; the result is written over the item's delivered form with no floor and no guard.** `sniffContentType` m... | U046.md |
+| U046-F02 | **RESOLVED** `853caf35` | `code_treesitter.go:85-101` | SILENTNOOP | **The code compressor can return an empty `Content` with a nil error, and does so for any content the routed grammar finds no recognised nodes in.** `result` is a fresh `strings.Builder`; if no `ex... | U046.md |
 | U047-F01 | **RESOLVED** `430c3055` | `internal/config/companions.go:132` | CORRECTNESS | `--no-companions` / `CTXLOOM_NO_COMPANIONS=1` does **not** stop ctxloom from executing companion binaries: `ProbeCompanions` never consults `CompanionsDisabled()`. | U047.md |
 | U047-F04 | **RESOLVED** `430c3055` | `internal/config/companions.go:337-342` | SILENTNOOP | A companion whose `loadout` probe fails for **any** reason — timeout, crash, non-zero exit, malformed argv — contributes zero commands/hooks/MCP/context with **no diagnostic whatsoever**; the run r... | U047.md |
 | U048-F01 | **RESOLVED** `73c86ad1` | **`config.go:308,334,365 (+ config_save.go:233-288, fixture.go:19,61)`** | SILENTNOOP | The 21-field persisted list is hand-written in **seven** places with a completeness gate on only one of them (schema↔`configDoc`). A field missed in `fromDoc` is silently ignored on load; missed in... | U048.md |
@@ -437,8 +452,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U102-F01 | **RESOLVED** `9742f432` | `skillcommandshape.go:37-53` | SILENTNOOP | A command with empty `Content` renders a valid-looking `SKILL.md` containing only frontmatter — success, zero instruction bytes delivered to the engine | U102.md |
 | U102-F08 | **RESOLVED** `d48b7738` | `settings_io.go:135` | SILENTNOOP | `AtomicWriteFile` accepts `len(data)==0` and reports success, truncating a live settings file to zero bytes | U102.md |
 | U104-F01 | open | `internal/cli/format.go:62-65` (registration) vs `cliemit.go:25` (honouring)` | CORRECTNESS | `--format` is registered globally but honoured opt-in, with nothing binding the two — so it is accepted and silently ignored on dozens of commands. This is the actual break; `cliemit` and `clifmt` ... | U104.md |
-| U107-F01 | open | `cli.go:76-80`, gate missing at `cli.go:35` | SILENTNOOP | `Emit` succeeds with zero (or semantically empty) payload in **both** formats, and every downstream stage also succeeds, so "companion present but contributing nothing" is byte-for-byte indistingui... | U107.md |
-| U107-F02 | open | `cli.go:38` + `cli.go:53` ↔ `internal/config/companions.go:260` | COUPLING | The cross-process wire contract — subcommand name `"loadout"`, flag name `"format"`, value `"json"` — is duplicated as bare string literals on both sides of a process boundary with **no shared cons... | U107.md |
+| U107-F01 | **RESOLVED** `850dd642` | `cli.go:76-80`, gate missing at `cli.go:35` | SILENTNOOP | `Emit` succeeds with zero (or semantically empty) payload in **both** formats, and every downstream stage also succeeds, so "companion present but contributing nothing" is byte-for-byte indistingui... | U107.md |
+| U107-F02 | **RESOLVED** `850dd642` | `cli.go:38` + `cli.go:53` ↔ `internal/config/companions.go:260` | COUPLING | The cross-process wire contract — subcommand name `"loadout"`, flag name `"format"`, value `"json"` — is duplicated as bare string literals on both sides of a process boundary with **no shared cons... | U107.md |
 | U108-F01 | **RESOLVED** `43b65d6c` | `confload.go:314-316` | SILENTNOOP | `Merge` silently drops an entire config layer on a koanf load failure, and its signature makes reporting impossible. | U108.md |
 | U108-F02 | **RESOLVED** `43b65d6c` | `confload.go:320-326` | SILENTNOOP | On unmarshal failure `Merge` returns an **empty map as a valid result**, discarding every successfully-loaded layer. | U108.md |
 | U108-F06 | **RESOLVED** `ffe55fad` | **`overlay.go:312-318`** | CORRECTNESS | Type detection tries bool before int, and `strconv.ParseBool` accepts `"0"` and `"1"` — so **every 0/1 integer override is silently converted to a boolean**, and there is no way to express those va... | U108.md |

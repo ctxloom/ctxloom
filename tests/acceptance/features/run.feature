@@ -35,3 +35,20 @@ Feature: Run
     When I run "ctxloom run --print --profile guarded unicorn-prompt"
     Then the command succeeds
     And the mock recorded input contains "WebFetch"
+
+  # U082-F03 regression: an explicit -t selection that matches zero fragments
+  # previously assembled Context: "" with a nil error and NO warning at all —
+  # `ctxloom run -t <tag-that-matches-nothing>` exited 0 having delivered no
+  # context whatsoever, indistinguishable from a working, empty-by-design
+  # session. No per-hop test caught this: AssembleContext's own unit tests
+  # asserted the (correct) empty Context string and stopped there, never
+  # asking whether the CALLER could tell that apart from "nothing was asked
+  # for". This asserts the CLI's own observable behavior — a non-zero exit
+  # naming the tag — not just that assembly itself returned successfully.
+  Scenario: An explicit tag selection matching nothing fails loudly, not silently
+    Given an initialized ctxloom project
+    And a bundle "demo" exists
+    And a fragment "testing" in bundle "demo" exists
+    When I run "ctxloom run --dry-run -t no-such-tag-anywhere hello"
+    Then the command fails
+    And the output contains "no-such-tag-anywhere"

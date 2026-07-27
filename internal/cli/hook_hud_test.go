@@ -69,6 +69,19 @@ func TestFormatHud_HarpDisplay(t *testing.T) {
 	})
 }
 
+// TestFormatHud_NeverEmptyOnSuccess (U036-F02) proves the success path falls
+// back to the same "ctxloom" sentinel the error paths in runHookHud already
+// use, rather than formatting to zero bytes — a sparse session JSON plus no
+// resolvable ctxloom config previously made the statusline vanish, which
+// looks identical to a broken install.
+func TestFormatHud_NeverEmptyOnSuccess(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv("CTXLOOM_SESSION_HARP", "")
+	out := formatHud(agentSessionJSON{}, ctxloomHudInfo{})
+	assert.NotEmpty(t, out, "success must never format to fewer bytes than a read/parse failure does")
+	assert.Equal(t, "ctxloom", out)
+}
+
 // TestContextBar covers the small bar-rendering helper. Mostly a smoke
 // test that the bar character counts match the percentage; included so
 // a future change to barWidth catches a coverage regression.

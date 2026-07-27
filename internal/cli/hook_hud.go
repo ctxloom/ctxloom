@@ -208,6 +208,16 @@ func formatHud(session agentSessionJSON, info ctxloomHudInfo) string {
 		parts = append(parts, fmt.Sprintf("%s⎇ %s%s", colorDim, branch, colorReset))
 	}
 
+	if len(parts) == 0 {
+		// U036-F02: the SUCCESS path must never be less informative than the
+		// failure paths (runHookHud's read/parse-error branches both print
+		// the "ctxloom" sentinel). A sparse session JSON plus no resolvable
+		// ctxloom config previously formatted to zero bytes — the statusline
+		// vanished and looked like a broken install, indistinguishable from
+		// the hook not running at all.
+		return "ctxloom"
+	}
+
 	return strings.Join(parts, " │ ")
 }
 

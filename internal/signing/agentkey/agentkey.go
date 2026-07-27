@@ -430,19 +430,30 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 	}
 
 	path := expandHome(value)
-	data, err := d.ReadFile(path)
-	if err != nil {
-		// Try the .pub sibling — user.signingkey conventionally names the
-		// PRIVATE key path in some setups; the public key lives alongside it.
-		if !strings.HasSuffix(path, ".pub") {
-			if data2, err2 := d.ReadFile(path + ".pub"); err2 == nil {
-				data = data2
-				err = nil
+
+	// U135-F02: user.signingkey conventionally names the PRIVATE key path in
+	// some real setups, with the public key living alongside it as
+	// "<path>.pub". Probe that sibling FIRST — before ever reading `path`
+	// itself — whenever path doesn't already end in .pub. The old fallback
+	// lived only inside the `ReadFile(path)` FAILURE branch, so it could
+	// never fire for exactly the case the comment names: the private-key
+	// path reads successfully (it exists), so ssh.ParseAuthorizedKey simply
+	// failed on private-key bytes and the whole zero-config git path broke.
+	// Trying the sibling first also means ctxloom never reads private key
+	// bytes into memory at all when a .pub sibling exists — tightening the
+	// package doc's "never reads private key material" claim rather than
+	// merely making it true on the happy path.
+	if !strings.HasSuffix(path, ".pub") {
+		if data, err := d.ReadFile(path + ".pub"); err == nil {
+			if pub, _, _, _, perr := ssh.ParseAuthorizedKey(data); perr == nil {
+				return pub, nil
 			}
 		}
-		if err != nil {
-			return nil, fmt.Errorf("not a recognized public key and unreadable as a file: %w", err)
-		}
+	}
+
+	data, err := d.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("not a recognized public key and unreadable as a file: %w", err)
 	}
 	pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
 	if err != nil {

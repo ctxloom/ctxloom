@@ -169,6 +169,38 @@ func TestDiscover_ExplicitKeyWinsOverGitConfigAndAgentAmbiguity(t *testing.T) {
 	assert.Equal(t, "--key", got.Source)
 }
 
+// U135-F02: `user.signingkey` conventionally names the PRIVATE key path in
+// some real setups (the package's own resolvePublicKey comment names this
+// case), with the public key living alongside it as "<path>.pub". The
+// .pub-sibling fallback lived ONLY inside the `ReadFile(path)` FAILURE
+// branch, so it could never fire here: the private-key path reads
+// successfully (it exists!), ssh.ParseAuthorizedKey then fails on private-key
+// bytes, and the whole zero-config git path broke for this common setup.
+func TestDiscover_GitSigningKeyNamesPrivateKeyPath_FallsBackToPubSibling(t *testing.T) {
+	wanted, wantedLine := newTestIdentity(t, "alice@laptop")
+	ag := &fakeAgent{signers: []ssh.Signer{wanted}, comments: []string{"alice@laptop"}}
+
+	privatePath := "/home/alice/.ssh/id_ed25519"
+	d := discovererWithAgent(ag, privatePath, nil)
+	d.ReadFile = func(path string) ([]byte, error) {
+		switch path {
+		case privatePath:
+			// The private key file readably exists at this path — reading it
+			// succeeds, so the OLD fallback (gated on a read FAILURE) never
+			// triggered.
+			return []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nfakefakefake\n-----END OPENSSH PRIVATE KEY-----\n"), nil
+		case privatePath + ".pub":
+			return []byte(wantedLine), nil
+		default:
+			return nil, fmt.Errorf("no such file: %s", path)
+		}
+	}
+
+	got, err := d.Discover(context.Background(), "")
+	require.NoError(t, err, "user.signingkey conventionally names the PRIVATE key path in some setups; the .pub sibling must still be tried")
+	assert.Equal(t, ssh.FingerprintSHA256(wanted.PublicKey()), got.Fingerprint)
+}
+
 func TestDiscover_GitNamesKeyNotLoadedInAgent_HardError(t *testing.T) {
 	_, namedLine := newTestIdentity(t, "named-but-absent")
 	other, _ := newTestIdentity(t, "present")

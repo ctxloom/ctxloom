@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -283,105 +281,9 @@ func (l *Lockfile) Count() int {
 // Format: <url>@<type>/<path>@<content_version>
 //
 // If RequestedVersion is set, uses that; otherwise uses SHA.
-func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string, bool, error) {
-	if entry, ok := l.GetEntry(itemType, localName); ok {
-		ref, err := ParseReference(localName)
-		if err != nil {
-			return "", false, nil
-		}
-		return canonicalURLFor(itemType, ref.Path, entry), true, nil
-	}
-
-	// Short name: resolve against the canonical bundle keys.
-	var entries map[string]LockEntry
-	if itemType == ItemTypeBundle {
-		entries = l.Bundles
-	}
-	// Match the exact path first (full or basename). Only when nothing matches do
-	// we reinterpret a leading segment as a remote-alias prefix ("remote/path") —
-	// otherwise a genuine nested path like "lang/go" would also collide with a
-	// sibling "go" entry and be wrongly reported as ambiguous.
-	var keys []string
-	for key := range entries {
-		ref, err := ParseReference(key)
-		if err != nil {
-			continue
-		}
-		if ref.Path == localName || path.Base(ref.Path) == localName {
-			keys = append(keys, key)
-		}
-	}
-	if len(keys) == 0 {
-		if _, prefixStripped, hasPrefix := strings.Cut(localName, "/"); hasPrefix {
-			for key := range entries {
-				ref, err := ParseReference(key)
-				if err != nil {
-					continue
-				}
-				if ref.Path == prefixStripped {
-					keys = append(keys, key)
-				}
-			}
-		}
-	}
-	switch len(keys) {
-	case 0:
-		return "", false, nil
-	case 1:
-		ref, _ := ParseReference(keys[0])
-		return canonicalURLFor(itemType, ref.Path, entries[keys[0]]), true, nil
-	}
-	sort.Strings(keys)
-	return "", false, fmt.Errorf("%s %q is ambiguous in the lockfile; use a canonical ref (candidates: %s)",
-		itemType, localName, strings.Join(keys, ", "))
-}
-
 // canonicalURLFor renders an entry's full canonical URL, versioned by the
 // requested constraint when present, else the locked SHA.
-func canonicalURLFor(itemType ItemType, itemPath string, entry LockEntry) string {
-	contentVersion := entry.RequestedVersion
-	if contentVersion == "" {
-		contentVersion = entry.SHA
-	}
-	return fmt.Sprintf("%s@%s/%s@%s", entry.URL, itemType.DirName(), itemPath, contentVersion)
-}
-
 // FindByURL searches for a bundle lockfile entry by repository URL.
 // Returns the local name (key), entry, and whether it was found.
-func (l *Lockfile) FindByURL(repoURL string, itemType ItemType) (localName string, entry LockEntry, found bool) {
-	if itemType != ItemTypeBundle {
-		return "", LockEntry{}, false
-	}
-	for name, e := range l.Bundles {
-		if e.URL == repoURL {
-			return name, e, true
-		}
-	}
-	return "", LockEntry{}, false
-}
-
 // FindAllByURL searches for all lockfile entries matching a repository URL.
 // Returns all matching entries with their types and local names.
-func (l *Lockfile) FindAllByURL(repoURL string) []struct {
-	Type      ItemType
-	LocalName string
-	Entry     LockEntry
-} {
-	var results []struct {
-		Type      ItemType
-		LocalName string
-		Entry     LockEntry
-	}
-
-	for name, entry := range l.Bundles {
-		if entry.URL == repoURL {
-			results = append(results, struct {
-				Type      ItemType
-				LocalName string
-				Entry     LockEntry
-			}{ItemTypeBundle, name, entry})
-		}
-	}
-
-	return results
-}

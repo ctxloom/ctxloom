@@ -125,8 +125,7 @@ func TestSession_RingIsSharedStderrtailImplementation(t *testing.T) {
 	ctx := context.Background()
 	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "true"), vpio.ProcessSpec{Stdout: io.Discard})
 	require.NoError(t, err)
-	var ring *stderrtail.Ring = sess.ring
-	assert.NotNil(t, ring, "Session must use stderrtail.Ring, not a private duplicate")
+	assert.IsType(t, &stderrtail.Ring{}, sess.ring, "Session must use stderrtail.Ring, not a private duplicate")
 }
 
 // TestSession_StdinEchoesThroughPty exercises the full host-pty pump: bytes

@@ -476,54 +476,6 @@ func (Host) ExposeIdentical(hostPath string, readOnly bool) Mount {
 // host↔container path translation to perform.
 func (Host) mapper() pathMapper { return identityMapper{} }
 
-// Chroot is the SHAPED-BUT-UNIMPLEMENTED daemonless/imageless runtime (a
-// fast-follow): the interface accommodates a runtime that isolates the engine in
-// a chroot/namespace WITHOUT a container image or a daemon, proving the Spawn +
-// Expose seam needs no further shape change for it. It is deliberately never
-// selected — Available() is false and SelectRuntime does NOT list it in its
-// byName map — so nothing here runs today. Spawn errors, Expose/RunArgs/
-// RemoveArgs are zero-valued. The real path-under-root exposure and the
-// namespace launch are the fast-follow's work.
-type Chroot struct{}
-
-// Ensure the stub satisfies the runtime interface (the whole point: no further
-// shape change is needed to add a daemonless/imageless runtime).
-var _ Runtime = Chroot{}
-
-// Name identifies the runtime.
-func (Chroot) Name() string { return "chroot" }
-
-// Binary is empty — a chroot runtime execs no container CLI.
-func (Chroot) Binary() string { return "" }
-
-// Available is always false — Chroot is never selected (not implemented).
-func (Chroot) Available() bool { return false }
-
-// RunArgs is a noop — there is no container `run` argv.
-func (Chroot) RunArgs(RunSpec) []string { return nil }
-
-// RemoveArgs is a noop — there is nothing to force-remove.
-func (Chroot) RemoveArgs(string) []string { return nil }
-
-// ExecArgs is a noop — Chroot is never selected (Available is false).
-func (Chroot) ExecArgs(string, bool, []string, []string) []string { return nil }
-
-// Spawn is not implemented — the daemonless launch is the fast-follow's work.
-func (Chroot) Spawn(LaunchSpec) (pb.Client, error) {
-	return nil, fmt.Errorf("chroot runtime: Spawn not implemented")
-}
-
-// Expose is a zero-valued stub — the real path-under-root mapping is the
-// fast-follow's work.
-func (Chroot) Expose(string, string, bool) Mount { return Mount{} }
-
-// ExposeIdentical is a zero-valued stub — see Expose.
-func (Chroot) ExposeIdentical(string, bool) Mount { return Mount{} }
-
-// mapper is identity — Chroot is never selected (Available is false), so this
-// is never consulted; identity is the harmless placeholder.
-func (Chroot) mapper() pathMapper { return identityMapper{} }
-
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.

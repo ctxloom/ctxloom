@@ -20,19 +20,19 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **264** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **266** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 2 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **1,999** |
+| `open` | no commit names this ID | **1,997** |
 
-**Totals: 2268 findings across 162 units — 264 resolved, 1999 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 266 resolved, 1997 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
 | HIGH | 376 | 130 | 245 (+2 refuted) |
 | MED | 999 | 38 | 961 |
-| LOW | 871 | 96 | 772 (+3 partial/escalated) |
+| LOW | 871 | 98 | 770 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
@@ -2339,9 +2339,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U157-F04 | open | `capture.go:17-19; feature.go:28` | NOPAY | Four fields are parsed and never read: `DocCapture.Outline`, `DocCapture.Feature`, `DocCapture.Tags`, and `Scenario.Keyword`. `Tags` is especially notable — the rendered page shows `sc.Tags` (from ... | U157.md |
 | U157-F08 | open | `feature.go:39 (CCN 23), main.go:54 (CCN 17)` | COMPLEXITY | Two functions exceed the project's own CI gate of CCN 10 — `ParseFeature` at 23 and `run` at 17 | U157.md |
 | U157-F09 | **RESOLVED** `cb2b8396` `127539ad` | **`main.go:33-36`** | TRIVIAL | `fileExists` is a one-expression wrapper used once, three lines above a `LoadNarration` call that already handles the not-exist case itself | U157.md |
-| U158-F03 | open | `isolation_probe.go:743-744` | NOPAY | `probeResult.HostBefore`/`HostAfter` are written but never read — only `HostDiff` is consumed | U158.md |
+| U158-F03 | **RESOLVED** `ddb7e9ee` | `isolation_probe.go:743-744` | NOPAY | `probeResult.HostBefore`/`HostAfter` are written but never read — only `HostDiff` is consumed | U158.md |
 | U158-F04 | open | `isolation_probe.go:635` | ERRHANDLING | `probeConfigYAML` indexes `liveAgents[key]` with no `ok` check; an unregistered engine yields a zero `liveAgent` and a config with an empty base, producing a confusing downstream failure rather tha... | U158.md |
-| U158-F05 | open | `isolation_probe.go:653` | DEAD | `probeWorkspaceFlag` has **zero call sites**; the two drivers hardcode `"worktree"` and `"none"` instead, so the documented axis→flag mapping is unenforced | U158.md |
+| U158-F05 | **RESOLVED** `ddb7e9ee` | `isolation_probe.go:653` | DEAD | `probeWorkspaceFlag` has **zero call sites**; the two drivers hardcode `"worktree"` and `"none"` instead, so the documented axis→flag mapping is unenforced | U158.md |
 | U158-F10 | open | `steps_doc_capture.go:3-19` | CORRECTNESS | The package doc says the sidecar "is not wired into `just test-acceptance` or CI" — stale. `.github/workflows/docs.yml:77` runs `just -f justfile.container gen-living-docs`, which sets `CTXLOOM_DOC... | U158.md |
 | U158-F11 | **RESOLVED** `835be6a7` | `live_engine_registry.go:83` | CORRECTNESS | `liveAgent.copyCreds`'s doc says "nil for engines with no working live path today (codex)" — every registered engine now has a non-nil copier, codex included | U158.md |
 | U158-F12 | open | `isolation_probe.go:1024 vs steps_isolation_probe.go:39` | CORRECTNESS | `probeSkip` always prints `authPath=no-credentials`, even for skips whose real resolved path is `seeded-from-host-file` (the forced-env-key scenario), so the printed report can misattribute why a c... | U158.md |

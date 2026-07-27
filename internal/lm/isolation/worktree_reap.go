@@ -204,8 +204,13 @@ func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeRe
 	if !ok {
 		return worktreeReapSkipped // indeterminate owner — never touch
 	}
-	if pidalive.Alive(pid) {
-		return worktreeReapSkipped // live owner
+	// U114-F01: MaybeAlive (not a bare Alive check) treats an unconfirmable
+	// probe the same as a live owner — reaping is a DESTRUCTIVE, irreversible
+	// decision (this deletes a worktree, possibly with uncommitted WIP), so
+	// an unsure verdict must skip exactly like a confirmed-live owner does,
+	// never fall through to removal.
+	if pidalive.Probe(pid).MaybeAlive() {
+		return worktreeReapSkipped // live (or unconfirmable) owner
 	}
 
 	ctx, cancel := context.WithTimeout(parent, worktreeReapTimeout)

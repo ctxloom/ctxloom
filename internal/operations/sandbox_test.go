@@ -66,7 +66,11 @@ func reapSandboxes(root string) {
 		}
 		info, statErr := e.Info()
 		orphanedByAge := statErr == nil && time.Since(info.ModTime()) > maxOrphanAge
-		if !pidalive.Alive(pid) || orphanedByAge {
+		// U114-F01: !MaybeAlive() (true only for a confirmed Dead) instead of
+		// a bare !Alive check — removal is destructive, so an unconfirmable
+		// probe must be left alone exactly like a confirmed-live pid, unless
+		// the age fallback already independently justifies reaping it.
+		if !pidalive.Probe(pid).MaybeAlive() || orphanedByAge {
 			_ = os.RemoveAll(path)
 		}
 	}

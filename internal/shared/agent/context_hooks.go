@@ -62,7 +62,16 @@ func absOrSelf(workDir string) string {
 // N. Best-effort by design: any read error falls back to the single hook (the
 // runtime hook then emits nothing if the file is truly empty).
 func NewContextInjectionHooks(hash, workDir string) []wire.Hook {
-	content, _ := ReadContextFile(workDir, hash)
+	content, err := ReadContextFile(workDir, hash)
+	if err != nil {
+		// U100-F01: this was a bare `_`, so a read failure right after the
+		// content-addressed file was written (or a reaped/corrupted cache)
+		// silently collapsed N chunk hooks to one, reintroducing the exact
+		// truncation ContextChunkMaxChars exists to prevent. The best-effort
+		// single-hook fallback is still correct (the runtime hook re-reads the
+		// file itself when it fires) — only the silence was the defect.
+		Warn("context injection hook for %s: %v — falling back to a single whole-content hook", hash, err)
+	}
 	chunks := ChunkContext(content)
 	if len(chunks) <= 1 {
 		return []wire.Hook{NewContextInjectionHook(hash, workDir)}

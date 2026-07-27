@@ -314,6 +314,39 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	}
 }
 
+// U093-F02: a PRESENT-but-EMPTY (or whitespace/comment-only) lock.yaml must
+// not load as a valid, legitimately-empty lockfile — every path that writes a
+// lockfile (Save/write) always marshals at least "version: 1\nbundles: {}\n"
+// plus a timestamp, so a genuinely 0-byte file on disk can only mean
+// truncation, a crash mid-write, or a hand-created stub — never a real
+// "nothing pinned yet" project (that case is instead ordinary IsNotExist,
+// handled separately and unaffected by this). Silently treating it as valid
+// means every remote bundle just vanishes from the session with no
+// diagnostic at all.
+func TestLockfileManager_Load_PresentButEmptyFileIsRefused(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_ = fs.MkdirAll("/test", 0755)
+	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte(""), 0644)
+
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	_, err := manager.Load()
+	if err == nil {
+		t.Error("a present-but-0-byte lockfile must be refused, not silently loaded as an empty lockfile")
+	}
+}
+
+func TestLockfileManager_Load_WhitespaceOnlyFileIsRefused(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_ = fs.MkdirAll("/test", 0755)
+	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte("   \n\n"), 0644)
+
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	_, err := manager.Load()
+	if err == nil {
+		t.Error("a present-but-whitespace-only lockfile must be refused, not silently loaded as an empty lockfile")
+	}
+}
+
 func TestLockfileManager_Load_ReadError(t *testing.T) {
 	// Create a scenario where the file exists but cannot be read
 	// Use a read-only filesystem with a file that exists

@@ -64,7 +64,15 @@ func TestInstallPulledItem(t *testing.T) {
 		assert.Equal(t, "sha-bundle", entry.SHA)
 	})
 
-	t.Run("lockfile write failure warns but does not fail the install", func(t *testing.T) {
+	// U094-F05: for a bundle the lockfile is the ONLY on-disk record — bundles
+	// are never written to disk (writePulledContent is a synthetic no-op). A
+	// failed lockfile write used to be demoted to a printed "Warning:" while
+	// the pull still reported success, so a caller was told a SHA and
+	// LocalPath for a pin that does not exist anywhere — and on a retracted
+	// item, the freshly-computed Retracted verdict was lost right along with
+	// it, leaving EffectiveTrust nothing to withhold against. The lockfile
+	// write failing must fail the pull.
+	t.Run("lockfile write failure fails the install, not just a warning", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
 		// A read-only lockfile fs makes Save fail; the puller's own fs stays
 		// writable (unused for bundles, which are not written to disk).
@@ -82,8 +90,7 @@ func TestInstallPulledItem(t *testing.T) {
 		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
-		require.NoError(t, err, "a lockfile failure must not fail the pull")
-		assert.NotNil(t, res)
-		assert.Contains(t, out.String(), "failed to update lockfile", "the failure is surfaced as a warning")
+		require.Error(t, err, "a pull whose only persistent record failed to write must not report success")
+		assert.Nil(t, res)
 	})
 }

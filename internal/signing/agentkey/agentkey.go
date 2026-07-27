@@ -137,9 +137,20 @@ type NoKeyError struct {
 	// the error message ("Looked for: ...").
 	Looked []string
 	// Detail is an optional root cause (e.g. "ssh-agent not running", "key
-	// named by git config is not loaded").
+	// named by git config is not loaded"), for display.
 	Detail string
+	// Err is the underlying error Detail was derived from, when one exists
+	// (U135-F01/F03): an ssh-agent RPC/protocol failure (agent locked, a
+	// wedged socket) is a DIFFERENT fact than "the agent is reachable but
+	// does not hold this key", and a caller that wants to tell them apart —
+	// or simply wants the real cause via errors.Is/As — must not find it
+	// flattened into a string with no way back to the original error.
+	Err error
 }
+
+// Unwrap exposes Err so errors.Is/errors.As can reach the underlying cause
+// through a NoKeyError, rather than it being a dead end.
+func (e *NoKeyError) Unwrap() error { return e.Err }
 
 func (e *NoKeyError) Error() string {
 	var b strings.Builder
@@ -260,6 +271,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 		return nil, &NoKeyError{
 			Looked: []string{"--key/sign.key " + explicitKey},
 			Detail: err.Error(),
+			Err:    err,
 		}
 	}
 
@@ -283,7 +295,13 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 		return nil, nameErr
 	}
 
-	return nil, fmt.Errorf("--key %q: not a recognized fingerprint, public key, or ssh-agent key name: %w", explicitKey, pubErr)
+	// U135-F01(b): nameErr is not just "no comment matched" — resolveByComment
+	// also returns "listing ssh-agent identities: <rpc err>" when ag.Signers()
+	// itself fails (agent locked, wedged socket). That used to be silently
+	// dropped here in favor of pubErr alone, so an agent RPC failure was
+	// reported as "not a recognized fingerprint, public key, or ssh-agent key
+	// name" — true but misleading about WHY. Chain nameErr too.
+	return nil, fmt.Errorf("--key %q: not a recognized fingerprint or public key (%v); and %w", explicitKey, pubErr, nameErr)
 }
 
 // resolveByComment is the last resort of resolveExplicit's fallback chain:
@@ -346,14 +364,22 @@ func (d *Discoverer) resolveGitSigningKey(ctx context.Context, value string) (*D
 		return nil, &NoKeyError{
 			Looked: []string{"git config user.signingkey"},
 			Detail: fmt.Sprintf("git names %s, but %s", ssh.FingerprintSHA256(pub), err),
+			Err:    err,
 		}
 	}
 
 	d2, err := findByPublicKey(ag, pub, "git config user.signingkey")
 	if err != nil {
+		// U135-F01(a): findByPublicKey fails BOTH when the key is genuinely
+		// absent from the agent AND when ag.Signers() itself errored (agent
+		// locked, wedged socket, RPC failure) — those are different facts,
+		// and the second one is not fixed by "ssh-add it": the key IS loaded,
+		// the agent just could not be asked. Surface findByPublicKey's own
+		// message (and chain its cause via Err) instead of guessing.
 		return nil, &NoKeyError{
 			Looked: []string{"git config user.signingkey"},
-			Detail: fmt.Sprintf("git names %s, but it is not loaded in ssh-agent — ssh-add it", ssh.FingerprintSHA256(pub)),
+			Detail: fmt.Sprintf("git names %s, but %v", ssh.FingerprintSHA256(pub), err),
+			Err:    err,
 		}
 	}
 	return d2, nil
@@ -365,12 +391,16 @@ func (d *Discoverer) resolveGitSigningKey(ctx context.Context, value string) (*D
 func (d *Discoverer) resolveSoleAgentIdentity(ctx context.Context, looked []string) (*Discovered, error) {
 	ag, err := d.DialAgent()
 	if err != nil {
-		return nil, &NoKeyError{Looked: looked, Detail: err.Error()}
+		return nil, &NoKeyError{Looked: looked, Detail: err.Error(), Err: err}
 	}
 
 	signers, err := ag.Signers()
 	if err != nil {
-		return nil, &NoKeyError{Looked: looked, Detail: fmt.Sprintf("listing ssh-agent identities: %v", err)}
+		// U135-F01(c)/F03: an ssh-agent RPC failure while LISTING identities
+		// is a different fact than "the agent holds no identities" — chain
+		// the real cause via Err so a caller can errors.Is/As it, not just
+		// read a flattened string.
+		return nil, &NoKeyError{Looked: looked, Detail: fmt.Sprintf("listing ssh-agent identities: %v", err), Err: err}
 	}
 	if len(signers) == 0 {
 		return nil, &NoKeyError{Looked: looked}
@@ -400,19 +430,30 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 	}
 
 	path := expandHome(value)
-	data, err := d.ReadFile(path)
-	if err != nil {
-		// Try the .pub sibling — user.signingkey conventionally names the
-		// PRIVATE key path in some setups; the public key lives alongside it.
-		if !strings.HasSuffix(path, ".pub") {
-			if data2, err2 := d.ReadFile(path + ".pub"); err2 == nil {
-				data = data2
-				err = nil
+
+	// U135-F02: user.signingkey conventionally names the PRIVATE key path in
+	// some real setups, with the public key living alongside it as
+	// "<path>.pub". Probe that sibling FIRST — before ever reading `path`
+	// itself — whenever path doesn't already end in .pub. The old fallback
+	// lived only inside the `ReadFile(path)` FAILURE branch, so it could
+	// never fire for exactly the case the comment names: the private-key
+	// path reads successfully (it exists), so ssh.ParseAuthorizedKey simply
+	// failed on private-key bytes and the whole zero-config git path broke.
+	// Trying the sibling first also means ctxloom never reads private key
+	// bytes into memory at all when a .pub sibling exists — tightening the
+	// package doc's "never reads private key material" claim rather than
+	// merely making it true on the happy path.
+	if !strings.HasSuffix(path, ".pub") {
+		if data, err := d.ReadFile(path + ".pub"); err == nil {
+			if pub, _, _, _, perr := ssh.ParseAuthorizedKey(data); perr == nil {
+				return pub, nil
 			}
 		}
-		if err != nil {
-			return nil, fmt.Errorf("not a recognized public key and unreadable as a file: %w", err)
-		}
+	}
+
+	data, err := d.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("not a recognized public key and unreadable as a file: %w", err)
 	}
 	pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
 	if err != nil {

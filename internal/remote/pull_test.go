@@ -193,6 +193,47 @@ func TestPuller_Pull(t *testing.T) {
 	assert.Equal(t, "abc123def456", entry.SHA)
 }
 
+// TestPuller_Pull_LockfileWriteFailureIsNotSwallowed pins U094-F05: for a
+// bundle the lockfile is the ONLY on-disk record (writePulledContent is a
+// synthetic no-op — nothing else is written). installPulledItem demoted a
+// failed lockfile write to a printed "Warning:" on opts.Stdout and returned
+// success anyway, so a pull whose sole persistent record failed to write
+// still reported a SHA and LocalPath for a pin that does not exist on disk —
+// including, on a retracted item, silently dropping the freshly-computed
+// Retracted verdict so EffectiveTrust never learns to withhold it.
+func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, base.MkdirAll("/test", 0755))
+
+	registry, err := NewRegistry("/test/remotes.yaml", WithRegistryFS(base))
+	require.NoError(t, err)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mf := newMockFetcher()
+	mf.files[".ctxloom/content/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.refs["main"] = "abc123def456"
+
+	// A read-only fs makes the lockfile write fail deterministically.
+	roFS := afero.NewReadOnlyFs(base)
+	lm := NewLockfileManager("/test", WithLockfileFS(roFS))
+
+	puller := NewPuller(registry, AuthConfig{},
+		WithPullerFS(base),
+		WithLockfileManager(lm),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+	)
+
+	var stdout bytes.Buffer
+	_, err = puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
+		LocalDir: "/test",
+		ItemType: ItemTypeBundle,
+		Stdout:   &stdout,
+		Stdin:    strings.NewReader(""),
+	})
+
+	require.Error(t, err, "a pull whose only persistent record failed to write must not report success")
+}
+
 func TestPuller_Pull_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))

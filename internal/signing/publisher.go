@@ -113,19 +113,25 @@ func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Ti
 	if len(armoredSig) == 0 {
 		return "", nil
 	}
-	if root == nil {
-		// No trust root trusts no key. Fail toward LESS exposure: treat the
-		// signature as unattributable rather than assuming anything about it.
-		return "", nil
-	}
 
 	// The KEY comes from the signature blob; TRUST in that key comes only from
 	// the trust root, below. A blob we cannot even parse is a tamper signal, not
 	// an unsigned bundle — otherwise corrupting a .sig would silently downgrade
-	// a signed bundle to an unsigned one (spec §10.2).
+	// a signed bundle to an unsigned one (spec §10.2). This MUST run before the
+	// nil-root check below (U134-F04): a nil root previously short-circuited to
+	// ("", nil) — "unsigned to you" — for a structurally invalid blob too,
+	// which is exactly the downgrade this comment says must never happen. Root
+	// only ever gates the LATER trust/verify questions, never the "is this
+	// even a signature" one.
 	sig, err := sshsig.Unarmor(armoredSig)
 	if err != nil {
 		return "", fmt.Errorf("%w: unarmor: %w", ErrSignatureTampered, err)
+	}
+
+	if root == nil {
+		// No trust root trusts no key. Fail toward LESS exposure: treat the
+		// signature as unattributable rather than assuming anything about it.
+		return "", nil
 	}
 
 	// The namespace/role check comes BEFORE the cryptographic verification, and

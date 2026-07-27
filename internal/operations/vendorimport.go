@@ -181,6 +181,22 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 		}
 		return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
 	}
+	// U089-F03: Convert succeeding is NOT the same fact as bytes landing on
+	// disk. transcript.Recorder only creates its canonical file on the FIRST
+	// SUCCESSFUL Record, so a Convert that (legitimately, per
+	// importer.VendorAdapter's own degrade-to-partial contract) wrote zero
+	// entries leaves no canonical file at all. Reporting converted=true here
+	// regardless used to make `session backfill` print "converted: <harp>"
+	// for a harp with nothing delivered — and because no file exists,
+	// hasCanonicalTranscript's guard above never catches it, so EVERY later
+	// backfill run repeated the same false report, not just once. Fold this
+	// into the ordinary "nothing to do" (Skipped) outcome instead: a caller
+	// that wants to know Convert was genuinely attempted-but-empty can still
+	// distinguish it from "not attempted at all" by checking
+	// hasCanonicalTranscript(harp) itself.
+	if !hasCanonicalTranscript(e.HarpName) {
+		return false, nil
+	}
 	return true, nil
 }
 

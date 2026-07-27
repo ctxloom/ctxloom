@@ -90,7 +90,10 @@ func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeTyp
 // remote-tracking refs (refs/remotes/origin/*) and tags to the live remote.
 // If the repo is not yet cloned, it clones it.
 func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
-	repoDir := c.RepoDirForURL(repoURL)
+	repoDir, err := c.RepoDirForURL(repoURL)
+	if err != nil {
+		return "", fmt.Errorf("refusing to update %q: %w", repoURL, err)
+	}
 	unlock := lockCloneDir(repoDir)
 	defer unlock()
 
@@ -110,7 +113,10 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 // same directory serialize on the per-directory lock regardless of which
 // RepoCache instance they go through.
 func (c *RepoCache) ensureClone(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
-	repoDir := c.RepoDirForURL(repoURL)
+	repoDir, err := c.RepoDirForURL(repoURL)
+	if err != nil {
+		return "", fmt.Errorf("refusing to clone %q: %w", repoURL, err)
+	}
 	unlock := lockCloneDir(repoDir)
 	defer unlock()
 	return c.ensureCloneLocked(ctx, repoURL, repoDir, forgeType)
@@ -265,7 +271,14 @@ func cloneHost(cloneURL string) string {
 
 // RepoDirForURL computes the local cache path for a repo URL.
 // e.g., https://github.com/owner/repo → baseDir/github.com/owner/repo
-func (c *RepoCache) RepoDirForURL(repoURL string) string {
+// RepoDirForURL computes the local cache path for a repo URL.
+// e.g., https://github.com/owner/repo → baseDir/github.com/owner/repo
+//
+// U095-F01: a degenerate/pathless URL (empty, ".", a bare scheme like
+// "https://") must not silently resolve to the cache root itself — see
+// safeRepoPath. Callers that used to discard this error and clone/RemoveAll
+// whatever came back must now handle it explicitly.
+func (c *RepoCache) RepoDirForURL(repoURL string) (string, error) {
 	u, err := url.Parse(normalizeCloneURL(repoURL))
 	if err != nil {
 		return c.safeRepoPath(sanitizePath(repoURL))
@@ -284,7 +297,21 @@ func (c *RepoCache) RepoDirForURL(repoURL string) string {
 // We drop empty, ".", and ".." segments before joining (so filepath.Join can't
 // collapse a "../" back out), then verify containment with filepath.Rel as
 // defense in depth, falling back to baseDir if anything still escapes.
-func (c *RepoCache) safeRepoPath(parts ...string) string {
+// safeRepoPath joins parts under baseDir, guaranteeing the result stays
+// STRICTLY INSIDE baseDir. SECURITY (U095-F01): the returned dir is later
+// os.RemoveAll'd and cloned into — so "escapes baseDir" is not the only
+// unsafe outcome; "equals baseDir itself" is exactly as dangerous, because
+// the caller does not distinguish "a repo's own subdirectory" from "the
+// entire clone cache root" before deleting it. A degenerate URL (empty,
+// ".", "..", a bare scheme with no host/path) used to drop every segment and
+// fall back to returning c.baseDir as though it were a safe, contained
+// answer — which let RemoveAll(baseDir) wipe every cached clone.
+//
+// We drop empty, ".", and ".." segments before joining (so filepath.Join
+// can't collapse a "../" back out), then require at least one surviving
+// segment AND verify containment with filepath.Rel as defense in depth. Any
+// failure returns an error — never a silent fallback to baseDir.
+func (c *RepoCache) safeRepoPath(parts ...string) (string, error) {
 	var clean []string
 	for _, p := range parts {
 		for _, seg := range strings.FieldsFunc(p, func(r rune) bool {
@@ -296,12 +323,15 @@ func (c *RepoCache) safeRepoPath(parts ...string) string {
 			clean = append(clean, seg)
 		}
 	}
+	if len(clean) == 0 {
+		return "", fmt.Errorf("repo path %q resolves to no usable path segments (would be the cache root itself)", strings.Join(parts, "/"))
+	}
 	joined := filepath.Join(append([]string{c.baseDir}, clean...)...)
 	rel, err := filepath.Rel(c.baseDir, joined)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return c.baseDir
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("repo path %q does not resolve to a path safely contained inside the cache root", strings.Join(parts, "/"))
 	}
-	return joined
+	return joined, nil
 }
 
 // normalizeCloneURL ensures a URL is suitable for git clone.

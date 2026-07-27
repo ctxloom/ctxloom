@@ -110,6 +110,52 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
 }
 
+// TestUpgrade_RetractionSurvivesNonEmptyReresolve pins U089-F01: a full
+// re-resolve that DOES produce results (unlike the empty-closure case above)
+// must not silently un-retract an item the publisher withdrew. Only a fresh
+// CheckRetracted (sync's installed-ref re-check, or the next Pull) is
+// entitled to lift a retraction — a wholesale relock is not a fresh check,
+// yet the entry UpgradeDependencies builds for every non-held, re-proposed
+// item started from a zero value and dropped Retracted/RetractedReason on
+// the floor.
+func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
+	baseDir, ref, identity, c1 := setupUpgrade(t)
+	cfg := testConfigWithSCMPath(baseDir)
+	ctx := context.Background()
+
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.NoError(t, err)
+
+	// Record a publisher retraction against the entry, WITHOUT holding it —
+	// holding takes a different (already-correct) code path in
+	// UpgradeDependencies that copies `cur` wholesale.
+	mgr := remote.NewLockfileManager(baseDir)
+	lf, err := mgr.Load()
+	require.NoError(t, err)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, identity)
+	require.True(t, ok)
+	entry.Retracted = true
+	entry.RetractedReason = "withdrawn by the publisher"
+	lf.AddEntry(remote.ItemTypeBundle, identity, entry)
+	require.NoError(t, mgr.Save(lf))
+
+	// Advance upstream so the re-resolve is non-empty and genuinely proposes a
+	// move — this is the case the empty-closure guard (Save's
+	// ErrLockfileWouldErase) does not cover at all.
+	c2 := addFileToLocalRepo(t, srcDirOf(ref), ".ctxloom/content/bundles/demo2.yaml", "name: demo2\n")
+	require.NotEqual(t, c1, c2)
+
+	advanced, _, err := UpgradeDependencies(ctx, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, 1, advanced)
+
+	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
+	require.True(t, ok)
+	assert.Equal(t, c2, after.SHA, "the SHA still advances")
+	assert.True(t, after.Retracted, "a wholesale re-resolve must not silently un-retract content the publisher withdrew (U089-F01)")
+	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
+}
+
 // The legitimate empty case: a project with genuinely nothing pinned upgrades
 // to nothing, successfully. Replacing a data-loss bug with a usability one is
 // not a fix.

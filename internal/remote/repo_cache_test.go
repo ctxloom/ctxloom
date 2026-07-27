@@ -123,7 +123,8 @@ func TestRepoCache_repoDirForURL_RejectsTraversal(t *testing.T) {
 		"ssh://git@host/../../outside",
 	}
 	for _, u := range traversal {
-		dir := cache.RepoDirForURL(u)
+		dir, derr := cache.RepoDirForURL(u)
+		require.NoError(t, derr, "RepoDirForURL(%q) should resolve (traversal segments are dropped, not refused outright)", u)
 		rel, err := filepath.Rel(base, dir)
 		require.NoError(t, err, "RepoDirForURL(%q) = %q", u, dir)
 		assert.False(t, rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)),
@@ -169,7 +170,8 @@ func TestRepoCache_EnsureRepo_CorruptClone(t *testing.T) {
 
 	// Create a corrupt directory where the clone would go
 	cloneURL := "file://" + sourceRepo
-	expectedDir := cache.RepoDirForURL(cloneURL)
+	expectedDir, derr := cache.RepoDirForURL(cloneURL)
+	require.NoError(t, derr)
 	require.NoError(t, os.MkdirAll(expectedDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(expectedDir, "garbage"), []byte("not a repo"), 0644))
 
@@ -289,7 +291,8 @@ func TestRepoCache_repoDirForURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cache.RepoDirForURL(tt.url)
+			got, err := cache.RepoDirForURL(tt.url)
+			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}

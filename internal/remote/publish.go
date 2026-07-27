@@ -207,6 +207,16 @@ func (pm *PublishManager) loadPublishContent(localPath string, opts PublishOptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
+	// U094-F02: an empty local file must never publish. Without this floor a
+	// 0-byte file overwrote whatever real content already existed at the
+	// remote path with nothing, reported success, and — before signing.Sign
+	// gained its own U134-F01 floor — could even produce a "valid" publisher
+	// signature over zero bytes. Reject here, before any network write and
+	// before SignPayload is ever called, so both the signed and unsigned
+	// publish paths are covered by one guard.
+	if len(content) == 0 {
+		return nil, fmt.Errorf("refusing to publish empty file %s: a 0-byte file would overwrite the remote with nothing", localPath)
+	}
 	return content, nil
 }
 

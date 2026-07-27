@@ -73,6 +73,17 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 			continue
 		}
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
+		// U089-F01: a full re-resolve is NOT a fresh retraction check — only
+		// sync's installed-ref re-check (checkInstalledRetraction) or the next
+		// Pull actually reads the publisher's manifest and is entitled to lift
+		// a retraction. Without this, `ctxloom remote upgrade` silently
+		// un-retracted every non-held bundle by building a zero-valued entry
+		// here, exactly the invariant LockDependencies' prevRetracted already
+		// protects on the sibling full-rebuild path (internal/operations/lockfile.go).
+		if has && cur.Retracted {
+			entry.Retracted = true
+			entry.RetractedReason = cur.RetractedReason
+		}
 		newActive.AddEntry(p.Type, p.Identity, entry)
 		if !has || cur.SHA != p.Hash {
 			advanced++

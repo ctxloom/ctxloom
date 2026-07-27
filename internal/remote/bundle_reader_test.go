@@ -110,6 +110,25 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})
+
+	// U093-F01: an empty entry.SHA must never reach the fetcher — the pin IS
+	// the security control (EffectiveTrust gates on content read at a
+	// specific commit), and a fetcher asked to read "" resolves the default
+	// branch TIP instead, silently converting a pinned read into a latest
+	// read. A hand-edited, truncated, or future-written lockfile is the
+	// realistic path to this state; no production writer emits an empty SHA
+	// today, but a pinned reader must refuse to read unpinned regardless of
+	// how it got that way.
+	t.Run("empty locked SHA is refused, never resolved as latest", func(t *testing.T) {
+		reader, fetcher, lock := readerFixture(t)
+		entry := lock.Bundles[secKey]
+		entry.SHA = ""
+		lock.Bundles[secKey] = entry
+
+		_, err := reader.ReadBundleBytes(context.Background(), secKey)
+		require.Error(t, err, "an empty pin must be refused, not silently resolved to the default branch")
+		assert.Empty(t, fetcher.FetchFileCalls, "the fetcher must never be asked to read an empty ref")
+	})
 }
 
 func TestBundleReader_Surface(t *testing.T) {

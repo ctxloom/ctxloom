@@ -57,6 +57,13 @@ type LoadoutEnvelope struct {
 // LoadoutEnvelope.Signer) so the shape supports a companion attaching a
 // signature produced at build time without any change to this function.
 func EncodeLoadoutEnvelope(bundleBytes []byte, armoredSig []byte, signer string) ([]byte, error) {
+	// U134-F03: an empty bundle attests to nothing (the same principle F01
+	// applies to Sign itself) — floor it here so every caller of the envelope
+	// primitive gets the protection, not just companionloadout.Emit's own
+	// separate guard.
+	if len(bundleBytes) == 0 {
+		return nil, fmt.Errorf("encode loadout envelope: refusing to encode an empty bundle — a loadout contributing nothing must fail loud, not look like a healthy envelope")
+	}
 	env := LoadoutEnvelope{
 		Contract: LoadoutContract,
 		Bundle:   base64.StdEncoding.EncodeToString(bundleBytes),
@@ -105,6 +112,14 @@ func DecodeLoadoutEnvelope(raw []byte, root TrustRoot, now time.Time) (bundleByt
 	decoded, err := base64.StdEncoding.DecodeString(env.Bundle)
 	if err != nil {
 		return nil, "", fmt.Errorf("decode loadout bundle: %w", err)
+	}
+	// U134-F03: a well-formed envelope that decodes to ZERO bundle bytes is a
+	// malfunctioning (or hostile) companion contributing nothing while still
+	// looking like a successfully-decoded, possibly-verified probe. Withhold
+	// it the same way an unparseable envelope is withheld, rather than handing
+	// the caller (bytes, signer, nil) for an empty payload.
+	if len(decoded) == 0 {
+		return nil, "", fmt.Errorf("loadout envelope decodes to an empty bundle — a companion contributing nothing must fail loud, not decode successfully")
 	}
 
 	// VerifyPublisher gates on len(armoredSig)==0, so a nil and an empty

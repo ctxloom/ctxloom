@@ -69,6 +69,7 @@ func TestRepoCache_cloneToken_ResolverFallsBackToAmbient(t *testing.T) {
 // TestRepoCache_RepoDirForURL covers the cache-path derivation operations uses.
 func TestRepoCache_RepoDirForURL(t *testing.T) {
 	cache := NewRepoCache("/tmp/cache", AuthConfig{})
-	assert.Equal(t, "/tmp/cache/github.com/owner/repo",
-		cache.RepoDirForURL("https://github.com/owner/repo"))
+	got, err := cache.RepoDirForURL("https://github.com/owner/repo")
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/cache/github.com/owner/repo", got)
 }

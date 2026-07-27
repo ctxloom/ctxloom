@@ -76,6 +76,25 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 		return nil, fmt.Errorf("failed to read lockfile: %w", err)
 	}
 
+	// U093-F02: a PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
+	// fact from "no lockfile" (handled above) and must not collapse into it.
+	// Save/write always stamp LockedAt to time.Now() before marshaling, so
+	// any real write produces non-trivial bytes ("version: N\nlocked_at:
+	// ...\n" at minimum) — a genuinely 0-byte or blank file on disk can only
+	// be truncation, a crash mid-write, or a hand-created stub. Loading it as
+	// a valid empty lockfile makes every pinned remote bundle vanish from the
+	// session with no diagnostic at all. (A comment-only or `null` document
+	// that yaml still parses to a non-empty byte count is NOT covered here —
+	// unlike bundles.ParseBundle's analogous floor, this package has no
+	// invariant guaranteeing Version is always non-zero on a legitimate
+	// lockfile, so that stronger check would false-positive on a
+	// test/programmatically-constructed Lockfile{} that was never round-
+	// tripped through Load.)
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, fmt.Errorf("lockfile %s exists but is empty — this is not the same as no lockfile at all (which is fine); "+
+			"fix or delete the file, then re-sync (a legitimate lockfile always contains at least 'version: 1')", path)
+	}
+
 	var lockfile Lockfile
 	if err := yaml.Unmarshal(data, &lockfile); err != nil {
 		return nil, fmt.Errorf("failed to parse lockfile: %w", err)

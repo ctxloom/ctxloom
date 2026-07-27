@@ -156,6 +156,17 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	}
 	// The host already composed fragments into prompt (JoinLeadBlocks at the
 	// call site), so it leads the first turn verbatim.
+	//
+	// sudsy-patio: this bare return LOOKS like it skips cleanup (the two
+	// failure paths above both call c.failChild explicitly), but it does
+	// not — issueStartRun calls c.failChild itself on every one of its
+	// error-return paths (awaitRunner timeout, payload guard, StartRun
+	// wire/refusal) before returning a non-nil error. Adding a second
+	// c.failChild call here would double-count c.noteLaunchFailure and
+	// corrupt the launch-retry budget for a failure that was already fully
+	// handled. Pinned by TestStartOwnedRun_CleansUpOnIssueStartRunFailure
+	// (owner_run_cleanup_test.go): rt.close fires and the run leaves the
+	// live roster without any cleanup call at this call site.
 	if err := c.issueStartRun(ctx, rt, hashToken(token), hs, prompt, spec.Model, ""); err != nil {
 		return nil, err
 	}

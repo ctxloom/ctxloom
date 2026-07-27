@@ -970,6 +970,19 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	text := strings.TrimSpace(strings.Join(out, sep))
 	if text == "" {
 		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
+		// U020-F04: that warning goes to the COORDINATOR PROCESS's stderr —
+		// a channel the parent (an agent whose sole input is its mailbox)
+		// cannot read. Under the runtime:container prompt-delivery defect
+		// this fires every turn while every cheap signal (roster state,
+		// transcript existence, exit code) stays green, and the parent
+		// observes an indefinitely silent, "executing" child with no
+		// diagnostic at all. Best-effort: if the mailbox itself is what's
+		// broken, this mail also fails, but the case it exists for (a
+		// perfectly healthy mailbox, an unhealthy CHILD) is the common one.
+		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "error",
+			fmt.Sprintf("agent %q (run %s) turn produced no output — nothing to report", rt.harp, rt.runID)); err != nil {
+			clidiag.Warn("ctxloom", "agent %s: notify parent of empty turn: %v", rt.harp, err)
+		}
 		return
 	}
 	if oneshot {
@@ -982,6 +995,16 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	}
 	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
+		// U020-F03: the accumulator was already cleared above (so a
+		// concurrent append during the failed queueMail call lands cleanly
+		// on top, not lost under a lock we no longer hold) — but a failed
+		// delivery must not silently vanish the turn's own text. Restore it
+		// AHEAD of anything accumulated since, so the next turn boundary
+		// retries delivering it instead of the report existing nowhere:
+		// not in rt, not in the mailbox fold, not in the parent's view.
+		c.mu.Lock()
+		rt.turnOutput = append(append([]string{}, out...), rt.turnOutput...)
+		c.mu.Unlock()
 	}
 }
 

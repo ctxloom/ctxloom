@@ -23,3 +23,13 @@ linters:
       - path-except: '_test\.go'
         linters:
           - forbidigo
+
+# v2 moved formatting checks out of `linters:` into this separate top-level
+# section. Without it, `just lint` never gates Go source formatting at all —
+# gofmt drift accumulates silently and CI stays green regardless. Plain gofmt
+# is deliberately the only formatter enabled: gofumpt/goimports are stricter
+# and would reformat far more of the repo than the drift this gate exists to
+# catch, turning a gate fix into an unrelated repo-wide churn commit.
+formatters:
+  enable:
+    - gofmt

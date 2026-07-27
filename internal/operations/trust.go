@@ -212,6 +212,7 @@ func (r EffectiveTrustResult) Reason() string {
 // First-match-wins, fail-closed:
 //
 //  1. REJECTED       DENY   a rejection covers this ref, or these exact bytes
+//
 // 2a. UNREADABLE     DENY   retraction state could not be established (remote refs only)
 //  2. RETRACTED      DENY   the publisher withdrew this bundle (locally recorded at sync)
 //  3. LOCAL          ALLOW  authored in this project

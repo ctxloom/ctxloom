@@ -22,4 +22,3 @@ type acpCommands struct{}
 func (s *acpCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return nil
 }
-

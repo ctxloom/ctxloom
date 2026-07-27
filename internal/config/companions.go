@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -266,7 +267,7 @@ func companionsOnPathByConvention() []string {
 var companionLoadoutOutput = func(path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), companionProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "loadout", "--format", "json")
+	cmd := exec.CommandContext(ctx, path, companionloadout.Subcommand, "--"+companionloadout.FormatFlag, companionloadout.FormatJSON)
 	cmd.WaitDelay = companionProbeWaitDelay
 	return cmd.Output()
 }

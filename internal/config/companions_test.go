@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -303,6 +304,35 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 	out := ProbeCompanionLoadouts(nil)
 	assert.Empty(t, out)
 	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
+}
+
+// TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide (U107-F02) bridges
+// the two ends of the cross-process wire contract this probe's argv and
+// companionloadout.NewCommand's cobra dispatch both have to agree on
+// (subcommand name, flag name, format value) — previously duplicated as
+// bare string literals with no shared constant and no test exercising both
+// real sides, so renaming any of the three passed the whole suite while
+// silently breaking every companion in production. Drives the REAL
+// companionloadout.NewCommand (the emitter side) with the EXACT argv
+// companionLoadoutOutput builds (the consumer side) and checks the output
+// round-trips through the real signing.DecodeLoadoutEnvelope decoder.
+func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
+	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  x:\n    content: hi\n")
+	// NewCommand returns the "loadout" command itself (it has no
+	// subcommands), so only the flag portion of companionLoadoutOutput's
+	// argv applies here — the Subcommand constant is what a real companion
+	// binary's root command would dispatch ON to reach this command in the
+	// first place.
+	cmd := companionloadout.NewCommand("acme", bundleYAML, nil)
+	require.Equal(t, companionloadout.Subcommand, cmd.Use, "the emitter side's command name must still match Subcommand")
+	cmd.SetArgs([]string{"--" + companionloadout.FormatFlag, companionloadout.FormatJSON})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	require.NoError(t, cmd.Execute())
+
+	decoded, _, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, bundleYAML, decoded)
 }
 
 // TestCompanionsEnabled_ProbesByDefault is the converse: the default is on, so

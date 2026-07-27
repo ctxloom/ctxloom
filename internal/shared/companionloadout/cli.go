@@ -32,10 +32,30 @@ import (
 // §10.1). No release signing pipeline exists yet, so every in-repo companion
 // passes nil today; this seam is what a future signed build changes through
 // without touching this function.
+// U107-F02: this trio is a cross-process wire contract — ctxloom's own
+// probe (internal/config/companions.go) execs a companion binary as
+// `<bin> Subcommand --FormatFlag FormatJSON` — previously duplicated as bare
+// string literals on BOTH sides with no shared constant and no test
+// exercising both real sides together. Because a broken probe took a silent
+// bare-return path (see companions.go's own U047-F04 fix for the OTHER half
+// of this finding), renaming any of these three strings on either side alone
+// used to pass the entire test suite while silently removing all companion
+// contribution in production. Exporting them here and having the consumer
+// build its argv from them makes a one-sided rename a compile error instead.
+const (
+	// Subcommand is the loadout probe's cobra command name.
+	Subcommand = "loadout"
+	// FormatFlag is the flag name selecting the output format.
+	FormatFlag = "format"
+	// FormatJSON is the FormatFlag value naming the machine-readable
+	// signed-envelope format ctxloom's probe execs.
+	FormatJSON = "json"
+)
+
 func NewCommand(binName string, bundleYAML, sig []byte) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
-		Use:   "loadout",
+		Use:   Subcommand,
 		Short: fmt.Sprintf("Print %s's ctxloom loadout — the bundle content %s contributes to a session", binName, binName),
 		Long: fmt.Sprintf(`loadout emits the ctxloom bundle %s contributes to a session, for ctxloom's
 companion discovery to seed into its trust gate under the source ref
@@ -50,7 +70,7 @@ bytes (base64) plus an OPTIONAL detached publish signature.
 			return Emit(cmd.OutOrStdout(), format, bundleYAML, sig)
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "yaml", "output format: yaml (raw bundle) or json (signed envelope)")
+	cmd.Flags().StringVar(&format, FormatFlag, "yaml", "output format: yaml (raw bundle) or json (signed envelope)")
 	return cmd
 }
 
@@ -74,11 +94,23 @@ func ReadEmbeddedSig(fs embed.FS) []byte {
 // no filesystem access beyond the bytes already in hand. Exported so each
 // companion's own tests can drive it directly without going through cobra.
 func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
+	// U107-F01: a companion binary embedding zero bytes (a build mistake:
+	// forgot the go:embed directive, wrong glob, empty loadout.yaml) used
+	// to emit a well-formed envelope carrying nothing, in BOTH formats —
+	// and every downstream stage (ctxloom's discovery decode, ParseBundle,
+	// probe) also succeeded, so "companion present but contributing
+	// nothing" was byte-for-byte indistinguishable from a healthy
+	// companion. Fail loud here, at the emitter, where binName is known
+	// and where the companion's OWN tests catch it — not just at
+	// ctxloom's consumer side.
+	if len(bundleYAML) == 0 {
+		return fmt.Errorf("empty loadout bundle: this companion has no content to contribute (embedded loadout.yaml is empty or missing)")
+	}
 	switch format {
 	case "yaml":
 		_, err := w.Write(bundleYAML)
 		return err
-	case "json":
+	case FormatJSON:
 		env, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "")
 		if err != nil {
 			return fmt.Errorf("encode loadout envelope: %w", err)

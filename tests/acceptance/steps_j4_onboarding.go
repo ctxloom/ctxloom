@@ -357,7 +357,7 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		// config.DiscoverCompanions's lookPath even in the "not installed"
 		// row, making the negative case host-dependent instead of
 		// deterministic.
-		if err := j4ScrubRepriseFromPath(w); err != nil {
+		if err := j8ScrubFromPath(w, "reprise"); err != nil {
 			return err
 		}
 		if presence == "not installed" {
@@ -436,26 +436,5 @@ func assertBobMaterializedDoesNotContain(w *World, notWant string) error {
 	if strings.Contains(body, notWant) {
 		return fmt.Errorf("Bob's materialized context unexpectedly contains %q; content:\n%s", notWant, body)
 	}
-	return nil
-}
-
-// j4ScrubRepriseFromPath removes any PATH entry that would satisfy a lookup
-// for a binary literally named "reprise" from this process's environment —
-// the seam every subprocess this TestEnvironment spawns inherits (see
-// TestEnvironment.SetEnv). Restored by TestEnvironment.Cleanup like every
-// other env override this suite makes.
-func j4ScrubRepriseFromPath(w *World) error {
-	current := os.Getenv("PATH")
-	var kept []string
-	for _, dir := range filepath.SplitList(current) {
-		if dir == "" {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, "reprise")); err == nil {
-			continue // this directory would satisfy lookPath("reprise") — drop it
-		}
-		kept = append(kept, dir)
-	}
-	w.env.SetEnv("PATH", strings.Join(kept, string(os.PathListSeparator)))
 	return nil
 }

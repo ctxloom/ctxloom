@@ -138,14 +138,13 @@ func j8InstallFakeCompanion(w *World, bin, principal, bundleYAML, versionJSON st
 }
 
 // j8ScrubFromPath removes any PATH entry that would satisfy a lookup for a
-// binary literally named bin — a same-shaped COPY of
-// steps_j4_onboarding.go's j4ScrubRepriseFromPath, generalized to any
-// companion name and kept as its own copy here (rather than exported from
-// that file) per the worktree brief's file-ownership boundary between
-// concurrently-edited journeys. Without it, a host that happens to have a
-// real ltk/reprise on PATH (this repo dogfoods both — see .ltk/config.yaml,
-// lefthook.yml) would make the "not installed" arm host-dependent instead of
-// deterministic.
+// binary literally named bin — shared by J4 (steps_j4_onboarding.go, "the
+// reprise companion is not installed") and J8 (below, ltk), consolidated
+// from two byte-identical copies (U160-F06) once the worktree-era
+// file-ownership boundary that justified the duplication no longer applied.
+// Without it, a host that happens to have a real ltk/reprise on PATH (this
+// repo dogfoods both — see .ltk/config.yaml, lefthook.yml) would make the
+// "not installed" arm host-dependent instead of deterministic.
 func j8ScrubFromPath(w *World, bin string) error {
 	current := os.Getenv("PATH")
 	var kept []string
@@ -280,9 +279,8 @@ func registerJ8Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "ltk" companion is not installed on Bob's machine$`, func(c context.Context) error {
 		// Only the "not installed" arm is implemented: no J8 scenario needs
 		// ltk "installed" on Bob's machine (scenario 1 already proves the
-		// present-companion contribution, on Alice) — mirrors
-		// steps_j4_onboarding.go's j4ScrubRepriseFromPath's own "not
-		// installed" behavior (scrub only, no fake install).
+		// present-companion contribution, on Alice) — mirrors J4's own "not
+		// installed" behavior for reprise (scrub only, no fake install).
 		return j8ScrubFromPath(worldFrom(c), "ltk")
 	})
 

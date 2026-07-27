@@ -238,6 +238,13 @@ func firstExistingBinary(locations []string) (string, bool) {
 }
 
 // Setup configures the environment variables for isolated testing.
+//
+// The error return can never be non-nil today (storeAndSetEnv returns
+// nothing; U163-F07) — kept deliberately as a documented future-proofing
+// seam rather than dropped, since every one of Setup's five call sites
+// already checks it and a future storeAndSetEnv-shaped failure (a real
+// os.Setenv error, say) should be able to surface through the same path
+// without a signature change rippling through all five.
 func (e *TestEnvironment) Setup() error {
 	// Store and override HOME
 	e.storeAndSetEnv("HOME", e.HomeDir)

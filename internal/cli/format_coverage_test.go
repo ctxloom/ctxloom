@@ -49,6 +49,20 @@ import (
 type formatCoverageEntry struct {
 	skip      string
 	extraArgs func(format string) []string
+
+	// formatDebt marks a skip entry as T19 debt: this command registers
+	// (inherits) the persistent --format flag but its RunE never routes
+	// through emit()/cliemit.Emit, so --format is silently accepted and
+	// discarded. It is orthogonal to skip's REASON the harness can't
+	// exercise the command here (fixture cost, network, ssh-agent,
+	// destructive, installer, deprecated-alias-noise) — many skip'd
+	// commands DO honor format via emit() and are simply untestable in
+	// this harness; formatDebt is false for those.
+	//
+	// Every formatDebt:true entry must have a matching formatDebtAllowlist
+	// entry (enforced by TestFormatCoverage_DebtAllowlistTracksRegistry)
+	// naming what removing it requires — see that var's doc comment.
+	formatDebt bool
 }
 
 // formatCoverageWalk collects every Runnable, non-Hidden command under
@@ -171,12 +185,19 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
 	"plan watch":    {skip: "streaming: same shape as session watch"},
-	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result"},
+	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
 	// --- skip: legacy aliases for `session *`, slated for removal (Decision 2) ---
+	// T19 audit (source-verified, not registry-trusted): runMemoryShow and
+	// runMemoryCompact are standalone functions (memory.go), NOT thin wrappers
+	// around session_cmd.go's emit()-wired sessionShowCmd/runSessionDistill —
+	// neither calls emit(); both are real format debt, not just deprecated-
+	// alias noise. runMemoryList is the one exception: it DOES call emit()
+	// (confirmed via find_referencing_symbols on cliemit.Emit), so `memory
+	// list` is fine and NOT formatDebt despite living in this group.
 	"memory list":    {skip: "deprecated alias for `session list`, being removed (plan Decision 2); not independently exercised"},
-	"memory show":    {skip: "deprecated alias for `session show`"},
-	"memory compact": {skip: "deprecated alias for `session distill`"},
+	"memory show":    {skip: "deprecated alias for `session show`; runMemoryShow (memory.go) is its own implementation and never calls emit() — T19 debt", formatDebt: true},
+	"memory compact": {skip: "deprecated alias for `session distill`; runMemoryCompact (memory.go) is its own implementation and never calls emit() — T19 debt", formatDebt: true},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
 	"sign":                {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
@@ -200,30 +221,48 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"trust reject":            {skip: "needs a resolvable ref; not exercised here"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
-	"bundle delete":   {skip: "destructive + interactive confirm without --force; not exercised here"},
-	"bundle hold":     {skip: "needs an existing pin/lockfile fixture; not exercised here"},
-	"bundle unhold":   {skip: "needs an existing held pin fixture; not exercised here"},
+	// T19 audit: all four of these ARE format debt too (bundleDeleteCmd's
+	// runBundleDelete, bundle_hold_cli.go's hold/unhold RunEs, and
+	// runBundleMCPEdit never call emit() — confirmed absent from the global
+	// emit(cmd, ...) call-site grep), even though the reason they're skipped
+	// here is the fixture/confirmation cost, not the format bug. `bundle
+	// move` is the one command in the surrounding source files that DOES
+	// honor format (runBundleMove calls emit()) despite the same "needs a
+	// fixture" skip shape — verified NOT debt.
+	"bundle delete":   {skip: "destructive + interactive confirm without --force; not exercised here", formatDebt: true},
+	"bundle hold":     {skip: "needs an existing pin/lockfile fixture; not exercised here", formatDebt: true},
+	"bundle unhold":   {skip: "needs an existing held pin fixture; not exercised here", formatDebt: true},
 	"bundle move":     {skip: "needs source/dest bundle layout fixture; not exercised here"},
-	"bundle mcp edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here"},
+	"bundle mcp edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here", formatDebt: true},
 	"blacklist":       {skip: "needs a resolvable ref; deprecated alias for `trust reject`, not exercised here"},
 
 	// --- skip: network / real remote required ---
-	"remote add":      {skip: "network: adds and probes a real remote"},
-	"remote browse":   {skip: "network: browses a real remote's catalog"},
-	"remote default":  {skip: "needs a configured remote fixture"},
-	"remote discover": {skip: "network: queries GitHub for discoverable remotes"},
-	"remote pull":     {skip: "network: clones/fetches a real git remote"},
-	"remote remove":   {skip: "needs a configured remote fixture"},
-	"remote update":   {skip: "network: updates pinned bundle content from a real remote"},
-	"remote upgrade":  {skip: "network: upgrades pinned bundle content from a real remote"},
+	// T19 audit: 8 of these 9 `remote` commands ARE format debt — none of
+	// remote_browse.go/remote_discover.go/remote_update.go/remote_upgrade.go,
+	// nor remote.go's add/remove/default/pull RunEs, call emit() (confirmed:
+	// zero "emit(" occurrences in those RunE bodies). `remote list` is the
+	// lone exception (fixtured above) — so "all nine remote commands" (the
+	// original T19 claim) overstates by one; it's 8/9, not 9/9.
+	"remote add":      {skip: "network: adds and probes a real remote", formatDebt: true},
+	"remote browse":   {skip: "network: browses a real remote's catalog", formatDebt: true},
+	"remote default":  {skip: "needs a configured remote fixture", formatDebt: true},
+	"remote discover": {skip: "network: queries GitHub for discoverable remotes", formatDebt: true},
+	"remote pull":     {skip: "network: clones/fetches a real git remote", formatDebt: true},
+	"remote remove":   {skip: "needs a configured remote fixture", formatDebt: true},
+	"remote update":   {skip: "network: updates pinned bundle content from a real remote", formatDebt: true},
+	"remote upgrade":  {skip: "network: upgrades pinned bundle content from a real remote", formatDebt: true},
 	"bundle push":     {skip: "network: publishes to a real remote repository (shares pushBundleCfg with fragment/command push, covered by push_sign_test.go)"},
 	"fragment push":   {skip: "network: same pushBundleCfg path as bundle push"},
 	"command push":    {skip: "network: same pushBundleCfg path as bundle push"},
 
 	// --- skip: docker / container runtime required ---
-	"container build":    {skip: "requires a container runtime (docker/podman)"},
+	// T19 audit: `container check` DOES honor format (containerCheckCmd calls
+	// emit()) despite the skip; `container build`/`container scaffold` do
+	// not (both write straight to os.Stdout / cmd.OutOrStdout() with no emit
+	// call) — format debt.
+	"container build":    {skip: "requires a container runtime (docker/podman)", formatDebt: true},
 	"container check":    {skip: "probes for a container runtime on the host"},
-	"container scaffold": {skip: "writes a container scaffold; not exercised here"},
+	"container scaffold": {skip: "writes a container scaffold; not exercised here", formatDebt: true},
 
 	// --- skip: spawns/fans out real agent engines ---
 	"weave": {skip: "fans a task across real agent engines/profiles and synthesizes results; not exercised here"},
@@ -231,75 +270,88 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---
 	// (`manage init` was deleted outright — not deprecated — root `ctxloom
 	// init` is the sole bootstrap, plan Decision 6; no registry entry needed.)
-	"manage install":              {skip: "installer: side-effecting project bootstrap"},
-	"manage uninstall":            {skip: "installer: side-effecting project teardown"},
-	"manage hooks install":        {skip: "installer: writes real hook files"},
-	"manage hooks uninstall":      {skip: "installer: removes real hook files"},
-	"manage hooks status":         {skip: "reads the hook files the installer above would write; not fixtured here"},
-	"manage mcp install":          {skip: "deprecated alias for `mcp register` (plan Decision 3); installer: registers ctxloom as an MCP server in editor config"},
-	"manage mcp uninstall":        {skip: "deprecated alias for `mcp unregister` (plan Decision 3); installer: unregisters ctxloom as an MCP server"},
-	"manage mcp servers add":      {skip: "deprecated alias for `mcp server add`; not wired to emit() yet; also mutating"},
-	"manage mcp servers remove":   {skip: "deprecated alias for `mcp server remove`; not wired to emit() yet; also mutating"},
+	// T19 audit: every installer/register command below is format debt
+	// (confirmed: none of manage.go's install/uninstall/hooks-*/mcp-*/
+	// statusline-*/gitignore-install RunEs, nor mcp.go's mcpRegisterCmd/
+	// mcpUnregisterCmd inline closures, call emit()) — this is the "eleven
+	// commands ignore --format via bare fmt.Printf" class (matches the
+	// FINDINGS.md U037-F18 shape). `manage mcp servers show` is the one
+	// exception: it shares runMCPShow with `mcp server show`, which does
+	// call emit() — not debt, just fixture-gated.
+	"manage install":              {skip: "installer: side-effecting project bootstrap", formatDebt: true},
+	"manage uninstall":            {skip: "installer: side-effecting project teardown", formatDebt: true},
+	"manage hooks install":        {skip: "installer: writes real hook files", formatDebt: true},
+	"manage hooks uninstall":      {skip: "installer: removes real hook files", formatDebt: true},
+	"manage hooks status":         {skip: "reads the hook files the installer above would write; not fixtured here", formatDebt: true},
+	"manage mcp install":          {skip: "deprecated alias for `mcp register` (plan Decision 3); installer: registers ctxloom as an MCP server in editor config", formatDebt: true},
+	"manage mcp uninstall":        {skip: "deprecated alias for `mcp unregister` (plan Decision 3); installer: unregisters ctxloom as an MCP server", formatDebt: true},
+	"manage mcp servers add":      {skip: "deprecated alias for `mcp server add`; not wired to emit() yet; also mutating", formatDebt: true},
+	"manage mcp servers remove":   {skip: "deprecated alias for `mcp server remove`; not wired to emit() yet; also mutating", formatDebt: true},
 	"manage mcp servers show":     {skip: "deprecated alias for `mcp server show`; wired to emit(), but needs an existing server fixture; not exercised here"},
-	"mcp register":                {skip: "installer: registers ctxloom as an MCP server in editor config (real home of deprecated `manage mcp install`)"},
-	"mcp unregister":              {skip: "installer: unregisters ctxloom as an MCP server (real home of deprecated `manage mcp uninstall`)"},
-	"mcp server add":              {skip: "not wired to emit() yet; also mutating (real home of deprecated `manage mcp servers add`)"},
-	"mcp server remove":           {skip: "not wired to emit() yet; also mutating (real home of deprecated `manage mcp servers remove`)"},
+	"mcp register":                {skip: "installer: registers ctxloom as an MCP server in editor config (real home of deprecated `manage mcp install`)", formatDebt: true},
+	"mcp unregister":              {skip: "installer: unregisters ctxloom as an MCP server (real home of deprecated `manage mcp uninstall`)", formatDebt: true},
+	"mcp server add":              {skip: "not wired to emit() yet; also mutating (real home of deprecated `manage mcp servers add`)", formatDebt: true},
+	"mcp server remove":           {skip: "not wired to emit() yet; also mutating (real home of deprecated `manage mcp servers remove`)", formatDebt: true},
 	"mcp server show":             {skip: "wired to emit(), but needs an existing server fixture; not exercised here (real home of deprecated `manage mcp servers show`)"},
-	"manage statusline install":   {skip: "installer: writes real statusline config"},
-	"manage statusline uninstall": {skip: "installer: removes real statusline config"},
-	"manage gitignore install":    {skip: "installer: writes .gitignore entries"},
-	"manage config show":          {skip: "deprecated alias for `config show`; not wired to emit() yet"},
-	"manage config get":           {skip: "deprecated alias for `config get`; not wired to emit() yet"},
-	"manage config edit":          {skip: "deprecated alias for `config edit`; not wired to emit() yet; also opens an editor"},
-	"manage config init":          {skip: "deprecated alias for `config init`; not wired to emit() yet; also an installer"},
-	"config show":                 {skip: "not wired to emit() yet (real home of deprecated `manage config show`, plan Decision 6)"},
-	"config get":                  {skip: "not wired to emit() yet (real home of deprecated `manage config get`)"},
-	"config edit":                 {skip: "not wired to emit() yet; also opens an editor (real home of deprecated `manage config edit`)"},
-	"config init":                 {skip: "not wired to emit() yet; also an installer (real home of deprecated `manage config init`)"},
+	"manage statusline install":   {skip: "installer: writes real statusline config", formatDebt: true},
+	"manage statusline uninstall": {skip: "installer: removes real statusline config", formatDebt: true},
+	"manage gitignore install":    {skip: "installer: writes .gitignore entries", formatDebt: true},
+	"manage config show":          {skip: "deprecated alias for `config show`; not wired to emit() yet", formatDebt: true},
+	"manage config get":           {skip: "deprecated alias for `config get`; not wired to emit() yet", formatDebt: true},
+	"manage config edit":          {skip: "deprecated alias for `config edit`; not wired to emit() yet; also opens an editor", formatDebt: true},
+	"manage config init":          {skip: "deprecated alias for `config init`; not wired to emit() yet; also an installer", formatDebt: true},
+	"config show":                 {skip: "not wired to emit() yet (real home of deprecated `manage config show`, plan Decision 6)", formatDebt: true},
+	"config get":                  {skip: "not wired to emit() yet (real home of deprecated `manage config get`)", formatDebt: true},
+	"config edit":                 {skip: "not wired to emit() yet; also opens an editor (real home of deprecated `manage config edit`)", formatDebt: true},
+	"config init":                 {skip: "not wired to emit() yet; also an installer (real home of deprecated `manage config init`)", formatDebt: true},
 
 	// --- skip: acp/mcp entries needing configured agents ---
 	"acp entries": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
 	"acp agents":  {skip: "deprecated alias for `acp entries`; same fixture gap"},
 
 	// --- skip: not wired to emit() yet (pre-existing gap, outside this task's named stragglers) ---
-	"fragment show":       {skip: "not wired to emit() yet (item_helpers.go showItem)"},
-	"fragment create":     {skip: "not wired to emit() yet"},
-	"fragment delete":     {skip: "not wired to emit() yet"},
-	"fragment edit":       {skip: "not wired to emit() yet"},
-	"fragment distill":    {skip: "not wired to emit() yet"},
-	"fragment search":     {skip: "not wired to emit() yet"},
-	"command show":        {skip: "not wired to emit() yet"},
-	"command create":      {skip: "not wired to emit() yet"},
-	"command delete":      {skip: "not wired to emit() yet"},
-	"command edit":        {skip: "not wired to emit() yet"},
-	"command distill":     {skip: "not wired to emit() yet"},
-	"skill show":          {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
-	"skill create":        {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
-	"skill export":        {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
-	"skill import":        {skip: "wired to emit(), but needs an existing skill archive fixture; not exercised here"},
-	"skill sync":          {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
-	"agent show":          {skip: "wired to emit(), but needs an existing agent fixture; not exercised here"},
-	"agent set":           {skip: "wired to emit(), but mutating and needs a valid engine/profile fixture; not exercised here"},
-	"agent remove":        {skip: "not wired to emit() yet"},
-	"agent default":       {skip: "not wired to emit() yet"},
-	"agent setup":         {skip: "deprecated alias for `init prompt`; not wired to emit() yet"},
-	"init prompt":         {skip: "not wired to emit() yet; also an interactive interview"},
-	"profile show":        {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
-	"profile create":      {skip: "not wired to emit() yet"},
-	"profile delete":      {skip: "not wired to emit() yet"},
-	"profile edit":        {skip: "not wired to emit() yet"},
-	"profile export":      {skip: "not wired to emit() yet"},
-	"profile import":      {skip: "not wired to emit() yet"},
-	"profile materialize": {skip: "not wired to emit() yet"},
-	"profile modify":      {skip: "not wired to emit() yet"},
+	"fragment show":    {skip: "not wired to emit() yet (item_helpers.go showItem)", formatDebt: true},
+	"fragment create":  {skip: "not wired to emit() yet", formatDebt: true},
+	"fragment delete":  {skip: "not wired to emit() yet", formatDebt: true},
+	"fragment edit":    {skip: "not wired to emit() yet", formatDebt: true},
+	"fragment distill": {skip: "not wired to emit() yet", formatDebt: true},
+	"fragment search":  {skip: "not wired to emit() yet", formatDebt: true},
+	"command show":     {skip: "not wired to emit() yet", formatDebt: true},
+	"command create":   {skip: "not wired to emit() yet", formatDebt: true},
+	"command delete":   {skip: "not wired to emit() yet", formatDebt: true},
+	"command edit":     {skip: "not wired to emit() yet", formatDebt: true},
+	"command distill":  {skip: "not wired to emit() yet", formatDebt: true},
+	"skill show":       {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill create":     {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill export":     {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill import":     {skip: "wired to emit(), but needs an existing skill archive fixture; not exercised here"},
+	"skill sync":       {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"agent show":       {skip: "wired to emit(), but needs an existing agent fixture; not exercised here"},
+	"agent set":        {skip: "wired to emit(), but mutating and needs a valid engine/profile fixture; not exercised here"},
+	"agent remove":     {skip: "not wired to emit() yet", formatDebt: true},
+	"agent default":    {skip: "not wired to emit() yet", formatDebt: true},
+	"agent setup":      {skip: "deprecated alias for `init prompt`; not wired to emit() yet", formatDebt: true},
+	"init prompt":      {skip: "not wired to emit() yet; also an interactive interview", formatDebt: true},
+	"profile show":     {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
+	"profile create":   {skip: "not wired to emit() yet", formatDebt: true},
+	"profile delete":   {skip: "not wired to emit() yet", formatDebt: true},
+	"profile edit":     {skip: "not wired to emit() yet", formatDebt: true},
+	"profile export":   {skip: "not wired to emit() yet", formatDebt: true},
+	"profile import":   {skip: "not wired to emit() yet", formatDebt: true},
+	// T19 audit: this entry was WRONG — one of the registry's "known
+	// inaccuracies". profileMaterializeCmd's RunE DOES call emit() (verified
+	// via find_symbol on profile_materialize.go); it's fixture-gated like
+	// `profile show`, not format debt. Reclassified below; not counted in
+	// the T19 total and NOT in formatDebtAllowlist.
+	"profile materialize": {skip: "wired to emit(), but needs a resolvable profile + --target fixture; not exercised here (corrected T19 audit: previously mislabeled 'not wired to emit() yet', but profileMaterializeCmd's RunE does call emit())"},
+	"profile modify":      {skip: "not wired to emit() yet", formatDebt: true},
 	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
-	"session rename":      {skip: "not confirmed wired; needs an existing session fixture; not exercised here"},
-	"session forget":      {skip: "not confirmed wired; destructive; not exercised here"},
-	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here"},
+	"session rename":      {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's rename RunE is an inline closure that never calls emit()", formatDebt: true},
+	"session forget":      {skip: "not confirmed wired; destructive; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's forget RunE is an inline closure that never calls emit()", formatDebt: true},
+	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionDistill never calls emit()", formatDebt: true},
 	"session backfill":    {skip: "wired to emit(), but needs an existing session fixture; covered directly by session_backfill_test.go instead"},
-	"config":              {skip: "not wired to emit() yet"},
-	"init":                {skip: "interactive bootstrap interview; not exercised here"},
+	"config":              {skip: "not wired to emit() yet; NOTE: bare `config` has no RunE and is not cobra-Runnable, so formatCoverageWalk never actually visits it — this entry is inert/dead and not counted toward the T19 total"},
+	"init":                {skip: "interactive bootstrap interview; not exercised here; T19 audit confirmed NOT wired: runInit never calls emit()", formatDebt: true},
 }
 
 // noExtraArgs is the extraArgs value for a command whose full invocation is
@@ -400,5 +452,144 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 		var v map[string]any
 		assert.NoErrorf(t, toml.Unmarshal(out.Bytes(), &v), "invalid TOML for %q:\n%s", path, out.String())
 	default: // text, markdown: no fixed grammar to validate against, just non-panicking output
+	}
+}
+
+// formatDebtAllowlist is T19's ("--format is declared far more widely than it
+// is honored", FINDINGS.md) enforcement ledger. It is the machine-readable
+// list of commands currently allowed to register/inherit the persistent
+// --format flag and silently discard it (their RunE never reaches
+// emit()/cliemit.Emit). TestFormatCoverage_DebtAllowlistTracksRegistry below
+// requires every formatCoverageRegistry entry marked formatDebt: true to have
+// exactly one matching key here, and vice versa — so a new broken command (or
+// a stale allowlist entry left behind after a fix) fails the build instead of
+// drifting silently.
+//
+// TO PAY DOWN ONE ENTRY: fix the named command's RunE to route its output
+// through emit() (see any fixtured entry above, e.g. `bundle create`, for the
+// pattern), delete that command's line from this map, AND flip its
+// formatCoverageRegistry entry's formatDebt to false (or, if the command can
+// now be safely fixtured and exercised here, move it up into a real
+// extraArgs entry instead of a skip). Each entry is independent — removing
+// one never requires touching another, so flow batches that own different
+// commands can land in parallel.
+//
+// Grouped by owning surface per the T19 remediation batches (gooey-basil owns
+// rendering; brave-mango/sick-shawl/known-bleep/clean-pony own the commands).
+var formatDebtAllowlist = map[string]string{
+	// --- config surface (config.go; manage.go's deprecated aliases share the same RunEs) ---
+	"config show":        "config.go: runConfigShow must route through emit() instead of calling renderConfigYAML directly",
+	"config get":         "config.go: runConfigGet must route through emit() instead of calling renderConfigSection directly",
+	"config edit":        "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
+	"config init":        "config.go: runConfigInit must route through emit() instead of a bare fmt.Printf",
+	"manage config show": "deprecated alias of `config show`; shares runConfigShow — paid down by the same fix",
+	"manage config get":  "deprecated alias of `config get`; shares runConfigGet — paid down by the same fix",
+	"manage config edit": "deprecated alias of `config edit`; shares runConfigEdit — paid down by the same fix",
+	"manage config init": "deprecated alias of `config init`; shares runConfigInit — paid down by the same fix",
+
+	// --- remote surface (remote.go, remote_browse.go, remote_discover.go, remote_update.go, remote_upgrade.go) ---
+	"remote add":      "remote.go: remoteAddCmd's inline RunE must route through emit() instead of fmt.Printf",
+	"remote remove":   "remote.go: remoteRemoveCmd's inline RunE must route through emit() instead of fmt.Printf",
+	"remote default":  "remote.go: runRemoteDefault must route through emit() instead of fmt.Println/fmt.Printf",
+	"remote pull":     "remote.go: remotePullCmd's inline RunE + renderPullSummary must route through emit()",
+	"remote browse":   "remote_browse.go: runRemoteBrowse must route through emit()",
+	"remote discover": "remote_discover.go: the inline RunE (interactive add flow) must route through emit()",
+	"remote update":   "remote_update.go: runRemoteUpdate must route through emit()",
+	"remote upgrade":  "remote_upgrade.go: runRemoteUpgrade must route through emit()",
+
+	// --- bundle destructive/fixture-gated surface (bundle_edit.go, bundle_hold_cli.go, bundle_items.go) ---
+	"bundle delete":   "bundle_edit.go: runBundleDelete must route through emit()",
+	"bundle hold":     "bundle_hold_cli.go: the hold RunE must route through emit()",
+	"bundle unhold":   "bundle_hold_cli.go: the unhold RunE must route through emit()",
+	"bundle mcp edit": "bundle_items.go: runBundleMCPEdit must route through emit()",
+
+	// --- container surface (container_cmd.go) ---
+	"container build":    "container_cmd.go: containerBuildCmd's inline RunE streams to os.Stdout directly; must route its final result through emit()",
+	"container scaffold": "container_cmd.go: containerScaffoldCmd's inline RunE must route through emit() instead of iox.ErrWriter Printf calls",
+
+	// --- fragment/command item surfaces (fragment.go, command_cmd.go, item_helpers.go) ---
+	"fragment show":    "item_helpers.go: showItem (used by fragment show) must route through emit()",
+	"fragment create":  "fragment.go: the create RunE must route through emit()",
+	"fragment delete":  "fragment.go: the delete RunE must route through emit()",
+	"fragment edit":    "fragment.go: the edit RunE must route through emit()",
+	"fragment distill": "fragment.go: the distill RunE must route through emit()",
+	"fragment search":  "fragment.go: the search RunE must route through emit()",
+	"command show":     "command_cmd.go: the show RunE must route through emit()",
+	"command create":   "command_cmd.go: the create RunE must route through emit()",
+	"command delete":   "command_cmd.go: the delete RunE must route through emit()",
+	"command edit":     "command_cmd.go: the edit RunE must route through emit()",
+	"command distill":  "command_cmd.go: the distill RunE must route through emit()",
+
+	// --- agent/init surfaces (agent.go, init.go) ---
+	"agent remove":  "agent.go: the agent-remove RunE must route through emit()",
+	"agent default": "agent.go: the agent-default RunE must route through emit()",
+	"agent setup":   "deprecated alias of `init prompt`; shares runSetupPromptCmd — paid down by the same fix",
+	"init prompt":   "init.go: runSetupPromptCmd must route through emit() (also an interactive interview — may warrant a structural-exemption reclassification instead)",
+	"init":          "init.go: runInit must route through emit() (also an interactive bootstrap — may warrant a structural-exemption reclassification instead)",
+
+	// --- profile surface (profile.go) ---
+	"profile create": "profile.go: the create RunE must route through emit()",
+	"profile delete": "profile.go: the delete RunE must route through emit()",
+	"profile edit":   "profile.go: the edit RunE must route through emit()",
+	"profile export": "profile.go: the export RunE must route through emit()",
+	"profile import": "profile.go: the import RunE must route through emit()",
+	"profile modify": "profile.go: the modify RunE must route through emit()",
+
+	// --- session surface (session_cmd.go) ---
+	"session rename":  "session_cmd.go: the rename RunE (inline closure) must route through emit()",
+	"session forget":  "session_cmd.go: the forget RunE (inline closure) must route through emit()",
+	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
+
+	// --- memory deprecated-alias surface (memory.go) ---
+	// NOTE: unlike `memory list` (which shares session list's emit()-wired
+	// code and is NOT debt), show/compact are standalone implementations.
+	"memory show":    "memory.go: runMemoryShow is a standalone implementation (not a thin session-show wrapper) and must route through emit() independently",
+	"memory compact": "memory.go: runMemoryCompact is a standalone implementation (not a thin session-distill wrapper) and must route through emit() independently",
+
+	// --- installer/mcp-registration surface (manage.go, mcp.go) ---
+	"manage install":              "manage.go: the install RunE must route through emit()",
+	"manage uninstall":            "manage.go: the uninstall RunE must route through emit()",
+	"manage hooks install":        "manage.go: the hooks-install RunE must route through emit()",
+	"manage hooks uninstall":      "manage.go: the hooks-uninstall RunE must route through emit()",
+	"manage hooks status":         "manage.go: the hooks-status RunE must route through emit()",
+	"manage gitignore install":    "manage.go: the gitignore-install RunE must route through emit()",
+	"manage statusline install":   "manage.go: the statusline-install RunE must route through emit()",
+	"manage statusline uninstall": "manage.go: the statusline-uninstall RunE must route through emit()",
+	"manage mcp install":          "deprecated alias of `mcp register`; shares its RunE — paid down by the same fix",
+	"manage mcp uninstall":        "deprecated alias of `mcp unregister`; shares its RunE — paid down by the same fix",
+	"manage mcp servers add":      "deprecated alias of `mcp server add`; shares runMCPAdd — paid down by the same fix",
+	"manage mcp servers remove":   "deprecated alias of `mcp server remove`; shares runMCPRemove — paid down by the same fix",
+	"mcp register":                "mcp.go: mcpRegisterCmd's inline RunE (setMcpAutoRegister) must route through emit()",
+	"mcp unregister":              "mcp.go: mcpUnregisterCmd's inline RunE (setMcpAutoRegister) must route through emit()",
+	"mcp server add":              "mcp.go: runMCPAdd must route through emit() instead of bare fmt.Printf",
+	"mcp server remove":           "mcp.go: runMCPRemove must route through emit()",
+}
+
+// TestFormatCoverage_DebtAllowlistTracksRegistry is T19's enforcing half: it
+// fails if formatCoverageRegistry's formatDebt markers and
+// formatDebtAllowlist's keys ever drift apart, in either direction —
+//   - a formatDebt:true entry with no allowlist key (new debt introduced
+//     without being counted), and
+//   - an allowlist key whose registry entry isn't (or is no longer) marked
+//     formatDebt (a stale entry: the underlying command was fixed, or
+//     reclassified, and this ledger line was never removed).
+//
+// It also catches allowlist keys that don't correspond to any registered
+// command at all (renamed/removed commands leaving orphaned debt).
+func TestFormatCoverage_DebtAllowlistTracksRegistry(t *testing.T) {
+	for path, entry := range formatCoverageRegistry {
+		_, allowlisted := formatDebtAllowlist[path]
+		switch {
+		case entry.formatDebt && !allowlisted:
+			t.Errorf("command %q is marked formatDebt in formatCoverageRegistry but has no formatDebtAllowlist entry — add one naming the required fix", path)
+		case !entry.formatDebt && allowlisted:
+			t.Errorf("command %q has a formatDebtAllowlist entry but its formatCoverageRegistry entry isn't marked formatDebt — stale allowlist entry (debt already paid?); remove it", path)
+		}
+	}
+	for path, reason := range formatDebtAllowlist {
+		require.NotEmpty(t, reason, "formatDebtAllowlist[%q] needs a non-empty reason", path)
+		if _, ok := formatCoverageRegistry[path]; !ok {
+			t.Errorf("formatDebtAllowlist entry %q has no formatCoverageRegistry entry at all (renamed or removed command?)", path)
+		}
 	}
 }

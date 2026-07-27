@@ -94,6 +94,27 @@ func TestAtomicWriteFile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0600), bInfo.Mode().Perm(), "backup mirrors the restrictive source mode")
 	})
+
+	// U102-F08: AtomicWriteFile had no len(data)==0 guard, so a caller that
+	// accidentally assembled zero bytes (an upstream bug, not an intentional
+	// removal — RemoveSettings/dropManaged callers go through fs.Remove, never
+	// through this path with empty data) silently truncated a live settings
+	// file to zero bytes and reported success. Refuse instead — the same
+	// "refuse to overwrite, never self-heal" posture corrupt-config handling
+	// already uses elsewhere.
+	t.Run("refuses to truncate an existing file to zero bytes", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		path := "/test/file.json"
+		original := []byte(`{"real": "settings"}`)
+		require.NoError(t, afero.WriteFile(fs, path, original, 0600))
+
+		err := AtomicWriteFile(fs, path, []byte{}, "test file")
+		require.Error(t, err, "zero-length data must not silently win a write over a live file")
+
+		contents, readErr := afero.ReadFile(fs, path)
+		require.NoError(t, readErr)
+		assert.Equal(t, original, contents, "the original file must survive the refused write untouched")
+	})
 }
 
 func TestGetFS(t *testing.T) {

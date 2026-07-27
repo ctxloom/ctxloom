@@ -135,6 +135,18 @@ func ComputeMCPServerHash(s wire.MCPServer) string {
 // deliberately tightened must never be silently widened; the backup copy is
 // written with the same restrictive mode rather than a hardcoded 0644.
 func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
+	// U102-F08: zero-length data is never an intentional settings write —
+	// callers that mean to remove a file go through fs.Remove (RemoveSettings,
+	// dropManaged), never through here with an empty byte slice. Writing it
+	// anyway would silently truncate a live settings file to zero bytes on a
+	// success path; refuse instead, matching the "refuse to overwrite, never
+	// self-heal" posture corrupt-config handling already uses.
+	if len(data) == 0 {
+		if exists, _ := afero.Exists(fs, path); exists {
+			return fmt.Errorf("refusing to write %s: assembled zero bytes over an existing file", desc)
+		}
+	}
+
 	// Default new files to owner-only; reuse the existing mode when present.
 	perm := os.FileMode(0600)
 	if info, err := fs.Stat(path); err == nil {

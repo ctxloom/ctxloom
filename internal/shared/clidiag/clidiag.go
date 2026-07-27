@@ -109,6 +109,38 @@ func Warn(prog, format string, args ...any) {
 	Fwarn(warnSink(), prog, format, args...)
 }
 
+// WarnErrors is the shared seam for turning a partial-failure result (a
+// command that collected per-item errors — e.g. per-backend hook-apply
+// failures — while still doing everything it could) into BOTH a warning per
+// item AND a non-zero process exit. Call this instead of the ad hoc
+//
+//	for _, e := range result.Errors {
+//	    clidiag.Warn(prog, "%s", e)
+//	}
+//	return nil
+//
+// pattern (T9/R1, "exit 0 on a real failure"): that shape prints the same
+// warnings but always returns nil, so cli.Execute never learns the command
+// failed. WarnErrors prints identically, then returns a non-nil error when
+// errs is non-empty (nil when it's empty), so the caller can simply
+// `return clidiag.WarnErrors(prog, result.Errors)` and let cli.Execute's
+// existing RunE-error handling turn it into exit code 1. It invents no new
+// exit-code taxonomy — every WarnErrors failure maps to the same code any
+// other command error already does.
+func WarnErrors(prog string, errs []string) error {
+	for _, e := range errs {
+		Warn(prog, "%s", e)
+	}
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return fmt.Errorf("%s", errs[0])
+	default:
+		return fmt.Errorf("%d errors; see warnings above", len(errs))
+	}
+}
+
 // onceSeen dedups WarnOnce/FwarnOnce lines per process, keyed by the full
 // formatted line (Line's doc calls this out as its dedup-key use).
 var (

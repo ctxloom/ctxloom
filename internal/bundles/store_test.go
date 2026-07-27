@@ -36,4 +36,3 @@ func TestFSStore_RoundTrip(t *testing.T) {
 		t.Fatal("expected not-found after delete")
 	}
 }
-

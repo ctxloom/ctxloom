@@ -211,7 +211,6 @@ func NewACP() *ACP {
 	b.BinaryPath = "" // resolved from ACPConfig.Command / BinaryPath at Configure time
 	b.InitLaunch(
 		agent.NewBaseLifecycle("acp"),
-		&acpCommands{},
 		agent.NewBaseContextProvider(),
 		// SessionHistory: ACP exposes conversation state over the live
 		// session/update stream, not a client-side transcript, and this

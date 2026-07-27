@@ -45,13 +45,6 @@ type HashedContext interface {
 	GetContextFilePath() string
 }
 
-// ContentCommands registers host-resolved command exports (slash commands)
-// directly. The host maps bundle content to engine-agnostic CommandExports and
-// the agent writes them in its native command format.
-type ContentCommands interface {
-	RegisterFromContent(workDir string, cmds []CommandExport) error
-}
-
 // LaunchBackend is the shared core of a local-CLI launch agent (claude/antigravity).
 // It owns the capability wiring (lifecycle/commands/context/history) and the
 // generic Setup/Cleanup that every launch agent shares. A concrete agent embeds
@@ -61,7 +54,6 @@ type ContentCommands interface {
 type LaunchBackend struct {
 	BaseBackend
 	lifecycle ManagedLifecycle
-	commands  ContentCommands
 	context   HashedContext
 	history   SessionHistory
 
@@ -87,9 +79,8 @@ type LaunchBackend struct {
 // concrete backend) have been built. delivery configures cell-based surface
 // delivery (claude/codex/antigravity/kiro); pass nil for a backend that keeps
 // the legacy lifecycle path (acp).
-func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, commands ContentCommands, ctxProvider HashedContext, history SessionHistory, delivery *CellDelivery) {
+func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, history SessionHistory, delivery *CellDelivery) {
 	b.lifecycle = lifecycle
-	b.commands = commands
 	b.context = ctxProvider
 	b.history = history
 	b.delivery = delivery

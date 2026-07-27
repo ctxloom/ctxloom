@@ -96,7 +96,6 @@ func newChatTestBackend(t *testing.T, binaryPath, home string) *Antigravity {
 	b.BinaryPath = binaryPath
 	b.InitLaunch(
 		agent.NewBaseLifecycle("antigravity"),
-		&AntigravityCommands{},
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: deleted, tough-cloud S5 — resolveChatConversationID uses b.convMap instead
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},

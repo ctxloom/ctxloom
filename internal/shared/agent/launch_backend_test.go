@@ -28,10 +28,6 @@ func (r *recordLifecycle) MergeManaged(_ *ManagedConfig, _ string, contextHash s
 	r.contextHash = contextHash
 }
 
-type noopCommands struct{}
-
-func (noopCommands) RegisterFromContent(string, []CommandExport) error { return nil }
-
 // ---- cell-seam test doubles --------------------------------------------------
 
 // recordSet is a fake SurfaceSet capturing the inputs its Build closure received
@@ -167,7 +163,7 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopCommands{}, NewBaseContextProvider(), nil, nil)
+	b.InitLaunch(rec, NewBaseContextProvider(), nil, nil)
 	return b, rec
 }
 
@@ -178,7 +174,7 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 func newCellBackend(set *recordSet, rawContext, contextHook bool) *LaunchBackend {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(NewBaseLifecycle("test"), noopCommands{}, NewBaseContextProvider(), nil,
+	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil,
 		&CellDelivery{
 			Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
 				set.inputs = in
@@ -201,7 +197,7 @@ func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopCommands{}, NewBaseContextProvider(), nil, &CellDelivery{
+	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
 		Build: func(SurfaceInputs, string) SurfaceSet { return EmptySurfaceSet{} },
 	})
 
@@ -318,7 +314,7 @@ func TestSetup_RawContext_WritesCacheFileAndKeysHook(t *testing.T) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopCommands{}, NewBaseContextProvider(), nil, &CellDelivery{
+	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
 		Build:       func(in SurfaceInputs, _ string) SurfaceSet { set.inputs = in; return set },
 		RawContext:  true,
 		ContextHook: true,

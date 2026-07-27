@@ -87,7 +87,6 @@ func NewKiro() *Kiro {
 	// .kiro/steering/ctxloom-context.md directly, and the merge hash is "".
 	b.InitLaunch(
 		agent.NewBaseLifecycle("kiro"),
-		&KiroCommands{},
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: kiro's sessions/cli/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},

@@ -63,7 +63,6 @@ func NewClaudeCode() *ClaudeCode {
 	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("claude-code"),
-		&ClaudeCommands{},
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces},

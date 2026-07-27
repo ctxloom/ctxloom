@@ -63,9 +63,19 @@ func runSessionBackfill(cmd *cobra.Command, args []string) error {
 	}
 
 	result := operations.BackfillVendorTranscripts(cmd.Context(), entries)
-	return emit(cmd, result, func() error {
+	if rerr := emit(cmd, result, func() error {
 		return renderBackfillResult(cmd.OutOrStdout(), result)
-	})
+	}); rerr != nil {
+		return rerr
+	}
+	// U042-F02: every entry that was actually attempted (i.e. not Skipped —
+	// no vendor transcript located, already canonical, unregistered backend)
+	// failing must not exit 0. The per-harp detail is already in the
+	// rendered/JSON result above; this only decides success vs failure.
+	if len(result.Failed) > 0 && len(result.Converted) == 0 {
+		return fmt.Errorf("session backfill: %d failed, 0 converted", len(result.Failed))
+	}
+	return nil
 }
 
 // renderBackfillResult is the text-format render for `session backfill`:

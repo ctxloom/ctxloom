@@ -106,7 +106,7 @@ func runUnifiedSearch(cmd *cobra.Command, query string, tags []string, itemType 
 		return err
 	}
 
-	localResults, hiddenLocal, remoteResults := runSearches(cmd.Context(), cfg, searchParams{
+	localResults, hiddenLocal, remoteResults, localErr, remoteErr := runSearches(cmd.Context(), cfg, searchParams{
 		query:       query,
 		tags:        tags,
 		localTypes:  localTypes,
@@ -114,6 +114,15 @@ func runUnifiedSearch(cmd *cobra.Command, query string, tags []string, itemType 
 		localScope:  localScope,
 		remoteScope: remoteScope,
 	})
+
+	// U042-F01: a search whose every attempted scope came back with an error
+	// must not report "No results found." — that asserts a false fact (the
+	// library may be full of matches; the search just never reached it).
+	localAttempted := localScope && len(localTypes) > 0
+	remoteAttempted := remoteScope && len(remoteTypes) > 0
+	if searchFullyFailed(localAttempted, localErr, remoteAttempted, remoteErr) {
+		return fmt.Errorf("search failed: local: %v, remote: %v", localErr, remoteErr)
+	}
 
 	// The hint rides stderr regardless of --format, so `search --format json
 	// | jq` stays clean while a human running the same command still sees why
@@ -135,6 +144,29 @@ func runUnifiedSearch(cmd *cobra.Command, query string, tags []string, itemType 
 		printUnifiedResults(localResults, remoteResults)
 		return nil
 	})
+}
+
+// searchFullyFailed reports whether every search scope actually attempted
+// (requested via localOnly/remoteOnly/--type narrowing, AND had at least one
+// type to search) came back with an error. A scope that was never attempted
+// at all contributes nothing to this decision — narrowing to --local when
+// --remote was never asked for is not a failure. True only when there was at
+// least one attempted scope and ALL of them failed.
+func searchFullyFailed(localAttempted bool, localErr error, remoteAttempted bool, remoteErr error) bool {
+	attempted, failed := 0, 0
+	if localAttempted {
+		attempted++
+		if localErr != nil {
+			failed++
+		}
+	}
+	if remoteAttempted {
+		attempted++
+		if remoteErr != nil {
+			failed++
+		}
+	}
+	return attempted > 0 && attempted == failed
 }
 
 // noteHiddenLocalMatches tells the user (on stderr, so stdout/--format json
@@ -185,9 +217,7 @@ type searchParams struct {
 // runSearches fans out the local and remote searches concurrently and returns
 // their results plus the count of local matches the searchLocalLimit cap hid.
 // Errors are reported as warnings (search degrades gracefully).
-func runSearches(ctx context.Context, cfg *config.Config, p searchParams) (localResults []operations.SearchResult, hiddenLocal int, remoteResults []operations.SearchRemoteEntry) {
-	var localErr, remoteErr error
-
+func runSearches(ctx context.Context, cfg *config.Config, p searchParams) (localResults []operations.SearchResult, hiddenLocal int, remoteResults []operations.SearchRemoteEntry, localErr, remoteErr error) {
 	var wg sync.WaitGroup
 	if p.localScope && len(p.localTypes) > 0 {
 		wg.Add(1)
@@ -211,7 +241,7 @@ func runSearches(ctx context.Context, cfg *config.Config, p searchParams) (local
 	if remoteErr != nil {
 		clidiag.Warn("ctxloom", "remote search error: %v", remoteErr)
 	}
-	return localResults, hiddenLocal, remoteResults
+	return localResults, hiddenLocal, remoteResults, localErr, remoteErr
 }
 
 // searchLocalContent searches local fragments, commands, skills, profiles, and

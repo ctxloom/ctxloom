@@ -40,56 +40,23 @@ func (b *ACP) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, st
 		workDir = b.WorkDir()
 	}
 
-	in := make(chan agent.ChatMessage, 1)
-	in <- agent.ChatMessage{Text: agent.GetPromptContent(req.Prompt)}
-	close(in)
-	// Buffered so the drain loop below and the driver never deadlock on the
-	// final events emitted between the last read and the channel close.
-	out := make(chan agent.ChatEvent, 16)
-
-	done := make(chan error, 1)
-	go func() {
-		done <- b.Chat(ctx, agent.ChatRequest{
-			WorkDir:     workDir,
-			Model:       req.Model,
-			Env:         req.Env,
-			Permissions: req.Permissions,
-			// The managed MCP set (ctxloom context server, builtin taskloom,
-			// config/profile servers) merged by Setup rides session/new — the
-			// ACP child reads no engine settings file, so this injection is
-			// the structured path's counterpart of Setup's settings write.
-			MCPServers: b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]),
-		}, in, out)
-	}()
-
-	// Render the turn: assistant chunks stream to stdout (concatenated — the
-	// mapper emits one entry per chunk); thinking and tool traffic go to stderr
-	// only at verbosity, mirroring how the direct oneshot backends keep stdout
-	// clean for the response text.
-	wroteText := false
-	for ev := range out {
-		if ev.Entry == nil {
-			continue
-		}
-		switch ev.Entry.Type {
-		case agent.EntryTypeAssistant:
-			fmt.Fprint(stdout, ev.Entry.Content)
-			wroteText = true
-		case agent.EntryTypeThinking:
-			if req.Verbosity >= 16 {
-				fmt.Fprintf(stderr, "[thinking] %s\n", ev.Entry.Content)
-			}
-		case agent.EntryTypeToolUse:
-			if req.Verbosity >= 16 {
-				fmt.Fprintf(stderr, "[tool] %s\n", ev.Entry.ToolName)
-			}
-		}
-	}
-	if err := <-done; err != nil {
-		return nil, err
-	}
-	if wroteText {
-		fmt.Fprintln(stdout)
-	}
-	return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+	// U080-F01 (this Execute's twin defect, reprise-flagged byte-for-byte
+	// identical to internal/opencode/backend.go's Execute before this fix):
+	// this used to inline its own send/drain loop with no empty-prompt check
+	// and no diagnostic for a textless turn (exit 0, zero bytes, silent).
+	// Both now share this one plumbing.
+	return agent.RunOneshotTurn(req.Prompt, modelInfo, req.Verbosity, stdout, stderr,
+		func(in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+			return b.Chat(ctx, agent.ChatRequest{
+				WorkDir:     workDir,
+				Model:       req.Model,
+				Env:         req.Env,
+				Permissions: req.Permissions,
+				// The managed MCP set (ctxloom context server, builtin taskloom,
+				// config/profile servers) merged by Setup rides session/new — the
+				// ACP child reads no engine settings file, so this injection is
+				// the structured path's counterpart of Setup's settings write.
+				MCPServers: b.ManagedChatMCPServers(req.Env[agent.MCPCommandOverrideEnv]),
+			}, in, out)
+		})
 }

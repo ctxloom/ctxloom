@@ -25,6 +25,28 @@ func TestFwarn(t *testing.T) {
 	}
 }
 
+func TestWarnErrors_EmptyIsSuccess(t *testing.T) {
+	restore := SetSink(new(bytes.Buffer))
+	defer restore()
+	if err := WarnErrors("ctxloom", nil); err != nil {
+		t.Fatalf("WarnErrors(nil) = %v, want nil (no items => no failure)", err)
+	}
+}
+
+func TestWarnErrors_NonEmptyWarnsAndFails(t *testing.T) {
+	var b bytes.Buffer
+	restore := SetSink(&b)
+	defer restore()
+	err := WarnErrors("ctxloom", []string{"backend a: boom", "backend b: kaboom"})
+	if err == nil {
+		t.Fatal("WarnErrors with items = nil, want a non-nil error so the command's exit code reflects the failure")
+	}
+	out := b.String()
+	if !strings.Contains(out, "backend a: boom") || !strings.Contains(out, "backend b: kaboom") {
+		t.Fatalf("WarnErrors must still print every warning, got %q", out)
+	}
+}
+
 func TestFwarnOnce_DedupsIdenticalLines(t *testing.T) {
 	var b strings.Builder
 	FwarnOnce(&b, "ctxloom", "dedup case %q", "clidiag-once-first")

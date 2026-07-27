@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -198,6 +201,108 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 
 	assert.Empty(t, cfg.companionBundleSeed(), "no companion loadout may be contributed when disabled")
 	assert.Zero(t, probed, "the probe must not be executed at all when companions are disabled")
+}
+
+// TestProbeCompanions_DisabledYieldsNothing (U047-F01) proves ProbeCompanions
+// itself honours the switch at the exec boundary — the prior gate
+// (TestCompanionsDisabled_SkipsProbeEntirely) only proved
+// companionBundleSeed's OWN check short-circuits before ever calling the
+// probe; it never proved ProbeCompanions would refuse to run if something
+// else called it directly, which is exactly what reportCompanions
+// (cli/startup_helpers.go, called unconditionally from `ctxloom run`/`ctxloom
+// mcp`) did.
+func TestProbeCompanions_DisabledYieldsNothing(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		t.Fatal("lookPath must not run when companions are disabled")
+		return "", nil
+	})
+	defer restoreLook()
+
+	SetCompanionsDisabled(true)
+	assert.Empty(t, ProbeCompanions(), "no companion binary may be probed when disabled")
+}
+
+// TestProbeCompanionLoadouts_DisabledYieldsNothing is ProbeCompanionLoadouts'
+// half of U047-F01: the loadout probe execs companion binaries too, and had
+// no gate of its own either.
+func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		t.Fatal("lookPath must not run when companions are disabled")
+		return "", nil
+	})
+	defer restoreLook()
+
+	SetCompanionsDisabled(true)
+	assert.Empty(t, ProbeCompanionLoadouts(nil), "no loadout may be probed when disabled")
+}
+
+// syncBuffer is a mutex-guarded bytes.Buffer: ProbeCompanionLoadouts fans its
+// per-companion probes out across goroutines, so a plain bytes.Buffer as the
+// clidiag sink races when more than one probe warns concurrently.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestProbeCompanionLoadouts_WedgedCompanionWarns (U047-F04) proves a
+// loadout probe failure that is NOT the ordinary "no loadout subcommand"
+// case (a wedged companion timing out, or any other exec failure) is
+// reported — previously it vanished with zero diagnostic and the run
+// reported success having delivered nothing from that companion.
+func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	restoreLoadout := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
+		return nil, context.DeadlineExceeded
+	})
+	defer restoreLoadout()
+
+	buf := &syncBuffer{}
+	restoreSink := clidiag.SetSink(buf)
+	defer restoreSink()
+
+	out := ProbeCompanionLoadouts(nil)
+	assert.Empty(t, out, "a wedged companion still contributes nothing")
+	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
+}
+
+// TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet is the contrast: a
+// companion that hasn't adopted the `loadout` protocol yet (ordinary
+// *exec.ExitError, e.g. "unknown command") must NOT warn — that is the
+// common, benign case U047-F04's fix must not turn noisy.
+func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	restoreLoadout := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
+		return nil, &exec.ExitError{}
+	})
+	defer restoreLoadout()
+
+	buf := &syncBuffer{}
+	restoreSink := clidiag.SetSink(buf)
+	defer restoreSink()
+
+	out := ProbeCompanionLoadouts(nil)
+	assert.Empty(t, out)
+	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
 }
 
 // TestCompanionsEnabled_ProbesByDefault is the converse: the default is on, so

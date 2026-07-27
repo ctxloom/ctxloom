@@ -130,6 +130,15 @@ func BuiltinCompanionBins() []string {
 // never block startup). Output order is preserved (sorted by bin) since each
 // goroutine writes its own slot.
 func ProbeCompanions() []CompanionStatus {
+	// U047-F01: enforce the invariant at the exec boundary, not just at each
+	// caller — companionBundleSeed and doctor already check
+	// CompanionsDisabled themselves, but reportCompanions (cli/startup_helpers.go,
+	// called unconditionally from `ctxloom run`/`ctxloom mcp`) did not, so
+	// --no-companions/CTXLOOM_NO_COMPANIONS=1 still exec'd every companion
+	// binary on PATH.
+	if CompanionsDisabled() {
+		return nil
+	}
 	bins := BuiltinCompanionBins()
 	out := make([]CompanionStatus, len(bins))
 	var wg sync.WaitGroup
@@ -319,6 +328,10 @@ func CompanionsDisabled() bool {
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are discovered.
 func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
+	// U047-F01: see ProbeCompanions' identical guard.
+	if CompanionsDisabled() {
+		return nil
+	}
 	bins := DiscoverCompanions()
 	type probed struct {
 		ref string
@@ -336,9 +349,17 @@ func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 			}
 			raw, err := companionLoadoutOutput(path)
 			if err != nil {
-				// No `loadout` subcommand, non-zero exit, or timeout — a
-				// companion that hasn't adopted the protocol yet (or is
-				// wedged) simply contributes nothing this session.
+				// U047-F04: an unknown `loadout` subcommand (a companion that
+				// hasn't adopted the protocol yet) is the ordinary, silent
+				// case — *exec.ExitError with no further wrapping. Anything
+				// else (context.DeadlineExceeded from a wedged companion,
+				// or any other exec failure) previously vanished with NO
+				// diagnostic at all; the run reported success having
+				// delivered nothing from that companion.
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					clidiag.Warn("ctxloom", "companion %q: loadout probe failed, withholding: %v", bin, err)
+				}
 				return
 			}
 			bundleBytes, signer, derr := signing.DecodeLoadoutEnvelope(raw, root, time.Now())

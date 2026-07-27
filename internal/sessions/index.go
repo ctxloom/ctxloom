@@ -57,15 +57,6 @@ type Entry struct {
 	// omitempty keeps those rows clean.
 	SourceSize int64 `yaml:"source_size,omitempty" json:"source_size,omitempty"`
 
-	// Distilled and EssencePath are COMPUTED at list/show time from the essence
-	// file's presence on disk — never persisted (yaml:"-"), so the index stays the
-	// source of truth for stored fields only. They let a client tell whether a
-	// session has an essence and open it, without reconstructing the backend's
-	// ~/.ctxloom/sessions/<harp>/essence.md layout. EssencePath is "" (and omitted)
-	// when the session isn't distilled.
-	Distilled   bool   `yaml:"-" json:"distilled"`
-	EssencePath string `yaml:"-" json:"essence_path,omitempty"`
-
 	// LastActivity is the last-worked time used to order the resume picker:
 	// most-recent-first by actual activity, not by session creation. Computed
 	// on read (see ActivityTime) from the transcript's mtime when available,
@@ -266,6 +257,18 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 // different ID are silently dropped so a stale binder cannot clobber a
 // fresh one through a TOCTOU race between Find and BindSession.
 func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error {
+	// U099-F04: both empty is a genuine no-op — the ordinary shape of a hook
+	// payload that carried no session identifier at all (session_cmd.go's
+	// bindSessionFromPayload calls in with exactly this when none of its
+	// fallbacks found one). Short-circuit before acquiring the file lock or
+	// loading the index: without this, the call below would still assign
+	// SessionID = "" (no actual change, since the entry was already unbound)
+	// and perform a full index rewrite under lock for a call that changes
+	// nothing.
+	if sessionID == "" && transcriptPath == "" {
+		return nil
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

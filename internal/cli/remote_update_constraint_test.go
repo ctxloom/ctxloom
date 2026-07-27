@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -25,15 +27,27 @@ func TestLatestWithinConstraint(t *testing.T) {
 	const url = "https://github.com/o/r"
 
 	t.Run("empty constraint tracks default branch", func(t *testing.T) {
-		sha, ok := latestWithinConstraint(ctx, mock, url, "")
+		sha, ok, err := latestWithinConstraint(ctx, mock, url, "")
+		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, "mainsha", sha)
 	})
 
 	t.Run("branch constraint tracks that branch", func(t *testing.T) {
-		sha, ok := latestWithinConstraint(ctx, mock, url, "release")
+		sha, ok, err := latestWithinConstraint(ctx, mock, url, "release")
+		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, "releasesha", sha)
+	})
+
+	// U040-F02: a malformed URL is a genuine resolution FAILURE, not "nothing
+	// newer found" — before the fix these collapsed to the same ok=false with
+	// no way for a caller to tell them apart.
+	t.Run("malformed URL is a resolution error, not a false ok", func(t *testing.T) {
+		sha, ok, err := latestWithinConstraint(ctx, mock, "not-a-valid-repo-url", "")
+		require.Error(t, err)
+		require.False(t, ok)
+		require.Empty(t, sha)
 	})
 }
 
@@ -93,4 +107,25 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 		require.False(t, upToDate)
 		require.Equal(t, remote.ItemTypeBundle, u.Type)
 	})
+}
+
+// TestDetectUpdates_FailedChecksAreCounted pins U040-F02: an entry whose
+// reference could not even be parsed used to `continue` with ZERO
+// diagnostic and zero effect on any counter — indistinguishable from an
+// entry that was checked and found current. If every entry in a lockfile
+// hit this, `updateAll` printed "All items are up to date!" having actually
+// checked nothing. detectUpdates now returns a third count so the caller can
+// tell "verified current" apart from "could not be checked".
+func TestDetectUpdates_FailedChecksAreCounted(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{})
+	lockfile := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+		// Fails at remote.ParseReference — not a recognized scheme at all.
+		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
+	}}
+
+	var out strings.Builder
+	updates, skipped, failed := detectUpdates(context.Background(), &out, cfg, remote.AuthConfig{}, lockfile)
+	assert.Empty(t, updates)
+	assert.Equal(t, 0, skipped)
+	assert.Equal(t, 1, failed, "a reference that fails to parse must be counted as a failed check, not silently dropped")
 }

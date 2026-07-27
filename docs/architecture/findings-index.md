@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **256** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **257** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 2 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,008** |
+| `open` | no commit names this ID | **2,006** |
 
-**Totals: 2268 findings across 162 units — 256 resolved, 2008 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 257 resolved, 2006 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 125 | 250 (+1 refuted) |
+| HIGH | 376 | 126 | 249 (+2 refuted) |
 | MED | 999 | 38 | 961 |
 | LOW | 871 | 93 | 775 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -481,7 +481,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U159-F01 | **RESOLVED** `932461df` | `steps_fixture.go:229-240` | SILENTNOOP | The `the mock LLM responds "…"` step calls `SetupMockLM`, whose `WriteConfig` **overwrites the project's config.yaml wholesale**, preserving only a top-level `profiles:` section — silently destroyi... | U159.md |
 | U159-F06 | **RESOLVED** `59d3626b` | `steps_j1_common.go:313-319` | SILENTNOOP | `promptSection` returns `""` when the `=== Prompt ===` marker is absent — a mock that recorded *something other than a prompt* (or a record-file format change) yields an empty prompt, and every one... | U159.md |
 | U161-F01 | **RESOLVED** `1474cccb` | `steps_j9_isolation_matrix.go:69-85` | CORRECTNESS | The engine spy — the suite's **only** observation of what a real engine binary is handed — records the ENVIRONMENT and never the ARGV or STDIN. `isoMatrixSpyScript` runs `env`, `cat`s two credentia... | U161.md |
-| U161-F02 | open | `steps_j9_isolation_matrix.go:40-52` | CORRECTNESS | opencode's spy is **never invoked at all** — its real launch is a stateful ACP handshake a dump-and-exit script cannot complete — so every opencode row in the matrix asserts only the pre-spawn fail... | U161.md |
+| U161-F02 | **REFUTED** `f8dec4ac` | `steps_j9_isolation_matrix.go:40-52` | CORRECTNESS | opencode's spy is **never invoked at all** — its real launch is a stateful ACP handshake a dump-and-exit script cannot complete — so every opencode row in the matrix asserts only the pre-spawn fail... | U161.md |
 | U162-F04 | open | `steps_mcp.go:130` | SILENTNOOP | `callTool` discards `Inner()`'s error, leaving `w.lastInner` **nil**. Every `the tool result field "X" is set` / `equals "…"` assertion then reports "field is absent" — a *malformed or error* envel... | U162.md |
 | U163-F01 | open | `environment.go:41-55` | COHESION | `TestEnvironment` keeps a **single-slot** last-command register, so any scenario that runs two commands loses the first's output. Five acceptance journeys have invented private snapshot fields to w... | U163.md |
 | U163-F02 | **RESOLVED** `932461df` | `mock_lm.go:58-105` | SILENTNOOP | `MockLM.WriteConfig` **rewrites `.ctxloom/config.yaml` from scratch**, preserving only a top-level `profiles:` section. Every `agents:`, `default_agent:`, `workspace:`, and any other engine's `llm.... | U163.md |

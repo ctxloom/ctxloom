@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -183,9 +186,24 @@ func TestBindSessionFromPayload(t *testing.T) {
 
 	t.Run("malformed_json_is_noop", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
+		// U042-F03: a malformed SessionStart hook payload silently skipped the
+		// harp->session_id bind with NOTHING reported anywhere — not even the
+		// caller's own warning, since bindSessionFromPayload returned nil (no
+		// error to warn about). This is one of the two live-reproducible
+		// causes of "no canonical transcript captured": a harp can go its
+		// entire life with SessionID never bound, and an operator has no way
+		// to learn why. bindSessionFromPayload must never FAIL the host's
+		// tool call over this (still asserted below via require.NoError), but
+		// it must warn.
+		var buf bytes.Buffer
+		restore := clidiag.SetSink(&buf)
+		defer restore()
+
 		require.NoError(t, bindSessionFromPayload(strings.NewReader(`not json`), entry.HarpName))
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Empty(t, got.SessionID, "hook must never fail the host backend over a bad message")
+		assert.Contains(t, buf.String(), entry.HarpName,
+			"a malformed hook payload must warn (naming the harp), not vanish with zero diagnostic")
 	})
 
 	t.Run("unknown_harp_is_noop", func(t *testing.T) {
@@ -223,4 +241,51 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) {
 	return 0, assert.AnError
+}
+
+// U042-F04: distillMissingOrStale's per-entry chdir used to only ever go
+// FORWARD (into e.ProjectDir when non-empty) and never restore origWd for an
+// entry with no ProjectDir of its own — so an entry with an empty ProjectDir
+// silently ran config.Load() from whatever directory the PREVIOUS entry in
+// the loop happened to chdir into. situateForEntry is the extracted,
+// independently-testable cwd-management step that fixes this: it restores
+// origWd when the entry has no ProjectDir, rather than leaving the process
+// wherever the last chdir left it.
+func TestSituateForEntry(t *testing.T) {
+	testsupport.Isolate(t)
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(origWd) }()
+
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	t.Run("chdirs into a non-empty ProjectDir", func(t *testing.T) {
+		require.NoError(t, os.Chdir(origWd))
+		require.NoError(t, situateForEntry(&sessions.Entry{ProjectDir: dirA}, origWd))
+		cwd, err := os.Getwd()
+		require.NoError(t, err)
+		assert.Equal(t, realpath(t, dirA), realpath(t, cwd))
+	})
+
+	t.Run("an empty ProjectDir restores origWd, not wherever a prior entry left the process", func(t *testing.T) {
+		// Simulate the sequence a real loop produces: a previous entry with
+		// ProjectDir=dirB left the process there.
+		require.NoError(t, os.Chdir(dirB))
+		require.NoError(t, situateForEntry(&sessions.Entry{ProjectDir: ""}, origWd))
+		cwd, err := os.Getwd()
+		require.NoError(t, err)
+		assert.Equal(t, realpath(t, origWd), realpath(t, cwd),
+			"an entry with no ProjectDir of its own must run from origWd, not a sibling entry's leftover cwd")
+	})
+}
+
+// realpath resolves symlinks (macOS/some CI temp dirs are themselves
+// symlinks, e.g. /tmp -> /private/tmp) so a cwd comparison isn't defeated by
+// two spellings of the same directory.
+func realpath(t *testing.T, p string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(p)
+	require.NoError(t, err)
+	return resolved
 }

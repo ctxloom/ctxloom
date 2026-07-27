@@ -298,7 +298,14 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	}
 	var payload claude.SessionStartPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil // malformed payload — no-op
+		// U042-F03: this must never fail the host backend's tool call over a
+		// bad hook message (returning nil is right), but a malformed payload
+		// silently skipping the harp->session_id bind with NOTHING reported
+		// anywhere left an operator no way to learn why a harp never got
+		// captured — one of the two live-reproducible causes behind
+		// "no canonical transcript captured for harp ...".
+		clidiag.Warn("ctxloom", "session-bind: harp %q: SessionStart hook payload did not parse as JSON: %v — harp<->session_id bind skipped", harp, err)
+		return nil
 	}
 	// Antigravity fires this as a PreToolUse hook with its own payload shape
 	// (camelCase, decoded via the agy module's wire types): the conversation
@@ -448,16 +455,17 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		// Situate in the entry's project dir before loading config / reading the
-		// transcript (see runSessionDistill for why chdir is required and safe
-		// for a one-shot CLI); the deferred chdir restores origWd for the caller.
-		if e.ProjectDir != "" {
-			if cwd, _ := os.Getwd(); cwd != e.ProjectDir {
-				if cerr := os.Chdir(e.ProjectDir); cerr != nil {
-					clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", e.ProjectDir, e.HarpName, cerr)
-					continue
-				}
-			}
+		// Situate in the entry's own project dir before loading config /
+		// reading the transcript (see runSessionDistill for why chdir is
+		// required and safe for a one-shot CLI) — or back in origWd when
+		// this entry has none of its own (U042-F04: leaving the PREVIOUS
+		// entry's chdir in place here meant config.Load() silently read the
+		// wrong project's config for THIS entry, using another project's
+		// cwd-bound legacy LLM/backend settings for a distillation that
+		// never intended to touch it at all).
+		if cerr := situateForEntry(e, origWd); cerr != nil {
+			clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", e.ProjectDir, e.HarpName, cerr)
+			continue
 		}
 		cfg, cErr := config.Load()
 		if cErr != nil {
@@ -468,6 +476,27 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 			clidiag.Warn("ctxloom", "could not distill %s: %v", e.HarpName, dErr)
 		}
 	}
+}
+
+// situateForEntry chdirs the process to e's own ProjectDir, or back to
+// origWd when e has none — the shared cwd-management step distillMissingOrStale
+// needs before every config.Load()/compactEntry call, extracted so it is
+// independently testable (U042-F04) rather than living as an inline branch
+// that only ever changed directory FORWARD and never restored it for an
+// entry with no ProjectDir of its own. A no-op when the process is already
+// in the wanted directory.
+func situateForEntry(e *sessions.Entry, origWd string) error {
+	want := e.ProjectDir
+	if want == "" {
+		want = origWd
+	}
+	if want == "" {
+		return nil // no ProjectDir and no resolvable origWd — nothing to situate
+	}
+	if cwd, err := os.Getwd(); err == nil && cwd == want {
+		return nil
+	}
+	return os.Chdir(want)
 }
 
 // compactionModelFor resolves the model one distill runs with: an explicit

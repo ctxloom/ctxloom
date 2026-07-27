@@ -153,7 +153,25 @@ type PreparedAgentChat struct {
 	// defaultChatDialTimeout (never zero) — see AgentChatRequest.ChatDialTimeout
 	// and Start's doc.
 	chatDialTimeout time.Duration
+	// mcpCommandOverride is MCPCommandOverrideForPolicy's result for the
+	// resolved policy (U098-F04) — "" for none/worktree, the in-container
+	// ctxloom binary path for a container policy. It is computed here,
+	// AFTER req.MCPServers was already frozen by the caller (coord/
+	// spawner.go's childMCPServers composes plan.MCPServers once at Resolve
+	// time, before Launch/StartEngine ever call PrepareAgentChat and learn
+	// the real policy), so Start applies it to req.MCPServers directly
+	// below; StartEngine's caller has no equivalent hook into req, so it
+	// reads this field back via MCPCommandOverride() and patches its own
+	// copy (plan.MCPServers) the same way.
+	mcpCommandOverride string
 }
+
+// MCPCommandOverride reports the resolved policy's MCP command override
+// (see mcpCommandOverride's doc) — "" when none applies. StartEngine's
+// caller (coord/spawner.go) needs this because it builds its EngineSpawn's
+// MCPServers from plan.MCPServers directly rather than through Start, which
+// already applies the patch internally.
+func (p *PreparedAgentChat) MCPCommandOverride() string { return p.mcpCommandOverride }
 
 // PrepareAgentChat resolves how the child will run: the structured-chat path
 // for backends with the capability (isolation prepared once, engine kept
@@ -269,6 +287,21 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		// wins, exactly as req.Factory does for the Chat path.
 		if p.starter == nil {
 			p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, req.Verbosity, req.RunnerEnv)
+		}
+		// U098-F04: plan.MCPServers (req.MCPServers) was composed by the
+		// caller BEFORE this policy was known — coord/spawner.go's
+		// childMCPServers resolves it once at Resolve time, and the
+		// top-level `ctxloom run` path stamps its own override earlier still
+		// (cli/run.go's MCPCommandOverrideForPolicy call). Patch the
+		// auto-registered ctxloom entry's Command now that the real policy
+		// is in hand, so a runtime:container child's structured chat gets
+		// the in-container path instead of the host self-exec path baked in
+		// at composition time. p.mcpCommandOverride is also exposed via
+		// MCPCommandOverride() for StartEngine's caller (coord/spawner.go),
+		// which builds its own MCPServers copy outside of Start/p.req.
+		p.mcpCommandOverride = MCPCommandOverrideForPolicy(policy)
+		if p.mcpCommandOverride != "" {
+			p.req.MCPServers = agent.PatchManagedCommand(p.req.MCPServers, p.mcpCommandOverride)
 		}
 	}
 	if pendingCopy != nil {

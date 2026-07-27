@@ -74,6 +74,43 @@ func ComposeChatMCPServers(pluginKey, override string, mcp *wire.MCPConfig, bund
 	return out
 }
 
+// PatchManagedCommand rewrites the auto-registered ctxloom entry's Command in
+// an ALREADY-composed server set to override, leaving every other entry (and
+// the set's names/args/env) untouched. It exists for callers that must
+// compose the managed set before the isolation policy — and therefore the
+// MCP command override — is known (coordinator delegation: coord/spawner.go's
+// childMCPServers resolves plan.MCPServers once at Resolve time, before
+// Launch/StartEngine ever learn the runtime policy). Re-running
+// ComposeChatMCPServers there instead would re-fire the executable trust
+// gate's WarnWithheld and violate plan.MCPServers' "resolved exactly once"
+// invariant (U098-F04) — this patches the one field that can change without
+// touching either. override == "" is a no-op (returns servers unchanged); a
+// non-empty override without a matching MCPServerName entry is also a no-op
+// (nothing to patch — e.g. ShouldAutoRegisterCtxloom was false).
+func PatchManagedCommand(servers []ChatMCPServer, override string) []ChatMCPServer {
+	if override == "" {
+		return servers
+	}
+	found := false
+	for _, s := range servers {
+		if s.Name == MCPServerName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return servers
+	}
+	out := make([]ChatMCPServer, len(servers))
+	copy(out, servers)
+	for i := range out {
+		if out[i].Name == MCPServerName {
+			out[i].Command = override
+		}
+	}
+	return out
+}
+
 // ChatMCPServers composes the chat-injectable server set from a host-assembled
 // managed payload — the SAME payload RunStart ships to Setup — for a
 // structured run that bypasses Setup. A nil payload injects nothing (the host

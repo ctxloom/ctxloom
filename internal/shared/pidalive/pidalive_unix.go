@@ -1,26 +1,42 @@
 //go:build !windows
 
-// Package pidalive provides ONE shared liveness probe for a bare pid,
-// consolidating what used to be three near-identical copies
-// (agentcoord/coord.PidAlive, internal/operations' test-only pidAlive, and
-// internal/lm/isolation's startup-reaper pidAlive) into a single leaf package
-// with no internal dependencies — safe for any package to import without
-// creating a cycle.
 package pidalive
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
 
-// Alive reports whether pid names a live process (signal-0 probe; no signal
-// is actually delivered). EPERM still means alive — a live process this user
-// doesn't own is still alive; ESRCH (or any other error) means gone.
-func Alive(pid int) bool {
+// Probe reports pid's liveness via a signal-0 probe (no signal is actually
+// delivered — see kill(2)). EPERM means the process exists but this user
+// cannot signal it — confidently Alive. "No such process" is confidently
+// Dead: os.ErrProcessDone, not a raw syscall.ESRCH, is what actually surfaces
+// here on a modern Go/Linux toolchain (os.FindProcess opens a pidfd via
+// pidfd_open, and BOTH that path and the classic kill(2) fallback wrap ESRCH
+// into os.ErrProcessDone before returning it — see os/exec_unix.go's
+// convertESRCH, which findProcess and Process.Signal both route through) —
+// checked alongside the raw errno for older toolchains/other unix targets
+// that might still surface it unwrapped. Any other, undocumented outcome is
+// a platform surprise this probe cannot interpret, and it says so (Unsure)
+// rather than guessing.
+func Probe(pid int) State {
 	p, err := os.FindProcess(pid)
 	if err != nil {
-		return false
+		// os.FindProcess is documented never to fail on Unix outright (see
+		// findProcess's fallback-to-PID behavior for pidfd errors other than
+		// ESRCH) — an error here would be a platform surprise this probe
+		// cannot interpret.
+		return Unsure
 	}
-	err = p.Signal(syscall.Signal(0))
-	return err == nil || err == syscall.EPERM
+	switch serr := p.Signal(syscall.Signal(0)); {
+	case serr == nil:
+		return Alive
+	case serr == syscall.EPERM:
+		return Alive
+	case serr == syscall.ESRCH, errors.Is(serr, os.ErrProcessDone):
+		return Dead
+	default:
+		return Unsure
+	}
 }

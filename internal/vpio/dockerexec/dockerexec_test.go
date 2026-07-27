@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 )
 
@@ -111,6 +112,20 @@ func TestSession_WaitDockerLevelFailureIsError(t *testing.T) {
 	require.Error(t, werr, "a docker-level exec failure must be a loud error")
 	assert.Contains(t, werr.Error(), "126")
 	assert.Contains(t, werr.Error(), "boom-tail", "the CLI output tail is surfaced")
+}
+
+// TestSession_RingIsSharedStderrtailImplementation pins U118-F01: Session's
+// output-tail ring must be the ONE shared stderrtail.Ring implementation
+// (internal/shared/stderrtail), not the byte-for-byte private duplicate this
+// package grew independently — one day AFTER stderrtail was written
+// specifically to be "the one implementation" of exactly this pattern
+// (bounded, concurrency-safe last-N-bytes tail for a dying child's
+// diagnostics) — and never absorbed onto it.
+func TestSession_RingIsSharedStderrtailImplementation(t *testing.T) {
+	ctx := context.Background()
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "true"), vpio.ProcessSpec{Stdout: io.Discard})
+	require.NoError(t, err)
+	assert.IsType(t, &stderrtail.Ring{}, sess.ring, "Session must use stderrtail.Ring, not a private duplicate")
 }
 
 // TestSession_StdinEchoesThroughPty exercises the full host-pty pump: bytes

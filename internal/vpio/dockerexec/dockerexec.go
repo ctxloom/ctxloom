@@ -29,19 +29,15 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/creack/pty"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 )
-
-// execTailBytes bounds the ring of exec-CLI/turn output kept for a docker-level
-// failure's diagnostic tail (mirrors startDirectRunner's stderr ring).
-const execTailBytes = 8192
 
 // outputDrainGrace bounds Wait's wait for the output pump to finish on its own
 // (the child's exit closes the pty slave, so the master read returns and the
@@ -143,7 +139,7 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 	if err != nil {
 		return nil, fmt.Errorf("vpio/dockerexec: start exec under host pty: %w", err)
 	}
-	s := &Session{master: master, cmd: cmd, ring: newTailRing(execTailBytes), outDone: make(chan struct{})}
+	s := &Session{master: master, cmd: cmd, ring: stderrtail.New(stderrtail.DefaultBytes), outDone: make(chan struct{})}
 
 	if spec.Stdin != nil {
 		go func() { _, _ = io.Copy(master, spec.Stdin) }()
@@ -166,7 +162,7 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 type Session struct {
 	master  *os.File
 	cmd     *exec.Cmd
-	ring    *tailRing
+	ring    *stderrtail.Ring
 	outDone chan struct{}
 
 	waitOnce sync.Once
@@ -235,43 +231,15 @@ func (s *Session) Wait() (vpio.ExitStatus, error) {
 }
 
 func (s *Session) dockerLevelError(code int32) error {
-	if tail := s.ring.tail(); tail != "" {
+	if tail := s.ring.Tail(); tail != "" {
 		return fmt.Errorf("container exec failed (code %d — the runtime, not the engine): %s", code, tail)
 	}
 	return fmt.Errorf("container exec failed (code %d — the runtime, not the engine)", code)
 }
 
 func (s *Session) dockerLevelErrorWrap(err error) error {
-	if tail := s.ring.tail(); tail != "" {
+	if tail := s.ring.Tail(); tail != "" {
 		return fmt.Errorf("container exec failed: %w (output tail: %s)", err, tail)
 	}
 	return fmt.Errorf("container exec failed: %w", err)
-}
-
-// tailRing keeps only the last max bytes written to it — a bounded output tail
-// for a docker-level failure's diagnostics (the exec CLI's stderr is on the
-// shared pty, so this tees the whole stream). Concurrency-safe: the output pump
-// writes while Wait reads.
-type tailRing struct {
-	mu  sync.Mutex
-	buf []byte
-	max int
-}
-
-func newTailRing(max int) *tailRing { return &tailRing{max: max} }
-
-func (r *tailRing) Write(p []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buf = append(r.buf, p...)
-	if len(r.buf) > r.max {
-		r.buf = r.buf[len(r.buf)-r.max:]
-	}
-	return len(p), nil
-}
-
-func (r *tailRing) tail() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return strings.TrimSpace(string(r.buf))
 }

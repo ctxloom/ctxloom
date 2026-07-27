@@ -75,7 +75,13 @@ func claimOwner(dir string) (release func(), err error) {
 			return nil, errStateOwned
 		}
 		pid, perr := strconv.Atoi(strings.TrimSpace(string(raw)))
-		if perr == nil && pid > 0 && pidalive.Alive(pid) && pid != os.Getpid() {
+		// U114-F01: MaybeAlive (not a bare Alive check) treats an
+		// unconfirmable probe the same as a live owner — a false "the owner
+		// is dead" here would let a second process share this project's
+		// journal, which the single-writer discipline this function exists
+		// to enforce can never recover from. A needlessly-ephemeral fallback
+		// on a false positive is the safe direction; a shared journal is not.
+		if perr == nil && pid > 0 && pidalive.Probe(pid).MaybeAlive() && pid != os.Getpid() {
 			return nil, errStateOwned
 		}
 		// Stale lock from a dead owner: remove and retry once. The remove→

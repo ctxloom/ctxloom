@@ -104,17 +104,32 @@ type watchSub struct {
 // subscribe registers a subscriber and returns its event channel plus a
 // cancel func that unregisters it. Call cancel exactly once, when the
 // watching stream ends.
-func (h *watchHub) subscribe(runIDs map[string]bool) (<-chan *agentcoordpb.AgentEvent, func()) {
+// subscribe registers a subscriber and returns its event channel, a cancel
+// func that unregisters it (call exactly once, when the watching stream
+// ends), and a narrow func that re-scopes an already-live subscription to
+// exactly one run (U041-F06): a caller that must subscribe before its own
+// run's ID exists (StartOwnedRun mints one internally, mid-call) starts
+// hub-wide with subscribe(nil) and calls narrow(runID) the moment it learns
+// the ID, so it only competes for its own ring's budget for the run's
+// remaining, near-entire lifetime instead of forever. narrow is safe to
+// discard — a caller that never needs it (D3's acp_children.go, which
+// legitimately wants every run in the project) can simply ignore it.
+func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordpb.AgentEvent, cancel func(), narrow func(runID string)) {
 	sub := &watchSub{runIDs: runIDs, ch: make(chan *agentcoordpb.AgentEvent, watchRingSize)}
 	h.mu.Lock()
 	h.subs[sub] = struct{}{}
 	h.mu.Unlock()
-	cancel := func() {
+	cancel = func() {
 		h.mu.Lock()
 		delete(h.subs, sub)
 		h.mu.Unlock()
 	}
-	return sub.ch, cancel
+	narrow = func(runID string) {
+		h.mu.Lock()
+		sub.runIDs = map[string]bool{runID: true}
+		h.mu.Unlock()
+	}
+	return sub.ch, cancel, narrow
 }
 
 // broadcast fans ev out to every matching subscriber. Two invariants govern
@@ -235,8 +250,13 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 // session loop, hosting this coordinator library directly, calls this
 // instead of dialing its own gRPC loopback. Same semantics: a snapshot
 // (returned directly, not framed) plus a live event channel from
-// subscribe-time forward; call cancel exactly once when done watching.
-func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRunsResult, events <-chan *agentcoordpb.AgentEvent, cancel func()) {
+// subscribe-time forward; call cancel exactly once when done watching. narrow
+// (U041-F06) lets a caller that subscribed unscoped (runIDs nil/empty, e.g.
+// because its own run's ID does not exist yet) re-scope down to one run the
+// moment it learns that ID — see watchHub.subscribe's doc. A caller that
+// already knows its run IDs, or genuinely wants every run (D3's
+// acp_children.go), can simply discard it.
+func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRunsResult, events <-chan *agentcoordpb.AgentEvent, cancel func(), narrow func(runID string)) {
 	var filter map[string]bool
 	if len(runIDs) > 0 {
 		filter = make(map[string]bool, len(runIDs))
@@ -244,9 +264,9 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRun
 			filter[id] = true
 		}
 	}
-	events, cancel = c.watch.subscribe(filter)
+	events, cancel, narrow = c.watch.subscribe(filter)
 	snapshot = c.listRunsSnapshot(true, "")
-	return snapshot, events, cancel
+	return snapshot, events, cancel, narrow
 }
 
 // ListRuns is the in-process form of ConsumerService.ListRuns.
@@ -280,7 +300,7 @@ func (s *consumerService) WatchRuns(req *agentcoordpb.WatchRunsRequest, stream g
 			filter[id] = true
 		}
 	}
-	events, cancel := c.watch.subscribe(filter)
+	events, cancel, _ := c.watch.subscribe(filter)
 	defer cancel()
 
 	snap := c.listRunsSnapshot(true, "")

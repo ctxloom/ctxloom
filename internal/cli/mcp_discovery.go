@@ -196,7 +196,13 @@ func probeWellKnownRunner(cwd string) (socket string, err error) {
 		if dialable(m.Socket) {
 			return m.Socket, nil
 		}
-		if m.Pid > 0 && pidalive.Alive(m.Pid) {
+		// U114-F01: MaybeAlive (not a bare Alive check) treats an
+		// unconfirmable probe the same as a live runner — falling through to
+		// os.Remove + starting a fresh local coordinator on a false "dead"
+		// would risk exactly the rogue-second-coordinator scenario the error
+		// below warns about; erroring out on a genuinely unsure probe is the
+		// safe direction.
+		if m.Pid > 0 && pidalive.Probe(m.Pid).MaybeAlive() {
 			return "", fmt.Errorf(
 				"ctxloom mcp: discovery marker %s names a live runner (pid %d, socket %s) that refused the connection — refusing to silently start a local coordinator here, since that would be a SECOND, rogue coordinator whose agent_send(to:\"parent\") could never reach the real parent; check the runner process and its socket permissions, or set %s explicitly",
 				path, m.Pid, m.Socket, coord.EnvMCPSocket,

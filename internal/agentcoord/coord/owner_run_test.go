@@ -88,7 +88,7 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	require.Equal(t, 0, owner.Depth, "the session owner is depth 0")
 
 	// Watch BEFORE the run so no early delta is missed.
-	_, events, wcancel := c.WatchRuns(nil)
+	_, events, wcancel, _ := c.WatchRuns(nil)
 	defer wcancel()
 
 	sc := &scriptedChat{}

@@ -228,6 +228,57 @@ func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
 	})
 }
 
+// overridingStubPolicy is stubPolicy plus the mcpCommandOverrider capability
+// (isolation.Container's MCPCommandOverride method), so a test can drive
+// PrepareAgentChat's policy-resolved override path (U098-F04) without
+// standing up a real container.
+type overridingStubPolicy struct {
+	stubPolicy
+	override string
+}
+
+func (p overridingStubPolicy) MCPCommandOverride() string { return p.override }
+
+// TestPrepareAgentChat_MCPCommandOverride_PatchesManagedEntry pins U098-F04's
+// coordinator-delegation fix: coord/spawner.go's childMCPServers composes
+// plan.MCPServers at Resolve time — BEFORE Launch/StartEngine ever call
+// PrepareAgentChat and resolve the real isolation.Policy — so the
+// auto-registered ctxloom entry's Command was frozen at the HOST self-exec
+// path no matter what the policy later turned out to be. A runtime:container
+// child's structured chat therefore baked an unreachable host path into its
+// own mcpServers. PrepareAgentChat must patch that ONE field once the policy
+// resolves here — never recompose the whole set (that would re-fire the
+// executable trust gate's WarnWithheld and violate the "resolved exactly
+// once" invariant plan.MCPServers' own doc comment states).
+func TestPrepareAgentChat_MCPCommandOverride_PatchesManagedEntry(t *testing.T) {
+	resetStrictness(t)
+	const containerBin = "/opt/ctxloom-in-container"
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		return overridingStubPolicy{override: containerBin}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container"},
+		WorkDir:  t.TempDir(),
+		MCPServers: []agent.ChatMCPServer{
+			{Name: agent.MCPServerName, Command: "/usr/local/bin/ctxloom", Args: agent.CtxloomMCPArgs},
+			{Name: "other", Command: "/usr/local/bin/other-tool"},
+		},
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	assert.Equal(t, containerBin, p.MCPCommandOverride(),
+		"the resolved container policy's MCP command override must be exposed to callers (coord/spawner.go's StartEngine) that build their own server list outside Start")
+	require.Len(t, p.req.MCPServers, 2)
+	assert.Equal(t, containerBin, p.req.MCPServers[0].Command,
+		"the auto-registered ctxloom entry must be patched to the in-container path once the policy resolves")
+	assert.Equal(t, "/usr/local/bin/other-tool", p.req.MCPServers[1].Command,
+		"a non-ctxloom managed entry's command must be left untouched")
+}
+
 // TestPrepareAgentChat_OneshotFallback pins the no-structured-chat path
 // ("direct Execute for backends without ACP"): each turn runs as an
 // independent oneshot through the fan's launch tail, with the agent's

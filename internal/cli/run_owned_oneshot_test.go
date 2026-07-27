@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // U041-F01 / U041-F04 cover the Transport-2 container oneshot path
@@ -156,4 +158,54 @@ func TestRenderOwnedRunEvents_IgnoresOtherRuns(t *testing.T) {
 	cancel()
 	<-done
 	assert.Equal(t, "mine", out.String())
+}
+
+// TestRenderOwnedRunEvents_SeqGapIsSurfaced pins U041-F06's gap-detection
+// fix: the watchHub ring (consumer.go) is a lossy, per-subscriber-shared
+// buffer — a busy coordinator running other concurrent work can drop this
+// run's own events out of it, and nothing upstream re-sends them. Every
+// event this run's own EngineHost emits carries a strictly-contiguous Seq
+// (home.go's emitEvent), so a hole in that sequence is the one signal the
+// renderer has that it silently lost data — and it must say so rather than
+// finishing as if the (possibly truncated) answer were complete.
+func TestRenderOwnedRunEvents_SeqGapIsSurfaced(t *testing.T) {
+	start := ownedFinalStart("m1")
+	start.Seq = 1
+	d1 := ownedDelta("m1", "he")
+	d1.Seq = 2
+	// Seq 3 never arrives: dropped by the hub's ring under load.
+	d2 := ownedDelta("m1", "llo")
+	d2.Seq = 4
+	idleEv := ownedTurnIdle()
+	idleEv.Seq = 5
+
+	ch := make(chan *agentcoordpb.AgentEvent, 8)
+	ch <- start
+	ch <- d1
+	ch <- d2
+	ch <- idleEv
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	idle := make(chan string, 4)
+	done := make(chan error, 1)
+	go func() {
+		_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, ownedTestRunID, ch, idle, true)
+		done <- err
+	}()
+
+	select {
+	case <-idle:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no turn boundary observed")
+	}
+	cancel()
+	<-done
+
+	assert.Contains(t, buf.String(), ownedTestRunID, "the gap warning must name the affected run")
+	assert.Contains(t, buf.String(), "lost", "a Seq gap must be surfaced as a warning naming what was lost, not silently swallowed")
 }

@@ -99,6 +99,35 @@ func TestComposeChatMCPServers_CommandOverride(t *testing.T) {
 	assert.Equal(t, CtxloomCommand(), got[0].Command)
 }
 
+// TestPatchManagedCommand pins U098-F04's coordinator-delegation fix at the
+// unit hop: a caller that had to compose the managed set BEFORE the
+// isolation policy (and thus the override) was known can patch the
+// auto-registered ctxloom entry's Command afterward, without disturbing any
+// other entry — and without the empty-override / no-matching-entry cases
+// mutating anything.
+func TestPatchManagedCommand(t *testing.T) {
+	servers := []ChatMCPServer{
+		{Name: MCPServerName, Command: CtxloomCommand(), Args: CtxloomMCPArgs},
+		{Name: "other", Command: "/usr/local/bin/other-tool"},
+	}
+
+	patched := PatchManagedCommand(servers, "/in-container/ctxloom")
+	require.Len(t, patched, 2)
+	assert.Equal(t, "/in-container/ctxloom", patched[0].Command,
+		"the auto-registered ctxloom entry's command must be patched")
+	assert.Equal(t, "/usr/local/bin/other-tool", patched[1].Command,
+		"a non-ctxloom entry must be left untouched")
+	assert.Equal(t, CtxloomCommand(), servers[0].Command,
+		"the original slice's entry must not be mutated in place")
+
+	assert.Equal(t, servers, PatchManagedCommand(servers, ""),
+		"an empty override is a no-op")
+
+	noManaged := []ChatMCPServer{{Name: "other", Command: "/usr/local/bin/other-tool"}}
+	assert.Equal(t, noManaged, PatchManagedCommand(noManaged, "/in-container/ctxloom"),
+		"a non-empty override with no matching entry is a no-op")
+}
+
 // TestManagedConfigChatMCPServers: the ManagedConfig-shaped entry point — the
 // structured run path composes from the SAME payload RunStart ships to Setup;
 // a nil managed payload injects nothing.

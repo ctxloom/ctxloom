@@ -8,7 +8,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   JSONL, kiro's sqlite conversations_v2, antigravity's brain log). This journey
   proves the promise on top of that mess: whatever engine ran, its native log
   is converted into ONE canonical transcript ctxloom owns — the same on-disk
-  schema (transcript.acp.jsonl, one JSONL Record per line) a live structured/ACP
+  schema (transcript.jsonl, one JSONL Record per line) a live structured/ACP
   session already tees out — so a single downstream reader (distill, resume,
   the VSCode companion) never has to special-case four vendor formats. The
   conversion fires automatically when an interactive run exits, and any prior
@@ -56,11 +56,14 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     "codex", antigravity "antigravity". The assertions below pin the
   #     registry name deliberately.
   #
-  #   * Canonical filename: this wiring branch writes transcript.acp.jsonl
-  #     (paths.CanonicalTranscriptFileName); commit 5f4d3b4 renames it to
-  #     transcript.jsonl with a legacy read-fallback. Assertions therefore key
-  #     on paths.HarpCanonicalTranscriptPath (the resolver), never the literal
-  #     leaf name, so they survive the rename.
+  #   * Canonical filename: transcript.jsonl (paths.CanonicalTranscriptFileName;
+  #     renamed from transcript.acp.jsonl by 5f4d3b4c, already landed on this
+  #     branch). Reads resolve via paths.ResolveHarpCanonicalTranscriptPath
+  #     (internal/paths/paths.go:282), which falls back to the pre-rename leaf
+  #     name only when the current one is absent — the step definitions below
+  #     mirror that same fallback rather than hard-coding either leaf name, so
+  #     they keep working regardless of which name a given harp's file landed
+  #     under.
   #
   # DELIBERATELY OUT OF HERMETIC SCOPE (see the @live row and deferral notes):
   #   1. The ON-EXIT conversion for a REAL interactive-pty session (run.go's
@@ -94,6 +97,30 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     Then the canonical transcript for "amber-claude-harp" replays the fixture's real turns in order: the user goal, the assistant reply, and the Glob and Bash tool calls with their real inputs
     And the canonical transcript for "amber-claude-harp" preserves the tool_result marked is_error from the rejected call
     And every line of the canonical transcript for "amber-claude-harp" is stamped engine "claude-code"
+
+  # ADDED (not in the original draft) — attribution, not just presence. A
+  # transcript that merely CONTAINS the right text is not enough: claude's own
+  # message queue lets a second prompt get typed and delivered WHILE the first
+  # response is still generating (queue-operation type "enqueue"/"dequeue" —
+  # confirmed against a real 2298-record session on this box: 115 enqueues, 36
+  # dequeues, 77 removes — messages queued and never delivered). Naive
+  # positional pairing ("the assistant text right after a user line answers
+  # that user line") gets this wrong the moment a second prompt is delivered
+  # mid-response: the real answer to the FIRST prompt can land in the vendor
+  # file AFTER the interleaved second prompt's own "user" line. The importer
+  # never does that kind of pairing — it streams user/assistant lines straight
+  # through in the vendor file's own order (session.go's convertLines) — so
+  # the real chronology survives instead of being silently reshuffled. This
+  # also pins the OTHER half of the same honesty: a queued message that gets
+  # REMOVED before delivery (claude's "remove" queue-operation) never gets a
+  # "user" line of its own at all — confirmed by inspecting a real removed
+  # entry's neighbors on this box — so it must never surface as a phantom turn
+  # in the canonical transcript either.
+  Scenario: A prompt delivered mid-response is not misattributed to the wrong answer, and a removed prompt never becomes a phantom turn
+    Given a recorded "claude-code" session "queued-claude-harp" bound to a vendor log where a second prompt is delivered mid-response and a third is queued then removed
+    When I run "ctxloom session backfill queued-claude-harp"
+    Then the canonical transcript for "queued-claude-harp" places the real answer to the first prompt after the interleaved second prompt, exactly as the vendor log ordered them
+    And the canonical transcript for "queued-claude-harp" contains no trace of the removed, never-delivered prompt
 
   # LOCKED — the SAME conversion holds across engines whose vendor store is a
   # bare per-session file (locateBoundTranscript in vendorimport.go, shared by

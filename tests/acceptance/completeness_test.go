@@ -173,7 +173,6 @@ var knownUncoveredCLI = []string{
 	"ctxloom container tooling",
 	"ctxloom bundle sign",
 	"ctxloom init prompt",
-	"ctxloom session backfill",
 	"ctxloom session query",
 	"ctxloom acp client",
 	"ctxloom acp entries",

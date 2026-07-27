@@ -132,6 +132,29 @@ func TestBindSession_UnknownHarpErrors(t *testing.T) {
 	assert.Error(t, m.BindSession("nope-nope-nope", "uuid", ""))
 }
 
+// U099-F04: BindSession(harp, "", "") on a not-yet-bound entry used to
+// acquire the file lock, load, assign SessionID = "" (no actual change),
+// and perform a full index rewrite anyway — wasted I/O under lock for a
+// call that changes nothing, on what should be the ordinary "the hook
+// payload carried no session id" path (session_cmd.go's
+// bindSessionFromPayload calls this for exactly that case whenever none of
+// its three fallbacks find an id). Proven here by making the index's
+// directory read-only: a real write attempt fails loud (the pre-fix
+// behavior), while a genuine no-op must short-circuit before ever touching
+// the filesystem lock/write path.
+func TestBindSession_EmptyArgsIsANoOp_NoWriteAttempted(t *testing.T) {
+	m := newManager(t)
+	entry, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
+	dir := filepath.Dir(m.Path())
+	require.NoError(t, os.Chmod(dir, 0o555))
+	defer func() { _ = os.Chmod(dir, 0o755) }()
+
+	err = m.BindSession(entry.HarpName, "", "")
+	assert.NoError(t, err, "empty sessionID/transcriptPath must be recognized as a no-op before any write is attempted, even when the index dir is unwritable")
+}
+
 func TestListForProject_FiltersAndSorts(t *testing.T) {
 	m := newManager(t)
 	a, _ := m.AssignHarp("/proj-a", "claude-code")

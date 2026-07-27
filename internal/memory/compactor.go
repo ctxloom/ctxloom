@@ -614,6 +614,25 @@ func assembleBody(cleanedBody string, plans []PlanBlock) string {
 // field wins over the CTXLOOM_SESSION_HARP env var so `ctxloom session distill
 // <harp>` can override without mutating process env.
 func (c *Compactor) resolveHarpName() string {
+	// U039-F01: an explicit SessionID naming a DIFFERENT, genuinely-existing
+	// harp than the caller's own must route output (essence, index bind,
+	// summary) to THAT harp — otherwise compacting someone else's session
+	// silently writes the essence into, and overwrites the summary of, the
+	// CALLER's own harp entry. Checked against the session index rather than
+	// harp.Validate's shape rule: harp.Validate is deliberately permissive
+	// (any single path component passes), so it cannot tell a real harp name
+	// apart from an opaque engine-native session id — only "does this
+	// identify a harp that actually exists" can. An id that doesn't resolve
+	// to an existing harp (a native session id, a typo, a bare `ctxloom
+	// memory compact` with no coordinator context) falls back to the
+	// caller's own harp exactly as before this fix.
+	if c.config.SessionID != "" && c.config.HarpName != "" && c.config.SessionID != c.config.HarpName {
+		if mgr, err := sessions.Open(""); err == nil {
+			if entry, _ := mgr.Find(c.config.SessionID); entry != nil {
+				return c.config.SessionID
+			}
+		}
+	}
 	if c.config.HarpName != "" {
 		return c.config.HarpName
 	}
@@ -708,6 +727,14 @@ func transcriptSize(harpName string) int64 {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
+		// U078-F03: unlike the branches above (no harp, no index, no path
+		// bound at all — all ordinary "nothing to fingerprint" states), a
+		// BOUND path that can't be stat'd is a real, surprising degradation
+		// (deleted/rotated/permission-denied). Silently returning 0 here
+		// permanently zeroed the staleness fingerprint with no diagnostic —
+		// warn, naming the harp and path, so an operator has something to
+		// act on.
+		clidiag.Warn("ctxloom", "transcript size: harp %q: stat %s: %v — staleness fingerprint stamped as 0", harpName, path, err)
 		return 0
 	}
 	return info.Size()

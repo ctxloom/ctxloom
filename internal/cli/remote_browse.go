@@ -37,6 +37,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	types := []string{"bundle"}
 
 	totalCount := 0
+	var browseErrs []error
 
 	for _, itemType := range types {
 		result, err := operations.BrowseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
@@ -46,6 +47,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 		})
 		if err != nil {
 			clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "failed to browse %ss: %v", itemType, err)
+			browseErrs = append(browseErrs, err)
 			continue
 		}
 
@@ -75,6 +77,15 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	}
 
 	if totalCount == 0 {
+		// U039-F03: totalCount == 0 for two entirely different reasons — a
+		// genuinely empty remote, or every itemType's browse call failing
+		// outright (network, auth, an unresolvable remote name). Only the
+		// first is "No bundles found"; the second is a failure asserting a
+		// false fact ("the remote has nothing" when the remote was simply
+		// never reached), and must not exit 0.
+		if len(browseErrs) == len(types) {
+			return fmt.Errorf("browse %s: %w", remoteName, browseErrs[0])
+		}
 		fmt.Printf("No bundles found in %s\n", remoteName)
 		return nil
 	}

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
@@ -70,4 +72,33 @@ func TestTranscriptSize_FallsBackToLegacyWhenNoCanonical(t *testing.T) {
 	// Deliberately no canonical transcript written for this harp.
 
 	assert.Equal(t, int64(10), transcriptSize(entry.HarpName))
+}
+
+// U078-F03 (transcriptSize half): a harp with a BOUND transcript path that
+// can no longer be stat'd (deleted, rotated, permission changed) is a real,
+// surprising degradation — unlike "no harp" or "no path bound at all", which
+// are ordinary "nothing to fingerprint" cases. transcriptSize silently
+// returned 0 for this case with no warning anywhere, so a transient stat
+// failure permanently zeroed the staleness fingerprint (disabling the "out
+// of date" badge for that harp) with no diagnostic an operator could ever
+// see.
+func TestTranscriptSize_DanglingBoundPath_Warns(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp("/proj", "codex")
+	require.NoError(t, err)
+
+	gone := filepath.Join(t.TempDir(), "gone.jsonl")
+	require.NoError(t, mgr.BindSession(entry.HarpName, "backend-uuid", gone))
+	// Deliberately do NOT create `gone` — bound, but unstatable.
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	assert.Equal(t, int64(0), transcriptSize(entry.HarpName))
+	assert.Contains(t, buf.String(), entry.HarpName,
+		"a bound-but-unstatable transcript path must warn, naming the harp, instead of silently zeroing the staleness fingerprint")
 }

@@ -35,3 +35,45 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 	renderPullSummary(&out, &operations.SyncDependenciesResult{})
 	assert.Contains(t, out.String(), "No remote dependencies to pull.")
 }
+
+// U039-F02: `ctxloom remote pull` exited 0 even when a dependency FAILED to
+// fetch/apply — the failures were printed to stdout (renderPullSummary) but
+// RunE always returned nil regardless. pullResultErr is the extracted
+// decision `remotePullCmd`'s RunE defers to, so a caller scripting on exit
+// code (not scraping stdout) can actually tell. Retracted is deliberately
+// NOT a failure here (see the "retracted item does not fail the pull"
+// subtest below): it is the retraction mechanism working as designed, and
+// the acceptance journeys for it (j3/j7/trust_surface) require `remote pull`
+// to keep exiting 0 when a dependency is withheld this way — an earlier
+// version of this fix treated Retracted as a failure too and broke exactly
+// those three scenarios.
+func TestPullResultErr(t *testing.T) {
+	t.Run("clean pull is nil", func(t *testing.T) {
+		assert.NoError(t, pullResultErr(&operations.SyncDependenciesResult{
+			Total: 2, Installed: 2,
+		}))
+	})
+
+	t.Run("skipped-at-locked-commit is not itself a failure", func(t *testing.T) {
+		assert.NoError(t, pullResultErr(&operations.SyncDependenciesResult{
+			Total: 1, Skipped: []operations.SyncItem{{Reference: "a"}},
+		}))
+	})
+
+	t.Run("any Errors makes the pull fail", func(t *testing.T) {
+		err := pullResultErr(&operations.SyncDependenciesResult{
+			Total: 2, Installed: 1, Errors: 1,
+			Failed: []operations.SyncItem{{Reference: "b", Error: "boom"}},
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "b")
+	})
+
+	t.Run("a retracted item does not fail the pull", func(t *testing.T) {
+		err := pullResultErr(&operations.SyncDependenciesResult{
+			Total: 2, Installed: 1,
+			Retracted: []operations.SyncItem{{Reference: "c", Error: "retracted upstream"}},
+		})
+		assert.NoError(t, err, "retraction is the protective mechanism working, not a pull failure")
+	})
+}

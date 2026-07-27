@@ -15,6 +15,13 @@ import (
 // Complete event can be built.
 type converter struct {
 	record func(agent.ChatEvent) error
+
+	// entries counts real conversation ChatEvents recorded by handleTurn —
+	// NOT the per-turn Complete boundary, which is accounting metadata every
+	// turn emits regardless of content. checkFloor (kiro.go) uses this to
+	// tell "a conversation with real turns but zero recognizable content"
+	// (U149-F01/F02) apart from a genuinely turn-less conversation.
+	entries int
 }
 
 // handleTurn maps one historyTurn (raw JSON, from conversationDoc.History)
@@ -34,11 +41,13 @@ func (c *converter) handleTurn(raw json.RawMessage, modelInfo *modelInfo) error 
 		if err := c.record(ev); err != nil {
 			return err
 		}
+		c.entries++
 	}
 	for _, ev := range assistantContentEvents(t.Assistant) {
 		if err := c.record(ev); err != nil {
 			return err
 		}
+		c.entries++
 	}
 	return c.record(agent.ChatEvent{Complete: turnMeta(t.RequestMetadata, modelInfo)})
 }
@@ -182,16 +191,16 @@ func durationMs(rm requestMetadata) int {
 func sessionInfo(conversationID string, doc *conversationDoc) *agent.ChatSessionInfo {
 	var b importer.SessionInfoBuilder
 
-	// doc.ConversationID was byte-identical to the locator's own
-	// conversation id on every real row on this box; the fallback exists so
-	// a document that is missing (or has an empty) conversation_id of its
-	// own still gets a SessionID from the one value Convert already knows
-	// for certain — the id it looked the row up by.
-	sid := doc.ConversationID
-	if sid == "" {
-		sid = conversationID
-	}
-	b.SetSessionID(sid)
+	// Only the DOCUMENT's own conversation_id counts toward
+	// SessionInfoBuilder's "found" contract here — U149-F03: the locator's
+	// conversationID is Convert's own lookup key, known unconditionally for
+	// every call, so latching it via SetSessionID would make found() true
+	// even for a document that carried NO session metadata of its own,
+	// defeating SessionInfoBuilder's documented "nil means nothing observed"
+	// contract and (via the lazily-created Recorder) leaving a Session-only
+	// canonical file behind for a conversation that was otherwise never
+	// really captured — permanently blocking a later, better import.
+	b.SetSessionID(doc.ConversationID)
 
 	if doc.ModelInfo != nil {
 		model := doc.ModelInfo.ModelID
@@ -207,5 +216,17 @@ func sessionInfo(conversationID string, doc *conversationDoc) *agent.ChatSession
 	// every real row on this box) carries kiro-cli's equivalent of codex's
 	// approval_policy — an honest gap, not an oversight.
 
-	return b.Build()
+	info := b.Build()
+	if info == nil {
+		return nil
+	}
+	// doc.ConversationID was byte-identical to the locator's own conversation
+	// id on every real row on this box; this fallback fills the SAME value
+	// in for the rare case the document's own field was empty — but only
+	// once real session metadata (model/context window) is already known to
+	// exist, never as the sole reason to manufacture a Session event.
+	if info.SessionID == "" {
+		info.SessionID = conversationID
+	}
+	return info
 }

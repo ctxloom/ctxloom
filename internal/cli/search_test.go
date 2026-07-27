@@ -56,6 +56,41 @@ func TestSearchScopes(t *testing.T) {
 	}
 }
 
+// U042-F01: a search whose local AND remote halves both failed exited 0
+// reporting "No results found." — indistinguishable from a genuinely empty
+// library. searchFullyFailed is the decision runUnifiedSearch defers to:
+// "every scope that was actually attempted came back with an error" — never
+// true for a scope that was never queried at all (localOnly/remoteOnly
+// narrowing, or a --type filter with no local/remote types), since that is
+// legitimately "nothing to report on this half", not a failure.
+func TestSearchFullyFailed(t *testing.T) {
+	boom := os.ErrClosed // any non-nil error stand-in
+
+	tests := []struct {
+		name                            string
+		localAttempted, remoteAttempted bool
+		localErr, remoteErr             error
+		want                            bool
+	}{
+		{"both attempted, both failed", true, true, boom, boom, true},
+		{"both attempted, only local failed", true, true, boom, nil, false},
+		{"both attempted, only remote failed", true, true, nil, boom, false},
+		{"both attempted, neither failed", true, true, nil, nil, false},
+		{"only local attempted, and it failed", true, false, boom, nil, true},
+		{"only remote attempted, and it failed", false, true, nil, boom, true},
+		{"neither attempted (nothing to fail)", false, false, nil, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := searchFullyFailed(tt.localAttempted, tt.localErr, tt.remoteAttempted, tt.remoteErr)
+			if got != tt.want {
+				t.Errorf("searchFullyFailed(%v, %v, %v, %v) = %v, want %v",
+					tt.localAttempted, tt.localErr, tt.remoteAttempted, tt.remoteErr, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveSearchTypes(t *testing.T) {
 	tests := []struct {
 		name       string

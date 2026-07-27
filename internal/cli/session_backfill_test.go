@@ -88,6 +88,23 @@ func TestSessionBackfill_UnknownHarp(t *testing.T) {
 	assert.Contains(t, err.Error(), "no-such-harp")
 }
 
+// U042-F02: `session backfill` returned exit 0 even when every entry
+// failed. A bound path that exists (passes os.Stat) but is a directory, not
+// a file, makes ConvertVendorTranscript genuinely attempt and fail —
+// distinct from "nothing bound" (Skipped), which must NOT fail the command.
+func TestSessionBackfill_EveryEntryFailing_IsAnError(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(dir, "codex")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", t.TempDir())) // a dir, not a file
+
+	_, err = execRootCmd(t, "session", "backfill", "--format", "text")
+	require.Error(t, err, "every entry failing must not exit 0")
+	assert.Contains(t, err.Error(), "1 failed")
+}
+
 // TestSessionBackfill_Idempotent_ReRun covers the command's own doc-comment
 // claim ("safe to re-run at any time"): a second run over an already-fully-
 // converted index reports zero converted, and does not touch the canonical

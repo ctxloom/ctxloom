@@ -92,12 +92,32 @@ func TestStampPlanFile_HarpAlreadyPresent_NoOp(t *testing.T) {
 	_ = infoAfter
 }
 
-func TestStampPlanFile_MalformedFrontmatter_NoOp(t *testing.T) {
-	// Opening `---` but no closing — must not corrupt.
+// U078-F11: an unterminated frontmatter block must never corrupt the file
+// (unchanged from before), but it IS a genuine failure to stamp — the doc
+// comment on StampPlanFile promises "caller logs" for exactly this case, and
+// the caller (hook_stamp_plan.go) only logs when err != nil. Returning nil
+// here made that promise false: a stamping hook could silently do nothing,
+// forever, with no diagnostic anywhere.
+func TestStampPlanFile_UnterminatedFrontmatter_LeavesFileUntouchedButErrors(t *testing.T) {
 	src := "---\nthis-is-not-yaml-and-no-close\n# body\n"
 	path := writePlanFile(t, "p.md", src)
-	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
-		t.Fatalf("StampPlanFile: %v", err)
+	if err := StampPlanFile(path, "swift-amber-falcon"); err == nil {
+		t.Fatal("unterminated frontmatter must be reported as a failure to stamp, not a silent no-op")
+	}
+	if got := readFile(t, path); got != src {
+		t.Errorf("an unterminated frontmatter block must still leave the file untouched; got:\n%s", got)
+	}
+}
+
+// The malformed-YAML-but-properly-terminated case (a closing `---` exists,
+// but the block between them doesn't parse) must fail the same way, for the
+// same reason: "refuse to corrupt" and "silently do nothing forever" are not
+// the same outcome, and only the first is intended.
+func TestStampPlanFile_MalformedYAMLInTerminatedBlock_LeavesFileUntouchedButErrors(t *testing.T) {
+	src := "---\n[this is not a mapping\n---\n# body\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(path, "swift-amber-falcon"); err == nil {
+		t.Fatal("malformed YAML frontmatter must be reported as a failure to stamp, not a silent no-op")
 	}
 	if got := readFile(t, path); got != src {
 		t.Errorf("malformed frontmatter should leave file untouched; got:\n%s", got)

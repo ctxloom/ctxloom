@@ -3,6 +3,7 @@ package antigravity
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -63,22 +64,54 @@ const (
 // which is entry-only too.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
 	record := importer.RecordFunc(rec, "antigravity")
+	var (
+		lineCount   int
+		malformed   int
+		convertible int // lines whose Type is one this adapter maps at all
+		wrongStatus int // convertible lines skipped only for Status != stepDone
+		entries     int
+	)
 	for _, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		lineCount++
 		var s step
 		if err := json.Unmarshal(line, &s); err != nil {
+			malformed++
 			continue // malformed line: skip, never fatal (see importer.VendorAdapter doc)
 		}
+		if s.Type != "USER_INPUT" && s.Type != "PLANNER_RESPONSE" {
+			continue // administrative/unmapped step type: not this adapter's content
+		}
+		convertible++
 		if s.Status != stepDone {
+			wrongStatus++
 			continue // provisional (e.g. RUNNING): not a finalized turn to record
 		}
 		for _, ev := range stepEvent(s) {
 			if err := record(ev); err != nil {
 				return err
 			}
+			entries++
 		}
+	}
+	// U146-F01/F02: a file that decodes fine but yields zero entries is
+	// indistinguishable, without this check, from a genuinely empty or
+	// admin-only conversation — and because transcript.Recorder only creates
+	// its file on the first SUCCESSFUL Record (recorder.go's NewRecorder doc),
+	// nothing on disk would ever mark the failure either: the same drifted
+	// file would report "success" again on every future retry. Fail loud only
+	// when there was real convertible content to have converted; an
+	// admin-only file (convertible == 0) stays a legitimate, silent success.
+	if entries == 0 && convertible > 0 {
+		if wrongStatus == convertible {
+			return fmt.Errorf("antigravity: read %d line(s) including %d USER_INPUT/PLANNER_RESPONSE step(s), but none had status %q — this build's status vocabulary no longer matches the file", lineCount, convertible, stepDone)
+		}
+		return fmt.Errorf("antigravity: read %d line(s) including %d USER_INPUT/PLANNER_RESPONSE step(s) but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", lineCount, convertible)
+	}
+	if entries == 0 && malformed > 0 && malformed == lineCount {
+		return fmt.Errorf("antigravity: all %d line(s) failed to parse as JSON — not a transcript this build can read", lineCount)
 	}
 	return nil
 }

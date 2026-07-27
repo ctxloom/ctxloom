@@ -1,8 +1,9 @@
 // Command extract-defaults assembles cmd/ltk/sample.ltk.yaml — the rule set
 // shipped with ltk and embedded into the binary — from the fenced ```yaml blocks
-// in docs/DEFAULTS.md, which is the source of truth. Run with no args to
-// (re)generate the file; run with -check to exit non-zero if it is out of sync
-// (used by the lefthook pre-commit hook).
+// in docs/ltk/DEFAULTS.md, which is the source of truth. Run with no args to
+// (re)generate the file; run with -check to exit non-zero if it is out of sync.
+// Nothing currently invokes -check: there is no lefthook entry and no CI step
+// for it (see docs/architecture/companions/ltk.md, "Invariants").
 package main
 
 import (

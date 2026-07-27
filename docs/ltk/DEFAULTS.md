@@ -2,10 +2,12 @@
 
 This document is the **source of truth** for the rule set `ltk` ships with and
 writes on `ltk manage install` (unless `--no-default-rules`). The fenced `yaml`
-blocks below are extracted, in order, into [`cmd/ltk/sample.ltk.yaml`](../cmd/ltk/sample.ltk.yaml)
-(which is embedded in the binary) by [`tools/extract-defaults`](../tools/extract-defaults).
-A lefthook pre-commit hook regenerates and fails the commit on drift, so the doc
-and the shipped file can never disagree. To regenerate by hand: `just defaults`.
+blocks below are extracted, in order, into [`cmd/ltk/sample.ltk.yaml`](../../cmd/ltk/sample.ltk.yaml)
+(which is embedded in the binary) by [`extract-defaults`](../../internal/ltk/tools/extract-defaults).
+Regenerate by hand with `just defaults`. The tool has a `-check` flag that would
+fail on drift, but nothing invokes it — no lefthook entry and no CI step exist,
+so the doc and the shipped file can silently disagree until someone runs
+`just defaults` (tracked as a gate gap, not fixed here).
 
 Each rule below is a YAML chunk followed by **why it's a default**. Every default
 is a *cooperative nudge* — it turns a command away and points at the safer path;

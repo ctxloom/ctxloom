@@ -191,8 +191,9 @@ gen-schemas:
 
 # Regenerate cmd/ltk/sample.ltk.yaml (the shipped default rule set, embedded in
 # the ltk binary) from the ```yaml blocks in docs/ltk/DEFAULTS.md, the source
-# of truth. A lefthook pre-commit hook runs the -check form and fails the
-# commit on drift; this is the "run it by hand" side documented there.
+# of truth. The tool also has a -check form that fails on drift, but nothing
+# invokes it — no lefthook hook, no CI step — so this is a run-by-hand recipe,
+# not a gate. See docs/architecture/companions/ltk.md, "Invariants".
 defaults:
     go run ./internal/ltk/tools/extract-defaults
 

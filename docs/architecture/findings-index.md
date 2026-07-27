@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **249** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **250** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 1 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,015** |
+| `open` | no commit names this ID | **2,014** |
 
-**Totals: 2268 findings across 162 units — 249 resolved, 2015 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 250 resolved, 2014 still open, 4 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 119 | 256 (+1 refuted) |
+| HIGH | 376 | 120 | 255 (+1 refuted) |
 | MED | 999 | 38 | 961 |
 | LOW | 871 | 92 | 776 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -450,7 +450,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U140-F01 | open | `:76-123` vs `internal/projectroot/projectroot.go:25-106` | DUPLICATE | **`resolveBase` is the third implementation of one resolution chain, and `fromEnv` duplicates its counterpart verbatim — including the warning string.** The env-var literal is declared twice and th... | U140.md |
 | U140-F02 | open | `:83-86` | CORRECTNESS | **When `os.Getwd()` fails, `resolveBase` invents a project root: the bare relative string `"."`.** That value flows all the way into the project registry, where it can be minted as a permanent iden... | U140.md |
 | U141-F01 | open | `gate.go:87,96,99` | ERRHANDLING | `OutputGate.Release` discards the error from all three `dst.Write` calls, so a failing tty silently loses the *entire* replay of held engine output — the ring has already been drained, so the bytes... | U141.md |
-| U142-F01 | open | `testsupport.go:34-53, 63-68` | CORRECTNESS | `TestEnvKeysCoversProductionReads` enforces only variables read as **string literals** through `os.Getenv`/`os.LookupEnv`. Ten of the 24 entries are exempt from that enforcement — seven read via Go... | U142.md |
+| U142-F01 | **RESOLVED** `4cdd70b1` | `testsupport.go:34-53, 63-68` | CORRECTNESS | `TestEnvKeysCoversProductionReads` enforces only variables read as **string literals** through `os.Getenv`/`os.LookupEnv`. Ten of the 24 entries are exempt from that enforcement — seven read via Go... | U142.md |
 | U144-F01 | **RESOLVED** `e7631e88` | `record.go:179-184, 375-385` | CORRECTNESS | `SessionPayload` silently drops `agent.ChatSessionInfo.Resumable`, so the one-shot resume capability flag is lost from every canonical transcript | U144.md |
 | U144-F02 | **RESOLVED** `e7631e88` | `record.go:213-224, 403-414` | CORRECTNESS | `PermissionPayload` silently drops `agent.PermissionRequest.ToolCallID`, so a recorded permission request cannot be re-paired with its tool call | U144.md |
 | U144-F03 | **RESOLVED** `5f893278` | `history.go:182-184, 204-207` | SILENTNOOP | A transcript whose every line fails to parse (or a zero-byte file) returns a Session with **zero entries and a nil error**, which downstream is indistinguishable from "an empty conversation" and ac... | U144.md |

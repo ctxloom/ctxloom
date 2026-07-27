@@ -241,7 +241,10 @@ func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
 		layers = append(layers, projectValues)
 	}
 
-	base := Merge(layers...)
+	base, err := Merge(layers...)
+	if err != nil {
+		return nil, err
+	}
 	return p.ApplyOverrides(base, o)
 }
 
@@ -329,7 +332,7 @@ func readYAMLFile(path string) (values map[string]any, present bool, err error) 
 // Raw() round-trips a value in a way that can surprise a caller expecting an
 // int to stay an int (see TestKoanf_IntStaysInt) — Unmarshal into a plain
 // map[string]any does not have this problem and is used exclusively here.
-func Merge(layers ...map[string]any) map[string]any {
+func Merge(layers ...map[string]any) (map[string]any, error) {
 	k := koanf.New(delim)
 	for _, layer := range layers {
 		if len(layer) == 0 {
@@ -337,24 +340,28 @@ func Merge(layers ...map[string]any) map[string]any {
 		}
 		// confmap.Provider with an empty delim treats layer as an
 		// already-nested map (never unflattened) and hands it to k.Load with
-		// a nil Parser, which cannot itself fail for an in-memory provider —
-		// the error return exists only because Load's signature is generic
-		// across providers that DO fail (e.g. a file that vanished mid-read).
+		// a nil Parser — believed unable to fail for an in-memory provider
+		// (U108-F01/F02: the prior "continue"/empty-map handling of this
+		// branch treated that belief as certainty, silently dropping the
+		// WHOLE layer — and every layer after it, since the loop kept
+		// going — on the day it turns out to be wrong). Propagate instead:
+		// an impossible state should fail loudly, not disappear.
 		if err := k.Load(confmap.Provider(layer, ""), nil); err != nil {
-			continue
+			return nil, fmt.Errorf("confload: loading a config layer: %w", err)
 		}
 	}
 
 	var out map[string]any
 	if err := k.Unmarshal("", &out); err != nil {
-		// Unmarshal into map[string]any cannot itself fail for content that
-		// came from confmap.Provider (no decode-hook type mismatch is
-		// possible against an interface{}-valued target) — guarded rather
-		// than ignored, matching layerconfig.Merge's total nil-safety.
-		return map[string]any{}
+		// Unmarshal into map[string]any believed unable to fail for content
+		// that came from confmap.Provider (no decode-hook type mismatch is
+		// possible against an interface{}-valued target) — same reasoning,
+		// same fix: propagate rather than fabricate an empty-map result that
+		// discards every successfully-loaded layer.
+		return nil, fmt.Errorf("confload: unmarshaling merged layers: %w", err)
 	}
 	if out == nil {
 		out = map[string]any{}
 	}
-	return out
+	return out, nil
 }

@@ -616,6 +616,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	selectedEngine := initEngine
 	if alreadyExists {
 		selectedEngine = engineFromExistingConfig(selectedEngine)
+		// U036-F04: --remote/--forge were silently ignored here — the only
+		// consumer of initRemotes/initForge (addPersonalRemotes) lived
+		// exclusively inside setupNewCtxloomDir's fresh-init branch below,
+		// so `ctxloom init --remote <repo>` against an existing .ctxloom
+		// exited 0, printed "ctxloom directory already exists", and added
+		// zero remotes. Honour the flags here too, on a pre-existing dir.
+		addPersonalRemotesFn(cmd, initRemotes, initForge)
 	} else {
 		selectedEngine, err = setupNewCtxloomDir(cmd, appDir, selectedEngine, interactive)
 		if err != nil {
@@ -821,7 +828,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
-	addPersonalRemotes(cmd, append(append([]string{}, initRemotes...), personalRepos...), initForge)
+	addPersonalRemotesFn(cmd, append(append([]string{}, initRemotes...), personalRepos...), initForge)
 	cloneConfiguredRemotes(cmd)
 	pullSeededDependencies(cmd)
 	applyInitHooks(cmd)
@@ -963,6 +970,12 @@ func personalRemoteRequests(repos []string, forge string) []operations.AddRemote
 
 // addPersonalRemotes registers the user's personal repos. Failures warn and
 // continue (an unknown --forge label rolls that single remote back).
+// addPersonalRemotesFn is a package var seam over addPersonalRemotes: tests
+// stub it to verify runInit's/setupNewCtxloomDir's branching reaches it (with
+// the right args) without exercising the real remote-add machinery (registry
+// + network fetch/clone). Defaults to the real function.
+var addPersonalRemotesFn = addPersonalRemotes
+
 func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 	if len(repos) == 0 {
 		return

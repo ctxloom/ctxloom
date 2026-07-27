@@ -25,7 +25,8 @@ func TestKoanf_IntStaysInt(t *testing.T) {
 	home := map[string]any{"version": 6, "retries": 3}
 	project := map[string]any{"name": "proj"}
 
-	merged := Merge(home, project)
+	merged, err := Merge(home, project)
+	require.NoError(t, err)
 
 	assert.Equal(t, 6, merged["version"])
 	assert.IsType(t, int(0), merged["version"], "version must come back as an int, not float64")
@@ -50,7 +51,8 @@ func TestKoanf_DottedMapKeySurvives(t *testing.T) {
 		},
 	}
 
-	merged := Merge(home)
+	merged, err := Merge(home)
+	require.NoError(t, err)
 
 	configs, ok := merged["llm"].(map[string]any)["configs"].(map[string]any)
 	require.True(t, ok)
@@ -72,7 +74,8 @@ func TestKoanf_ListsReplaceNotConcat(t *testing.T) {
 	home := map[string]any{"isolation_engines": []any{"claude-code", "codex", "kiro"}}
 	project := map[string]any{"isolation_engines": []any{"codex"}}
 
-	merged := Merge(home, project)
+	merged, err := Merge(home, project)
+	require.NoError(t, err)
 
 	assert.Equal(t, []any{"codex"}, merged["isolation_engines"])
 }
@@ -87,7 +90,8 @@ func TestKoanf_ExplicitZeroBeatsInheritance(t *testing.T) {
 		home := map[string]any{"ui": map[string]any{"surround": true}}
 		project := map[string]any{"ui": map[string]any{"surround": false}}
 
-		merged := Merge(home, project)
+		merged, err := Merge(home, project)
+		require.NoError(t, err)
 
 		assert.Equal(t, false, merged["ui"].(map[string]any)["surround"])
 	})
@@ -96,7 +100,8 @@ func TestKoanf_ExplicitZeroBeatsInheritance(t *testing.T) {
 		home := map[string]any{"runtime": "container"}
 		project := map[string]any{"runtime": ""}
 
-		merged := Merge(home, project)
+		merged, err := Merge(home, project)
+		require.NoError(t, err)
 
 		assert.Equal(t, "", merged["runtime"])
 	})
@@ -105,7 +110,8 @@ func TestKoanf_ExplicitZeroBeatsInheritance(t *testing.T) {
 		home := map[string]any{"retries": 3}
 		project := map[string]any{"retries": 0}
 
-		merged := Merge(home, project)
+		merged, err := Merge(home, project)
+		require.NoError(t, err)
 
 		assert.Equal(t, 0, merged["retries"])
 	})
@@ -142,7 +148,8 @@ func TestKoanf_CaseSensitiveKeysPreserved(t *testing.T) {
 		},
 	}
 
-	merged := Merge(home, project)
+	merged, err := Merge(home, project)
+	require.NoError(t, err)
 
 	agents := merged["agents"].(map[string]any)
 	_, hasMyCoder := agents["MyCoder"]

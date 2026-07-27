@@ -220,6 +220,39 @@ func TestAssembleContext_WithTags(t *testing.T) {
 	assert.Contains(t, result.Context, "Security Rules")
 }
 
+// TestAssembleContext_TagMatchingNothingIsReported (U082-F03) proves an
+// explicit -t tag that matches zero fragments is surfaced via MissingTags —
+// previously AssembleContext returned Context: "" with a nil error and no
+// warning at all, indistinguishable from "no tags were asked for".
+func TestAssembleContext_TagMatchingNothingIsReported(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Tags:   []string{"no-such-tag-anywhere"},
+		Loader: loader,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"no-such-tag-anywhere"}, result.MissingTags,
+		"a tag selection that matches nothing must be named in MissingTags")
+}
+
+// TestAssembleContext_TagThatMatchesIsNotReportedMissing is the control: a
+// real match must never appear in MissingTags.
+func TestAssembleContext_TagThatMatchesIsNotReportedMissing(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Tags:   []string{"security"},
+		Loader: loader,
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.MissingTags)
+}
+
 func TestAssembleContext_WithFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})

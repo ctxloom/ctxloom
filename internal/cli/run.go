@@ -564,6 +564,13 @@ Examples:
 				return fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(ctxResult.MissingFragments, ", "))
 			}
 
+			// U082-F03: the tag counterpart of the guard above — an explicit
+			// -t selection that matches zero fragments must not silently
+			// exit 0 having delivered no context.
+			if len(runTags) > 0 && len(ctxResult.MissingTags) == len(runTags) {
+				return fmt.Errorf("no fragments loaded: no fragment matches tag(s): %s", strings.Join(ctxResult.MissingTags, ", "))
+			}
+
 			// Determine which LLM config to use. Resolution is deferred until after
 			// context assembly because the chosen profile may declare its own LLM.
 			// Precedence: explicit --llm override (validated up front, friction),

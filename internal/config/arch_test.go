@@ -95,6 +95,83 @@ func TestArch_ConfigSchema_NoUnknownTopLevelProperty(t *testing.T) {
 	}
 }
 
+// intentionalOpenSchemaMaps are object schemas that legitimately accept
+// arbitrary keys (a user-named map, not a fixed struct's fields) — the key
+// is the LAST path segment leading to the object (its own property name, or
+// its parent's if reached via `additionalProperties`/`patternProperties`).
+// U050-F01's audit found exactly one UNINTENTIONAL escape ($defs/hook); this
+// is the acknowledged list every other one must appear on to be exempted.
+var intentionalOpenSchemaMaps = map[string]bool{
+	"configs":          true, // llm.configs: user-named backend labels
+	"agents":           true, // agents: user-named agent bindings
+	"definitions":      true, // profiles.definitions: user-named profiles
+	"isolation_images": true, // isolation_images: user-named image labels
+	"env":              true, // *.env: arbitrary environment variable maps
+	"servers":          true, // mcp.servers: user-named MCP server labels
+	"plugins":          true, // hooks.plugins: user-named plugin labels
+}
+
+// walkSchemaObjects recursively visits every object schema in a decoded JSON
+// Schema document (map[string]any nodes carrying a "properties" or
+// "patternProperties" key), calling visit with the last path segment leading
+// to it and the node itself.
+func walkSchemaObjects(t *testing.T, key string, node any, visit func(key string, obj map[string]any)) {
+	t.Helper()
+	switch v := node.(type) {
+	case map[string]any:
+		if _, hasProps := v["properties"]; hasProps {
+			visit(key, v)
+		}
+		if _, hasPatternProps := v["patternProperties"]; hasPatternProps {
+			visit(key, v)
+		}
+		for k, child := range v {
+			walkSchemaObjects(t, k, child, visit)
+		}
+	case []any:
+		for _, child := range v {
+			walkSchemaObjects(t, key, child, visit)
+		}
+	}
+}
+
+// TestArch_ConfigSchema_EveryObjectDeclaresAdditionalProperties (U050-F01) is
+// the class fix: the file's founding premise ("additionalProperties:false at
+// every level, so an unknown key is already detected on load") was false for
+// exactly one object — $defs/hook, which omitted the keyword (defaulting to
+// permissive) and so silently accepted a typo'd hook key (e.g. `commnd` for
+// `command`) with zero warning, the hook silently never firing. This walks
+// every object schema in the document — not just the top level and the
+// agent-binding object the two prior tests already cover — and asserts each
+// one declares additionalProperties: either false, or an explicit
+// sub-schema for one of the acknowledged intentional open maps.
+func TestArch_ConfigSchema_EveryObjectDeclaresAdditionalProperties(t *testing.T) {
+	raw, err := resources.GetConfigSchema()
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(raw, &doc))
+
+	checked := 0
+	walkSchemaObjects(t, "", doc, func(key string, obj map[string]any) {
+		checked++
+		ap, present := obj["additionalProperties"]
+		if !present {
+			assert.Truef(t, intentionalOpenSchemaMaps[key],
+				"object schema under %q has no additionalProperties keyword — it defaults to permissive, "+
+					"so a typo'd key is silently accepted; set it to false, or add %q to "+
+					"intentionalOpenSchemaMaps with a note if it is a deliberate open map", key, key)
+			return
+		}
+		if b, ok := ap.(bool); ok && b {
+			assert.Truef(t, intentionalOpenSchemaMaps[key],
+				"object schema under %q has additionalProperties:true — a typo'd key is silently accepted; "+
+					"set it to false, or add %q to intentionalOpenSchemaMaps with a note if it is a "+
+					"deliberate open map", key, key)
+		}
+	})
+	require.Greater(t, checked, 10, "the walk must actually traverse the document's object schemas")
+}
+
 // TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms is the nested-drift gate:
 // every snippet here is a form the PARSER deliberately accepts, so the schema
 // must validate it too — otherwise each load emits a spurious validation

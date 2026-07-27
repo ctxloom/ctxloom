@@ -54,7 +54,15 @@ func TestDetectContentType_ByContent(t *testing.T) {
 		{"JSON object", "data", "{}", ContentTypeJSON},
 		{"JSON array", "data", "[]", ContentTypeJSON},
 		{"YAML content", "data", "---\nkey: value", ContentTypeYAML},
-		{"Go package", "data", "package main", ContentTypeGo},
+		// U046-F01: content-sniffing Go source by a bare "package" prefix
+		// match false-positived on any prose starting with that word
+		// ("package layout conventions…") and destroyed it via the Go AST
+		// extractor. The sniff is deleted, not hardened — a real .go file
+		// is already routed by extension (TestDetectContentType_ByExtension),
+		// and a Go fragment with no .go-suffixed name now falls through to
+		// unknown (verbatim pass-through) rather than being guessed at.
+		{"Go source with no .go name is NOT guessed from content", "data", "package main", ContentTypeUnknown},
+		{"Prose starting with the word package is not misdetected as Go", "data", "package layout conventions for this repo", ContentTypeUnknown},
 		{"No extension unknown", "file", "", ContentTypeUnknown},
 		{"Empty content", "", "", ContentTypeUnknown},
 	}

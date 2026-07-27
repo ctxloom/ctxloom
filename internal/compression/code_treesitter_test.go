@@ -117,6 +117,25 @@ func generateID() int {
 	t.Logf("\n--- Compressed output ---\n%s", result.Content)
 }
 
+// TestCodeCompressor_Go_EmptyExtractionFallsBackToVerbatim (U046-F02) proves
+// content that parses under the Go grammar but yields ZERO recognized
+// top-level node kinds (extractGo's goVerbatim map + function/method
+// declarations + comments) degrades to a verbatim pass-through, not an
+// empty Content with a nil error and Ratio: 0.0 — previously indistinguishable
+// from a successful, extreme compression. Prose wrongly routed to the Go
+// compressor (U046-F01's own failure mode, before that sniff was deleted) is
+// exactly the shape that used to trigger this: the grammar emits only ERROR/
+// expression_statement nodes, none of which extractGo's switch handles.
+func TestCodeCompressor_Go_EmptyExtractionFallsBackToVerbatim(t *testing.T) {
+	c := NewCodeCompressor()
+	input := "packages are great\n\nAlways pin your dependencies for reproducible builds.\n"
+
+	result, err := c.Compress(context.Background(), ContentTypeGo, input, 0.5)
+	require.NoError(t, err)
+	assert.Equal(t, input, result.Content, "zero recognized nodes must fall back to the original content verbatim")
+	assert.Equal(t, 1.0, result.Ratio, "a verbatim fallback reports Ratio 1.0, never 0.0 (which read as a successful compression)")
+}
+
 func TestCodeCompressor_Python(t *testing.T) {
 	c := NewCodeCompressor()
 	ctx := context.Background()

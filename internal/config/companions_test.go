@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -198,6 +202,137 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 
 	assert.Empty(t, cfg.companionBundleSeed(), "no companion loadout may be contributed when disabled")
 	assert.Zero(t, probed, "the probe must not be executed at all when companions are disabled")
+}
+
+// TestProbeCompanions_DisabledYieldsNothing (U047-F01) proves ProbeCompanions
+// itself honours the switch at the exec boundary — the prior gate
+// (TestCompanionsDisabled_SkipsProbeEntirely) only proved
+// companionBundleSeed's OWN check short-circuits before ever calling the
+// probe; it never proved ProbeCompanions would refuse to run if something
+// else called it directly, which is exactly what reportCompanions
+// (cli/startup_helpers.go, called unconditionally from `ctxloom run`/`ctxloom
+// mcp`) did.
+func TestProbeCompanions_DisabledYieldsNothing(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		t.Fatal("lookPath must not run when companions are disabled")
+		return "", nil
+	})
+	defer restoreLook()
+
+	SetCompanionsDisabled(true)
+	assert.Empty(t, ProbeCompanions(), "no companion binary may be probed when disabled")
+}
+
+// TestProbeCompanionLoadouts_DisabledYieldsNothing is ProbeCompanionLoadouts'
+// half of U047-F01: the loadout probe execs companion binaries too, and had
+// no gate of its own either.
+func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		t.Fatal("lookPath must not run when companions are disabled")
+		return "", nil
+	})
+	defer restoreLook()
+
+	SetCompanionsDisabled(true)
+	assert.Empty(t, ProbeCompanionLoadouts(nil), "no loadout may be probed when disabled")
+}
+
+// syncBuffer is a mutex-guarded bytes.Buffer: ProbeCompanionLoadouts fans its
+// per-companion probes out across goroutines, so a plain bytes.Buffer as the
+// clidiag sink races when more than one probe warns concurrently.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestProbeCompanionLoadouts_WedgedCompanionWarns (U047-F04) proves a
+// loadout probe failure that is NOT the ordinary "no loadout subcommand"
+// case (a wedged companion timing out, or any other exec failure) is
+// reported — previously it vanished with zero diagnostic and the run
+// reported success having delivered nothing from that companion.
+func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	restoreLoadout := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
+		return nil, context.DeadlineExceeded
+	})
+	defer restoreLoadout()
+
+	buf := &syncBuffer{}
+	restoreSink := clidiag.SetSink(buf)
+	defer restoreSink()
+
+	out := ProbeCompanionLoadouts(nil)
+	assert.Empty(t, out, "a wedged companion still contributes nothing")
+	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
+}
+
+// TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet is the contrast: a
+// companion that hasn't adopted the `loadout` protocol yet (ordinary
+// *exec.ExitError, e.g. "unknown command") must NOT warn — that is the
+// common, benign case U047-F04's fix must not turn noisy.
+func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	restoreLoadout := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
+		return nil, &exec.ExitError{}
+	})
+	defer restoreLoadout()
+
+	buf := &syncBuffer{}
+	restoreSink := clidiag.SetSink(buf)
+	defer restoreSink()
+
+	out := ProbeCompanionLoadouts(nil)
+	assert.Empty(t, out)
+	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
+}
+
+// TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide (U107-F02) bridges
+// the two ends of the cross-process wire contract this probe's argv and
+// companionloadout.NewCommand's cobra dispatch both have to agree on
+// (subcommand name, flag name, format value) — previously duplicated as
+// bare string literals with no shared constant and no test exercising both
+// real sides, so renaming any of the three passed the whole suite while
+// silently breaking every companion in production. Drives the REAL
+// companionloadout.NewCommand (the emitter side) with the EXACT argv
+// companionLoadoutOutput builds (the consumer side) and checks the output
+// round-trips through the real signing.DecodeLoadoutEnvelope decoder.
+func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
+	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  x:\n    content: hi\n")
+	// NewCommand returns the "loadout" command itself (it has no
+	// subcommands), so only the flag portion of companionLoadoutOutput's
+	// argv applies here — the Subcommand constant is what a real companion
+	// binary's root command would dispatch ON to reach this command in the
+	// first place.
+	cmd := companionloadout.NewCommand("acme", bundleYAML, nil)
+	require.Equal(t, companionloadout.Subcommand, cmd.Use, "the emitter side's command name must still match Subcommand")
+	cmd.SetArgs([]string{"--" + companionloadout.FormatFlag, companionloadout.FormatJSON})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	require.NoError(t, cmd.Execute())
+
+	decoded, _, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, bundleYAML, decoded)
 }
 
 // TestCompanionsEnabled_ProbesByDefault is the converse: the default is on, so

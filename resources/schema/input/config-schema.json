@@ -611,7 +611,7 @@
           "default": false
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "hookArray": {
       "type": "array",

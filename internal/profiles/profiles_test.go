@@ -20,9 +20,11 @@
 package profiles
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -608,6 +610,51 @@ variables:
 	assert.Equal(t, "b-value", resolved.Variables["from_b"])
 	assert.Equal(t, "c-value", resolved.Variables["from_c"])
 	assert.Equal(t, "a-value", resolved.Variables["from_a"])
+}
+
+// buildDuplicateParentChain reproduces U091-F02's own measurement probe: pN
+// (N < depth) declares its NEXT profile as its parent TWICE — the shape that
+// turns naive per-branch resolution into Θ(2^depth) recursive calls with no
+// combinatorial diamond needed at all, since one node alone doubles the work
+// its own resolution requires.
+func buildDuplicateParentChain(t *testing.T, dir string, depth int) string {
+	t.Helper()
+	name := func(n int) string { return fmt.Sprintf("p%03d", n) }
+	for n := 0; n <= depth; n++ {
+		var content string
+		if n == depth {
+			content = "description: leaf\nbundles: [leaf-bundle]\n"
+		} else {
+			next := name(n + 1)
+			content = fmt.Sprintf("parents: [%s, %s]\nbundles: [b%d]\n", next, next, n)
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name(n)+".yaml"), []byte(content), 0644))
+	}
+	return name(0)
+}
+
+// TestLoader_ResolveProfile_DuplicateParentChainIsMemoized (U091-F02) is the
+// regression for the exponential-resolution defect: resolveProfileRecursive
+// re-Load()ed, re-parsed, and re-resolved a shared ancestor once per path
+// reaching it. At the depth used here (24), the finding's own measurements
+// put the UNMEMOIZED cost at several minutes (clean 4x growth per +2 depth,
+// measured up to 41.8s at depth 20); memoized, this must complete in well
+// under a second regardless of depth, because a distinct profile in the
+// chain is resolved exactly once no matter how many times it's reached.
+func TestLoader_ResolveProfile_DuplicateParentChainIsMemoized(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := buildDuplicateParentChain(t, tmpDir, 24)
+	loader := NewLoader([]string{tmpDir})
+
+	start := time.Now()
+	resolved, err := loader.ResolveProfile(root, nil)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Contains(t, resolved.Bundles, "leaf-bundle", "the shared leaf ancestor's content must still be present")
+	assert.Contains(t, resolved.Bundles, "b0")
+	assert.Less(t, elapsed, 2*time.Second,
+		"memoized resolution of a depth-24 duplicate-parent chain must be near-instant, not exponential (took %s)", elapsed)
 }
 
 // TestLoader_ResolveProfile_DepthLimit verifies that deeply nested inheritance is rejected.

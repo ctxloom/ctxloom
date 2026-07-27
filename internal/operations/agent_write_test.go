@@ -181,6 +181,41 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 
+// TestGetAgent_SurfacesEscalation (U028-F02) proves the approval-policy
+// ladder — previously invisible from every read path (AgentEntry had no
+// Escalation field) — is now visible via GetAgent/ListAgents, and survives a
+// SetAgent write that does not name it (the merge landed for U081-F01/F01;
+// this pins the READ half of the same finding).
+func TestGetAgent_SurfacesEscalation(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, `version: 5
+agents:
+  dev:
+    profiles: [x]
+    escalation:
+      - action: auto_accept
+        kinds: [COMMAND_EXECUTION]
+`)
+	mgr := managerFor(appDir)
+
+	entry, err := GetAgent(cfg, "dev")
+	require.NoError(t, err)
+	require.Len(t, entry.Escalation, 1, "escalation ladder must be readable, not invisible")
+	assert.Equal(t, "auto_accept", entry.Escalation[0].Action)
+
+	list := ListAgents(cfg)
+	require.Len(t, list, 1)
+	require.Len(t, list[0].Escalation, 1, "ListAgents must surface it too")
+
+	// A write that doesn't name Escalation must not wipe it.
+	_, err = SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container")})
+	require.NoError(t, err)
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	entry, err = GetAgent(reloaded, "dev")
+	require.NoError(t, err)
+	assert.Len(t, entry.Escalation, 1, "escalation must survive an unrelated field write")
+}
+
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")

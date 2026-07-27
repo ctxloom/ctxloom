@@ -834,6 +834,13 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	loader := c.SeededBundleLoader(false)
 	infos, err := loader.List()
 	if err != nil {
+		// U048-F03: the very next loop already fails loudly for a per-file
+		// error (strictness.FailOnce below) — a failure to even LIST the
+		// bundles must not be quieter than a failure to load one of them,
+		// or every bundle-shipped profile silently vanishes from the shared
+		// profile loader with no diagnostic at all.
+		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` or fix the bundle ref, or pass --degraded",
+			"failed to list bundles for their profiles: %v", err)
 		return nil
 	}
 	loaded := make(map[string]*profiles.Profile)
@@ -1392,7 +1399,10 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		return nil
 	}
 
-	merged := confload.Merge(layers...)
+	merged, mergeErr := confload.Merge(layers...)
+	if mergeErr != nil {
+		return fmt.Errorf("merging config layers: %w", mergeErr)
+	}
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
 		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})
@@ -1910,10 +1920,18 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
+		// U048-F02: this used to be indistinguishable from "no remotes
+		// registered" (the doc's own framing) — a real error (corrupt
+		// remotes.yaml, unreadable dir) silently vanished every
+		// lockfile-pinned remote bundle from assembly/hooks/MCP/commands.
+		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
+			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil
 	}
 	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
 	if err != nil {
+		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` to regenerate the lockfile, or fix it by hand",
+			"failed to load the remote lockfile; no remote bundles loaded: %v", err)
 		return nil
 	}
 	if lock.IsEmpty() {

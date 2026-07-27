@@ -70,6 +70,27 @@ config:
 	})
 }
 
+// TestConfigValidator_RejectsTypoedHookKey (U050-F01) is the concrete
+// regression: $defs/hook set additionalProperties:true, so a typo'd key
+// inside a hook definition (e.g. "commnd" for "command") validated
+// successfully with zero warning and the hook silently never fired. Now the
+// hook object is closed, so a typo is a validation error.
+func TestConfigValidator_RejectsTypoedHookKey(t *testing.T) {
+	v, err := NewConfigValidator()
+	require.NoError(t, err)
+
+	yaml := `
+version: 6
+hooks:
+  unified:
+    session_start:
+      - commnd: echo hi
+        typo_key: whatever
+`
+	err = v.ValidateBytes([]byte(yaml))
+	assert.Error(t, err, "a typo'd hook key must be rejected, not silently accepted")
+}
+
 func TestConvertToJSON(t *testing.T) {
 	t.Run("converts map", func(t *testing.T) {
 		input := map[string]interface{}{

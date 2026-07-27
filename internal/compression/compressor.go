@@ -124,9 +124,20 @@ func sniffContentType(content string) ContentType {
 	if len(content) > 3 && content[:3] == "---" {
 		return ContentTypeYAML
 	}
-	if len(content) > 7 && content[:7] == "package" {
-		return ContentTypeGo
-	}
+	// U046-F01: a naive `content[:7] == "package"` prefix match (no
+	// trailing space, no further validation) routed any prose starting
+	// with the word "package" ("package layout conventions…", "package
+	// management guidance…") to the Go AST compressor, which then emitted
+	// only the node kinds a real Go file produces and dropped everything
+	// else — a 1428-byte fragment compressed to 16 bytes of garbage,
+	// written over the item's delivered content. Content-sniffing for Go
+	// is inherently fragile in exactly this way (unlike the JSON/YAML
+	// sniffs above, which key on punctuation no prose plausibly opens
+	// with), and DetectContentType already routes every REAL .go file
+	// through its extension first — so the sniff is deleted rather than
+	// hardened; a Go source fragment with no .go-suffixed name falls
+	// through to ContentTypeUnknown and is compressed verbatim instead of
+	// guessed at.
 	return ContentTypeUnknown
 }
 

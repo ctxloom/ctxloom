@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -146,6 +147,75 @@ func TestDistillOutcome_CannotReportSuccessForZeroBytes(t *testing.T) {
 	assert.Equal(t, DistillStatusSkipped, got.Status)
 	assert.Equal(t, "distill_failed", got.Reason)
 	assert.Empty(t, got.ModelID)
+}
+
+// ---------------------------------------------------------------------------
+// U082-F01 — a truncated (non-empty) distillation is stamped as accepted,
+// with no length/ratio floor at all.
+// ---------------------------------------------------------------------------
+
+// truncatingDistiller returns a fixed, tiny non-empty result regardless of
+// input — the shape a degenerate/truncated model response takes: not empty
+// (the already-guarded U081-F04 case), but implausibly short next to what it
+// claims to have distilled.
+type truncatingDistiller struct{ result string }
+
+func (d truncatingDistiller) Distill(context.Context, DistillRequest) (DistillResult, error) {
+	return DistillResult{Distilled: d.result, ModelID: "degenerate-model"}, nil
+}
+
+// TestDistillFragments_TruncatedResultRejected proves a non-empty but
+// implausibly short distillation (far below both the absolute and ratio
+// floors) is treated as a FAILED distillation — reported in the returned
+// failed set, the fragment's prior Distilled/DistilledBy/ContentHash left
+// untouched — rather than silently stamped as the new "distilled" content.
+func TestDistillFragments_TruncatedResultRejected(t *testing.T) {
+	longOriginal := strings.Repeat("word ", 400) // 2000 bytes: a real fragment-sized body
+	b := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{
+		"big": {Content: longOriginal, Distilled: "previous good summary", DistilledBy: "old-model", ContentHash: "prevhash"},
+	}}
+	d := truncatingDistiller{result: "x"} // 1 byte: far under both floors
+
+	failed := distillFragments(context.Background(), b, []string{"big"}, d)
+
+	assert.True(t, failed.Has("big"), "an implausibly short distillation must be reported as failed")
+	frag := b.Fragments["big"]
+	assert.Equal(t, "previous good summary", frag.Distilled, "the previous good distillation must survive rejection")
+	assert.Equal(t, "old-model", frag.DistilledBy)
+	assert.Equal(t, "prevhash", frag.ContentHash, "ContentHash must not be stamped for a rejected result")
+}
+
+// TestDistillFragments_PlausibleShortDistillationAccepted is the control: a
+// genuinely short ORIGINAL legitimately distills to something short too —
+// the floor must key off the RATIO (and a low absolute sanity floor), not
+// reject every short result outright.
+func TestDistillFragments_PlausibleShortDistillationAccepted(t *testing.T) {
+	b := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{
+		"small": {Content: "a short fragment"},
+	}}
+	d := truncatingDistiller{result: "a short summary"} // comparable size, legitimate
+
+	failed := distillFragments(context.Background(), b, []string{"small"}, d)
+
+	assert.False(t, failed.Has("small"), "a plausible same-order-of-magnitude distillation must be accepted")
+	assert.Equal(t, "a short summary", b.Fragments["small"].Distilled)
+}
+
+// TestDistillPrompts_TruncatedResultRejected is distillPrompts' half of the
+// same fix.
+func TestDistillPrompts_TruncatedResultRejected(t *testing.T) {
+	longOriginal := strings.Repeat("word ", 400)
+	b := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{
+		"big": {Content: longOriginal, Distilled: "previous good summary", DistilledBy: "old-model", ContentHash: "prevhash"},
+	}}
+	d := truncatingDistiller{result: "x"}
+
+	failed := distillPrompts(context.Background(), b, []string{"big"}, d)
+
+	assert.True(t, failed.Has("big"))
+	p := b.Commands["big"]
+	assert.Equal(t, "previous good summary", p.Distilled)
+	assert.Equal(t, "prevhash", p.ContentHash)
 }
 
 // ---------------------------------------------------------------------------

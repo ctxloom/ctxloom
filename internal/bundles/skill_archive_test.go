@@ -486,7 +486,8 @@ func TestProcessArchiveEntry_RemainingBudgetAccountsForPriorTotal(t *testing.T) 
 	bigContent := bytes.Repeat([]byte("Q"), 10_000)
 	spy := &countingReader{r: bytes.NewReader(bigContent)}
 
-	err := processArchiveEntry(fsys, "/out/skill", &topDir, "myskill/bomb.bin", kindFile, 0o644, spy, &total, opts)
+	var filesWritten int
+	err := processArchiveEntry(fsys, "/out/skill", &topDir, "myskill/bomb.bin", kindFile, 0o644, spy, &total, &filesWritten, opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decompression-bomb")
 
@@ -662,6 +663,38 @@ func TestHardenedExtract_ZipDirectoryMarkerEntry(t *testing.T) {
 		info, statErr := fsys.Stat("/out/skill/emptydir")
 		require.NoError(t, statErr, "a trailing-slash entry must be created as a directory even without the dir mode bit set")
 		assert.True(t, info.IsDir())
+	})
+}
+
+// TestHardenedExtract_RejectsArchiveWithNoFiles (U031-F01) proves an archive
+// whose every entry is single-segment (just the top-level directory marker,
+// no files underneath) is REJECTED rather than reporting success having
+// written zero bytes under destDir — the topDir=="" guard alone cannot catch
+// this, since topDir IS set from the marker entry.
+func TestHardenedExtract_RejectsArchiveWithNoFiles(t *testing.T) {
+	t.Run("zip", func(t *testing.T) {
+		archive := buildRawZip(t, []rawZipEntry{
+			{name: "myskill/", mode: os.ModeDir | 0o755},
+		})
+		fsys := afero.NewMemMapFs()
+
+		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no files")
+
+		entries, _ := afero.ReadDir(fsys, "/out/skill")
+		assert.Empty(t, entries, "nothing should be left behind by a rejected extraction")
+	})
+
+	t.Run("tar.gz", func(t *testing.T) {
+		archive := buildRawTarGz(t, []rawTarEntry{
+			{name: "myskill/", typeflag: tar.TypeDir},
+		})
+		fsys := afero.NewMemMapFs()
+
+		_, err := HardenedExtract(fsys, archive, FormatTarGz, "/out/skill", ExtractOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no files")
 	})
 }
 
@@ -914,7 +947,31 @@ func TestNoopSkillSignatureVerifier_AcceptsEverything(t *testing.T) {
 // partial — and executable — tree behind. The fix extracts to a staging
 // directory first, so destDir is never touched unless extraction AND
 // hash-verify both succeed.
+// TestInstallSkillPackage_NilManifestRejected (U031-F02) proves a nil
+// manifest is rejected outright rather than silently skipping the
+// post-extract hash check and letting the Noop/Publisher verifier's
+// nil-manifest constant preimage ("null") satisfy any signature.
+func TestInstallSkillPackage_NilManifestRejected(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	fsys := afero.NewMemMapFs()
+	destDir := "/installed/humanize"
+
+	err := InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, nil, nil, ExtractOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nil manifest")
+
+	exists, _ := afero.Exists(fsys, destDir)
+	assert.False(t, exists, "a rejected nil-manifest install must not land anything on disk")
+}
+
 func TestInstallSkillPackage_RejectedMidExtractLeavesDestDirClean(t *testing.T) {
+	// U031-F02 hardened InstallSkillPackage to reject a nil manifest outright
+	// (a manifest-less install belongs to ImportSkillArchive, not this seam),
+	// so this test — whose point is the mid-extract symlink rejection, not
+	// manifest handling — now needs SOME real manifest. Its content is
+	// irrelevant to the outcome: HardenedExtract rejects the symlink entry
+	// before the manifest is ever consulted.
+	_, pkg, _ := buildValidSkillZip(t, "humanize")
 	archive := buildRawZip(t, []rawZipEntry{
 		{name: "humanize/SKILL.md", content: []byte("---\nname: humanize\ndescription: d\n---\nbody\n"), mode: 0o644},
 		{name: "humanize/scripts/backdoor.sh", content: []byte("#!/bin/sh\necho pwned\n"), mode: 0o755},
@@ -923,7 +980,7 @@ func TestInstallSkillPackage_RejectedMidExtractLeavesDestDirClean(t *testing.T) 
 	fsys := afero.NewMemMapFs()
 	destDir := "/installed/humanize"
 
-	err := InstallSkillPackage(fsys, archive, FormatZip, destDir, nil, nil, ExtractOptions{})
+	err := InstallSkillPackage(fsys, archive, FormatZip, destDir, pkg.Manifest, nil, ExtractOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symlink")
 

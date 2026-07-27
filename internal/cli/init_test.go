@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestGenerateConfig covers the ctxloom init config builder. The selected
@@ -105,6 +109,51 @@ func TestPersonalRemoteRequests(t *testing.T) {
 	t.Run("no repos yields no requests", func(t *testing.T) {
 		assert.Empty(t, personalRemoteRequests(nil, "github"))
 	})
+}
+
+// TestRunInit_ExistingDir_HonoursRemoteFlags (U036-F04) proves `ctxloom init
+// --remote <repo>` against a PRE-EXISTING .ctxloom is honoured, not silently
+// dropped. Before the fix, addPersonalRemotes was reachable only from
+// setupNewCtxloomDir's fresh-init branch — runInit's alreadyExists branch
+// never called it at all, so a repeat `ctxloom init --remote` printed
+// "ctxloom directory already exists", exited 0, and added zero remotes.
+// addPersonalRemotesFn is stubbed (the package-var seam mirroring
+// launchEngineWithPromptFn) so this pins the WIRING without exercising the
+// real network-touching remote-add machinery.
+func TestRunInit_ExistingDir_HonoursRemoteFlags(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("version: 5\n"), 0o644))
+	t.Chdir(dir)
+
+	var gotRepos []string
+	var gotForge string
+	origAdd := addPersonalRemotesFn
+	addPersonalRemotesFn = func(cmd *cobra.Command, repos []string, forge string) {
+		gotRepos = repos
+		gotForge = forge
+	}
+	t.Cleanup(func() { addPersonalRemotesFn = origAdd })
+
+	origRemotes, origForge := initRemotes, initForge
+	origHome, origNonInteractive, origSkipLaunch := initHome, initNonInteractive, initSkipLaunch
+	initRemotes = []string{"me/repo"}
+	initForge = "work-ghe"
+	initHome = false
+	initNonInteractive = true
+	initSkipLaunch = true
+	t.Cleanup(func() {
+		initRemotes, initForge = origRemotes, origForge
+		initHome, initNonInteractive, initSkipLaunch = origHome, origNonInteractive, origSkipLaunch
+	})
+
+	err := runInit(&cobra.Command{}, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"me/repo"}, gotRepos, "--remote must be honoured even when .ctxloom already exists")
+	assert.Equal(t, "work-ghe", gotForge, "--forge must be honoured too")
 }
 
 // TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup pins the collapsed

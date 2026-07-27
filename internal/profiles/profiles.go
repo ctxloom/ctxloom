@@ -783,10 +783,19 @@ const maxProfileDepth = 64
 // - Clones visited set for each parent to handle diamond inheritance correctly
 // - Enforces depth limit to prevent stack overflow
 func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*ResolvedProfile, error) {
-	return l.resolveProfileRecursive(name, visited, 0)
+	// U091-F02: memo is the per-call result cache that turns diamond-shaped
+	// parent inheritance from exponential (each shared ancestor re-Load()ed,
+	// re-parsed, and re-resolved once per path to it) into linear (each
+	// distinct profile resolved once, however many branches reach it). It is
+	// SEPARATE from visited: visited stays per-branch for cycle detection
+	// (cloned at each parent, per resolveProfileRecursive's existing
+	// doc); memo is shared across the whole call and keyed by the exact
+	// name string each recursive call receives, matching visited's own
+	// keying so the two stay consistent.
+	return l.resolveProfileRecursive(name, visited, 0, make(map[string]*ResolvedProfile))
 }
 
-func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int) (*ResolvedProfile, error) {
+func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int, memo map[string]*ResolvedProfile) (*ResolvedProfile, error) {
 	// Check depth limit (consistent with config.ResolveProfile)
 	if depth > maxProfileDepth {
 		return nil, fmt.Errorf("%w (%d): possible misconfiguration", errs.ErrProfileDepthExceeded, maxProfileDepth)
@@ -799,6 +808,16 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		return nil, fmt.Errorf("%w: %s", errs.ErrCircularInheritance, name)
 	}
 	visited[name] = true
+
+	// U091-F02: a shared ancestor reached through a second (or third, or
+	// Nth) branch is resolved once, not re-Load()ed/re-parsed/re-resolved
+	// per path — this is what turns the diamond-inheritance case from
+	// Θ(2^n) into Θ(n). Only reachable here for a node NOT already in the
+	// current branch's own path (the visited/cycle check above always runs
+	// first), so a cache hit can never mask a genuine cycle.
+	if cached, ok := memo[name]; ok {
+		return cached, nil
+	}
 
 	profile, err := l.Load(name)
 	if err != nil {
@@ -843,7 +862,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 
 		// Clone visited map for this parent branch
 		parentVisited := cloneVisited(visited)
-		parentResolved, err := l.resolveProfileRecursive(parentName, parentVisited, depth+1)
+		parentResolved, err := l.resolveProfileRecursive(parentName, parentVisited, depth+1, memo)
 		if err != nil {
 			switch {
 			case errors.Is(err, errs.ErrCircularInheritance), errors.Is(err, errs.ErrProfileDepthExceeded):
@@ -916,6 +935,16 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	resolved.ExcludeFragments = appendUnique(resolved.ExcludeFragments, profile.ExcludeFragments...)
 	resolved.ExcludeMCP = appendUnique(resolved.ExcludeMCP, profile.ExcludeMCP...)
 	resolved.DenyTools = appendUnique(resolved.DenyTools, profile.DenyTools...)
+
+	// U091-F02: cache the finished result for any sibling branch that
+	// reaches this same profile. Safe to share the pointer: Merge only ever
+	// READS from its "other" argument (appendUnique/appendUniqueFragments
+	// append into the receiver's own slice; MergeHooksConfig/MergeMCPConfig
+	// likewise only append into dest), so a cached ResolvedProfile is never
+	// mutated by whoever merges it in next.
+	if memo != nil {
+		memo[name] = resolved
+	}
 
 	return resolved, nil
 }

@@ -36,6 +36,23 @@ func TestEmit_UnknownFormatErrorsWithoutWriting(t *testing.T) {
 	assert.Empty(t, buf.Bytes())
 }
 
+// TestEmit_EmptyBundleErrorsInBothFormats (U107-F01) proves a companion
+// embedding zero bytes (a build mistake — forgot the go:embed directive,
+// wrong glob, empty loadout.yaml) fails loud instead of emitting a
+// well-formed-looking envelope contributing nothing, in EITHER format.
+// Previously "companion present but contributing nothing" was byte-for-byte
+// indistinguishable from a healthy companion at every observable point.
+func TestEmit_EmptyBundleErrorsInBothFormats(t *testing.T) {
+	for _, format := range []string{"yaml", "json"} {
+		t.Run(format, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Emit(&buf, format, nil, nil)
+			require.Error(t, err)
+			assert.Empty(t, buf.Bytes(), "nothing must be written once the emptiness check fails")
+		})
+	}
+}
+
 func TestNewCommand_DefaultFormatIsYAML(t *testing.T) {
 	bundle := []byte("version: \"1.0.0\"\n")
 	cmd := NewCommand("acme", bundle, nil)

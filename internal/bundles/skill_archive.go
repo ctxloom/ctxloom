@@ -255,6 +255,7 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 
 	var topDir string
 	var total int64
+	var filesWritten int
 	for _, f := range zr.File {
 		kind := zipEntryKind(f)
 		perr := func() error {
@@ -263,7 +264,7 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 				return fmt.Errorf("opening entry %q: %w", f.Name, err)
 			}
 			defer rc.Close()
-			return processArchiveEntry(fsys, destDir, &topDir, f.Name, kind, int64(f.Mode().Perm()), rc, &total, opts)
+			return processArchiveEntry(fsys, destDir, &topDir, f.Name, kind, int64(f.Mode().Perm()), rc, &total, &filesWritten, opts)
 		}()
 		if perr != nil {
 			return "", fmt.Errorf("skill archive: %w", perr)
@@ -271,6 +272,14 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 	}
 	if topDir == "" {
 		return "", fmt.Errorf("skill archive: empty archive, no top-level skill directory found")
+	}
+	// U031-F01: a topDir alone (e.g. a lone "myskill/" marker entry) is not
+	// proof anything was actually extracted — processArchiveEntry returns nil
+	// for the marker itself without writing a single file, so an archive
+	// containing only single-segment entries previously "succeeded" having
+	// written zero bytes under destDir.
+	if filesWritten == 0 {
+		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", topDir)
 	}
 	return topDir, nil
 }
@@ -299,6 +308,7 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 
 	var topDir string
 	var total int64
+	var filesWritten int
 	var count int
 	for {
 		hdr, err := tr.Next()
@@ -313,12 +323,17 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 			return "", fmt.Errorf("skill archive: exceeds the %d entry cap — rejected (entry-count bomb guard)", opts.MaxEntries)
 		}
 		kind := tarEntryKind(hdr)
-		if err := processArchiveEntry(fsys, destDir, &topDir, hdr.Name, kind, hdr.Mode, tr, &total, opts); err != nil {
+		if err := processArchiveEntry(fsys, destDir, &topDir, hdr.Name, kind, hdr.Mode, tr, &total, &filesWritten, opts); err != nil {
 			return "", fmt.Errorf("skill archive: %w", err)
 		}
 	}
 	if topDir == "" {
 		return "", fmt.Errorf("skill archive: empty archive, no top-level skill directory found")
+	}
+	// U031-F01: see extractZip's identical guard — a top-level marker alone
+	// is not proof anything was extracted.
+	if filesWritten == 0 {
+		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", topDir)
 	}
 	return topDir, nil
 }
@@ -344,7 +359,7 @@ func tarEntryKind(hdr *tar.Header) entryKind {
 // entry-count/size accounting, mode normalization, and the actual write. See
 // HardenedExtract's doc comment for the full, authoritative rejection list —
 // this function is where each rule is enforced.
-func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name string, kind entryKind, mode int64, r io.Reader, total *int64, opts ExtractOptions) error {
+func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name string, kind entryKind, mode int64, r io.Reader, total *int64, filesWritten *int, opts ExtractOptions) error {
 	if name == "" {
 		return fmt.Errorf("entry has an empty name")
 	}
@@ -442,6 +457,9 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 
 	if err := afero.WriteFile(fsys, target, data, normalizeExtractedMode(mode)); err != nil {
 		return fmt.Errorf("writing entry %q: %w", name, err)
+	}
+	if filesWritten != nil {
+		*filesWritten++
 	}
 	return nil
 }
@@ -779,12 +797,27 @@ func (v PublisherSkillSignatureVerifier) VerifyManifestSignature(manifest SkillM
 //     install never leaves a partial, poisoned tree, executable scripts
 //     included, at destDir.
 //
-// manifest may be nil (no known-good manifest to verify against, e.g. a
-// brand-new untrusted import with no prior signed state) — in that case only
-// the signature-verifier's own judgment on a nil manifest and HardenedExtract
-// gate the install; ImportSkillArchive is the right entrypoint for that case
-// and does not call InstallSkillPackage.
+// manifest MUST be non-nil (U031-F02): a brand-new untrusted import with no
+// prior signed state has no known-good manifest to verify against, but that
+// case belongs to ImportSkillArchive, not here — this seam REJECTS a nil
+// manifest outright rather than merely documenting the boundary, because
+// SkillManifest(nil).Serialize() is a fixed constant ("null") that a single
+// signature could satisfy for any archive's content.
 func InstallSkillPackage(fsys afero.Fs, archive []byte, format ArchiveFormat, destDir string, manifest SkillManifest, verifier SkillSignatureVerifier, opts ExtractOptions) error {
+	// U031-F02: a nil manifest is not a degenerate-but-valid "no known-good
+	// state to verify against" case at THIS seam. SkillManifest(nil).
+	// Serialize() is the fixed 4-byte constant "null", so ONE
+	// trusted-publisher signature made over that constant would satisfy
+	// PublisherSkillSignatureVerifier for a nil-manifest install of ANY
+	// archive's content, and the post-extract hash check below is skipped
+	// entirely (manifest != nil guards it) — combined with a hostile,
+	// all-single-segment archive (U031-F01) this could destroy an installed
+	// skill and replace it with an empty directory, exit 0. This function's
+	// own contract already says a manifest-less import belongs to
+	// ImportSkillArchive; enforce it instead of merely documenting it.
+	if manifest == nil {
+		return fmt.Errorf("skill install: a nil manifest is not accepted here — use ImportSkillArchive for a manifest-less import")
+	}
 	if verifier == nil {
 		verifier = NoopSkillSignatureVerifier{}
 	}
@@ -802,10 +835,8 @@ func InstallSkillPackage(fsys afero.Fs, archive []byte, format ArchiveFormat, de
 		return err
 	}
 
-	if manifest != nil {
-		if err := VerifyExtractedManifest(fsys, staging, manifest); err != nil {
-			return err
-		}
+	if err := VerifyExtractedManifest(fsys, staging, manifest); err != nil {
+		return err
 	}
 
 	if err := fsys.RemoveAll(destDir); err != nil {

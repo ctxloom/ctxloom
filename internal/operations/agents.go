@@ -37,6 +37,12 @@ type AgentEntry struct {
 	// (conversational|oneshot), as written; empty means conversational (the
 	// default — see agents.Agent.Driving).
 	Driving agents.DrivingMode `json:"driving,omitempty"`
+	// Escalation is the agent's declared approval-policy ladder, as written
+	// (U028-F02: previously invisible here — settable only by hand-editing
+	// YAML and undetectable from `agent list`/`agent show`). Empty means the
+	// ladder is derived from Permissions at resolve time (see
+	// agents.Agent.Escalation's doc).
+	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -57,6 +63,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Permissions: s.Permissions,
 			Coordinator: s.Coordinator,
 			Driving:     s.Driving,
+			Escalation:  s.Escalation,
 			Source:      s.Source,
 		})
 	}
@@ -81,6 +88,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Permissions: sub.Permissions,
 		Coordinator: sub.Coordinator,
 		Driving:     sub.Driving,
+		Escalation:  sub.Escalation,
 		Source:      sub.Source,
 	}, nil
 }
@@ -238,6 +246,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Permissions: entry.Permissions,
 		Coordinator: entry.Coordinator,
 		Driving:     entry.Driving,
+		Escalation:  entry.Escalation,
 		Source:      agents.SourceConfig,
 	}, nil
 }

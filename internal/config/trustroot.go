@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
@@ -228,7 +229,14 @@ func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.S
 		if os.IsNotExist(err) {
 			return nil // absent: no keys from here, and that is a real answer
 		}
+		// U050-F02: a real error here (EACCES, a directory in its place) is
+		// NOT the same fact as "absent" — it silently disarmed the on-disk
+		// trust root with no finding beyond the stderr line. Escalate it,
+		// matching EffectiveTrust's fail-closed posture for a corrupt trust
+		// store, in addition to the warning.
 		clidiag.Warn("ctxloom", "allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", path, err)
+		strictness.Fail(strictness.ClassTrust, "make the allowed_signers file readable, or remove it",
+			"allowed_signers %s exists but cannot be read: %v", path, err)
 		return allowedsigners.FailedSource(path, err)
 	}
 	defer func() { _ = f.Close() }()
@@ -236,6 +244,8 @@ func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.S
 	store, parseErrs, err := allowedsigners.Parse(f)
 	if err != nil {
 		clidiag.Warn("ctxloom", "allowed_signers %s unreadable, ignoring it: %v", path, err)
+		strictness.Fail(strictness.ClassTrust, "fix the allowed_signers file, or remove it",
+			"allowed_signers %s unreadable: %v", path, err)
 		return allowedsigners.FailedSource(path, err)
 	}
 	for _, pe := range parseErrs {

@@ -89,7 +89,20 @@ func NewKiro() *Kiro {
 		agent.NewBaseLifecycle("kiro"),
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: kiro's sessions/cli/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
-		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
+		&agent.CellDelivery{
+			// U055-F01: a plain agent.BuildWellKnown(NewSurfaces) has no way to
+			// see this backend's configured agent-name override — SurfaceInputs
+			// is built generically in setupViaCells with no knowledge of any
+			// concrete backend's fields. This closure captures b and reads
+			// b.agentName at BUILD time (i.e. after Configure has run), so the
+			// materialized .kiro/agents/<name>.json agrees with whatever name
+			// buildArgs launches with.
+			Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
+				in.AgentName = b.agentName
+				return NewSurfaces(in, nil)
+			},
+			RawContext: true,
+		},
 	)
 	return b
 }

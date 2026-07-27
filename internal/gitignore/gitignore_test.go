@@ -103,6 +103,19 @@ func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	}, PrivateStatePatterns)
 }
 
+// TestTransientArtifactPatterns_IgnoreCodexCredential pins the second half of
+// U045-F01: internal/lm/isolation/auth.go's SeedCodexHome actively copies the
+// host's ~/.codex/auth.json into <workDir>/.codex/auth.json on every plain
+// (non-isolated) codex run — a live credential landing directly in the
+// project's tracked working tree. Only .codex/config.toml was ever ignored;
+// the credential file sitting right next to it was not.
+func TestTransientArtifactPatterns_IgnoreCodexCredential(t *testing.T) {
+	assert.Contains(t, TransientArtifactPatterns, ".codex/auth.json",
+		"the copied credential file must be gitignored exactly like .codex/config.toml is")
+	assert.Contains(t, WorktreeArtifactPatterns, ".codex/auth.json",
+		"a per-agent worktree fan-out member must also keep the credential out of merge-back")
+}
+
 // TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState mirrors the call
 // init.go makes (gitignore.Ensure(projectDir, gitignore.Comment,
 // gitignore.PrivateStatePatterns...)) and asserts the resulting .gitignore

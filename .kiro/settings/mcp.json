@@ -13,6 +13,17 @@
       ],
       "command": "npx"
     },
+    "serena": {
+      "args": [
+        "start-mcp-server",
+        "--context",
+        "claude-code",
+        "--project-from-cwd",
+        "--open-web-dashboard",
+        "false"
+      ],
+      "command": "serena"
+    },
     "taskloom": {
       "args": [
         "mcp"

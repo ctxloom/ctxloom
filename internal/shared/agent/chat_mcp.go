@@ -25,7 +25,12 @@ import (
 // nil mcp AND nil bundleMCP means no managed payload was assembled (config
 // load failed, or setup was skipped): nothing is injected, mirroring
 // BaseLifecycle.MergeManaged's no-op on a nil ManagedConfig.
-func ComposeChatMCPServers(pluginKey string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, existing []ChatMCPServer) []ChatMCPServer {
+//
+// override replaces CtxloomCommand() as the auto-registered ctxloom server's
+// command exactly as ResolveMCPCommand does for the settings-file writers
+// (U100-F03) — empty is a no-op, non-empty (populated ONLY for an
+// isolated-container cell) wins.
+func ComposeChatMCPServers(pluginKey, override string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, existing []ChatMCPServer) []ChatMCPServer {
 	if mcp == nil && bundleMCP == nil {
 		return nil
 	}
@@ -36,7 +41,13 @@ func ComposeChatMCPServers(pluginKey string, mcp *wire.MCPConfig, bundleMCP map[
 	}
 
 	if mcp.ShouldAutoRegisterCtxloom() {
-		add(MCPServerName, CtxloomCommand(), CtxloomMCPArgs, nil)
+		// U100-F03: this hardcoded CtxloomCommand() (the host self-exec
+		// absolute path) with no override parameter at all, so a
+		// runtime:container agent's structured chat baked the HOST's ctxloom
+		// binary path into its own mcpServers instead of the in-container
+		// path — the same ResolveMCPCommand(override) the settings-file
+		// writers (mcpfile.go, codex/claude/etc.) already use.
+		add(MCPServerName, ResolveMCPCommand(override), CtxloomMCPArgs, nil)
 	}
 	for name, s := range bundleMCP {
 		add(name, s.Command, s.Args, s.Env)
@@ -67,9 +78,9 @@ func ComposeChatMCPServers(pluginKey string, mcp *wire.MCPConfig, bundleMCP map[
 // managed payload — the SAME payload RunStart ships to Setup — for a
 // structured run that bypasses Setup. A nil payload injects nothing (the host
 // assembled none; Setup would have flushed nothing either).
-func (m *ManagedConfig) ChatMCPServers(pluginKey string) []ChatMCPServer {
+func (m *ManagedConfig) ChatMCPServers(pluginKey, override string) []ChatMCPServer {
 	if m == nil {
 		return nil
 	}
-	return ComposeChatMCPServers(pluginKey, m.MCP, m.BundleMCP, nil)
+	return ComposeChatMCPServers(pluginKey, override, m.MCP, m.BundleMCP, nil)
 }

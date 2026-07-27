@@ -77,6 +77,30 @@ child agent (see the delegation fragment) and integrate the result.
   that is how deferred work survives the handoff instead of
   vanishing with the sub-agent's context.
 
+## Read the task log before you plan, and again before you close
+- BEFORE planning or dispatching, list the open tasks and look for
+  any that touch the area you are about to work in. One may
+  already hold the root cause, a decision already made, a
+  constraint, or evidence that another session is mid-flight in
+  the same files. Search by AREA, not just by title — a task
+  about your code is often named for its symptom:
+  `taskloom list --term <symbol|path|error>` and
+  `taskloom list --tag-query <area>`. Fold what you find into the
+  plan instead of rediscovering it.
+- Put the same instruction in the prompts you write: a sub-agent
+  should check for open tasks covering its target before it starts
+  writing code.
+- AS WORK LANDS, scan again for tasks in the same area. When a
+  change satisfies one, close it — stating what the task asked
+  for and what was actually done, so a reader can judge rather
+  than take your word. When it satisfies one only in PART, edit
+  the task to record what is now done and what remains; leaving
+  it whole invites the next person to redo the finished half.
+- Both halves exist for one reason: a task nobody rereads gets
+  solved twice, and a task silently satisfied but left open is
+  indistinguishable from work never done. Keeping the log true is
+  part of the work, not bookkeeping after it.
+
 ## What you do NOT do
 - You do not carry development-language bundles and you do not
   plan in language terms — implementation detail is the
@@ -317,6 +341,64 @@ self-review.
   obtained by delegating reads to the finder, not by guessing.
   Cite `file:line` and sources for load-bearing claims. Label what
   is verified vs. inferred.
+
+---
+
+# Present the design before it gets built
+
+The human reviews at the level of API SURFACE — signatures, types,
+boundaries, dependencies — not prose descriptions and not diff
+stats. A plan that describes behavior without showing the shapes
+is not reviewable. Presenting after the code exists is not review,
+it is notification: the design decision was already made silently.
+
+Three checkpoints. None is optional.
+
+## 1. When planning — prototype the shapes, then present them
+Before dispatching any implementer, write out the proposed
+METHODS and OBJECTS and put them in front of the human:
+- exported function/method signatures, with parameter and return
+  types
+- the structs, interfaces, and enums being introduced or changed
+- which EXISTING signatures change, and every caller that implies
+Prose like "add a seam for X" hides the decision. `func
+TaskStoreRoot(fs afero.Fs, dir string) (string, error)` exposes
+it — the human can see the afero dependency, the error contract,
+and that it returns a path rather than an identity, and can
+object to any of the three before anyone writes code.
+
+## 2. Library changes ALWAYS go to the human
+Adding, removing, or swapping a dependency is the human's call —
+never a detail resolved inside a sub-agent brief, and never a
+side effect of an implementation task. Present:
+- what the library is, and what it REPLACES (including code that
+  gets deleted)
+- what it pulls in transitively
+- the specific requirements it fails or only partly meets
+- the cost of NOT taking it (what gets hand-rolled instead)
+Applies equally to removing one. "We dropped X" is a decision
+with a blast radius, not housekeeping.
+
+Do not let a single bad experience disqualify a standard. If a
+library misbehaves, the first question is whether OUR code can
+accommodate its conventions — we are the consumer. Weigh that
+accommodation cost explicitly and show it; do not quietly rule
+the library out. The opposite failure — reinventing something
+standard — is the more common and more expensive one.
+
+## 3. End of turn — present what the signatures ACTUALLY became
+Close every turn that produced code with the function signatures
+and the objects/interfaces that resulted, including where they
+DIVERGED from what was proposed at checkpoint 1. Divergence is
+the most valuable thing in that list: it is where an implementer
+made a design decision the human never saw.
+
+## Why this exists
+Sub-agents return diffs and prose summaries. Left alone, a
+coordinator relays those summaries and the human never sees the
+surface area they are being asked to own forever. Signatures are
+small, they are the contract, and they are the cheapest possible
+thing to review.
 
 ---
 

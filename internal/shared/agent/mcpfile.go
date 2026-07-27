@@ -186,8 +186,14 @@ func (c MCPFileConfig) load() (*mcpFile, error) {
 
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		c.Warn("failed to parse %s: %v - existing MCP servers may not be preserved", c.Label, err)
-		return mf, nil
+		// Was: warn and degrade to an EMPTY table. WriteServers then wrote
+		// that table straight back, so an unparsable registry was silently
+		// REPLACED by one containing only ctxloom's managed servers — every
+		// user-authored server and every foreign top-level field destroyed on
+		// a success path (U101-F03). "I could not read it" is not "it was
+		// empty"; refuse and say so, the same posture U045-F02/F03 already
+		// established for codex's config.toml.
+		return nil, fmt.Errorf("cannot parse %s (%w) — refusing to write over an MCP registry ctxloom could not read; fix or move the file and re-run", c.Label, err)
 	}
 	if serversRaw, ok := raw[mcpFileServersKey]; ok {
 		if err := json.Unmarshal(serversRaw, &mf.Servers); err != nil {

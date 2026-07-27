@@ -179,6 +179,14 @@ type SurfaceInputs struct {
 	// DenyTools carries ManagedConfig.DenyTools through to the backend's
 	// settings surface — see its doc for the deny-tools semantics.
 	DenyTools []string
+	// AgentName carries a backend-specific override for a materialized
+	// per-agent config's own identity/name — currently only kiro's, whose
+	// `--agent <name>` launch flag selects a custom agent by name
+	// (U055-F01: kiro's settingsSurface used to always write the hardcoded
+	// default name regardless of this override, so buildArgs and the
+	// materialized file silently disagreed). Empty uses the backend's own
+	// default and is a no-op for every other backend.
+	AgentName string
 }
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A

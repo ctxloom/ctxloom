@@ -63,14 +63,30 @@ type KiroWriter struct {
 	// dire-five fix). Empty (the default) preserves the host self-exec-
 	// absolute behavior exactly.
 	mcpCommandOverride string
+	// agentName, when non-empty, replaces defaultAgentName as BOTH the
+	// materialized agent JSON's file name (.kiro/agents/<name>.json) and its
+	// own "name" field (U055-F01: these two used to disagree — writeAgentConfig
+	// always used defaultAgentName while `--agent` launched with the
+	// configured KiroConfig.Agent override, a broken launch). Empty (the
+	// default) preserves today's "ctxloom" behavior exactly.
+	agentName string
 }
 
 func (w *KiroWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
 
 func (w *KiroWriter) warn(format string, args ...interface{}) { agent.Warn(format, args...) }
 
+// resolvedAgentName returns the configured agent-name override, or
+// defaultAgentName ("ctxloom") when none was set.
+func (w *KiroWriter) resolvedAgentName() string {
+	if w.agentName != "" {
+		return w.agentName
+	}
+	return defaultAgentName
+}
+
 func (w *KiroWriter) agentPath(projectDir string) string {
-	return filepath.Join(projectDir, kiroDir, "agents", defaultAgentName+".json")
+	return filepath.Join(projectDir, kiroDir, "agents", w.resolvedAgentName()+".json")
 }
 
 func (w *KiroWriter) mcpPath(projectDir string) string {
@@ -191,8 +207,9 @@ func (w *KiroWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig,
 }
 
 func (w *KiroWriter) writeAgentConfig(projectDir string, h kiroHooks) error {
+	name := w.resolvedAgentName()
 	a := kiroAgent{
-		Name:           defaultAgentName,
+		Name:           name,
 		Description:    "ctxloom-managed agent (context via steering, MCP via settings/mcp.json).",
 		Resources:      []string{kiroSkillsGlob},
 		IncludeMCPJSON: true,
@@ -209,7 +226,7 @@ func (w *KiroWriter) writeAgentConfig(projectDir string, h kiroHooks) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal kiro agent config: %w", err)
 	}
-	return agent.AtomicWriteFile(fs, path, data, defaultAgentName+".json")
+	return agent.AtomicWriteFile(fs, path, data, name+".json")
 }
 
 // WriteContext implements agent.ContextWriter for Kiro: it writes the assembled

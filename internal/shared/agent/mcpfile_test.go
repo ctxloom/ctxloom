@@ -37,3 +37,24 @@ func TestMCPFileConfig_WriteServers_CommandOverride(t *testing.T) {
 		assert.NotContains(t, string(data), CtxloomCommand(), "the host self-exec path must NOT leak in once an override is set")
 	})
 }
+
+// TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry pins U101-F03: an
+// unparsable MCP registry used to be warned about and silently degraded to an
+// EMPTY table, which every caller (WriteServers) then wrote straight back —
+// destroying every user-authored server AND every foreign top-level field on
+// a success path. It must now refuse instead, matching the "refuse to
+// overwrite, never self-heal" posture corrupt-config handling already uses
+// (U045-F02/F03).
+func TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	original := []byte(`{ this is not valid json`)
+	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", original, 0644))
+
+	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerPath: "/proj/.mcp-ledger", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
+	err := c.WriteServers(nil, nil)
+	require.Error(t, err, "an unparsable registry must refuse the write, not silently replace it")
+
+	data, readErr := afero.ReadFile(fs, "/proj/mcp.json")
+	require.NoError(t, readErr)
+	assert.Equal(t, original, data, "the unparsable file must survive untouched")
+}

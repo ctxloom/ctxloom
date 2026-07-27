@@ -205,13 +205,21 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 	// A 0-byte write over a real file is a wipe wearing a success's clothes
 	// (U045-F02). RemoveSettings may legitimately empty the file — stripping
 	// ctxloom's keys from a config that held nothing else — and says so with
-	// allowEmpty; nothing else may.
+	// allowEmpty; nothing else may. This mirrors (and, via AllowEmptyWrite,
+	// now composes with) agent.AtomicWriteFile's own zero-byte refusal guard
+	// (U102-F08): this check gives the more specific error naming the
+	// existing byte count, AllowEmptyWrite tells the shared guard not to
+	// override the decision this function already made.
 	if !allowEmpty && len(bytes.TrimSpace(buf.Bytes())) == 0 {
 		if existing, rerr := afero.ReadFile(w.getFS(), path); rerr == nil && len(bytes.TrimSpace(existing)) > 0 {
 			return fmt.Errorf("refusing to overwrite %s (%d bytes) with an empty config", path, len(existing))
 		}
 	}
-	return agent.AtomicWriteFile(w.getFS(), path, buf.Bytes(), "config.toml")
+	var opts []agent.WriteFileOption
+	if allowEmpty {
+		opts = append(opts, agent.AllowEmptyWrite())
+	}
+	return agent.AtomicWriteFile(w.getFS(), path, buf.Bytes(), "config.toml", opts...)
 }
 
 // RemoveSettings implements SettingsWriter for Codex CLI: it strips ctxloom

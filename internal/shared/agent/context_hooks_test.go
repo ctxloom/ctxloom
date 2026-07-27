@@ -1,11 +1,34 @@
 package agent
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// U100-F01: NewContextInjectionHooks discarded ReadContextFile's error
+// entirely (`content, _ := ReadContextFile(...)`), so any read failure —
+// permissions, a reaped cache file, an unexpected I/O error — silently
+// collapsed what should be N ordered chunk hooks down to one whole-content
+// hook, reintroducing exactly the truncation ContextChunkMaxChars exists to
+// prevent, with zero diagnostic. The fallback-to-one-hook degrade is still
+// correct (best-effort, and the runtime hook re-reads the file itself at
+// fire time), but the read failure must not be silent.
+func TestNewContextInjectionHooks_ReadFailureIsWarned(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	tmpDir := t.TempDir()
+	hooks := NewContextInjectionHooks("never-written-hash", tmpDir)
+	require.Len(t, hooks, 1, "a read failure still degrades to the single whole-content hook")
+	assert.Contains(t, buf.String(), "never-written-hash",
+		"a context-file read failure while building the injection hook(s) must be warned, not silently swallowed")
+}
 
 func TestMergeHooksConfig_NilInputs(t *testing.T) {
 	t.Run("nil dest does nothing", func(t *testing.T) {

@@ -15,9 +15,11 @@ import (
 
 // recordLifecycle captures the contextHash MergeManaged receives so Setup tests
 // can assert whether the SessionStart context-injection hook was suppressed (a
-// "" hash ⇒ no hook appended). It deliberately does NOT expose GetHooks/GetMCP,
-// so a mergedState probe reports ok=false — isolating the merge/hash contract
-// from the surface plumbing.
+// "" hash ⇒ no hook appended). It DOES expose GetHooks/GetMCP (returning nil,
+// matching what mergedState() got from the discarded pre-U101-F04 behavior) so
+// mergedState resolves ok=true — isolating the merge/hash contract from the
+// surface plumbing without tripping setupViaCells' now-enforced accessor
+// check. noAccessorLifecycle below is the double for that check itself.
 type recordLifecycle struct {
 	merged      bool
 	contextHash string
@@ -27,6 +29,17 @@ func (r *recordLifecycle) MergeManaged(_ *ManagedConfig, _ string, contextHash s
 	r.merged = true
 	r.contextHash = contextHash
 }
+
+func (r *recordLifecycle) GetHooks() *wire.HooksConfig { return nil }
+func (r *recordLifecycle) GetMCP() *wire.MCPConfig     { return nil }
+
+// noAccessorLifecycle is a ManagedLifecycle that exposes ONLY MergeManaged —
+// no GetHooks/GetMCP — the shape U101-F04's test needs: every REAL backend
+// embeds BaseLifecycle (which has both), so this double is how the
+// mergedState() ok=false branch gets exercised at all.
+type noAccessorLifecycle struct{}
+
+func (noAccessorLifecycle) MergeManaged(*ManagedConfig, string, string) {}
 
 // ---- cell-seam test doubles --------------------------------------------------
 
@@ -397,6 +410,36 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	assert.True(t, injected, "the SessionStart injection hook is re-appended to the merged hooks")
 	// The failed context handle is not recorded, but the remaining surfaces are.
 	assert.Len(t, b.delivered, 4, "context handle skipped; mcp/settings/commands/skills still delivered")
+}
+
+// TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty pins
+// U101-F04: setupViaCells discarded mergedState's `ok`, so a lifecycle
+// lacking the GetHooks/GetMCP accessors (recordLifecycle, engineered
+// specifically to trigger this — every real backend embeds BaseLifecycle,
+// which has both) fell through to building the surface set with nil
+// hooks/nil MCP as if that were the correctly-merged state, silently
+// materializing a settings file containing none of the configured hooks or
+// servers instead of surfacing the misconfiguration.
+func TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order}
+	b := &LaunchBackend{}
+	b.BaseBackend = NewBaseBackend("test", "1.0.0")
+	b.InitLaunch(noAccessorLifecycle{}, NewBaseContextProvider(), nil, &CellDelivery{
+		Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
+			set.inputs = in
+			set.isolatedDir = isolatedDir
+			return set
+		},
+	})
+
+	err := b.Setup(context.Background(), &SetupRequest{
+		WorkDir:  t.TempDir(),
+		CellKind: CellKindDirectoryIsolated,
+		Managed:  &ManagedConfig{Hooks: &wire.HooksConfig{}, MCP: &wire.MCPConfig{}},
+	})
+	require.Error(t, err, "a lifecycle without GetHooks/GetMCP must fail Setup, not silently deliver an empty merged state")
+	assert.Empty(t, b.delivered, "nothing should be materialized when the merged state could not be read")
 }
 
 // ---- cleanup ----------------------------------------------------------------

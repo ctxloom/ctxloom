@@ -134,7 +134,25 @@ func ComputeMCPServerHash(s wire.MCPServer) string {
 // here can carry MCPServer.Env secrets (API keys/tokens), so a mode a user
 // deliberately tightened must never be silently widened; the backup copy is
 // written with the same restrictive mode rather than a hardcoded 0644.
-func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
+func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ...WriteFileOption) error {
+	var o writeFileOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	// U102-F08: zero-length data is almost never an intentional settings
+	// write — writing it over a live file would silently truncate it to zero
+	// bytes on a success path. Refuse by default, matching the "refuse to
+	// overwrite, never self-heal" posture corrupt-config handling already
+	// uses. The one legitimate exception (codex's config.toml, whose TOML
+	// encoder renders an emptied managed set as literally zero bytes, unlike
+	// JSON's "{}") opts in explicitly via AllowEmptyWrite — every other
+	// caller's removal path goes through fs.Remove instead, never here.
+	if len(data) == 0 && !o.allowEmpty {
+		if exists, _ := afero.Exists(fs, path); exists {
+			return fmt.Errorf("refusing to write %s: assembled zero bytes over an existing file", desc)
+		}
+	}
+
 	// Default new files to owner-only; reuse the existing mode when present.
 	perm := os.FileMode(0600)
 	if info, err := fs.Stat(path); err == nil {
@@ -157,6 +175,23 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
 		_ = fs.Remove(tmpPath)
 	}
 	return nil
+}
+
+// WriteFileOption configures AtomicWriteFile's default refusal-of-empty-writes
+// behavior (U102-F08).
+type WriteFileOption func(*writeFileOptions)
+
+type writeFileOptions struct {
+	allowEmpty bool
+}
+
+// AllowEmptyWrite opts an AtomicWriteFile call OUT of the zero-byte refusal
+// guard, for the rare caller that has already decided — with its own,
+// narrower reasoning — that an empty result is legitimate (codex's
+// RemoveSettings/save: stripping ctxloom's own keys from a config that held
+// nothing else legitimately renders as zero TOML bytes).
+func AllowEmptyWrite() WriteFileOption {
+	return func(o *writeFileOptions) { o.allowEmpty = true }
 }
 
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file

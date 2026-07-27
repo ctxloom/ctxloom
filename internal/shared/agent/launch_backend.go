@@ -101,10 +101,13 @@ func (b *LaunchBackend) History() SessionHistory { return b.history }
 // injection (ChatRequest.MCPServers), or nil when the lifecycle holds no
 // managed payload or lacks the capability. A structured Execute path uses this
 // to deliver the same server set Setup writes to the engine's settings file —
-// probed by capability so a bare ManagedLifecycle fake stays valid.
-func (b *LaunchBackend) ManagedChatMCPServers() []ChatMCPServer {
-	if l, ok := b.lifecycle.(interface{ ChatMCPServers() []ChatMCPServer }); ok {
-		return l.ChatMCPServers()
+// probed by capability so a bare ManagedLifecycle fake stays valid. override
+// is ComposeChatMCPServers' command override (U100-F03) — callers pass
+// req.Env[MCPCommandOverrideEnv], populated ONLY for an isolated-container
+// cell; empty everywhere else is a no-op.
+func (b *LaunchBackend) ManagedChatMCPServers(override string) []ChatMCPServer {
+	if l, ok := b.lifecycle.(interface{ ChatMCPServers(string) []ChatMCPServer }); ok {
+		return l.ChatMCPServers(override)
 	}
 	return nil
 }
@@ -232,8 +235,17 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
 
 	// 3. Read the merged hooks + MCP so the settings/config surfaces write exactly
-	// the merged state.
-	hooks, mcp, _ := b.mergedState()
+	// the merged state. U101-F04: `ok` used to be discarded, so a lifecycle lacking
+	// the accessors (every production backend embeds BaseLifecycle, which has both —
+	// this is defense against a future one that doesn't) fell through to building
+	// the surface set with nil hooks/nil MCP as if that were the correctly-merged
+	// state, silently writing a settings file containing none of the configured
+	// hooks or servers. Fail loudly instead: this is a misconfigured backend, not a
+	// legitimate "nothing configured" case (that's req.Managed == nil, above).
+	hooks, mcp, ok := b.mergedState()
+	if !ok {
+		return fmt.Errorf("backend lifecycle does not expose the merged hooks/MCP state (GetHooks/GetMCP) needed to deliver surfaces")
+	}
 
 	inputs := SurfaceInputs{
 		Context:            assembleDedupedContext(req.Fragments),

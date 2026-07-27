@@ -54,6 +54,24 @@ func TestWriteCommandFiles_DescriptionFallback(t *testing.T) {
 	assert.Contains(t, string(data), "description: bare\n")
 }
 
+// TestWriteCommandFiles_EmptyContentIsSkippedNotWritten pins the same
+// defect class RenderCommandAsSkillFile had (U102-F01): a command with empty
+// or whitespace-only Content used to still render a valid-looking
+// `<name>.md` carrying only frontmatter — success, zero instruction bytes
+// delivered to opencode. WriteManagedPackageFiles already warns loudly and
+// skips an item whose render fails, so refusing to render is enough to
+// surface the loss instead of materializing a hollow command file.
+func TestWriteCommandFiles_EmptyContentIsSkippedNotWritten(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	err := WriteCommandFiles("/work", []agent.CommandExport{
+		{Name: "hollow", Description: "looks fine", Content: "", Enabled: true},
+	}, agent.WithCommandFS(fs))
+	require.NoError(t, err, "a render failure is warned-and-skipped by the shared writer, not propagated as a hard error")
+
+	exists, _ := afero.Exists(fs, filepath.Join("/work", ".opencode", "command", "hollow.md"))
+	assert.False(t, exists, "empty-content command must not materialize a frontmatter-only file")
+}
+
 // TestWriteCommandFiles_CleanupRemovesOnlyOurs proves the manifest-scoped cleanup
 // (re-write with no exports) removes exactly ctxloom's files and its manifest, and
 // never a foreign command file sharing the same dir.

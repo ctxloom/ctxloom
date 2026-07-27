@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -44,6 +45,13 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 // keys (description/agent/model/subtask), so the argument-hint and allowed-tools
 // export fields — which opencode has no command-level slot for — are dropped.
 func renderCommandFile(c agent.CommandExport) (string, []byte, error) {
+	// Same defect class as agent.RenderCommandAsSkillFile (U102-F01): empty or
+	// whitespace-only Content must not render a valid-looking frontmatter-only
+	// file. WriteManagedPackageFiles warns and skips this one item on error.
+	if strings.TrimSpace(c.Content) == "" {
+		return "", nil, fmt.Errorf("command %q has no content to render", c.Name)
+	}
+
 	desc := c.Description
 	if desc == "" {
 		desc = c.Name

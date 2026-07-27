@@ -45,13 +45,11 @@ func TestEncodeLoadoutEnvelope_RefusesEmptyBundle(t *testing.T) {
 }
 
 func TestDecodeLoadoutEnvelope_RefusesEnvelopeDecodingToEmptyBundle(t *testing.T) {
-	raw, err := EncodeLoadoutEnvelope([]byte("x"), nil, "")
-	require.NoError(t, err)
-	// Tamper the encoded envelope down to an empty "bundle" field directly,
-	// bypassing EncodeLoadoutEnvelope's own floor — this is exactly the shape
-	// a malfunctioning or hostile companion (or a hand-built MDM payload)
-	// could send over the wire.
-	raw = []byte(`{"contract":"` + LoadoutContract + `","bundle":""}`)
+	// A hand-built envelope with an empty "bundle" field directly, bypassing
+	// EncodeLoadoutEnvelope's own floor — this is exactly the shape a
+	// malfunctioning or hostile companion (or a hand-built MDM payload) could
+	// send over the wire.
+	raw := []byte(`{"contract":"` + LoadoutContract + `","bundle":""}`)
 
 	_, pub := newTestSigner(t)
 	root := rootWith("bundles@ctxloom.dev", pub, NamespacePublish)

@@ -46,7 +46,6 @@ func NewAntigravity() *Antigravity {
 	// and the merge hash is "" (no injection hook).
 	b.InitLaunch(
 		agent.NewBaseLifecycle("antigravity"),
-		&AntigravityCommands{},
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: agy's transcript_full.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},

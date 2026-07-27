@@ -3,7 +3,6 @@
 package claude
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,19 +24,6 @@ func newClaudeLifecycle() *agent.BaseLifecycle {
 // TestClaudeCommands_RegisterFromContent covers the host-resolved export path:
 // the host maps bundle content to agent.CommandExport (enablement + metadata
 // already resolved) and the command writer just emits the command files.
-func TestClaudeCommands_RegisterFromContent(t *testing.T) {
-	workDir := t.TempDir()
-	commands := &ClaudeCommands{}
-
-	require.NoError(t, commands.RegisterFromContent(workDir, []agent.CommandExport{
-		{Name: "from-bundle", Content: "body", Enabled: true, Description: "From a bundle"},
-	}))
-	// Check the manifest tracks it.
-	manifest, err := os.ReadFile(filepath.Join(workDir, ".claude", "commands", ".ctxloom-manifest"))
-	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "from-bundle")
-}
-
 func TestClaudeContext_GetContextHash(t *testing.T) {
 	context := agent.NewBaseContextProvider()
 

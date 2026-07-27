@@ -96,7 +96,6 @@ func NewOpencode() *Opencode {
 	// builder, which DOES carry a commands surface; see surfaces.go.)
 	b.InitLaunch(
 		agent.NewBaseLifecycle("opencode"),
-		&opencodeCommands{},
 		agent.NewBaseContextProvider(),
 		newOpencodeSessionHistory(b),
 		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {

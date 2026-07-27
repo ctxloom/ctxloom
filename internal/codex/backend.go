@@ -103,7 +103,6 @@ func NewCodex() *Codex {
 	// into its surfaces; see buildSurfaces' doc.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("codex"),
-		&CodexCommands{},
 		agent.NewBaseContextProvider(),
 		nil, // SessionHistory: codex's rollout-*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true},

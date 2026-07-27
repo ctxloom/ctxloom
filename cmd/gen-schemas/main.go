@@ -18,9 +18,14 @@ import (
 )
 
 // schemaDir is a gitignored, generated artifact directory (like generated
-// protobuf): produced by `just gen-schemas` as a build dependency and in CI, not
-// checked in. It sits under schema/ so the existing //go:embed all:schema picks
-// it up into the binary.
+// protobuf): produced by `just gen-schemas` as a build dependency and in CI,
+// not checked in. NOTE (damp-motor, deletion register): resources/embed.go's
+// //go:embed now deliberately excludes schema/gen — nothing in the repo ever
+// read these files back out of the embedded FS (no accessor used a
+// "schema/gen/" path), so ~70 generated files (~284 KB) were dead weight in
+// every shipped binary. This directory is still generated to disk as a build
+// artifact; whether `gen-schemas` is worth keeping at all, now that its output
+// is unreachable at runtime, is a separate call for a human — see damp-motor.
 const schemaDir = "resources/schema/gen"
 
 func main() {

@@ -7,7 +7,16 @@ import (
 	"strings"
 )
 
-//go:embed all:schema all:commands all:builtin_bundles all:prompts all:profiles example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
+// schema/gen/ is deliberately EXCLUDED: it is `just gen-schemas`'s gitignored,
+// reflected-from-Go-structs output (schemagen.md), and no accessor in this
+// package — nor any caller anywhere in the repo — ever reads a "schema/gen/"
+// path; GetSchema/GetConfigSchema only ever resolve "schema/input/...". Before
+// this fix, `all:schema` recursively embedded schema/gen/ too, shipping ~70
+// unreachable generated JSON Schema files (~284 KB) in every binary. Embedding
+// schema/input directly (rather than all:schema) keeps the three hand-authored,
+// actually-read schemas and drops the dead weight.
+//
+//go:embed all:schema/input all:commands all:builtin_bundles all:prompts all:profiles example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetPromptText returns an embedded prompt/instruction template by name

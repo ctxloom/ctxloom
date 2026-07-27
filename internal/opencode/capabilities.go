@@ -12,9 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// This file carries the launch capabilities the embedded agent.LaunchBackend
-// requires: commands (a no-op — opencode reads .claude/skills/ natively) and
-// the session-history reader.
+// This file carries the session-history reader the embedded
+// agent.LaunchBackend requires.
 //
 // The session reader is driven entirely by opencode's OWN documented commands
 // — `opencode session list --format json` (listing, with a per-session
@@ -24,14 +23,6 @@ import (
 // SQLite blob (opencode.db) in 1.18.x; the kiro reader was CONFIRMED BROKEN by
 // exactly that kind of guess-the-private-layout coupling, so this reader refuses
 // to depend on it. Verified against opencode 1.18.1.
-
-// opencodeCommands is a no-op ContentCommands. opencode reads .claude/skills/
-// natively, so ctxloom writes no skill format of its own here.
-type opencodeCommands struct{}
-
-func (s *opencodeCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
-	return nil
-}
 
 // opencodeSessionHistory implements agent.SessionHistory over opencode's CLI.
 // It shells out to the same `opencode` binary the backend runs, so a configured

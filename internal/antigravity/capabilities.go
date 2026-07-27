@@ -21,17 +21,6 @@ const antigravitySkillsDir = AgentsDir + "/skills"
 // split (kiro/surfaces.go, kiro/skillfiles.go).
 const antigravityManifest = ".ctxloom-manifest"
 
-// AntigravityCommands writes commands for Antigravity CLI as Agent Skill
-// directories under .agents/skills/.
-type AntigravityCommands struct{}
-
-// RegisterFromContent writes skill files from host-resolved command exports.
-// The host maps bundle content (with antigravity enablement + metadata) to
-// these agent-agnostic exports, so this stays config/bundle-free.
-func (s *AntigravityCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
-	return WriteCommandFiles(workDir, cmds)
-}
-
 // WriteCommandFiles writes enabled command exports as agy Agent Skill
 // directories (.agents/skills/<name>/SKILL.md, generated YAML frontmatter) and
 // records them in the manifest. Previously manifest-listed files are removed

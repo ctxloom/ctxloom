@@ -20,17 +20,17 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **259** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **260** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 1 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 2 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 2 |
-| `open` | no commit names this ID | **2,004** |
+| `open` | no commit names this ID | **2,003** |
 
-**Totals: 2268 findings across 162 units — 259 resolved, 2004 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
+**Totals: 2268 findings across 162 units — 260 resolved, 2003 still open, 5 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports.)
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 128 | 247 (+2 refuted) |
+| HIGH | 376 | 129 | 246 (+2 refuted) |
 | MED | 999 | 38 | 961 |
 | LOW | 871 | 93 | 775 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 22 |
@@ -486,7 +486,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U163-F01 | open | `environment.go:41-55` | COHESION | `TestEnvironment` keeps a **single-slot** last-command register, so any scenario that runs two commands loses the first's output. Five acceptance journeys have invented private snapshot fields to w... | U163.md |
 | U163-F02 | **RESOLVED** `932461df` | `mock_lm.go:58-105` | SILENTNOOP | `MockLM.WriteConfig` **rewrites `.ctxloom/config.yaml` from scratch**, preserving only a top-level `profiles:` section. Every `agents:`, `default_agent:`, `workspace:`, and any other engine's `llm.... | U163.md |
 | U163-F05 | **RESOLVED** `c92f2d27` | `mcpclient.go:367-369, 423-425` | SILENTNOOP | `listNames` returns `(nil, nil)` when the result array is missing or not an array — so a server advertising **zero tools** is indistinguishable from a well-formed empty list. `TestCompleteness`'s "... | U163.md |
-| U164-F01 | open | `guard_virus.go:52-62` | SILENTNOOP | The virus matches its five targets by **rendered source-text equality** against `internal/operations/trust.go`, with no structural link and no floor on mutants emitted. Any refactor of those five c... | U164.md |
+| U164-F01 | **RESOLVED** `d64d6b09` | `guard_virus.go:52-62` | SILENTNOOP | The virus matches its five targets by **rendered source-text equality** against `internal/operations/trust.go`, with no structural link and no floor on mutants emitted. Any refactor of those five c... | U164.md |
 
 ## MED (999)
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -35,6 +36,16 @@ func JSONScalar(s string) string {
 // name is slash-flattened for the front-matter identifier (the slash-command
 // name); description falls back to name when empty.
 func RenderCommandAsSkillFile(c CommandExport) (string, []byte, error) {
+	// U102-F01: empty (or whitespace-only) Content used to still render a
+	// valid-looking SKILL.md carrying only frontmatter — success, zero
+	// instruction bytes delivered to the engine. The caller
+	// (WriteManagedPackageFiles) already warns loudly and skips this one item
+	// on a render error, so refusing here makes the loss visible instead of
+	// materializing a hollow skill.
+	if strings.TrimSpace(c.Content) == "" {
+		return "", nil, fmt.Errorf("command %q has no content to render as a skill", c.Name)
+	}
+
 	desc := c.Description
 	if desc == "" {
 		desc = c.Name

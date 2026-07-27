@@ -7,6 +7,8 @@ package acceptance
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -315,4 +317,56 @@ func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
 	assert.NotNil(t, a.copyCreds, "codex must have a credential copier, not nil (the old declared-but-unavailable state)")
 	assert.Contains(t, a.config, "type: codex")
 	assert.Contains(t, a.config, "gpt-5.4-mini", "codex must pin a cheap model — live tests prove context delivery, not model quality")
+}
+
+// TestCopyCredentials_ZeroFilesCopiedIsAnError pins U158-F07: every
+// copy*Credentials function used to succeed silently while copying zero
+// bytes — continuing/returning past a missing source with no signal at
+// all — so a caller that seeded no credentials was indistinguishable from
+// one that seeded correctly. All five now return an error when nothing was
+// copied.
+func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func(realHome, fakeHome string) error
+	}{
+		{"claude", copyClaudeCredentials},
+		{"antigravity", copyAntigravityCredentials},
+		{"kiro", copyKiroCredentials},
+		{"codex", copyCodexCredentials},
+		{"opencode", copyOpencodeCredentials},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			realHome := t.TempDir() // deliberately empty: no source credential files
+			fakeHome := t.TempDir()
+			err := tc.fn(realHome, fakeHome)
+			assert.Error(t, err, "copying from an empty HOME must report an error, not silently succeed")
+		})
+	}
+}
+
+// TestCopyClaudeCredentials_CopiesWhatExists pins the success path: at
+// least one real source file present must copy through with no error.
+func TestCopyClaudeCredentials_CopiesWhatExists(t *testing.T) {
+	realHome := t.TempDir()
+	fakeHome := t.TempDir()
+	claudeDir := filepath.Join(realHome, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"ok":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyClaudeCredentials(realHome, fakeHome); err != nil {
+		t.Fatalf("copyClaudeCredentials: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(fakeHome, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("copied file missing: %v", err)
+	}
+	if string(got) != `{"ok":true}` {
+		t.Fatalf("copied content = %q, want the source content", got)
+	}
 }

@@ -268,7 +268,13 @@ func probeDecideAuthPath(backendType string) (probeAuthPath, string) {
 		return probeAuthNone, fmt.Sprintf("could not probe host credential file: %v", err)
 	}
 	defer os.RemoveAll(probe)
-	a.copyCreds(realHomeDir, probe)
+	// The dry copy's own error is deliberately not checked here: this
+	// function's whole job is to DECIDE whether a host credential file
+	// exists, and the census emptiness check right below is that decision —
+	// a copy error (zero files copied) and "no census entries" are the same
+	// outcome for this purpose (see U158-F07's evidence: this call site
+	// already gates on the copy's real effect, unlike the @live gate steps).
+	_ = a.copyCreds(realHomeDir, probe)
 	roots, _ := probeCensusRoots(backendType)
 	census, _ := probeCensus(probe, roots)
 	if len(census) == 0 {
@@ -791,7 +797,14 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 		return nil, err
 	}
 	if authPath == probeAuthSeeded {
-		a.copyCreds(realHomeDir, w.env.HomeDir)
+		// probeDecideAuthPath already confirmed (via its own dry copy) that
+		// a host credential file exists; a zero-files-copied error here
+		// means the real copy disagreed with that dry probe (a race, a
+		// permission change) — an anomaly worth failing loud on rather than
+		// silently proceeding with an empty isolated credential dir.
+		if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+			return nil, fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
+		}
 	}
 
 	before, err := probeCensus(w.env.HomeDir, roots)
@@ -876,7 +889,9 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 	// stand-in host the same way for both axes.
 	if authPath == probeAuthSeeded {
 		key := backendTypeToLiveKey(backendType)
-		liveAgents[key].copyCreds(realHomeDir, w.env.HomeDir)
+		if err := liveAgents[key].copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+			return nil, fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
+		}
 	}
 
 	token := probeToken()

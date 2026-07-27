@@ -78,9 +78,11 @@ type liveAgent struct {
 	// proves nothing extra while costing real money on every run.
 	config string
 	// copyCreds copies just the auth files from the real HOME into the
-	// isolated one for the subscription path. nil for engines with no working
-	// live path today (codex).
-	copyCreds func(realHome, fakeHome string)
+	// isolated one for the subscription path, and errors when it copied
+	// zero files — a caller that seeded no credentials must not be
+	// indistinguishable from one that seeded correctly (U158-F07). Every
+	// registered engine has a non-nil copier today, codex included.
+	copyCreds func(realHome, fakeHome string) error
 	// authCheck determines whether the engine is AUTHENTICATED — not merely
 	// installed — via the subscription path. Only consulted when apiKeyEnvs
 	// is unset and the CTXLOOM_ACCEPTANCE_LIVE opt-in is set (see
@@ -650,44 +652,75 @@ func authCheckOpencode(realHome string) (bool, string) {
 	return true, fmt.Sprintf("%s: provider(s) configured: %s (local credential-file heuristic only, not a verified login check)", p, strings.Join(names, ","))
 }
 
+// copyOneCredFile reads name from srcDir and, if present, writes it to
+// dstDir (creating dstDir first) under the same name. Reports whether it
+// copied anything, and the first write/mkdir error encountered (a missing
+// source is never an error here — the caller decides whether "copied
+// nothing at all" is fatal).
+func copyOneCredFile(srcDir, dstDir, name string) (copied bool, err error) {
+	data, rerr := os.ReadFile(filepath.Join(srcDir, name))
+	if rerr != nil {
+		return false, nil
+	}
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return false, fmt.Errorf("mkdir %s: %w", dstDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dstDir, name), data, 0o600); err != nil {
+		return false, fmt.Errorf("write %s: %w", filepath.Join(dstDir, name), err)
+	}
+	return true, nil
+}
+
 // copyOpencodeCredentials copies opencode's auth material into the isolated
 // home: auth.json (the credential that matters) plus mcp-auth.json when
 // present (per-MCP-server OAuth tokens, optional — internal/lm/isolation/
 // auth.go's credentialSeedSpecs["opencode"] treats it the same way). Both
 // live under ~/.local/share/opencode, matching opencode's own XDG_DATA_HOME
 // resolution (live-verified against opencode 1.18.1, same auth.go doc).
-func copyOpencodeCredentials(realHome, fakeHome string) {
+// Errors when it copied zero files: a caller that seeded no credentials must
+// not be indistinguishable from one that seeded correctly (U158-F07).
+func copyOpencodeCredentials(realHome, fakeHome string) error {
 	srcDir := filepath.Join(realHome, ".local", "share", "opencode")
 	dstDir := filepath.Join(fakeHome, ".local", "share", "opencode")
-	_ = os.MkdirAll(dstDir, 0o755)
+	copiedAny := false
 	for _, name := range []string{"auth.json", "mcp-auth.json"} {
-		data, err := os.ReadFile(filepath.Join(srcDir, name))
+		copied, err := copyOneCredFile(srcDir, dstDir, name)
 		if err != nil {
-			continue
+			return fmt.Errorf("copy opencode credentials: %w", err)
 		}
-		_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
+		copiedAny = copiedAny || copied
 	}
+	if !copiedAny {
+		return fmt.Errorf("copy opencode credentials: copied 0 files from %s (checked auth.json, mcp-auth.json)", srcDir)
+	}
+	return nil
 }
 
 // copyClaudeCredentials copies just the auth-relevant files from the real
 // ~/.claude into the isolated home, best effort — never the whole tree (which
-// holds caches, history, and backups).
-func copyClaudeCredentials(realHome, fakeHome string) {
+// holds caches, history, and backups). Errors when it copied zero files.
+func copyClaudeCredentials(realHome, fakeHome string) error {
 	srcDir := filepath.Join(realHome, ".claude")
 	dstDir := filepath.Join(fakeHome, ".claude")
-	_ = os.MkdirAll(dstDir, 0o755)
+	copiedAny := false
 	for _, name := range []string{".credentials.json", "settings.json", "config.json"} {
-		data, err := os.ReadFile(filepath.Join(srcDir, name))
+		copied, err := copyOneCredFile(srcDir, dstDir, name)
 		if err != nil {
-			continue
+			return fmt.Errorf("copy claude credentials: %w", err)
 		}
-		_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
+		copiedAny = copiedAny || copied
 	}
 	// ~/.claude.json holds onboarding state; copying it stops the CLI from
 	// dropping into an interactive first-run flow under the isolated HOME.
-	if data, err := os.ReadFile(filepath.Join(realHome, ".claude.json")); err == nil {
-		_ = os.WriteFile(filepath.Join(fakeHome, ".claude.json"), data, 0o600)
+	copied, err := copyOneCredFile(realHome, fakeHome, ".claude.json")
+	if err != nil {
+		return fmt.Errorf("copy claude credentials: %w", err)
 	}
+	copiedAny = copiedAny || copied
+	if !copiedAny {
+		return fmt.Errorf("copy claude credentials: copied 0 files from %s or %s/.claude.json", srcDir, realHome)
+	}
+	return nil
 }
 
 // copyAntigravityCredentials copies just the auth-relevant files for
@@ -705,19 +738,23 @@ func copyClaudeCredentials(realHome, fakeHome string) {
 // layout), not an antigravity credential at all, and copying it would make
 // this probe's auth-path decision (probeDecideAuthPath) report a false
 // "seeded" path off a file production's resolver never reads.
-func copyAntigravityCredentials(realHome, fakeHome string) {
+func copyAntigravityCredentials(realHome, fakeHome string) error {
+	copiedAny := false
 	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
 		srcDir := filepath.Join(realHome, sub)
 		dstDir := filepath.Join(fakeHome, sub)
-		_ = os.MkdirAll(dstDir, 0o755)
 		for _, name := range []string{"antigravity-oauth-token", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
-			data, err := os.ReadFile(filepath.Join(srcDir, name))
+			copied, err := copyOneCredFile(srcDir, dstDir, name)
 			if err != nil {
-				continue
+				return fmt.Errorf("copy antigravity credentials: %w", err)
 			}
-			_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
+			copiedAny = copiedAny || copied
 		}
 	}
+	if !copiedAny {
+		return fmt.Errorf("copy antigravity credentials: copied 0 files under %s/.gemini", realHome)
+	}
+	return nil
 }
 
 // copyKiroCredentials copies the ONE file kiro-cli's subscription auth lives
@@ -729,15 +766,17 @@ func copyAntigravityCredentials(realHome, fakeHome string) {
 // so the isolated run inherits harmless local conversation/telemetry rows
 // alongside it. Nothing under ~/.kiro (agents/settings/skills/steering/
 // sessions — all project- or workspace-scoped, never auth) is touched.
-func copyKiroCredentials(realHome, fakeHome string) {
+func copyKiroCredentials(realHome, fakeHome string) error {
 	srcDir := filepath.Join(realHome, ".local", "share", "kiro-cli")
 	dstDir := filepath.Join(fakeHome, ".local", "share", "kiro-cli")
-	_ = os.MkdirAll(dstDir, 0o755)
-	data, err := os.ReadFile(filepath.Join(srcDir, "data.sqlite3"))
+	copied, err := copyOneCredFile(srcDir, dstDir, "data.sqlite3")
 	if err != nil {
-		return
+		return fmt.Errorf("copy kiro credentials: %w", err)
 	}
-	_ = os.WriteFile(filepath.Join(dstDir, "data.sqlite3"), data, 0o600)
+	if !copied {
+		return fmt.Errorf("copy kiro credentials: copied 0 files from %s", srcDir)
+	}
+	return nil
 }
 
 // copyCodexCredentials copies the ONE file codex's subscription auth lives
@@ -757,13 +796,15 @@ func copyKiroCredentials(realHome, fakeHome string) {
 // overrides HOME to the isolated fakeHome, writing auth.json under
 // fakeHome/.codex is exactly where codex (and ctxloom's own credential-seed
 // copy, when a real isolated run follows) will find it.
-func copyCodexCredentials(realHome, fakeHome string) {
+func copyCodexCredentials(realHome, fakeHome string) error {
 	srcDir := filepath.Join(realHome, ".codex")
 	dstDir := filepath.Join(fakeHome, ".codex")
-	data, err := os.ReadFile(filepath.Join(srcDir, "auth.json"))
+	copied, err := copyOneCredFile(srcDir, dstDir, "auth.json")
 	if err != nil {
-		return
+		return fmt.Errorf("copy codex credentials: %w", err)
 	}
-	_ = os.MkdirAll(dstDir, 0o755)
-	_ = os.WriteFile(filepath.Join(dstDir, "auth.json"), data, 0o600)
+	if !copied {
+		return fmt.Errorf("copy codex credentials: copied 0 files from %s", srcDir)
+	}
+	return nil
 }

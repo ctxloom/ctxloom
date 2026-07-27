@@ -183,7 +183,9 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			a.copyCreds(realHomeDir, w.env.HomeDir)
+			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+				return err
+			}
 		}
 		command := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanyCodeword))
 		_, err := seedSource(w, "company", "commands", "agent-setup", j1bCompanyCodeword, command, true, true)
@@ -240,7 +242,9 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			a.copyCreds(realHomeDir, w.env.HomeDir)
+			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+				return err
+			}
 		}
 		bundleYAML := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanionCodeword))
 		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")

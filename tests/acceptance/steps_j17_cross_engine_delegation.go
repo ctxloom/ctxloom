@@ -346,11 +346,15 @@ func registerJ17Steps(ctx *godog.ScenarioContext) {
 			// twice since this scenario runs both at once).
 			claude := liveAgents["claude"]
 			if !envSet(claude.apiKeyEnvs) && realHomeDir != "" {
-				claude.copyCreds(realHomeDir, w.env.HomeDir)
+				if err := claude.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+					return err
+				}
 			}
 			codex := liveAgents["codex"]
 			if !envSet(codex.apiKeyEnvs) && realHomeDir != "" {
-				codex.copyCreds(realHomeDir, w.env.HomeDir)
+				if err := codex.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+					return err
+				}
 			}
 			return nil
 		})

@@ -51,7 +51,9 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		// so the backend authenticates without dragging the whole credential tree.
 		// The API-key path needs nothing — it flows through the env.
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			a.copyCreds(realHomeDir, w.env.HomeDir)
+			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

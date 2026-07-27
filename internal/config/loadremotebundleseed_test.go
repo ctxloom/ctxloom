@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -82,4 +83,50 @@ func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
 	assert.False(t, badLoaded, "a malformed bundle is skipped, not fatal")
 	_, shortKeyed := seed["src/good"]
 	assert.False(t, shortKeyed, "the seed is canonical-keyed only — no short keys")
+}
+
+// TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent (U048-F02) proves a
+// genuine registry-open failure (as opposed to "no remotes.yaml yet", which
+// stays silent — see remote.NewRegistry's own os.IsNotExist carve-out) is
+// diagnosed rather than indistinguishable from "no remotes configured".
+func TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+	// A directory where remotes.yaml is expected: ReadFile fails with a
+	// real (non-ENOENT) error.
+	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "remotes.yaml"), 0755))
+
+	var buf syncBuffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	cfg := &Config{appPaths: []string{appDir}}
+	seed := cfg.loadRemoteBundleSeed()
+
+	assert.Nil(t, seed)
+	assert.Contains(t, buf.String(), "remotes registry",
+		"a real registry-open failure must be diagnosed, not silently indistinguishable from \"no remotes\"")
+}
+
+// TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent (U048-F02) is the
+// lockfile half: an unparseable lock.yaml is a real error (contrast the
+// ordinary missing-file case, which LockfileManager.Load itself already
+// degrades to an empty, no-error lockfile).
+func TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "lock.yaml"), []byte("\tnot: valid yaml\n"), 0644))
+
+	var buf syncBuffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	cfg := &Config{appPaths: []string{appDir}}
+	seed := cfg.loadRemoteBundleSeed()
+
+	assert.Nil(t, seed)
+	assert.Contains(t, buf.String(), "lockfile",
+		"a real lockfile parse failure must be diagnosed, not silently indistinguishable from \"nothing pinned\"")
 }

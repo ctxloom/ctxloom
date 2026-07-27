@@ -733,6 +733,54 @@ func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write kiro's agent config")
 }
 
+// TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is T12's
+// flow-level proof: the target-scope guard is a property of the
+// internal/lm/backends descriptor table, not a hardcoded claude/codex/kiro
+// list operations maintains its own copy of. Before T12, checkHookTargetScope
+// was a literal 3-way if/else naming exactly those three backends and calling
+// claude/codex/kiro package functions directly (the ADR-0026 violation) — a
+// FOURTH backend with the identical $HOME==global collision class got NO
+// protection no matter how it registered itself, because operations' copy of
+// "which backends have this collision" could only ever be edited by hand.
+//
+// This test registers a synthetic backend nobody has hardcoded anywhere
+// (backends.RegisterHookGlobalScopeForTesting, the exact seam a real
+// backend's descriptor uses in registry.go) and proves ApplyHooks refuses the
+// $HOME collision for it — generalizing prim-guy/comfy-lion/flaky-spool's
+// fix to "any registered backend", the property the old hardcoded branch
+// could not have: it would have silently proceeded for this name.
+func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) {
+	const fakeBackend = "t12-flow-test-engine"
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	// A collision class shaped exactly like claude/codex/kiro's: the
+	// "project" path is a workDir join that happens to equal the "global"
+	// path whenever workDir == HOME.
+	backends.RegisterHookGlobalScopeForTesting(fakeBackend,
+		func(workDir string) (string, string, error) {
+			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
+		},
+		"the T12 fake engine's global settings",
+	)
+	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
+
+	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      fakeBackend,
+		FS:           fs,
+		ExecPath:     "/usr/bin/ctxloom",
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      home,
+	})
+	require.Error(t, err, "a backend registered with a hookGlobalScopePaths collision must be refused just like claude/codex/kiro, with no operations-side edit for this backend name")
+	assert.Contains(t, err.Error(), "the T12 fake engine's global settings")
+
+	exists, existsErr := afero.Exists(fs, filepath.Join(home, ".t12fake", "settings.json"))
+	require.NoError(t, existsErr)
+	assert.False(t, exists, "a refused apply must not write the fake engine's settings under HOME")
+}
+
 // TestApplyHooks_SubdirOfHomeIsNotACollision is the negative control: a real
 // project living under HOME (e.g. ~/code/myproject) is not the global-scope
 // collision — only WorkDir==HOME itself is.

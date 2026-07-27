@@ -78,6 +78,29 @@ type agentDescriptor struct {
 	// newBackend (consumers that ARE the instance, e.g. claude/codex's Chat()
 	// gate) — ONE value, two read paths, never a third hardcoded copy.
 	acpTransport agent.ACPTransport
+	// resolveModel translates a configured model string into the concrete id
+	// this backend's launch path requires (claude's ACP nickname→concrete-id
+	// table today — see claude.ResolveModel), returning ok=false when the
+	// given model cannot be resolved to anything the launch path accepts. nil
+	// = the backend's model passes through untouched (every backend but
+	// claude-code today). Read by ResolveModelFor (delegate_seams.go), the
+	// polymorphic replacement for operations' old claude-only branch
+	// (T12/ADR-0026).
+	resolveModel func(model string) (resolved string, ok bool)
+	// hookGlobalScopePaths resolves this backend's project-scoped config path
+	// (under a workDir) and its bare user-GLOBAL path, for backends that carry
+	// a project/global collision class `manage hooks install` must guard
+	// against (see the claude-code descriptor below for the collision itself,
+	// and CheckHookTargetScope in delegate_seams.go for how it's used). nil =
+	// audited, no guard needed (antigravity has no usable global location;
+	// opencode's global path never collapses onto its project path — see
+	// operations.checkHookTargetScope's historical doc, preserved there).
+	hookGlobalScopePaths func(workDir string) (projectPath, globalPath string, err error)
+	// hookGlobalScopeLabel is the human-facing name for this backend's global
+	// scope, read into CheckHookTargetScope's refusal/warning message (e.g.
+	// "Claude Code's user-global settings file"). Empty when
+	// hookGlobalScopePaths is nil.
+	hookGlobalScopeLabel string
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -296,6 +319,16 @@ func init() {
 		skillExports:         claudeSkillExports,
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
 		acpTransport:         claude.ClaudeACPTransport,
+		resolveModel:         claude.ResolveModel,
+		// claude's project settings.json (claude.ProjectSettingsPath) collapses
+		// onto its user-global one (claude.GlobalSettingsPath) exactly when
+		// workDir == $HOME — MEMORY: prim-guy, found live 2026-07-14 (`manage
+		// hooks install` run from $HOME silently went global).
+		hookGlobalScopePaths: func(workDir string) (string, string, error) {
+			global, err := claude.GlobalSettingsPath()
+			return claude.ProjectSettingsPath(workDir), global, err
+		},
+		hookGlobalScopeLabel: "Claude Code's user-global settings file",
 	})
 
 	registerDescriptor(agentDescriptor{
@@ -341,6 +374,14 @@ func init() {
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
 		acpTransport:         codex.CodexACPTransport,
+		// codex's project config-home (codex.ProjectHome) collapses onto its
+		// bare GLOBAL home (codex.GlobalHome) exactly when workDir == $HOME --
+		// comfy-lion, the same collision class prim-guy found for claude.
+		hookGlobalScopePaths: func(workDir string) (string, string, error) {
+			global, err := codex.GlobalHome()
+			return codex.ProjectHome(workDir), global, err
+		},
+		hookGlobalScopeLabel: "codex's global home",
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
@@ -376,6 +417,14 @@ func init() {
 		// land. See kiro.buildArgs (backend.go) for the mapping.
 		enforcesReadOnlyPlan: true,
 		acpTransport:         kiroACPTransport,
+		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
+		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
+		// flaky-spool, the same collision class prim-guy found for claude.
+		hookGlobalScopePaths: func(workDir string) (string, string, error) {
+			global, err := kiro.GlobalHome()
+			return kiro.ProjectHome(workDir), global, err
+		},
+		hookGlobalScopeLabel: "kiro's global home",
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent

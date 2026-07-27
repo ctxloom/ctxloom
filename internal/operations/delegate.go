@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -284,13 +283,25 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 // resolveChatModel resolves a delegated child's model into the concrete,
 // ACP/API-shaped id its Chat spawn requires, MUTATING rs.Model in place so
 // Start's ChatRequest (and any future reader of the resolved agent) sees the
-// resolved value with no further plumbing. Only claude-code needs this: its
-// Chat spawn rides the ACP/API path (internal/claude.ResolveModel), which
-// rejects both an unset model — silently inheriting the user's saved
-// INTERACTIVE default (e.g. an alias like "fable") — and a bare interactive
-// nickname; either dies at session/new with an opaque -32603. Other backends'
-// models pass through untouched: their Chat spawns don't share claude's ACP
-// nickname rejection.
+// resolved value with no further plumbing. Only claude-code needs this today:
+// its Chat spawn rides the ACP/API path (internal/claude.ResolveModel, wired
+// as claude-code's descriptor-level resolveModel hook — see
+// backends.ResolveModelFor), which rejects both an unset model — silently
+// inheriting the user's saved INTERACTIVE default (e.g. an alias like
+// "fable") — and a bare interactive nickname; either dies at session/new with
+// an opaque -32603. Other backends' models pass through untouched via
+// ResolveModelFor's nil-hook default: their Chat spawns don't share claude's
+// ACP nickname rejection.
+//
+// This used to branch on `rs.Backend != config.BackendClaudeCode` and call
+// claude.ResolveModel directly — operations (the core) importing claude and
+// branching on backend identity, a literal ADR-0026 violation. Routing
+// through backends.ResolveModelFor (the injected, polymorphic seam ADR-0020
+// already names for this) means a future backend with its own nickname table
+// registers resolveModel once, in its own descriptor, with no operations-side
+// edit — closing the gap the hardcoded branch left: a new backend's own
+// alias-rejection failure mode got NO protection until someone remembered to
+// widen this one `if`.
 //
 // This IS the delegated child's backend config assembly step — PrepareAgentChat
 // assembles the ChatRequest Start hands the spawned engine, and this runs
@@ -311,10 +322,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 // An empty model on either simply falls through to the adapter's own
 // configured default rather than a wrong one.
 func resolveChatModel(rs *ResolvedAgent) error {
-	if rs.Backend != config.BackendClaudeCode {
-		return nil
-	}
-	model, ok := claude.ResolveModel(rs.Model)
+	model, ok := backends.ResolveModelFor(rs.Backend, rs.Model)
 	if ok {
 		rs.Model = model
 		return nil

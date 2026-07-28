@@ -161,7 +161,7 @@ func Show(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if abs != rootAbs && !strings.HasPrefix(abs, rootAbs+string(filepath.Separator)) {
+	if !strings.HasPrefix(abs, rootAbs+string(filepath.Separator)) {
 		return "", fmt.Errorf("plan path is outside the sessions directory: %s", path)
 	}
 	data, err := os.ReadFile(abs)

@@ -1,14 +1,15 @@
-// Package goplugin is the current (only) implementation of the
+// Package goplugin is the go-plugin implementation of the
 // VIRTUALIZED-PROCESS-IO seam (internal/vpio): it wraps the existing
 // hashicorp/go-plugin-backed bidirectional Run RPC (internal/lm/grpc,
 // llm.proto's `Run`) behind vpio.Launcher/vpio.Session.
 //
-// SWAP POINT: this is the seam's go-plugin transport. A future docker-exec
-// or host-pty implementation of vpio.Launcher/vpio.Session plugs in beside
-// this one — above-the-seam callers (internal/cli/run.go, internal/cli/init.go,
+// SWAP POINT: this is the seam's go-plugin transport. internal/vpio/dockerexec
+// is a second, SHIPPED implementation of vpio.Launcher/vpio.Session (the
+// `docker exec -it` transport for the container-isolation runtime) — above-
+// the-seam callers (internal/cli/run.go, internal/cli/init.go,
 // internal/termui) reference only vpio types and never this package's
-// concrete types, so they need no change when a second implementation lands.
-// Neither swap is implemented here; both are registered future work.
+// concrete types, so they needed no change when it landed. Only a host-pty
+// implementation remains registered future work.
 //
 // This package does not modify internal/lm/grpc's Run RPC, its client
 // implementation (GRPCClient/LLMRunner), or the wire protocol (llm.proto) —
@@ -54,9 +55,10 @@ type runResult struct {
 // same goroutine-pump semantics inside GRPCClient.RunWithModelInfo — MOVED,
 // not rewritten) and returns a Session that relays Resize calls onto the
 // same resize channel client.Run already understands. Always succeeds
-// synchronously today (the underlying transport is already connected); the
-// error return exists for a future transport whose Start can fail
-// synchronously (e.g. `docker exec` refusing to attach).
+// synchronously here (the underlying transport is already connected); the
+// error return is load-bearing for the sibling dockerexec transport, whose
+// Start CAN fail synchronously (a missing runtime binary or `docker exec`
+// refusing to attach — see dockerexec.Session's TestStart_FailsWhenBinaryMissing).
 func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Session, error) {
 	resizeCh := make(chan *pb.WindowSize, 1)
 	s := &Session{resize: resizeCh, result: make(chan runResult, 1)}

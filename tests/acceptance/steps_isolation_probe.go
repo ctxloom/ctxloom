@@ -10,10 +10,14 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // probeCellState is this feature's per-scenario fixture state.
@@ -44,6 +48,21 @@ func probeStateOf(w *World) *probeCellState {
 func probeSkip(engine string, axis probeAxis, authPath probeAuthPath, reason string) error {
 	printProbeReport(engine, axis, authPath, reason, "SKIPPED", "")
 	return godog.ErrSkip
+}
+
+// probeContainerRuntimeBin returns the reachable container runtime's binary
+// name (docker preferred, then podman) and true, or ("", false) when neither
+// is reachable. Both isolation.Docker{}.Available() and
+// isolation.Podman{}.Available() check PATH AND daemon reachability (not just
+// LookPath), matching what the container axis actually needs to launch.
+func probeContainerRuntimeBin() (string, bool) {
+	if (isolation.Docker{}).Available() {
+		return isolation.Docker{}.Binary(), true
+	}
+	if (isolation.Podman{}).Available() {
+		return isolation.Podman{}.Binary(), true
+	}
+	return "", false
 }
 
 func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
@@ -128,7 +147,25 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		case probeAxisWorktree:
 			res, err = runProbeWorktree(w, p.Engine, p.ForcedPath, false)
 		case probeAxisContainer:
-			res, err = runProbeContainer(w, p.Engine, "docker")
+			// U159-F02: this used to hardcode "docker" with no reachability
+			// check at all, so a podman-only host (or any host with neither
+			// runtime) failed the cell as a probe FAILURE rather than
+			// skipping with a named reason -- the opposite of this file's own
+			// loudness contract, and the inverse of dockergate's decision
+			// this exact situation exists to make (dockergate itself can't be
+			// called directly here: it needs a testing.TB, which a godog step
+			// closure does not have, so its skip/fail semantics are mirrored
+			// by hand via its own exported EnvRequireDocker).
+			runtimeBin, ok := probeContainerRuntimeBin()
+			if !ok {
+				reason := fmt.Sprintf("no container runtime reachable (docker or podman) on this host (set %s=1 to make this a failure instead)", dockergate.EnvRequireDocker)
+				if os.Getenv(dockergate.EnvRequireDocker) == "1" {
+					return fmt.Errorf("isolation probe: %s, but %s=1 demands one: %s/%s container-axis cell ran NOTHING",
+						reason, dockergate.EnvRequireDocker, p.Engine, p.Axis)
+				}
+				return probeSkip(p.Engine, p.Axis, probeAuthNone, reason)
+			}
+			res, err = runProbeContainer(w, p.Engine, runtimeBin)
 		default:
 			return fmt.Errorf("isolation probe: unknown axis %q", p.Axis)
 		}
@@ -191,11 +228,15 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			// (b) the token file, for the container axis, is a plain bind
 			// mount at the project dir's own identical path — checked
 			// directly against the TestEnvironment, no race involved.
-			if assertErr == nil && !w.env.FileExists(probeTokenFileName) {
-				assertErr = fmt.Errorf("(b) token file: %s does not exist in the bind-mounted project dir after the run", probeTokenFileName)
-			} else if assertErr == nil {
-				got, rerr := w.env.ReadFile(probeTokenFileName)
-				if rerr != nil {
+			// U159-F09: previously an if/else-if pair whose second branch's
+			// own `assertErr == nil` guard was only ever reachable when
+			// FileExists had already returned true (the correct outcome, but
+			// easy to misread as a fallthrough); restructured as a single
+			// guarded block with no behaviour change.
+			if assertErr == nil {
+				if !w.env.FileExists(probeTokenFileName) {
+					assertErr = fmt.Errorf("(b) token file: %s does not exist in the bind-mounted project dir after the run", probeTokenFileName)
+				} else if got, rerr := w.env.ReadFile(probeTokenFileName); rerr != nil {
 					assertErr = fmt.Errorf("(b) token file: exists but could not be read: %w", rerr)
 				} else if !strings.Contains(got, res.Token) {
 					assertErr = fmt.Errorf("(b) token file: content does not carry the probe's token")

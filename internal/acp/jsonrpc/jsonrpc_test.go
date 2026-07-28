@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,4 +186,64 @@ func TestServeInboundRequest_UnknownMethod(t *testing.T) {
 	require.NoError(t, serverDec.Decode(&resp))
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, CodeMethodNotFound, resp.Error.Code)
+}
+
+// TestServeRequest_HandlerPanicRecovered pins U013-F01: a panic inside
+// HandleRequest used to run unrecovered on the read-loop goroutine, killing
+// the whole process. It must instead answer the panicking request with a
+// -32603 error (the reference ACP TS SDK's own contract — this package's doc
+// says so) AND leave the read loop alive to serve the next request.
+func TestServeRequest_HandlerPanicRecovered(t *testing.T) {
+	calls := 0
+	_, serverDec, serverWrite := newTestConn(t, &mockHandler{
+		onRequest: func(_ context.Context, method string, _ json.RawMessage) (any, *Error) {
+			calls++
+			if calls == 1 {
+				panic("boom: simulated handler panic")
+			}
+			return map[string]any{"ok": true}, nil
+		},
+	})
+
+	serverWrite(rpcMessage{ID: json.RawMessage(`1`), Method: "fs/read_text_file"})
+	var resp1 rpcMessage
+	require.NoError(t, serverDec.Decode(&resp1))
+	require.NotNil(t, resp1.Error, "a panicking handler must still produce an error reply, not silence and not a crash")
+	assert.Equal(t, CodeInternalError, resp1.Error.Code)
+	assert.Contains(t, resp1.Error.Message, "boom")
+
+	// The read loop must have survived the panic: prove it by serving a second,
+	// ordinary request on the SAME connection.
+	serverWrite(rpcMessage{ID: json.RawMessage(`2`), Method: "fs/read_text_file"})
+	var resp2 rpcMessage
+	require.NoError(t, serverDec.Decode(&resp2))
+	require.Nil(t, resp2.Error, "read loop must keep serving requests after a handler panic")
+	assert.JSONEq(t, `{"ok":true}`, string(resp2.Result))
+}
+
+// TestServeNotification_HandlerPanicRecovered is TestServeRequest_HandlerPanicRecovered's
+// twin for the notification dispatch path (readLoop's other inline call,
+// HandleNotification — U013-F01 named both).
+func TestServeNotification_HandlerPanicRecovered(t *testing.T) {
+	calls := 0
+	notified := make(chan string, 1)
+	_, _, serverWrite := newTestConn(t, &mockHandler{
+		onNotify: func(_ context.Context, method string, _ json.RawMessage) {
+			calls++
+			if calls == 1 {
+				panic("boom: simulated notification panic")
+			}
+			notified <- method
+		},
+	})
+
+	serverWrite(rpcMessage{Method: "session/cancel"})
+	serverWrite(rpcMessage{Method: "session/cancel"})
+
+	select {
+	case m := <-notified:
+		assert.Equal(t, "session/cancel", m)
+	case <-time.After(5 * time.Second):
+		t.Fatal("read loop did not survive a notification handler panic")
+	}
 }

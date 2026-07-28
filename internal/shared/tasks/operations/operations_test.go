@@ -1289,23 +1289,23 @@ func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
 		t.Fatalf("add (bypassing the write-seam gate): %v", err)
 	}
 
-	violations, err := LintTasks(tc)
+	result, err := LintTasks(tc)
 	if err != nil {
 		t.Fatalf("lint: %v", err)
 	}
-	if len(violations) != 1 {
-		t.Fatalf("violations = %+v, want exactly one", violations)
+	if len(result.Violations) != 1 {
+		t.Fatalf("violations = %+v, want exactly one", result.Violations)
 	}
 
 	tc2 := TaskContext{WorkDir: t.TempDir(), ProjectID: "clean", SessionHarp: "sess", TagSchema: schema}
 	if _, err := AddTaskWithTags(tc2, "good", "", "", []string{"triage:type=security"}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	violations, err = LintTasks(tc2)
+	result, err = LintTasks(tc2)
 	if err != nil {
 		t.Fatalf("lint: %v", err)
 	}
-	if len(violations) != 0 {
-		t.Fatalf("violations = %+v, want none for clean data", violations)
+	if len(result.Violations) != 0 {
+		t.Fatalf("violations = %+v, want none for clean data", result.Violations)
 	}
 }

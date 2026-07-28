@@ -10,6 +10,7 @@ package lint
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"sort"
@@ -32,6 +33,21 @@ const SchemaViolationHarpID = "(schema)"
 type Violation struct {
 	HarpID string
 	Reason string
+}
+
+// Result is Lint's full return value: the violations found, plus how much
+// was actually checked. CheckedTargets exists because an empty Violations
+// slice is ambiguous by itself — it means EITHER "genuinely clean" OR "this
+// project's tag_schema declares no enum/range facets, so nothing was
+// checked at all" (U121-F01). A caller positioning this as a CI gate (see
+// cmd/taskloom's lint command) must distinguish the two.
+type Result struct {
+	Violations []Violation
+	// CheckedTargets is the number of distinct targets this run examined
+	// under a declared enum or range facet. Zero means the schema (nil, or
+	// one declaring neither facet) gave Lint nothing to check — a clean
+	// Violations slice in that case is not evidence of clean data.
+	CheckedTargets int
 }
 
 // Lint folds every task in all (any status — even a Done task's tags stay
@@ -71,7 +87,7 @@ type Violation struct {
 // Violations are returned sorted by (HarpID, Reason) for deterministic
 // output; a returned error is reserved for a malformed RANGE DECLARATION
 // itself (a config defect, distinct from a task-data violation).
-func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
+func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 	enums := make(map[string][]string)
 	for _, target := range schema.Targets(tagschema.EnumFacet) {
 		enum, _ := schema.Enum(target)
@@ -83,11 +99,24 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
 	for _, target := range schema.Targets(tagschema.RangeFacet) {
 		min, max, ok, err := schema.Range(target)
 		if err != nil {
-			return nil, fmt.Errorf("lint: %w", err)
+			return Result{}, fmt.Errorf("lint: %w", err)
 		}
 		if ok {
 			ranges[target] = bounds{min, max}
 		}
+	}
+
+	// CheckedTargets counts the distinct enum/range-declared targets this
+	// run actually examined, so a caller can tell "genuinely clean" apart
+	// from "checked nothing" (U121-F01) — a nil schema, or one declaring
+	// neither facet, returns an empty violation list that reads identically
+	// to a clean project unless this count is also inspected.
+	checkedTargets := make(map[string]struct{}, len(enums)+len(ranges))
+	for target := range enums {
+		checkedTargets[target] = struct{}{}
+	}
+	for target := range ranges {
+		checkedTargets[target] = struct{}{}
 	}
 
 	out := formulaEnumRefViolations(schema, enums)
@@ -107,6 +136,14 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
 		for target, b := range ranges {
 			for _, v := range values[target] {
 				f, perr := strconv.ParseFloat(v, 64)
+				// strconv.ParseFloat accepts "NaN"/"Inf"/"-Inf" case-
+				// insensitively, and every `<`/`>` comparison against NaN
+				// is false — so a NaN value would otherwise pass both
+				// branches below silently (U121-F08). Treat non-finite
+				// exactly like an unparseable value.
+				if perr == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
+					perr = fmt.Errorf("%q is not a finite number", v)
+				}
 				if perr != nil {
 					out = append(out, Violation{t.HarpID,
 						fmt.Sprintf("%s=%q does not parse as a number", target, v)})
@@ -139,7 +176,7 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
 		}
 		return out[i].Reason < out[j].Reason
 	})
-	return out, nil
+	return Result{Violations: out, CheckedTargets: len(checkedTargets)}, nil
 }
 
 // formulaPlaceholderPattern mirrors tagschema.CompileFormula's own "{{...}}"

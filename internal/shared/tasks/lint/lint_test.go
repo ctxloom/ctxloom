@@ -35,9 +35,9 @@ func TestLint_CleanDataProducesNoViolations(t *testing.T) {
 		{HarpID: "a", Tags: []string{"triage:type=security", "triage:impact=3"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, result.Violations)
 }
 
 func TestLint_FlagsTypeNotInEnum(t *testing.T) {
@@ -46,12 +46,12 @@ func TestLint_FlagsTypeNotInEnum(t *testing.T) {
 		{HarpID: "bad-type", Tags: []string{"triage:type=sparkles"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	require.Len(t, violations, 1)
-	assert.Equal(t, "bad-type", violations[0].HarpID)
-	assert.Contains(t, violations[0].Reason, "triage:type")
-	assert.Contains(t, violations[0].Reason, "sparkles")
+	require.Len(t, result.Violations, 1)
+	assert.Equal(t, "bad-type", result.Violations[0].HarpID)
+	assert.Contains(t, result.Violations[0].Reason, "triage:type")
+	assert.Contains(t, result.Violations[0].Reason, "sparkles")
 }
 
 func TestLint_FlagsImpactOutOfRange(t *testing.T) {
@@ -60,11 +60,11 @@ func TestLint_FlagsImpactOutOfRange(t *testing.T) {
 		{HarpID: "too-high", Tags: []string{"triage:impact=9"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	require.Len(t, violations, 1)
-	assert.Equal(t, "too-high", violations[0].HarpID)
-	assert.Contains(t, violations[0].Reason, "outside the declared range")
+	require.Len(t, result.Violations, 1)
+	assert.Equal(t, "too-high", result.Violations[0].HarpID)
+	assert.Contains(t, result.Violations[0].Reason, "outside the declared range")
 }
 
 func TestLint_FlagsImpactThatDoesNotParseAsANumber(t *testing.T) {
@@ -73,10 +73,10 @@ func TestLint_FlagsImpactThatDoesNotParseAsANumber(t *testing.T) {
 		{HarpID: "non-numeric", Tags: []string{`triage:impact="not-a-number"`}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	require.Len(t, violations, 1)
-	assert.Contains(t, violations[0].Reason, "does not parse as a number")
+	require.Len(t, result.Violations, 1)
+	assert.Contains(t, result.Violations[0].Reason, "does not parse as a number")
 }
 
 // TestLint_FlagsScalarCardinalityViolation covers the "foreign/legacy data"
@@ -88,14 +88,14 @@ func TestLint_FlagsScalarCardinalityViolation(t *testing.T) {
 		{HarpID: "double-typed", Tags: []string{"triage:type=security", "triage:type=docs"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
 	// Both a distinct-value-count violation AND (if either value isn't in
 	// the enum) an enum violation could fire; here both values ARE valid
 	// enum members, so only the cardinality violation should appear.
-	require.Len(t, violations, 1)
-	assert.Contains(t, violations[0].Reason, "arity=scalar")
-	assert.Contains(t, violations[0].Reason, "2 distinct values")
+	require.Len(t, result.Violations, 1)
+	assert.Contains(t, result.Violations[0].Reason, "arity=scalar")
+	assert.Contains(t, result.Violations[0].Reason, "2 distinct values")
 }
 
 func TestLint_NoEnumOrRangeDeclaredSkipsThoseChecks(t *testing.T) {
@@ -108,9 +108,9 @@ func TestLint_NoEnumOrRangeDeclaredSkipsThoseChecks(t *testing.T) {
 		{HarpID: "a", Tags: []string{"triage:type=anything-goes", "triage:impact=999"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, result.Violations)
 }
 
 // TestLint_NilSchemaSkipsEverything proves EVERY check (enum, range —
@@ -126,9 +126,9 @@ func TestLint_NilSchemaSkipsEverything(t *testing.T) {
 		{HarpID: "a", Tags: []string{"triage:type=anything", `triage:impact="oops"`}},
 	}
 
-	violations, err := Lint(all, nil)
+	result, err := Lint(all, nil)
 	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, result.Violations)
 }
 
 // TestLint_NonNumericValueOnEnumOnlyTargetIsNotFlagged is the regression
@@ -144,9 +144,9 @@ func TestLint_NonNumericValueOnEnumOnlyTargetIsNotFlagged(t *testing.T) {
 		{HarpID: "a", Tags: []string{"triage:impact=compatibility"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, result.Violations)
 }
 
 // TestLint_FormulaEnumRef_FlagsValueNotInDeclaredEnum proves a
@@ -161,12 +161,12 @@ func TestLint_FormulaEnumRef_FlagsValueNotInDeclaredEnum(t *testing.T) {
 		`tagma.decay_fn:"triage:severity"="{{triage:impact=nonexistent}} > 0 ? 2 : 1"`,
 	)
 
-	violations, err := Lint(nil, schema)
+	result, err := Lint(nil, schema)
 	require.NoError(t, err)
-	require.Len(t, violations, 1)
-	assert.Equal(t, SchemaViolationHarpID, violations[0].HarpID)
-	assert.Contains(t, violations[0].Reason, "triage:impact")
-	assert.Contains(t, violations[0].Reason, "nonexistent")
+	require.Len(t, result.Violations, 1)
+	assert.Equal(t, SchemaViolationHarpID, result.Violations[0].HarpID)
+	assert.Contains(t, result.Violations[0].Reason, "triage:impact")
+	assert.Contains(t, result.Violations[0].Reason, "nonexistent")
 }
 
 // TestLint_FormulaEnumRef_AllowsDeclaredValue is the negative case: a
@@ -177,9 +177,9 @@ func TestLint_FormulaEnumRef_AllowsDeclaredValue(t *testing.T) {
 		`tagma.decay_fn:"triage:severity"="{{triage:impact=security}} > 0 ? 2 : 1"`,
 	)
 
-	violations, err := Lint(nil, schema)
+	result, err := Lint(nil, schema)
 	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, result.Violations)
 }
 
 // TestLint_FormulaEnumRef_SkipsWhenReferencedTargetHasNoEnum proves the
@@ -190,9 +190,9 @@ func TestLint_FormulaEnumRef_SkipsWhenReferencedTargetHasNoEnum(t *testing.T) {
 		`tagma.decay_fn:"triage:severity"="{{triage:impact=whatever}} > 0 ? 2 : 1"`,
 	)
 
-	violations, err := Lint(nil, schema)
+	result, err := Lint(nil, schema)
 	require.NoError(t, err)
-	assert.Empty(t, violations)
+	assert.Empty(t, result.Violations)
 }
 
 // TestLint_FormulaEnumRef_SkipsUniversalPresenceWildcard proves a
@@ -209,9 +209,9 @@ func TestLint_FormulaEnumRef_SkipsUniversalPresenceWildcard(t *testing.T) {
 		`tagma.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 2 : 1"`,
 	)
 
-	violations, err := Lint(nil, schema)
+	result, err := Lint(nil, schema)
 	require.NoError(t, err)
-	assert.Empty(t, violations, "the universal presence wildcard must never be checked against a declared enum")
+	assert.Empty(t, result.Violations, "the universal presence wildcard must never be checked against a declared enum")
 }
 
 func TestLint_MalformedRangeDeclarationIsAReturnedError(t *testing.T) {
@@ -227,9 +227,66 @@ func TestLint_ViolationsAreSortedForDeterministicOutput(t *testing.T) {
 		{HarpID: "aaa", Tags: []string{"triage:type=nope"}},
 	}
 
-	violations, err := Lint(all, schema)
+	result, err := Lint(all, schema)
 	require.NoError(t, err)
-	require.Len(t, violations, 2)
-	assert.Equal(t, "aaa", violations[0].HarpID)
-	assert.Equal(t, "zzz", violations[1].HarpID)
+	require.Len(t, result.Violations, 2)
+	assert.Equal(t, "aaa", result.Violations[0].HarpID)
+	assert.Equal(t, "zzz", result.Violations[1].HarpID)
+}
+
+// TestLint_FlagsNaNAsOutOfRange pins U121-F08: strconv.ParseFloat accepts
+// the literal string "NaN" (a legal tagma bare token), and every `<`/`>`
+// bounds comparison against NaN is false — so a NaN value passed both
+// branches of the range check silently, reported as conformant, on its way
+// to hanging priority.rankNormalize (U124-F01) with no warning from the
+// project's only read-time data-conformance sweep.
+func TestLint_FlagsNaNAsOutOfRange(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "nan-value", Tags: []string{"triage:impact=NaN"}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	require.Len(t, result.Violations, 1, "a NaN value on a range-declared target must be flagged, not silently accepted as conformant")
+	assert.Contains(t, result.Violations[0].Reason, "triage:impact")
+}
+
+// TestLint_CheckedTargetsReportsHowMuchWasExamined pins U121-F01: an empty
+// Violations slice is ambiguous by itself between "genuinely clean" and
+// "checked nothing because the schema declares no enum/range facet" —
+// CheckedTargets must distinguish the two.
+func TestLint_CheckedTargetsReportsHowMuchWasExamined(t *testing.T) {
+	schema := tripleSchema(t) // declares one enum target + one range target
+	all := []tasks.Task{{HarpID: "a", Tags: []string{"triage:type=security", "triage:impact=3"}}}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Empty(t, result.Violations)
+	assert.Equal(t, 2, result.CheckedTargets, "triple schema declares one enum target and one range target")
+}
+
+// TestLint_NilSchemaChecksZeroTargets is the negative case this row is
+// about: a nil schema returns a clean (empty) Violations slice, but
+// CheckedTargets must be 0 so a caller positioning lint as a CI gate can
+// tell it checked nothing rather than found nothing wrong.
+func TestLint_NilSchemaChecksZeroTargets(t *testing.T) {
+	all := []tasks.Task{{HarpID: "a", Tags: []string{"triage:type=anything"}}}
+	result, err := Lint(all, nil)
+	require.NoError(t, err)
+	assert.Empty(t, result.Violations)
+	assert.Equal(t, 0, result.CheckedTargets)
+}
+
+// TestLint_ArityOnlySchemaChecksZeroTargets: an arity-only schema (no
+// enum/range facet declared at all) likewise checks zero targets by this
+// count — arity/scalar-cardinality is a data-driven check, not scoped by a
+// declared target list the way enum/range are.
+func TestLint_ArityOnlySchemaChecksZeroTargets(t *testing.T) {
+	schema := mustSchema(t, `tagma.arity:"triage:type"=scalar`)
+	all := []tasks.Task{{HarpID: "a", Tags: []string{"triage:type=anything-goes"}}}
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Empty(t, result.Violations)
+	assert.Equal(t, 0, result.CheckedTargets)
 }

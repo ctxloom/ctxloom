@@ -707,14 +707,14 @@ func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.R
 // of status — lint is read-time and advisory (see that package's doc); it
 // never blocks a write and never filters what it inspects, unlike ListTasks'
 // active-only default view.
-func LintTasks(tc TaskContext) ([]lint.Violation, error) {
+func LintTasks(tc TaskContext) (lint.Result, error) {
 	store, _, _, err := resolveTaskStore(tc)
 	if err != nil {
-		return nil, err
+		return lint.Result{}, err
 	}
 	all, err := store.Snapshot()
 	if err != nil {
-		return nil, fmt.Errorf("snapshot for lint: %w", err)
+		return lint.Result{}, fmt.Errorf("snapshot for lint: %w", err)
 	}
 	return lint.Lint(all, tc.TagSchema)
 }

@@ -50,13 +50,6 @@ func (m *MockLM) SetResponse(response string) error {
 	return m.WriteConfig()
 }
 
-// SetExitCode sets the exit code. Config will be updated on next SetupMockLM call.
-func (m *MockLM) SetExitCode(code int) error {
-	m.ExitCode = code
-	// For the new gRPC-based mock, we need to update the config file
-	return m.WriteConfig()
-}
-
 // WriteConfig merges the mock plugin configuration into .ctxloom/config.yaml,
 // touching only llm.configs.mock, llm.defaults.primary, config.use_distilled,
 // and version — every other top-level key (agents, default_agent, workspace,
@@ -155,15 +148,6 @@ func (m *MockLM) GetRecordedInput() (string, error) {
 		return "", err
 	}
 	return string(data), nil
-}
-
-// ClearRecordedInput removes the recorded input file.
-func (m *MockLM) ClearRecordedInput() error {
-	err := os.Remove(m.RecordedInputPath)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	return err
 }
 
 // SetupMockLM sets up a mock LM in the test environment and configures ctxloom to use it.

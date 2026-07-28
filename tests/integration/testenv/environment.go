@@ -586,17 +586,6 @@ func (e *TestEnvironment) GitCommit(message string) error {
 	return nil
 }
 
-// GitBranch creates and checks out a new branch.
-func (e *TestEnvironment) GitBranch(name string) error {
-	cmd := exec.Command("git", "checkout", "-b", name)
-	cmd.Dir = e.ProjectDir
-	cmd.Env = e.gitEnv()
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout -b failed: %s: %w", output, err)
-	}
-	return nil
-}
-
 // RunWithStdin executes ctxloom with stdin input and returns the output. Stdin
 // is held open for a short grace period after the write before being closed,
 // so a long-lived stdio server (e.g. `ctxloom mcp`) can dispatch and respond

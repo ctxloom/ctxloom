@@ -112,9 +112,6 @@ func (e *TestEnvironment) RunPTY(cols, rows int, args ...string) (*PTYSession, e
 // key or 'q'.
 func (s *PTYSession) Write(p []byte) (int, error) { return s.pty.Write(p) }
 
-// Resize changes the pty's window size, delivering SIGWINCH to the child.
-func (s *PTYSession) Resize(cols, rows int) error { return s.pty.Resize(cols, rows) }
-
 // Output returns everything captured off the pty so far.
 func (s *PTYSession) Output() string { return s.out.String() }
 

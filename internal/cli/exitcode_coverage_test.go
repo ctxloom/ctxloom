@@ -117,7 +117,7 @@ var silentFailureAllowlist = map[string]string{
 	"manage.go:332": "`manage hooks install` inline RunE: ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
 	"manage.go:368": "`manage hooks uninstall` inline RunE: RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:332",
 
-	"bundle_distill.go:129": "`bundle distill`: per-file distill errors are appended to result.Errors and printed inside emit()'s text closure, which then `return nil`s unconditionally — confirmed by running against a malformed bundle YAML (exit 0)",
+	"bundle_distill.go:129": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it.",
 
 	"remote_discover.go:62": "`remote discover`: per-source discovery errors are only warned; the RunE `return nil`s even when every source failed and result.Count is 0",
 }

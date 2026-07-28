@@ -124,7 +124,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return emit(cmd, result, func() error {
+	if err := emit(cmd, result, func() error {
 		out := cmd.OutOrStdout()
 		for _, e := range result.Errors {
 			fmt.Fprintln(os.Stderr, e)
@@ -136,7 +136,20 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		printDistillSummary(out, result.TotalItems, result.TotalFiles, result.TotalSkipped, result.DryRun)
 		printDistillInvalidatedApprovals(out, result.Invalidated)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// U034-F02: every per-file failure above only ever appended to
+	// result.Errors and `continue`d — nothing converted a non-empty Errors
+	// into a non-nil error for THIS command, so `ctxloom bundle distill` over
+	// a directory where every file failed still printed to stderr and exited
+	// 0. Checked AFTER emit (not instead of it) so the structured payload —
+	// which already carries result.Errors — is still printed either way;
+	// this only changes the exit code / final error, never the output.
+	if len(result.Errors) > 0 {
+		return fmt.Errorf("bundle distill: %d of %d file(s) failed", len(result.Errors), len(files))
+	}
+	return nil
 }
 
 // printDistillInvalidatedApprovals is the re-distill LOUD PATH (spec §10.4):

@@ -55,13 +55,9 @@ func (s *Store) ListWithTagQuery(statuses []string, term, tagQuery string, schem
 	return s.log.listWithTagQuery(statuses, term, tagQuery, schema)
 }
 
-// Add appends a new task with an auto-generated unique harp ID. Empty
-// status defaults to StatusToDo. Returns the persisted task.
-func (s *Store) Add(text, status string) (Task, error) {
-	return s.AddWithTrigger(text, status, "")
-}
-
-// AddWithTrigger is Add with a revive trigger for a Deferred task. A Deferred
+// AddWithTrigger appends a new task with an auto-generated unique harp ID
+// and a revive trigger for a Deferred task. Empty status defaults to
+// StatusToDo. A Deferred
 // status without a trigger is rejected (ErrTriggerRequired).
 func (s *Store) AddWithTrigger(text, status, trigger string) (Task, error) {
 	if err := ValidateStatusTrigger(status, trigger); err != nil {
@@ -109,12 +105,6 @@ func (s *Store) CurrentTags(harpID string) ([]string, error) {
 // if the harp ID isn't present. The harp is never reissued.
 func (s *Store) Remove(harpID string) (Task, error) {
 	return s.log.remove(harpID)
-}
-
-// SetStatus moves a task to a different status. Errors if the harp ID
-// isn't present.
-func (s *Store) SetStatus(harpID, status string) (Task, error) {
-	return s.SetStatusWithTrigger(harpID, status, "")
 }
 
 // SetStatusWithTrigger moves a task to a different status, optionally setting

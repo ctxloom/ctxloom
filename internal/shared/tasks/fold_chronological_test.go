@@ -212,7 +212,7 @@ func TestDeferredSince_UnchangedByChronologicalFold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add deferred: %v", err)
 	}
-	if _, err := s.SetStatus(a.HarpID, StatusToDo); err != nil {
+	if _, err := s.SetStatusWithTrigger(a.HarpID, StatusToDo, ""); err != nil {
 		t.Fatalf("undefer: %v", err)
 	}
 	// Re-defer: deferredSince must reflect THIS later event, not the

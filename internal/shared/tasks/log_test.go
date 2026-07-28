@@ -24,7 +24,7 @@ func newLog(t *testing.T, session string) *Store {
 func TestLogAddListRoundTrip(t *testing.T) {
 	s := newLog(t, "swift-amber-falcon")
 
-	a, err := s.Add("write the storage layer", "")
+	a, err := s.AddWithTrigger("write the storage layer", "", "")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestLogAddWithTagsFoldsInitialTags(t *testing.T) {
 // onto the current set, and re-adding an already-present tag changes nothing.
 func TestLogAddTagsUnionsAndIsIdempotent(t *testing.T) {
 	s := newLog(t, "")
-	a, _ := s.Add("ship it", "")
+	a, _ := s.AddWithTrigger("ship it", "", "")
 
 	got, err := s.AddTags(a.HarpID, "urgent")
 	if err != nil {
@@ -179,7 +179,7 @@ func TestLogAddTagsUnknownHarpErrors(t *testing.T) {
 // tag call is rejected outright rather than silently appending a no-op event.
 func TestLogAddTagsRequiresAtLeastOneTag(t *testing.T) {
 	s := newLog(t, "")
-	a, _ := s.Add("ship it", "")
+	a, _ := s.AddWithTrigger("ship it", "", "")
 	if _, err := s.AddTags(a.HarpID); err == nil {
 		t.Fatal("expected error adding zero tags")
 	}
@@ -292,12 +292,12 @@ func TestLogFoldToleratesPreExistingUnqueryableTags(t *testing.T) {
 
 func TestLogSetStatusLastWriteWins(t *testing.T) {
 	s := newLog(t, "")
-	a, _ := s.Add("ship it", "")
+	a, _ := s.AddWithTrigger("ship it", "", "")
 
-	if _, err := s.SetStatus(a.HarpID, StatusInProgress); err != nil {
+	if _, err := s.SetStatusWithTrigger(a.HarpID, StatusInProgress, ""); err != nil {
 		t.Fatalf("status1: %v", err)
 	}
-	if _, err := s.SetStatus(a.HarpID, StatusDone); err != nil {
+	if _, err := s.SetStatusWithTrigger(a.HarpID, StatusDone, ""); err != nil {
 		t.Fatalf("status2: %v", err)
 	}
 
@@ -315,7 +315,7 @@ func TestLogSetStatusLastWriteWins(t *testing.T) {
 // stay pinned to creation, not the most recent event.
 func TestLogAddSetsCreatedAtAndFoldPreservesIt(t *testing.T) {
 	s := newLog(t, "")
-	a, err := s.Add("ship it", "")
+	a, err := s.AddWithTrigger("ship it", "", "")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestLogAddSetsCreatedAtAndFoldPreservesIt(t *testing.T) {
 		t.Fatal("Add's returned Task must already carry a non-zero CreatedAt")
 	}
 
-	if _, err := s.SetStatus(a.HarpID, StatusInProgress); err != nil {
+	if _, err := s.SetStatusWithTrigger(a.HarpID, StatusInProgress, ""); err != nil {
 		t.Fatalf("status: %v", err)
 	}
 	if _, err := s.AddTags(a.HarpID, "urgent"); err != nil {
@@ -341,15 +341,15 @@ func TestLogAddSetsCreatedAtAndFoldPreservesIt(t *testing.T) {
 
 func TestLogSetStatusUnknownErrors(t *testing.T) {
 	s := newLog(t, "")
-	if _, err := s.SetStatus("nope", StatusDone); err == nil {
+	if _, err := s.SetStatusWithTrigger("nope", StatusDone, ""); err == nil {
 		t.Fatal("expected error for unknown task")
 	}
 }
 
 func TestLogRemoveTombstones(t *testing.T) {
 	s := newLog(t, "")
-	a, _ := s.Add("temp", "")
-	b, _ := s.Add("keep", "")
+	a, _ := s.AddWithTrigger("temp", "", "")
+	b, _ := s.AddWithTrigger("keep", "", "")
 
 	if _, err := s.Remove(a.HarpID); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -365,9 +365,9 @@ func TestLogRemoveTombstones(t *testing.T) {
 
 func TestLogSummarize(t *testing.T) {
 	s := newLog(t, "")
-	a, _ := s.Add("a", "")
-	_, _ = s.Add("b", "")
-	_, _ = s.SetStatus(a.HarpID, StatusInProgress)
+	a, _ := s.AddWithTrigger("a", "", "")
+	_, _ = s.AddWithTrigger("b", "", "")
+	_, _ = s.SetStatusWithTrigger(a.HarpID, StatusInProgress, "")
 
 	sum, err := s.Summarize()
 	if err != nil {
@@ -486,7 +486,7 @@ func TestLogMintUniqueUnderConcurrency(t *testing.T) {
 	for i := range n {
 		go func(i int) {
 			defer wg.Done()
-			if _, err := s.Add("task", ""); err != nil {
+			if _, err := s.AddWithTrigger("task", "", ""); err != nil {
 				t.Errorf("add %d: %v", i, err)
 			}
 		}(i)
@@ -617,10 +617,10 @@ func TestEventLog_WriteFailsLoudOnUnresolvedAnomaly(t *testing.T) {
 	}
 	s, _ := OpenLog(path, "")
 
-	if _, err := s.Add("a new task", ""); err == nil {
+	if _, err := s.AddWithTrigger("a new task", "", ""); err == nil {
 		t.Fatal("Add must fail loud while an unresolved harp collision exists, not silently succeed into an unreadable store")
 	}
-	if _, err := s.SetStatus("alpha", StatusInProgress); err == nil {
+	if _, err := s.SetStatusWithTrigger("alpha", StatusInProgress, ""); err == nil {
 		t.Fatal("SetStatus must fail loud on an unresolved anomaly")
 	}
 	if _, err := s.AddTags("alpha", "urgent"); err == nil {
@@ -634,7 +634,7 @@ func TestEventLog_WriteFailsLoudOnUnresolvedAnomaly(t *testing.T) {
 	if err := s.Repair(); err != nil {
 		t.Fatalf("repair: %v", err)
 	}
-	if _, err := s.Add("a new task", ""); err != nil {
+	if _, err := s.AddWithTrigger("a new task", "", ""); err != nil {
 		t.Fatalf("Add after repair: %v", err)
 	}
 }

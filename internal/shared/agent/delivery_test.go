@@ -20,4 +20,3 @@ func TestEphemeralPlacementDir(t *testing.T) {
 	empty := ephemeralPlacement{harp: ""}
 	assert.Equal(t, os.TempDir(), empty.Dir())
 }
-

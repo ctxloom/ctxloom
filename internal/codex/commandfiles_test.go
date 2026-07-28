@@ -32,4 +32,3 @@ func TestTransformToCodexPrompt_NoFrontmatter(t *testing.T) {
 	out := TransformToCodexPrompt(agent.CommandExport{Name: "x", Content: "just do it", Enabled: true})
 	assert.Equal(t, "just do it", out)
 }
-

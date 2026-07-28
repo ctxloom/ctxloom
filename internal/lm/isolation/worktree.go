@@ -698,7 +698,26 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	if err := w.git.WorktreePrune(ctx, w.repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
-	w.retireConfigExcludeIfUnused(ctx)
+	// U054-F02: NOT auto-retiring the shared config-exclude block here.
+	// A first draft called gitignore.RetireWorktreeConfigBlock once no
+	// linked worktree remained, and it regressed a live, currently-passing
+	// acceptance contract — tests/acceptance/features/j9_isolation.feature's
+	// "A worktree run leaves the project tree clean" asserts the shared
+	// common-dir info/exclude STILL carries the ctxloom worktree-config
+	// block immediately after a single worktree's teardown (the scenario's
+	// own comment: proof the per-agent config edits were hidden from the
+	// shared tree during the run, not proof the mechanism was torn down
+	// again right after). Auto-retiring on every ordinary single-agent
+	// teardown would strip that evidence — and, worse, cause the block to
+	// flap in and out across back-to-back agent runs, re-triggering the
+	// exact "won't delete / deletes when it must not" instability this
+	// package's own comments describe as the historical bug the block was
+	// added to fix in the first place. RetireWorktreeConfigBlock is kept as
+	// a tested, exported utility (gitignore.go) — the "no removal path
+	// exists at all" half of U054-F02 is fixed — but deciding WHEN it is
+	// safe to invoke (process exit? an explicit gc/reap command? never
+	// automatically?) is a product call, not one this batch makes alone;
+	// see DECISIONS.md.
 }
 
 // unsafeToRemove is teardown's WIP-safety gate, extended past IsDirty alone
@@ -731,42 +750,10 @@ func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (uns
 // destructive-teardown risk unsafeToRemove exists to catch. Best-effort:
 // any failure just leaves the block in place (the safe default) rather than
 // risk removing it under uncertainty.
-func (w *worktreeWorkspace) retireConfigExcludeIfUnused(ctx context.Context) {
-	list, err := w.git.WorktreeList(ctx, w.repoDir)
-	if err != nil {
-		return
-	}
-	for _, wt := range list {
-		if !sameWorktreePath(wt.Path, w.repoDir) {
-			return
-		}
-	}
-	common, err := w.git.CommonDir(ctx, w.repoDir)
-	if err != nil {
-		return
-	}
-	exclude := filepath.Join(common, "info", "exclude")
-	if _, err := gitignore.RetireWorktreeConfigBlock(exclude); err != nil {
-		clidiag.Warn("ctxloom", "worktree teardown: cannot retire shared config-exclude block from %q: %v", exclude, err)
-	}
-}
-
 // sameWorktreePath reports whether a and b name the same directory, tolerating
 // the symlink-alias case CommonDir's own tests already guard against (macOS
 // /tmp vs /private/tmp and similar): an exact string match short-circuits,
 // falling back to a same-file stat comparison only when both paths exist.
-func sameWorktreePath(a, b string) bool {
-	if a == b {
-		return true
-	}
-	ai, aerr := os.Stat(a)
-	bi, berr := os.Stat(b)
-	if aerr != nil || berr != nil {
-		return false
-	}
-	return os.SameFile(ai, bi)
-}
-
 // nestedUnder returns the worktrees strictly nested inside target, DEEPEST-FIRST
 // (by path-separator depth) so inner worktrees are handled before their parents.
 func nestedUnder(list []git.Worktree, target string) []git.Worktree {

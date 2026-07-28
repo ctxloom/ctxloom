@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
-	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
@@ -197,54 +196,10 @@ func TestWorktree_TeardownAbortsOnUnknownIgnoredContentState(t *testing.T) {
 // info/exclude — otherwise the developer's own main checkout is left unable
 // to see new CLAUDE.md/AGENTS.md/.claude/ files FOREVER, with no removal
 // path.
-func TestWorktree_TeardownRetiresConfigExcludeWhenLastWorktreeGone(t *testing.T) {
-	common := t.TempDir()
-	excludePath := filepath.Join(common, "info", "exclude")
-	require.NoError(t, os.MkdirAll(filepath.Join(common, "info"), 0o755))
-	block := "\n" + gitignore.WorktreeComment + "\n" + strings.Join(gitignore.WorktreeArtifactPatterns, "\n") + "\n"
-	require.NoError(t, os.WriteFile(excludePath, []byte(block), 0644))
-
-	outer := filepath.Join(os.TempDir(), "ctxloom-wt-last")
-	f := &git.Fake{
-		Worktrees:      []git.Worktree{{Path: "/proj"}, {Path: outer}},
-		CommonDirValue: common,
-	}
-	ws := &worktreeWorkspace{git: f, repoDir: "/proj", dir: outer}
-	require.NoError(t, ws.Cleanup())
-
-	require.Contains(t, f.Removed, outer, "the worktree itself must have been removed")
-	got, err := os.ReadFile(excludePath)
-	require.NoError(t, err)
-	assert.NotContains(t, string(got), gitignore.WorktreeComment,
-		"with no other worktree left, the shared exclude block must be retired")
-}
-
 // TestWorktree_TeardownKeepsConfigExcludeWhileSiblingRemains ensures the
 // retirement above never fires while ANOTHER agent worktree is still alive —
 // removing the shared block then would strip that sibling's own noise-hiding
 // and false-dirty it.
-func TestWorktree_TeardownKeepsConfigExcludeWhileSiblingRemains(t *testing.T) {
-	common := t.TempDir()
-	excludePath := filepath.Join(common, "info", "exclude")
-	require.NoError(t, os.MkdirAll(filepath.Join(common, "info"), 0o755))
-	block := "\n" + gitignore.WorktreeComment + "\n" + strings.Join(gitignore.WorktreeArtifactPatterns, "\n") + "\n"
-	require.NoError(t, os.WriteFile(excludePath, []byte(block), 0644))
-
-	outer := filepath.Join(os.TempDir(), "ctxloom-wt-first")
-	sibling := filepath.Join(os.TempDir(), "ctxloom-wt-sibling")
-	f := &git.Fake{
-		Worktrees:      []git.Worktree{{Path: "/proj"}, {Path: outer}, {Path: sibling}},
-		CommonDirValue: common,
-	}
-	ws := &worktreeWorkspace{git: f, repoDir: "/proj", dir: outer}
-	require.NoError(t, ws.Cleanup())
-
-	got, err := os.ReadFile(excludePath)
-	require.NoError(t, err)
-	assert.Contains(t, string(got), gitignore.WorktreeComment,
-		"a sibling worktree still needs the shared exclude block")
-}
-
 // TestWorktree_TeardownLeaksOnListFailure: if the repo-global list can't be read,
 // the teardown does NOT blind-remove (a hidden nested inner's WIP could be lost) —
 // it leaks the worktree and warns.

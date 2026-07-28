@@ -36,6 +36,22 @@ func ParseVerdicts(raw string) ([]Verdict, error) {
 		if !v.Outcome.Valid() {
 			return nil, fmt.Errorf("triggers: verdict %d (%s) has an unrecognized outcome %q", i, v.HarpID, v.Outcome)
 		}
+		// A human deciding whether to revive a task reads Evidence and
+		// Reasoning (Verdict's own doc comment) — a verdict carrying
+		// neither is one field short of the guard that would catch it: it
+		// parses clean and reaches the human as a proposal to revive a
+		// task with zero justification (U128-F01). Reasoning is required
+		// for every outcome. Evidence is required only when Outcome is
+		// Fired — "the evidence shows…" is self-contradictory with none —
+		// CannotDetermine legitimately has none by definition, and
+		// NotFired/NeedsInvestigation can too (absence of evidence IS the
+		// finding).
+		if strings.TrimSpace(v.Reasoning) == "" {
+			return nil, fmt.Errorf("triggers: verdict %d (%s) has no reasoning", i, v.HarpID)
+		}
+		if v.Outcome == Fired && len(v.Evidence) == 0 {
+			return nil, fmt.Errorf("triggers: verdict %d (%s) is outcome %q with no evidence", i, v.HarpID, v.Outcome)
+		}
 		// Cached is caller-stamped only, never model-supplied (see Verdict's
 		// doc comment) — reset it regardless of what the response carried.
 		out[i].Cached = false

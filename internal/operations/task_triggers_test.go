@@ -237,7 +237,7 @@ func TestEvaluateTriggers_NeverMutatesTaskStatus(t *testing.T) {
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
 	require.NoError(t, err)
 
-	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"clearly fired"}]`}
+	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"clearly fired"}]`}
 	factory, _ := countingClientFactory(client)
 
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
@@ -294,7 +294,7 @@ func TestEvaluateTriggers_MissingVerdictBecomesCannotDetermine(t *testing.T) {
 	require.NoError(t, err)
 
 	// The model only answers for d1.
-	client := &fullFakeClient{out: `[{"harp_id":"` + d1.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"x"}]`}
+	client := &fullFakeClient{out: `[{"harp_id":"` + d1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"}]`}
 	factory, _ := countingClientFactory(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
@@ -335,7 +335,7 @@ func TestEvaluateTriggers_SplitsLargeMissSetIntoMultipleChunkCalls(t *testing.T)
 		var objs []string
 		for _, h := range harps {
 			if strings.Contains(req.Prompt.Content, h) {
-				objs = append(objs, fmt.Sprintf(`{"harp_id":%q,"outcome":"fired","evidence":[],"reasoning":"x"}`, h))
+				objs = append(objs, fmt.Sprintf(`{"harp_id":%q,"outcome":"fired","evidence":["commit abc"],"reasoning":"x"}`, h))
 			}
 		}
 		return "[" + strings.Join(objs, ",") + "]"
@@ -394,7 +394,7 @@ func TestEvaluateTriggers_OneBadChunkDoesNotPoisonTheOthers(t *testing.T) {
 		if strings.Contains(req.Prompt.Content, bad1.Task.HarpID) {
 			return "garbage, not json, always garbage"
 		}
-		return `[{"harp_id":"` + good1.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"x"},` +
+		return `[{"harp_id":"` + good1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"},` +
 			`{"harp_id":"` + good2.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"y"}]`
 	}}
 	factory, calls := countingClientFactory(client)
@@ -440,7 +440,7 @@ func TestEvaluateTriggers_ChunkOmissionIsCountedSeparatelyFromDegrade(t *testing
 
 	// Both tasks land in the same (only) chunk; the response only mentions
 	// one of them.
-	client := &fullFakeClient{out: `[{"harp_id":"` + kept.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"x"}]`}
+	client := &fullFakeClient{out: `[{"harp_id":"` + kept.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"}]`}
 	factory, calls := countingClientFactory(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
@@ -606,7 +606,7 @@ func TestEvaluateTriggers_DropsUnsafeQueriesButKeepsSafeOnes(t *testing.T) {
 
 	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
 		`"queries":[{"type":"path_exists","path":"../../etc/passwd"},{"type":"shell_exec","path":"x"},{"type":"path_exists","path":"internal/foo"}]}]`
-	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"confirmed"}]`
+	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"confirmed"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
 	factory, calls := countingClientFactory(client)
 
@@ -656,7 +656,7 @@ func TestEvaluateTriggers_SecondCallReusesCacheAndMakesZeroModelCalls(t *testing
 	deferred, err := tasksops.AddTask(tc, "wire the signing CLI", "Deferred", "when the signing CLI ships")
 	require.NoError(t, err)
 
-	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"it shipped"}]`}
+	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it shipped"}]`}
 	factory, calls := countingClientFactory(client)
 
 	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
@@ -721,7 +721,7 @@ func TestEvaluateTriggers_EvidenceChangeInvalidatesCache(t *testing.T) {
 
 	// New evidence appears: a commit lands after the first evaluation.
 	gitFake.LogEntries["/repo"] = []git.LogEntry{{SHA: "abc1234567890", Date: time.Now(), Subject: "feat: ship the CLI", Files: []string{"cli.go"}}}
-	client.out = `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"it shipped"}]`
+	client.out = `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it shipped"}]`
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
@@ -747,7 +747,7 @@ func TestEvaluateTriggers_DegradedVerdictsAreNeverCached(t *testing.T) {
 	assert.True(t, res1.Degraded)
 	assert.Equal(t, int32(2), calls.Load(), "one retry on the first call")
 
-	client.out = `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"now it works"}]`
+	client.out = `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"now it works"}]`
 	res2, err := EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), calls.Load(), "the degraded verdict was never cached, so the model is asked again")
@@ -796,7 +796,7 @@ func TestEvaluateTriggers_UnchangedBacklogSecondRunMakesZeroModelCalls(t *testin
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[` +
-		`{"harp_id":"` + d1.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"a"},` +
+		`{"harp_id":"` + d1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"a"},` +
 		`{"harp_id":"` + d2.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"b"},` +
 		`{"harp_id":"` + d3.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"c"}]`}
 	factory, calls := countingClientFactory(client)
@@ -829,7 +829,7 @@ func TestEvaluateTriggers_EscalatedVerdictIsCachedAfterSettling(t *testing.T) {
 
 	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
 		`"queries":[{"type":"path_exists","path":"internal/signing/cli.go"}]}]`
-	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"confirmed via query"}]`
+	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"confirmed via query"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
 	factory, calls := countingClientFactory(client)
 
@@ -865,7 +865,7 @@ func TestEvaluateTriggers_MixedCacheHitAndMissOnlyCallsModelForTheMiss(t *testin
 	// cache miss on the next evaluation.
 	d2, err := tasksops.AddTask(tc, "task two", "Deferred", "condition two")
 	require.NoError(t, err)
-	client.out = `[{"harp_id":"` + d2.Task.HarpID + `","outcome":"fired","evidence":[],"reasoning":"it happened"}]`
+	client.out = `[{"harp_id":"` + d2.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it happened"}]`
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)

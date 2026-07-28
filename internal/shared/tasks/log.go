@@ -400,7 +400,7 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 		status = StatusToDo
 	}
 	trigger = strings.TrimSpace(trigger)
-	if err := ValidateStatusTrigger(status, trigger); err != nil {
+	if err := validateStatusTrigger(status, trigger); err != nil {
 		return Task{}, err
 	}
 	tags = normalizeTags(tags)
@@ -460,7 +460,7 @@ func (l *eventLog) setStatus(harpID, status, trigger string) (Task, error) {
 	// A non-empty trigger updates the condition; otherwise the task keeps the
 	// one it already had, so re-deferring needs no re-typing.
 	effective := effectiveTrigger(trigger, t.Trigger)
-	if err := ValidateStatusTrigger(status, effective); err != nil {
+	if err := validateStatusTrigger(status, effective); err != nil {
 		return Task{}, err
 	}
 	// Persist the trigger on the event only when it changed, so a plain status
@@ -714,11 +714,11 @@ func (l *eventLog) repair() error {
 		f.repaired[key] = struct{}{}
 		// Carry the displaced add's trigger through the repair: a Deferred task
 		// re-added without its trigger would violate the Deferred invariant
-		// (ValidateStatusTrigger). repair() appends directly, bypassing that
+		// (validateStatusTrigger). repair() appends directly, bypassing that
 		// validation, so guard here — fall a malformed anomaly back to a plain
 		// to-do rather than re-introduce the forbidden state or drop the task.
 		status, trigger := defaultStatus(a.Status), a.Trigger
-		if err := ValidateStatusTrigger(status, trigger); err != nil {
+		if err := validateStatusTrigger(status, trigger); err != nil {
 			status, trigger = StatusToDo, ""
 		}
 		// Carry Tags and Ts through too (U120-F14): the displaced task's own

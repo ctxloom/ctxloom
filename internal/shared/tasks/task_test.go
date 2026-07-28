@@ -310,12 +310,12 @@ func TestUnionAndSubtractTags(t *testing.T) {
 // trigger-requiring (Deferred) statuses correctly.
 func TestStatuses(t *testing.T) {
 	got := Statuses()
-	if len(got) != len(DefaultStatusOrder) {
-		t.Fatalf("Statuses() returned %d entries, want %d", len(got), len(DefaultStatusOrder))
+	if len(got) != len(defaultStatusOrder) {
+		t.Fatalf("Statuses() returned %d entries, want %d", len(got), len(defaultStatusOrder))
 	}
 	for i, s := range got {
-		if s.Name != DefaultStatusOrder[i] {
-			t.Errorf("entry %d: name %q, want %q", i, s.Name, DefaultStatusOrder[i])
+		if s.Name != defaultStatusOrder[i] {
+			t.Errorf("entry %d: name %q, want %q", i, s.Name, defaultStatusOrder[i])
 		}
 		if s.Order != i {
 			t.Errorf("entry %d: order %d, want %d", i, s.Order, i)

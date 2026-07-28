@@ -10,10 +10,10 @@ import (
 )
 
 func TestValidateStatusTrigger(t *testing.T) {
-	assert.ErrorIs(t, ValidateStatusTrigger(StatusDeferred, ""), ErrTriggerRequired)
-	assert.ErrorIs(t, ValidateStatusTrigger(StatusDeferred, "   "), ErrTriggerRequired)
-	assert.NoError(t, ValidateStatusTrigger(StatusDeferred, "v2 ships"))
-	assert.NoError(t, ValidateStatusTrigger(StatusToDo, ""))
+	assert.ErrorIs(t, validateStatusTrigger(StatusDeferred, ""), errTriggerRequired)
+	assert.ErrorIs(t, validateStatusTrigger(StatusDeferred, "   "), errTriggerRequired)
+	assert.NoError(t, validateStatusTrigger(StatusDeferred, "v2 ships"))
+	assert.NoError(t, validateStatusTrigger(StatusToDo, ""))
 }
 
 func logStore(t *testing.T) *Store {
@@ -26,7 +26,7 @@ func logStore(t *testing.T) *Store {
 func TestDeferredRequiresTrigger(t *testing.T) {
 	s := logStore(t)
 	_, err := s.AddWithTrigger("park me", StatusDeferred, "")
-	assert.ErrorIs(t, err, ErrTriggerRequired, "adding Deferred without a trigger must fail")
+	assert.ErrorIs(t, err, errTriggerRequired, "adding Deferred without a trigger must fail")
 
 	task, err := s.AddWithTrigger("park me", StatusDeferred, "the API stabilizes")
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestSetStatusDeferredTriggerRules(t *testing.T) {
 
 	// To Do -> Deferred without a trigger is rejected.
 	_, err = s.SetStatusWithTrigger(task.HarpID, StatusDeferred, "")
-	assert.ErrorIs(t, err, ErrTriggerRequired)
+	assert.ErrorIs(t, err, errTriggerRequired)
 
 	// With a trigger it succeeds and the trigger is stored.
 	got, err := s.SetStatusWithTrigger(task.HarpID, StatusDeferred, "the spike lands")

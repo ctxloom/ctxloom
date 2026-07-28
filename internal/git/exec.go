@@ -477,4 +477,3 @@ func outputStdin(ctx context.Context, dir, stdin string, args ...string) (string
 	}
 	return stdout.String(), nil
 }
-

@@ -144,7 +144,6 @@ func TestListVanishedSessionDirIsNotAnError(t *testing.T) {
 	}
 }
 
-
 // TestList_FindsNestedPlanFiles pins U115-F01/U132-F01: List enumerated only
 // <root>/<harp>/*.plan.md — exactly one level deep — while the paired
 // watcher (internal/shared/watch, wired in internal/cli/plan_watch.go) is

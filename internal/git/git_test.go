@@ -339,7 +339,6 @@ func TestExecGit_ApplyPatch_EmptyIsNoop(t *testing.T) {
 	assert.False(t, applied)
 }
 
-
 // TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied pins U053-F03: an
 // empty patch and a real patch must be distinguishable at the type level, not
 // just "no error" for both. A caller that skips ApplyPatch on an empty patch
@@ -408,7 +407,6 @@ func TestExecGit_HasIgnoredContent(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, dirty, "IsDirty's existing contract is unchanged: ignored content alone is still not \"dirty\"")
 }
-
 
 // TestExecGit_DoesNotInheritGitRepoEnvVars pins U053-F02: GIT_DIR/GIT_WORK_TREE/
 // GIT_INDEX_FILE/GIT_COMMON_DIR override cmd.Dir completely when inherited from

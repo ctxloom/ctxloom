@@ -251,7 +251,6 @@ func TestRetireSuperseded_MissingFile(t *testing.T) {
 	assert.False(t, changed)
 }
 
-
 // TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns pins the retirement
 // half of U054-F02: the shared common-dir info/exclude block must be
 // removable once no worktree still needs it, and removal must not touch
@@ -339,7 +338,6 @@ func TestEnsure_NoBlanketRule_DoesNotInjectPrivateState(t *testing.T) {
 	assert.NotContains(t, got, ".ctxloom/cache/",
 		"a project with no superseded rule must not have private-state patterns injected by a transient-only Ensure")
 }
-
 
 // TestCloseChecked_PropagatesCloseError pins U054-F04: appendBlock's old
 // `defer func() { _ = f.Close() }()` discarded a write-never-reached-disk

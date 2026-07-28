@@ -157,7 +157,6 @@ func TestWorktree_TeardownAbortsOnOuterWIP(t *testing.T) {
 	assert.Empty(t, f.Removed, "a dirty outer worktree is preserved, not removed")
 }
 
-
 // TestWorktree_TeardownAbortsOnIgnoredContent pins U053-F01/U054-F01: IsDirty
 // alone misses gitignored/excluded content, so a worktree holding ONLY
 // ignored files (e.g. an agent-authored CLAUDE.md hidden by this repo's own
@@ -191,7 +190,6 @@ func TestWorktree_TeardownAbortsOnUnknownIgnoredContentState(t *testing.T) {
 	require.NoError(t, ws.Cleanup())
 	assert.Empty(t, f.Removed, "an unreadable WIP state must never be treated as safe to delete")
 }
-
 
 // TestWorktree_TeardownRetiresConfigExcludeWhenLastWorktreeGone pins the other
 // half of U054-F02: once teardown removes the LAST non-main worktree, the

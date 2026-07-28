@@ -51,7 +51,6 @@ func TestFake_LogSince(t *testing.T) {
 	})
 }
 
-
 // TestFake_IsDirty_DirtyErr pins U053-F04: without an error injector,
 // Fake.IsDirty can never return an error, so the fail-closed unknown-state
 // guard in isolation's teardown (`if derr != nil || dirty`) has no possible

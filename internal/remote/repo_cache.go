@@ -260,7 +260,6 @@ func runGit(ctx context.Context, dir, label string, extraEnv []string, args ...s
 	return nil
 }
 
-
 // isGitRepo reports whether dir is an existing git working tree.
 func isGitRepo(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, ".git"))

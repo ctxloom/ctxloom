@@ -218,7 +218,6 @@ func TestConfig_Save_TakesAdvisoryLockWhenFSNotInjected(t *testing.T) {
 	}
 }
 
-
 // TestConfig_Save_FailsClosedWhenLockCannotBeAcquired pins U109-F01: the
 // polarity used to be inverted — a lock ACQUISITION failure (as opposed to
 // blocking on contention, which filelock.Lock already handles by waiting)

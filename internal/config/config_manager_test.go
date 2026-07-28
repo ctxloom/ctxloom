@@ -74,7 +74,6 @@ func TestUpdate_SerializesConcurrentWritersInProcess(t *testing.T) {
 	}
 }
 
-
 // TestUpdate_FailsClosedWhenLockCannotBeAcquired pins U109-F01's Manager.Update
 // half: a lock ACQUISITION failure (as opposed to blocking on contention,
 // which filelock.Lock already handles by waiting) used to degrade to an

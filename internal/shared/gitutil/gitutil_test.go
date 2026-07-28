@@ -154,7 +154,6 @@ func TestGetRemoteURL_FilePathResolvesToRepo(t *testing.T) {
 	assert.Equal(t, "https://github.com/example/repo.git", url)
 }
 
-
 // TestGetRemoteURL_FromLinkedWorktree pins U110-F01: PlainOpenOptions was
 // constructed with DetectDotGit true but EnableDotGitCommonDir left false. In
 // a linked git worktree (this project's own standard agent workflow), go-git
@@ -177,4 +176,3 @@ func TestGetRemoteURL_FromLinkedWorktree(t *testing.T) {
 	require.NoError(t, err, "origin IS configured — in the shared common dir a linked worktree must resolve through")
 	assert.Equal(t, "https://example.com/repo.git", url)
 }
-

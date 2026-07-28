@@ -319,4 +319,3 @@ func writeBlock(w io.Writer, content []byte, comment string, patterns []string) 
 	}
 	return nil
 }
-

@@ -22,7 +22,6 @@ func recv(t *testing.T, w *Watcher) Event {
 	return Event{}
 }
 
-
 // TestNew_FailsOnMissingRoot pins U132-F03: New used to silently MkdirAll the
 // root it was asked to watch, so a nonexistent, typo'd, or wrongly-resolved
 // root produced a healthy-looking watcher on an empty directory that streams

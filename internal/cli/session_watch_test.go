@@ -166,7 +166,6 @@ func TestStreamWatchEvents_PropagatesStreamError(t *testing.T) {
 	assert.Contains(t, err.Error(), "stream broke")
 }
 
-
 // failingWriter always errors on Write — pins U113-F03: writeWatchText's text
 // path used iox.ErrWriter's void-returning methods and never called w.Err(),
 // so a failed write silently drained the rest of the event stream to nothing

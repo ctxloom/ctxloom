@@ -20,14 +20,12 @@ import (
 type windowsStyleMapper struct{ root string }
 
 func (m windowsStyleMapper) toContainer(string) string { return m.root }
-func (m windowsStyleMapper) toHost(string) string      { return `C:\Users\foo\proj` }
 
 // TestIdentityMapper_NoOp pins the seam's zero-behavior-change contract: the
-// default mapper is a pure passthrough in both directions.
+// default mapper is a pure passthrough.
 func TestIdentityMapper_NoOp(t *testing.T) {
 	m := identityMapper{}
 	assert.Equal(t, "/home/user/proj", m.toContainer("/home/user/proj"))
-	assert.Equal(t, "/home/user/proj", m.toHost("/home/user/proj"))
 }
 
 // TestRuntimeMapper_NilIsIdentity pins the nil-safe getter every Runtime's

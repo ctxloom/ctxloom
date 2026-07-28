@@ -475,9 +475,9 @@ func TestWorktree_AsymmetryWithNone(t *testing.T) {
 	require.NoError(t, ws.Cleanup())
 }
 
-// TestResolveWorktree wires the workspace axis through Resolve.
+// TestResolveWorktree wires the workspace axis through chainFor's lead policy.
 func TestResolveWorktree(t *testing.T) {
-	p := Resolve(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})
+	p := chainFor(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})[0]
 	assert.Equal(t, "worktree", p.Name())
 	assert.IsType(t, Worktree{}, p)
 }

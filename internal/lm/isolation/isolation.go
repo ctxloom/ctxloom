@@ -344,26 +344,6 @@ type ImageConfig struct {
 	Engines []string
 }
 
-// Resolve maps the requested axes to the LEAD policy for a run of the named
-// BACKEND — the head of Chain, without preparing anything. Callers that need
-// only the policy identity up front (e.g. run's approvals gating) use this;
-// preparation with per-axis degradation goes through Prepare.
-//
-// The runtime axis degrades HERE when no container runtime is available:
-// only the container dimension is dropped — a requested worktree stays a
-// worktree (axes are independent; degradation never touches the other axis).
-// The container policies degrade AGAIN in PrepareWorkspace (runtime present
-// but the image absent and not buildable, no resolvable auth, scratch
-// creation failure) — see Prepare's chain. A bad WORKSPACE axis value warns and
-// acts as the shared default (CLAUDE.md fault tolerance); a bad RUNTIME axis
-// value is a fatal ClassIsolation finding, not a silent host degrade — see
-// warnUnknownAxes. An EXPLICITLY-requested container that finds no available
-// runtime is likewise a fatal finding (ClassIsolation) the choke owner aborts on
-// unless --degraded.
-func Resolve(axes Axes, backend string, img ImageConfig) Policy {
-	return chainFor(axes, backend, img)[0]
-}
-
 // selectRuntimeProbe is chainFor's seam onto the host runtime probe
 // (SelectRuntime), a package var so tests drive the no-runtime fatal path
 // hermetically — SelectRuntime probes the REAL host (docker/podman CLIs +

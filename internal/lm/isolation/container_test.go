@@ -225,7 +225,7 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
 
-		p := Resolve(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		p := chainFor(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})[0]
 		assert.Equal(t, "container", p.Name(), "a launchable runtime resolves to the container policy")
 		assert.Empty(t, strictness.All(), "a satisfied container request records no finding")
 	})
@@ -234,7 +234,7 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		p := Resolve(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		p := chainFor(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})[0]
 		assert.Equal(t, "none", p.Name(), "no runtime degrades to none")
 
 		findings := strictness.All()

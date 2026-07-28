@@ -100,16 +100,16 @@ func TestResolve_DefaultsAndDegrades(t *testing.T) {
 		{},
 		{Workspace: WorkspaceShared, Runtime: RuntimeHost},
 	} {
-		p := Resolve(axes, "claude-code", ImageConfig{})
+		p := chainFor(axes, "claude-code", ImageConfig{})[0]
 		assert.IsType(t, None{}, p, "axes %+v resolve to None", axes)
 	}
 	// Unknown axis values still degrade the POLICY to the axis defaults (a bad
 	// runtime ALSO records a fatal finding, asserted elsewhere; the returned lead
 	// policy is unchanged).
-	assert.IsType(t, None{}, Resolve(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
+	assert.IsType(t, None{}, chainFor(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
 		"unknown axis values degrade to None")
 	// Independence: an unknown RUNTIME never drops a requested worktree.
-	assert.IsType(t, Worktree{}, Resolve(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
+	assert.IsType(t, Worktree{}, chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
 		"an unknown runtime axis degrades alone; the workspace axis survives")
 }
 

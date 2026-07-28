@@ -124,8 +124,9 @@ var _ Policy = Container{}
 // NewContainer builds a container policy bound to a runtime + an EXPLICIT image
 // over the default (claude-oriented) profile, with no local-build recipe — the
 // image the caller names either exists or the gate degrades. Exposed for the
-// docker-gated integration test and callers with a resolved image;
-// Resolve("container", backend) goes through NewContainerFor instead.
+// docker-gated integration test and callers with a resolved image; the normal
+// {workspace, container} axis resolution (chainFor/Prepare) goes through
+// NewContainerFor instead.
 func NewContainer(rt Runtime, image string) Container {
 	c := NewContainerFor(rt, "")
 	c.image = image

@@ -69,7 +69,7 @@ func fwarn(w io.Writer, prog, msg string) {
 }
 
 // sink is the process-wide destination for the stderr-flavored helpers
-// (Warn/WarnOnce/Warner). It is a pointer so SetSink can swap it atomically;
+// (Warn/WarnOnce). It is a pointer so SetSink can swap it atomically;
 // nil means "the default", os.Stderr.
 //
 // It exists because os.Stderr is NOT always a safe place to write: under
@@ -79,11 +79,11 @@ func fwarn(w io.Writer, prog, msg string) {
 // owns the terminal redirects the sink for its lifetime instead.
 var sink atomic.Pointer[io.Writer]
 
-// SetSink redirects Warn/WarnOnce/Warner to w for the rest of the process, and
+// SetSink redirects Warn/WarnOnce to w for the rest of the process, and
 // returns a restore func that puts the previous sink back. A nil w restores the
 // default (os.Stderr) — never installs a nil writer.
 //
-// Only Warn/WarnOnce/Warner move; the explicit Fwarn/FwarnOnce writers are
+// Only Warn/WarnOnce move; the explicit Fwarn/FwarnOnce writers are
 // untouched, because a caller that named its own writer already chose.
 func SetSink(w io.Writer) (restore func()) {
 	prev := sink.Load()
@@ -171,16 +171,4 @@ func FwarnOnce(w io.Writer, prog, format string, args ...any) {
 // content.
 func WarnOnce(prog, format string, args ...any) {
 	FwarnOnce(warnSink(), prog, format, args...)
-}
-
-// Warner binds a program name so callers that warn repeatedly don't repeat it.
-//
-//	warn := clidiag.Warner("taskloom")
-//	warn.Warn("sync failed: %v", err)
-type Warner string
-
-// Warn prints a "<prog>: warning: <msg>" line to the current sink for the
-// bound prog.
-func (p Warner) Warn(format string, args ...any) {
-	Warn(string(p), format, args...)
 }

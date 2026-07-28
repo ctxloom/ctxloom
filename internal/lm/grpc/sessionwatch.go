@@ -266,7 +266,5 @@ func (c *GRPCClient) WatchSession(ctx context.Context, sessionID string) (<-chan
 	return events, errs, nil
 }
 
-// WatchSession delegates to the underlying gRPC client.
-func (p *LLMRunner) WatchSession(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error) {
-	return p.grpc.WatchSession(ctx, sessionID)
-}
+// WatchSession is promoted from LLMRunner's embedded *GRPCClient (U059-F08)
+// — no forwarder needed.

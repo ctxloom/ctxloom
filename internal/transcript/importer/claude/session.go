@@ -60,7 +60,6 @@ type line struct {
 // decodeContentBlocks below normalizes both into one []contentBlock slice so
 // every caller handles a single shape.
 type message struct {
-	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content"`
 	Model      string          `json:"model,omitempty"`
 	ID         string          `json:"id,omitempty"`

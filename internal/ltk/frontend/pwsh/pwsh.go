@@ -27,8 +27,14 @@ import (
 // parseTimeout bounds a single shell-out to the PowerShell parser.
 const parseTimeout = 5 * time.Second
 
-// ErrUnavailable means no PowerShell executable was found on PATH.
-var ErrUnavailable = errors.New("powershell executable not found")
+// errUnavailable means no PowerShell executable was found on PATH. Unexported
+// (U070-F02): it was previously an exported sentinel with zero errors.Is/
+// comparison sites anywhere in the repo, including tests — nothing ever
+// distinguished "PowerShell missing" from any other run failure, so it
+// carried no identity-comparison contract worth publishing. Its message still
+// reaches the operator via the wrapped error / ParseError, which is all any
+// caller has ever consumed.
+var errUnavailable = errors.New("powershell executable not found")
 
 // parseScript reads the target command from $env:LTK_SRC, parses it with the
 // native parser (no execution), and writes JSON describing every command. It
@@ -146,7 +152,7 @@ func resolveBin() string {
 func runPowerShell(ctx context.Context, src string) ([]byte, error) {
 	bin := resolveBin()
 	if bin == "" {
-		return nil, ErrUnavailable
+		return nil, errUnavailable
 	}
 	ctx, cancel := context.WithTimeout(ctx, parseTimeout)
 	defer cancel()

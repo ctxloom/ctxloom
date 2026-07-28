@@ -41,7 +41,25 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 	if e, err := m.ResolveByPath(projectDir); err != nil {
 		return Resolution{}, err
 	} else if e != nil {
-		return Resolution{ProjectID: e.ProjectID, Action: ActionNormal}, nil
+		res := Resolution{ProjectID: e.ProjectID, Action: ActionNormal}
+		// One directory CAN end up registered under two ids (see
+		// EntriesAtPath's doc) — nothing prevents it, and this fast path
+		// previously returned whichever entry slices.IndexFunc happened to
+		// hit first with no cross-check at all, even though the in-tree
+		// marker (when present) names the authoritative identity and could
+		// have caught the disagreement (U125-F01). This never blocks
+		// resolution — the marker is still just advisory here, since
+		// Adopt/EntriesAtPath's own detection-and-warn design (see
+		// operations.missingLogSiblingNote) depends on the ambiguity being
+		// discoverable rather than refused outright — but a caller now
+		// gets a warning naming BOTH ids instead of silent, order-dependent
+		// selection.
+		if marker, merr := ReadMarker(projectDir); merr == nil && marker != "" && marker != e.ProjectID {
+			res.Warning = fmt.Sprintf(
+				"%s resolved to project %s by registry lookup, but its own marker names project %s — this directory is registered under two ids; pass --project to pick one explicitly",
+				projectDir, e.ProjectID, marker)
+		}
+		return res, nil
 	}
 
 	// 2. Path miss: consult the in-tree marker.

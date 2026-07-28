@@ -56,6 +56,31 @@ func TestExpandWrappers_BashDashC(t *testing.T) {
 	}
 }
 
+// TestExpandWrappers_MixedCaseProgramName pins that wrapper detection matches
+// argv[0] regardless of case, for BOTH wrapper families: wrappedCommand
+// (interpreter wrappers like bash -c) and prefixWrapped (argv-prepending
+// wrappers like env). This is the behavior containsFold's own case-folding is
+// there to preserve (U068-F10) — argv[0] is already lowercased via
+// strings.ToLower(path.Base(argv[0])) before either family's program-list
+// lookup runs, so a simplification of that lookup must not regress this.
+func TestExpandWrappers_MixedCaseProgramName(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "BASH", "-c", "go test")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "go") {
+		t.Fatalf("mixed-case interpreter wrapper %q not surfaced; programs=%v seen=%v", "BASH", got, f.seen)
+	}
+
+	f2 := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r2 := newReg(f2)
+	s2 := cmdScript(ir.ShellBash, "Env", "git", "push")
+	r2.ExpandWrappers(context.Background(), s2)
+	if got := nestedPrograms(s2); !contains(got, "git") {
+		t.Fatalf("mixed-case prefix wrapper %q not surfaced; programs=%v", "Env", got)
+	}
+}
+
 func TestExpandWrappers_Eval(t *testing.T) {
 	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
 	r := newReg(f)

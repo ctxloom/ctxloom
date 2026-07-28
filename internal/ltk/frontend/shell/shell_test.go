@@ -112,12 +112,13 @@ func TestProcessSubstitutionNested(t *testing.T) {
 }
 
 func TestBackgroundAndSequence(t *testing.T) {
+	// ir.Pipeline.Background was dropped (U072-F03): it had no reader outside
+	// this now-removed assertion, and Match.matches never consulted it. What
+	// still matters here — and is what this test pins — is that `&`
+	// sequencing produces two distinct commands, both visible to the matcher.
 	s := parse(t, ir.ShellBash, "go test & echo done")
 	if got := programs(s); !reflect.DeepEqual(got, []string{"go", "echo"}) {
 		t.Errorf("programs = %v, want [go echo]", got)
-	}
-	if !s.Pipelines[0].Background {
-		t.Error("first pipeline should be marked Background")
 	}
 }
 

@@ -30,14 +30,11 @@ func TaskloomServer() wire.MCPServer {
 	return wire.MCPServer{Command: "taskloom", Args: []string{"mcp"}}
 }
 
-// engines is the registry of known engines.
-func engines() []Engine {
-	return []Engine{claude.MCPRegistrar{}, antigravity.MCPRegistrar{}, codex.MCPRegistrar{}, kiro.MCPRegistrar{}}
-}
-
-// All returns every known engine, for "register wherever present" flows.
+// All returns every known engine, for "register wherever present" flows. A
+// fresh slice each call, so a caller mutating its result never corrupts the
+// registry.
 func All() []Engine {
-	return engines()
+	return []Engine{claude.MCPRegistrar{}, antigravity.MCPRegistrar{}, codex.MCPRegistrar{}, kiro.MCPRegistrar{}}
 }
 
 // engineAliases maps accepted alternate spellings to canonical engine names.
@@ -55,7 +52,7 @@ func Get(name string) (Engine, error) {
 	if canonical, ok := engineAliases[want]; ok {
 		want = canonical
 	}
-	for _, e := range engines() {
+	for _, e := range All() {
 		if e.Name() == want {
 			return e, nil
 		}

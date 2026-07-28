@@ -85,60 +85,14 @@ func TestChatACPConfig_DefaultBinary(t *testing.T) {
 	assert.Equal(t, "opencode acp", b.chatACPConfig().Command)
 }
 
-// TestWriteModelConfig_CreatesNewFile: a missing file is created with just the
-// model key.
-func TestWriteModelConfig_CreatesNewFile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/work", 0o755))
-
-	require.NoError(t, writeModelConfig(fs, "/work", "openrouter/x:free"))
-
-	got := readJSON(t, fs, "/work/opencode.json")
-	assert.Equal(t, "openrouter/x:free", got["model"])
-	assert.Len(t, got, 1)
-}
-
-// TestWriteModelConfig_PreservesUnrelatedKeys: writing the model key leaves every
-// other existing key untouched (read-modify-write, never overwrite).
-func TestWriteModelConfig_PreservesUnrelatedKeys(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/work", 0o755))
-	existing := `{
-  "$schema": "https://opencode.ai/config.json",
-  "theme": "tokyonight",
-  "mcp": {"local": {"type": "local", "command": ["foo"]}},
-  "model": "openrouter/OLD:free"
-}`
-	require.NoError(t, afero.WriteFile(fs, "/work/opencode.json", []byte(existing), 0o644))
-
-	require.NoError(t, writeModelConfig(fs, "/work", "openrouter/NEW:free"))
-
-	got := readJSON(t, fs, "/work/opencode.json")
-	assert.Equal(t, "openrouter/NEW:free", got["model"], "model key is updated")
-	assert.Equal(t, "https://opencode.ai/config.json", got["$schema"], "unrelated $schema preserved")
-	assert.Equal(t, "tokyonight", got["theme"], "unrelated theme preserved")
-	assert.NotNil(t, got["mcp"], "unrelated nested mcp preserved")
-	mcp := got["mcp"].(map[string]any)
-	assert.NotNil(t, mcp["local"], "nested value preserved verbatim")
-}
-
-// TestWriteModelConfig_MalformedFileErrors: a malformed existing file must FAIL
-// LOUDLY and leave the original bytes intact, never clobber them.
-func TestWriteModelConfig_MalformedFileErrors(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/work", 0o755))
-	garbage := `{ this is not: valid json ]`
-	require.NoError(t, afero.WriteFile(fs, "/work/opencode.json", []byte(garbage), 0o644))
-
-	err := writeModelConfig(fs, "/work", "openrouter/x:free")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "malformed")
-
-	// The original malformed bytes must be untouched (no clobber).
-	after, readErr := afero.ReadFile(fs, "/work/opencode.json")
-	require.NoError(t, readErr)
-	assert.Equal(t, garbage, string(after))
-}
+// writeModelConfig (the model-only projection of writeOpencodeConfig) was
+// deleted as dead (U080-F08: test-only, and a single-expression pass-through).
+// Its three tests here duplicated settings_test.go's direct
+// writeOpencodeConfig coverage byte-for-byte:
+// TestWriteOpencodeConfig_MergesManagedKeysPreservingForeign (new-file +
+// preserve-unrelated-keys) and TestWriteOpencodeConfig_MalformedErrors
+// (fail-loud, bytes untouched) — both already exercise managedConfig{model:
+// ...} through the real merge engine, so no coverage was lost deleting these.
 
 func readJSON(t *testing.T, fs afero.Fs, path string) map[string]any {
 	t.Helper()

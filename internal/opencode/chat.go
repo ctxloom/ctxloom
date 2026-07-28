@@ -155,15 +155,6 @@ func (b *Opencode) chatACPConfig() acp.ACPConfig {
 	}
 }
 
-// writeModelConfig sets ONLY the `model` key in the project-local opencode.json,
-// preserving every other key verbatim. It is the model-only projection of the
-// single opencode.json merge engine (writeOpencodeConfig, settings.go): a missing
-// file is created with just the model key, an existing file keeps its other keys,
-// and a MALFORMED existing file FAILS LOUDLY rather than being clobbered.
-func writeModelConfig(fs afero.Fs, workDir, model string) error {
-	return writeOpencodeConfig(fs, workDir, managedConfig{model: model})
-}
-
 // chatManaged is the pure ChatRequest→opencode.json mapping the structured-chat
 // overlay writes, mirroring interactiveManaged so the two paths cannot diverge
 // on what a run's managed config contains. Chat has no SkipSetup posture (that

@@ -21,7 +21,6 @@ type ConversationRef struct {
 	// absolute directory path kiro-cli was started in, never any other kind
 	// of namespace string).
 	WorkDir   string
-	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
@@ -51,11 +50,12 @@ func EnumerateConversations(ctx context.Context, dbPath string) ([]ConversationR
 	var out []ConversationRef
 	for rows.Next() {
 		var ref ConversationRef
+		// created_at is selected (it's part of conversations_v2's row shape)
+		// but not scanned into ConversationRef: nothing reads it (U149-F13).
 		var createdMs, updatedMs int64
 		if err := rows.Scan(&ref.ConversationID, &ref.WorkDir, &createdMs, &updatedMs); err != nil {
 			return nil, fmt.Errorf("kiro: scan row in %s: %w", dbPath, err)
 		}
-		ref.CreatedAt = time.UnixMilli(createdMs).UTC()
 		ref.UpdatedAt = time.UnixMilli(updatedMs).UTC()
 		out = append(out, ref)
 	}

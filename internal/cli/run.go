@@ -888,7 +888,22 @@ Examples:
 					"agent coordinator startup failed: %v", cerr)
 			} else {
 				sessionCoord = sc
+				// U021-F02: RevokeSessionOwner existed with zero call sites,
+				// so a depth-0 session-owner credential (minted per `ctxloom
+				// run` process by sessionOwnerEnv, above) was never revoked
+				// — doc.go's "revocation at run end severs the credential's
+				// streams and parked polls" held for run credentials but not
+				// for this one, and since runsFold.apply re-applies every
+				// factSessionCred on replay/adoption, every owner token ever
+				// minted for a project stayed valid forever in that
+				// project's coordinator state. Revoke on the SAME teardown
+				// that closes the coordinator — defers run LIFO, so Close
+				// is deferred FIRST here to make Revoke (deferred second)
+				// run BEFORE it, while the journal is still open to accept
+				// the write.
+				ownerToken := coordEnv[coord.EnvCoordCred]
 				defer sessionCoord.Close()
+				defer sessionCoord.RevokeSessionOwner(ownerToken)
 				runnerSpawnEnv = coordEnv
 				// The runner's local identity (session instructions, plan
 				// stamping) is the session harp.

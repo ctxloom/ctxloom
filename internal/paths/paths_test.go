@@ -65,7 +65,6 @@ func TestProfilesPath_AtRoot(t *testing.T) {
 // Harp Session Directory Tests
 // =============================================================================
 
-
 // TestTriggerCacheDir_HomeRootedUnderCache pins the trigger verdict cache to
 // ~/.ctxloom/cache/triggers — home-rooted (never inside a project tree) and
 // under the general CacheDir convention (safe to delete), distinct from

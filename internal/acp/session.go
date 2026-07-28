@@ -1329,20 +1329,6 @@ func rawSessionUpdate(params json.RawMessage) (json.RawMessage, error) {
 	return n.Update, nil
 }
 
-// decodeSessionUpdate parses a session/update notification's params, decoding the
-// (SDK-typed-as-interface{}) `update` field into the typed SessionUpdate union.
-func decodeSessionUpdate(params json.RawMessage) (*api.SessionUpdate, error) {
-	raw, err := rawSessionUpdate(params)
-	if err != nil {
-		return nil, err
-	}
-	var upd api.SessionUpdate
-	if err := json.Unmarshal(raw, &upd); err != nil {
-		return nil, err
-	}
-	return &upd, nil
-}
-
 // sliceLines applies fs/read_text_file's optional 1-based line offset and max
 // line count; either being nil means "from the start" / "to the end".
 func sliceLines(content string, line, limit *int) string {

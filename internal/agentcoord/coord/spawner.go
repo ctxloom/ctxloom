@@ -495,7 +495,17 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 func (s *prodSpawner) ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string {
 	contextText := plan.Context
 	if entries, err := operations.RecordedSessionEntries(ctx, harp); err == nil {
-		contextText = operations.JoinLeadBlocks(contextText, operations.RenderResumedTranscript(harp, entries))
+		rendered := operations.RenderResumedTranscript(harp, entries)
+		// U024-F03: RenderResumedTranscript legitimately returns "" for zero
+		// substantive entries, and JoinLeadBlocks(contextText, "") yields
+		// contextText UNCHANGED — indistinguishable, from the outside, from
+		// "loaded the whole conversation". Only the error branch below used
+		// to warn, so a resume that silently primed with no history at all
+		// gave no signal the user could tell apart from a healthy resume.
+		if rendered == "" {
+			clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (transcript rendered empty); resuming with the agent context only", harp)
+		}
+		contextText = operations.JoinLeadBlocks(contextText, rendered)
 	} else {
 		clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
 	}

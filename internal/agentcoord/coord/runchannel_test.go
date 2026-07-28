@@ -681,3 +681,69 @@ func TestServePeerSend_UnmarshalableStructuredIsRefused(t *testing.T) {
 			"a refused send must not queue a hollowed-out message")
 	}
 }
+
+// TestServeStopRun_CancelsLaunch (U024-F04) is plane-2 agent_stop's twin of
+// Coordinator.AgentStop's own fix for the 2026-07-24 incident: a stop that
+// only ends the run record cannot stop a LAUNCHER — an armed relaunch or an
+// in-flight container prepare (a seconds-wide window) carries on behind a
+// response that already said "stopped". The host-side AgentStop verb calls
+// cancelLaunch "on BOTH paths" with a comment naming that incident; plane-2's
+// serveStopRun (the path a coordinator-capable CHILD uses to stop its own
+// grandchild) did not call it at all — `rg cancelLaunch` found exactly the
+// one call site before this fix.
+func TestServeStopRun_CancelsLaunch(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+	owner := ownerHome(t, c)
+
+	require.False(t, c.launchStopped(out.Harp), "precondition: no stop has landed yet")
+
+	resp, err := owner.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: out.RunID}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode())
+
+	assert.True(t, c.launchStopped(out.Harp),
+		"plane-2 agent_stop (serveStopRun) must cancel the launch exactly like the host-side AgentStop verb — "+
+			"an armed relaunch or an in-flight container prepare must turn back, not carry on behind a "+
+			"response that already said \"stopped\"")
+}
+
+// TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded reproduces the EXACT
+// 2026-07-24 incident shape on the plane-2 surface: a stop landing on a run
+// that has ALREADY ended, with a relaunch armed behind it (simulated here by
+// clearLaunchGate — exactly what a fresh agent_send/inject delivery to an
+// ended child does). The already-ended early return must still cancel the
+// launch, not just report "already ended" and leave the armed relaunch to
+// carry on.
+func TestServeStopRun_CancelsLaunch_EvenWhenAlreadyEnded(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+	owner := ownerHome(t, c)
+
+	first, err := owner.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: out.RunID}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, codes.OK, first.GetStatus().GetCode())
+	require.True(t, c.launchStopped(out.Harp), "precondition: the first stop already cancelled the launch")
+
+	// Simulate a fresh delivery re-arming a relaunch (clearLaunchGate is
+	// exactly what agent_send/inject call on a fresh ask to an ended child).
+	c.clearLaunchGate(out.Harp)
+	require.False(t, c.launchStopped(out.Harp), "precondition: the re-arm actually cleared the stop bit")
+
+	second, err := owner.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: out.RunID}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, codes.OK, second.GetStatus().GetCode())
+	assert.Contains(t, second.GetStatus().GetMessage(), "already ended", "sanity: this IS the already-ended branch")
+
+	assert.True(t, c.launchStopped(out.Harp),
+		"the already-ended branch must still cancel the launch — the exact 2026-07-24 incident shape: a stop "+
+			"landing on an already-ended run with a relaunch armed behind it must not let that relaunch carry on")
+}

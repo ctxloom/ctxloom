@@ -922,6 +922,18 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 	if rec == nil || rec.ParentHarp != caller.Harp {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
 	}
+	// U024-F04: cancel the LAUNCH before anything else, on BOTH agent_stop
+	// surfaces — this is plane-2's twin of Coordinator.AgentStop's own fix
+	// for the 2026-07-24 incident (coordinator.go), where a stop landed on
+	// an already-ended run with a relaunch already armed behind it,
+	// reported success, and the loop spun on for another 40 minutes. A stop
+	// that only ends the run record cannot stop a launcher: this marks the
+	// harp stopped (an armed-but-not-yet-enqueued relaunch turns back) and
+	// cancels the context of any attempt currently in flight (a container
+	// prepare makes a seconds-wide window) — needed here too because this
+	// is the path a coordinator-capable CHILD uses to stop its own
+	// grandchild, not just the host-side verb.
+	c.cancelLaunch(rec.Harp)
 	if rec.Ended {
 		// The detail carries the earlier stop's `reason` when there was one,
 		// so a second agent_stop reports WHY it ended, not just that it did.

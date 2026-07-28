@@ -266,7 +266,10 @@ func (r Report) Marshal() ([]byte, error) { return json.MarshalIndent(r, "", "  
 
 // ExtractReport pulls the report JSON from a stream that brackets it with the
 // begin/end markers and unmarshals it — the reader half of the stderr channel,
-// shared by the binary's own round-trip test and the container test.
+// used by the binary's own round-trip test (runtime_test.go) and by the
+// container test (container_docker_integration_test.go), which cross-checks
+// it against the file-channel report to prove the two agree from inside a
+// real container.
 func ExtractReport(s string) (Report, error) {
 	var rep Report
 	i := strings.Index(s, ReportBegin)

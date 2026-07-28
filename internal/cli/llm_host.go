@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // llmHostCmd is the docker-direct runner mode (queer-shrug Phase 1): `ctxloom
@@ -29,6 +30,10 @@ var llmHostCmd = &cobra.Command{
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Fail-loudly gate (U037-F03): same shape as `llm serve` — see its
+		// RunE for the full rationale.
+		startupMark := strictness.Checkpoint()
+
 		backendName := args[0]
 
 		backend := backends.Get(backendName)
@@ -44,6 +49,9 @@ var llmHostCmd = &cobra.Command{
 		standup, err := standUpRunner(cmd, backend, backendName)
 		if err != nil {
 			return err
+		}
+		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+			return ferr
 		}
 
 		// The runner stays warm across turns; the coordinator tears it down

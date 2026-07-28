@@ -174,10 +174,12 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 		return nil, fmt.Errorf("invalid lockfile bundle key %q: not a canonical ref", bundleName)
 	}
 
+	// ref.URL is guaranteed non-empty here: the IsCanonical() check above is
+	// exactly `ref.URL != ""`, so there is no fallback to entry.URL to take
+	// (U093-F23 — the fallback was unreachable dead code; entry.URL is never
+	// cross-checked against ref.URL, which is a separate, still-open concern
+	// for whoever owns lockfile provenance validation).
 	repoURL := ref.URL
-	if repoURL == "" {
-		repoURL = entry.URL
-	}
 
 	fetcher, ferr := r.factory(repoURL, r.auth)
 	if ferr != nil {

@@ -148,7 +148,7 @@ func TestFilterActiveDefault_ExplicitStatusBypassesFiltering(t *testing.T) {
 func TestListAllProjects_EmptyTasksDirIsNotAnError(t *testing.T) {
 	taskstest.Isolate(t) // fresh HOME: ~/.ctxloom/tasks doesn't exist yet
 
-	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "")
+	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "", 0)
 	require.NoError(t, err)
 	assert.Zero(t, got.ProjectCount)
 	assert.Empty(t, got.Rows)
@@ -164,7 +164,7 @@ func TestListAllProjects_AggregatesAcrossProjectFilesSortedDeterministically(t *
 	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "a's active task", "", "")
 	require.NoError(t, err)
 
-	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "")
+	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, 2, got.ProjectCount)
 	assert.Equal(t, 1, got.HiddenCompleted, "the done task in proj-b is hidden by the default active-only view")
@@ -176,13 +176,35 @@ func TestListAllProjects_AggregatesAcrossProjectFilesSortedDeterministically(t *
 	assert.Equal(t, "b's active task", got.Rows[1].Text)
 }
 
+// TestListAllProjects_LimitCapsRowsAndReportsOmitted pins U007-F01: a
+// global listing previously ignored `limit` outright (the parameter didn't
+// even exist), always returning every row from every project with no cap
+// and omitted_by_limit permanently 0 — exactly the case the MCP task_list
+// tool's own instructions tell an agent to rely on `limit` for.
+func TestListAllProjects_LimitCapsRowsAndReportsOmitted(t *testing.T) {
+	taskstest.Isolate(t)
+
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "task 1", "", "")
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "task 2", "", "")
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "task 3", "", "")
+	require.NoError(t, err)
+
+	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "", 2)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.ProjectCount, "every project is still scanned for HiddenCompleted/HiddenDeferred accounting")
+	assert.Len(t, got.Rows, 2, "limit caps the TOTAL row count across every project")
+	assert.Equal(t, 1, got.OmittedByLimit)
+}
+
 func TestListAllProjects_IncludeDoneSurfacesHiddenTasksToo(t *testing.T) {
 	taskstest.Isolate(t)
 
 	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "done", tasks.StatusDone, "")
 	require.NoError(t, err)
 
-	got, err := listAllProjects(nil, "", "", true, false, nil, time.Time{}, "")
+	got, err := listAllProjects(nil, "", "", true, false, nil, time.Time{}, "", 0)
 	require.NoError(t, err)
 	require.Len(t, got.Rows, 1)
 	assert.Zero(t, got.HiddenCompleted)
@@ -233,7 +255,7 @@ func TestListAllProjects_TermFilterAppliesPerProject(t *testing.T) {
 	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "write docs", "", "")
 	require.NoError(t, err)
 
-	got, err := listAllProjects(nil, "parser", "", false, false, nil, time.Time{}, "")
+	got, err := listAllProjects(nil, "parser", "", false, false, nil, time.Time{}, "", 0)
 	require.NoError(t, err)
 	require.Len(t, got.Rows, 1)
 	assert.Equal(t, "proj-a", got.Rows[0].ProjectID)

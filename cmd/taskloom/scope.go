@@ -181,6 +181,15 @@ type globalListResult struct {
 	// when sortPriority wasn't requested, or every scanned project's ranking
 	// was fine.
 	PriorityWarning string
+
+	// OmittedByLimit counts the rows a positive limit cut off Rows after
+	// every project was scanned, filtered, and sorted — the global-scope
+	// counterpart of operations.TaskListResult.OmittedByLimit. Previously
+	// limit was silently ignored entirely whenever a listing went global
+	// (explicit --global or the no-project fallback): the caller got back
+	// every row from every project with no cap and no signal that anything
+	// was supposed to have been capped (U007-F01).
+	OmittedByLimit int
 }
 
 // listAllProjects aggregates every project's task log under ~/.ctxloom/tasks
@@ -206,7 +215,7 @@ type globalListResult struct {
 //
 // A tasks dir that doesn't exist yet (nothing has ever been tracked
 // anywhere) is zero projects, zero tasks — not an error.
-func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPriority bool, schema *tagschema.Schema, now time.Time, sessionHarp string) (*globalListResult, error) {
+func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPriority bool, schema *tagschema.Schema, now time.Time, sessionHarp string, limit int) (*globalListResult, error) {
 	dir, err := paths.HomeTasksDir()
 	if err != nil {
 		return nil, fmt.Errorf("tasks dir: %w", err)
@@ -266,6 +275,15 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPr
 		}
 		return out.Rows[i].HarpID < out.Rows[j].HarpID
 	})
+	// Applied LAST, after every project has been scanned/filtered/sorted:
+	// limit caps the TOTAL row count across all projects, mirroring the
+	// single-project path (operations.listTasks) exactly. Previously this
+	// parameter didn't exist at all — a global listing ignored --limit
+	// completely and always returned every row from every project (U007-F01).
+	if limit > 0 && len(out.Rows) > limit {
+		out.OmittedByLimit = len(out.Rows) - limit
+		out.Rows = out.Rows[:limit]
+	}
 	return out, nil
 }
 

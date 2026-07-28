@@ -13,13 +13,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-const (
-	sessionsDirName = "sessions"
-	planExt         = ".plan.md"
-)
+const planExt = ".plan.md"
 
 // Plan is one session plan document.
 type Plan struct {
@@ -44,19 +41,9 @@ type Plan struct {
 	ProjectDir string `json:"project_dir,omitempty"`
 }
 
-// HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory whose
-// per-harp subdirectories hold session plan files.
-func HomeSessionsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, paths.AppDirName, sessionsDirName), nil
-}
-
 // ListHome lists all session plans under ~/.ctxloom/sessions.
 func ListHome() ([]Plan, error) {
-	root, err := HomeSessionsDir()
+	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +136,7 @@ func Show(path string) (string, error) {
 	if !strings.HasSuffix(path, planExt) {
 		return "", fmt.Errorf("not a plan file: %s", path)
 	}
-	root, err := HomeSessionsDir()
+	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return "", err
 	}

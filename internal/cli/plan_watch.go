@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/plans"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
 )
 
@@ -47,7 +47,7 @@ backend so a frontend never has to touch ~/.ctxloom itself.`,
 }
 
 func runPlanWatch(cmd *cobra.Command, args []string) error {
-	root, err := plans.HomeSessionsDir()
+	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return err
 	}

@@ -47,9 +47,10 @@ import (
 // launch working directory ENTIRELY and always writes to a FIXED global
 // scratch (~/.gemini/antigravity-cli/scratch/) regardless of which worktree
 // it runs in, so two "isolated" agents share one global scratch tree no
-// matter how many per-agent worktrees/HOMEs are set up. Combined with
-// authIsolated==false, BOTH of a host worktree's two possible payoffs for
-// this engine are absent — a curated HOME here only isolates config/session
+// matter how many per-agent worktrees/HOMEs are set up. Combined with a
+// curated HOME never relocating authentication either, BOTH of a host
+// worktree's two possible payoffs for this engine are absent — a curated HOME
+// here only isolates config/session
 // state (real, but not what a worktree request is FOR) — so PrepareWorkspace
 // REFUSES a host worktree request for this engine outright
 // (curatedHomeRefusal) instead of warning through a boundary that is not
@@ -80,17 +81,13 @@ type curatedHomeSpec struct {
 	// engine names the backend for messages (e.g. "agy") — mirrors
 	// credentialSeedSpec.engine.
 	engine string
-	// authIsolated reports whether pointing HOME at the curated scratch dir
-	// ALSO relocates this engine's authentication. False for antigravity —
-	// see the package-doc measurement above. A false spec fires a finding on
-	// every host-worktree PrepareWorkspace — curatedHomeRefusal (fatal) when
-	// workspaceViable is also false, else curatedHomeAuthFinding (warn); a
-	// (hypothetical) true spec would not need either.
-	authIsolated bool
 	// workspaceViable reports whether a HOST {workspace: worktree} run is an
-	// acceptable posture for this engine DESPITE authIsolated being false —
-	// i.e. whether the worktree's OTHER possible payoff (relocating the
-	// engine's file writes into the per-agent checkout) actually holds.
+	// acceptable posture for this engine — i.e. whether the worktree's OTHER
+	// possible payoff (relocating the engine's file writes into the per-agent
+	// checkout) actually holds, given a curated HOME never relocates
+	// authentication for any registered engine (see the package-doc
+	// measurement above; U062-F21 deleted the speculative authIsolated axis —
+	// no registered or hypothetical engine has ever set it true).
 	// False for antigravity: MEASURED 2026-07-22 against agy 1.1.5 (see the
 	// package doc above) — `agy -p` ignores the launch cwd entirely and
 	// always writes to its own fixed global scratch, so the workspace axis
@@ -100,10 +97,10 @@ type curatedHomeSpec struct {
 	// request for this spec outright (curatedHomeRefusal) rather than warn
 	// through a boundary that isolates neither of the two things a worktree
 	// request is asking for. A spec with workspaceViable true (none exist
-	// yet) would keep the pre-existing warn-only posture (curatedHomeAuthFinding)
-	// even with authIsolated false — e.g. a hypothetical engine whose file
-	// writes DO honour the launch cwd, so the worktree still isolates
-	// something real even though auth doesn't.
+	// yet) would keep the pre-existing warn-only posture
+	// (curatedHomeAuthFinding) — e.g. a hypothetical engine whose file writes
+	// DO honour the launch cwd, so the worktree still isolates something real
+	// even though auth doesn't.
 	//
 	// NEVER consulted for a Worktree wrapped inside a container base
 	// (container_worktree.go's worktreeBase) — Worktree.containerWrapped
@@ -130,7 +127,6 @@ type curatedHomeSpec struct {
 var curatedHomeSpecs = map[string]curatedHomeSpec{
 	"antigravity": {
 		engine:              "agy",
-		authIsolated:        false,
 		workspaceViable:     false,
 		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run authenticates ONLY via a seeded host file-based OAuth token (~/.gemini/antigravity-cli/antigravity-oauth-token) rather than silently authenticating as the host user through the keyring — with no such host token to seed, it fails closed instead — see auth.go's resolveAntigravityContainerAuth",
 	},
@@ -194,8 +190,8 @@ func provisionCuratedHome(home string) error {
 }
 
 // curatedHomeAuthFinding emits the LOUD, non-fatal warning that config and
-// session-state isolation succeeded but authentication did not, for a spec
-// whose authIsolated is false. Two callers reach it: a workspaceViable==true
+// session-state isolation succeeded but authentication did not — every
+// registered curatedHomeSpec, since none relocates authentication. Two callers reach it: a workspaceViable==true
 // spec's host worktree (none exist yet — see the field's doc), and EVERY
 // container-wrapped worktree (Worktree.containerWrapped), REGARDLESS of
 // workspaceViable — a container's own mount/PID namespace already contains

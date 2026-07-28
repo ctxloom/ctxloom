@@ -259,13 +259,16 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 }
 
 // provisionCuratedHomeFor creates the per-agent curated HOME (curatedhome.go)
-// for a curatedHomeSpecs-registered backend and, when the spec's lever does
-// NOT also isolate authentication, emits either the loud non-fatal
-// curatedHomeAuthFinding or — for a workspaceViable==false spec on the
-// STANDALONE host path (w.containerWrapped false) — the FATAL
-// curatedHomeRefusal. Returns "" on the MkdirAll/symlink-setup failure — the
-// run still proceeds against the shared host HOME (warn), mirroring
-// provisionConfigHome's own best-effort contract; never blocking.
+// for a curatedHomeSpecs-registered backend and emits either the loud
+// non-fatal curatedHomeAuthFinding or — for a workspaceViable==false spec on
+// the STANDALONE host path (w.containerWrapped false) — the FATAL
+// curatedHomeRefusal (no registered spec's lever isolates authentication, so
+// one of the two always fires — see curatedHomeSpec.workspaceViable's doc;
+// U062-F21 deleted the speculative authIsolated axis that used to gate a
+// third, always-untaken "fully isolated" no-op case here). Returns "" on the
+// MkdirAll/symlink-setup failure — the run still proceeds against the shared
+// host HOME (warn), mirroring provisionConfigHome's own best-effort contract;
+// never blocking.
 //
 // The fatal branch is deliberately gated on !w.containerWrapped: this same
 // method runs, unchanged, when called through container_worktree.go's
@@ -282,8 +285,6 @@ func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) 
 	// independent of whether the scratch dir happened to provision cleanly —
 	// so the verdict must fire regardless of the I/O outcome below.
 	switch {
-	case spec.authIsolated:
-		// Fully isolated — no finding at all.
 	case !spec.workspaceViable && !w.containerWrapped:
 		curatedHomeRefusal(agentID, spec)
 	default:

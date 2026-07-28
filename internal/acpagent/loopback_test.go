@@ -637,3 +637,82 @@ func TestL1_TerminalForwarding_EditorDeclines(t *testing.T) {
 	require.Nil(t, rerr)
 	assert.EqualValues(t, api.StopReasonEndTurn, resp.StopReason)
 }
+
+// --- malformed-input / capability-mismatch (flow-batch review gap) ---
+//
+// Every test above drives a WELL-FORMED request across the real process
+// boundary. This suite had none exercising a malformed frame, an unknown
+// method, or a request against an unknown session — the review's own
+// pattern for a batch's flow-level test ("a journey with no malformed-input
+// scenario is a serious gap") applied here as much as to any acceptance
+// journey. The three below close it at the SAME real-process level the rest
+// of this file operates at, not just at the in-process unit level
+// (jsonrpc_test.go's TestServeInboundRequest_UnknownMethod already covered
+// the codec in isolation; this proves the whole spawned production stack
+// gives the identical, correct answer end to end).
+
+// TestL1_UnknownMethod_RealProcessBoundary: a method the agent role does not
+// implement gets a real -32601 (Method Not Found) JSON-RPC error back over
+// the actual process boundary — not a hang, not a silently dropped frame,
+// not a crash that takes cmd/acpl1harness down (which would fail every
+// later assertion in this same test via a broken pipe, so a hang/crash here
+// is not a possible false negative).
+func TestL1_UnknownMethod_RealProcessBoundary(t *testing.T) {
+	p := startL1Proc(t)
+	p.initialize()
+
+	var resp json.RawMessage
+	err := p.conn.Call(context.Background(), "session/no_such_method", map[string]any{}, &resp)
+	require.Error(t, err, "an unknown method must be answered with an error, not silently succeed or hang")
+	rerr, ok := err.(*jsonrpc.Error)
+	require.True(t, ok, "expected a *jsonrpc.Error, got %T: %v", err, err)
+	assert.Equal(t, jsonrpc.CodeMethodNotFound, rerr.Code)
+
+	// The connection must survive an unknown method: a real request right
+	// after still works normally.
+	sid := p.newSession(t.TempDir())
+	assert.NotEmpty(t, sid)
+}
+
+// TestL1_SessionPrompt_UnknownSessionId_RealProcessBoundary: a session/prompt
+// naming a session id nothing ever minted gets a real error naming the
+// unknown id — not a hang (there is no session to register a turn against,
+// so a hang here would mean the request silently vanished) and not a
+// fabricated success.
+func TestL1_SessionPrompt_UnknownSessionId_RealProcessBoundary(t *testing.T) {
+	p := startL1Proc(t)
+	p.initialize()
+
+	await := p.promptAsync(api.SessionId("no-such-session-ever-minted"), "hello")
+	_, rerr := await(context.Background())
+	require.NotNil(t, rerr, "a prompt against an unknown session id must error, not hang or silently succeed")
+	assert.Contains(t, rerr.Message, "no-such-session-ever-minted", "the error must name the actual unknown id, not a generic failure")
+}
+
+// TestL1_SessionPrompt_MalformedParams_RealProcessBoundary: a session/prompt
+// whose params are valid JSON but the WRONG SHAPE (prompt as a bare string
+// instead of the required content-block array) is refused as invalid
+// params, across the real process boundary, and the connection survives to
+// serve a well-formed request afterward.
+func TestL1_SessionPrompt_MalformedParams_RealProcessBoundary(t *testing.T) {
+	p := startL1Proc(t)
+	p.initialize()
+	sid := p.newSession(t.TempDir())
+
+	var resp json.RawMessage
+	err := p.conn.Call(context.Background(), api.AgentMethodSessionPrompt,
+		map[string]any{"sessionId": string(sid), "prompt": "not an array, a bare string"}, &resp)
+	require.Error(t, err, "a wrong-shaped prompt payload must be refused, not silently accepted or hung on")
+	rerr, ok := err.(*jsonrpc.Error)
+	require.True(t, ok, "expected a *jsonrpc.Error, got %T: %v", err, err)
+	assert.Equal(t, jsonrpc.CodeInvalidParams, rerr.Code)
+
+	// The session survives a malformed request: a well-formed prompt after
+	// it still runs a normal turn.
+	await := p.promptAsync(sid, "still alive after the malformed one")
+	upd := decodeUpdate(t, p.waitUpdate())
+	assert.Equal(t, "echo: still alive after the malformed one", upd.Update.Content.Text)
+	goodResp, goodErr := await(context.Background())
+	require.Nil(t, goodErr)
+	assert.EqualValues(t, api.StopReasonEndTurn, goodResp.StopReason)
+}

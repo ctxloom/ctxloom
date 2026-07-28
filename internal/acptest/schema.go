@@ -40,18 +40,21 @@ import (
 //go:embed acp-schema-v1.json
 var schemaJSON []byte
 
-// SchemaSourceURL/SchemaCommit/SchemaVersion/SchemaVendoredAt document the
-// vendored schema's provenance (see the package doc for the full story).
-const (
-	SchemaSourceURL  = "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/a34b896504dd86136f80aab0e69de7a77bacc181/schema/v1/schema.json"
-	SchemaCommit     = "a34b896504dd86136f80aab0e69de7a77bacc181"
-	SchemaVersion    = "schema-v1.19.0"
-	SchemaVendoredAt = "2026-07-16"
-	// schemaResourceName is the compiler resource id acp-schema-v1.json is
-	// registered under; $defs entries are addressed as
-	// schemaResourceName + "#/$defs/<Name>".
-	schemaResourceName = "acp-schema-v1.json"
-)
+// U015-F02: SchemaSourceURL/SchemaCommit/SchemaVersion/SchemaVendoredAt used
+// to be exported here too, documenting the vendored schema's provenance --
+// but the same provenance is already stated, in more detail, in the package
+// doc comment above (source URL, commit, version, vendor date), and these
+// four constants had zero readers anywhere in the repo, including this
+// package's own tests. Deleted rather than left as an unenforced,
+// independently-driftable second copy of the same facts (nothing checked
+// that a re-vendor updated both the file's provenance comment AND these
+// constants together — see the package doc's re-vendor recipe, which only
+// updates the JSON file).
+//
+// schemaResourceName is the compiler resource id acp-schema-v1.json is
+// registered under; $defs entries are addressed as
+// schemaResourceName + "#/$defs/<Name>".
+const schemaResourceName = "acp-schema-v1.json"
 
 // Validator validates individual ACP wire payloads (a request's params, a
 // response's result, a notification's params) against the current spec's

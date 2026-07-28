@@ -406,7 +406,7 @@
             "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
-            "binary_path": { "type": "string" },
+            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "default": "medium", "description": "Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium." }
@@ -420,7 +420,7 @@
             "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["gemini-3-pro"] },
-            "binary_path": { "type": "string" },
+            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },
@@ -433,7 +433,7 @@
             "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
-            "binary_path": { "type": "string" },
+            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "default": "medium", "description": "Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh — codex has no bare \"high\"; ctxloom's \"high\" maps to \"xhigh\") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob)." }
@@ -447,7 +447,7 @@
             "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
-            "binary_path": { "type": "string" },
+            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Kiro reasoning effort via --effort." },
@@ -465,7 +465,7 @@
             "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["openrouter/meta-llama/llama-3.3-70b-instruct:free"], "description": "opencode model string (provider/model); written into the run's opencode.json." },
-            "binary_path": { "type": "string" },
+            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning)." }
@@ -501,7 +501,7 @@
             "reasoning_summary_config_key": { "type": "string", "description": "A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary)." },
             "reasoning_summary": { "type": "string", "description": "The resolved value reasoning_summary_config_key delivers." },
             "strip_env": { "type": "array", "description": "Inherited environment variables removed from the spawned agent's env.", "items": { "type": "string" } },
-            "binary_path": { "type": "string" },
+            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },

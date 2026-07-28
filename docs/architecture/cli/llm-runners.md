@@ -40,9 +40,7 @@ flowchart TD
     SUR --> RSTD["runnerStandup{home, engineHost, endpointClose} :21"]
     RSTD --> TD["teardown :127 — engineHost → home → endpointClose"]
 
-    RUNGO2[["run.go:616,1008-1024"]] --> LBAF["llmBinaryArgsFor — llm_resolve.go:89"]
-    RUNGO2 --> LEF["llmEnvFor — llm_resolve.go:72"]
-    LBAF --> DBC
+    RUNGO2[["run.go:611"]] --> LEF["llmEnvFor — llm_resolve.go:72"]
 ```
 
 ## Commands
@@ -85,7 +83,6 @@ via `defer` (`llm_turn.go:79`), `llm serve` after `plugin.Serve` returns
 | `decodeBackendConfig` | `:20` | Label → typed backend config. Warns and returns nil on failure (fault-tolerant). |
 | `decodeBackendConfigForType` | `:46` | Type → typed config, deterministic pick when several labels share a type. |
 | `llmEnvFor` | `:72` | The label's `env` map. Returns nil for kiro/opencode/acp entries. |
-| `llmBinaryArgsFor` | `:89` | The label's `binary_path` + `args`. **A non-empty result flips `run.go` onto the external-plugin path** (`run.go:1008`), which drops container and worktree isolation. |
 | `serveBackendConfig` | `llm_serve.go:75` | Label first, then type fallback; warns on a label/type mismatch before falling back. |
 
 ## The RunStart handoff (`llm_turn.go`)
@@ -119,14 +116,6 @@ via `defer` (`llm_turn.go:79`), `llm serve` after `plugin.Serve` returns
 
 ## Documented vs real
 
-- **`binary_path` has two incompatible meanings, decided by an unexported type
-  switch.** For claude-code / codex / antigravity, `llmBinaryArgsFor`
-  (`llm_resolve.go:89-100`) makes a non-empty `binary_path` spawn the value as a
-  **hashicorp go-plugin server** and drop isolation; for kiro / opencode / acp the
-  identical key is only the engine-CLI override that every backend's `Configure`
-  already applies. The config schema
-  (`resources/schema/input/config-schema.json:400,414,427,441,459`) documents it
-  identically for all six. This needs a product decision, not a local fix.
 - **The three runner transports skip the config-warning and strictness gates.**
   `standUpRunner` calls `config.Load()` at `:62` and reacts only with a
   `clidiag.Warn` on a hard error; `cfg.GetWarnings()` is never read and

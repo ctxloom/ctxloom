@@ -1,7 +1,7 @@
 # `ctxloom run` — the launch path
 
 `ctxloom run` resolves *what context, which engine, which isolation boundary,
-and which of four mutually-exclusive transports* a top-level session launches
+and which of three mutually-exclusive transports* a top-level session launches
 on, then owns the user's terminal (or their stdin/stdout pipes) until the engine
 exits. It is the top of the launch architecture: `cmd/ctxloom` → `runCmd.RunE`
 → (`operations.*` for assembly, `internal/lm/isolation` for the boundary,
@@ -81,15 +81,14 @@ flowchart TD
         REQ["pb.RunStart{ManagedConfig: ...} :984"]
     end
 
-    ISO["isolation.Prepare(runAxes, backend, image, workDir, harp) :1048<br/>→ policy, workspace"]
-    MWE["mergeWorkspaceEnv :1061 (isolation env layered UNDER runEnv)"]
-    GATE2["failOnFindings(postStartupMark) :1071<br/>catches an isolation degrade the first gate could not see"]
+    ISO["isolation.Prepare(runAxes, backend, image, workDir, harp) :1060<br/>→ policy, workspace"]
+    MWE["mergeWorkspaceEnv :1073 (isolation env layered UNDER runEnv)"]
+    GATE2["failOnFindings(postStartupMark) :1083<br/>catches an isolation degrade the first gate could not see"]
 
     ARM{"transport arm"}
-    A1["external plugin — llmBinary != '' :1008<br/>pb.NewLLMRunner :1024 · NEVER isolated<br/>(gate at :1020 aborts a requested container)"]
-    A2["docker-exec interactive — selectsDockerExecInteractive :1366<br/>startContainerInteractive :1380"]
+    A2["docker-exec interactive — selectsDockerExecInteractive :1127<br/>startContainerInteractive :1128"]
     A3["owner-owned run — selectsOwnedRunContainer (run_owned.go:46)<br/>startContainerOwnedRun (run_owned.go:61)"]
-    A4["go-plugin — policy.SpawnClient :1141"]
+    A4["go-plugin — policy.SpawnClient :1156"]
 
     subgraph drive["7. drive"]
         D1["runStructuredREPLViaCoord :1171"]
@@ -108,8 +107,8 @@ flowchart TD
     START --> validate --> prompt --> startup --> resolve --> GATE1 --> DRY
     DRY -->|yes| DRYOUT
     DRY -->|no| session --> COORD --> SEED --> managed --> ISO --> MWE --> GATE2 --> ARM
-    ARM --> A1 & A2 & A3 & A4
-    A1 & A2 & A3 & A4 --> drive --> out
+    ARM --> A2 & A3 & A4
+    A2 & A3 & A4 --> drive --> out
 ```
 
 ## Command surface
@@ -141,7 +140,7 @@ flowchart TD
 Completions are registered for `agent`, `workspace`, `permissions`, `llm`,
 `fragment`, `tag`, `profile`, `command`.
 
-## The four transport arms
+## The three transport arms
 
 Selection is spread across two files as two predicates plus an implicit `else`,
 over the same three inputs (`policy.Name()`, `pb.ExecutionMode`, `runStructured`).
@@ -149,10 +148,15 @@ Nothing enforces that they are mutually exclusive and jointly exhaustive.
 
 | Arm | Predicate | Entry | Isolation |
 |---|---|---|---|
-| External plugin | `llmBinary != ""` (`run.go:1008`, from `llmBinaryArgsFor`) | `pb.NewLLMRunner` `:1024` | **None** — the user binary is spawned directly; `recordExternalPluginIsolationDrop` (`:1462`) raises a fatal finding if a container was explicitly requested |
-| docker-exec interactive | `selectsDockerExecInteractive` `:1366` — container ∧ INTERACTIVE ∧ ¬structured | `startContainerInteractive` `:1380` | Container; RunStart handed over via a file handoff read by `llm turn` |
+| docker-exec interactive | `selectsDockerExecInteractive` `:1127` — container ∧ INTERACTIVE ∧ ¬structured | `startContainerInteractive` `:1128` | Container; RunStart handed over via a file handoff read by `llm turn` |
 | Owner-owned run (Phase 2a-B) | `selectsOwnedRunContainer` `run_owned.go:46` — container ∧ (structured ∨ ONESHOT) | `startContainerOwnedRun` `run_owned.go:61` | Container; driven over Transport 2 through the coordinator, no go-plugin client |
-| go-plugin | otherwise | `policy.SpawnClient` `:1141` | Host or worktree; also the container-oneshot-on-host path |
+| go-plugin | otherwise | `policy.SpawnClient` `:1156` | Host or worktree; also the container-oneshot-on-host path |
+
+An external plugin binary launch arm (`llmBinary != ""` → `pb.NewLLMRunner`,
+spawned unisolated) existed here through U037-F04; removed as dead code with no
+users, no test, and no documented contract (see DECISIONS.md / ADR-0021 note).
+`binary_path` now has exactly one meaning across all six backends: the engine
+CLI path override applied by `agent.ApplyLocalCLIConfig`.
 
 ### Owner-owned run internals (`run_owned.go`)
 
@@ -185,10 +189,9 @@ The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwned
 | `validatePermissionFlag` | `:1525` | Hard-errors an unknown typed `--permissions` |
 | `resolveRunLLM` | `:1547` | Label precedence `--llm` > `profile.llm` > primary |
 | `validateExplicitLLM` / `usableLLMs` | `:1568`, `:1587` | Validates a label or an installed backend type; error names what *is* usable |
-| `mergeWorkspaceEnv` | `:1439` | Layers isolation env **under** an existing map (existing keys win) |
+| `mergeWorkspaceEnv` | `:1496` | Layers isolation env **under** an existing map (existing keys win) |
 | `stampHostTerminalEnv` | `:1344` | Copies host `TERM`/`COLORTERM` into `req.Options.Env` without clobbering |
-| `warnBypassOnLostContainer` | `:1479` | 4-term policy predicate: degraded container + bypass + not claude-code |
-| `recordExternalPluginIsolationDrop` | `:1462` | Fatal finding for requested-container-with-external-binary; warn for worktree |
+| `warnBypassOnLostContainer` | `:1513` | 4-term policy predicate: degraded container + bypass + not claude-code |
 | `resumeFullContext` / `resumeDistillEnv` | `:246`, `:270` | The two `--session` modes |
 | `distillSessionOnExit` / `shellOutDistill` | `:197`, `:140` | Idempotent, timeout-bounded exit-time distill (shells out to `ctxloom session distill <harp>`) |
 | `convertVendorTranscriptOnExit` | `:1313` | Imports the engine's own transcript after an interactive pty exit |

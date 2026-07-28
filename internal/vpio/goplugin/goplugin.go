@@ -28,7 +28,7 @@ import (
 )
 
 // Launcher binds an already-spawned plugin client (spawned upstream via
-// pb.NewLLMRunner / policy.SpawnClient, before the interactive turn begins)
+// policy.SpawnClient, before the interactive turn begins)
 // and its resolved RunStart to a vpio.Launcher. Start begins the
 // interactive Run turn on that already-live connection; it does not spawn a
 // new OS process or container — that already happened.

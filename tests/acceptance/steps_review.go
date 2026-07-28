@@ -27,6 +27,16 @@ func registerReviewSteps(ctx *godog.ScenarioContext) {
 
 // runTrustPlumbing runs `ctxloom <verb> file://<bare>@bundles/<item>` for a
 // seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
+// runTrustPlumbing runs `ctxloom <verb> file://<bare>@bundles/<item>` for a
+// seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
+//
+// U162-F08: this used to discard the run's error and return nil
+// unconditionally, deferring to a separate "the command succeeds" step every
+// current scenario happens to pair it with -- but neither of this function's
+// two step texts ("I accept/reject the pending item…") reads as an action
+// whose result a later step will check, so a feature author could omit that
+// exit assertion and silently accept a failed trust write. Every other
+// fixture step in the suite fails loudly (runOK); this now does too.
 func runTrustPlumbing(c context.Context, verb, item, remoteName string) error {
 	w := worldFrom(c)
 	bare := w.remoteBare[remoteName]
@@ -34,6 +44,5 @@ func runTrustPlumbing(c context.Context, verb, item, remoteName string) error {
 		return fmt.Errorf("remote %q was not seeded", remoteName)
 	}
 	ref := fmt.Sprintf("file://%s@bundles/%s", bare, item)
-	_ = w.env.Run(verb, ref)
-	return nil // exit status is asserted by a dedicated step
+	return runOK(w, verb, ref)
 }

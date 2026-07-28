@@ -458,3 +458,27 @@ rules:
 		t.Fatal("an absolute backslash-path invocation of cmd.exe must still match a `command: [cmd.exe, ...]` rule")
 	}
 }
+
+// TestShortClusterExpansionUsesInvokedProgramNotScriptShell pins U073-F10: a
+// script's OWN dialect must not govern flag-cluster classification for a
+// command whose PROGRAM is itself a different shell/interpreter binary.
+// `pwsh -Recurse` run as a plain command from a bash script was, before the
+// fix, classified using bash's POSIX convention (isShortCluster gates only on
+// cmd/pwsh, so bash falls through to "is a short cluster"), shredding
+// `-Recurse` into single-letter tokens (-R -e -c -u -r -s -e) — a false
+// match for any deny rule keyed on one of those single letters, even though
+// PowerShell's own convention never treats `-Recurse` as bundled short flags.
+func TestShortClusterExpansionUsesInvokedProgramNotScriptShell(t *testing.T) {
+	cfg := mustParse(t, `
+version: 1
+rules:
+  - id: no-posix-dash-r
+    match: { command: [pwsh], args_any: ["-R"] }
+    message: "false match on a PowerShell long flag misread as a POSIX cluster"
+`)
+	// Top-level script is BASH; the command it runs is `pwsh -Recurse ...`.
+	d := Evaluate(cfg, cmd(ir.ShellBash, "pwsh", "-Recurse", "-Force", "build"))
+	if !d.Allowed {
+		t.Fatal("`pwsh -Recurse` must not be shredded into POSIX single-letter clusters merely because the enclosing script is bash")
+	}
+}

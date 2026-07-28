@@ -409,10 +409,23 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if len(m.Shells) > 0 && !slices.Contains(m.Shells, shell) {
 		return false
 	}
-	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, shell, strictPrefix) {
+	// The shell whose flag conventions classify THIS command's own arguments:
+	// when the command's program is itself a recognized shell/interpreter
+	// binary, ITS identity governs its args regardless of what dialect the
+	// enclosing script declares (U073-F10) — running `pwsh -Recurse` as a
+	// plain command from a bash script must not have `-Recurse` shredded into
+	// single-letter POSIX clusters just because the ENCLOSING script is bash.
+	// The `shells:` constraint above stays keyed on the enclosing script,
+	// unchanged: "does this command live in a cmd-dialect script" is a
+	// separate question from "what convention governs its own flags".
+	argShell := shell
+	if s := shellForProgram(c.Program()); s != "" {
+		argShell = s
+	}
+	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
 		return false
 	}
-	args := expandShortClusters(c.Args(), shell)
+	args := expandShortClusters(c.Args(), argShell)
 	for _, a := range m.ArgsAll {
 		if !slices.Contains(args, a) {
 			return false
@@ -428,6 +441,35 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 		return false
 	}
 	return true
+}
+
+// shellForProgram maps program (a command's argv[0]) to the shell it itself
+// is, when it is a directly recognized shell/interpreter binary — deliberately
+// independent of shellenv.ShellFromPath (which has its own separate,
+// filepath.Base-is-OS-dependent defect, U075-F03) since this fixes a
+// different, HIGH-severity gap (U073-F10) and must not inherit that one.
+// path.Base is POSIX-only, so a Windows-style absolute path is normalized to
+// forward slashes first — the same fix as programBasename above, for the
+// same reason. Returns "" when program is not one of these.
+func shellForProgram(program string) ir.Shell {
+	name := strings.ToLower(path.Base(strings.ReplaceAll(program, `\`, "/")))
+	name = strings.TrimSuffix(name, ".exe")
+	switch name {
+	case "bash":
+		return ir.ShellBash
+	case "sh":
+		return ir.ShellSh
+	case "zsh":
+		return ir.ShellZsh
+	case "ksh", "mksh":
+		return ir.ShellMksh
+	case "pwsh", "powershell":
+		return ir.ShellPwsh
+	case "cmd":
+		return ir.ShellCmd
+	default:
+		return ""
+	}
 }
 
 // programBasename returns the trailing path component of argv[0] the way the

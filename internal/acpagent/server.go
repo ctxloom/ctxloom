@@ -453,12 +453,30 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		reply(nil, rerr)
 		return
 	}
+	// U014-F03: count what actually reached the wire against what the
+	// recorded history HAD, rather than trusting the loop ran. replayEntry
+	// (mapping.go) returns nil for entry types/shapes it does not map — a
+	// history recorded entirely in unmapped shapes replays zero frames and,
+	// without this count, session/load still replies success: the editor
+	// sees an empty transcript for a session that provably has one, with no
+	// indication anything was lost.
+	replayed := 0
 	for _, entry := range sess.engine.Replay {
 		for _, upd := range sess.replayEntry(entry) {
 			if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: upd}); err != nil {
 				reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "replay: " + err.Error()})
 				return
 			}
+			replayed++
+		}
+	}
+	if len(sess.engine.Replay) > 0 && replayed == 0 {
+		clidiag.Warn("ctxloom", "acp agent: session/load %s: %d recorded history entries replayed ZERO frames (all unmapped by replayEntry) — the editor is about to see an empty transcript for a session that is not actually empty", sess.id, len(sess.engine.Replay))
+		if rerr := s.emitUpdate(sess, api.SessionUpdate{AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{
+			Content: textBlock(fmt.Sprintf("ctxloom: this session has %d recorded history entries that could not be replayed into this transcript (unsupported entry type) — the conversation is not actually empty, only this view of it is.", len(sess.engine.Replay))),
+		}}); rerr != nil {
+			reply(nil, rerr)
+			return
 		}
 	}
 	// B4 (gap G5): see handleSessionNew's identical call for why this rides a
@@ -578,6 +596,17 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 		blocks = expandedCommandBlocks(blocks, expanded)
 	}
 
+	// U014-F02 (route a): a session/prompt whose blocks are ALL unrecognized
+	// variants flattens to text == "" via promptText's switch (no default
+	// case) and blocks == nil via contentBlocksFromACP's identical switch — a
+	// zero-byte message forwarded to the engine as an ordinary, successful
+	// turn. Refused here, before a turn is even registered, naming the cause
+	// rather than silently running the engine on nothing.
+	if text == "" && len(blocks) == 0 {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "session/prompt: the prompt has no content ctxloom recognizes (no text/resource/resourceLink/image/audio block) — refusing rather than sending the engine an empty message"})
+		return
+	}
+
 	sess.mu.Lock()
 	if sess.inTurn {
 		sess.mu.Unlock()
@@ -590,7 +619,16 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	case <-sess.cancelTurnCh: // drop a stale signal from a cancel that raced a completed turn
 	default:
 	}
-	if !sess.contextSent && sess.leadContext != "" {
+	// U014-F01: whether THIS turn carries the lead-context prefix is decided
+	// here, but committing sess.contextSent = true must wait until runTurn
+	// proves the message actually reached the engine (its own send to
+	// sess.engine.In succeeds) — see runTurn's doc. Deciding and committing in
+	// the same critical section, as this used to, marked the context
+	// delivered before it was, so a cancelled-before-send or dead-engine turn
+	// permanently lost the lead block for the rest of the session with no
+	// error anywhere.
+	prependsContext := !sess.contextSent && sess.leadContext != ""
+	if prependsContext {
 		// First turn (or first after a mode switch): ctxloom's assembled
 		// context rides as the lead block — the oneshot fan-out's proven
 		// delivery model, no engine flags needed. The structured form gets
@@ -599,17 +637,16 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 		text = sess.leadContext + "\n\n" + text
 		blocks = append([]agent.ContentBlock{{Kind: "text", Text: sess.leadContext}}, blocks...)
 	}
-	sess.contextSent = true
 	sess.mu.Unlock()
 
-	go s.runTurn(sess, text, blocks, reply)
+	go s.runTurn(sess, text, blocks, prependsContext, reply)
 }
 
 // runTurn runs ONE registered turn: deliver the message, forward the engine's
 // events as session/update notifications, forward its permission requests to
 // the client, relay a session/cancel to the engine, and reply with the stop
 // reason when the turn completes.
-func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock, replyWire func(any, *jsonrpc.Error)) {
+func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock, prependsContext bool, replyWire func(any, *jsonrpc.Error)) {
 	// The turn must close BEFORE its response reaches the wire: the client may
 	// send the next prompt the instant it reads the reply, and that prompt
 	// must not race a deferred reset into "a turn is already in flight".
@@ -623,6 +660,18 @@ func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock
 	// Send the message; a dead engine (closed conversation) surfaces on Errs.
 	select {
 	case sess.engine.In <- agent.ChatMessage{Text: text, ContentBlocks: blocks}:
+		// U014-F01: ONLY now, having proven the engine actually received this
+		// turn's message, is it true that the lead context (if this turn
+		// carried it — see handlePrompt) was delivered. Committing this
+		// earlier (handlePrompt used to, unconditionally, before this send
+		// ever ran) meant a turn that lost the race below — cancelled before
+		// send, or a dead engine — still marked the context sent, silently
+		// losing it for the rest of the session with no error anywhere.
+		if prependsContext {
+			sess.mu.Lock()
+			sess.contextSent = true
+			sess.mu.Unlock()
+		}
 	case <-sess.cancelTurnCh:
 		// Cancelled before the engine even received the message: honor the
 		// cancel without running the turn.

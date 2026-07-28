@@ -262,3 +262,63 @@ func TestServe_PromptCommandResolveError(t *testing.T) {
 	require.NotNil(t, resp.Error, "a matched command that fails to resolve must error the prompt, not silently pass raw text through")
 	assert.Contains(t, resp.Error.Message, "bundle vanished mid-session")
 }
+
+// TestServe_PromptCommandResolveEmpty pins U014-F02 (route b): a MATCHED
+// command that resolves to an EMPTY string used to be treated as a
+// successful expansion — handlePrompt would overwrite the turn's text with
+// "" and forward a zero-byte message to the engine, reporting success. An
+// empty resolution must be refused exactly like a resolve error.
+func TestServe_PromptCommandResolveEmpty(t *testing.T) {
+	eng := newFakeEngine()
+	eng.commands = &SessionCommands{
+		Available: []CommandInfo{{Name: "hollow"}},
+		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
+			return "", true, nil // matched, but nothing to say
+		},
+	}
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	id := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"/hollow now"}]}`)
+	resp, _ := c.waitResponse(id)
+	require.NotNil(t, resp.Error, "a command resolving to empty content must error the prompt, not run the engine on zero bytes")
+
+	// The session must still be usable — no turn was ever registered for the
+	// refused prompt.
+	go func() {
+		msg := eng.receivedText(t)
+		assert.Equal(t, "hello", msg)
+		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	}()
+	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"hello"}]}`))
+	require.Nil(t, resp.Error)
+}
+
+// TestServe_PromptEmptyBlocks_Refused pins U014-F02 (route a): a
+// session/prompt with no recognized content flattens to text=="" (promptText
+// over zero/unrecognized blocks) and blocks==nil (contentBlocksFromACP's own
+// explicit empty-input return) — a zero-byte message that used to be
+// forwarded to the engine as an ordinary, successful turn. An empty `prompt`
+// array is the simplest wire-legal way to reach exactly that flattening; it
+// must be refused instead of silently accepted.
+func TestServe_PromptEmptyBlocks_Refused(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	id := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[]}`)
+	resp, _ := c.waitResponse(id)
+	require.NotNil(t, resp.Error, "an empty-content prompt must be refused, not silently run the engine on zero bytes")
+	assert.Equal(t, -32602, resp.Error.Code)
+
+	// The session must still be usable afterward.
+	go func() {
+		msg := eng.receivedText(t)
+		assert.Equal(t, "hello", msg)
+		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	}()
+	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"hello"}]}`))
+	require.Nil(t, resp.Error)
+}

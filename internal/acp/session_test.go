@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -492,6 +493,58 @@ func TestChat_ForwardedPermission_InputClosed(t *testing.T) {
 
 	require.NoError(t, <-h.chatErr)
 	for range h.out {
+	}
+}
+
+// TestChat_ForwardedPermission_NoRaceOnConcurrentCancel pins U012-F01: Chat's
+// `defer close(out)` used to race the forwardPermission goroutine it spawns
+// with a bare `go` and never joins. registerPermission's Add(1)/forwardPermission's
+// Done() (via forwardGoroutines, session.go) close that window — teardown()
+// now Wait()s on every in-flight forwarder before returning, so close(out)
+// cannot run while one is still attempting its own s.send() call.
+//
+// The race needs the permission request dispatched (registerPermission called,
+// forwardPermission goroutine spawned) as close as possible to the parent ctx
+// being cancelled — waiting for the fake agent's requestPermission reply would
+// serialize past exactly that window, so this writes the request frame
+// directly and cancels immediately after, across enough iterations that an
+// unsynchronized version reliably crashes the whole test binary with "panic:
+// send on closed channel" (the review's own repro measured 96/200).
+func TestChat_ForwardedPermission_NoRaceOnConcurrentCancel(t *testing.T) {
+	const iterations = 200
+	for i := 0; i < iterations; i++ {
+		h := startChat(t, agent.ChatRequest{ForwardPermissions: true})
+
+		sid := h.fa.serveHandshake(t)
+		h.in <- agent.ChatMessage{Text: "do it"}
+		promptReq := <-h.fa.requests
+		require.Equal(t, "session/prompt", promptReq.Method, "iteration %d", i)
+
+		reqID := atomic.AddInt64(&h.fa.nextID, 1)
+		params, merr := json.Marshal(map[string]any{
+			"sessionId": sid,
+			"options":   permTestOptions,
+			"toolCall":  map[string]any{"toolCallId": "tc1", "title": "run"},
+		})
+		require.NoError(t, merr)
+		require.NoError(t, h.fa.writeFrame(rpcMessage{
+			Method: "session/request_permission",
+			ID:     json.RawMessage(strconv.FormatInt(reqID, 10)),
+			Params: params,
+		}))
+		// No synchronization between the write above and the cancel below is
+		// deliberate: it is exactly the absence of synchronization that lets
+		// the race happen at all, in production as much as here.
+		h.cancel()
+
+		// Chat legitimately returns ctx.Err() on a cancelled ctx (that is not
+		// the bug) — what this test guards is that returning it, and the
+		// close(out) that follows, never races a forwardPermission goroutine's
+		// own send into a panic that would crash the whole process instead of
+		// just this one conversation.
+		require.ErrorIs(t, <-h.chatErr, context.Canceled, "iteration %d", i)
+		for range h.out {
+		}
 	}
 }
 

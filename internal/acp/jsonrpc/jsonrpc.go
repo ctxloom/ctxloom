@@ -264,13 +264,27 @@ func (c *Conn) readLoop(ctx context.Context) {
 		case m.Method != "" && len(m.ID) > 0:
 			c.serveRequest(ctx, m)
 		case m.Method != "":
-			c.handler.HandleNotification(ctx, m.Method, m.Params)
+			c.serveNotification(ctx, m)
 		case len(m.ID) > 0:
 			c.routeResponse(m)
 		default:
 			warnf("acp: dropping unrecognized JSON-RPC frame (no method, no id)")
 		}
 	}
+}
+
+// serveNotification dispatches an inbound notification with the same panic
+// recovery serveRequest gives requests (U013-F01). A notification has no
+// reply slot to carry an error back on, so a panic here can only be warned,
+// not answered — but warning and continuing still beats taking the whole
+// read loop (and the process) down over one malformed notification.
+func (c *Conn) serveNotification(ctx context.Context, m rpcMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			warnf("acp: handler panic in notification %q: %v", m.Method, r)
+		}
+	}()
+	c.handler.HandleNotification(ctx, m.Method, m.Params)
 }
 
 // serveRequest dispatches an inbound request to the handler with a once-guarded
@@ -296,6 +310,21 @@ func (c *Conn) serveRequest(ctx context.Context, m rpcMessage) {
 			}
 		})
 	}
+	// U013-F01: HandleRequest runs INLINE on this read-loop goroutine. Without a
+	// recover, any panic inside a handler — a slice bounds error deep in a fs/*
+	// handler, say — is unrecovered on this goroutine and terminates the whole
+	// ctxloom process, mid-conversation, with no reply ever written. The
+	// reference ACP TypeScript SDK converts a thrown handler exception into a
+	// -32603 reply (this package's own doc says so); this recover restores that
+	// parity. reply is once-guarded, so a handler that already replied before
+	// panicking is unaffected — this only fires the error branch when nothing
+	// else has.
+	defer func() {
+		if r := recover(); r != nil {
+			warnf("acp: handler panic in %q: %v", method, r)
+			reply(nil, &Error{Code: CodeInternalError, Message: fmt.Sprintf("acp: handler panic in %q: %v", method, r)})
+		}
+	}()
 	c.handler.HandleRequest(ctx, method, m.Params, reply)
 }
 

@@ -95,12 +95,22 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 
 	// teardown cancels (unblocking any handler parked on an out-send), closes the
 	// transport (unblocking a parked reader), then waits for the read loop to exit
-	// so nothing races the deferred close(out) — and (B5) the fs-upstream link,
-	// when one was dialed, alongside it.
+	// — and, critically (U012-F01), for every in-flight forwardPermission/
+	// forwardTerminal goroutine to finish too. conn.Done() alone only proves the
+	// READ LOOP stopped; a permission/terminal forwarder spawned with a bare `go`
+	// runs independently of it and can still be mid-flight (or not yet scheduled)
+	// when the read loop exits. Without this Wait(), Chat's `defer close(out)`
+	// could run while such a goroutine's own s.send() call is still pending,
+	// racing a send against a close of the same channel — a send on an
+	// already-closed channel panics unconditionally. cancel() above closes
+	// s.ctx, so any forwarder still parked in its select resolves via
+	// <-s.ctx.Done() (not the send) almost immediately; this just waits for
+	// that resolution before letting close(out) run.
 	teardown := func() {
 		cancel()
 		_ = conn.Close()
 		<-conn.Done()
+		sess.forwardGoroutines.Wait()
 		if sess.fsUpstream != nil {
 			_ = sess.fsUpstream.Close()
 		}
@@ -729,6 +739,17 @@ type chatSession struct {
 	// to read from any goroutine without a lock (see setup/engineCapabilities).
 	caps engineCapabilities
 
+	// forwardGoroutines counts every in-flight forwardPermission/forwardTerminal
+	// goroutine (U012-F01). Chat's `defer close(out)` used to race them: each is
+	// spawned with a bare `go` and never joined, so a goroutine's own s.send()
+	// call — its first statement, before it ever parks on ctx.Done() — could
+	// still be running (or not yet scheduled) after Chat's teardown() cancelled
+	// ctx and Chat itself returned, closing out from underneath it. A send on an
+	// already-closed channel panics unconditionally; the review measured 96/200
+	// panics reproducing the exact select shape. teardown() now Wait()s on this
+	// after the read loop exits, so close(out) cannot precede the LAST sender.
+	forwardGoroutines sync.WaitGroup
+
 	// forwarded-permission state: each in-flight request parks on its channel
 	// until the caller's answer (or input close / ctx death) resolves it.
 	permMu      sync.Mutex
@@ -970,6 +991,13 @@ func (s *chatSession) registerPermission() (chan agent.PermissionAnswer, string)
 	id := "perm-" + strconv.FormatInt(s.permSeq, 10)
 	ch := make(chan agent.PermissionAnswer, 1)
 	s.pendingPerm[id] = ch
+	// Counted BEFORE the caller spawns forwardPermission (U012-F01): the caller
+	// does `if ch, id := s.registerPermission(); ch != nil { go s.forwardPermission(...) }`,
+	// so Add must happen here, synchronously, rather than as the first statement
+	// of the goroutine — otherwise teardown's Wait() could observe zero
+	// in-flight forwarders during the (however brief) window between `go` and
+	// the new goroutine actually starting to run.
+	s.forwardGoroutines.Add(1)
 	return ch, id
 }
 
@@ -978,6 +1006,7 @@ func (s *chatSession) registerPermission() (chan agent.PermissionAnswer, string)
 // OptionID), or ctx death all resolve as a "cancelled" outcome — the safe
 // no-op that neither approves nor commits a remembered rejection.
 func (s *chatSession) forwardPermission(id string, ch chan agent.PermissionAnswer, req *api.RequestPermissionRequest, reply func(any, *jsonrpc.Error)) {
+	defer s.forwardGoroutines.Done()
 	defer s.unregisterPermission(id)
 	cancelled := permissionResult{Outcome: permissionOutcome{Outcome: outcomeCancelled}}
 	if !s.send(agent.ChatEvent{Permission: permissionRequestEvent(id, req)}) {
@@ -1074,6 +1103,10 @@ func (s *chatSession) registerTerminal() (chan agent.TerminalResponse, string) {
 	id := "term-" + strconv.FormatInt(s.termSeq, 10)
 	ch := make(chan agent.TerminalResponse, 1)
 	s.pendingTerm[id] = ch
+	// See registerPermission's identical comment: counted here, synchronously,
+	// before the caller's `go s.forwardTerminal(...)` — not as that goroutine's
+	// first statement.
+	s.forwardGoroutines.Add(1)
 	return ch, id
 }
 
@@ -1084,6 +1117,7 @@ func (s *chatSession) registerTerminal() (chan agent.TerminalResponse, string) {
 // loud, specific error — never a silent drop, and never a hang: an engine
 // waiting on terminal/create must get SOME answer.
 func (s *chatSession) forwardTerminal(id string, ch chan agent.TerminalResponse, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	defer s.forwardGoroutines.Done()
 	defer s.unregisterTerminal(id)
 	stripped, err := stripSessionID(params)
 	if err != nil {
@@ -1208,6 +1242,21 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
+	// U012-F02: the spec types Limit as "maximum number of lines to read" and
+	// Line as "1-based" — a negative limit and a sub-1 line are both
+	// unexpressable per that contract, not degenerate-but-valid requests.
+	// Rejecting them here, loudly, is what stops sliceLines from ever seeing
+	// them: unguarded, `end := start + *limit` with a negative limit yields
+	// `lines[start:end]` with end < start, which panics ("slice bounds out of
+	// range") on the read-loop goroutine. (Limit == 0 is left alone: "at most
+	// zero lines" is a valid, if unusual, request and "" is its correct
+	// answer — not this finding's defect.)
+	if req.Limit != nil && *req.Limit < 0 {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("fs/read_text_file: limit must be >= 0, got %d", *req.Limit)}
+	}
+	if req.Line != nil && *req.Line < 1 {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("fs/read_text_file: line is 1-based and must be >= 1, got %d", *req.Line)}
+	}
 	safePath, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
 	if cerr != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "fs/read_text_file: " + cerr.Error()}
@@ -1309,7 +1358,11 @@ func sliceLines(content string, line, limit *int) string {
 		return ""
 	}
 	end := len(lines)
-	if limit != nil && start+*limit < end {
+	// U012-F02: handleFsRead already rejects a negative limit before this ever
+	// runs, but this function has no other guard of its own — clamped here too
+	// so a negative limit can never again reach `lines[start:end]` with
+	// end < start (a slice-bounds panic) no matter what a future caller does.
+	if limit != nil && *limit >= 0 && start+*limit < end {
 		end = start + *limit
 	}
 	return strings.Join(lines[start:end], "\n")

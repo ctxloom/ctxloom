@@ -48,6 +48,27 @@ func TestRunOneshotTurn_NoAssistantTextIsWarned(t *testing.T) {
 	assert.NotEmpty(t, stderr.String(), "a textless turn must be warned, not silently reported as a normal success")
 }
 
+// TestRunOneshotTurn_NoAssistantTextNamesStopReason pins U011-F03's remaining
+// half (the empty-prompt refusal above already closed the other): a textless
+// turn's warning must name WHY, from the turn's own Complete.StopReason —
+// distinguishing a refusal/cutoff/cancellation from an ordinary tool-only
+// turn — rather than emitting the identical message for all of them.
+func TestRunOneshotTurn_NoAssistantTextNamesStopReason(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	_, err := RunOneshotTurn(&Fragment{Content: "hi"}, &ModelInfo{}, 0, &stdout, &stderr,
+		func(in <-chan ChatMessage, out chan<- ChatEvent) error {
+			go func() {
+				for range in {
+				}
+			}()
+			out <- ChatEvent{Complete: &TurnMeta{StopReason: "refusal"}}
+			close(out)
+			return nil
+		})
+	require.NoError(t, err)
+	assert.Contains(t, stderr.String(), "refusal", "the warning must name the turn's actual stop reason")
+}
+
 func TestRunOneshotTurn_WritesAssistantText(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res, err := RunOneshotTurn(&Fragment{Content: "hi"}, &ModelInfo{}, 0, &stdout, &stderr,

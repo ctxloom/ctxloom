@@ -6,10 +6,33 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
+
+// TestRunBundleDistill_AllFilesFailedExitsNonZero pins U034-F02: per-file
+// distill errors were appended to result.Errors and printed, but nothing
+// converted a non-empty result.Errors into a non-nil error for the command —
+// `ctxloom bundle distill` over files that ALL fail to parse exited 0.
+func TestRunBundleDistill_AllFilesFailedExitsNonZero(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, ".ctxloom")
+	_ = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	t.Chdir(root)
+
+	broken := filepath.Join(root, "broken.yaml")
+	require.NoError(t, os.WriteFile(broken, []byte(":::not valid yaml:::\n\tbad indent\n"), 0o644))
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	err := runBundleDistill(cmd, []string{broken})
+	require.Error(t, err, "bundle distill must not exit 0 when every input file failed and nothing was written")
+	assert.Contains(t, err.Error(), "1 of 1")
+}
 
 // expandDistillFiles resolves glob patterns and literal paths, warns on
 // no-match, and errors only when nothing resolves.

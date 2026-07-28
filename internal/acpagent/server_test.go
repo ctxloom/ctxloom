@@ -367,6 +367,55 @@ func TestServe_CancelRace(t *testing.T) {
 	assert.Contains(t, string(resp.Result), `"cancelled"`)
 }
 
+// TestServe_ContextNotMarkedSentUntilEngineReceivesIt pins U014-F01: the
+// server used to commit sess.contextSent = true synchronously in
+// handlePrompt, BEFORE the turn's message was actually handed to the engine
+// in runTurn's own select. A turn that lost that race — cancelled before the
+// engine ever read it — still marked the lead context "sent", silently
+// losing it for the rest of the session with no error anywhere.
+//
+// Reproduced deterministically, not by timing luck: the engine's In channel
+// is UNBUFFERED and nothing ever reads it for the first turn, so runTurn's
+// send can never become ready; session/cancel is sent once the turn is
+// registered, so cancelTurnCh is the only case that CAN become ready — no
+// race, just a guaranteed outcome.
+func TestServe_ContextNotMarkedSentUntilEngineReceivesIt(t *testing.T) {
+	eng := &fakeEngine{
+		in:       make(chan agent.ChatMessage), // unbuffered, deliberately unread below
+		events:   make(chan agent.ChatEvent, 16),
+		errs:     make(chan error, 1),
+		received: make(chan agent.ChatMessage, 8),
+		closed:   make(chan struct{}),
+	}
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) {
+		return eng.chat("LEAD CONTEXT"), nil
+	})
+	sid := c.handshake("/proj")
+
+	id1 := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"first"}]}`)
+	// The turn is now registered (inTurn=true, synchronously, before
+	// handlePrompt returned) but its message CANNOT have reached the engine —
+	// nothing reads eng.in yet. Cancel it before it ever could.
+	c.notify("session/cancel", `{"sessionId":"`+sid+`"}`)
+
+	resp, _ := c.waitResponse(id1)
+	require.Nil(t, resp.Error)
+	assert.Contains(t, string(resp.Result), `"cancelled"`, "the lost-the-race turn must report cancelled, not a fabricated success")
+
+	// The lead context must NOT have been consumed by that lost turn: start
+	// reading eng.in now (as the second turn's delivery path) and prove the
+	// SECOND attempt still carries "LEAD CONTEXT" — proof the first turn never
+	// actually delivered it, so contextSent was never wrongly committed.
+	go eng.pump()
+	go func() {
+		msg := eng.receivedText(t)
+		assert.Equal(t, "LEAD CONTEXT\n\nsecond", msg, "a turn that lost the race to deliver must not have spent the lead context")
+		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	}()
+	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"second"}]}`))
+	require.Nil(t, resp.Error)
+}
+
 // TestServe_ToolCallPairing: tool_use/tool_result pair up via generated
 // toolCallIds (FIFO per tool name).
 func TestServe_ToolCallPairing(t *testing.T) {
@@ -629,6 +678,35 @@ func TestServe_SessionLoad(t *testing.T) {
 	}()
 	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"tidy-old-harp","prompt":[{"type":"text","text":"continue please"}]}`))
 	require.Nil(t, resp.Error)
+}
+
+// TestServe_SessionLoad_ReplaysNothingWarnsVisibly pins U014-F03: a recorded
+// history whose every entry maps to ZERO session/update frames (here: a
+// user entry with empty Content, which replayEntry explicitly drops) used to
+// let session/load reply success having replayed nothing — the editor sees
+// an empty transcript for a session that is NOT actually empty, with no
+// indication anything was lost. It must now say so, visibly, before the
+// load response.
+func TestServe_SessionLoad_ReplaysNothingWarnsVisibly(t *testing.T) {
+	eng := newFakeEngine()
+	eng.replay = []agent.SessionEntry{
+		{Type: agent.EntryTypeUser, Content: ""}, // replayEntry maps this to nil
+	}
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	id := c.send("session/load", `{"sessionId":"tidy-old-harp","cwd":"/proj","mcpServers":[]}`)
+	resp, updates := c.waitResponse(id)
+	require.Nil(t, resp.Error)
+
+	var sawWarning bool
+	for _, u := range updates {
+		if strings.Contains(string(u.Params), "agent_message_chunk") && strings.Contains(string(u.Params), "1 recorded history entries") {
+			sawWarning = true
+		}
+	}
+	assert.True(t, sawWarning, "session/load must visibly warn the editor when a non-empty recorded history replayed zero frames, got updates: %v", updates)
 }
 
 // TestPromptText_ResourceBlocks: promptText inlines `resource` (embedded text,

@@ -40,8 +40,33 @@ type agentCase struct {
 	userMarker string // substring of userFile that must survive write + remove
 }
 
-// agentCases returns every supported agent. Add a new agent here and it inherits
-// the whole equity suite.
+// agentCases returns the THREE agents this suite actually covers today
+// (claude-code, antigravity, codex) — NOT every agent.SettingsWriter
+// implementation in the repo (U058-F03): opencode and kiro both implement
+// the interface (internal/opencode/settings.go:465,
+// internal/kiro/settings.go:48) and are absent, for two DIFFERENT reasons,
+// not one shared oversight:
+//
+//   - kiro's writer has no SettingsPath method at all — its settings are
+//     genuinely multi-file (agentPath/mcpPath/mcpLedgerPath/steeringPath,
+//     see kiro/settings.go), so it does not implement this suite's
+//     settingsWriter interface and asSettingsWriter's type assertion would
+//     PANIC on it (see TestNewWriter_Panics-shaped risk this file's own
+//     asSettingsWriter comment names, U058-F09). Covering kiro needs this
+//     suite's path-based assertions (WriteSettings/AtomicWriteBackup/
+//     RemovePreservesUser all read/write ONE file at SettingsPath) redesigned
+//     for a multi-file writer first — not a one-line table addition.
+//   - opencode's WriteSettings explicitly IGNORES the hooks argument (it "has
+//     no ctxloom-style hook mechanism", see opencode/settings.go's own doc
+//     comment) — TestConformance_HookEventCoverage would fail immediately,
+//     correctly, on a documented and deliberate design gap this suite has no
+//     vocabulary to distinguish from a real regression (the way the codex
+//     no-backup case above IS distinguished, via backsUpCorruptFile).
+//
+// Add a new agent here ONLY once it can actually honor every assertion below
+// (or once each assertion gains the same per-agent escape hatch
+// backsUpCorruptFile already models for the one divergence that already had
+// one) — a new agent here inherits the WHOLE equity suite unconditionally.
 func agentCases() []agentCase {
 	asSettingsWriter := func(newWriter func(agent.SettingsOptions) agent.SettingsWriter) func(agent.SettingsOptions) settingsWriter {
 		return func(o agent.SettingsOptions) settingsWriter { return newWriter(o).(settingsWriter) }

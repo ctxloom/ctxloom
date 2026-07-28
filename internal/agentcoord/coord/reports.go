@@ -275,6 +275,15 @@ func (c *Coordinator) artifactRecord(harp, artifactID string) (ArtifactRecord, b
 }
 
 // LatestReport returns the harp's most recent report line ("" when none).
+//
+// test-only: no production caller (U023-F29) — consumer.go's own use of
+// reportsF.latestSummary reads it from inside an already-held View window,
+// which is what this wrapper supplies. Kept rather than inlined at its 5
+// test call sites (reports_resume_dedupe_test.go, runchannel_test.go): those
+// tests run against a live coordinator with real background goroutines, and
+// reading reportsF.latest directly without this View would be a race the
+// wrapper exists to prevent — the finding's own suggested alternative
+// ("route consumer.go:220 through it") doesn't change that.
 func (c *Coordinator) LatestReport(harp string) string {
 	var out string
 	c.runs.View(func() { out = c.reportsF.latestSummary(harp) })

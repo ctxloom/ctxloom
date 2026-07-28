@@ -7,31 +7,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/doccapture"
 )
 
-// DocCapture mirrors the JSON sidecar tests/acceptance/steps_doc_capture.go
-// writes per scenario (one file per pickle) when CTXLOOM_DOC_CAPTURE_DIR is
-// set. Field names and tags MUST match that struct's json tags exactly — this
-// is the contract between the capture side and this generator.
-type DocCapture struct {
-	Scenario string           `json:"scenario"`
-	Outline  string           `json:"outline,omitempty"`
-	Feature  string           `json:"feature"`
-	Tags     []string         `json:"tags"`
-	Steps    []DocCaptureStep `json:"steps"`
-}
-
-// DocCaptureStep is one step's text, pass/fail outcome, and whatever real
-// evidence the harness observed for it.
-type DocCaptureStep struct {
-	Text    string `json:"text"`
-	Keyword string `json:"keyword,omitempty"`
-	Status  string `json:"status"`
-
-	CLIOutput    string `json:"cli_output,omitempty"`
-	MockRecorded string `json:"mock_recorded,omitempty"`
-	Materialized string `json:"materialized,omitempty"`
-}
+// DocCapture and DocCaptureStep are this package's names for the shared
+// living-docs wire contract (internal/shared/doccapture) tests/acceptance/
+// steps_doc_capture.go writes per scenario (one file per pickle) when
+// CTXLOOM_DOC_CAPTURE_DIR is set (U158-F06: these used to be a second,
+// independently-declared copy of that writer's structs, held in sync only by
+// a comment demanding field-for-field agreement). Aliased, not copied, so
+// every existing field access below is unaffected.
+type DocCapture = doccapture.DocCapture
+type DocCaptureStep = doccapture.DocCaptureStep
 
 // LoadCaptures reads every *.json file in dir and groups them by scenario
 // name (a Scenario Outline's Examples rows share a name across several

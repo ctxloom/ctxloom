@@ -192,10 +192,16 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		return err
 	})
 
+	// U160-F02: same shape as steps_j1_setup.go's live scenario — these
+	// re-guard on w.j1Live, redundant with the scenario's own first Given
+	// already skipping via ErrSkip when the live agent isn't available.
+	// Failing loud instead of re-skipping turns "should be unreachable" into
+	// a real invariant should a future reorder or step-text reuse ever reach
+	// one of these with w.j1Live still false.
 	ctx.Step(`^the company repository is trusted, signed with the company key$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1b: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		return addSourceAsRemote(w, "company", "default")
 	})
@@ -203,7 +209,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice runs the ctxloom setup and its interview launches her real assistant$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1b: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		// The composed agent-setup guidance (built-in + the company command's
 		// codeword instruction) is exactly what `ctxloom agent setup` emits
@@ -222,7 +228,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the assistant's setup response confirms the company codeword$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1b: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		if !strings.Contains(w.env.LastOutput(), j1bCompanyCodeword) {
 			return fmt.Errorf("assistant's setup response does not confirm the company codeword; output:\n%s", w.env.LastOutput())
@@ -257,7 +263,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the assistant's setup response confirms the companion codeword$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1b: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		if !strings.Contains(w.env.LastOutput(), j1bCompanionCodeword) {
 			return fmt.Errorf("assistant's setup response does not confirm the companion codeword; output:\n%s", w.env.LastOutput())

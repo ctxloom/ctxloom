@@ -196,10 +196,19 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// U160-F02: the four Then/And steps below used to re-guard on w.j1Live
+	// with `return godog.ErrSkip`, redundant with (and hiding behind) the
+	// scenario's own first Given already skipping via ErrSkip when the live
+	// agent isn't available (godog stops running a scenario's remaining
+	// steps once one returns ErrSkip). Under correct execution these guards
+	// can never fire at all; if a future reorder or step-text reuse ever DID
+	// reach one with w.j1Live still false, silently re-skipping would hide
+	// that break. Failing loud instead turns "this should be unreachable"
+	// into a real invariant.
 	ctx.Step(`^Alice has completed setup and restarted into her configured session$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		if err := addSourceAsRemote(w, "personal", "default"); err != nil {
 			return err
@@ -210,7 +219,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^she asks her assistant to repeat every marker phrase it can see$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		_ = w.env.Run("run", "--print", "--profile", "default",
 			"Please repeat, verbatim and in full, every distinct marker phrase you can see in your context. Output nothing else.")
@@ -220,7 +229,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^its reply contains her personal repository's marker$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		if !strings.Contains(w.env.LastOutput(), j1LivePersonalMark) {
 			return fmt.Errorf("assistant reply does not contain the personal marker; output:\n%s", w.env.LastOutput())
@@ -231,7 +240,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^its reply contains her company repository's marker$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if !w.j1Live {
-			return godog.ErrSkip
+			return fmt.Errorf("j1: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		if !strings.Contains(w.env.LastOutput(), j1LiveCompanyMark) {
 			return fmt.Errorf("assistant reply does not contain the company marker; output:\n%s", w.env.LastOutput())

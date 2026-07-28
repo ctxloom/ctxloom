@@ -32,11 +32,17 @@ func probeStateOf(w *World) *probeCellState {
 	return w.probe
 }
 
-// probeSkip prints the loud, specific skip line (engine, axis, reason) and
-// returns godog.ErrSkip — so a run where every cell skips is grep-distinct
-// from a run where every cell passed, per this feature's own doc.
-func probeSkip(engine string, axis probeAxis, reason string) error {
-	printProbeReport(engine, axis, probeAuthNone, reason, "SKIPPED", "")
+// probeSkip prints the loud, specific skip line (engine, axis, authPath,
+// reason) and returns godog.ErrSkip — so a run where every cell skips is
+// grep-distinct from a run where every cell passed, per this feature's own
+// doc. authPath is the SKIP's real resolved auth path (U158-F12: this used to
+// be hardcoded to probeAuthNone regardless of caller, so the forced-env-key
+// scenario's skip -- which fires precisely because a credential IS present
+// but not the one this scenario forces -- misreported authPath=no-credentials
+// instead of the real seeded/env-key path, misattributing why the cell was
+// skipped).
+func probeSkip(engine string, axis probeAxis, authPath probeAuthPath, reason string) error {
+	printProbeReport(engine, axis, authPath, reason, "SKIPPED", "")
 	return godog.ErrSkip
 }
 
@@ -57,7 +63,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("isolation probe: unknown axis %q", axisStr)
 		}
 		if authPath == probeAuthNone {
-			return probeSkip(engine, p.Axis, reason)
+			return probeSkip(engine, p.Axis, authPath, reason)
 		}
 		return nil
 	})
@@ -69,7 +75,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 
 		authPath, reason := probeWorktreeAuthAvailable(engine)
 		if authPath != probeAuthEnvKey {
-			return probeSkip(engine, p.Axis, fmt.Sprintf("this scenario forces the env-API-key bypass path specifically, but it is not the ambient path (%s) — %s", authPath, reason))
+			return probeSkip(engine, p.Axis, authPath, fmt.Sprintf("this scenario forces the env-API-key bypass path specifically, but it is not the ambient path (%s) — %s", authPath, reason))
 		}
 		return nil
 	})
@@ -86,12 +92,12 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		// file), not "is kiro probeable WITHOUT --degraded".
 		authPath, reason := probeDecideAuthPath("kiro")
 		if authPath == probeAuthNone {
-			return probeSkip("kiro", probeAxisWorktree, "no kiro credentials at all (neither KIRO_API_KEY nor a host subscription file) — "+reason)
+			return probeSkip("kiro", probeAxisWorktree, authPath, "no kiro credentials at all (neither KIRO_API_KEY nor a host subscription file) — "+reason)
 		}
 		if authPath == probeAuthEnvKey {
 			// KIRO_API_KEY genuinely isolates the credential store (j9's own
 			// hermetic proof) — there is no leak to observe on this path.
-			return probeSkip("kiro", probeAxisWorktree, "KIRO_API_KEY is set, so kiro's credential store genuinely isolates on this box (per j9's own hermetic proof) — there is no leak to demonstrate; unset KIRO_API_KEY to exercise this scenario against the subscription-only leak path")
+			return probeSkip("kiro", probeAxisWorktree, authPath, "KIRO_API_KEY is set, so kiro's credential store genuinely isolates on this box (per j9's own hermetic proof) — there is no leak to demonstrate; unset KIRO_API_KEY to exercise this scenario against the subscription-only leak path")
 		}
 		return nil
 	})
@@ -108,7 +114,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		// antigravity-cli/antigravity-oauth-token file present).
 		authPath, reason := probeDecideAuthPath("antigravity")
 		if authPath == probeAuthNone {
-			return probeSkip("antigravity", probeAxisWorktree, "no antigravity credentials at all (no host ~/.gemini/antigravity-cli/antigravity-oauth-token) — "+reason)
+			return probeSkip("antigravity", probeAxisWorktree, authPath, "no antigravity credentials at all (no host ~/.gemini/antigravity-cli/antigravity-oauth-token) — "+reason)
 		}
 		return nil
 	})

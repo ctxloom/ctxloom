@@ -46,7 +46,16 @@ func RunOneshotTurn(prompt *Fragment, modelInfo *ModelInfo, verbosity uint32, st
 	// mapper emits one entry per chunk); thinking and tool traffic go to
 	// stderr only at verbosity, keeping stdout clean for the response text.
 	wroteText := false
+	// stopReason (U011-F03): captured from the turn's Complete event so a
+	// textless turn's warning can say WHY — a refusal, a max_tokens cutoff,
+	// and a cancelled turn are different failures with different fixes, and
+	// this used to collapse all of them (plus a genuinely empty tool-only
+	// answer) into the same silent "no assistant text" message.
+	var stopReason string
 	for ev := range out {
+		if ev.Complete != nil {
+			stopReason = ev.Complete.StopReason
+		}
 		if ev.Entry == nil {
 			continue
 		}
@@ -69,6 +78,11 @@ func RunOneshotTurn(prompt *Fragment, modelInfo *ModelInfo, verbosity uint32, st
 	}
 	if wroteText {
 		fmt.Fprintln(stdout)
+	} else if stopReason != "" {
+		// Named cause: a client reading stderr can tell "refused"/"cancelled"/
+		// a token-limit cutoff apart from an ordinary tool-only turn, instead
+		// of seeing the identical message for all of them.
+		fmt.Fprintf(stderr, "ctxloom: warning: this turn produced no assistant text (stop reason: %s)\n", stopReason)
 	} else {
 		fmt.Fprintln(stderr, "ctxloom: warning: this turn produced no assistant text")
 	}

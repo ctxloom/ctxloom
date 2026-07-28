@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -158,45 +157,6 @@ func TestStartupGates_TileWithoutHole(t *testing.T) {
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, gate2.String(), "trust store unreadable")
-}
-
-// TestRecordExternalPluginIsolationDrop pins site 1: the external-plugin-binary
-// path cannot be containerized or given a worktree. An EXPLICITLY-requested
-// container is a lost sandbox boundary → a fatal ClassIsolation finding the run
-// path's gate 2 aborts on (unless --degraded); a requested worktree degrades
-// benignly to the live project dir and only warns (never a finding). Nothing
-// requested → nothing recorded.
-func TestRecordExternalPluginIsolationDrop(t *testing.T) {
-	t.Run("strict: a requested container is one fatal isolation finding", func(t *testing.T) {
-		resetStrictness(t)
-		recordExternalPluginIsolationDrop(isolation.Axes{Runtime: isolation.RuntimeContainer}, "/opt/my-plugin")
-
-		findings := strictness.All()
-		require.Len(t, findings, 1, "a dropped container boundary on the external path is fatal")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the finding must flag the lost boundary")
-		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
-	})
-
-	t.Run("strict: a requested worktree only warns — never a finding", func(t *testing.T) {
-		resetStrictness(t)
-		recordExternalPluginIsolationDrop(isolation.Axes{Workspace: isolation.WorkspaceWorktree}, "/opt/my-plugin")
-		assert.Empty(t, strictness.All(),
-			"a dropped worktree degrades to the live project dir — benign, only a lost CONTAINER boundary is fatal")
-	})
-
-	t.Run("strict: no isolation requested → nothing recorded", func(t *testing.T) {
-		resetStrictness(t)
-		recordExternalPluginIsolationDrop(isolation.Axes{}, "/opt/my-plugin")
-		assert.Empty(t, strictness.All())
-	})
-
-	t.Run("degraded: a requested container records nothing", func(t *testing.T) {
-		resetStrictness(t)
-		strictness.SetDegraded(true)
-		recordExternalPluginIsolationDrop(isolation.Axes{Runtime: isolation.RuntimeContainer}, "/opt/my-plugin")
-		assert.Empty(t, strictness.All(), "--degraded downgrades the isolation finding to the plain host run")
-	})
 }
 
 func TestLoadConfigOrFallback_Success(t *testing.T) {

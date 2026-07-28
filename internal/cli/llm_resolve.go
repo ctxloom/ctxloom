@@ -83,18 +83,3 @@ func llmEnvFor(cfg *config.Config, label string) map[string]string {
 	}
 	return nil
 }
-
-// llmBinaryArgsFor returns the binary path and args a labeled entry carries,
-// for the external-runner launch path. Empty when unset.
-func llmBinaryArgsFor(cfg *config.Config, label string) (binary string, args []string) {
-	bc := decodeBackendConfig(cfg, label)
-	switch c := bc.(type) {
-	case *claude.ClaudeConfig:
-		return c.BinaryPath, c.Args
-	case *antigravity.AntigravityConfig:
-		return c.BinaryPath, c.Args
-	case *codex.CodexConfig:
-		return c.BinaryPath, c.Args
-	}
-	return "", nil
-}

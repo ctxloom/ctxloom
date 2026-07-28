@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **415** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **416** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 6 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 6 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 5 |
 | `open` | no commit names this ID | **1,831** |
 
-**Totals: 2268 findings across 162 units — 415 resolved, 1831 still open, 23 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started.
+**Totals: 2268 findings across 162 units — 416 resolved, 1831 still open, 22 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started.
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -143,7 +143,7 @@ RESOLVED 353->370, PARTIAL 6->7, open 1895->1877, HIGH resolved 206->223.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 268 | 107 (+6 refuted, +4 escalated, +6 partial) |
+| HIGH | 376 | 269 | 107 (+6 refuted, +3 escalated, +6 partial) |
 | MED | 999 | 41 | 956 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -158,6 +158,15 @@ Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow
 batch: 19 of 24 HIGH rows across U005/U066-U073/U076 fixed, 1 escalated
 (U066-F03). Recounted (`just test-arch`): RESOLVED 396->415, ESCALATED
 5->6, open 1851->1831, HIGH resolved 249->268.
+
+Updated again 2026-07-28 during the `fix/remove-external-plugin-arm` batch:
+U037-F04 (its own `gooey-basil` escalation, above) resolved — the human
+decided to remove the external-plugin launch arm entirely rather than split
+`binary_path` into two keys; see DECISIONS.md's `fix/remove-external-plugin-arm`
+section, which also corrects a wrong claim in the `gooey-basil` PAUSE note
+that ADR-0021 blessed this path (it predates the mechanism by one day and
+never mentions it). Recounted (`just test-arch`): RESOLVED 415->416,
+ESCALATED 6->5, open unchanged at 1831, HIGH resolved 268->269.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -309,7 +318,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U037-F01 | **RESOLVED** `e595df13` | `item_helpers.go:437-455` | SILENTNOOP | `editItem` will silently overwrite an item with empty content if the editor returns an empty buffer (crash, `:w` on a truncated file, a wrapper that fails to write). It reports "Updated fragment ..... | U037.md |
 | U037-F02 | **RESOLVED** `abe4a9d8` | **`manage.go:465-474, 137-142`** | SILENTNOOP | `ctxloom manage gitignore install` prints "Updated <path>" and exits 0 even when the `.gitignore` write failed. The whole command is `ensureHarnessGitignore(projectDir); fmt.Printf("Updated %s\n", ... | U037.md |
 | U037-F03 | **RESOLVED** `69635951` | `llm_runner_common.go:62-65` | SILENTNOOP | `llm serve` / `llm host` / `llm turn` — three process-owning entry points that load a config and then launch an engine — call `config.Load()` directly and never call `printConfigWarnings` or `failO... | U037.md |
-| U037-F04 | **ESCALATED** `gooey-basil DECISIONS.md` | `llm_resolve.go:89-100 + run.go:616, 1008-1024` | CORRECTNESS | The config key `binary_path` has two mutually incompatible meanings decided by an unexported type switch, and only three of six backends get the second one. For claude-code/antigravity/codex a non-... | U037.md |
+| U037-F04 | **RESOLVED** `4c24c159` | `llm_resolve.go:89-100 + run.go:616, 1008-1024` | CORRECTNESS | The config key `binary_path` has two mutually incompatible meanings decided by an unexported type switch, and only three of six backends get the second one. For claude-code/antigravity/codex a non-... | U037.md |
 | U037-F05 | **RESOLVED** `69635951` | `llm_runner_common.go:94-112` | SILENTNOOP | When `config.Load()` fails, `standUpRunner` skips the entire runner-MCP block (`if cfg != nil`) yet still binds the `EngineHost` and lets the engine launch — the exact "hosted delegated run with no... | U037.md |
 | U038-F01 | **RESOLVED** `bdaae57b` | `mcp_runner.go:230` | CORRECTNESS | The runner's cell-path boundary is anchored to the wrong directory: `cwd` comes from the runner's own `os.Getwd()`, which is the **coordinator's** cwd, not the cell work dir the harness actually ru... | U038.md |
 | U038-F02 | **RESOLVED** `6230732a` | `mcp_runner.go:521-528` | SILENTNOOP | `recvHandler` permanently loses any mailbox message whose protojson/JSON round-trip fails, and returns SUCCESS. | U038.md |

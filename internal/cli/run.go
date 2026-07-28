@@ -608,7 +608,6 @@ Examples:
 		// instead of falling into an ungated hole.
 		postStartupMark := strictness.Checkpoint()
 
-		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
 		llmEnv := llmEnvFor(cfg, label)
 
 		// The session's WORKSPACE axis: the invocation flag wins, else the
@@ -998,8 +997,6 @@ Examples:
 
 		// Create plugin client. The isolation axes (runAxes, default none/host) decide
 		// WHERE the top-level run's workspace lives and HOW its plugin is spawned.
-		// The external-plugin-binary path is spawned directly — isolation wraps the
-		// built-in serve transport, not a user-supplied binary — and stays none.
 		var client pb.Client
 		// Phase 2a-A: a container-policy INTERACTIVE top-level run never
 		// constructs a go-plugin client — it launches the StartRunner keepalive
@@ -1041,149 +1038,124 @@ Examples:
 				ownedRun.cancel()
 			}
 		}()
-		if llmBinary != "" {
-			// The external plugin binary is spawned DIRECTLY — isolation wraps the
-			// built-in serve transport, not a user-supplied binary — so it can be
-			// neither containerized nor given a worktree. An EXPLICITLY-requested
-			// container is therefore a lost sandbox boundary: recordExternalPlugin-
-			// IsolationDrop raises a fatal ClassIsolation finding the gate below
-			// aborts on before the UNSANDBOXED binary spawns (unless --degraded).
-			// This mirrors the built-in path's second isolation gate (the else
-			// branch below), which the earlier startup gate can't cover because
-			// isolation resolves AFTER it. The gate re-checks from postStartupMark
-			// so the windows tile.
-			recordExternalPluginIsolationDrop(runAxes, llmBinary)
-			if ferr := failOnFindings(os.Stderr, postStartupMark); ferr != nil {
-				return ferr
+		// Prepare the workspace along the per-axis degrade chain. Fault
+		// tolerance: a container requested but unlaunchable (no runtime, or
+		// the agent image absent) drops ONLY the runtime axis — a requested
+		// worktree survives — and a worktree failure degrades to the live
+		// project dir, so `runtime: container` is a safe default.
+		//
+		// Fail-loudly re-gate: isolation resolves HERE, AFTER the startup gate
+		// (failOnFindings above), so a requested-container-degraded-to-host
+		// finding (ClassIsolation, raised inside Prepare) would slip past that
+		// already-passed gate. Gate 2 below re-checks from postStartupMark —
+		// captured immediately after gate 1 passed, so the two windows TILE
+		// (a finding recorded anywhere between the gates is caught, not just
+		// one raised inside Prepare) — and an EXPLICITLY-requested container
+		// that can't be satisfied aborts (exit 3) before an UNSANDBOXED
+		// engine is spawned — unless --degraded, which records nothing and
+		// proceeds on the host per the degrade chain.
+		// The session identity (harp + project id) rides the same runEnv the
+		// engine gets, so the isolation state mounts and the in-container
+		// writers key off one source.
+		prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp, isolation.SessionStateFromEnv(runEnv))
+		// The permission posture is resolved once from config/CLI/agent and is
+		// authoritative regardless of how the isolation boundary degrades: a
+		// container that failed to launch does NOT drop a configured bypass —
+		// that is the point of the host stopgap.
+		policy := prepared
+		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
+		// config layer (CLAUDE_CONFIG_DIR / CODEX_HOME / KIRO_HOME / ...) from
+		// this run; nil for none/container. Mirrors the fan-out member path
+		// (operations/oneshot.go's workspaceEnv/env assembly): merged UNDER the
+		// already-assembled req.Options.Env (session identity + user --env), so
+		// an explicit user/session var still wins over a resolved isolation var
+		// — this must never clobber a caller-set env, only fill gaps.
+		req.Options.Env = mergeWorkspaceEnv(req.Options.Env, isolation.WorkspaceEnv(ws))
+		// Tear the workspace down after the client is killed (kill the plugin/
+		// container before removing its scratch — WIP-safe). Registered before
+		// client.Kill so it runs after, and before the gate below so an abort on
+		// a container→worktree degrade still tears the prepared worktree down.
+		// none's cleanup is a noop. The error is deliberately dropped: a
+		// cleanup failure surfaces from INSIDE Cleanup (a streamed warning
+		// naming the residue path + fix — see warnCleanupResidue), and this
+		// runs post-gate where no choke owner could act on an error anyway.
+		defer func() { _ = ws.Cleanup() }()
+		if ferr := failOnFindings(os.Stderr, postStartupMark); ferr != nil {
+			return ferr
+		}
+		// A container-requested run whose boundary silently degraded to the bare
+		// host still carries a configured bypass. For the claude-code host stopgap
+		// that is intended; for any other backend the boundary that justified
+		// bypass is gone, so surface it rather than run full-auto with no signal.
+		// A SATISFIED container request (the container OR container-worktree
+		// policy prepared) never warns. In strict mode a lost boundary recorded
+		// a ClassIsolation finding and gate 2 above already aborted, so this
+		// warning fires only in degraded mode (or if a degrade recorded nothing).
+		if warnBypassOnLostContainer(runAxes, prepared.Name(), permMode, backendName) {
+			clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", backendName)
+		}
+		// The engine's cwd lands in the prepared workspace (identical-path for
+		// container/none; a worktree in Phase 2).
+		req.Options.WorkDir = ws.Dir()
+		// Stamp the resolved isolation cell so the plugin knows which cell it
+		// runs in (it can't infer it from WorkDir alone). Setup's setupViaCells
+		// (launch_backend.go) consumes it to pick the delivery cell.
+		req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(policy))
+		// dire-five: for a container policy ONLY, stamp the in-container
+		// ctxloom binary path so the MCP-surface writer (running inside the
+		// container, per agentcoord B1.6's runner-terminated MCP) emits a
+		// `command` the container can actually exec, instead of the host
+		// self-exec path (which does not exist inside the container — the
+		// engine's `ctxloom mcp` stdio shim then never launches and the child
+		// has zero MCP tools). "" for none/worktree: the host self-exec-
+		// absolute invariant (agent.CtxloomCommand's doc) is untouched.
+		if override := operations.MCPCommandOverrideForPolicy(policy); override != "" {
+			if req.Options.Env == nil {
+				req.Options.Env = make(map[string]string, 1)
 			}
-			// Use external plugin binary
-			client, err = pb.NewLLMRunner(llmBinary, llmArgs, runVerbosity)
-			if err != nil {
-				return fmt.Errorf("failed to start plugin: %w", err)
+			req.Options.Env[agent.MCPCommandOverrideEnv] = override
+		}
+		// Phase 2a-A swap: an INTERACTIVE container-policy top-level run goes
+		// docker-exec instead of go-plugin. Launch the container via the SAME
+		// StartRunner primitive Phase 1 uses (an `llm host` keepalive), hand
+		// the RunStart off by 0600 file in the bind-mounted persist dir, and
+		// build the docker-exec Launcher; NO go-plugin client is constructed.
+		// Structured/oneshot container arms (Part B) and every host/worktree
+		// arm stay on SpawnClient + goplugin below. The observation/injection
+		// wrap sits ABOVE the seam (untouched) — the Launcher just receives
+		// the already-wrapped streams.
+		if selectsDockerExecInteractive(policy.Name(), mode, runStructured) {
+			handle, launcher, lerr := startContainerInteractive(ctx, policy, ws, req, backendName, label, runVerbosity, activeHarp, runnerSpawnEnv)
+			if lerr != nil {
+				return fmt.Errorf("failed to start container interactive turn: %w", lerr)
+			}
+			runnerHandle = handle
+			interactiveLauncher = launcher
+		} else if selectsOwnedRunContainer(policy.Name(), mode, runStructured) {
+			// Phase 2a-B: structured/oneshot container → owner-owned run on
+			// Transport 2. Launched through the SAME StartRunner primitive
+			// (an `llm host` runner WITH the run-id trio → EngineHost); the
+			// host watches it via WatchRuns. No go-plugin client; no
+			// in-container listener.
+			handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]), permMode, mode, runStructured, runnerSpawnEnv)
+			// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
+			// can return a non-nil handle ALONGSIDE a non-nil error (the
+			// container started; a later step in StartOwnedRun failed) — if
+			// the assignment waited for the error check, that early return
+			// would discard the handle before the teardown defer above ever
+			// sees it, leaking the running container.
+			runnerHandle = handle
+			ownedRun = sess
+			if oerr != nil {
+				return fmt.Errorf("failed to start container structured/oneshot run: %w", oerr)
 			}
 		} else {
-			// Prepare the workspace along the per-axis degrade chain. Fault
-			// tolerance: a container requested but unlaunchable (no runtime, or
-			// the agent image absent) drops ONLY the runtime axis — a requested
-			// worktree survives — and a worktree failure degrades to the live
-			// project dir, so `runtime: container` is a safe default.
-			//
-			// Fail-loudly re-gate: isolation resolves HERE, AFTER the startup gate
-			// (failOnFindings above), so a requested-container-degraded-to-host
-			// finding (ClassIsolation, raised inside Prepare) would slip past that
-			// already-passed gate. Gate 2 below re-checks from postStartupMark —
-			// captured immediately after gate 1 passed, so the two windows TILE
-			// (a finding recorded anywhere between the gates is caught, not just
-			// one raised inside Prepare) — and an EXPLICITLY-requested container
-			// that can't be satisfied aborts (exit 3) before an UNSANDBOXED
-			// engine is spawned — unless --degraded, which records nothing and
-			// proceeds on the host per the degrade chain.
-			// The session identity (harp + project id) rides the same runEnv the
-			// engine gets, so the isolation state mounts and the in-container
-			// writers key off one source.
-			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp, isolation.SessionStateFromEnv(runEnv))
-			// The permission posture is resolved once from config/CLI/agent and is
-			// authoritative regardless of how the isolation boundary degrades: a
-			// container that failed to launch does NOT drop a configured bypass —
-			// that is the point of the host stopgap.
-			policy := prepared
-			// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
-			// config layer (CLAUDE_CONFIG_DIR / CODEX_HOME / KIRO_HOME / ...) from
-			// this run; nil for none/container. Mirrors the fan-out member path
-			// (operations/oneshot.go's workspaceEnv/env assembly): merged UNDER the
-			// already-assembled req.Options.Env (session identity + user --env), so
-			// an explicit user/session var still wins over a resolved isolation var
-			// — this must never clobber a caller-set env, only fill gaps.
-			req.Options.Env = mergeWorkspaceEnv(req.Options.Env, isolation.WorkspaceEnv(ws))
-			// Tear the workspace down after the client is killed (kill the plugin/
-			// container before removing its scratch — WIP-safe). Registered before
-			// client.Kill so it runs after, and before the gate below so an abort on
-			// a container→worktree degrade still tears the prepared worktree down.
-			// none's cleanup is a noop. The error is deliberately dropped: a
-			// cleanup failure surfaces from INSIDE Cleanup (a streamed warning
-			// naming the residue path + fix — see warnCleanupResidue), and this
-			// runs post-gate where no choke owner could act on an error anyway.
-			defer func() { _ = ws.Cleanup() }()
-			if ferr := failOnFindings(os.Stderr, postStartupMark); ferr != nil {
-				return ferr
-			}
-			// A container-requested run whose boundary silently degraded to the bare
-			// host still carries a configured bypass. For the claude-code host stopgap
-			// that is intended; for any other backend the boundary that justified
-			// bypass is gone, so surface it rather than run full-auto with no signal.
-			// A SATISFIED container request (the container OR container-worktree
-			// policy prepared) never warns. In strict mode a lost boundary recorded
-			// a ClassIsolation finding and gate 2 above already aborted, so this
-			// warning fires only in degraded mode (or if a degrade recorded nothing).
-			if warnBypassOnLostContainer(runAxes, prepared.Name(), permMode, backendName) {
-				clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", backendName)
-			}
-			// The engine's cwd lands in the prepared workspace (identical-path for
-			// container/none; a worktree in Phase 2).
-			req.Options.WorkDir = ws.Dir()
-			// Stamp the resolved isolation cell so the plugin knows which cell it
-			// runs in (it can't infer it from WorkDir alone). The external-plugin
-			// path above never reaches here, so it leaves cell_kind unset →
-			// UNSPECIFIED → Shared, which is correct: that path stays none.
-			// Setup's setupViaCells (launch_backend.go) consumes it to pick the
-			// delivery cell.
-			req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(policy))
-			// dire-five: for a container policy ONLY, stamp the in-container
-			// ctxloom binary path so the MCP-surface writer (running inside the
-			// container, per agentcoord B1.6's runner-terminated MCP) emits a
-			// `command` the container can actually exec, instead of the host
-			// self-exec path (which does not exist inside the container — the
-			// engine's `ctxloom mcp` stdio shim then never launches and the child
-			// has zero MCP tools). "" for none/worktree: the host self-exec-
-			// absolute invariant (agent.CtxloomCommand's doc) is untouched.
-			if override := operations.MCPCommandOverrideForPolicy(policy); override != "" {
-				if req.Options.Env == nil {
-					req.Options.Env = make(map[string]string, 1)
-				}
-				req.Options.Env[agent.MCPCommandOverrideEnv] = override
-			}
-			// Phase 2a-A swap: an INTERACTIVE container-policy top-level run goes
-			// docker-exec instead of go-plugin. Launch the container via the SAME
-			// StartRunner primitive Phase 1 uses (an `llm host` keepalive), hand
-			// the RunStart off by 0600 file in the bind-mounted persist dir, and
-			// build the docker-exec Launcher; NO go-plugin client is constructed.
-			// Structured/oneshot container arms (Part B) and every host/worktree
-			// arm stay on SpawnClient + goplugin below. The observation/injection
-			// wrap sits ABOVE the seam (untouched) — the Launcher just receives
-			// the already-wrapped streams.
-			if selectsDockerExecInteractive(policy.Name(), mode, runStructured) {
-				handle, launcher, lerr := startContainerInteractive(ctx, policy, ws, req, backendName, label, runVerbosity, activeHarp, runnerSpawnEnv)
-				if lerr != nil {
-					return fmt.Errorf("failed to start container interactive turn: %w", lerr)
-				}
-				runnerHandle = handle
-				interactiveLauncher = launcher
-			} else if selectsOwnedRunContainer(policy.Name(), mode, runStructured) {
-				// Phase 2a-B: structured/oneshot container → owner-owned run on
-				// Transport 2. Launched through the SAME StartRunner primitive
-				// (an `llm host` runner WITH the run-id trio → EngineHost); the
-				// host watches it via WatchRuns. No go-plugin client; no
-				// in-container listener.
-				handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]), permMode, mode, runStructured, runnerSpawnEnv)
-				// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
-				// can return a non-nil handle ALONGSIDE a non-nil error (the
-				// container started; a later step in StartOwnedRun failed) — if
-				// the assignment waited for the error check, that early return
-				// would discard the handle before the teardown defer above ever
-				// sees it, leaking the running container.
-				runnerHandle = handle
-				ownedRun = sess
-				if oerr != nil {
-					return fmt.Errorf("failed to start container structured/oneshot run: %w", oerr)
-				}
-			} else {
-				// Spawn through the policy, carrying the resolved label so serve
-				// configures exactly this entry (not the first map-ordered entry of the
-				// same type).
-				client, err = policy.SpawnClient(backendName, label, runVerbosity, ws, runnerSpawnEnv)
-				if err != nil {
-					return fmt.Errorf("failed to start plugin: %w", err)
-				}
+			// Spawn through the policy, carrying the resolved label so serve
+			// configures exactly this entry (not the first map-ordered entry of the
+			// same type).
+			client, err = policy.SpawnClient(backendName, label, runVerbosity, ws, runnerSpawnEnv)
+			if err != nil {
+				return fmt.Errorf("failed to start plugin: %w", err)
 			}
 		}
 
@@ -1529,29 +1501,6 @@ func mergeWorkspaceEnv(existing, workspaceEnv map[string]string) map[string]stri
 	maps.Copy(merged, workspaceEnv)
 	maps.Copy(merged, existing)
 	return merged
-}
-
-// externalPluginIsolationFixIt is the fix-it for a container requested on the
-// external-plugin-binary path, which cannot be sandboxed at all.
-const externalPluginIsolationFixIt = "this backend runs an external plugin binary that ctxloom cannot sandbox — use a built-in backend for container isolation, drop the container runtime request, or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
-
-// recordExternalPluginIsolationDrop records the isolation faults for the
-// external-plugin-binary path (llmBinary != ""), which is spawned directly and
-// so can be neither containerized nor given a worktree. An EXPLICITLY-requested
-// container is a lost sandbox boundary — a fatal ClassIsolation finding the
-// caller's gate aborts on unless --degraded downgrades it to the host run. A
-// requested worktree only warns: it degrades benignly to the live project dir,
-// the same non-fatal outcome as the built-in worktree→none degrade (only a lost
-// CONTAINER boundary is fatal). The warning streams in both modes; the finding
-// records in strict mode only (strictness.Fail is a no-op under --degraded).
-func recordExternalPluginIsolationDrop(axes isolation.Axes, binary string) {
-	if axes.WantsContainer() {
-		strictness.Fail(strictness.ClassIsolation, externalPluginIsolationFixIt,
-			"runtime: container requested but the external plugin binary %q cannot be containerized — running on the HOST without a container boundary (this session is NOT sandboxed)", binary)
-	}
-	if axes.WantsWorktree() {
-		clidiag.Warn("ctxloom", "workspace: worktree requested but the external plugin binary %q runs in the live project dir", binary)
-	}
 }
 
 // warnBypassOnLostContainer reports whether the launch should warn that a

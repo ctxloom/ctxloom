@@ -64,12 +64,11 @@ sequenceDiagram
 - `LLMPluginKey = "ai_plugin"` (`shared.go:22`); `PluginMap` (`shared.go:25-27`) holds `&LLMGRPCPlugin{}`.
 - **Host and plugin are the same binary**, always built and launched together. That version-lock is load-bearing and is cited in the schema itself (`llm.proto:189-197`, `:518-527`) as the reason breaking wire-type changes ship with no migration (e.g. `auto_approve` bool → `permission_mode` string).
 
-### Four ways in
+### Three ways in
 
 | Path | Entry point | Used by |
 |---|---|---|
 | Self-invoked (production default) | `NewSelfInvokingClientForLabelEnv` (`client.go:359`) via `DefaultClientFactory` (`interface.go:65`) | 8 production callers |
-| Explicit binary | `NewLLMRunner` (`client.go:321`) | `internal/cli/run.go:1024` |
 | Container | `NewContainerClient` (`client.go:334`) → `dialContainerConnection` (`client.go:261`) with `plugin.UnixSocketConfig` + an `AddrTranslator` mapping the in-container socket back to the host mount | `internal/lm/isolation/runtime.go:309` |
 | Bare self-exec (**no handshake**) | `StartHostRunner` (`host_runner.go:56`) | coordinator; readiness observed by `RunnerChannel` dial-home, not here (`host_runner.go:22-30`) |
 

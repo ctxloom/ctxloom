@@ -266,7 +266,7 @@ func TestGRPCClient_Run_PassesRequestThrough(t *testing.T) {
 }
 
 // fakeLLMConnection is a stand-in for plugin.Client in tests of
-// NewLLMRunner. It satisfies the llmConnection interface with
+// runnerFromConn. It satisfies the llmConnection interface with
 // configurable error responses at each lifecycle step.
 type fakeLLMConnection struct {
 	clientResult plugin.ClientProtocol
@@ -292,64 +292,52 @@ func (f *fakeClientProtocol) Dispense(name string) (any, error) {
 }
 func (f *fakeClientProtocol) Ping() error { return nil }
 
-func TestNewLLMRunner_ClientErrorTriggersKill(t *testing.T) {
-	fake := &fakeLLMConnection{clientErr: errors.New("dial failed")}
-	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
-		return fake
-	}
-	t.Cleanup(func() { dialLLMConnection = orig })
+// The four tests below pin runnerFromConn's error/kill contract directly —
+// the shared machinery NewSelfInvokingClientForLabelEnv (the only production
+// entry point left after the external-plugin-binary path's removal) also
+// depends on. They used to drive this through the now-deleted NewLLMRunner
+// wrapper (dialLLMConnection mocked, cmd/args ignored); calling
+// runnerFromConn directly with a fake llmConnection tests the same contract
+// without the wrapper.
 
-	_, err := NewLLMRunner("dummy", nil, 0)
+func TestRunnerFromConn_ClientErrorTriggersKill(t *testing.T) {
+	fake := &fakeLLMConnection{clientErr: errors.New("dial failed")}
+
+	_, err := runnerFromConn(fake)
 	require.Error(t, err)
 	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked when Client() fails")
 }
 
-func TestNewLLMRunner_DispenseErrorTriggersKill(t *testing.T) {
+func TestRunnerFromConn_DispenseErrorTriggersKill(t *testing.T) {
 	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{dispenseErr: errors.New("dispense failed")},
 	}
-	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
-		return fake
-	}
-	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewLLMRunner("dummy", nil, 0)
+	_, err := runnerFromConn(fake)
 	require.Error(t, err)
 	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked when Dispense() fails")
 }
 
-func TestNewLLMRunner_WrongTypeTriggersKill(t *testing.T) {
+func TestRunnerFromConn_WrongTypeTriggersKill(t *testing.T) {
 	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{
 			dispenseResult: "not a *GRPCClient", // string instead of *GRPCClient
 		},
 	}
-	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
-		return fake
-	}
-	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewLLMRunner("dummy", nil, 0)
+	_, err := runnerFromConn(fake)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected plugin type")
 	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked on type assertion failure")
 }
 
-func TestNewLLMRunner_HappyPath(t *testing.T) {
+func TestRunnerFromConn_HappyPath(t *testing.T) {
 	grpcClient := &GRPCClient{client: &fakeLLMClient{}}
 	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
 	}
-	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
-		return fake
-	}
-	t.Cleanup(func() { dialLLMConnection = orig })
 
-	pc, err := NewLLMRunner("dummy", nil, 0)
+	pc, err := runnerFromConn(fake)
 	require.NoError(t, err)
 	require.NotNil(t, pc)
 	assert.Equal(t, 0, fake.killCalls, "Kill must NOT be invoked on success")
@@ -389,7 +377,7 @@ func TestDefaultClientFactory_PassesLabelToServe(t *testing.T) {
 	})
 }
 
-func TestNewLLMRunner_KillIsNilSafe(t *testing.T) {
+func TestLLMRunner_KillIsNilSafe(t *testing.T) {
 	// A LLMRunner with nil conn (constructed for tests) must not
 	// panic when Kill is called.
 	pc := &LLMRunner{}

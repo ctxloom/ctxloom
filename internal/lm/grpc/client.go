@@ -178,7 +178,7 @@ func verbosityToHclogLevel(verbosity int) hclog.Level {
 }
 
 // llmConnection is the abstraction over the hashicorp/go-plugin
-// machinery that NewLLMRunner depends on. Production
+// machinery that runnerFromConn depends on. Production
 // dialLLMConnection wraps a real *plugin.Client; tests inject a
 // fake that returns canned errors at each lifecycle step.
 type llmConnection interface {
@@ -288,8 +288,9 @@ func newPluginLogger(verbosity int) hclog.Logger {
 // runnerFromConn completes plugin startup on an established connection: dial the
 // gRPC client, dispense the LLM plugin, wrap it in an *LLMRunner. On any failure
 // it kills the connection so a half-started plugin (or container) never leaks.
-// Shared by the host (NewLLMRunner) and container (NewContainerClient) paths so
-// the dispense/type-assert dance lives in one place.
+// Shared by the self-invoking host (NewSelfInvokingClientForLabelEnv) and
+// container (NewContainerClient) paths so the dispense/type-assert dance
+// lives in one place.
 func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 	rpcClient, err := conn.Client()
 	if err != nil {
@@ -313,13 +314,6 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 		conn: conn,
 		grpc: grpcClient,
 	}, nil
-}
-
-// NewLLMRunner creates a new plugin client that spawns the given command.
-// The command should be the path to the plugin binary (e.g., "ctxloom" with args ["llm", "serve", "claudecode"]).
-// Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
-func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) {
-	return runnerFromConn(dialLLMConnection(cmd, args, nil, newPluginLogger(verbosity)))
 }
 
 // NewContainerClient creates a plugin client whose backend server runs INSIDE a

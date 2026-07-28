@@ -314,14 +314,12 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 		return nil
 	}
 
-	var cell interface {
-		Deliver(Delivery) (Delivered, error)
-	}
-	if req.CellKind == CellKindProcessIsolated {
-		cell = NewProcessIsolatedCell(b.WorkDir())
-	} else {
-		cell = NewDirectoryIsolatedCell(b.WorkDir())
-	}
+	// U100-F07: DirectoryIsolatedCell/ProcessIsolatedCell used to be two
+	// distinct types chosen between here on req.CellKind, but both were
+	// `isolatedCell{dir}` with no added field or method — the branch had no
+	// observable effect. Collapsed to one IsolatedCell; the CellKind
+	// distinction survives where it actually matters (buildArgs/env).
+	cell := NewIsolatedCell(b.WorkDir())
 	for _, kd := range resolved.Deliveries() {
 		d, err := cell.Deliver(kd)
 		if err != nil {

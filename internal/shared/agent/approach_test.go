@@ -16,20 +16,22 @@ func TestApproach_String(t *testing.T) {
 
 // ---- ContextWrite -------------------------------------------------------------
 
-func TestContextWrite_StringAndApproach(t *testing.T) {
+// ContextWrite/MCPWrite/SettingsWrite/CommandsWrite/SkillsWrite no longer have
+// their own String() (U100-F06 deleted all five as test-only forwarders to
+// Approach.String(), which TestApproach_String above already covers). Only
+// approach() — the compile-time cross-surface guard — remains to test here.
+func TestContextWrite_Approach(t *testing.T) {
 	cases := []struct {
 		name     string
 		val      ContextWrite
-		wantStr  string
 		wantAppr Approach
 	}{
-		{"unsafe-file", ContextWriteUnsafeFile, "unsafe-file", ApproachUnsafeFile},
-		{"system-prompt", ContextWriteSystemPrompt, "system-prompt", ApproachSystemPrompt},
-		{"hook", ContextWriteHook, "hook", ApproachHook},
+		{"unsafe-file", ContextWriteUnsafeFile, ApproachUnsafeFile},
+		{"system-prompt", ContextWriteSystemPrompt, ApproachSystemPrompt},
+		{"hook", ContextWriteHook, ApproachHook},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.wantStr, tc.val.String())
 			assert.Equal(t, tc.wantAppr, tc.val.approach())
 		})
 	}
@@ -40,14 +42,9 @@ func TestContextWrite_StringAndApproach(t *testing.T) {
 // Every one of these single-valued enums converts to ApproachUnsafeFile — the
 // only approach any of these surfaces offers today (a claude-only extension point
 // for symmetry with ContextWrite).
-func TestSingleValueWrites_StringAndApproach(t *testing.T) {
-	assert.Equal(t, "unsafe-file", MCPWriteUnsafeFile.String())
+func TestSingleValueWrites_Approach(t *testing.T) {
 	assert.Equal(t, ApproachUnsafeFile, MCPWriteUnsafeFile.approach())
-
-	assert.Equal(t, "unsafe-file", SettingsWriteUnsafeFile.String())
 	assert.Equal(t, ApproachUnsafeFile, SettingsWriteUnsafeFile.approach())
-
-	assert.Equal(t, "unsafe-file", CommandsWriteUnsafeFile.String())
 	assert.Equal(t, ApproachUnsafeFile, CommandsWriteUnsafeFile.approach())
 }
 

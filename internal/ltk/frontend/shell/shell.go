@@ -85,20 +85,18 @@ func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (script 
 		return &ir.Script{Shell: shell}, err
 	}
 	l := &lowerer{
-		shell:   shell,
-		printer: syntax.NewPrinter(),
-		base:    f.env,
-		vars:    map[string]string{},
+		shell: shell,
+		base:  f.env,
+		vars:  map[string]string{},
 	}
 	return &ir.Script{Shell: shell, Pipelines: l.lowerStmts(file.Stmts)}, nil
 }
 
 // lowerer walks the AST, tracking variable assignments for expansion.
 type lowerer struct {
-	shell   ir.Shell
-	printer *syntax.Printer
-	base    map[string]string // process env (read-only)
-	vars    map[string]string // assignments seen so far in this script
+	shell ir.Shell
+	base  map[string]string // process env (read-only)
+	vars  map[string]string // assignments seen so far in this script
 }
 
 func (l *lowerer) lowerStmts(stmts []*syntax.Stmt) []ir.Pipeline {
@@ -136,10 +134,8 @@ func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connecto
 			return l.lowerBareRedirect(st, conn)
 		}
 		return []ir.Pipeline{{
-			Connector:  conn,
-			Background: st != nil && st.Background,
-			Negated:    st != nil && st.Negated,
-			Commands:   []ir.SimpleCommand{l.lowerCall(c, st)},
+			Connector: conn,
+			Commands:  []ir.SimpleCommand{l.lowerCall(c, st)},
 		}}
 	case *syntax.BinaryCmd:
 		if c == nil {
@@ -176,30 +172,24 @@ func (l *lowerer) lowerBareRedirect(st *syntax.Stmt, conn ir.Connector) []ir.Pip
 			}
 			sc.Redirects = append(sc.Redirects, ir.Redirect{Op: r.Op.String(), Target: l.literal(cfg, r.Word)})
 		}
-		sc.Raw = l.render(st)
 	}
 	return []ir.Pipeline{{
-		Connector:  conn,
-		Background: st != nil && st.Background,
-		Negated:    st != nil && st.Negated,
-		Commands:   []ir.SimpleCommand{sc},
+		Connector: conn,
+		Commands:  []ir.SimpleCommand{sc},
 	}}
 }
 
-// lowerGroup lowers a `{ … }` block or `( … )` subshell, carrying the enclosing
-// statement's connector / Background / Negated onto the first pipeline of the
-// group so `! (cmd)`, `(cmd) &`, and `{ cmd; } &` don't silently lose that
-// metadata (lowerStmts alone would stamp the first pipeline ConnNone and drop
-// the negation/background of the whole group). Matching is unaffected — Walk
-// ignores these fields — but a future consumer of them sees the truth.
-func (l *lowerer) lowerGroup(stmts []*syntax.Stmt, st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
+// lowerGroup lowers a `{ … }` block or `( … )` subshell, carrying the
+// enclosing statement's connector onto the first pipeline of the group so
+// `(cmd) &&` etc. don't silently lose that metadata (lowerStmts alone would
+// stamp the first pipeline ConnNone). Matching is unaffected either way — Walk
+// only ever looks at Commands. The enclosing *syntax.Stmt is unused now that
+// Background/Negated are gone (U072-F03) but kept as a parameter for call-site
+// symmetry with the other lower* methods, which all take it.
+func (l *lowerer) lowerGroup(stmts []*syntax.Stmt, _ *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
 	pipelines := l.lowerStmts(stmts)
 	if len(pipelines) > 0 {
 		pipelines[0].Connector = conn
-		if st != nil {
-			pipelines[0].Background = st.Background
-			pipelines[0].Negated = st.Negated
-		}
 	}
 	return pipelines
 }
@@ -210,7 +200,6 @@ func (l *lowerer) lowerBinary(c *syntax.BinaryCmd, st *syntax.Stmt, conn ir.Conn
 	case syntax.Pipe, syntax.PipeAll:
 		return []ir.Pipeline{{
 			Connector: conn,
-			Negated:   st != nil && st.Negated,
 			Commands:  l.flattenPipe(c),
 		}}
 	case syntax.AndStmt:
@@ -290,7 +279,6 @@ func (l *lowerer) lowerCall(c *syntax.CallExpr, st *syntax.Stmt) ir.SimpleComman
 			sc.Redirects = append(sc.Redirects, ir.Redirect{Op: r.Op.String(), Target: l.literal(cfg, r.Word)})
 		}
 	}
-	sc.Raw = l.render(c)
 	// A pure assignment (no program word) updates the environment that later
 	// commands in this script expand against, e.g. `t=test; go $t`.
 	if len(c.Args) == 0 {
@@ -373,14 +361,6 @@ func argvFallback(words []*syntax.Word) []string {
 		}
 	}
 	return out
-}
-
-func (l *lowerer) render(n syntax.Node) string {
-	var b strings.Builder
-	if err := l.printer.Print(&b, n); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(b.String())
 }
 
 // envMap turns "K=V" pairs into a map.

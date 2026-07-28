@@ -48,20 +48,31 @@ type Script struct {
 }
 
 // Pipeline is one or more simple commands joined by "|".
+//
+// Background/Negated were dropped (U072-F03): frontend/shell was the only
+// writer and, past a single test-only reader inside that same package, they
+// had no reader anywhere in the repo. Match.matches only ever consulted
+// Commands (rules match on Argv), so the two flags never influenced a
+// decision — they were pure decoration with a real lowering cost.
 type Pipeline struct {
-	Connector  Connector
-	Background bool // terminated with &
-	Negated    bool // prefixed with !
-	Commands   []SimpleCommand
+	Connector Connector
+	Commands  []SimpleCommand
 }
 
 // SimpleCommand is a single program invocation.
+//
+// Raw was dropped (U072-F03/U071-F02): its doc said "for human-facing
+// messages", but no message path ever read it (a deny's Reason comes from
+// Rule.Message, rules/eval.go) — rg found zero readers anywhere, tests
+// included. It cost a full syntax.Printer pretty-print per command on the
+// guard's hot path for a value nothing consumed. Re-add it (with a real
+// consumer landing first) if quoting the offending command in a deny message
+// is ever built.
 type SimpleCommand struct {
 	Assignments []Assignment // FOO=bar env prefixes
 	Argv        []string     // program + args, best-effort literal resolution
 	Redirects   []Redirect
 	Nested      []*Script // scripts embedded via $(...), `...`, <(...), ( ... )
-	Raw         string    // original rendered text, for human-facing messages
 }
 
 // Program returns argv[0], or "" if the command has no words.

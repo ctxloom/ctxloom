@@ -427,4 +427,3 @@ func permissionPayload(p *agent.PermissionRequest) *PermissionPayload {
 	}
 	return out
 }
-

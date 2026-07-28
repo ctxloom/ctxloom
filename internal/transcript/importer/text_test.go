@@ -12,4 +12,3 @@ func TestJoinNonEmpty(t *testing.T) {
 	assert.Equal(t, "", JoinNonEmpty([]string{"", ""}))
 	assert.Equal(t, "solo", JoinNonEmpty([]string{"solo"}))
 }
-

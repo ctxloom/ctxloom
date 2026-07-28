@@ -71,3 +71,35 @@ func TestGenConfig_UsesProductsOwnConventions(t *testing.T) {
 	assert.NotContains(t, doc, "~/.ctxloom/config.yaml", "must never leak ctxloom's own home config path")
 	assert.Contains(t, doc, schemaPath, "must cite the schema path it was actually generated from")
 }
+
+// U051-F01: a schema that parses as valid JSON but carries no top-level
+// "properties" and no "$defs" used to still write a config.md page -- a
+// heading, the fixed override-chain prose, and zero documented fields -- and
+// GenConfig returned nil. That is indistinguishable from --config-schema
+// pointing at the wrong file, or a schema whose properties key was renamed
+// out from under this generator. Proves it now fails loud instead.
+func TestGenConfig_EmptySchemaFailsLoudInsteadOfWritingAFieldlessPage(t *testing.T) {
+	dir := t.TempDir()
+	schemaPath := filepath.Join(dir, "config-schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"title": "ctxloom configuration", "type": "object"}`), 0o644))
+
+	err := GenConfig(&Product{Bin: "ctxloom"}, schemaPath, dir)
+	require.Error(t, err, "a schema with no properties and no $defs has nothing to document")
+	assert.Contains(t, err.Error(), schemaPath, "the error must name the offending schema file")
+
+	_, statErr := os.Stat(filepath.Join(dir, "config.md"))
+	assert.True(t, os.IsNotExist(statErr), "a refused generation must not leave a fieldless page behind")
+}
+
+// A bare `null` document is the sharper edge of the same defect:
+// json.Unmarshal accepts it into a map with no error, leaving root == nil,
+// so every subsequent map read on it is legal Go and nothing panics -- this
+// must still be refused, not silently treated as "zero fields, valid".
+func TestGenConfig_NullSchemaFailsLoud(t *testing.T) {
+	dir := t.TempDir()
+	schemaPath := filepath.Join(dir, "config-schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`null`), 0o644))
+
+	err := GenConfig(&Product{Bin: "ctxloom"}, schemaPath, dir)
+	require.Error(t, err, "a null schema document has nothing to document")
+}

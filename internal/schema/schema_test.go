@@ -2,6 +2,7 @@ package schema
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,6 +138,67 @@ func TestConvertToJSON(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "tag1", tags[0])
 		assert.Equal(t, "tag2", tags[1])
+	})
+
+	// U096-F03: these are the two shapes yaml.v3 hands back that are NOT
+	// already JSON-native — the only two conversions this function exists to
+	// perform. Both used to fall through `default` untouched (verified:
+	// reflect.DeepEqual(in, convertToJSON(in)) was true for every case here),
+	// so the schema validator saw a bare Go-type panic-adjacent jsonType
+	// error rather than a *jsonschema.ValidationError.
+	t.Run("converts an unquoted YAML timestamp to an RFC3339 string", func(t *testing.T) {
+		ts := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
+		result := convertToJSON(ts)
+		s, ok := result.(string)
+		require.True(t, ok, "time.Time must convert to a JSON-representable string, got %T", result)
+		assert.Equal(t, ts.Format(time.RFC3339), s)
+	})
+
+	t.Run("converts a non-string-keyed YAML map to a string-keyed one", func(t *testing.T) {
+		// A bare (unquoted) map key like `1:` or `true:` decodes to this shape.
+		input := map[interface{}]interface{}{
+			1:    "one",
+			true: "yes",
+		}
+		result := convertToJSON(input)
+		m, ok := result.(map[string]interface{})
+		require.True(t, ok, "map[interface{}]interface{} must convert to map[string]interface{}, got %T", result)
+		assert.Equal(t, "one", m["1"])
+		assert.Equal(t, "yes", m["true"])
+	})
+
+	t.Run("recurses into a non-string-keyed map's values", func(t *testing.T) {
+		input := map[interface{}]interface{}{
+			1: map[interface{}]interface{}{2: "nested"},
+		}
+		result := convertToJSON(input)
+		m := result.(map[string]interface{})
+		inner, ok := m["1"].(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "nested", inner["2"])
+	})
+}
+
+// U096-F03: end-to-end through ValidateBytes (not just convertToJSON in
+// isolation) — the shapes above must reach the validator as JSON-native
+// values instead of surfacing a bare Go jsonType error that
+// classifyValidationError's errors.As on *jsonschema.ValidationError cannot
+// classify.
+func TestValidateBytes_ConvertsYAMLTimestampAndNonStringKeys(t *testing.T) {
+	v, err := NewConfigValidator()
+	require.NoError(t, err)
+
+	t.Run("unquoted timestamp value no longer produces a bare jsonType error", func(t *testing.T) {
+		// default_agent is a plain string field; an unquoted date is accepted
+		// by YAML as a timestamp scalar. Before the fix this returned
+		// `jsonschema: invalid jsonType: time.Time` — not a
+		// *jsonschema.ValidationError` — regardless of whether the schema
+		// would otherwise accept or reject the value.
+		err := v.ValidateBytes([]byte("default_agent: 2026-07-24\n"))
+		if err != nil {
+			assert.NotContains(t, err.Error(), "invalid jsonType: time.Time",
+				"a converted timestamp must be judged against the schema, not fail as an unrepresentable Go type")
+		}
 	})
 }
 

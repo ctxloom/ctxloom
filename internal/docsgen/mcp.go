@@ -51,6 +51,14 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 	if err != nil {
 		return err
 	}
+	// U051-F02(a): a product with an MCPServer but zero registered tools used
+	// to still write a page with an empty "## Tools" section and return nil
+	// -- exit 0, no payload, the same misconfiguration the nil-server check
+	// two lines above this already treats as fatal. Resources/Templates are
+	// correctly optional (guarded by len(...) > 0 below); Tools is not.
+	if len(tools) == 0 {
+		return fmt.Errorf("docsgen: product %s's MCP server has no registered tools to document", p.Bin)
+	}
 
 	var b strings.Builder
 	b.WriteString(p.mcpFrontmatter())
@@ -62,7 +70,9 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 
 	b.WriteString("## Tools\n\n")
 	for _, t := range tools {
-		writeMCPTool(&b, t)
+		if err := writeMCPTool(&b, t); err != nil {
+			return fmt.Errorf("docsgen: %w", err)
+		}
 	}
 
 	if len(resources) > 0 {
@@ -131,16 +141,24 @@ func enumerateMCPSurface(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, 
 
 // writeMCPTool renders one tool: heading, description, and a parameter table
 // built from the tool's reflected InputSchema.
-func writeMCPTool(b *strings.Builder, t *mcp.Tool) {
+func writeMCPTool(b *strings.Builder, t *mcp.Tool) error {
 	fmt.Fprintf(b, "### %s\n\n", t.Name)
 	if t.Description != "" {
 		fmt.Fprintf(b, "%s\n\n", t.Description)
 	}
 
-	schema := decodeToolSchema(t.InputSchema)
+	schema, err := decodeToolSchema(t.InputSchema)
+	if err != nil {
+		// U051-F02(b): decodeToolSchema used to swallow both the Marshal and
+		// Unmarshal failure and return a zero mcpToolSchema, which reads
+		// here as "no parameters" -- indistinguishable from a genuinely
+		// parameterless tool. A tool whose schema this generator cannot
+		// decode must abort the page, not publish a lie about its inputs.
+		return fmt.Errorf("tool %s: %w", t.Name, err)
+	}
 	if len(schema.Properties) == 0 {
 		b.WriteString("_No parameters._\n\n")
-		return
+		return nil
 	}
 
 	required := make(map[string]bool, len(schema.Required))
@@ -165,23 +183,26 @@ func writeMCPTool(b *strings.Builder, t *mcp.Tool) {
 		fmt.Fprintf(b, "| `%s` | %s | %s | %s |\n", name, propertyType(p), req, mdCell(propertyDescription(p)))
 	}
 	b.WriteString("\n")
+	return nil
 }
 
 // decodeToolSchema re-marshals the tool's InputSchema (an `any` that is a
 // map[string]any on the client side of the in-memory transport, or a typed
 // schema on the server side) through JSON into our narrow view. Going through
 // JSON makes it robust to either representation.
-func decodeToolSchema(raw any) mcpToolSchema {
+func decodeToolSchema(raw any) (mcpToolSchema, error) {
 	var schema mcpToolSchema
 	if raw == nil {
-		return schema
+		return schema, nil
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return schema
+		return schema, fmt.Errorf("marshal input schema: %w", err)
 	}
-	_ = json.Unmarshal(data, &schema)
-	return schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return schema, fmt.Errorf("decode input schema: %w", err)
+	}
+	return schema, nil
 }
 
 // propertyType renders a JSON-schema property type as a compact string,

@@ -4,6 +4,8 @@ package schema
 import (
 	"bytes"
 	"fmt"
+	"sort"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
@@ -91,6 +93,64 @@ func (v *ConfigValidator) KnownPath(path []string) bool {
 	return true
 }
 
+// KnownKeys returns the declared property names of the schema object at path
+// (see KnownPath's doc for the segment-resolution rule), unioned across every
+// anyOf/oneOf/allOf branch reachable from it. This is the enumeration
+// counterpart config/unknown_keys.go's did-you-mean suggestion needs, and it
+// deliberately does NOT reuse schemaChild's "first branch that recognizes"
+// policy for the union step: that policy is correct for KnownPath's yes/no
+// question, but wrong here — a typo inside a kiro-typed llm.configs entry
+// must be able to suggest kiro's own field names, which first-match-wins
+// would never reach if an earlier branch (e.g. claude-code) also partially
+// matches. Nil (not empty) when path does not resolve to anything, so a
+// caller can tell "resolved, zero properties" from "did not resolve" if it
+// ever needs to.
+func (v *ConfigValidator) KnownKeys(path []string) []string {
+	if v == nil || v.schema == nil {
+		return nil
+	}
+	cur := v.schema
+	for _, seg := range path {
+		cur = schemaChild(cur, seg)
+		if cur == nil {
+			return nil
+		}
+	}
+	seen := map[string]bool{}
+	collectKnownKeys(cur, seen, 0)
+	if len(seen) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// collectKnownKeys unions s's own Properties with every anyOf/oneOf/allOf
+// branch's, following $ref. depth bounds a pathological $ref cycle (the same
+// unbounded-loop concern noted on resolveSchemaRef, F07) rather than
+// recursing forever; 64 is far past any real schema's nesting.
+func collectKnownKeys(s *jsonschema.Schema, seen map[string]bool, depth int) {
+	if depth > 64 {
+		return
+	}
+	s = resolveSchemaRef(s)
+	if s == nil {
+		return
+	}
+	for k := range s.Properties {
+		seen[k] = true
+	}
+	for _, branches := range [][]*jsonschema.Schema{s.AnyOf, s.OneOf, s.AllOf} {
+		for _, branch := range branches {
+			collectKnownKeys(branch, seen, depth+1)
+		}
+	}
+}
+
 // resolveSchemaRef follows a chain of $ref indirection to the schema that
 // actually carries the object keywords (properties/additionalProperties/...).
 func resolveSchemaRef(s *jsonschema.Schema) *jsonschema.Schema {
@@ -137,6 +197,26 @@ func convertToJSON(v interface{}) interface{} {
 			m[k] = convertToJSON(val)
 		}
 		return m
+	// U096-F03: yaml.v3 hands back exactly two shapes that are NOT already
+	// JSON-native, and this function's whole reason to exist is to convert
+	// them. Both used to fall through to `default` untouched, so the schema
+	// validator saw a *jsonType* error (not a *jsonschema.ValidationError*)
+	// for either — silently defeating classifyValidationError's errors.As
+	// and reporting neither the offending key nor a usable message.
+	case map[interface{}]interface{}:
+		// A YAML mapping key that isn't a bare string (e.g. a bare `1:` or a
+		// `true:`) decodes into this shape rather than map[string]interface{}.
+		m := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			m[fmt.Sprint(k)] = convertToJSON(val)
+		}
+		return m
+	case time.Time:
+		// An unquoted YAML timestamp (e.g. `2026-07-24`) decodes to time.Time,
+		// which encoding/json — and this validator's schema.Validate — cannot
+		// represent; JSON Schema's own "date"/"date-time" formats expect a
+		// string. RFC3339 round-trips both a bare date and a full timestamp.
+		return v.Format(time.RFC3339)
 	case []interface{}:
 		arr := make([]interface{}, len(v))
 		for i, val := range v {

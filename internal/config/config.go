@@ -507,6 +507,13 @@ func ResetOverrides() {
 // value inside it. validator may be nil (schema failed to load — Load's own
 // fault-tolerant fallback); ConfigValidator.KnownPath is nil-receiver-safe,
 // so KnownPath degrades to "nothing recognized" rather than panicking.
+// newConfigValidatorFn is a test seam over schema.NewConfigValidator: the
+// embedded schema it compiles is a fixed build artifact, so there is no other
+// way to exercise the "schema failed to compile" fallback below (U096-F01)
+// without corrupting a real resource. Production always uses the real
+// constructor; only tests substitute a failing stub.
+var newConfigValidatorFn = schema.NewConfigValidator
+
 func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 	return confload.Product{
 		Name:      "ctxloom",
@@ -534,8 +541,14 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 // raised later, at each Load. Callers follow this codebase's fault-tolerance
 // convention and downgrade it to a warning rather than fail startup.
 func InstallOverridesFromFlags(fs *pflag.FlagSet) error {
-	validator, err := schema.NewConfigValidator()
+	validator, err := newConfigValidatorFn()
 	if err != nil {
+		// U096-F01: a compile failure here used to be discarded with no trace
+		// at all — worse than loadUncached's sibling fallback below, which at
+		// least zap-warns. The embedded schema is a build-time resource, so
+		// this "can't happen" in a healthy build; if it ever does, KnownPath
+		// degrading to "nothing recognized" should be visible, not silent.
+		zap.L().Warn("failed to create config validator for override resolution", zap.Error(err))
 		validator = nil
 	}
 	o, readErr := ctxloomProduct(validator).ReadOverrides(fs)
@@ -1171,9 +1184,19 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	}
 
 	// Create config validator for schema validation
-	configValidator, err := schema.NewConfigValidator()
+	configValidator, err := newConfigValidatorFn()
 	if err != nil {
 		zap.L().Warn("failed to create config validator", zap.Error(err))
+		// U096-F01: previously this degraded to "everything is valid" —
+		// zap-only, invisible to the strict-startup gate, which keys
+		// exclusively on cfg.warnings. A schema-compile failure means every
+		// config in this process loads with ZERO validation and every
+		// env/--config-set override is silently reclassified from "known,
+		// set silently" to "unknown, warn" (KnownPath degrades to false for
+		// everything). The embedded schema is a build artifact, so this is a
+		// build defect, not a user condition — surface it as fatal-class.
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindValidate,
+			Text: fmt.Sprintf("config schema failed to compile — config validation and override-key checking are DISABLED for this process: %v", err)})
 		configValidator = nil
 	}
 
@@ -1502,7 +1525,7 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 	// other schema breakage as the plain validate warning it has always been.
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			cfg.warnings = append(cfg.warnings, classifyValidationError(configPath, err)...)
+			cfg.warnings = append(cfg.warnings, classifyValidationError(configPath, validator, err)...)
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}

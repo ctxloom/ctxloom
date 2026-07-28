@@ -80,7 +80,7 @@ func TestGeneratePage_NarrationOptional(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}} // no .doc.md loaded
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed"}}},
 		},
 	}
 
@@ -98,7 +98,7 @@ func TestGeneratePage_IncludesNarrationProseWhenPresent(t *testing.T) {
 	}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed"}}},
 		},
 	}
 
@@ -114,8 +114,8 @@ func TestGeneratePage_MultipleExamplesLabeled(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row one", Status: "passed"}}},
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row two", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row one", Keyword: "Given", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row two", Keyword: "Given", Status: "passed"}}},
 		},
 	}
 
@@ -184,6 +184,30 @@ func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.
 	page, err := GeneratePage(feat, narr, captures, "")
 	require.NoError(t, err)
 	assert.Contains(t, page, "the real payload")
+}
+
+// U157-F01: a step whose OWN keyword the capture side could not classify
+// (empty -- steps_doc_capture.go's gherkinKeyword returns "" for any pickle
+// type outside Context/Action/Outcome, e.g. a godog version change or an
+// unrecognized step type) used to be silently treated as non-assertion --
+// exempt from the evidence gate, the one guard that stops a proves-nothing
+// scenario from being published. Proves it now fails closed with a named
+// error instead of guessing "not an assertion".
+func TestGeneratePage_UnclassifiableStepKeywordFailsClosed(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "a precondition", Keyword: "Given", Status: "passed"},
+				{Text: "a step of some new unrecognized pickle type", Keyword: "", Status: "passed"},
+			}},
+		},
+	}
+
+	_, err := GeneratePage(feat, narr, captures, "")
+	require.Error(t, err, "an unclassifiable step must not be silently exempted from the evidence gate")
+	assert.Contains(t, err.Error(), "a step of some new unrecognized pickle type")
 }
 
 func TestGeneratePage_EvidenceGapNamesTheExampleRowForOutlines(t *testing.T) {

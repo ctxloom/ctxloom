@@ -204,7 +204,28 @@ func (e *EvidenceGapError) Error() string {
 // not a fixed value. A step whose keyword this generator can't classify
 // (empty — the capture side never produced one) is treated as non-assertion:
 // there is nothing to conservatively enforce evidence against.
-func stepIsAssertion(steps []DocCaptureStep, i int) bool {
+// stepIsAssertion reports whether the step at index i is governed by "Then"
+// — an assertion — as opposed to "Given"/"When" (setup/action). godog's
+// pickle steps carry only a coarse Context/Action/Outcome type, and
+// tests/acceptance/steps_doc_capture.go's gherkinKeyword collapses a run of
+// same-type steps to "And" after the first (see that function's own doc
+// comment) — so an "And" step's real governing keyword is whichever
+// Given/When/Then most recently preceded it in THIS capture's own step list,
+// not a fixed value.
+//
+// U157-F01: a step whose OWN keyword the capture side could not classify
+// (empty — gherkinKeyword returns "" for any pickle type outside
+// Context/Action/Outcome) used to be treated as non-assertion: "there is
+// nothing to conservatively enforce evidence against." That is backwards —
+// it silently turns the evidence gate off for exactly the input a godog
+// version change or a new step type would produce, on the one guard that
+// stops a proves-nothing scenario from being published. This step's own
+// classification is unknown, not "known to be non-assertion", so it now
+// fails closed with a named error instead of guessing.
+func stepIsAssertion(steps []DocCaptureStep, i int) (bool, error) {
+	if steps[i].Keyword == "" {
+		return false, fmt.Errorf("step %d (%q) carries no Gherkin keyword — the capture side could not classify it, so this generator cannot tell assertion from setup/action", i, steps[i].Text)
+	}
 	governing := ""
 	for j := 0; j <= i; j++ {
 		switch steps[j].Keyword {
@@ -212,7 +233,7 @@ func stepIsAssertion(steps []DocCaptureStep, i int) bool {
 			governing = steps[j].Keyword
 		}
 	}
-	return governing == "Then"
+	return governing == "Then", nil
 }
 
 // hasEvidence reports whether a step captured ANY of the three evidence
@@ -229,7 +250,11 @@ func hasEvidence(step DocCaptureStep) bool {
 func assertAllHaveEvidence(featurePath, scenarioName string, captures []DocCapture) error {
 	for idx, cap := range captures {
 		for i, step := range cap.Steps {
-			if !stepIsAssertion(cap.Steps, i) || hasEvidence(step) {
+			isAssertion, err := stepIsAssertion(cap.Steps, i)
+			if err != nil {
+				return fmt.Errorf("%s %q: %w", featurePath, scenarioName, err)
+			}
+			if !isAssertion || hasEvidence(step) {
 				continue
 			}
 			example := 0

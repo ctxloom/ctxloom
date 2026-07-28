@@ -1262,6 +1262,6 @@ var sessionDistillPrompt = resources.MustGetPromptText("session-distill")
 // sessionDistillReducePrompt drives the final compression pass. Unlike the map
 // prompt it tells the model its input is already-distilled partial summaries to
 // merge and dedupe (not a raw transcript), re-asserts the mandatory YAML
-// frontmatter the picker needs, and forbids dropping file paths / plan-block
-// references / session IDs during the merge.
+// frontmatter the picker needs, and forbids dropping file paths / session IDs
+// during the merge.
 var sessionDistillReducePrompt = resources.MustGetPromptText("session-distill-reduce")

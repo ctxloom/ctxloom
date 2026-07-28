@@ -33,7 +33,6 @@ After the closing `---` and a blank line, emit the unified body with these secti
 
 ## Rules
 
-- **Never drop identifiers under the merge.** Carry through verbatim, character-for-character, every: file path, directory path, function/type/symbol name, command line, session ID and harp name (e.g. `soft-idle-scone`, UUIDs), URL, and `plan-block #N` reference that appears in any partial summary. Losing one breaks resuming the work. When two partials mention the same path, keep it once; never paraphrase it away.
-- Do not invent, paraphrase, or summarize the contents of any `plan-block #N` — reference it by number only; the plan body is preserved verbatim elsewhere.
+- **Never drop identifiers under the merge.** Carry through verbatim, character-for-character, every: file path, directory path, function/type/symbol name, command line, session ID and harp name (e.g. `soft-idle-scone`, UUIDs), and URL that appears in any partial summary. Losing one breaks resuming the work. When two partials mention the same path, keep it once; never paraphrase it away.
 - Deduplicate overlapping bullets, but if two partials disagree, keep both and note the divergence rather than silently picking one.
 - Output the frontmatter summary line first, always.

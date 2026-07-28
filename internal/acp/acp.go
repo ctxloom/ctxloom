@@ -220,8 +220,9 @@ func NewACP() *ACP {
 		// nil into "backend acp has no session history".
 		nil,
 		// acp materializes no files (its loadout rides the ACP protocol, see
-		// surfaces.go), so it delivers an EMPTY surface set: Setup still runs the
-		// lifecycle merge that populates ManagedChatMCPServers, but writes nothing.
+		// doc.go's "surface-delivery seam" section), so it delivers an EMPTY
+		// surface set: Setup still runs the lifecycle merge that populates
+		// ManagedChatMCPServers, but writes nothing.
 		&agent.CellDelivery{Build: func(agent.SurfaceInputs, string) agent.SurfaceSet {
 			return agent.EmptySurfaceSet{}
 		}},

@@ -17,38 +17,44 @@ import (
 // characteristic bug is a silent no-op, so every L1 assertion inspects real
 // payload bytes).
 const (
-	// SentinelCancelMe blocks the turn until it receives a CancelTurn control
+	// sentinelCancelMe blocks the turn until it receives a CancelTurn control
 	// message, then completes with stopReason "cancelled" — the ordinary
 	// mid-turn cancel path (server.go's runTurn cancelTurnCh branch).
-	SentinelCancelMe = "L1_CANCEL_ME"
-	// SentinelRaceComplete waits for the server's forwarded CancelTurn (so
+	//
+	// Unexported (U001-F05): this is a `main` package, which is unimportable
+	// by construction, so exporting these bought no capability — the driving
+	// test in internal/acpagent necessarily keeps its own hand-synced copies
+	// (l1Sentinel*) rather than importing them. Match the already-unexported
+	// replayUser/permToolName/terminalTestID below.
+	sentinelCancelMe = "L1_CANCEL_ME"
+	// sentinelRaceComplete waits for the server's forwarded CancelTurn (so
 	// the test can deterministically prove the server-side cancel flag is
 	// already set) but then deliberately IGNORES it and reports "end_turn"
 	// anyway, simulating an engine that races session/cancel and finishes
 	// normally regardless. The server MUST still report stopReason
 	// "cancelled" (server.go:598-606's stopReason(), keyed on session/cancel
 	// having arrived, not on what the engine itself says).
-	SentinelRaceComplete = "L1_RACE_COMPLETE"
-	// SentinelPermission announces a tool call, asks permission for it, and
+	sentinelRaceComplete = "L1_RACE_COMPLETE"
+	// sentinelPermission announces a tool call, asks permission for it, and
 	// reports the answer verbatim as the next entry's content — so a test can
 	// assert selected/dismissed outcomes by inspecting real text.
-	SentinelPermission = "L1_PERMISSION"
-	// SentinelFail reports a fatal, fixed-text engine error instead of
+	sentinelPermission = "L1_PERMISSION"
+	// sentinelFail reports a fatal, fixed-text engine error instead of
 	// completing, so a test can assert the resulting JSON-RPC error message
-	// VERBATIM (see FailMessage).
-	SentinelFail = "L1_FAIL"
-	// SentinelTerminal (B1, gap G6) asks the server to broker one
+	// VERBATIM (see failMessage).
+	sentinelFail = "L1_FAIL"
+	// sentinelTerminal (B1, gap G6) asks the server to broker one
 	// terminal/create call to the connected editor, then reports the
 	// editor's real answer (terminalId on success, the error text on
 	// failure) verbatim as the next entry's content — so a test can assert
 	// the exact bytes the editor sent survived the round trip across the
 	// real process boundary, in both directions.
-	SentinelTerminal = "L1_TERMINAL"
+	sentinelTerminal = "L1_TERMINAL"
 
-	// FailMessage is SentinelFail's exact error text — pinned as a constant
+	// failMessage is sentinelFail's exact error text — pinned as a constant
 	// so the driving test's verbatim assertion and this engine can never
 	// silently drift apart.
-	FailMessage = "l1 harness: deliberate failure for conformance testing"
+	failMessage = "l1 harness: deliberate failure for conformance testing"
 
 	// replayUser/replayAssistant are the FIXED session/load replay history
 	// this harness returns for any resumed harp, so a test can assert the
@@ -56,14 +62,14 @@ const (
 	replayUser      = "earlier question (l1 harness replay)"
 	replayAssistant = "earlier answer (l1 harness replay)"
 
-	// permToolName is the tool name shared by SentinelPermission's
+	// permToolName is the tool name shared by sentinelPermission's
 	// announced tool_use and its permission request, matching the real
 	// server's FIFO tool-call-id pairing convention (acpagent/mapping.go).
 	permToolName = "l1_tool"
 
-	// terminalTestID is SentinelTerminal's fixed TerminalRequest.ID.
+	// terminalTestID is sentinelTerminal's fixed TerminalRequest.ID.
 	terminalTestID = "l1-term-1"
-	// terminalTestParams is SentinelTerminal's fixed, ALREADY-STRIPPED (no
+	// terminalTestParams is sentinelTerminal's fixed, ALREADY-STRIPPED (no
 	// sessionId — the real client-role driver strips it; see
 	// internal/acp/session.go's stripSessionID) terminal/create body, so a
 	// driving test can assert the server injects its OWN session id rather
@@ -149,7 +155,7 @@ func runHarnessEngine(ctx context.Context, in <-chan agent.ChatMessage, events c
 // (or the default echo behavior for ordinary text).
 func runTurn(ctx context.Context, text string, in <-chan agent.ChatMessage, events chan<- agent.ChatEvent, errs chan<- error) {
 	switch text {
-	case SentinelCancelMe:
+	case sentinelCancelMe:
 		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "waiting for cancel"}}) {
 			return
 		}
@@ -167,7 +173,7 @@ func runTurn(ctx context.Context, text string, in <-chan agent.ChatMessage, even
 				}
 			}
 		}
-	case SentinelRaceComplete:
+	case sentinelRaceComplete:
 		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "finishing before any cancel is read"}}) {
 			return
 		}
@@ -193,7 +199,7 @@ func runTurn(ctx context.Context, text string, in <-chan agent.ChatMessage, even
 				}
 			}
 		}
-	case SentinelPermission:
+	case sentinelPermission:
 		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: permToolName}}) {
 			return
 		}
@@ -221,12 +227,12 @@ func runTurn(ctx context.Context, text string, in <-chan agent.ChatMessage, even
 			}
 		}
 		emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
-	case SentinelFail:
+	case sentinelFail:
 		select {
-		case errs <- errors.New(FailMessage):
+		case errs <- errors.New(failMessage):
 		case <-ctx.Done():
 		}
-	case SentinelTerminal:
+	case sentinelTerminal:
 		if !emit(ctx, events, agent.ChatEvent{Terminal: &agent.TerminalRequest{
 			ID:     terminalTestID,
 			Op:     agent.TerminalOpCreate,

@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"encoding/json"
 	"testing"
 
 	api "github.com/coder/acp-go-sdk"
@@ -10,13 +11,34 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
+// testDecodeSessionUpdate parses a session/update notification's params,
+// decoding the (SDK-typed-as-interface{}) `update` field into the typed
+// SessionUpdate union. It exists only for these tests: production
+// (HandleNotification, session.go) inlines this same two-step
+// rawSessionUpdate+json.Unmarshal itself, with its own meta-update check
+// spliced between the steps, rather than calling a shared helper (U012-F07 —
+// decodeSessionUpdate had no production caller and was deleted; this pins the
+// same decode shape for the tests that need it).
+func testDecodeSessionUpdate(t *testing.T, params json.RawMessage) (*api.SessionUpdate, error) {
+	t.Helper()
+	raw, err := rawSessionUpdate(params)
+	if err != nil {
+		return nil, err
+	}
+	var upd api.SessionUpdate
+	if err := json.Unmarshal(raw, &upd); err != nil {
+		return nil, err
+	}
+	return &upd, nil
+}
+
 // mapUpdateJSON wraps a raw `update` object in a session/update notification and
 // runs it through the real decode+map path — the same one the live read loop
 // uses — so these tests exercise wire decoding, not just in-memory structs.
 func mapUpdateJSON(t *testing.T, updateJSON string) []agent.ChatEvent {
 	t.Helper()
 	params := []byte(`{"sessionId":"s1","update":` + updateJSON + `}`)
-	upd, err := decodeSessionUpdate(params)
+	upd, err := testDecodeSessionUpdate(t, params)
 	require.NoError(t, err)
 	return mapSessionUpdate(upd)
 }
@@ -205,7 +227,7 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 		// malformed session/update" warn-and-continue path (session.go)
 		// already handles — not by silently mis-decoding into a real (but
 		// wrong) variant that happens to map to nothing.
-		upd, err := decodeSessionUpdate([]byte(`{"sessionId":"s","update":{"sessionUpdate":"quantum_flux"}}`))
+		upd, err := testDecodeSessionUpdate(t, []byte(`{"sessionId":"s","update":{"sessionUpdate":"quantum_flux"}}`))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unrecognized")
 		assert.Nil(t, upd)

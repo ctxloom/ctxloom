@@ -59,15 +59,17 @@ const protocolFloor = api.ProtocolVersion(api.ProtocolVersionNumber)
 // without this package depending back on any one frontend's wire protocol.
 // These are type ALIASES, not new types — every existing acpagent.X reference
 // in this package (and any external caller) keeps compiling unchanged.
+//
+// U014-F13: LLMInfo and CommandInfo used to be aliased here too, referenced
+// only by this package's own tests (never production) — deleted; tests now
+// spell out operations.LLMInfo/operations.CommandInfo directly.
 type (
 	EngineChat      = operations.EngineChat
 	OpenRequest     = operations.OpenRequest
 	SessionLLMs     = operations.SessionLLMs
-	LLMInfo         = operations.LLMInfo
 	SessionModes    = operations.SessionModes
 	SessionMode     = operations.SessionMode
 	SessionCommands = operations.SessionCommands
-	CommandInfo     = operations.CommandInfo
 )
 
 // ChatOpener opens the engine conversation for a new ACP session. The

@@ -55,6 +55,12 @@ type tally struct {
 	total int
 	// resolvedBySeverity counts only rows marked RESOLVED, per section.
 	resolvedBySeverity map[string]int
+	// byStatusBySeverity counts rows per status WITHIN each section, so the
+	// severity table can be checked column by column instead of inferring
+	// "open" as count-minus-resolved. That inference silently folded PARTIAL,
+	// REFUTED and ESCALATED into "open" while the status table above used
+	// "open" to mean the status — one word, two meanings, in one document.
+	byStatusBySeverity map[string]map[string]int
 }
 
 var (
@@ -73,6 +79,7 @@ func parseIndex(t *testing.T, body string) (got tally, claimed map[string]int) {
 		bySeverity:         map[string]int{},
 		byStatus:           map[string]int{},
 		resolvedBySeverity: map[string]int{},
+		byStatusBySeverity: map[string]map[string]int{},
 	}
 	claimed = map[string]int{}
 
@@ -109,6 +116,10 @@ func parseIndex(t *testing.T, body string) (got tally, claimed map[string]int) {
 		got.bySeverity[section]++
 		got.byStatus[status]++
 		got.total++
+		if got.byStatusBySeverity[section] == nil {
+			got.byStatusBySeverity[section] = map[string]int{}
+		}
+		got.byStatusBySeverity[section][status]++
 		if status == "RESOLVED" {
 			got.resolvedBySeverity[section]++
 		}
@@ -361,39 +372,80 @@ func TestArch_FlowPartition_IsTotalAndDisjoint(t *testing.T) {
 	}
 }
 
-// TestArch_FindingsIndex_SeverityTableOpenColumnMatchesTheRows checks the
-// severity table's fourth ("open") column. TestArch_FindingsIndex_SeverityTableMatchesTheRows
-// parses this column into m[4] but never compares it against anything — it
-// only checks count (m[2]) and resolved (m[3]). "open" here means "not yet
-// marked RESOLVED", i.e. count minus resolved: it deliberately folds in
-// PARTIAL, REFUTED and ESCALATED rows, which the leading integer's own
-// parenthetical breaks back out ("39 (+6 refuted, +3 escalated, +9
-// partial)"). Only the leading integer is compared; the annotation is prose
-// about the adjudicated rows, not itself a count.
-func TestArch_FindingsIndex_SeverityTableOpenColumnMatchesTheRows(t *testing.T) {
+// severityStatusRowRe matches a severity-table row in its adjudication form:
+// severity | count | resolved | open | partial | refuted | escalated.
+// The "(unparsed)" label is the document's spelling of the "Unparsed severity"
+// section heading.
+var severityStatusRowRe = regexp.MustCompile(
+	`^\|\s*(HIGH|MED|LOW|\(unparsed\))\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|`)
+
+// TestArch_FindingsIndex_SeverityTableAdjudicationColumnsMatchTheRows checks
+// every status column of the severity table against a per-section recount.
+//
+// It exists because "open" used to mean two different things in this one file.
+// The status table and the Totals line use it for the STATUS — a row no commit
+// names. The severity table's fourth column was written as count-minus-resolved,
+// which silently folds PARTIAL, REFUTED and ESCALATED back in, and annotated the
+// difference in prose ("39 (+6 refuted, +3 escalated, +9 partial)") that no test
+// read. Worse, the "(unparsed)" row used the same notation additively, so the
+// two readings disagreed by 18 rows inside a single table.
+//
+// Every status now gets its own gated column and "open" means the status
+// everywhere in the document. Prose annotations carry no counts.
+func TestArch_FindingsIndex_SeverityTableAdjudicationColumnsMatchTheRows(t *testing.T) {
 	body := readIndex(t)
 	got, _ := parseIndex(t, body)
 
-	rowRe := regexp.MustCompile(`^\|\s*(HIGH|MED|LOW)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)`)
+	// The table labels the unparsed-severity section "(unparsed)".
+	sectionFor := map[string]string{"(unparsed)": "Unparsed severity"}
+
 	found := 0
 	for _, line := range strings.Split(body, "\n") {
-		m := rowRe.FindStringSubmatch(line)
+		m := severityStatusRowRe.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
 		found++
-		sec := m[1]
-		n, err := strconv.Atoi(strings.ReplaceAll(m[4], ",", ""))
-		if err != nil {
-			t.Fatalf("unparseable open count %q for %s", m[4], sec)
+		label := m[1]
+		sec, ok := sectionFor[label]
+		if !ok {
+			sec = label
 		}
-		wantOpen := got.bySeverity[sec] - got.resolvedBySeverity[sec]
-		if n != wantOpen {
-			t.Errorf("severity table claims %s open=%d, the rows say %d (count %d - resolved %d)", sec, n, wantOpen, got.bySeverity[sec], got.resolvedBySeverity[sec])
+		num := func(s string) int {
+			n, err := strconv.Atoi(strings.ReplaceAll(s, ",", ""))
+			if err != nil {
+				t.Fatalf("unparseable count %q in the %s severity row", s, label)
+			}
+			return n
+		}
+		byStatus := got.byStatusBySeverity[sec]
+
+		if n := num(m[2]); n != got.bySeverity[sec] {
+			t.Errorf("severity table claims %s count=%d, the rows say %d", label, n, got.bySeverity[sec])
+		}
+		for _, col := range []struct {
+			cell   string
+			status string
+		}{
+			{m[3], "RESOLVED"},
+			{m[4], "open"},
+			{m[5], "PARTIAL"},
+			{m[6], "REFUTED"},
+			{m[7], "ESCALATED"},
+		} {
+			if n := num(col.cell); n != byStatus[col.status] {
+				t.Errorf("severity table claims %s %s=%d, the rows say %d", label, col.status, n, byStatus[col.status])
+			}
+		}
+		// A severity's columns must account for every row in its section,
+		// or some status has appeared that this table does not model.
+		sum := num(m[3]) + num(m[4]) + num(m[5]) + num(m[6]) + num(m[7])
+		if sum != got.bySeverity[sec] {
+			t.Errorf("severity %s: the status columns sum to %d but the section holds %d rows — an unmodelled status exists", label, sum, got.bySeverity[sec])
 		}
 	}
-	if found != 3 {
-		t.Fatalf("expected 3 severity rows (HIGH/MED/LOW), recognised %d — the table format changed", found)
+	if found != 4 {
+		t.Fatalf("expected 4 severity rows (HIGH/MED/LOW/(unparsed)), recognised %d — the table format changed", found)
 	}
 }
 

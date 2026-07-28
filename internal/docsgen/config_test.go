@@ -72,7 +72,6 @@ func TestGenConfig_UsesProductsOwnConventions(t *testing.T) {
 	assert.Contains(t, doc, schemaPath, "must cite the schema path it was actually generated from")
 }
 
-
 // U051-F01: a schema that parses as valid JSON but carries no top-level
 // "properties" and no "$defs" used to still write a config.md page -- a
 // heading, the fixed override-chain prose, and zero documented fields -- and

@@ -41,7 +41,6 @@ func NewDocMCPServer() *mcp.Server {
 	return server
 }
 
-
 // ListDocMCPToolNames returns the sorted tool names registered on the
 // documented (runner-terminated) MCP surface built by NewDocMCPServer, via an
 // in-memory client round trip -- the SDK exposes no direct accessor on the

@@ -123,7 +123,6 @@ func TestLoad_UnknownKeyInRefdSection_StillSuggests(t *testing.T) {
 	assert.Contains(t, warns[0].Text, "did you mean `command`?")
 }
 
-
 // U096-F02: an unknown key inside an llm.configs.<label> entry sits behind
 // the $defs/llmConfig anyOf (one branch per backend: claude-code, codex,
 // kiro, ...). The OLD suggestion machinery (configSchemaDocument/

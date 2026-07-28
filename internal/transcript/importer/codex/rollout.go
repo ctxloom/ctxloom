@@ -355,9 +355,9 @@ func messageEvents(p responseItemPayload) []agent.ChatEvent {
 // this message" and codex has not been observed emitting a non-text block in
 // a message response_item on this box).
 //
-// Deliberately NOT delegating to importer.JoinNonEmpty/JoinNonEmptyFunc (the
-// join primitive joinSummaryText below and every other engine's adapter
-// use): doing so makes this function's normalized shape match an unrelated,
+// Deliberately NOT delegating to importer.JoinNonEmpty (the join primitive
+// joinSummaryText below and every other engine's adapter use): doing so
+// makes this function's normalized shape match an unrelated,
 // pre-existing near-duplicate outside this package — internal/operations/
 // resume.go's JoinLeadBlocks, a resume-prompt helper with nothing to do with
 // vendor-transcript import — which reprise's check flags as an inconsistent

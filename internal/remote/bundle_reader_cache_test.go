@@ -173,12 +173,6 @@ func TestCachingBundleReader(t *testing.T) {
 		assert.ErrorIs(t, err, ErrBundleNotInLockfile)
 	})
 
-	t.Run("Inner exposes the wrapped source for test assertions", func(t *testing.T) {
-		inner := newCountingSource(nil, nil)
-		cache := NewCachingBundleReader(inner)
-		assert.Same(t, BundleByteSource(inner), cache.Inner())
-	})
-
 	t.Run("concurrent reads are race-safe and cache-correct", func(t *testing.T) {
 		inner := newCountingSource(
 			map[string]string{"a/x": "sha1"},

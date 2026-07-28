@@ -1525,7 +1525,7 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 	// other schema breakage as the plain validate warning it has always been.
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			cfg.warnings = append(cfg.warnings, classifyValidationError(configPath, err)...)
+			cfg.warnings = append(cfg.warnings, classifyValidationError(configPath, validator, err)...)
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}

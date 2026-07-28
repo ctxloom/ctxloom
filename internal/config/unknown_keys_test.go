@@ -123,6 +123,36 @@ func TestLoad_UnknownKeyInRefdSection_StillSuggests(t *testing.T) {
 	assert.Contains(t, warns[0].Text, "did you mean `command`?")
 }
 
+
+// U096-F02: an unknown key inside an llm.configs.<label> entry sits behind
+// the $defs/llmConfig anyOf (one branch per backend: claude-code, codex,
+// kiro, ...). The OLD suggestion machinery (configSchemaDocument/
+// knownKeysAt) walked the RAW schema JSON expecting a map at every path
+// segment; an anyOf node is a JSON array, so the type assertion failed and
+// the walk silently returned nil — every backend-specific typo lost its
+// did-you-mean and its "known keys at" listing entirely, with no error, just
+// a plainer message. Proves the compiled-schema KnownKeys union now reaches
+// through anyOf and offers the KIRO branch's own field names (the "big"
+// label's type: kiro pins which branch it validates against).
+func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: kiro\n      effrot: high\n")
+
+	// NOTE: a config that mismatches every anyOf branch on its own "type"
+	// const produces one leaf failure PER branch (7, here) — a distinct,
+	// already-known duplicate-warning symptom (see U096.md's F02 cross-unit
+	// note: "does not fix the duplicate-warning count ... needs its own
+	// dedup" at config/unknown_keys.go's leafCauses fan-out). That is not
+	// this finding; what THIS test pins is that every one of those repeated
+	// warnings now carries a real suggestion instead of none at all.
+	warns := unknownKeyWarnings(cfg)
+	require.NotEmpty(t, warns, "warnings: %+v", cfg.warnings)
+	for _, w := range warns {
+		assert.Contains(t, w.Text, "llm.configs.big.effrot", "the dotted path must reach through the dynamic label and the anyOf branch")
+		assert.Contains(t, w.Text, "did you mean `effort`?", "the kiro branch's own field name must be offered, not silently dropped")
+		assert.Contains(t, w.Text, "known keys at", "a resolved anyOf branch must list its known keys, not degrade to no suggestion at all")
+	}
+}
+
 // A schema violation that is NOT an unknown key (a bad enum, a wrong type) keeps
 // its old kind and its raw text: this change narrows the unknown-key case out of
 // WarnKindValidate, it does not swallow the rest.

@@ -1,17 +1,14 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
-	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
-	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
 // The config schema is authored with additionalProperties:false at every level,
@@ -58,7 +55,7 @@ var additionalPropsRe = regexp.MustCompile(`^additionalProperties (.+) not allow
 // the schema in some other way (a bad enum, a wrong type). A failure with no
 // recognizable unknown-key cause degrades to today's behavior verbatim: one
 // WarnKindValidate with the original text.
-func classifyValidationError(configPath string, err error) []Warning {
+func classifyValidationError(configPath string, validator *schema.ConfigValidator, err error) []Warning {
 	var ve *jsonschema.ValidationError
 	if !errors.As(err, &ve) {
 		return []Warning{{Kind: WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)}}
@@ -75,7 +72,7 @@ func classifyValidationError(configPath string, err error) []Warning {
 		for _, key := range keys {
 			warnings = append(warnings, Warning{
 				Kind: WarnKindUnknownKey,
-				Text: unknownKeyMessage(configPath, leaf.InstanceLocation, leaf.AbsoluteKeywordLocation, key),
+				Text: unknownKeyMessage(configPath, leaf.InstanceLocation, key, validator),
 			})
 		}
 	}
@@ -117,7 +114,7 @@ func unknownKeysIn(message string) []string {
 // unknownKeyMessage renders the user-visible line for one unknown key: the
 // dotted path, the fact that it was ignored, the retired-key replacement when we
 // know one, and otherwise a did-you-mean plus the section's known keys.
-func unknownKeyMessage(configPath, instanceLocation, keywordLocation, key string) string {
+func unknownKeyMessage(configPath, instanceLocation, key string, validator *schema.ConfigValidator) string {
 	section := dottedPath(instanceLocation)
 	path := key
 	if section != "" {
@@ -131,7 +128,20 @@ func unknownKeyMessage(configPath, instanceLocation, keywordLocation, key string
 		return b.String()
 	}
 
-	known := knownKeysAt(keywordLocation)
+	// U096-F02: this used to re-walk the RAW schema JSON by hand
+	// (configSchemaDocument/knownKeysAt) and get it wrong the moment the
+	// violated object sat behind an anyOf/oneOf/allOf branch (e.g. any
+	// llm.configs.<label> entry) — the raw walker expected a map at every
+	// segment and an anyOf node is a list, so it silently returned nil and
+	// every backend-specific typo lost its did-you-mean. internal/schema's
+	// compiled ConfigValidator already solves exactly this (KnownPath uses
+	// the same schemaChild walk); KnownKeys is its enumeration counterpart,
+	// unioning across every branch instead of stopping at the first match.
+	var segments []string
+	if section != "" {
+		segments = strings.Split(section, ".")
+	}
+	known := validator.KnownKeys(segments)
 	if suggestion := nearestKey(key, known); suggestion != "" {
 		fmt.Fprintf(&b, " — did you mean `%s`?", suggestion)
 	}
@@ -159,71 +169,6 @@ func dottedPath(instanceLocation string) string {
 		parts[i] = strings.ReplaceAll(p, "~0", "~")
 	}
 	return strings.Join(parts, ".")
-}
-
-// configSchemaDoc lazily parses the embedded config schema so unknown-key
-// reporting can look up which keys the violated object DOES allow. A schema that
-// fails to load simply yields no suggestions (the key is still named) — reporting
-// must never be the thing that breaks a load.
-var (
-	schemaDocOnce sync.Once
-	schemaDoc     map[string]any
-)
-
-func configSchemaDocument() map[string]any {
-	schemaDocOnce.Do(func() {
-		raw, err := resources.GetConfigSchema()
-		if err != nil {
-			return
-		}
-		var doc map[string]any
-		if json.Unmarshal(raw, &doc) == nil {
-			schemaDoc = doc
-		}
-	})
-	return schemaDoc
-}
-
-// knownKeysAt resolves the schema object whose additionalProperties was violated
-// (via the error's absolute keyword location, e.g.
-// ".../config.json#/properties/config/additionalProperties") and returns its
-// declared property names, sorted. Empty when the schema can't be walked.
-func knownKeysAt(keywordLocation string) []string {
-	doc := configSchemaDocument()
-	if doc == nil {
-		return nil
-	}
-	_, pointer, found := strings.Cut(keywordLocation, "#")
-	if !found {
-		return nil
-	}
-	segments := strings.Split(strings.Trim(pointer, "/"), "/")
-	// The pointer ends at the violated keyword; the object that owns the
-	// `properties` map is its parent.
-	if len(segments) > 0 && segments[len(segments)-1] == "additionalProperties" {
-		segments = segments[:len(segments)-1]
-	}
-	node := doc
-	for _, seg := range segments {
-		if seg == "" {
-			continue
-		}
-		next, ok := node[seg].(map[string]any)
-		if !ok {
-			return nil
-		}
-		node = next
-	}
-	props, ok := node["properties"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	keys := make([]string, 0, len(props))
-	for k := range props {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // nearestKey returns the known key closest to the offending one, when it is

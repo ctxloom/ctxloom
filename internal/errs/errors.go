@@ -68,9 +68,6 @@ var (
 	// maximum allowed depth — a structural misconfiguration kept fatal (unlike a
 	// merely missing/corrupt parent) so it is not masked by warn-and-continue.
 	ErrProfileDepthExceeded = errors.New("profile inheritance depth exceeds maximum")
-
-	// ErrInvalidReference indicates a malformed bundle/profile reference.
-	ErrInvalidReference = errors.New("invalid reference")
 )
 
 // ErrCancelled indicates an install/pull was deliberately abandoned — a user

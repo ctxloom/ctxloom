@@ -45,11 +45,6 @@ func TestSentinelErrors_ErrorsIs(t *testing.T) {
 			sentinel: errs.ErrCircularInheritance,
 			wrapped:  fmt.Errorf("profile 'base' inherits from 'child': %w", errs.ErrCircularInheritance),
 		},
-		{
-			name:     "ErrInvalidReference",
-			sentinel: errs.ErrInvalidReference,
-			wrapped:  fmt.Errorf("parsing 'bad/ref/format': %w", errs.ErrInvalidReference),
-		},
 	}
 
 	for _, tt := range tests {
@@ -83,7 +78,6 @@ func TestSentinelErrors_ErrorMessages(t *testing.T) {
 		{errs.ErrRemoteNotFound, "remote not found"},
 		{errs.ErrCircularInheritance, "circular profile inheritance detected"},
 		{errs.ErrProfileDepthExceeded, "profile inheritance depth exceeds maximum"},
-		{errs.ErrInvalidReference, "invalid reference"},
 	}
 
 	for _, tt := range tests {

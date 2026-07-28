@@ -537,18 +537,38 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 			}
 			return nil, err
 		}
+		// U038-F02: home.Recv already committed msgs as RETURNED (the
+		// cursor-ack fires on the NEXT Recv) before this loop even starts —
+		// a message that fails to marshal/decode here is gone for good, not
+		// redelivered. The old code silently `continue`d, so an all-fail
+		// batch answered {"messages": []}, a successful call with zero
+		// payload, structurally the same consume-then-decode shape as the
+		// confirmed approval-reply defect. Never silently dropped now: a
+		// failure is logged AND named in the result, so the caller can tell
+		// "genuinely nothing waiting" from "N messages existed and were
+		// lost to a decode failure".
 		items := make([]any, 0, len(msgs))
+		var dropped []string
 		for _, m := range msgs {
 			raw, merr := protojson.MarshalOptions{UseProtoNames: true}.Marshal(m)
 			if merr != nil {
+				dropped = append(dropped, m.GetMessageId())
+				clidiag.Warn("ctxloom", "agent_recv: message %s: marshal: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), merr)
 				continue
 			}
 			var v any
-			if json.Unmarshal(raw, &v) == nil {
-				items = append(items, v)
+			if uerr := json.Unmarshal(raw, &v); uerr != nil {
+				dropped = append(dropped, m.GetMessageId())
+				clidiag.Warn("ctxloom", "agent_recv: message %s: decode: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), uerr)
+				continue
 			}
+			items = append(items, v)
 		}
-		return &mcp.CallToolResult{StructuredContent: map[string]any{"messages": items}}, nil
+		result := map[string]any{"messages": items}
+		if len(dropped) > 0 {
+			result["dropped_message_ids"] = dropped
+		}
+		return &mcp.CallToolResult{StructuredContent: result}, nil
 	}
 }
 

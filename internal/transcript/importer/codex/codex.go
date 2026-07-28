@@ -31,11 +31,6 @@ type Adapter struct{}
 
 var _ importer.VendorAdapter = Adapter{}
 
-// New returns a codex Adapter. A plain Adapter{} literal works identically —
-// this exists only so callers outside the package don't need to know the
-// type is a zero-size struct they can construct directly.
-func New() Adapter { return Adapter{} }
-
 // Convert reads the codex rollout-*.jsonl file at src and appends its
 // conversation to rec in the file's own order. See importer.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;

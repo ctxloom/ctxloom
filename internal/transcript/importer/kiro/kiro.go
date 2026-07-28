@@ -50,11 +50,6 @@ type Adapter struct{}
 
 var _ importer.VendorAdapter = Adapter{}
 
-// New returns a kiro Adapter. A plain Adapter{} literal works identically —
-// exists only so callers outside the package don't need to know the type is
-// a zero-size struct they can construct directly (mirrors codex.New).
-func New() Adapter { return Adapter{} }
-
 // locatorSep separates a kiro composite locator's db path from its
 // conversation id: "<db-path>#<conversation-id>" (importer.VendorAdapter's
 // doc comment). A kiro-cli conversation id is always its own uuid (never

@@ -68,10 +68,10 @@ type vendorImportEntry struct {
 // (on the rare path where one lands at all) is a session_id, not a file
 // path, because a single sqlite db holds every conversation.
 var vendorImportRegistry = map[string]vendorImportEntry{
-	config.BackendClaudeCode: {adapter: claudeimporter.New(), locate: locateBoundTranscript},
-	"codex":                  {adapter: codeximporter.New(), locate: locateBoundTranscript},
-	"antigravity":            {adapter: antigravityimporter.New(), locate: locateBoundTranscript},
-	"kiro":                   {adapter: kiroimporter.New(), locate: locateKiroConversation},
+	config.BackendClaudeCode: {adapter: claudeimporter.Adapter{}, locate: locateBoundTranscript},
+	"codex":                  {adapter: codeximporter.Adapter{}, locate: locateBoundTranscript},
+	"antigravity":            {adapter: antigravityimporter.Adapter{}, locate: locateBoundTranscript},
+	"kiro":                   {adapter: kiroimporter.Adapter{}, locate: locateKiroConversation},
 }
 
 // VendorImportEngineNames returns the backend names vendorImportRegistry

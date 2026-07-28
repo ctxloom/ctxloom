@@ -8,19 +8,20 @@ import (
 )
 
 // antigravitySkillsDir (capabilities.go) is agy's workspace Agent Skills
-// directory, .agents/skills — the SAME parent directory the (legacy, flat)
-// command writer targets. This is not a collision: WriteCommandFiles writes
-// flat `<name>.md` files directly in that dir, while WriteSkillFiles below
-// writes `<name>/SKILL.md` DIRECTORIES — a distinct filesystem entry per name,
-// so the two surfaces coexist under the shared parent. VERIFIED against agy's
-// own bundled documentation (~/.gemini/antigravity-cli/builtin/skills/
-// agy-customizations/docs/skills.md, agy 1.1.2, read directly — no model
-// tokens spent): "A skill must be structured as a directory within a
-// `skills/` folder inside a customization root (e.g., `.agents/skills/`)",
-// and agy's own customization guide lists workspace discovery at `.agents/`
-// (or `.agent/`, `_agents/`, `_agent/`) walked up from cwd to the repo root.
-// This is HIGH CONFIDENCE (agy's own primary docs), unlike the legacy flat
-// command writer's unverified discovery (see capabilities.go's doc comment).
+// directory, .agents/skills — the SAME parent directory WriteCommandFiles
+// targets (both render `<name>/SKILL.md`). See surfaces.go's NewSurfaces doc
+// comment for the canonical account of that shared-parent resolution
+// (U029-F21 deduped this from three near-identical tellings; the version this
+// comment used to carry described the RETIRED flat `<name>.md` command shape
+// and was wrong).
+//
+// VERIFIED against agy's own bundled documentation
+// (~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/skills.md,
+// agy 1.1.2, read directly — no model tokens spent): "A skill must be
+// structured as a directory within a `skills/` folder inside a customization
+// root (e.g., `.agents/skills/`)", and agy's own customization guide lists
+// workspace discovery at `.agents/` (or `.agent/`, `_agents/`, `_agent/`)
+// walked up from cwd to the repo root.
 
 // antigravitySkillManifest tracks the skill directories ctxloom wrote,
 // distinct from antigravityManifest (commands' flat-file manifest) so the two

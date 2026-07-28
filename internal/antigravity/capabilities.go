@@ -46,18 +46,10 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 		agent.WithManifestTrailingNewline())
 }
 
-// agy's command/skill name-collision guard: agy has ONE native directory,
-// .agents/skills/<name>/, that would serve BOTH a command rendered as
-// SKILL.md (this file) and a true Agent Skill package (skillfiles.go) of the
-// same name — both now want .agents/skills/<name>/SKILL.md. Resolved as
-// SKILL-WINS by the shared agent.FilterCommandsClaimedBySkills (invoked from
-// surfaces.go's NewSurfaces via agent.NewSkillShapedCommandsAndSkills — kiro's
-// identical D6 resolution uses the same helper): a name claimed by an enabled
-// skill is dropped from the commands set before WriteCommandFiles ever sees
-// it, so antigravityManifest (commands) and antigravitySkillManifest (skills)
-// never both claim the same path — a later re-materialize (skill
-// disabled/removed) lets the command reclaim the name cleanly, and neither
-// writer's cleanup can strand the other's live file.
+// The command/skill name-collision resolution (both now want
+// .agents/skills/<name>/SKILL.md) is documented once, canonically, on
+// surfaces.go's NewSurfaces — see that doc comment (U029-F21 deduped this
+// from three near-identical tellings).
 
 // tough-cloud S5: AntigravitySessionHistory (the transcript_full.jsonl
 // scraper — GetCurrentSession/ListSessions/GetSession/GetSessionByPath/

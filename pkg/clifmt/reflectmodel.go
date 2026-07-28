@@ -154,33 +154,29 @@ func buildTable(v reflect.Value) (*Table, error) {
 
 	cols := reflect.VisibleFields(elemType)
 	var columns []string
-	type colInfo struct {
-		index     []int
-		omitempty bool
-	}
-	var infos []colInfo
+	var indices [][]int
 	for _, sf := range cols {
 		if !sf.IsExported() {
 			continue
 		}
-		jsonName, skip, omitempty := parseJSONTag(sf.Tag)
+		jsonName, skip, _ := parseJSONTag(sf.Tag)
 		if skip {
 			continue
 		}
 		label := resolveLabel(sf, jsonName)
 		columns = append(columns, resolveCol(sf, label))
-		infos = append(infos, colInfo{index: sf.Index, omitempty: omitempty})
+		indices = append(indices, sf.Index)
 	}
 
 	tbl := &Table{Columns: columns, Rows: [][]string{}}
 	for i := 0; i < v.Len(); i++ {
 		elem := derefValue(v.Index(i))
-		row := make([]string, len(infos))
-		for c, info := range infos {
+		row := make([]string, len(indices))
+		for c, index := range indices {
 			if !elem.IsValid() {
 				continue
 			}
-			fv, err := elem.FieldByIndexErr(info.index)
+			fv, err := elem.FieldByIndexErr(index)
 			if err != nil {
 				continue
 			}

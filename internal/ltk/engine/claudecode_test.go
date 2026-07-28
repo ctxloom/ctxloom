@@ -106,6 +106,10 @@ func TestMessage(t *testing.T) {
 		{Response{Reason: "no"}, "no"},
 		{Response{Suggest: "just test"}, "Use instead: just test"},
 		{Response{Reason: "no", Suggest: "just test"}, "no\n\nUse instead: just test"},
+		// U067-F01: a deny with NEITHER a reason nor a suggestion must still
+		// render to a non-empty string — the agent must always be told
+		// something, never silence.
+		{Response{Allow: false}, "denied by ltk (no reason or suggested alternative was configured for this rule)"},
 	}
 	for _, c := range cases {
 		if got := c.resp.Message(); got != c.want {

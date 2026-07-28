@@ -92,11 +92,23 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	if err != nil {
 		// An unknown --engine in the installed hook (a manual edit or a cross-version
 		// rename) would otherwise exit 1, which both hosts treat as a silent allow.
-		// There is no adapter for the named engine to deny with, so fall back to the
-		// claude-code adapter purely to emit a well-formed fail-closed deny.
-		fallback, ferr := engine.Get("claude-code")
-		if ferr != nil {
-			return engine.Output{}, err // unreachable in practice; nothing to deny with
+		// There is no adapter for the named engine to deny with. Guessing
+		// claude-code unconditionally was itself a bug (U005-F04): on an
+		// Antigravity host the deny then rides claude-code's wire format, which
+		// agy does not recognize, so the "fail closed" deny is invisible and the
+		// action proceeds anyway — the exact failure mode this branch exists to
+		// prevent. Try every registered engine's own Decode against the payload
+		// actually received; the first one that decodes something meaningful
+		// (a tool name, command, or file path) is presumably the real host, so
+		// fail closed in ITS wire format instead of guessing.
+		input, _ := io.ReadAll(stdin) // best-effort: an unreadable body just skips detection below
+		fallback := detectEngineFromPayload(input)
+		if fallback == nil {
+			var ferr error
+			fallback, ferr = engine.Get("claude-code")
+			if ferr != nil {
+				return engine.Output{}, err // unreachable in practice; nothing to deny with
+			}
 		}
 		return failClosed(fallback, fmt.Sprintf(
 			"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
@@ -185,7 +197,42 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	if err != nil {
 		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
+	if resolved == "" && len(out.Stderr) == 0 {
+		// No .ltk/config.yaml (or any of the legacy names) was found anywhere
+		// from cwd up to the repository root: loadConfig fell back to the
+		// built-in zero-rule config, which allows everything with NO error and
+		// — until now — no trace at all. That is a silent, total fail-open by
+		// design (a project that never configured ltk is not gated), but
+		// "by design" and "invisible" should not be the same thing: an operator
+		// who believes the hook is active would otherwise have no way to
+		// notice it is gating nothing. Diagnostic only — the decision itself
+		// (allow) is unchanged.
+		out.Stderr = []byte(fmt.Sprintf(
+			"%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
+			progName, strings.Join(configSearch, ", ")))
+	}
 	return out, nil
+}
+
+// detectEngineFromPayload tries every registered engine's Decode against
+// input and returns the first whose result looks like a genuine decode — a
+// recognized tool name or a populated Command/FilePath — never a blind guess
+// (U005-F04). nil means no engine's Decode produced anything meaningful for
+// this payload, so the caller falls back to claude-code.
+func detectEngineFromPayload(input []byte) engine.Engine {
+	if len(input) == 0 {
+		return nil
+	}
+	for _, e := range engine.All() {
+		req, err := e.Decode(input)
+		if err != nil {
+			continue
+		}
+		if req.ToolName != "" || req.Command != "" || req.FilePath != "" {
+			return e
+		}
+	}
+	return nil
 }
 
 // ungatedToolDenyReason explains a deny for a payload whose tool name the
@@ -254,10 +301,20 @@ func knownShells() string {
 // confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
 // using the wall clock, and notes on stderr when a repeat was honored. The logic
 // lives in internal/state so the acceptance suite can exercise it too.
+// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
+// using the wall clock, and notes on stderr when a repeat was honored. The logic
+// lives in internal/state so the acceptance suite can exercise it too.
 func confirmByRepeat(resp engine.Response, command, stateFile string, delay, window time.Duration) engine.Response {
-	out, overridden := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
+	out, overridden, err := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
 	if overridden {
 		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
+	}
+	if err != nil {
+		// U076-F01: a persistence failure here previously vanished silently —
+		// the override would then never arm (or never clear), so every future
+		// identical repeat kept getting denied with a message promising a
+		// repeat WOULD work. Diagnostic only; the decision above is unchanged.
+		fmt.Fprintf(os.Stderr, "%s: could not persist confirm-by-repeat state (%v) — the override may not take effect\n", progName, err)
 	}
 	return out
 }

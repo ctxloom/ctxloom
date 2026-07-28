@@ -401,3 +401,84 @@ func TestValidationErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell pins U072-F01 /
+// U073-F01: a `shells:` scoped rule must be judged against the shell that
+// actually OWNS the command being matched, not the top-level script's. A
+// nested script (e.g. surfaced by ExpandWrappers unwrapping a `cmd.exe /c
+// "del /f …"` wrapper embedded in a bash top-level command) carries its own
+// dialect — here ShellCmd — even though the enclosing script is ShellBash.
+// Before the fix, Evaluate matched every command, nested or not, against the
+// top-level script.Shell, so a rule scoped to `shells: [cmd]` could never
+// fire on a dialect that only ever appears nested — a real bypass, not a
+// hypothetical one, once wrap.go's expansion starts surfacing nested scripts
+// in other dialects.
+func TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell(t *testing.T) {
+	cfg := mustParse(t, `
+version: 1
+rules:
+  - id: no-del-in-cmd
+    match: { command: [del], shells: [cmd] }
+    message: "no del"
+`)
+	top := &ir.Script{
+		Shell: ir.ShellBash,
+		Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{
+			Argv: []string{"cmd.exe", "/c", "del", "/f", "important-file"},
+			Nested: []*ir.Script{{
+				Shell: ir.ShellCmd,
+				Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{
+					{Argv: []string{"del", "/f", "important-file"}},
+				}}},
+			}},
+		}}}},
+	}
+	d := Evaluate(cfg, top)
+	if d.Allowed {
+		t.Fatal("nested cmd-dialect `del` must be denied by a shells:[cmd] rule, even though the outer script is bash")
+	}
+}
+
+// TestMatchCommandResolvesWindowsAbsolutePathBasename pins U073-F04:
+// matchCommand's basename fallback used path.Base directly, which is
+// POSIX-only (splits on '/' alone) — a Windows-style absolute invocation
+// (`C:\Windows\System32\cmd.exe`) never reduced to a bare `cmd.exe` the way
+// `/usr/bin/git` already reduces to `git`, so a `command: [cmd]` rule
+// silently never fired under the cmd dialect this exact rule targets.
+func TestMatchCommandResolvesWindowsAbsolutePathBasename(t *testing.T) {
+	cfg := mustParse(t, `
+version: 1
+rules:
+  - id: no-cmd-del
+    match: { command: ["cmd.exe", /c, del], shells: [cmd] }
+    message: "no del via cmd"
+`)
+	d := Evaluate(cfg, cmd(ir.ShellCmd, `C:\Windows\System32\cmd.exe`, "/c", "del", "/f", "x"))
+	if d.Allowed {
+		t.Fatal("an absolute backslash-path invocation of cmd.exe must still match a `command: [cmd.exe, ...]` rule")
+	}
+}
+
+// TestShortClusterExpansionUsesInvokedProgramNotScriptShell pins U073-F10: a
+// script's OWN dialect must not govern flag-cluster classification for a
+// command whose PROGRAM is itself a different shell/interpreter binary.
+// `pwsh -Recurse` run as a plain command from a bash script was, before the
+// fix, classified using bash's POSIX convention (isShortCluster gates only on
+// cmd/pwsh, so bash falls through to "is a short cluster"), shredding
+// `-Recurse` into single-letter tokens (-R -e -c -u -r -s -e) — a false
+// match for any deny rule keyed on one of those single letters, even though
+// PowerShell's own convention never treats `-Recurse` as bundled short flags.
+func TestShortClusterExpansionUsesInvokedProgramNotScriptShell(t *testing.T) {
+	cfg := mustParse(t, `
+version: 1
+rules:
+  - id: no-posix-dash-r
+    match: { command: [pwsh], args_any: ["-R"] }
+    message: "false match on a PowerShell long flag misread as a POSIX cluster"
+`)
+	// Top-level script is BASH; the command it runs is `pwsh -Recurse ...`.
+	d := Evaluate(cfg, cmd(ir.ShellBash, "pwsh", "-Recurse", "-Force", "build"))
+	if !d.Allowed {
+		t.Fatal("`pwsh -Recurse` must not be shredded into POSIX single-letter clusters merely because the enclosing script is bash")
+	}
+}

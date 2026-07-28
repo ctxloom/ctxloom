@@ -27,6 +27,15 @@ type checkResult struct {
 	Decision   string `json:"decision"`             // "allow" or "deny"
 	Message    string `json:"message,omitempty"`    // the rule's message, on a deny
 	Suggestion string `json:"suggestion,omitempty"` // the rule's suggested alternative, if any
+	// Analyzed is false when the decision above was reached WITHOUT fully
+	// parsing the command (defaults.on_parse_error let it through, or denied
+	// it, without ever consulting a single rule) — see engine.Response.
+	// Unanalyzed. Before this field existed an unanalyzed allow and a clean
+	// allow were byte-identical here (U005-F01): a caller had no way to tell
+	// "nothing matched" from "nothing could be checked at all".
+	Analyzed bool `json:"analyzed"`
+	// ParseError carries the human-facing detail when Analyzed is false.
+	ParseError string `json:"parse_error,omitempty"`
 }
 
 func newCheckCmd() *cobra.Command {
@@ -104,7 +113,7 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
 	resp := a.Decide(context.Background(), engine.Request{Command: command})
 
-	result := checkResult{Decision: "allow"}
+	result := checkResult{Decision: "allow", Analyzed: !resp.Unanalyzed, ParseError: resp.ParseError}
 	if !resp.Allow {
 		result.Decision = "deny"
 		result.Message = resp.Reason
@@ -119,8 +128,17 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 
 func printCheckText(w io.Writer, r checkResult) error {
 	if r.Decision == "allow" {
-		_, err := fmt.Fprintln(w, "allow")
-		return err
+		if _, err := fmt.Fprintln(w, "allow"); err != nil {
+			return err
+		}
+		if !r.Analyzed {
+			// Without this, an unanalyzed allow (on_parse_error let it through
+			// without ever consulting a rule) prints identically to a clean
+			// allow — U005-F01.
+			_, err := fmt.Fprintf(w, "note: could not fully analyze this command (%s); allowed per defaults.on_parse_error\n", r.ParseError)
+			return err
+		}
+		return nil
 	}
 	if _, err := fmt.Fprintln(w, "deny"); err != nil {
 		return err

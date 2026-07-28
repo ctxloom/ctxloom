@@ -34,7 +34,7 @@ rules:
 		if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 			t.Fatalf("output should be valid JSON, got %s (%v)", buf.String(), err)
 		}
-		want := checkResult{Decision: "deny", Message: "no force pushes", Suggestion: "git push --force-with-lease"}
+		want := checkResult{Decision: "deny", Message: "no force pushes", Suggestion: "git push --force-with-lease", Analyzed: true}
 		if got != want {
 			t.Errorf("got %+v, want %+v", got, want)
 		}

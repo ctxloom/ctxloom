@@ -33,7 +33,7 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 
 	var decision Decision
 	denied := false
-	script.Walk(func(c ir.SimpleCommand) bool {
+	script.Walk(func(owner *ir.Script, c ir.SimpleCommand) bool {
 		for i := range cfg.Rules {
 			r := &cfg.Rules[i]
 			if !r.isEnabled() {
@@ -42,10 +42,16 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 			if r.Match.isPathRule() {
 				continue // path rules are evaluated against file edits, not commands
 			}
+			// Match against the shell that actually OWNS this command, not the
+			// top-level script's — a nested wrapper body (e.g. a `cmd.exe /c …`
+			// re-parsed inside a bash script) carries its own dialect, and a
+			// `shells:` rule must be judged against that, not the outer script
+			// (U072-F01/U073-F01).
+			shell := owner.Shell
 			// Allow rules match positionals with a strict, position-anchored
 			// prefix; deny rules keep the permissive ordered-subsequence match.
 			// See Match.Command ("Allow vs. deny: matching discipline").
-			if !r.Match.matches(script.Shell, c, r.action() == ActionAllow) {
+			if !r.Match.matches(shell, c, r.action() == ActionAllow) {
 				continue
 			}
 			if r.action() == ActionDeny {

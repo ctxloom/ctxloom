@@ -41,7 +41,7 @@ func TestCommandsPreOrderIncludesNested(t *testing.T) {
 
 func TestWalkEarlyStop(t *testing.T) {
 	var visited []string
-	completed := buildNested().Walk(func(c SimpleCommand) bool {
+	completed := buildNested().Walk(func(_ *Script, c SimpleCommand) bool {
 		visited = append(visited, c.Program())
 		return c.Program() != "b" // stop right after visiting b
 	})
@@ -71,7 +71,7 @@ func TestProgramAndArgs(t *testing.T) {
 // nil receiver must be safe.
 func TestWalkNil(t *testing.T) {
 	var s *Script
-	if !s.Walk(func(SimpleCommand) bool { return true }) {
+	if !s.Walk(func(*Script, SimpleCommand) bool { return true }) {
 		t.Error("nil Walk should report completion")
 	}
 	if s.Commands() != nil {

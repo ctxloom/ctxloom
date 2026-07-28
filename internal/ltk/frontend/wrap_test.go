@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -226,7 +227,7 @@ func TestExpandWrappers_DepthCap(t *testing.T) {
 	r := NewRegistry()
 	r.Register(f)
 	s := cmdScript(ir.ShellBash, "bash", "-c", "bash -c x")
-	truncated := r.ExpandWrappers(context.Background(), s) // must return (depth-capped)
+	truncated, _ := r.ExpandWrappers(context.Background(), s) // must return (depth-capped)
 	if !truncated {
 		t.Error("hitting maxWrapDepth must report truncated=true (fail closed), not silently stop")
 	}
@@ -238,7 +239,7 @@ func TestExpandWrappers_NotTruncatedWhenShallow(t *testing.T) {
 	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
 	r := newReg(f)
 	s := cmdScript(ir.ShellBash, "bash", "-c", "go test")
-	if truncated := r.ExpandWrappers(context.Background(), s); truncated {
+	if truncated, _ := r.ExpandWrappers(context.Background(), s); truncated {
 		t.Error("ordinary shallow wrapping must not report truncated")
 	}
 }
@@ -409,4 +410,83 @@ func contains(xs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// erroringFrontend simulates a frontend that cannot parse its input at all
+// (a genuine syntax error) — mirrors the real frontends' contract (shell.go,
+// pwsh.go): a non-nil, empty Script alongside a non-nil error.
+type erroringFrontend struct {
+	shells []ir.Shell
+}
+
+func (f *erroringFrontend) Shells() []ir.Shell { return f.shells }
+
+func (f *erroringFrontend) Parse(_ context.Context, shell ir.Shell, _ string) (*ir.Script, error) {
+	return &ir.Script{Shell: shell}, fmt.Errorf("simulated parse failure")
+}
+
+// TestExpandWrappers_NestedParseFailureReportsUnanalyzed pins U066-F01 /
+// U068-F01 / U070-F01 / U071-F01: a wrapper whose inner command string fails
+// to parse must not be silently dropped from the IR with no trace. Before the
+// fix, expandWrappers discarded the error from the nested r.Parse call
+// entirely (`nested, _ := r.Parse(...)`), so a `bash -c "<unparseable>"` was
+// indistinguishable from an ordinary, fully-understood allow — the nested
+// command was simply invisible, on_parse_error included. This is the
+// adversarial case: the bypass is real when the OUTER shell's wrapper
+// detection is honest but the inner frontend cannot verify what is inside.
+func TestExpandWrappers_NestedParseFailureReportsUnanalyzed(t *testing.T) {
+	f := &erroringFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "bash", "-c", "whatever this is")
+	_, unanalyzed := r.ExpandWrappers(context.Background(), s)
+	if !unanalyzed {
+		t.Fatal("a nested command that failed to parse must report unanalyzed=true, not silently vanish")
+	}
+}
+
+// TestExpandWrappers_UnsupportedNestedShellReportsUnanalyzed: the inner
+// wrapper names a dialect this build has no frontend for at all (Parse
+// returns ErrUnsupportedShell, nil Script). That must ALSO surface as
+// unanalyzed, not a silent no-op — an operator who typed `on_parse_error:
+// deny` should not have that policy quietly skipped for anything wrapped.
+func TestExpandWrappers_UnsupportedNestedShellReportsUnanalyzed(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}} // no cmd/pwsh registered
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "cmd.exe", "/c", "del /f important-file")
+	_, unanalyzed := r.ExpandWrappers(context.Background(), s)
+	if !unanalyzed {
+		t.Fatal("a nested command in an unregistered shell dialect must report unanalyzed=true, not silently vanish")
+	}
+}
+
+// TestJoinWords_PreservesAlreadyQuotedMultiWordToken pins U069-F10: a wrapper
+// whose inner command is reconstructed from ALREADY-TOKENIZED argv must not
+// lose word boundaries that were only visible before that tokenization.
+// `cmd.exe /c bash -c "go test"` is parsed by the OUTER shell first, which
+// already collapses `"go test"` into ONE argv element; a bare
+// strings.Join(rest, " ") then hands the cmd frontend the flat text
+// `bash -c go test`, which re-splits into FOUR words instead of three — the
+// nested wrapper (bash -c) then extracts only `go` as the command string
+// (POSIX -c takes the first operand), silently dropping `test`. Real cmd.exe
+// suffers no such loss (it never re-tokenizes what bash already parsed), so
+// this was a genuine rule-matching gap: a deny rule for `go test` (but not
+// bare `go`) missed a command that really does run `go test`.
+func TestJoinWords_PreservesAlreadyQuotedMultiWordToken(t *testing.T) {
+	got := joinWords([]string{"bash", "-c", "go test"})
+	want := `bash -c "go test"`
+	if got != want {
+		t.Fatalf("joinWords(%q) = %q, want %q (must re-quote the already-tokenized multi-word element)",
+			[]string{"bash", "-c", "go test"}, got, want)
+	}
+}
+
+// TestJoinWords_LoneWordPassesThroughUnquoted is the negative control: a
+// SINGLE already-tokenized word (e.g. the whole `cmd /c "git tag v1"` payload
+// handed over as one element for the destination frontend's OWN tokenizer to
+// split) must not be wrapped in quotes — that would turn three words into
+// one instead of preserving three.
+func TestJoinWords_LoneWordPassesThroughUnquoted(t *testing.T) {
+	if got := joinWords([]string{"git tag v1"}); got != "git tag v1" {
+		t.Fatalf("joinWords(single word) = %q, want unquoted pass-through", got)
+	}
 }

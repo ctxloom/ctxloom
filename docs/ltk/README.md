@@ -160,6 +160,22 @@ Feature: Keeping an LLM agent on the project's golden path
       When the agent runs "eval $RESOLVED_AT_RUNTIME"
       Then the command is allowed
 
+  Rule: A wrapped command we genuinely cannot parse is turned away when the operator opted into that
+
+    # A wrapper's inner command (bash -c/eval/cmd /c/pwsh -Command) can itself
+    # be malformed — not "the value is only known at runtime" (left alone
+    # above), but a genuine syntax error even the real shell would reject.
+    # Previously that failure was silently discarded and the wrapped command
+    # simply vanished from what ltk looked at, so it was allowed no matter
+    # what defaults.on_parse_error said. An operator who set on_parse_error:
+    # deny asked for "block anything I could not verify" — this makes that
+    # promise hold for content hidden inside a wrapper too, not just the
+    # top-level command.
+    Scenario: An unparseable nested command is turned away once on_parse_error is deny
+      Given defaults.on_parse_error is deny
+      When the agent runs "eval '((('"
+      Then the command is turned away
+
   Rule: A turned-away command can be confirmed by running it again
 
     # ltk points the way; it does not stand guard. If you really mean a command

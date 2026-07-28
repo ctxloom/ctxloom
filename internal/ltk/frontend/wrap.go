@@ -51,21 +51,34 @@ var wrapperRules = []wrapperRule{
 // evaluator (which already walks Nested) matches the real command. It
 // recurses into nested scripts up to maxWrapDepth. It mutates s in place.
 //
-// The bool result reports whether expansion was TRUNCATED — the recursion hit
-// maxWrapDepth while there was still nested structure left to descend into.
-// A caller MUST treat truncated=true as fail-closed (deny the command): the
-// depth cap existing at all means the walk stopped somewhere the evaluator
-// never got to look, which for a guard is the same as not having looked.
-func (r *Registry) ExpandWrappers(ctx context.Context, s *ir.Script) (truncated bool) {
+// It reports two independent failure modes, either of which a caller MUST
+// treat as fail-closed-eligible (deny or, per the configured on_parse_error
+// policy, at minimum flag the decision as unanalyzed) — evaluating rules
+// against a graph that silently dropped part of the real command is the same
+// as not having looked at it:
+//
+//   - truncated: the recursion hit maxWrapDepth while there was still nested
+//     structure left to descend into. The depth cap existing at all means the
+//     walk stopped somewhere the evaluator never got to look.
+//   - unanalyzed: a wrapper's inner command STRING could not be parsed at all
+//     (a genuine syntax error, or an inner shell dialect this build has no
+//     frontend for). Previously this error was silently discarded and the
+//     wrapper's inner command vanished from the IR with no signal — the
+//     nested command was simply invisible to every rule, `on_parse_error`
+//     included, because that policy is only ever consulted at the TOP-level
+//     parse (U066-F01/U068-F01/U070-F01/U071-F01). Whatever the frontend
+//     managed to salvage is still appended (dropping it would fail OPEN in
+//     the other direction), but the caller now learns the view is incomplete.
+func (r *Registry) ExpandWrappers(ctx context.Context, s *ir.Script) (truncated, unanalyzed bool) {
 	return r.expandWrappers(ctx, s, 0)
 }
 
-func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) (truncated bool) {
+func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) (truncated, unanalyzed bool) {
 	if s == nil {
-		return false
+		return false, false
 	}
 	if depth >= maxWrapDepth {
-		return true // fail closed: more nested structure exists, unverified
+		return true, false // fail closed: more nested structure exists, unverified
 	}
 	for pi := range s.Pipelines {
 		cmds := s.Pipelines[pi].Commands
@@ -75,9 +88,15 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 				// Append whatever the inner frontend salvaged even on a parse error:
 				// the Frontend contract returns a non-nil (possibly partial) Script
 				// alongside an error so callers can still match the commands it did
-				// recover. Dropping those would fail OPEN for a guard. An unsupported
-				// inner shell yields a nil Script (nothing to add).
-				if nested, _ := r.Parse(ctx, shell, inner); nested != nil {
+				// recover. Dropping those would fail OPEN for a guard. A genuine parse
+				// error (including an unsupported inner shell, which Registry.Parse
+				// reports as ErrUnsupportedShell with a nil Script) means the view is
+				// incomplete — surfaced via unanalyzed rather than silently ignored.
+				nested, perr := r.Parse(ctx, shell, inner)
+				if perr != nil {
+					unanalyzed = true
+				}
+				if nested != nil {
 					sc.Nested = append(sc.Nested, nested)
 				}
 			}
@@ -94,13 +113,13 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 			// just-added wrapper bodies (interpreter- and prefix-style alike), so
 			// e.g. `env timeout 5 git …` unwraps fully.
 			for _, ns := range sc.Nested {
-				if r.expandWrappers(ctx, ns, depth+1) {
-					truncated = true
-				}
+				t, u := r.expandWrappers(ctx, ns, depth+1)
+				truncated = truncated || t
+				unanalyzed = unanalyzed || u
 			}
 		}
 	}
-	return truncated
+	return truncated, unanalyzed
 }
 
 // wrappedCommand returns the inner command string and the shell it is written
@@ -130,7 +149,7 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 		if len(args) == 0 {
 			return "", false
 		}
-		return strings.Join(args, " "), true
+		return joinWords(args), true
 	}
 	for i, a := range args {
 		if !rule.flagMatches(a) {
@@ -141,7 +160,7 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 			if len(rest) == 0 {
 				return "", false
 			}
-			return strings.Join(rest, " "), true
+			return joinWords(rest), true
 		}
 		// POSIX `-c`: the command string is the first OPERAND after the flag, not
 		// blindly the next token. A shell skips any options that follow `-c`, honors
@@ -160,6 +179,50 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 		return posixCommandOperand(rest)
 	}
 	return "", false
+}
+
+// joinWords reassembles an already-tokenized argv slice into a single command
+// string for another frontend's Parse to re-tokenize. A bare space-join loses
+// word boundaries whenever a token itself contains whitespace — the exact
+// mechanism behind U069-F10: `cmd.exe /c bash -c "go test"` is parsed by the
+// OUTER shell first, which already collapses `"go test"` into one argv
+// element; naively re-joining `[bash -c "go test"]` with spaces and handing
+// that to another frontend re-splits it into `go` and `test`, so a rule
+// matching `go test` (but not bare `go`) never fires even though `go test` IS
+// the command that actually runs. Double-quoting any token that contains
+// whitespace, a quote, or is empty round-trips through every registered
+// frontend (POSIX shells, cmd.exe, and PowerShell all treat "…" as one word).
+// joinWords reassembles an already-tokenized argv slice into a single command
+// string for another frontend's Parse to re-tokenize. A bare space-join loses
+// word boundaries whenever a token itself contains whitespace — the exact
+// mechanism behind U069-F10: `cmd.exe /c bash -c "go test"` is parsed by the
+// OUTER shell first, which already collapses `"go test"` into one argv
+// element; naively re-joining `[bash -c "go test"]` with spaces and handing
+// that to another frontend re-splits it into `go` and `test`, so a rule
+// matching `go test` (but not bare `go`) never fires even though `go test` IS
+// the command that actually runs. Double-quoting any token that contains
+// whitespace, a quote, or is empty round-trips through every registered
+// frontend (POSIX shells, cmd.exe, and PowerShell all treat "…" as one word).
+//
+// A lone word (len(words) == 1) is passed through UNQUOTED: there is no join
+// happening to disambiguate a boundary for, and it is often the entire
+// original quoted payload already handed over verbatim (e.g. `cmd /c "git tag
+// v1"`, where the destination frontend's OWN tokenizer is meant to split it
+// into three words) — quoting it here would wrap it as one atomic word
+// instead and change what the wrapper had always done.
+func joinWords(words []string) string {
+	if len(words) == 1 {
+		return words[0]
+	}
+	parts := make([]string, len(words))
+	for i, w := range words {
+		if w == "" || strings.ContainsAny(w, " \t\"'") {
+			parts[i] = `"` + strings.ReplaceAll(w, `"`, `\"`) + `"`
+		} else {
+			parts[i] = w
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // posixCommandOperand returns the command_string of a POSIX `sh -c` invocation:

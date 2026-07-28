@@ -50,11 +50,44 @@ type Response struct {
 	Confirmable          bool
 	ConfirmWindowSeconds int
 	ConfirmDelaySeconds  int
+	// Unanalyzed reports that this decision was reached WITHOUT being able to
+	// fully parse the command (top-level, or a nested wrapper body) or a file
+	// path's rules — Allow=true here means "on_parse_error let it through",
+	// never "the rules were checked and nothing matched". Before this field
+	// existed those two outcomes were byte-identical on every surface (the
+	// CLI's `check` JSON, the wire Output an Adapter encodes), which is the
+	// root cohesion defect behind U066-F01..F04/U067-F01..F02/U073-F02: an
+	// operator relying on the default fail-open policy had no way to notice
+	// their rules were silently not being consulted at all. ParseError
+	// carries the human-facing detail when Unanalyzed is true.
+	Unanalyzed bool
+	ParseError string
+}
+
+// unanalyzedNote renders the one-line stderr diagnostic both Adapters emit
+// for an Unanalyzed allow — shared so the two engines' wording (and any
+// future engine's) stays byte-identical rather than drifting.
+func unanalyzedNote(r Response) string {
+	detail := r.ParseError
+	if detail == "" {
+		detail = "reason unavailable"
+	}
+	return "ltk: could not fully analyze this command (" + detail + "); allowed per defaults.on_parse_error (default: allow)\n"
 }
 
 // Message renders the reason and suggestion into a single human-facing string.
+// Message renders the reason and suggestion into a single human-facing
+// string. Never empty: both Adapters' Encode call this only when rendering a
+// DENY, and a deny that renders to zero bytes (U067-F01) tells the agent
+// nothing — no reason, no way to comply. Ordinary rule authoring already
+// cannot produce this in practice (validateRule requires a message or
+// suggest on every enabled deny rule, rules.go), but that is a config-time
+// guard, not a type-level one; this is the belt to its suspenders for any
+// other path that constructs a bare Response{Allow: false}.
 func (r Response) Message() string {
 	switch {
+	case r.Reason == "" && r.Suggest == "":
+		return "denied by ltk (no reason or suggested alternative was configured for this rule)"
 	case r.Suggest == "":
 		return r.Reason
 	case r.Reason == "":
@@ -120,6 +153,16 @@ type Engine interface {
 // earlier wins, so Claude Code outranks Antigravity when both score equally.
 func engines() []Engine {
 	return []Engine{ClaudeCode{}, Antigravity{}}
+}
+
+// All returns every registered engine, in the same order engines() and Detect
+// use. Exported so a caller that must pick among engines by some means other
+// than name or directory detection — e.g. cmd/ltk/evaluate.go trying each
+// adapter's Decode against a payload it received under an unrecognized
+// --engine, rather than guessing claude-code (U005-F04) — can enumerate them
+// without reaching into this package's internals.
+func All() []Engine {
+	return engines()
 }
 
 // engineAliases maps accepted alternate spellings to canonical engine names.

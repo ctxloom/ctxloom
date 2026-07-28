@@ -409,10 +409,23 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if len(m.Shells) > 0 && !slices.Contains(m.Shells, shell) {
 		return false
 	}
-	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, shell, strictPrefix) {
+	// The shell whose flag conventions classify THIS command's own arguments:
+	// when the command's program is itself a recognized shell/interpreter
+	// binary, ITS identity governs its args regardless of what dialect the
+	// enclosing script declares (U073-F10) — running `pwsh -Recurse` as a
+	// plain command from a bash script must not have `-Recurse` shredded into
+	// single-letter POSIX clusters just because the ENCLOSING script is bash.
+	// The `shells:` constraint above stays keyed on the enclosing script,
+	// unchanged: "does this command live in a cmd-dialect script" is a
+	// separate question from "what convention governs its own flags".
+	argShell := shell
+	if s := shellForProgram(c.Program()); s != "" {
+		argShell = s
+	}
+	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
 		return false
 	}
-	args := expandShortClusters(c.Args(), shell)
+	args := expandShortClusters(c.Args(), argShell)
 	for _, a := range m.ArgsAll {
 		if !slices.Contains(args, a) {
 			return false
@@ -430,6 +443,51 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	return true
 }
 
+// shellForProgram maps program (a command's argv[0]) to the shell it itself
+// is, when it is a directly recognized shell/interpreter binary — deliberately
+// independent of shellenv.ShellFromPath (which has its own separate,
+// filepath.Base-is-OS-dependent defect, U075-F03) since this fixes a
+// different, HIGH-severity gap (U073-F10) and must not inherit that one.
+// path.Base is POSIX-only, so a Windows-style absolute path is normalized to
+// forward slashes first — the same fix as programBasename above, for the
+// same reason. Returns "" when program is not one of these.
+func shellForProgram(program string) ir.Shell {
+	name := strings.ToLower(path.Base(strings.ReplaceAll(program, `\`, "/")))
+	name = strings.TrimSuffix(name, ".exe")
+	switch name {
+	case "bash":
+		return ir.ShellBash
+	case "sh":
+		return ir.ShellSh
+	case "zsh":
+		return ir.ShellZsh
+	case "ksh", "mksh":
+		return ir.ShellMksh
+	case "pwsh", "powershell":
+		return ir.ShellPwsh
+	case "cmd":
+		return ir.ShellCmd
+	default:
+		return ""
+	}
+}
+
+// programBasename returns the trailing path component of argv[0] the way the
+// shell that will actually run it resolves a bare-name match. path.Base is
+// POSIX-only (it splits on '/' alone), so a Windows-style absolute program
+// path — `C:\Windows\System32\cmd.exe`, the normal form under the cmd/pwsh
+// dialects this unit itself supports — never reduced to a bare `cmd.exe` the
+// way `/usr/bin/git` already reduces to `git` (U073-F04): a `command: [cmd]`
+// rule silently never fired against an absolute-backslash-path invocation.
+// Scoped to ShellCmd/ShellPwsh so a literal backslash inside an unusual POSIX
+// filename is never misread as a path separator.
+func programBasename(argv0 string, shell ir.Shell) string {
+	if shell == ir.ShellCmd || shell == ir.ShellPwsh {
+		argv0 = strings.ReplaceAll(argv0, "\\", "/")
+	}
+	return path.Base(argv0)
+}
+
 // matchCommand reports whether a command pattern matches a command's argv,
 // using the command's shell to classify flags. See Match.Command for the full
 // model, including why the positional operator depends on strictPrefix.
@@ -445,7 +503,7 @@ func matchCommand(pattern, argv []string, shell ir.Shell, strictPrefix bool) boo
 	if len(pattern) == 0 || len(argv) == 0 {
 		return false
 	}
-	if argv[0] != pattern[0] && path.Base(argv[0]) != pattern[0] {
+	if argv[0] != pattern[0] && programBasename(argv[0], shell) != pattern[0] {
 		return false
 	}
 	positionals, options := classifyArgs(pattern[1:], shell)

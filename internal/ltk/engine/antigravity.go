@@ -58,6 +58,11 @@ func agShellForTool(tool string) ir.Shell {
 // allow produces a zero Output: no bytes, exit 0 — agy proceeds normally.
 func (Antigravity) Encode(resp Response) (Output, error) {
 	if resp.Allow {
+		if resp.Unanalyzed {
+			// See ClaudeCode.Encode's identical branch: an unanalyzed allow must
+			// not be byte-identical to a clean allow (U005-F01/U067-F03).
+			return Output{Stderr: []byte(unanalyzedNote(resp))}, nil
+		}
 		return Output{}, nil
 	}
 	body, err := antigravitycli.EncodeDeny(resp.Message())

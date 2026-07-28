@@ -189,6 +189,40 @@ func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
 	}
 }
 
+// TestEvaluateUnknownEngineDetectsRealHostFromPayload pins U005-F04: the
+// unknown-engine fail-closed branch must not blindly guess claude-code's wire
+// format. Before the fix it always encoded the deny as claude-code — correct
+// by accident when the real host IS claude-code, but on an actual Antigravity
+// host (payload shaped `{"toolCall":{...}}`) the deny rode a format agy does
+// not recognize, so agy's own doc says it "proceeds on any crashing/unreadable
+// hook" — the fail-closed deny was silently invisible, i.e. failed OPEN in
+// practice. With the fix, evaluate tries every registered engine's Decode
+// against the actual payload and fails closed in the format that decoded it.
+func TestEvaluateUnknownEngineDetectsRealHostFromPayload(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push, --force] }\n    message: no\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// An antigravity-shaped payload, but the installed hook names a bogus
+	// --engine (a stale/mistyped hook command).
+	payload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"git status"}}}`
+	out, err := evaluate("not-an-engine", cfgPath, "", strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("unknown --engine must deny, not error: %v", err)
+	}
+	if out.ExitCode != 0 {
+		t.Fatalf("want exit 0 (fail closed, not fail open), got %+v", out)
+	}
+	got := string(out.Stdout)
+	if strings.Contains(got, "hookSpecificOutput") || strings.Contains(got, "permissionDecision") {
+		t.Errorf("payload was antigravity-shaped but the deny rode claude-code's wire format (invisible to the real host): %s", got)
+	}
+	if !strings.Contains(got, `"decision":"deny"`) {
+		t.Errorf("want antigravity's own deny shape, got %s", got)
+	}
+}
+
 // TestEvaluateFindsConfigFromHookCwd pins the default-config search against
 // Antigravity's hook environment: agy runs hooks with cwd <workspace>/.agents,
 // so the search must walk up to the repository root and find the project's
@@ -240,6 +274,36 @@ rules:
 	}
 	if strings.Contains(string(allowOut.Stdout), "decoy") {
 		t.Fatalf("config above the repository root must not be loaded: %+v", allowOut)
+	}
+}
+
+// TestEvaluateNoConfigFoundAnywhereWarns is a DEFECT WITH NO CENSUS ROW found
+// while walking the guardrail flow's fail-open paths: when no rules config
+// exists anywhere from cwd up to the repository root, loadConfig silently
+// falls back to the built-in zero-rule config — allow everything, no error,
+// and (before this fix) no trace at all. That degrade is intentional (a
+// project that never configured ltk is not gated), but it must not be
+// INVISIBLE: an operator relying on the hook being active had no signal that
+// it was gating nothing whatsoever. This pins the diagnostic added to the
+// Stderr channel (previously produced by nothing at all — U067-F03) without
+// changing the decision itself (still Allow).
+func TestEvaluateNoConfigFoundAnywhereWarns(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(ws)
+
+	out, err := evaluate("claude-code", "", "",
+		strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"git status"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Stdout) != 0 || out.ExitCode != 0 {
+		t.Fatalf("an unconfigured project must still allow (fail-open by design), got %+v", out)
+	}
+	if !strings.Contains(string(out.Stderr), "no rules config found") {
+		t.Errorf("a project with no .ltk/config.yaml anywhere must warn that nothing is being gated, got stderr=%q", out.Stderr)
 	}
 }
 

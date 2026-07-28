@@ -112,3 +112,22 @@ func TestShells(t *testing.T) {
 		t.Errorf("Shells() = %v", got)
 	}
 }
+
+// TestUnmatchedCloseParenErrors pins U069-F01/F02: a stray ')' at the top
+// level (no enclosing '(') must be reported as a parse error, not silently
+// swallow every token that follows it. Before the fix, Parse never returned
+// an error at all, and parseSequence simply stopped at the ')', dropping
+// `del /f /q important-file` from the IR with no trace — a deny rule
+// targeting `del` never even saw it, while real cmd.exe has no such grouping
+// there and would still run it.
+func TestUnmatchedCloseParenErrors(t *testing.T) {
+	s, err := New().Parse(context.Background(), ir.ShellCmd, "echo hi) & del /f /q important-file")
+	if err == nil {
+		t.Fatal("an unmatched ')' at the top level must be a parse error, not silently accepted")
+	}
+	// What was salvaged before the error must still be the leading command
+	// (fail-safe direction: don't lose what WAS understood).
+	if got := programs(s); len(got) != 1 || got[0] != "echo" {
+		t.Errorf("salvaged programs = %v, want [echo]", got)
+	}
+}

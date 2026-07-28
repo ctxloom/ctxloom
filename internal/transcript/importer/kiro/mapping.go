@@ -125,7 +125,7 @@ func assistantContentEvents(raw json.RawMessage) []agent.ChatEvent {
 			// function_call.arguments, a JSON-ENCODED STRING that itself
 			// contains an object (codex/rollout.go's argumentsToRaw doc
 			// comment) — so no string-unwrap step applies here; ToolUseEvent's
-			// own NonEmptyRaw normalizes an empty/absent args to nil.
+			// own nonEmptyRaw normalizes an empty/absent args to nil.
 			evs = append(evs, importer.ToolUseEvent(tu.Name, tu.ID, tu.Args))
 		}
 		return evs

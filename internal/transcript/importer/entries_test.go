@@ -11,9 +11,9 @@ import (
 )
 
 func TestNonEmptyRaw(t *testing.T) {
-	assert.Nil(t, NonEmptyRaw(nil))
-	assert.Nil(t, NonEmptyRaw(json.RawMessage{}))
-	assert.Equal(t, json.RawMessage(`{"a":1}`), NonEmptyRaw(json.RawMessage(`{"a":1}`)))
+	assert.Nil(t, nonEmptyRaw(nil))
+	assert.Nil(t, nonEmptyRaw(json.RawMessage{}))
+	assert.Equal(t, json.RawMessage(`{"a":1}`), nonEmptyRaw(json.RawMessage(`{"a":1}`)))
 }
 
 func TestTextEntry(t *testing.T) {

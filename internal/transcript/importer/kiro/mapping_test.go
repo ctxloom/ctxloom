@@ -57,9 +57,18 @@ func TestToolResultEvents_Empty(t *testing.T) {
 	assert.Nil(t, toolResultEvents(nil))
 }
 
-func TestJoinToolResultText_MultipleParts(t *testing.T) {
-	got := joinToolResultText([]toolResultContent{{Text: "first"}, {Text: ""}, {Text: "second"}})
-	assert.Equal(t, "first\n\nsecond", got, "empty Text elements must not contribute a blank paragraph")
+// TestToolResultEvents_JoinsMultiplePartsDroppingEmpty pins the same
+// empty-Text-must-not-contribute-a-blank-paragraph behavior the deleted
+// joinToolResultText helper had its own direct test for, now exercised
+// through the one production caller instead of a pass-through wrapper.
+func TestToolResultEvents_JoinsMultiplePartsDroppingEmpty(t *testing.T) {
+	evs := toolResultEvents([]toolUseResult{{
+		ToolUseID: "tooluse_multi",
+		Content:   []toolResultContent{{Text: "first"}, {Text: ""}, {Text: "second"}},
+		Status:    "Success",
+	}})
+	require.Len(t, evs, 1)
+	assert.Equal(t, "first\n\nsecond", evs[0].Entry.ToolOutput, "empty Text elements must not contribute a blank paragraph")
 }
 
 func TestUserContentEvents_UnrecognizedVariantSkipped(t *testing.T) {

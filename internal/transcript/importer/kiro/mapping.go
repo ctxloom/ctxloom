@@ -94,16 +94,16 @@ func toolResultEvents(results []toolUseResult) []agent.ChatEvent {
 	}
 	evs := make([]agent.ChatEvent, 0, len(results))
 	for _, r := range results {
-		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, joinToolResultText(r.Content), r.Status != "Success"))
+		// Join every content element's Text, dropping any that are empty —
+		// same convention codex's joinContentText uses for the analogous
+		// content-block case.
+		texts := make([]string, len(r.Content))
+		for i, c := range r.Content {
+			texts[i] = c.Text
+		}
+		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, importer.JoinNonEmpty(texts), r.Status != "Success"))
 	}
 	return evs
-}
-
-// joinToolResultText concatenates every content element's Text, dropping any
-// that are empty — the same importer.JoinNonEmptyFunc convention codex's
-// joinContentText uses for the analogous content-block case.
-func joinToolResultText(items []toolResultContent) string {
-	return importer.JoinNonEmptyFunc(items, func(it toolResultContent) string { return it.Text })
 }
 
 // assistantContentEvents maps an assistantContent union to zero or more

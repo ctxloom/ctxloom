@@ -65,8 +65,7 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // security boundary), so it stays a silent warn-and-continue — unlike a lost
 // CONTAINER boundary, which is fatal unless --degraded.
 type Worktree struct {
-	git     git.Git
-	baseRef string
+	git git.Git
 	// state is the run's session identity, stamped by Prepare
 	// (withSessionState). A known harp homes the per-agent scratch (checkout +
 	// config-home) under the session's ephemeral/ dir instead of the OS temp
@@ -126,7 +125,7 @@ func NewWorktree(g git.Git, backend string) Worktree {
 	if g == nil {
 		g = git.NewExec()
 	}
-	return Worktree{git: g, baseRef: worktreeBaseRef, backend: backend}
+	return Worktree{git: g, backend: backend}
 }
 
 // Name identifies the policy.
@@ -173,7 +172,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	}
 
 	wtPath := worktreeScratchPath(w.scratchBase(), worktreeScratchPrefix, agentID)
-	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, w.baseRef); err != nil {
+	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBaseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
 	// Stamp the owner pid IMMEDIATELY after the checkout exists — bony-carry

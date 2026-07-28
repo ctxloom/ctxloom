@@ -15,14 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWorktree_Axes pins the policy identity: name "worktree", approvals PROMPT
-// (config isolation is NOT a security boundary — only container bypasses).
-func TestWorktree_Axes(t *testing.T) {
-	p := NewWorktree(&git.Fake{}, "")
-	assert.Equal(t, "worktree", p.Name())
-	assert.Equal(t, ApprovalsPrompt, p.Approvals(), "worktree keeps the engine's in-tool approval prompt")
-}
-
 // TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a detached
 // worktree under the OS temp dir (NOT inside the repo) and exposes it as Dir(),
 // with per-agent config-home envs.

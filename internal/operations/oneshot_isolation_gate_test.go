@@ -39,8 +39,7 @@ func (w stubWorkspace) Cleanup() error { return nil }
 // (no managed-config assembly).
 type stubPolicy struct{ mk func() pb.Client }
 
-func (stubPolicy) Name() string                   { return isolation.None{}.Name() }
-func (stubPolicy) Approvals() isolation.Approvals { return isolation.ApprovalsPrompt }
+func (stubPolicy) Name() string { return isolation.None{}.Name() }
 func (p stubPolicy) PrepareWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
 	return stubWorkspace{dir: projectDir}, nil
 }

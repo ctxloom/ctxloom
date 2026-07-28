@@ -255,9 +255,11 @@ func containerRunnerFunc(rt Runtime, image, name, projectDir, home string, comma
 // auth. IS_SANDBOX=1 tells the engine it runs inside a real sandbox so it permits
 // approval-bypass as root — the container runs as (mapped) root, and claude
 // otherwise REFUSES `--dangerously-skip-permissions` under uid 0 ("cannot be used
-// with root/sudo privileges"). This is the runtime-side complement of the policy's
-// ApprovalsBypass: the same "the container is the boundary" decision. Harmless to
-// engines that ignore it.
+// with root/sudo privileges"). This is the runtime-side half of "the container is
+// the boundary" — the policy-level Approvals axis that used to name the other
+// half was deleted as dead (U063-F03): the run's actual approval posture resolves
+// from config/CLI/agent, never from the isolation policy. Harmless to engines
+// that ignore it.
 var containerBaseEnv = []string{"IS_SANDBOX=1"}
 
 // buildRunSpec assembles the RunSpec for one plugin container from the launch

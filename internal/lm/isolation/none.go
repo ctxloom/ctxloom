@@ -30,10 +30,6 @@ var _ Policy = None{}
 // Name returns the policy identifier.
 func (None) Name() string { return "none" }
 
-// Approvals keeps the engine's in-tool approval prompt (host session, today's
-// behaviour).
-func (None) Approvals() Approvals { return ApprovalsPrompt }
-
 // PrepareWorkspace returns the live project directory as the workspace with a
 // noop cleanup — there is nothing to provision or tear down.
 func (None) PrepareWorkspace(_ context.Context, projectDir, _ string) (Workspace, error) {

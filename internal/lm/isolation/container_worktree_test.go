@@ -14,12 +14,10 @@ import (
 )
 
 // TestContainerWorktree_Axes pins the composed policy's identity: name
-// "container-worktree", approvals BYPASS (the container is the boundary — the
-// worktree half alone would only Prompt).
+// "container-worktree", and that it is an isolated policy.
 func TestContainerWorktree_Axes(t *testing.T) {
 	c := NewContainerWorktree(fakeRuntime{name: "docker", available: true}, "img", &git.Fake{})
 	assert.Equal(t, "container-worktree", c.Name())
-	assert.Equal(t, ApprovalsBypass, c.Approvals(), "a fan-out container member bypasses the in-engine prompt")
 	assert.True(t, Isolated(c), "container-worktree is an isolated policy (writes per-member config into its worktree)")
 }
 

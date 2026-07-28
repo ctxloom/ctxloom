@@ -221,10 +221,6 @@ func (c Container) Name() string {
 	return c.base.name()
 }
 
-// Approvals bypasses the engine's in-tool prompt: the container is the boundary,
-// so isolated runs launch with approvals off (better UX, blast radius contained).
-func (Container) Approvals() Approvals { return ApprovalsBypass }
-
 // PrepareWorkspace provisions the container run's host-side scratch and doubles as
 // the degrade gate. It fails (→ caller falls back to None) when no runtime can
 // launch, the required image is absent, OR no engine auth can be resolved

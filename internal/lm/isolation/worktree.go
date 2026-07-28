@@ -132,10 +132,6 @@ func NewWorktree(g git.Git, backend string) Worktree {
 // Name identifies the policy.
 func (Worktree) Name() string { return "worktree" }
 
-// Approvals keeps the engine's in-tool prompt: a worktree isolates CONFIG, not
-// the blast radius. Only container (a real boundary) bypasses.
-func (Worktree) Approvals() Approvals { return ApprovalsPrompt }
-
 // PrepareWorkspace creates a fresh detached worktree for the member. It errors
 // (→ caller degrades to None) when projectDir is not a git repo or the worktree
 // add fails. On success it also, best-effort, provisions the member's HOST

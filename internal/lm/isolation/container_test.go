@@ -54,14 +54,6 @@ func (fakeRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
 // buildRunSpec (see runner_test.go), not through this fake.
 func (fakeRuntime) mapper() pathMapper { return identityMapper{} }
 
-// TestContainer_Axes pins the policy's identity: name "container", approvals
-// BYPASS (the container is the boundary that replaces the in-engine prompt).
-func TestContainer_Axes(t *testing.T) {
-	c := NewContainer(fakeRuntime{name: "docker", available: true}, "img")
-	assert.Equal(t, "container", c.Name())
-	assert.Equal(t, ApprovalsBypass, c.Approvals(), "isolated runs bypass the in-engine approval prompt")
-}
-
 // TestContainer_MCPCommandOverride pins dire-five's fix at its source: a
 // container policy (either base tier — hostBase and worktreeBase share the
 // same binaryPath field) reports the in-container ctxloom binary

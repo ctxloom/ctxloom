@@ -118,6 +118,60 @@ func (w *world) theCommandIsAllowed() error {
 	return nil
 }
 
+// encodedOutput renders the last decision through a real engine adapter. Every
+// step above stops at app.Decide, which is one layer short of what the operator
+// actually experiences: the decision still has to be encoded onto the hook's
+// wire (stdout document, stderr diagnostic, exit code) before anyone sees it.
+// U067-F03 lived precisely in that gap — Output.Stderr was consumed by
+// cmd/ltk/evaluate.go and produced by nothing — so a scenario about what the
+// operator is TOLD has to cross this boundary rather than stop at the verdict.
+func (w *world) encodedOutput() (engine.Output, error) {
+	return engine.ClaudeCode{}.Encode(w.resp)
+}
+
+// theOperatorIsWarnedItCouldNotBeAnalyzed asserts the failure-path payload: an
+// allow that ltk reached WITHOUT being able to parse the command must not be
+// byte-identical to a clean allow. The command still runs — this is a
+// cooperative redirect, and on_parse_error: allow is the shipped default — but
+// staying silent would leave an operator believing their rules were consulted
+// when nothing was checked at all.
+func (w *world) theOperatorIsWarnedItCouldNotBeAnalyzed() error {
+	if !w.resp.Allow {
+		return fmt.Errorf("this scenario is about an ALLOW that could not be analyzed, but the command was turned away: %s", w.resp.Message())
+	}
+	out, err := w.encodedOutput()
+	if err != nil {
+		return fmt.Errorf("encode the decision for the hook: %w", err)
+	}
+	if len(out.Stderr) == 0 {
+		return fmt.Errorf("expected the operator to be warned the command could not be fully analyzed, " +
+			"but the encoded output was silent — byte-identical to a clean allow")
+	}
+	if !strings.Contains(string(out.Stderr), "could not fully analyze") {
+		return fmt.Errorf("expected the warning to say the command could not be fully analyzed, got %q", out.Stderr)
+	}
+	// The command is still permitted: no deny document, no non-zero exit.
+	if len(out.Stdout) != 0 || out.ExitCode != 0 {
+		return fmt.Errorf("an allow must not turn into a block on the wire, got stdout=%q exit=%d", out.Stdout, out.ExitCode)
+	}
+	return nil
+}
+
+// theOperatorIsNotWarned is the paired negative: an ordinary, fully-understood
+// allow must stay silent. Without it, the warning assertion above could be
+// satisfied by warning on EVERY command, which would bury the signal it exists
+// to carry under one line per tool call.
+func (w *world) theOperatorIsNotWarned() error {
+	out, err := w.encodedOutput()
+	if err != nil {
+		return fmt.Errorf("encode the decision for the hook: %w", err)
+	}
+	if len(out.Stderr) != 0 {
+		return fmt.Errorf("a fully-analyzed allow must stay silent, but the operator was warned: %q", out.Stderr)
+	}
+	return nil
+}
+
 func (w *world) theAgentIsTold(text string) error {
 	if !strings.Contains(w.resp.Message(), text) {
 		return fmt.Errorf("expected the agent to be told %q, got %q", text, w.resp.Message())
@@ -207,6 +261,8 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the agent runs "([^"]*)" twice and is turned away both times$`, w.theAgentRepeatsButStaysBlocked)
 	sc.Step(`^the command is turned away$`, w.theCommandIsBlocked)
 	sc.Step(`^the command is allowed$`, w.theCommandIsAllowed)
+	sc.Step(`^the operator is warned it could not be fully analyzed$`, w.theOperatorIsWarnedItCouldNotBeAnalyzed)
+	sc.Step(`^the operator is not warned$`, w.theOperatorIsNotWarned)
 	sc.Step(`^the agent is told "([^"]*)"$`, w.theAgentIsTold)
 	sc.Step(`^the agent is pointed at "([^"]*)"$`, w.theAgentIsPointedAt)
 }

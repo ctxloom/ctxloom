@@ -176,6 +176,28 @@ Feature: Keeping an LLM agent on the project's golden path
       When the agent runs "eval '((('"
       Then the command is turned away
 
+  Rule: An allow we could not verify says so, instead of passing for a clean one
+
+    # on_parse_error: allow is the shipped default, so most operators meet the
+    # unparseable-wrapper case as an ALLOW rather than a block. That is the
+    # right call for a cooperative redirect — but it must not be SILENT. A
+    # silent allow here is indistinguishable from "your rules were checked and
+    # nothing matched", which is the worst possible thing to tell someone who
+    # is relying on those rules: they would have no way to notice the guard was
+    # never consulted for anything hidden inside a wrapper. The command still
+    # runs; the operator just gets told what ltk could not see.
+    Scenario: An allow ltk could not fully analyze is reported, not hidden
+      When the agent runs "eval '((('"
+      Then the command is allowed
+      And the operator is warned it could not be fully analyzed
+
+    # The other half: an ordinary command that ltk fully understood must stay
+    # quiet. A warning on every tool call would bury the one above.
+    Scenario: An ordinary allow stays quiet
+      When the agent runs "ls -la && cat README.md"
+      Then the command is allowed
+      And the operator is not warned
+
   Rule: A turned-away command can be confirmed by running it again
 
     # ltk points the way; it does not stand guard. If you really mean a command

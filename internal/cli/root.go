@@ -85,6 +85,11 @@ var rootCmd = &cobra.Command{
 	// main.go); an explicitly set flag wins over it in either direction.
 	// No subcommand defines its own PersistentPreRun, so this runs for all.
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// U104-F01's runtime guard (format.go): clear the per-invocation
+		// "did this command honor --format" tracker before anything can set
+		// it, so checkFormatWasHonored's PersistentPostRunE below checks
+		// exactly this invocation.
+		resetFormatGuard()
 		if cmd.Root().PersistentFlags().Changed("degraded") {
 			strictness.SetDegraded(degradedFlag)
 		}
@@ -116,6 +121,15 @@ var rootCmd = &cobra.Command{
 		// this just falls back to the safe default rather than erroring twice.
 		format, ferr := resolveFormat(cmd)
 		clidiag.SetStructured(ferr == nil && format.Structured())
+	},
+	// U104-F01's runtime guard (format.go): fires only after a successful
+	// RunE (cobra skips it on error, and skips it entirely for
+	// --help/--version/completion), turning a non-text --format that no
+	// command ever honored into a loud error instead of a silent exit 0.
+	// No subcommand defines its own PersistentPostRun(E), so — symmetrically
+	// with PersistentPreRun above — this runs for all of them.
+	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		return checkFormatWasHonored(cmd)
 	},
 	Long: `ctxloom manages context for AI coding assistants.
 

@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -116,4 +118,114 @@ func TestResolveFormat_AcceptsAllFiveEncodings(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, want, got)
 	}
+}
+
+// --- U104-F01: the runtime guard that turns "--format is registered
+// globally but honoured opt-in" into a loud error instead of a silent exit 0
+// ---
+
+// withFormatGuardReset saves/restores the package-level formatWasHonored
+// tracker around a subtest, since it is process-global state (by design —
+// see its doc comment) and format_test.go's other cases don't touch it.
+func withFormatGuardReset(t *testing.T) {
+	t.Helper()
+	prev := formatWasHonored
+	t.Cleanup(func() { formatWasHonored = prev })
+	resetFormatGuard()
+}
+
+func TestCheckFormatWasHonored_TextFormatNeverErrors(t *testing.T) {
+	withFormatGuardReset(t)
+	cmd, _ := formatCmd("text")
+	// formatWasHonored is false (freshly reset) — text must still pass:
+	// there is nothing to honor when the caller asked for (or defaulted to)
+	// human text.
+	assert.NoError(t, checkFormatWasHonored(cmd))
+}
+
+func TestCheckFormatWasHonored_NonTextAndHonored_NoError(t *testing.T) {
+	withFormatGuardReset(t)
+	cmd, _ := formatCmd("json")
+	formatWasHonored = true
+	assert.NoError(t, checkFormatWasHonored(cmd))
+}
+
+func TestCheckFormatWasHonored_NonTextAndNotHonored_ErrorsLoudly(t *testing.T) {
+	withFormatGuardReset(t)
+	cmd, _ := formatCmd("json")
+	cmd.Use = "widget frobnicate"
+	// formatWasHonored stays false: no emit()/outputFormatOf call happened.
+	err := checkFormatWasHonored(cmd)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--format json")
+	assert.Contains(t, err.Error(), "does not support it yet")
+}
+
+func TestEmit_MarksFormatWasHonored(t *testing.T) {
+	withFormatGuardReset(t)
+	cmd, _ := formatCmd("json")
+	require.NoError(t, emit(cmd, emitTestItem{Name: "abc"}, nil))
+	assert.True(t, formatWasHonored)
+}
+
+func TestOutputFormatOf_MarksFormatWasHonored(t *testing.T) {
+	withFormatGuardReset(t)
+	cmd, _ := formatCmd("json")
+	outputFormatOf(cmd)
+	assert.True(t, formatWasHonored)
+}
+
+// TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly is the end-to-end pin:
+// `config show` is a real, currently-unwired command (format_coverage_test.go's
+// formatDebtAllowlist: "config.go: runConfigShow must route through emit()
+// instead of calling renderConfigYAML directly" — owned by a different flow
+// batch, not touched here) — exactly U104-F01's "accepted and silently
+// ignored on dozens of commands" shape. Before this guard it printed human
+// YAML text and exited 0 regardless of --format json; now it must refuse
+// loudly instead of lying about having honored the flag.
+func TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
+	testsupport.ProjectDir(t)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{"config", "show", "--format", "json"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	err := rootCmd.Execute()
+	require.Error(t, err, "an unwired command must not silently exit 0 under a non-text --format")
+	assert.Contains(t, err.Error(), "does not support it yet")
+}
+
+// TestConfigShow_UnwiredCommand_DefaultTextStillWorks is the negative
+// control: the same unwired command with NO --format (defaults to text) must
+// keep working exactly as before — the guard only gates non-text formats.
+func TestConfigShow_UnwiredCommand_DefaultTextStillWorks(t *testing.T) {
+	testsupport.ProjectDir(t)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	// Explicit --format=text, not an omitted flag: rootCmd's --format is a
+	// process-wide PersistentFlags() value that pflag does not reset to its
+	// default between Execute() calls sharing the same *cobra.Command tree,
+	// so an earlier test in this binary leaving it at "json" would otherwise
+	// leak into this one (test-order hazard, not a product bug).
+	rootCmd.SetArgs([]string{"config", "show", "--format", "text"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	require.NoError(t, rootCmd.Execute())
+	assert.NotEmpty(t, out.String())
 }

@@ -21,62 +21,16 @@ import (
 // production code reads. Isolate clears each so a test inherits none of the
 // ambient session's values. TestEnvKeysCoversProductionReads enforces that every
 // CTXLOOM_* variable read in production appears here.
-var EnvKeys = []string{
-	"CTXLOOM_SESSION_HARP",
-	"CTXLOOM_PROJECT_ID",
-	"CTXLOOM_RESUMED_FROM",
-	"CTXLOOM_RESUMED_PARTS",
-	"CTXLOOM_ROOT",
-	"CTXLOOM_DEBUG_HTTP",
-	"CTXLOOM_DEGRADED",
-	"CTXLOOM_VERBOSE",
-	"CTXLOOM_NO_COMPANIONS",
-	// The agentcoord runner-handshake vars: read via the coord.Env* constants
-	// (os.Getenv(coord.EnvMCPSocket), not a literal "CTXLOOM_..." string), so
-	// TestEnvKeysCoversProductionReads' literal-string regex can't discover
-	// them itself — they must be listed here by hand. Confirmed missing
-	// 2026-07-13: an ambient CTXLOOM_MCP_SOCKET (present whenever the test
-	// suite runs inside a live ctxloom-coordinated session) silently flips
-	// `ctxloom mcp serve` into forward-mode, proxying every acceptance-suite
-	// MCP call to the REAL coordinator instead of the isolated test project.
-	"CTXLOOM_MCP_SOCKET",
-	"CTXLOOM_COORD_URL",
-	"CTXLOOM_COORD_CRED",
-	"CTXLOOM_RUN_ID",
-	"CTXLOOM_CELL_WORKDIR",
-	// coord.EnvAgentCoordinator, read via os.Getenv(coord.EnvAgentCoordinator)
-	// in internal/cli/llm_runner_common.go — same const-read shape as the
-	// quintet above. Found by U142-F01's widened
-	// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads sweep, which
-	// now resolves identifier reads back to their declaring constant instead
-	// of requiring a literal "CTXLOOM_..." string.
-	"CTXLOOM_AGENT_COORDINATOR",
-	// internal/lm/isolation/traceprobe.go's probeTraceEnv const, read via
-	// os.Getenv(probeTraceEnv) — same shape, same discovery.
-	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",
-	// The container launch-retry budget's operator overrides (lunar-boat
-	// item 1): read via the coord.EnvLaunch* constants
-	// (os.LookupEnv(EnvLaunchMaxAttempts), not a literal "CTXLOOM_..."
-	// string), same reason as the trio above — listed here by hand.
-	"CTXLOOM_LAUNCH_MAX_ATTEMPTS",
-	"CTXLOOM_LAUNCH_BACKOFF_BASE",
-	"CTXLOOM_LAUNCH_BACKOFF_MAX",
-	// Not production state: a CI-only knob read by
-	// internal/testsupport/dockergate to turn "docker unreachable" from a
-	// skip into a failure. Listed because TestEnvKeysCoversProductionReads
-	// scans every non-_test.go file under internal/ and cmd/, dockergate.go
-	// included, and an exception carved for one file is how the next real
-	// variable goes missing. Clearing it here is harmless: dockergate reads
-	// it once at package init, precisely so a test that isolates before it
-	// gates cannot silently demote itself back to skipping.
-	"CTXLOOM_REQUIRE_DOCKER",
-	"GITHUB_TOKEN",
-	"GH_TOKEN",
-	"CODEX_HOME",
-	"EDITOR",
-	"VISUAL",
-	"PAGER",
-}
+// EnvKeys is the canonical set of host/session environment variables ctxloom
+// production code reads. Isolate clears each so a test inherits none of the
+// ambient session's values. TestEnvKeysCoversProductionReads enforces that every
+// CTXLOOM_* variable read in production appears here.
+//
+// This IS taskstest.EnvKeys (not a copy) — see that package's doc (U127-F01):
+// two separate lists here and there is exactly how one drifted to cover only
+// 3 of ~18 variables with nothing to catch it. One list, referenced from
+// both names, cannot drift.
+var EnvKeys = taskstest.EnvKeys
 
 // Isolate roots HOME at a fresh temp dir and clears every EnvKeys variable for
 // the duration of the test, returning the temp home. Because it uses t.Setenv

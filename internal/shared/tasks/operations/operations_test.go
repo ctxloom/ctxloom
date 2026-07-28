@@ -768,6 +768,22 @@ func TestValidateTagRejectsDeclaredRangeViolation(t *testing.T) {
 	}
 }
 
+// TestValidateTagRejectsNaNOnDeclaredRange pins U122-F12: strconv.ParseFloat
+// accepts the literal string "NaN" (a legal tagma bare token), and every
+// `<`/`>` bounds comparison against NaN is false, so this write-time gate —
+// whose entire purpose is "a value that would be permanently unqueryable is
+// rejected loudly instead of silently persisted" — let NaN straight through.
+// A stored NaN goes on to hang priority.rankNormalize (U124-F01) with no
+// warning anywhere in the write path.
+func TestValidateTagRejectsNaNOnDeclaredRange(t *testing.T) {
+	schema := triageValueSchema(t)
+	for _, tag := range []string{"triage:effort=NaN", "triage:effort=nan", "triage:effort=Inf", "triage:effort=-Inf"} {
+		if err := validateTag(tag, schema); err == nil {
+			t.Errorf("validateTag(%q): expected an error (not a finite number)", tag)
+		}
+	}
+}
+
 // blocksReleaseSemverSchema returns a *tagschema.Schema declaring
 // triage:blocks-release's tagma.type=semver (tagschema.SemverTypeName) —
 // the same declaration DefaultTagSchema ships (tagma SPEC.md §9,
@@ -1078,6 +1094,49 @@ func TestScalarCollapse_TagTaskCollapsesToNewestValueHistoryPreserved(t *testing
 	}
 	if !sawTagBug {
 		t.Errorf("log events %+v do not record the tag of triage:type=bug", events)
+	}
+}
+
+// TestTagTask_ScalarCollapseAddsBeforeUntag pins U122-F01: the log is
+// append-only, so "retract the old scalar value, then add the new one" is
+// necessarily two separate writes, never one atomic operation. The old
+// ordering wrote the retracting untag FIRST — if the following add then
+// failed (lock contention, a write error), the task permanently lost its
+// previous value and gained nothing, with no compensating write. Add must
+// land first: if the untag then fails, the task is left with a transient
+// DUPLICATE value on a scalar target (recoverable — lint flags it, and the
+// next collapse fixes it), never a LOST one.
+func TestTagTask_ScalarCollapseAddsBeforeUntag(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "triage this", "", "", []string{"triage:type=security"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := TagTask(tc, add.Task.HarpID, []string{"triage:type=bug"}, nil); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+
+	events := readTaskEvents(t, tc, add.Task.HarpID)
+	tagIdx, untagIdx := -1, -1
+	for i, ev := range events {
+		switch ev.Op {
+		case "tag":
+			if len(ev.Tags) == 1 && ev.Tags[0] == "triage:type=bug" {
+				tagIdx = i
+			}
+		case "untag":
+			if len(ev.Tags) == 1 && ev.Tags[0] == "triage:type=security" {
+				untagIdx = i
+			}
+		}
+	}
+	if tagIdx == -1 || untagIdx == -1 {
+		t.Fatalf("expected both a tag(bug) and untag(security) event, got %+v", events)
+	}
+	if tagIdx > untagIdx {
+		t.Fatalf("the new value's add (event %d) must be written BEFORE the old value's untag (event %d) — a failure between them must leave a recoverable duplicate, never a lost value", tagIdx, untagIdx)
 	}
 }
 

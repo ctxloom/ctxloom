@@ -774,24 +774,6 @@ func TestSettings_ShouldUseDistilled(t *testing.T) {
 // Config Methods Tests
 // =============================================================================
 
-func TestConfig_SourceName(t *testing.T) {
-	tests := []struct {
-		source ConfigSource
-		want   string
-	}{
-		{SourceProject, "project"},
-		{SourceHome, "home"},
-		{ConfigSource(99), "unknown"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			cfg := &Config{source: tt.source}
-			assert.Equal(t, tt.want, cfg.SourceName())
-		})
-	}
-}
-
 func TestConfig_GetConfigFilePath(t *testing.T) {
 	t.Run("returns path when AppPaths set", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{"/path/to/.ctxloom"}}
@@ -935,22 +917,16 @@ func TestConfig_Save(t *testing.T) {
 		},
 	}
 
-	err := cfg.Save()
+	err := cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 
 	// Verify file was written to persistent dir
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "claude-code")
-	assert.Contains(t, string(data), "default_agent: dev", "default_agent round-trips through Save")
+	assert.Contains(t, string(data), "default_agent: dev", "default_agent round-trips through a save")
 	assert.Contains(t, string(data), "- dev")
 	assert.Contains(t, string(data), "llm")
-}
-
-func TestConfig_Save_NoAppPaths(t *testing.T) {
-	cfg := &Config{}
-	err := cfg.Save()
-	assert.Error(t, err)
 }
 
 // Regression: Save round-trips the labeled-config registry, the role map, the
@@ -975,7 +951,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 		settings: SettingsConfig{CompactionChunks: 4096},
 		editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
 	}
-	require.NoError(t, cfg.Save())
+	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 
 	// Round-trip through Load to confirm the values survived.
 	loaded, err := Load(WithAppDir(tmpDir))
@@ -1990,7 +1966,7 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 		},
 	}
 
-	err := cfg.Save()
+	err := cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
@@ -2023,7 +1999,7 @@ llm:
 		},
 	}
 
-	err := cfg.Save()
+	err := cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))

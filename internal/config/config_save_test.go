@@ -4,14 +4,12 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -122,7 +120,7 @@ func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
 
 	cfg := &Config{appPaths: []string{appDir}} // Editor + MCP left zero/empty
 	cfg.SetFS(fs)
-	require.NoError(t, cfg.Save())
+	require.NoError(t, cfg.saveLocked(fs, paths.ConfigPath(appDir)))
 
 	data, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
 	require.NoError(t, err)
@@ -144,16 +142,18 @@ func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
 	mergeDefaultConfig(cfg)
 	require.NotEmpty(t, cfg.lm.Configs, "precondition: the overlay populated the registry")
 
-	require.NoError(t, cfg.Save())
-	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
+	configPath := paths.ConfigPath(tmpDir)
+	fs := cfg.getFS()
+	require.NoError(t, cfg.saveLocked(fs, configPath))
+	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "configs:",
 		"the overlaid default registry must not be materialized into the user's config")
 
 	// A user-authored change persists without dragging the registry along.
 	cfg.lm.Defaults.Primary = "mine"
-	require.NoError(t, cfg.Save())
-	data, err = os.ReadFile(paths.ConfigPath(tmpDir))
+	require.NoError(t, cfg.saveLocked(fs, configPath))
+	data, err = os.ReadFile(configPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "primary: mine")
 	assert.NotContains(t, string(data), "configs:")
@@ -171,87 +171,27 @@ func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 	}
 	mergeDefaultConfig(cfg) // no-op for a non-empty registry
 
-	require.NoError(t, cfg.Save())
+	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "mine")
 }
 
-// TestConfig_Save_TakesAdvisoryLockWhenFSNotInjected is the regression guard
-// for operations/helpers.go's loadFreshConfig fix (see its doc comment): a
-// Config built the way every real Load()/LoadFresh() call produces one — fs
-// left nil, injectedFS left at its zero value false — must actually contend
-// for config.yaml's advisory lock, not silently skip it. Before the fix,
-// every production caller reaching a Config via
-// operations.loadFreshConfig(nil, ...) — every MCP-server config-mutation
-// handler — pre-resolved the nil fs to a concrete OS fs before ever calling
-// WithFS, which set injectedFS=true and permanently skipped this exact lock:
-// exactly the CLI-vs-MCP-server concurrent-Save scenario the lock exists to
-// protect (see injectedFS's doc and Save's own doc, both above).
-func TestConfig_Save_TakesAdvisoryLockWhenFSNotInjected(t *testing.T) {
-	tmpDir := t.TempDir()
-	cfg := &Config{appPaths: []string{tmpDir}}
-	require.False(t, cfg.injectedFS, "precondition: a bare Config (as every real Load produces) is not FS-injected")
-
-	configPath, err := cfg.GetConfigFilePath()
-	require.NoError(t, err)
-
-	unlock, err := filelock.Lock(configPath + ".lock")
-	require.NoError(t, err)
-
-	done := make(chan error, 1)
-	go func() { done <- cfg.Save() }()
-
-	select {
-	case <-done:
-		t.Fatal("Save() returned while the advisory lock was held externally — it never actually took the lock")
-	case <-time.After(200 * time.Millisecond):
-		// Still blocked on the external lock, as expected.
-	}
-
-	unlock()
-	select {
-	case saveErr := <-done:
-		assert.NoError(t, saveErr)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Save() never completed after the external lock was released")
-	}
-}
-
-// TestConfig_Save_FailsClosedWhenLockCannotBeAcquired pins U109-F01: the
-// polarity used to be inverted — a lock ACQUISITION failure (as opposed to
-// blocking on contention, which filelock.Lock already handles by waiting)
-// was treated as permission to proceed unlocked, silently. filelock.Lock is
-// blocking, so the only way it can return an error at all is a persistent
-// environmental failure (EACCES/EROFS/ENOSPC/ENOLCK/...) — exactly the case
-// where writing unlocked is least safe. Forced here by making the lock
-// FILE PATH itself a pre-existing directory, so os.OpenFile(O_CREATE|O_RDWR)
-// fails with EISDIR — a real, reproducible lock-acquisition failure with no
-// contention involved at all.
-func TestConfig_Save_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
-	tmpDir := t.TempDir()
-	cfg := &Config{appPaths: []string{tmpDir}}
-	require.False(t, cfg.injectedFS)
-
-	configPath, err := cfg.GetConfigFilePath()
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(configPath+".lock", 0o755),
-		"make the lock path a directory so acquiring it as a lock FILE fails")
-
-	err = cfg.Save()
-	require.Error(t, err, "Save must fail closed rather than silently write unlocked when the lock cannot be acquired")
-}
-
-// TestConfig_Save_LeavesNoTempFiles pins the atomic-write contract: Save goes
-// through a unique temp + rename (a torn config.yaml must be impossible), and
-// the temp never outlives the call.
+// TestConfig_Save_LeavesNoTempFiles pins the atomic-write contract: saveLocked
+// goes through a unique temp + rename (a torn config.yaml must be impossible),
+// and the temp never outlives the call. The advisory-lock acquisition and
+// fail-closed-on-lock-failure behaviors this file used to pin here (via the
+// since-deleted Config.Save(), which had zero production callers -- every
+// real write goes through Manager.Update) are covered on the actual
+// production write path by TestUpdate_HoldsFileLockAcrossReadModifyWrite and
+// TestUpdate_FailsClosedWhenLockCannotBeAcquired in config_manager_test.go.
 func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &Config{
 		appPaths: []string{tmpDir},
 		lm:       LMConfig{Configs: map[string]LLMConfig{"mine": {Type: "claude-code"}}},
 	}
-	require.NoError(t, cfg.Save())
+	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 
 	entries, err := os.ReadDir(tmpDir)
 	require.NoError(t, err)
@@ -284,7 +224,7 @@ func TestConfig_Save_CorruptConfig_RefusesToTruncate(t *testing.T) {
 	cfg := &Config{appPaths: []string{appDir}}
 	cfg.SetFS(fs)
 
-	err := cfg.Save()
+	err := cfg.saveLocked(fs, path)
 	require.Error(t, err, "a config this process cannot parse must not be overwritten")
 
 	after, rerr := afero.ReadFile(fs, path)
@@ -303,7 +243,7 @@ func TestConfig_Save_ParseableConfig_StillSaves(t *testing.T) {
 
 	cfg := &Config{appPaths: []string{appDir}}
 	cfg.SetFS(fs)
-	require.NoError(t, cfg.Save())
+	require.NoError(t, cfg.saveLocked(fs, path))
 
 	after, rerr := afero.ReadFile(fs, path)
 	require.NoError(t, rerr)
@@ -318,7 +258,7 @@ func TestConfig_Save_AbsentConfig_StillSaves(t *testing.T) {
 
 	cfg := &Config{appPaths: []string{appDir}}
 	cfg.SetFS(fs)
-	require.NoError(t, cfg.Save())
+	require.NoError(t, cfg.saveLocked(fs, paths.ConfigPath(appDir)))
 
 	exists, eerr := afero.Exists(fs, paths.ConfigPath(appDir))
 	require.NoError(t, eerr)

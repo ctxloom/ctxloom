@@ -180,7 +180,9 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	cfg.agents = map[string]agents.Agent{
 		"dev": {Engine: "claude-code", Profiles: []string{"go-developer"}},
 	}
-	require.NoError(t, cfg.Save())
+	configPath, err := cfg.GetConfigFilePath()
+	require.NoError(t, err)
+	require.NoError(t, cfg.saveLocked(cfg.getFS(), configPath))
 
 	reloaded, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)

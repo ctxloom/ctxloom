@@ -21,9 +21,8 @@ import (
 // managerTestDir isolates the environment and returns a fresh, real (OS
 // filesystem) .ctxloom directory for a Manager to operate on. A real
 // filesystem is required, not afero.NewMemMapFs: Manager.Update's advisory
-// filelock is skipped entirely for an injected test fs (Save's own doc
-// explains why — no cross-process readers to protect), so the lock-holding
-// tests below need real files.
+// filelock is skipped entirely for an injected test fs (no cross-process
+// readers to protect), so the lock-holding tests below need real files.
 func managerTestDir(t *testing.T) string {
 	t.Helper()
 	home := testsupport.Isolate(t)
@@ -77,9 +76,9 @@ func TestUpdate_SerializesConcurrentWritersInProcess(t *testing.T) {
 // TestUpdate_FailsClosedWhenLockCannotBeAcquired pins U109-F01's Manager.Update
 // half: a lock ACQUISITION failure (as opposed to blocking on contention,
 // which filelock.Lock already handles by waiting) used to degrade to an
-// unlocked read-modify-write, silently. Forced here the same way as Save's
-// sibling test: make the lock file's path a pre-existing directory so
-// os.OpenFile(O_CREATE|O_RDWR) fails outright, with no contention involved.
+// unlocked read-modify-write, silently. Forced here by making the lock
+// file's path a pre-existing directory so os.OpenFile(O_CREATE|O_RDWR)
+// fails outright, with no contention involved.
 func TestUpdate_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
 	appDir := managerTestDir(t)
 	mgr := NewManager(WithAppDir(appDir))
@@ -101,8 +100,8 @@ func TestUpdate_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
 // it proves the lock spans the WHOLE transaction, not just the final write.
 // Writer A is parked mid-transaction (inside fn, lock held); writer B's
 // Update call is started concurrently and must be UNABLE to complete while A
-// holds the lock — if Update only locked around the write (like Save() alone
-// does), B could read stale pre-A state and complete before A ever commits.
+// holds the lock — if Update only locked around the write, B could read stale pre-A
+// state and complete before A ever commits.
 // Once A is released, B's fn must observe A's committed change (the fresh
 // reload happens AFTER the lock is acquired), and both changes must survive.
 func TestUpdate_HoldsFileLockAcrossReadModifyWrite(t *testing.T) {
@@ -162,22 +161,19 @@ func TestUpdate_HoldsFileLockAcrossReadModifyWrite(t *testing.T) {
 	assert.Contains(t, got, "b")
 }
 
-// TestConfig_Save_AloneLosesConcurrentWrites is the empirical negative
+// TestConfig_SaveLockedAloneLosesConcurrentWrites is the empirical negative
 // control for TestUpdate_SerializesConcurrentWritersInProcess above: it
 // reproduces the EXACT shape every write call site used before migrating
-// onto Manager.Update — LoadFresh, mutate the in-memory copy, Save() — and
-// proves it silently loses writes, which is precisely what Save's own doc
-// comment says it does not protect against ("two callers that each Load(),
-// mutate their own in-memory copy, then Save() can still silently discard
-// one another's change"). n goroutines each capture a fresh snapshot BEFORE
-// any of them takes Save's advisory lock, so Save's read-merge-write only
-// ever merges each goroutine's own single added key onto whatever was on
-// disk at THAT goroutine's read time — not onto whatever the lock's prior
-// holder just committed. The advisory lock alone (fix 4df0cbd2) only ensures
-// the WRITE itself is atomic and serialized; it was never sufficient by
-// itself, which is exactly why Manager.Update re-reads fresh AFTER acquiring
-// the lock instead of merging a pre-lock snapshot.
-func TestConfig_Save_AloneLosesConcurrentWrites(t *testing.T) {
+// onto Manager.Update — LoadFresh, mutate the in-memory copy, write directly
+// via saveLocked with no re-read-under-lock — and proves it silently loses
+// writes. n goroutines each capture a fresh snapshot BEFORE any of them
+// takes a lock, so the read-merge-write only ever merges each goroutine's own
+// single added key onto whatever was on disk at THAT goroutine's read time —
+// not onto whatever a prior writer just committed. This is exactly why
+// Manager.Update re-reads fresh AFTER acquiring the lock instead of merging a
+// pre-lock snapshot (saveLocked itself takes no lock at all — callers, like
+// Manager.Update, are responsible for their own).
+func TestConfig_SaveLockedAloneLosesConcurrentWrites(t *testing.T) {
 	appDir := managerTestDir(t)
 
 	const n = 20
@@ -196,7 +192,12 @@ func TestConfig_Save_AloneLosesConcurrentWrites(t *testing.T) {
 				cfg.agents = map[string]agents.Agent{}
 			}
 			cfg.agents[fmt.Sprintf("agent-%02d", i)] = agents.Agent{Engine: fmt.Sprintf("engine-%02d", i)}
-			errs[i] = cfg.Save()
+			configPath, perr := cfg.GetConfigFilePath()
+			if perr != nil {
+				errs[i] = perr
+				return
+			}
+			errs[i] = cfg.saveLocked(cfg.getFS(), configPath)
 		}(i)
 	}
 	wg.Wait()
@@ -209,10 +210,10 @@ func TestConfig_Save_AloneLosesConcurrentWrites(t *testing.T) {
 	require.NoError(t, err)
 	got := final.GetConfiguredAgents()
 
-	t.Logf("bare LoadFresh-mutate-Save: %d of %d concurrent writes survived (%d lost)", len(got), n, n-len(got))
+	t.Logf("bare LoadFresh-mutate-saveLocked: %d of %d concurrent writes survived (%d lost)", len(got), n, n-len(got))
 	assert.Less(t, len(got), n,
 		"expected the documented lost-update window to actually lose at least one write here — "+
-			"if this now passes, Save's own doc comment about the window it does not close is stale and should be revised")
+			"if this now passes, the lost-update window Manager.Update closes is stale and should be revised")
 }
 
 // TestUpdate_AbandonedMutationDoesNotLeak proves an Update whose fn returns

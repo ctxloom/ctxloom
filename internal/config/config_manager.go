@@ -88,24 +88,23 @@ func NewManager(opts ...LoadOption) *Manager {
 	return &Manager{opts: opts}
 }
 
-// Update runs fn as ONE serialized write transaction: it acquires the same
-// advisory file lock Save() takes (configPath+".lock"), re-reads the config
-// FRESH from disk while holding it, hands fn a Draft built from that fresh
-// read, applies whatever fn changed, and persists — all before releasing the
-// lock. This is what actually closes the lost-update window Save() alone
-// does not (see Save's doc): the state fn mutates is never older than the
-// moment this call acquired the lock, so two concurrent Update calls
-// (same process or different processes) can never silently discard one
-// another's change the way two Load()-mutate-Save() sequences already could.
+// Update runs fn as ONE serialized write transaction: it acquires an advisory
+// file lock (configPath+".lock"), re-reads the config FRESH from disk while
+// holding it, hands fn a Draft built from that fresh read, applies whatever
+// fn changed, and persists via saveLocked — all before releasing the lock.
+// This is what closes the lost-update window a bare Load-mutate-write
+// sequence does not: the state fn mutates is never older than the moment
+// this call acquired the lock, so two concurrent Update calls (same process
+// or different processes) can never silently discard one another's change
+// the way two Load()-mutate-write sequences could.
 //
 //   - fn returning a non-nil error ABANDONS the transaction: nothing is
 //     written, and the shared ambient Snapshot every Current()/Load() holder
 //     already has is completely untouched (Update never mutates any
 //     *Snapshot in place — it builds and discards its own private Config
 //     value for the duration of the call).
-//   - On success, the ambient memo is invalidated (via saveLocked, the same
-//     Save() itself already relies on), so the very next Current() sees the
-//     write.
+//   - On success, the ambient memo is invalidated (via saveLocked), so the
+//     very next Current() sees the write.
 //   - A lock ACQUISITION failure (as opposed to ordinary blocking on
 //     contention, which the lock already waits out) fails the whole call
 //     closed (U109-F01) — filelock.Lock can only error on a persistent

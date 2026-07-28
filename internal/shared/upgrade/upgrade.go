@@ -32,25 +32,16 @@ type Upgrader interface {
 	Apply(root *yaml.Node) (changed bool)
 }
 
-// Pipeline applies an ordered sequence of Upgraders front-to-back. It is itself
-// an Upgrader, so pipelines compose and nest: a layer of upgrades is just
-// another upgrade.
+// Pipeline applies an ordered sequence of Upgraders front-to-back.
+//
+// U131-F08: Pipeline used to also implement Upgrader itself (Name/Apply) so
+// pipelines could compose and nest. No production Pipeline literal ever
+// nested another Pipeline (config, sessions, bundles, and profiles each build
+// one flat list of concrete Upgraders — config.go even explicitly flattens
+// rather than nesting), and the capability was reachable only via a test that
+// existed solely to exercise it. Deleted both methods; if a real nesting need
+// shows up later, reintroducing them is one small commit.
 type Pipeline []Upgrader
-
-// Name identifies the pipeline in logs.
-func (p Pipeline) Name() string { return "upgrade pipeline" }
-
-// Apply runs every stage in order against the same root node, so a stage that
-// unlocks a later one composes naturally. Returns whether any stage changed the
-// node.
-func (p Pipeline) Apply(root *yaml.Node) (changed bool) {
-	for _, u := range p {
-		if u.Apply(root) {
-			changed = true
-		}
-	}
-	return changed
-}
 
 // Run is the byte driver: it parses data into a YAML document, applies the
 // pipeline to the root mapping node, and re-encodes only if some stage changed

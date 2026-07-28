@@ -608,4 +608,3 @@ func headlessSafePermission(name, declared string) (agent.PermissionMode, []stri
 	}
 	return agent.PermissionPlan, nil // unreachable in strict mode: strictness.FindingsError refuses
 }
-

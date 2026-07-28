@@ -20,7 +20,6 @@ func TestBuildRoster_SelfFirstAndIndexOrder(t *testing.T) {
 
 	require.Len(t, rows, 2)
 	assert.Equal(t, "perky-same-chevy", rows[0].Harp, "the running session pins to the top")
-	assert.True(t, rows[0].Self)
 	assert.Equal(t, "live", rows[0].State)
 	assert.Equal(t, "older-oak-hen", rows[1].Harp)
 	assert.Equal(t, "ended", rows[1].State)

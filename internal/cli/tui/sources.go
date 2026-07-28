@@ -45,7 +45,6 @@ type RosterRow struct {
 	State  string
 	Parent string
 	Depth  int // lineage indent
-	Self   bool
 }
 
 // Feed is one open observation feed. Cancel releases the watch (switching

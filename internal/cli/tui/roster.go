@@ -27,7 +27,7 @@ func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp strin
 		if e.EndedAt != nil {
 			state = "ended"
 		}
-		row := RosterRow{Harp: e.HarpName, Engine: e.Backend, State: state, Self: e.HarpName == selfHarp}
+		row := RosterRow{Harp: e.HarpName, Engine: e.Backend, State: state}
 		if b, ok := busByHarp[e.HarpName]; ok {
 			row.Agent, row.State, row.Parent = b.Agent, b.State, b.Parent
 		}

@@ -143,10 +143,26 @@ type Git interface {
 	ListUntracked(ctx context.Context, dir string) ([]string, error)
 
 	// ApplyPatch applies patch (as produced by DiffPatch) to dir's working
-	// tree (git apply). An empty patch is a no-op. Any failure (conflict,
-	// malformed patch) is returned verbatim — callers must fail loudly rather
-	// than half-apply and continue.
-	ApplyPatch(ctx context.Context, dir, patch string) error
+	// tree (git apply). An empty (or whitespace-only) patch is a no-op and
+	// reports applied=false — distinguishable from a real apply at the type
+	// level, so a caller can tell "nothing to apply" from "applied" rather
+	// than trusting a nil error alone. Any failure (conflict, malformed
+	// patch) is returned verbatim — callers must fail loudly rather than
+	// half-apply and continue.
+	ApplyPatch(ctx context.Context, dir, patch string) (applied bool, err error)
+
+	// HasIgnoredContent reports whether dir contains any file git considers
+	// ignored/excluded (.gitignore OR .git/info/exclude) — the exact class of
+	// content IsDirty deliberately does NOT count as WIP. IsDirty's blindness
+	// to this class is intentional (see its doc): a prepared agent worktree's
+	// own delivered noise — .claude/, CLAUDE.md, .ctxloom/cache/ — is written
+	// into .git/info/exclude precisely so it does not trip the ordinary WIP
+	// check. But a DESTRUCTIVE removal (worktree teardown) must not reuse
+	// that same blindness: an ignored file is still real content on disk,
+	// and `git worktree remove` deletes it right along with everything else.
+	// Callers that need "is it safe to delete this tree" must check BOTH
+	// IsDirty and HasIgnoredContent, not IsDirty alone.
+	HasIgnoredContent(ctx context.Context, dir string) (bool, error)
 }
 
 // LogEntry is one commit returned by LogSince.

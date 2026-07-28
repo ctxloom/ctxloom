@@ -4,6 +4,7 @@ package gitignore
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,29 @@ func RetireSuperseded(projectDir string) (bool, error) {
 
 // RetireSupersededFile is RetireSuperseded targeting an arbitrary ignore file.
 func RetireSupersededFile(path string) (bool, error) {
+	return retireBlock(path, supersededComments, SupersededPatterns)
+}
+
+// RetireWorktreeConfigBlock removes the WorktreeComment header and any
+// WorktreeArtifactPatterns lines from the file at path — a git common-dir
+// info/exclude. Worktree teardown calls this once no linked worktree remains
+// that still needs the shared exclude block (U054-F02): the block is
+// written into the repo's ONE shared common-dir file (git has no per-
+// worktree info/exclude — verified: a linked worktree's own
+// .git/worktrees/<name>/info/exclude is NOT honored by `git status`), so it
+// cannot be scoped to a single worktree's teardown. It can only be safely
+// removed once nothing else is relying on it, or it silently reappears as
+// dirty/untracked noise for every OTHER worktree (including the developer's
+// own main checkout) the moment it is gone.
+func RetireWorktreeConfigBlock(path string) (bool, error) {
+	return retireBlock(path, []string{WorktreeComment}, WorktreeArtifactPatterns)
+}
+
+// retireBlock is RetireSupersededFile's mechanism, generalized: remove any
+// line matching one of patterns from the file at path, along with an
+// orphaned header (one of headers) left immediately above a removed run. An
+// absent file is a no-op, not an error.
+func retireBlock(path string, headers, patterns []string) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -122,20 +146,20 @@ func RetireSupersededFile(path string) (bool, error) {
 		return false, err
 	}
 
-	superseded := make(map[string]bool, len(SupersededPatterns))
-	for _, p := range SupersededPatterns {
-		superseded[p] = true
+	retiredSet := make(map[string]bool, len(patterns))
+	for _, p := range patterns {
+		retiredSet[p] = true
 	}
-	orphanHeader := make(map[string]bool, len(supersededComments))
-	for _, c := range supersededComments {
-		orphanHeader[c] = true
+	orphanHeader := make(map[string]bool, len(headers))
+	for _, h := range headers {
+		orphanHeader[h] = true
 	}
 
 	lines := strings.Split(string(content), "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if superseded[trimmed] {
+		if retiredSet[trimmed] {
 			// Drop a ctxloom-authored header immediately above it, which would
 			// otherwise be left heading nothing.
 			for len(kept) > 0 {
@@ -255,20 +279,44 @@ func appendBlock(path string, content []byte, comment string, patterns []string)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
+	if err := writeBlock(f, content, comment, patterns); err != nil {
+		_ = f.Close()
+		return err
+	}
+	// U054-F04: a deferred, discarded Close() hides an ENOSPC/EDQUOT/EIO
+	// write failure behind a nil error — the worst case being the migration
+	// path in Ensure, which has already committed the REMOVAL of the
+	// superseded blanket rule before this append runs; a silently-failed
+	// append then leaves the project with FEWER ignore rules than before.
+	return closeChecked(f, path)
+}
 
+// closeChecked closes f and, on failure, wraps the error naming path — split
+// out so a test can drive Close-error propagation (via an already-closed
+// *os.File) without needing to force a real ENOSPC/EDQUOT/EIO.
+func closeChecked(f *os.File, path string) error {
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("gitignore: writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// writeBlock writes the separating newline (if needed), the comment header,
+// and every pattern to w.
+func writeBlock(w io.Writer, content []byte, comment string, patterns []string) error {
 	if len(content) > 0 && content[len(content)-1] != '\n' {
-		if _, err := f.WriteString("\n"); err != nil {
+		if _, err := io.WriteString(w, "\n"); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(f, "\n%s\n", comment); err != nil {
+	if _, err := fmt.Fprintf(w, "\n%s\n", comment); err != nil {
 		return err
 	}
 	for _, p := range patterns {
-		if _, err := fmt.Fprintf(f, "%s\n", p); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\n", p); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+

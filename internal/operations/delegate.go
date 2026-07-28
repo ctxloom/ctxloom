@@ -700,8 +700,17 @@ to agent_run.
 // CommitAll's own no-silent-partial-success contract.
 func applyCopySnapshot(ctx context.Context, gitClient git.Git, targetDir string, snap *copySnapshot) error {
 	if snap.patch != "" {
-		if err := gitClient.ApplyPatch(ctx, targetDir, snap.patch); err != nil {
+		applied, err := gitClient.ApplyPatch(ctx, targetDir, snap.patch)
+		if err != nil {
 			return fmt.Errorf(`dirty_tree_handler "copy": reproducing tracked changes into %s: %w`, targetDir, err)
+		}
+		// U053-F03: ApplyPatch reports applied=false (no error) for a patch
+		// it considered empty/whitespace-only. snap.patch is non-empty here,
+		// so applied=false means DiffPatch handed us content ApplyPatch does
+		// not consider real — refuse rather than silently reproducing NONE
+		// of the parent's tracked changes while reporting success.
+		if !applied {
+			return fmt.Errorf(`dirty_tree_handler "copy": %s's captured tracked-change patch was not applied (reported as empty) — refusing to proceed as if it had been`, targetDir)
 		}
 	}
 	for _, rel := range snap.untracked {

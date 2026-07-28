@@ -100,6 +100,46 @@ func TestDetectWorktree(t *testing.T) {
 		assert.False(t, info.Linked, "the main worktree's .git is a directory, not a linked pointer")
 	})
 
+	t.Run("bare_clone_worktree_has_no_derivable_main_root", func(t *testing.T) {
+		// U092-F01: a `git clone --bare url repo.git; git worktree add ../wt`
+		// layout — the gitdir pointer is /p/repo.git/worktrees/wt, so the
+		// naive filepath.Dir(filepath.Dir(commonDir)) derivation used to
+		// compute mainRoot=/p, an EXISTING, unrelated directory (the parent
+		// of the bare clone). MainRootExists must NOT be true here: there is
+		// no main WORKTREE to derive at all when commonDir isn't named
+		// ".git".
+		root := t.TempDir()
+		bareCommon := filepath.Join(root, "repo.git")
+		require.NoError(t, os.MkdirAll(filepath.Join(bareCommon, "worktrees", "wt"), 0o755))
+		linked := filepath.Join(root, "wt")
+		require.NoError(t, os.MkdirAll(linked, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(linked, ".git"),
+			[]byte("gitdir: "+filepath.Join(bareCommon, "worktrees", "wt")+"\n"), 0o644))
+
+		info, err := DetectWorktree(afero.NewOsFs(), linked)
+		require.NoError(t, err)
+		assert.True(t, info.Linked, "it is still a linked worktree — just one with no derivable main root")
+		assert.False(t, info.MainRootExists,
+			"a bare-clone/separate-git-dir layout must not silently report the wrong directory (root's parent) as an existing main root")
+	})
+
+	t.Run("separate_git_dir_worktree_has_no_derivable_main_root", func(t *testing.T) {
+		// `git init --separate-git-dir=/elsewhere/foo.git` — same shape as
+		// the bare-clone case: commonDir is not named ".git".
+		root := t.TempDir()
+		common := filepath.Join(root, "elsewhere", "foo.git")
+		require.NoError(t, os.MkdirAll(filepath.Join(common, "worktrees", "wt"), 0o755))
+		linked := filepath.Join(root, "wt")
+		require.NoError(t, os.MkdirAll(linked, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(linked, ".git"),
+			[]byte("gitdir: "+filepath.Join(common, "worktrees", "wt")+"\n"), 0o644))
+
+		info, err := DetectWorktree(afero.NewOsFs(), linked)
+		require.NoError(t, err)
+		assert.True(t, info.Linked)
+		assert.False(t, info.MainRootExists)
+	})
+
 	t.Run("stale_gitdir_pointer_reports_main_root_missing", func(t *testing.T) {
 		main, linked := taskstest.RealGitWorktreeFixture(t)
 		require.NoError(t, os.RemoveAll(main))

@@ -3,6 +3,7 @@ package gitignore
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,15 @@ func readGitignore(t *testing.T, dir string) string {
 	if os.IsNotExist(err) {
 		return ""
 	}
+	require.NoError(t, err)
+	return string(data)
+}
+
+// readPlainFile reads an arbitrary file's contents as a string, failing the
+// test on error (unlike readGitignore, which treats absence as "").
+func readPlainFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(data)
 }
@@ -241,6 +251,37 @@ func TestRetireSuperseded_MissingFile(t *testing.T) {
 	assert.False(t, changed)
 }
 
+
+// TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns pins the retirement
+// half of U054-F02: the shared common-dir info/exclude block must be
+// removable once no worktree still needs it, and removal must not touch
+// anything else in the file.
+func TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "exclude")
+	content := "*.log\n\n" + WorktreeComment + "\n" + strings.Join(WorktreeArtifactPatterns, "\n") + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	changed, err := RetireWorktreeConfigBlock(path)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	got := readPlainFile(t, path)
+	assert.Contains(t, got, "*.log", "unrelated pre-existing content survives")
+	assert.NotContains(t, got, WorktreeComment)
+	for _, p := range WorktreeArtifactPatterns {
+		assert.NotContains(t, got, p)
+	}
+}
+
+// TestRetireWorktreeConfigBlock_MissingFile mirrors
+// TestRetireSuperseded_MissingFile: an absent file is a no-op, not an error.
+func TestRetireWorktreeConfigBlock_MissingFile(t *testing.T) {
+	changed, err := RetireWorktreeConfigBlock(filepath.Join(t.TempDir(), "exclude"))
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
 // TestRetireSuperseded_ThenEnsure_UnignoresContent pins the end-to-end repair an
 // old project needs: after retire+Ensure, private state stays ignored while
 // .ctxloom/content/ (and config/lock alongside it) becomes trackable again.
@@ -297,4 +338,26 @@ func TestEnsure_NoBlanketRule_DoesNotInjectPrivateState(t *testing.T) {
 	got := readGitignore(t, dir)
 	assert.NotContains(t, got, ".ctxloom/cache/",
 		"a project with no superseded rule must not have private-state patterns injected by a transient-only Ensure")
+}
+
+
+// TestCloseChecked_PropagatesCloseError pins U054-F04: appendBlock's old
+// `defer func() { _ = f.Close() }()` discarded a write-never-reached-disk
+// failure and reported success — the worst case being Ensure's migration
+// path, which has already committed the REMOVAL of the superseded blanket
+// rule before the replacement append runs, so a silently-failed Close left
+// the project with FEWER ignore rules than before. Forcing a REAL ENOSPC is
+// impractical in a portable unit test, so this drives the exact propagation
+// path (closeChecked) via an already-closed *os.File, whose second Close
+// reliably errors.
+func TestCloseChecked_PropagatesCloseError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+	require.NoError(t, err)
+	require.NoError(t, f.Close(), "first close must succeed")
+
+	err = closeChecked(f, path)
+	require.Error(t, err, "a second Close on an already-closed file must error, and closeChecked must surface it rather than discard it")
+	assert.Contains(t, err.Error(), path, "the error must name the file, not just the bare OS error")
 }

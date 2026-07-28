@@ -677,9 +677,8 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	}
 
 	for _, inner := range nestedUnder(list, target) {
-		dirty, derr := w.git.IsDirty(ctx, inner.Path)
-		if derr != nil || dirty {
-			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q has uncommitted work (or unknown state); leaving %q in place to preserve it", inner.Path, target)
+		if unsafe, reason := w.unsafeToRemove(ctx, inner.Path); unsafe {
+			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q %s; leaving %q in place to preserve it", inner.Path, reason, target)
 			return
 		}
 		if err := w.git.WorktreeRemove(ctx, w.repoDir, inner.Path, false); err != nil {
@@ -688,8 +687,8 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 		}
 	}
 
-	if dirty, derr := w.git.IsDirty(ctx, target); derr != nil || dirty {
-		clidiag.Warn("ctxloom", "worktree %q has uncommitted changes (or unknown state); leaving it in place to preserve WIP", target)
+	if unsafe, reason := w.unsafeToRemove(ctx, target); unsafe {
+		clidiag.Warn("ctxloom", "worktree %q %s; leaving it in place to preserve WIP", target, reason)
 		return
 	}
 	if err := w.git.WorktreeRemove(ctx, w.repoDir, target, false); err != nil {
@@ -699,6 +698,73 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	if err := w.git.WorktreePrune(ctx, w.repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
+	w.retireConfigExcludeIfUnused(ctx)
+}
+
+// unsafeToRemove is teardown's WIP-safety gate, extended past IsDirty alone
+// (U053-F01/U054-F01): IsDirty's `status --porcelain` deliberately does NOT
+// see gitignored/excluded content — that blindness is what lets a prepared
+// agent worktree's own delivered noise (.claude/, CLAUDE.md, .ctxloom/cache/,
+// written into this same repo's common-dir info/exclude) coexist with the
+// WIP check at all. But it means a worktree holding ONLY ignored files reads
+// clean here, and `git worktree remove` (force=false) happily deletes it —
+// this was the other half of the mechanism that destroyed agent-authored
+// work. An error from EITHER probe is treated the same as "dirty": an
+// unreadable state must never be read as "safe to delete".
+func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (unsafe bool, reason string) {
+	if dirty, err := w.git.IsDirty(ctx, dir); err != nil || dirty {
+		return true, "has uncommitted changes (or unknown state)"
+	}
+	if ignored, err := w.git.HasIgnoredContent(ctx, dir); err != nil || ignored {
+		return true, "holds gitignored/excluded files (or unknown state)"
+	}
+	return false, ""
+}
+
+// retireConfigExcludeIfUnused removes the shared config-exclude block
+// (§3.1, gitignore.WorktreeArtifactPatterns under gitignore.WorktreeComment)
+// from the repo's common-dir info/exclude, but ONLY once no worktree other
+// than the main one remains — U054-F02: the block lives in the repo's ONE
+// shared common-dir file (git has no per-worktree info/exclude), so removing
+// it while a SIBLING agent worktree is still alive would strip that
+// sibling's own noise-hiding, false-dirtying it and re-triggering the exact
+// destructive-teardown risk unsafeToRemove exists to catch. Best-effort:
+// any failure just leaves the block in place (the safe default) rather than
+// risk removing it under uncertainty.
+func (w *worktreeWorkspace) retireConfigExcludeIfUnused(ctx context.Context) {
+	list, err := w.git.WorktreeList(ctx, w.repoDir)
+	if err != nil {
+		return
+	}
+	for _, wt := range list {
+		if !sameWorktreePath(wt.Path, w.repoDir) {
+			return
+		}
+	}
+	common, err := w.git.CommonDir(ctx, w.repoDir)
+	if err != nil {
+		return
+	}
+	exclude := filepath.Join(common, "info", "exclude")
+	if _, err := gitignore.RetireWorktreeConfigBlock(exclude); err != nil {
+		clidiag.Warn("ctxloom", "worktree teardown: cannot retire shared config-exclude block from %q: %v", exclude, err)
+	}
+}
+
+// sameWorktreePath reports whether a and b name the same directory, tolerating
+// the symlink-alias case CommonDir's own tests already guard against (macOS
+// /tmp vs /private/tmp and similar): an exact string match short-circuits,
+// falling back to a same-file stat comparison only when both paths exist.
+func sameWorktreePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ai, aerr := os.Stat(a)
+	bi, berr := os.Stat(b)
+	if aerr != nil || berr != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
 }
 
 // nestedUnder returns the worktrees strictly nested inside target, DEEPEST-FIRST

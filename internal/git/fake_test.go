@@ -50,3 +50,45 @@ func TestFake_LogSince(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+
+// TestFake_IsDirty_DirtyErr pins U053-F04: without an error injector,
+// Fake.IsDirty can never return an error, so the fail-closed unknown-state
+// guard in isolation's teardown (`if derr != nil || dirty`) has no possible
+// unit test — a regression deleting that guard's error half would be caught
+// by nothing.
+func TestFake_IsDirty_DirtyErr(t *testing.T) {
+	f := &Fake{DirtyErr: assert.AnError}
+	dirty, err := f.IsDirty(context.Background(), "/repo")
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.False(t, dirty)
+}
+
+// TestFake_ApplyPatch_ReportsApplied pins U053-F03's Fake side: the fake must
+// reproduce the same applied/not-applied distinction the real implementation
+// now makes, so a test double never lets an empty-patch no-op look identical
+// to a real apply.
+func TestFake_ApplyPatch_ReportsApplied(t *testing.T) {
+	f := &Fake{}
+	applied, err := f.ApplyPatch(context.Background(), "/repo", "")
+	require.NoError(t, err)
+	assert.False(t, applied)
+
+	applied, err = f.ApplyPatch(context.Background(), "/repo", "diff --git a/x b/x")
+	require.NoError(t, err)
+	assert.True(t, applied)
+}
+
+// TestFake_HasIgnoredContent pins the Fake side of U053-F01/U054-F01: a test
+// exercising teardown's ignored-content refusal needs a way to configure it
+// without a real git binary.
+func TestFake_HasIgnoredContent(t *testing.T) {
+	f := &Fake{IgnoredContent: map[string]bool{"/repo": true}}
+	has, err := f.HasIgnoredContent(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.True(t, has)
+
+	has, err = f.HasIgnoredContent(context.Background(), "/elsewhere")
+	require.NoError(t, err)
+	assert.False(t, has)
+}

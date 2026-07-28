@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -90,17 +89,24 @@ func (c *Config) Save() error {
 	fs := c.getFS()
 
 	// Advisory flock applies only to the real filesystem; an injected (test)
-	// fs has no cross-process readers. A lock failure degrades to an unlocked
-	// save rather than blocking the write (CLAUDE.md fault tolerance).
+	// fs has no cross-process readers.
+	//
+	// U109-F01: a lock ACQUISITION failure used to degrade to an unlocked
+	// save — but filelock.Lock is BLOCKING (it waits out contention), so the
+	// only way it can return an error at all is a persistent environmental
+	// failure (EACCES/EROFS/ENOSPC/ENOLCK/a read-only or network-mounted
+	// ~/.ctxloom), never a transient one. That is exactly the condition
+	// under which writing unlocked is least safe, and it recurs on every
+	// subsequent save, not just once. Fail closed instead.
 	// Gated on injectedFS, NOT c.fs's nilness — loadUncached always populates
 	// c.fs with a concrete value (afero.NewOsFs() by default), so c.fs is
 	// never actually nil for a Load()-produced Config; see injectedFS's doc.
 	if !c.injectedFS {
-		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
-			defer unlock()
-		} else {
-			clidiag.Warn("ctxloom", "config lock failed, saving unlocked: %v", lerr)
+		unlock, lerr := filelock.Lock(configPath + ".lock")
+		if lerr != nil {
+			return fmt.Errorf("config: acquiring save lock for %s: %w", configPath, lerr)
 		}
+		defer unlock()
 	}
 
 	return c.saveLocked(fs, configPath)
@@ -112,9 +118,8 @@ func (c *Config) Save() error {
 // process and deadlock (flock(2) blocks the calling process until the lock
 // is released, and a process can never release a lock it is still waiting to
 // acquire a second one of). Callers of saveLocked are responsible for their
-// own locking (or for deciding, like Save() and Manager.Update both do, that
-// an unavailable lock degrades to an unlocked write rather than blocking
-// forever).
+// own locking (Save() and Manager.Update both fail closed — U109-F01 — when
+// the lock cannot be acquired at all, rather than proceeding unlocked).
 func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	existing, err := readExistingConfig(fs, configPath)
 	if err != nil {

@@ -203,8 +203,8 @@ RESOLVED 446->460, PARTIAL 7->8, open 1800->1785, HIGH resolved 298->312.
 | severity | count | resolved | open |
 |---|---|---|---|
 | HIGH | 376 | 337 | 39 (+6 refuted, +3 escalated, +9 partial) |
-| MED | 999 | 63 | 955 (+2 refuted) |
-| LOW | 871 | 117 | 762 (+3 partial/escalated) |
+| MED | 999 | 63 | 936 (+3 refuted, +7 escalated) |
+| LOW | 871 | 117 | 754 (+1 refuted, +7 escalated, +1 partial) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -367,55 +367,23 @@ MED resolved 42->63, LOW resolved 106->117.
 - **The same defect can sit under two IDs.** The review generated U030-F02 and U030-F04 from the U030 unit, while the same two defects were also raised — and fixed — as wave-1 items T4 and X9 under their own IDs. Nothing cross-referenced them, so the mechanical marking left both `open` long after the code was fixed. They were re-verified against the code on 2026-07-26 and marked RESOLVED: **U030-F02 = T4** (`8d9da20c` — `BundleSkill.ContentPayload` now takes an `afero.Fs` and derives the preimage from the real tree via `EffectiveManifest`; `loader_skills.go` documents in comment that the `len(entry.Files) > 0` predicate, which both emptied the preimage and skipped verification, is gone; `internal/bundles/skill_preimage_test.go` pins that a manifest-less skill never signs the empty constant). **U030-F04 = X9** (`40b49a7f` — `bool pre_tool_fallback = 8` at `llm.proto:536`, carried in `hookToProto` and `hookFromProto`; T7 total-struct proto parity keeps it there). The second half of U030-F04's suggested action — a gate coupling the SIGNED PREIMAGE to the wire type, an axis T7 does not reach — landed separately in `72c71ddc`.
 - **The census is not the whole truth about the code.** At least one real defect was found *by the remediation work* and has no row here at all: `chatEventToJSON` (`internal/cli/run_structured.go`), the `--format json` NDJSON mirror the VSCode frontend consumes, was silently dropping **ten** fields of `agent.ChatEvent` — the exact class of U144-F01/F02, on a third mirror. U041 reviewed those DTOs and returned "KEEP": a field-by-field drop is invisible to a review that reads the struct and the converter as a matching pair, because they *do* match each other. Fixed in `254ea304` with no ID to key on. Absence of a row is not evidence of absence.
 
+A row's Category cell is sometimes compound (`DEAD / NOPAY`, `DEAD + CORRECTNESS`) where a reviewer judged two categories applied. This table attributes every compound cell to its **first** term only — the review process lists the primary category first — so each row counts exactly once and the column sums to the 2268 total. `tests/docs/arch_test.go`'s `TestArch_FindingsIndex_CategoryTableMatchesTheRows` recomputes this table from the rows under the same rule and fails on a mismatch.
+
 | category | count |
 |---|---|
-| CORRECTNESS | 674 |
-| ERRHANDLING | 303 |
-| SILENTNOOP | 282 |
-| COUPLING | 197 |
-| DEAD | 155 |
-| DUPLICATE | 147 |
-| NOPAY | 136 |
-| TRIVIAL | 123 |
-| COMPLEXITY | 83 |
-| COHESION | 75 |
+| CORRECTNESS | 684 |
+| ERRHANDLING | 309 |
+| SILENTNOOP | 291 |
+| COUPLING | 199 |
+| DEAD | 172 |
+| DUPLICATE | 156 |
+| NOPAY | 139 |
+| TRIVIAL | 126 |
+| COMPLEXITY | 85 |
+| COHESION | 78 |
 | LOW | 26 |
-| DEAD / NOPAY | 7 |
-| SILENTNOOP / ERRHANDLING | 5 |
-| CORRECTNESS / SILENTNOOP | 4 |
-| DEAD + CORRECTNESS | 3 |
-| DUPLICATE / CORRECTNESS | 3 |
-| DEAD / TRIVIAL | 3 |
-| CORRECTNESS / DUPLICATE | 2 |
-| ERRHANDLING / SILENTNOOP | 2 |
-| CORRECTNESS / COUPLING | 2 |
-| DEAD / CORRECTNESS | 2 |
-| ERRHANDLING / CORRECTNESS | 2 |
-| CORRECTNESS / ERRHANDLING | 2 |
-| NOPAY / CORRECTNESS | 2 |
-| ERRHANDLING / DUPLICATE | 2 |
-| COUPLING / CORRECTNESS | 2 |
-| DUPLICATE / TRIVIAL | 2 |
-| SILENTNOOP + ERRHANDLING | 1 |
-| SILENTNOOP + CORRECTNESS | 1 |
-| SILENTNOOP / CORRECTNESS | 1 |
-| SILENTNOOP / COUPLING | 1 |
-| COMPLEXITY / DUPLICATE | 1 |
-| DUPLICATE / COHESION | 1 |
-| DUPLICATE / NOPAY | 1 |
-| COHESION + COMPLEXITY | 1 |
-| DUPLICATE + COUPLING | 1 |
-| NOPAY / DEAD | 1 |
-| COMPLEXITY / NOPAY | 1 |
-| DUPLICATE / COUPLING | 1 |
-| DEAD / COUPLING | 2 |
-| TRIVIAL / DEAD | 1 |
-| SIMPLIFY | 1 |
-| COHESION / NOPAY | 1 |
-| TRIVIAL / DUPLICATE | 1 |
-| COHESION / DEAD | 1 |
-| TRIVIAL / NOPAY | 1 |
 | — | 2 |
+| SIMPLIFY | 1 |
 
 **67 source files carry findings from more than one review unit** — those are the likeliest true duplicates and the likeliest cross-cutting causes. Marked `**` in the Loc column below.
 

@@ -154,10 +154,6 @@ func New(opts Options) *Monitor {
 	return m
 }
 
-// Thresholds returns the monitor's effective tuning (post-normalization), so
-// a caller printing a verdict can also print what it was measured against.
-func (m *Monitor) Thresholds() Thresholds { return m.thr }
-
 // Assess reaches one verdict for t. It never returns an error: an observation
 // that failed is reported as evidence that is ABSENT (Evidence's *Observed
 // bits), never as a silently healthy agent.
@@ -468,27 +464,7 @@ func (m *Monitor) AssessAll(ctx context.Context, targets []Target) []Report {
 	return out
 }
 
-// Watch polls enumerate every interval and hands each report to emit. It is
-// the "who drives this" answer for a long-lived host: a poll, not an event
-// stream, because the signals that matter are ABSENCES and nothing emits an
-// event when nothing happens.
-//
-// Returns when ctx ends. emit is called synchronously on the polling
-// goroutine, so a slow emit slows the poll rather than growing a queue.
-func (m *Monitor) Watch(ctx context.Context, interval time.Duration, enumerate func() []Target, emit func(Report)) {
-	if interval <= 0 || enumerate == nil || emit == nil {
-		return
-	}
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			for _, rep := range m.AssessAll(ctx, enumerate()) {
-				emit(rep)
-			}
-		}
-	}
-}
+// Watch was a self-contained poll loop; deleted (U056-F10) as test-only and
+// duplicated by the real production driver, coord.livenessWatchdog
+// (internal/agentcoord/coord/liveness.go), which has its own ticker plus the
+// transition-suppression and Forget-reaping this one lacked.

@@ -33,11 +33,11 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 	cmd.Env = spec.Env
 
 	if spec.Interactive {
-		result, err := ptyrunner.RunInteractive(ctx, cmd, stdin, stdout, stderr, resize)
+		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, stdout, stderr, resize)
 		if err != nil {
 			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 		}
-		return int32(result.ExitCode), nil
+		return int32(exitCode), nil
 	}
 
 	// Non-interactive: stdin is the caller's reader when provided (a backend

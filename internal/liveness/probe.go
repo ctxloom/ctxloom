@@ -42,21 +42,6 @@ type Probe interface {
 	Inspect(ctx context.Context, t Target) ProcState
 }
 
-// UnobservableProbe is an explicit, named "this runtime tells us nothing"
-// probe. It exists so that a runtime with no implemented process evidence is
-// a DECLARED gap carrying a reason a human can read, rather than a silent
-// fallthrough that looks identical to a healthy answer.
-type UnobservableProbe struct {
-	RuntimeName string
-	Why         string
-}
-
-func (p UnobservableProbe) Runtime() string { return p.RuntimeName }
-
-func (p UnobservableProbe) Inspect(context.Context, Target) ProcState {
-	return ProcState{Detail: p.Why}
-}
-
 // ProbeFunc adapts a function to Probe, for callers (the coordinator adapter,
 // tests) whose evidence source is a closure over state they already hold.
 type ProbeFunc struct {

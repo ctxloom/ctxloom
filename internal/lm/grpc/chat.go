@@ -535,10 +535,8 @@ func chatMessageFromInput(in *ChatInput) (agent.ChatMessage, bool) {
 	}
 }
 
-// Chat delegates to the underlying gRPC client.
-func (p *LLMRunner) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-	return p.grpc.Chat(ctx, req)
-}
+// Chat is promoted from LLMRunner's embedded *GRPCClient (U059-F08) — no
+// forwarder needed.
 
 // userTapEntry renders one outbound user message as the transcript entry the
 // inbound tap records, or nil when the message carries no content at all.

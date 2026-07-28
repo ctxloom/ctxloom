@@ -85,16 +85,14 @@ func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
 	}
 }
 
-// Result contains the exit code from running a command. The session's output
-// is NOT captured here: an interactive TUI redraws constantly for hours, so
-// buffering the whole stream would grow without bound — callers that want the
-// output pass a stdout writer and own the retention policy.
-type Result struct {
-	ExitCode int
-}
-
 // RunInteractive runs a command in interactive mode using a PTY. The PTY makes
-// the child see a real terminal even when its stdin is a pipe.
+// the child see a real terminal even when its stdin is a pipe. Its only
+// return payload is the exit code (U116-F09): the session's output is NOT
+// captured here — an interactive TUI redraws constantly for hours, so
+// buffering the whole stream would grow without bound — callers that want
+// the output pass a stdout writer and own the retention policy. A plain int
+// return (rather than a one-field struct behind a pointer) means the error
+// path is the only nil-shaped thing a caller ever has to check.
 //
 // The frontend owns the terminal: raw mode, reading keystrokes, and SIGWINCH all
 // happen there, arriving here over the bidi Run stream as the injected stdin
@@ -102,11 +100,11 @@ type Result struct {
 // resize events, and streams the pty's output to stdout — it never touches the
 // controller's own os.Stdin/os.Stdout, so it works for a remote controller.
 // stdin and resize may be nil for a non-tty caller.
-func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (*Result, error) {
+func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (int, error) {
 	// Create PTY (cross-platform: Unix PTY or Windows ConPTY)
 	ptty, err := pty.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pty: %w", err)
+		return 0, fmt.Errorf("failed to create pty: %w", err)
 	}
 	defer func() { _ = ptty.Close() }()
 
@@ -139,7 +137,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 
 	// Start command on PTY slave
 	if err := c.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start command: %w", err)
+		return 0, fmt.Errorf("failed to start command: %w", err)
 	}
 
 	// Apply subsequent terminal resizes (every SIGWINCH after the initial
@@ -248,17 +246,17 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	// Wait for copy to finish
 	<-copyDone
 
-	result := &Result{ExitCode: 0}
+	exitCode := 0
 
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			result.ExitCode = exitErr.ExitCode()
+			exitCode = exitErr.ExitCode()
 		} else if !isBenignPTYError(err) {
 			// Anything that isn't the expected PTY-close fallout is a real
 			// failure. Benign close errors are matched by sentinel, not by
 			// substring of the error text.
-			return nil, fmt.Errorf("command failed: %w", err)
+			return 0, fmt.Errorf("command failed: %w", err)
 		}
 	}
 
@@ -266,10 +264,10 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	// reported as success — the child may have exited 0 having produced
 	// output that never reached anyone.
 	if werr := tw.err(); werr != nil {
-		return nil, fmt.Errorf("interactive session output delivery failed: %w", werr)
+		return 0, fmt.Errorf("interactive session output delivery failed: %w", werr)
 	}
 
-	return result, nil
+	return exitCode, nil
 }
 
 // trackWriter wraps a destination io.Writer, recording the first write

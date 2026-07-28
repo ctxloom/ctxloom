@@ -411,7 +411,7 @@ func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 // through Info/Run/RunWithModelInfo to its embedded GRPCClient.
 func TestLLMRunner_InfoAndRunDelegate(t *testing.T) {
 	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "x"}}
-	pc := &LLMRunner{grpc: &GRPCClient{client: fake}}
+	pc := &LLMRunner{GRPCClient: &GRPCClient{client: fake}}
 
 	info, err := pc.Info(t.Context())
 	require.NoError(t, err)
@@ -425,6 +425,34 @@ func TestLLMRunner_InfoAndRunDelegate(t *testing.T) {
 	exit, err := pc.Run(t.Context(), &RunStart{}, nil, io.Discard, io.Discard, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(7), exit)
+}
+
+// TestLLMRunner_DelegatesSessionAndPlanOperations pins the same
+// pass-through behavior for GetSession/ListSessions/GetPlans (U059-F08):
+// LLMRunner has no logic of its own here, it must reach the exact data its
+// embedded GRPCClient decoded from the wire.
+func TestLLMRunner_DelegatesSessionAndPlanOperations(t *testing.T) {
+	fake := &fakeLLMClient{
+		sessionResp: &SessionData{Id: "sess-1"},
+		listResp:    &SessionList{Sessions: []*SessionMeta{{Id: "meta-1"}}},
+		plansResp:   &PlansData{Plans: []*PlanFile{{Name: "plan-a", Content: "do the thing"}}},
+	}
+	pc := &LLMRunner{GRPCClient: &GRPCClient{client: fake}}
+
+	sess, err := pc.GetSession(t.Context(), "sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, "sess-1", sess.ID)
+
+	metas, err := pc.ListSessions(t.Context())
+	require.NoError(t, err)
+	require.Len(t, metas, 1)
+	assert.Equal(t, "meta-1", metas[0].ID)
+
+	plans, err := pc.GetPlans(t.Context(), "some-harp")
+	require.NoError(t, err)
+	require.Len(t, plans, 1)
+	assert.Equal(t, "plan-a", plans[0].Name)
+	assert.Equal(t, "do the thing", plans[0].Content)
 }
 
 func TestGRPCClient_Run_StreamWithNoOutputs_ZeroExit(t *testing.T) {

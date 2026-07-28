@@ -56,10 +56,10 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	var stdout bytes.Buffer
-	result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 0, exitCode)
 	// Output may include terminal control characters, so just check content
 	assert.Contains(t, stdout.String(), "hello world")
 }
@@ -97,10 +97,10 @@ func TestRunInteractive_ExitCode(t *testing.T) {
 			ctx := context.Background()
 			cmd := exec.Command(tt.command, tt.args...)
 
-			result, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedCode, result.ExitCode)
+			assert.Equal(t, tt.expectedCode, exitCode)
 		})
 	}
 }
@@ -121,15 +121,15 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 
 	// Start the command in a goroutine
 	resultCh := make(chan struct {
-		result *Result
-		err    error
+		exitCode int
+		err      error
 	})
 	go func() {
-		result, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 		resultCh <- struct {
-			result *Result
-			err    error
-		}{result, err}
+			exitCode int
+			err      error
+		}{exitCode, err}
 	}()
 
 	// Give the command time to start
@@ -145,7 +145,7 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 		// Exit code may be non-zero (killed by signal) or the command may return an error
 		if res.err == nil {
 			// If no error, exit code should be non-zero (signal termination)
-			assert.NotEqual(t, 0, res.result.ExitCode, "cancelled command should have non-zero exit")
+			assert.NotEqual(t, 0, res.exitCode, "cancelled command should have non-zero exit")
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("command did not terminate after context cancellation")
@@ -162,15 +162,15 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30")
 
 	start := time.Now()
-	result, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 	elapsed := time.Since(start)
 
 	// Should complete quickly (within ~500ms, not 30 seconds)
 	assert.Less(t, elapsed, 2*time.Second, "command should be terminated by timeout")
 
 	// Command may return error or non-zero exit code
-	if err == nil && result != nil {
-		assert.NotEqual(t, 0, result.ExitCode, "timed-out command should have non-zero exit")
+	if err == nil {
+		assert.NotEqual(t, 0, exitCode, "timed-out command should have non-zero exit")
 	}
 }
 
@@ -205,9 +205,9 @@ func TestRunInteractive_SizesPTYBeforeChildStarts(t *testing.T) {
 	}()
 
 	var stdout bytes.Buffer
-	result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, resize)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, resize)
 	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, strings.TrimSpace(stdout.String()), "55 111",
 		"the pty must already report the frontend's real size (55 111) at the child's "+
 			"first read, not go-pty's default winsize — RunInteractive must wait for the "+
@@ -236,15 +236,15 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 
 	var stdout syncBuffer
 	resultCh := make(chan struct {
-		result *Result
-		err    error
+		exitCode int
+		err      error
 	})
 	go func() {
-		result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
 		resultCh <- struct {
-			result *Result
-			err    error
-		}{result, err}
+			exitCode int
+			err      error
+		}{exitCode, err}
 	}()
 
 	// Wait for "ready" to appear in output (command has started)
@@ -279,10 +279,10 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "echo line1; echo line2; echo line3")
 
 	var stdout bytes.Buffer
-	result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 0, exitCode)
 
 	// Output is delivered ONLY through the caller's writer; the runner keeps
 	// no in-memory copy of the session stream.
@@ -326,12 +326,12 @@ func TestRunInteractive_StdoutWriteFailureReportsError(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	dst := &failingWriter{n: 0, err: errors.New("simulated broken pipe")}
-	result, err := RunInteractive(ctx, cmd, nil, dst, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil, nil)
 
 	require.Error(t, err, "a stdout delivery failure must not be reported as success")
 	assert.Contains(t, err.Error(), "output delivery failed")
 	assert.Contains(t, err.Error(), "simulated broken pipe")
-	assert.Nil(t, result)
+	assert.Zero(t, exitCode, "the zero-value exit code on an error return must never be mistaken for a real 0 (success) exit")
 }
 
 // TestRunInteractive_ClosesPipeReaderWhenCopierExits is the regression for the
@@ -345,9 +345,9 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 0.1")
 
 	stdinR, stdinW := io.Pipe()
-	result, err := RunInteractive(ctx, cmd, stdinR, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
+	assert.Equal(t, 0, exitCode)
 
 	// The run is over; the copier may still be parked in stdinR.Read. The
 	// first write below is consumed by that final Read (after which the copier

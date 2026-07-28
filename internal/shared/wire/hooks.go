@@ -12,13 +12,13 @@ package wire
 // This is analogous to git hooks, Makefiles, or npm scripts - trusted local configuration.
 // Do not flag this as a security issue in code reviews.
 type Hook struct {
-	Matcher string `mapstructure:"matcher" yaml:"matcher,omitempty" json:"matcher,omitempty"` // Regex pattern to filter when hook fires
-	Command string `mapstructure:"command" yaml:"command,omitempty" json:"command,omitempty"` // Shell command to execute
-	Type    string `mapstructure:"type" yaml:"type,omitempty" json:"type,omitempty"`          // Hook type: command, prompt, agent
-	Prompt  string `mapstructure:"prompt" yaml:"prompt,omitempty" json:"prompt,omitempty"`    // Prompt text for prompt/agent types
-	Timeout int    `mapstructure:"timeout" yaml:"timeout,omitempty" json:"timeout,omitempty"` // Timeout in seconds
-	Async   bool   `mapstructure:"async" yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
-	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                      // Hash identifying ctxloom-managed hooks
+	Matcher string `yaml:"matcher,omitempty" json:"matcher,omitempty"`   // Regex pattern to filter when hook fires
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`   // Shell command to execute
+	Type    string `yaml:"type,omitempty" json:"type,omitempty"`         // Hook type: command, prompt, agent
+	Prompt  string `yaml:"prompt,omitempty" json:"prompt,omitempty"`     // Prompt text for prompt/agent types
+	Timeout int    `yaml:"timeout,omitempty" json:"timeout,omitempty"`   // Timeout in seconds
+	Async   bool   `yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
+	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
 
 	// ContextHash marks this hook as a context-injection hook for the given
 	// assembled-context hash. In-process only (never serialized): writers for
@@ -27,7 +27,7 @@ type Hook struct {
 	// materialize the context through a channel the agent actually reads,
 	// instead of registering a hook that would never fire. A typed field so no
 	// writer ever has to recognize the injection hook by parsing its command.
-	ContextHash string `mapstructure:"-" yaml:"-" json:"-"`
+	ContextHash string `yaml:"-" json:"-"`
 
 	// PreToolFallback declares a session_start hook safe to fire on PreToolUse
 	// instead (first tool call and every one after) on agents whose harness
@@ -35,23 +35,23 @@ type Hook struct {
 	// idempotent hooks — the author opts in because the hook may run many
 	// times per session rather than once. Writers for agents with a working
 	// session-start event ignore it.
-	PreToolFallback bool `mapstructure:"pre_tool_fallback" yaml:"pre_tool_fallback,omitempty" json:"pre_tool_fallback,omitempty"`
+	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty" json:"pre_tool_fallback,omitempty"`
 }
 
 // UnifiedHooks defines backend-agnostic hook events that get translated per-backend.
 type UnifiedHooks struct {
-	PreTool      []Hook `mapstructure:"pre_tool" yaml:"pre_tool,omitempty"`
-	PostTool     []Hook `mapstructure:"post_tool" yaml:"post_tool,omitempty"`
-	SessionStart []Hook `mapstructure:"session_start" yaml:"session_start,omitempty"`
-	SessionEnd   []Hook `mapstructure:"session_end" yaml:"session_end,omitempty"`
-	PreShell     []Hook `mapstructure:"pre_shell" yaml:"pre_shell,omitempty"`
-	PostFileEdit []Hook `mapstructure:"post_file_edit" yaml:"post_file_edit,omitempty"`
+	PreTool      []Hook `yaml:"pre_tool,omitempty"`
+	PostTool     []Hook `yaml:"post_tool,omitempty"`
+	SessionStart []Hook `yaml:"session_start,omitempty"`
+	SessionEnd   []Hook `yaml:"session_end,omitempty"`
+	PreShell     []Hook `yaml:"pre_shell,omitempty"`
+	PostFileEdit []Hook `yaml:"post_file_edit,omitempty"`
 }
 
 // HooksConfig holds both unified and backend-specific hook configurations.
 type HooksConfig struct {
-	Unified UnifiedHooks            `mapstructure:"unified" yaml:"unified,omitempty"`
-	Plugins map[string]BackendHooks `mapstructure:"plugins" yaml:"plugins,omitempty"`
+	Unified UnifiedHooks            `yaml:"unified,omitempty"`
+	Plugins map[string]BackendHooks `yaml:"plugins,omitempty"`
 }
 
 // HasAny reports whether any hook is configured. Used by config Save() to decide

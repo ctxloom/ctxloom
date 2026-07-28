@@ -21,14 +21,12 @@ import (
 // a platform surprise this probe cannot interpret, and it says so (Unsure)
 // rather than guessing.
 func Probe(pid int) State {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		// os.FindProcess is documented never to fail on Unix outright (see
-		// findProcess's fallback-to-PID behavior for pidfd errors other than
-		// ESRCH) — an error here would be a platform surprise this probe
-		// cannot interpret.
-		return Unsure
-	}
+	// os.FindProcess is documented to always succeed on Unix regardless of
+	// whether pid names a live process ("On Unix systems, FindProcess always
+	// succeeds..."), so an error-return branch here was provably unreachable
+	// dead code — and worse, it read as if this probe handled a FindProcess
+	// failure it can never actually receive (U114-F03).
+	p, _ := os.FindProcess(pid)
 	switch serr := p.Signal(syscall.Signal(0)); {
 	case serr == nil:
 		return Alive

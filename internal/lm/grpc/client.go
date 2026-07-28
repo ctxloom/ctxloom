@@ -156,10 +156,14 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 	return result, nil
 }
 
-// LLMRunner manages the lifecycle of a plugin process.
+// LLMRunner manages the lifecycle of a plugin process. It embeds *GRPCClient
+// so every wire operation (Info/Run/RunWithModelInfo/GetSession/ListSessions/
+// GetPlans/WatchSession/Chat) is promoted for free; Kill is the one method
+// LLMRunner defines itself, because it targets the runner's OS process, not
+// the gRPC connection (U059-F08).
 type LLMRunner struct {
 	conn llmConnection
-	grpc *GRPCClient
+	*GRPCClient
 }
 
 // verbosityToHclogLevel converts verbosity count to hclog level.
@@ -311,8 +315,8 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 	}
 
 	return &LLMRunner{
-		conn: conn,
-		grpc: grpcClient,
+		conn:       conn,
+		GRPCClient: grpcClient,
 	}, nil
 }
 
@@ -360,21 +364,6 @@ func NewSelfInvokingClientForLabelEnv(backendName, label string, verbosity int, 
 	}
 	sort.Strings(env) // deterministic spawn env
 	return runnerFromConn(dialLLMConnection(executable, args, env, newPluginLogger(verbosity)))
-}
-
-// Info returns metadata about the plugin.
-func (p *LLMRunner) Info(ctx context.Context) (*LLMInfo, error) {
-	return p.grpc.Info(ctx)
-}
-
-// Run executes the plugin.
-func (p *LLMRunner) Run(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (int32, error) {
-	return p.grpc.Run(ctx, req, stdin, stdout, stderr, resize)
-}
-
-// RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (p *LLMRunner) RunWithModelInfo(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (*RunResult, error) {
-	return p.grpc.RunWithModelInfo(ctx, req, stdin, stdout, stderr, resize)
 }
 
 // Kill terminates the plugin process.

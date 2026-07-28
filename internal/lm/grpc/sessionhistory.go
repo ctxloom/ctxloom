@@ -297,12 +297,5 @@ func (c *GRPCClient) ListSessions(ctx context.Context) ([]agent.SessionMeta, err
 	return out, nil
 }
 
-// GetSession delegates to the underlying gRPC client.
-func (p *LLMRunner) GetSession(ctx context.Context, sessionID string) (*agent.Session, error) {
-	return p.grpc.GetSession(ctx, sessionID)
-}
-
-// ListSessions delegates to the underlying gRPC client.
-func (p *LLMRunner) ListSessions(ctx context.Context) ([]agent.SessionMeta, error) {
-	return p.grpc.ListSessions(ctx)
-}
+// GetSession and ListSessions are promoted from LLMRunner's embedded
+// *GRPCClient (U059-F08) — no forwarder needed.

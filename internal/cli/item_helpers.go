@@ -200,22 +200,28 @@ func filterByBundle(rows []itemRow, bundleFilter string) []itemRow {
 }
 
 // printItemInfos prints items grouped by bundle, with tags.
-func printItemInfos(rows []itemRow, itemType ItemType) {
-	fmt.Printf("%ss (%d):\n\n", titleCase(string(itemType)), len(rows))
+// printItemInfos writes rows grouped by bundle to w. Takes an explicit
+// writer (not bare fmt.Printf to the real os.Stdout) so it honors
+// cmd.OutOrStdout() like every other renderer in this flow — a caller that
+// redirects a command's output (a test, the VSCode companion capturing a
+// subprocess, `ctxloom ... > file`) used to see nothing from this path even
+// though the command itself reported success.
+func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType) {
+	fmt.Fprintf(w, "%ss (%d):\n\n", titleCase(string(itemType)), len(rows))
 	currentBundle := ""
 	for _, r := range rows {
 		if r.Bundle != currentBundle {
 			if currentBundle != "" {
-				fmt.Println()
+				fmt.Fprintln(w)
 			}
-			fmt.Printf("  %s:\n", r.Bundle)
+			fmt.Fprintf(w, "  %s:\n", r.Bundle)
 			currentBundle = r.Bundle
 		}
-		fmt.Printf("    - %s", r.Name)
+		fmt.Fprintf(w, "    - %s", r.Name)
 		if len(r.Tags) > 0 {
-			fmt.Printf(" [%s]", strings.Join(r.Tags, ", "))
+			fmt.Fprintf(w, " [%s]", strings.Join(r.Tags, ", "))
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 }
 
@@ -285,7 +291,7 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 			fmt.Fprintln(out, "Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
 			return nil
 		}
-		printItemInfos(filtered, itemType)
+		printItemInfos(cmd.OutOrStdout(), filtered, itemType)
 		return nil
 	})
 }

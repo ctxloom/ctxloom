@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // The discovery report is the whole point of the mock: it inverts a context
@@ -221,10 +223,10 @@ func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 // mirroring ProbeRecord's "SHA256 is empty when Present is false": hashing
 // nothing produces e3b0c442…, a perfectly ordinary-looking hash, and the field
 // that exists to prove delivery then proves it on every run (U079-F03).
-func BuildReport(engine, surface string, recs []ProbeRecord, env []EnvRecord, prompt []byte) Report {
+func BuildReport(cli agent.EngineCLI, recs []ProbeRecord, env []EnvRecord, prompt []byte) Report {
 	rep := Report{
-		Engine:          engine,
-		Surface:         surface,
+		Engine:          cli.Engine,
+		Surface:         string(cli.Surface),
 		Records:         recs,
 		Env:             env,
 		PromptPresent:   len(prompt) > 0,

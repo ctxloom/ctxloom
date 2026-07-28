@@ -72,7 +72,7 @@ func (r *Runtime) Run() int {
 
 	recs := Walk(r.CLI, r.Argv, r.Res)
 	env := ObserveEnv(r.CLI, r.lookupenv)
-	report := BuildReport(r.CLI.Engine, string(r.CLI.Surface), recs, env, prompt)
+	report := BuildReport(r.CLI, recs, env, prompt)
 	r.emitReport(report)
 
 	outcome := Dispatch(string(prompt), r.getenv)

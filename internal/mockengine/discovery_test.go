@@ -56,7 +56,7 @@ func TestWalk_AbsentSurfaceIsPresentFalse(t *testing.T) {
 		Home:   t.TempDir(),
 		Getenv: func(string) string { return "" },
 	})
-	rep := mockengine.BuildReport(cli.Engine, string(cli.Surface), recs, nil, nil)
+	rep := mockengine.BuildReport(cli, recs, nil, nil)
 
 	// The present:false row for the absent agents directory.
 	agents, ok := recordByKind(rep, "agents")

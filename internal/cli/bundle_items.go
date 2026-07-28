@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -75,10 +76,23 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 		fmt.Println("No changes made.")
 		return nil
 	}
+	// U034-F01: an emptied editor buffer (the user deleted everything and
+	// saved, or the editor exited leaving a blank temp file) still differs
+	// from mcpYAML, so it fell straight past the "No changes made" guard
+	// above. yaml.Unmarshal("", &edited) succeeds with a ZERO-VALUE struct —
+	// no error, no empty-input signal of its own — so this must be checked
+	// explicitly, before it ever reaches SetBundleMCP, which validates
+	// nothing about Command being non-empty.
+	if strings.TrimSpace(newContent) == "" {
+		return fmt.Errorf("aborted: the edited MCP config is empty; bundle %q was not changed", bundleName)
+	}
 
 	var edited bundles.BundleMCP
 	if err := yaml.Unmarshal([]byte(newContent), &edited); err != nil {
 		return fmt.Errorf("invalid YAML: %w", err)
+	}
+	if edited.Command == "" {
+		return fmt.Errorf("aborted: the edited MCP config has no `command:`; bundle %q was not changed", bundleName)
 	}
 
 	if _, err := operations.SetBundleMCP(cmd.Context(), cfg, operations.SetBundleMCPRequest{

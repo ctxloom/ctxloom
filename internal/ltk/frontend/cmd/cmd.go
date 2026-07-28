@@ -17,6 +17,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
@@ -32,11 +33,27 @@ func New() *Frontend { return &Frontend{} }
 func (f *Frontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellCmd} }
 
 // Parse lowers src into a Script. It is best-effort and never errors.
+// Parse lowers src into a Script. It is best-effort: whatever it recovers is
+// always returned, but it now DOES report an error (U069-F01) when tokens are
+// left over after a full parseSequence — the only way that happens is an
+// unmatched ')' at the top level (parseSequence stops there so a group's
+// caller, parsePipeline, can consume it; at the true top there is no such
+// caller). Previously this silently dropped every token after the stray ')'
+// with no signal at all (U069-F02): `echo hi) & del /f /q important-file`
+// parsed as just `echo hi`, so a deny rule targeting `del` never even saw it,
+// while real cmd.exe still runs everything after the ')' verbatim (it has no
+// special meaning there). Reporting it as a parse error routes it through the
+// same on_parse_error policy every other frontend's failure already does,
+// instead of a bespoke silent truncation.
 func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
 	l := &lexer{s: src}
 	p := &parser{toks: l.run()}
 	pipelines := p.parseSequence()
-	return &ir.Script{Shell: shell, Pipelines: pipelines}, nil
+	script := &ir.Script{Shell: shell, Pipelines: pipelines}
+	if p.pos < len(p.toks) {
+		return script, fmt.Errorf("unexpected %q at top level (unmatched ')' or similar)", p.toks[p.pos].text)
+	}
+	return script, nil
 }
 
 // --- lexer ---

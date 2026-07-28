@@ -95,13 +95,25 @@ type Redirect struct {
 // Walk visits every SimpleCommand in the script in source (pre-)order,
 // descending into nested scripts. The visitor returns false to stop the walk
 // early; Walk then returns false too. Returns true if the walk completed.
-func (s *Script) Walk(fn func(SimpleCommand) bool) bool {
+// Walk visits every SimpleCommand in the script in source (pre-)order,
+// descending into nested scripts. fn also receives the *Script that directly
+// owns the command being visited — which, for a nested script (a wrapper body,
+// a substitution, ...), is NOT necessarily the top-level script Walk was
+// called on and may carry a different Shell. A caller that matches against
+// "the script's shell" using the top-level Script instead of this owner
+// mismatches every rule scoped to a nested dialect (fixes U072-F01/U073-F01:
+// a `shells: [cmd]` rule could never fire on a cmd.exe payload nested inside a
+// bash `bash -c "cmd.exe /c …"` wrapper, because the walk had no way to say
+// which shell actually owned that command). The visitor returns false to stop
+// the walk early; Walk then returns false too. Returns true if the walk
+// completed.
+func (s *Script) Walk(fn func(owner *Script, c SimpleCommand) bool) bool {
 	if s == nil {
 		return true
 	}
 	for _, p := range s.Pipelines {
 		for _, c := range p.Commands {
-			if !fn(c) {
+			if !fn(s, c) {
 				return false
 			}
 			for _, ns := range c.Nested {
@@ -116,9 +128,11 @@ func (s *Script) Walk(fn func(SimpleCommand) bool) bool {
 
 // Commands flattens every SimpleCommand reachable from the script, nested
 // scripts included, in walk order.
+// Commands flattens every SimpleCommand reachable from the script, nested
+// scripts included, in walk order.
 func (s *Script) Commands() []SimpleCommand {
 	var out []SimpleCommand
-	s.Walk(func(c SimpleCommand) bool {
+	s.Walk(func(_ *Script, c SimpleCommand) bool {
 		out = append(out, c)
 		return true
 	})

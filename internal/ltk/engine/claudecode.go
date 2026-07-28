@@ -77,6 +77,14 @@ func ccShellForTool(tool string) ir.Shell {
 // Code's normal permission flow proceed (it does NOT auto-approve).
 func (ClaudeCode) Encode(resp Response) (Output, error) {
 	if resp.Allow {
+		if resp.Unanalyzed {
+			// Nothing to deny, but nothing was fully checked either — a silent
+			// zero Output here is byte-identical to a clean allow (U005-F01), so
+			// this is the one caller of the previously-unused Stderr channel
+			// (U067-F03). The host still proceeds (exit 0, no stdout document);
+			// this is diagnostic only.
+			return Output{Stderr: []byte(unanalyzedNote(resp))}, nil
+		}
 		return Output{}, nil
 	}
 	body, err := claudecli.EncodeDeny(resp.Message())

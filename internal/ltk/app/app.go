@@ -145,11 +145,12 @@ func (a *App) onAnalysisPanic(req engine.Request, val any, stack []byte) engine.
 				"This is an ltk bug, not a problem with the command; please report it.\npanic: %v\n%s\n",
 			subject, verb, val, stack)
 	}
+	parseErr := fmt.Sprintf("internal error: %v", val)
 	if deny {
-		return engine.Response{Allow: false, Reason: fmt.Sprintf(
+		return engine.Response{Allow: false, Unanalyzed: true, ParseError: parseErr, Reason: fmt.Sprintf(
 			"could not analyze command (internal error: %v); defaults.on_parse_error is deny", val)}
 	}
-	return engine.Response{Allow: true}
+	return engine.Response{Allow: true, Unanalyzed: true, ParseError: parseErr}
 }
 
 func (a *App) denyOnUnanalyzable() bool {
@@ -177,11 +178,16 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	script, err := a.Registry.Parse(ctx, shell, command)
 	if err != nil {
 		// Unsupported shell or parse error. Apply the on_parse_error policy —
-		// pass-through by default.
+		// pass-through by default. Either way this decision is UNANALYZED: an
+		// allow here is not "the rules were checked and nothing matched", it is
+		// "nothing could be checked at all" (U005-F01/U067-F02) — carried on the
+		// Response so a caller (the CLI, an adapter's Encode) can say so instead
+		// of looking byte-identical to a clean allow.
 		if a.Config.Defaults.OnParseError == rules.ActionDeny {
-			return engine.Response{Allow: false, Reason: "could not analyze command (" + err.Error() + ")"}
+			return engine.Response{Allow: false, Unanalyzed: true, ParseError: err.Error(),
+				Reason: "could not analyze command (" + err.Error() + ")"}
 		}
-		return engine.Response{Allow: true}
+		return engine.Response{Allow: true, Unanalyzed: true, ParseError: err.Error()}
 	}
 
 	// Understand trivial wrappers (bash -c "…", eval "…", env …, timeout N …,
@@ -189,8 +195,40 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	// smuggled past a rule. A truncated expansion means the nesting ran deeper
 	// than ltk verified — fail CLOSED (deny) rather than evaluate rules
 	// against a possibly-incomplete view of what the command actually runs.
-	if truncated := a.Registry.ExpandWrappers(ctx, script); truncated {
-		return engine.Response{Allow: false, Reason: "nested command-wrapper depth exceeded (possible evasion)"}
+	// A nested command that failed to PARSE (as opposed to depth) is a
+	// separate signal: previously this was silently dropped from the IR with
+	// no trace at all, which is the exact mechanism behind
+	// U066-F01/U068-F01/U070-F01/U071-F01 — a wrapped command ltk could not
+	// verify was treated identically to "nothing to see here" instead of
+	// going through the SAME on_parse_error policy the top-level parse
+	// failure above already respects.
+	truncated, unanalyzed := a.Registry.ExpandWrappers(ctx, script)
+	if truncated {
+		return engine.Response{Allow: false, Unanalyzed: true,
+			Reason: "nested command-wrapper depth exceeded (possible evasion)"}
+	}
+	if unanalyzed {
+		const msg = "a nested command (inside a wrapper such as bash -c/eval/cmd /c/pwsh -Command) could not be parsed"
+		if a.Config.Defaults.OnParseError == rules.ActionDeny {
+			return engine.Response{Allow: false, Unanalyzed: true, ParseError: msg,
+				Reason: "could not analyze command (" + msg + ")"}
+		}
+		// Fall through to Evaluate: whatever the frontend salvaged from the
+		// nested command is still matched below (fail-safe direction), but the
+		// Response still reports Unanalyzed so the caller knows the view of the
+		// nested command was incomplete even though this rule pass allowed it.
+		d := rules.Evaluate(a.Config, script)
+		if !d.Allowed {
+			return engine.Response{
+				Allow:                false,
+				Reason:               d.Reason,
+				Suggest:              d.Suggest,
+				Confirmable:          d.Confirmable,
+				ConfirmWindowSeconds: d.ConfirmWindowSeconds,
+				ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
+			}
+		}
+		return engine.Response{Allow: true, Unanalyzed: true, ParseError: msg}
 	}
 
 	d := rules.Evaluate(a.Config, script)

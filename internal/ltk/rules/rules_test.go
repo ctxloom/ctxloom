@@ -401,3 +401,40 @@ func TestValidationErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell pins U072-F01 /
+// U073-F01: a `shells:` scoped rule must be judged against the shell that
+// actually OWNS the command being matched, not the top-level script's. A
+// nested script (e.g. surfaced by ExpandWrappers unwrapping a `cmd.exe /c
+// "del /f …"` wrapper embedded in a bash top-level command) carries its own
+// dialect — here ShellCmd — even though the enclosing script is ShellBash.
+// Before the fix, Evaluate matched every command, nested or not, against the
+// top-level script.Shell, so a rule scoped to `shells: [cmd]` could never
+// fire on a dialect that only ever appears nested — a real bypass, not a
+// hypothetical one, once wrap.go's expansion starts surfacing nested scripts
+// in other dialects.
+func TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell(t *testing.T) {
+	cfg := mustParse(t, `
+version: 1
+rules:
+  - id: no-del-in-cmd
+    match: { command: [del], shells: [cmd] }
+    message: "no del"
+`)
+	top := &ir.Script{
+		Shell: ir.ShellBash,
+		Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{
+			Argv: []string{"cmd.exe", "/c", "del", "/f", "important-file"},
+			Nested: []*ir.Script{{
+				Shell: ir.ShellCmd,
+				Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{
+					{Argv: []string{"del", "/f", "important-file"}},
+				}}},
+			}},
+		}}}},
+	}
+	d := Evaluate(cfg, top)
+	if d.Allowed {
+		t.Fatal("nested cmd-dialect `del` must be denied by a shells:[cmd] rule, even though the outer script is bash")
+	}
+}

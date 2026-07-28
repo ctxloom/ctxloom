@@ -251,10 +251,10 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 		return nil, fmt.Errorf("reading git config user.signingkey: %w", err)
 	}
 	if ok && gitKey != "" {
-		return d.resolveGitSigningKey(ctx, gitKey)
+		return d.resolveGitSigningKey(gitKey)
 	}
 
-	return d.resolveSoleAgentIdentity(ctx, []string{"git config user.signingkey", "ssh-agent identities"})
+	return d.resolveSoleAgentIdentity([]string{"git config user.signingkey", "ssh-agent identities"})
 }
 
 // resolveExplicit resolves --key/sign.key in fallback order: (a) a SHA256
@@ -353,7 +353,12 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 // resolveGitSigningKey resolves `git config user.signingkey`'s value (a
 // literal "ssh-<type> AAAA..." string, a "key::<literal>" prefix per git
 // 2.34+, or a path to a public key file) to a live ssh-agent identity.
-func (d *Discoverer) resolveGitSigningKey(ctx context.Context, value string) (*Discovered, error) {
+// U135-F04: this used to take an unused context.Context — the actual
+// blocking I/O (agent dial + RPC) has no cancellation seam at all, so the
+// parameter carried no information and could mislead a caller into thinking
+// ctx cancellation was honored here. Dropped rather than left lying; wiring
+// real cancellation into DialAgent is a separate, larger change.
+func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 	pub, err := d.resolvePublicKey(value)
 	if err != nil {
 		return nil, fmt.Errorf("git config user.signingkey %q: %w", value, err)
@@ -388,7 +393,8 @@ func (d *Discoverer) resolveGitSigningKey(ctx context.Context, value string) (*D
 // resolveSoleAgentIdentity implements step 3 of the chain: use the agent's
 // only identity when there is exactly one, error (ambiguous or empty)
 // otherwise.
-func (d *Discoverer) resolveSoleAgentIdentity(ctx context.Context, looked []string) (*Discovered, error) {
+// U135-F04: ctx was accepted but never used; dropped (see resolveGitSigningKey).
+func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, error) {
 	ag, err := d.DialAgent()
 	if err != nil {
 		return nil, &NoKeyError{Looked: looked, Detail: err.Error(), Err: err}

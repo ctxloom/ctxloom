@@ -23,7 +23,10 @@ func matchPatternList(patterns []string, s string) bool {
 			neg = true
 			p = p[1:]
 		}
-		if globMatch(p, s) {
+		// U136-F18: this used to go through a one-line globMatch(string,string)
+		// wrapper whose only work was these same two []byte conversions, with
+		// exactly this one caller. Inlined.
+		if globMatchBytes([]byte(p), []byte(s)) {
 			if neg {
 				return false
 			}
@@ -33,14 +36,10 @@ func matchPatternList(patterns []string, s string) bool {
 	return matched
 }
 
-// globMatch implements the restricted glob dialect used by SSH pattern
+// globMatchBytes implements the restricted glob dialect used by SSH pattern
 // matching: '*' matches zero or more characters, '?' matches exactly one
 // character, every other character matches itself literally. There are no
 // character classes ([...]) in this dialect.
-func globMatch(pattern, s string) bool {
-	return globMatchBytes([]byte(pattern), []byte(s))
-}
-
 func globMatchBytes(pattern, s []byte) bool {
 	for len(pattern) > 0 {
 		switch pattern[0] {

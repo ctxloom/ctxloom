@@ -46,7 +46,9 @@ func TestEngineHost_TurnSink_NeverRacesAheadOfBriefing(t *testing.T) {
 
 		// Race it: call sink AS SOON AS POSSIBLE, with nothing waiting for
 		// the briefing to land first.
-		go func() { sink(&agentcoordpb.PeerMessage{MessageId: "m-race", FromAgentId: "parent-harp", Text: "queued mail"}) }()
+		go func() {
+			sink(&agentcoordpb.PeerMessage{MessageId: "m-race", FromAgentId: "parent-harp", Text: "queued mail"})
+		}()
 
 		if !assert.Eventually(t, func() bool { return len(sc.recordedTexts()) >= 1 }, 5*time.Second, time.Millisecond,
 			"iteration %d: neither the briefing nor the mail was ever delivered", i) {

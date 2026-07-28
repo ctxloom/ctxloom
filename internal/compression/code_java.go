@@ -3,14 +3,13 @@
 package compression
 
 import (
-	"fmt"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
 // extractJava handles Java AST extraction.
-func (c *CodeCompressor) extractJava(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
+func (c *CodeCompressor) extractJava(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
@@ -21,36 +20,31 @@ func (c *CodeCompressor) extractJava(node *sitter.Node, source []byte, out *stri
 		case "package_declaration":
 			out.WriteString(c.nodeText(child, source))
 			out.WriteString("\n\n")
-			*preserved = append(*preserved, "package")
 
 		case "import_declaration":
 			out.WriteString(c.nodeText(child, source))
 			out.WriteString("\n")
-			*preserved = append(*preserved, "import")
 
 		case "class_declaration":
-			c.extractJavaClass(child, source, out, preserved)
+			c.extractJavaClass(child, source, out)
 
 		case "interface_declaration":
 			out.WriteString(c.nodeText(child, source))
 			out.WriteString("\n\n")
-			*preserved = append(*preserved, "interface")
 
 		case "enum_declaration":
 			out.WriteString(c.nodeText(child, source))
 			out.WriteString("\n\n")
-			*preserved = append(*preserved, "enum")
 
 		case "program":
 			// Handle nested program node
-			c.extractJava(child, source, out, preserved, compressed)
+			c.extractJava(child, source, out)
 		}
 	}
 }
 
-func (c *CodeCompressor) extractJavaClass(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJavaClass(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
-	var className string
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -65,8 +59,7 @@ func (c *CodeCompressor) extractJavaClass(node *sitter.Node, source []byte, out 
 		case "class":
 			sig.WriteString("class ")
 		case "identifier":
-			className = c.nodeText(child, source)
-			sig.WriteString(className)
+			sig.WriteString(c.nodeText(child, source))
 		case "type_parameters":
 			sig.WriteString(c.nodeText(child, source))
 		case "superclass":
@@ -77,17 +70,16 @@ func (c *CodeCompressor) extractJavaClass(node *sitter.Node, source []byte, out 
 			sig.WriteString(c.nodeText(child, source))
 		case "class_body":
 			sig.WriteString(" {\n")
-			c.extractJavaClassBody(child, source, &sig, preserved)
+			c.extractJavaClassBody(child, source, &sig)
 			sig.WriteString("}")
 		}
 	}
 
 	out.WriteString(sig.String())
 	out.WriteString("\n\n")
-	*preserved = append(*preserved, fmt.Sprintf("class %s", className))
 }
 
-func (c *CodeCompressor) extractJavaClassBody(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJavaClassBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {

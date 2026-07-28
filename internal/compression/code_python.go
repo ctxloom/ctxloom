@@ -3,7 +3,6 @@
 package compression
 
 import (
-	"fmt"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -11,7 +10,7 @@ import (
 
 // extractPython handles Python-specific AST extraction: one handler branch per
 // top-level node kind.
-func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
+func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
@@ -22,24 +21,23 @@ func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *st
 		case "import_statement", "import_from_statement":
 			out.WriteString(c.nodeText(child, source))
 			out.WriteString("\n")
-			*preserved = append(*preserved, "import")
 
 		case "class_definition":
-			c.extractPythonClass(child, source, out, preserved)
+			c.extractPythonClass(child, source, out)
 
 		case "function_definition":
-			c.extractPythonFunc(child, source, out, preserved)
+			c.extractPythonFunc(child, source, out)
 
 		case "decorated_definition":
-			c.extractPythonDecorated(child, source, out, preserved)
+			c.extractPythonDecorated(child, source, out)
 
 		case "expression_statement":
-			c.extractPythonExpressionStatement(child, source, out, preserved)
+			c.extractPythonExpressionStatement(child, source, out)
 
 		case "assignment", "augmented_assignment":
 			// Bare module-level assignment (tree-sitter may surface it directly
 			// rather than wrapped in an expression_statement).
-			c.extractPythonAssignment(child, source, out, preserved)
+			c.extractPythonAssignment(child, source, out)
 		}
 	}
 }
@@ -49,14 +47,14 @@ func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *st
 // Go/Rust/JS extractors that keep top-level const/var — and otherwise falls
 // back to module-docstring handling. A bare side-effecting expression
 // (e.g. a top-level function call) is dropped, as before.
-func (c *CodeCompressor) extractPythonExpressionStatement(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonExpressionStatement(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 		if child.Type() == "assignment" || child.Type() == "augmented_assignment" {
-			c.extractPythonAssignment(child, source, out, preserved)
+			c.extractPythonAssignment(child, source, out)
 			return
 		}
 	}
@@ -66,7 +64,7 @@ func (c *CodeCompressor) extractPythonExpressionStatement(node *sitter.Node, sou
 // extractPythonAssignment emits a module-level assignment, eliding a long
 // right-hand-side value after the first '=' so the binding name (and any type
 // annotation) survives without inflating the compressed output.
-func (c *CodeCompressor) extractPythonAssignment(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonAssignment(node *sitter.Node, source []byte, out *strings.Builder) {
 	text := c.nodeText(node, source)
 	if len(text) >= 100 {
 		if idx := strings.IndexByte(text, '='); idx > 0 {
@@ -75,12 +73,11 @@ func (c *CodeCompressor) extractPythonAssignment(node *sitter.Node, source []byt
 	}
 	out.WriteString(text)
 	out.WriteString("\n")
-	*preserved = append(*preserved, "assignment")
 }
 
 // extractPythonDecorated emits a decorated function/class, keeping its
 // decorator lines and the underlying definition signature.
-func (c *CodeCompressor) extractPythonDecorated(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonDecorated(node *sitter.Node, source []byte, out *strings.Builder) {
 	for j := 0; j < int(node.ChildCount()); j++ {
 		dec := node.Child(j)
 		if dec == nil {
@@ -91,9 +88,9 @@ func (c *CodeCompressor) extractPythonDecorated(node *sitter.Node, source []byte
 			out.WriteString(c.nodeText(dec, source))
 			out.WriteString("\n")
 		case "function_definition":
-			c.extractPythonFunc(dec, source, out, preserved)
+			c.extractPythonFunc(dec, source, out)
 		case "class_definition":
-			c.extractPythonClass(dec, source, out, preserved)
+			c.extractPythonClass(dec, source, out)
 		}
 	}
 }
@@ -111,10 +108,9 @@ func (c *CodeCompressor) extractPythonModuleDocstring(node *sitter.Node, source 
 	}
 }
 
-func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out *strings.Builder) {
 	// Build signature: def name(params) -> return_type:
 	var sig strings.Builder
-	var funcName string
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -128,8 +124,7 @@ func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out
 		case "def":
 			sig.WriteString("def ")
 		case "identifier":
-			funcName = c.nodeText(child, source)
-			sig.WriteString(funcName)
+			sig.WriteString(c.nodeText(child, source))
 		case "parameters":
 			sig.WriteString(c.nodeText(child, source))
 		case "type":
@@ -144,12 +139,10 @@ func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out
 
 	out.WriteString(sig.String())
 	out.WriteString("\n\n")
-	*preserved = append(*preserved, fmt.Sprintf("def %s", funcName))
 }
 
-func (c *CodeCompressor) extractPythonClass(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonClass(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
-	var className string
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -161,14 +154,13 @@ func (c *CodeCompressor) extractPythonClass(node *sitter.Node, source []byte, ou
 		case "class":
 			sig.WriteString("class ")
 		case "identifier":
-			className = c.nodeText(child, source)
-			sig.WriteString(className)
+			sig.WriteString(c.nodeText(child, source))
 		case "argument_list":
 			sig.WriteString(c.nodeText(child, source))
 		case "block":
 			sig.WriteString(":\n")
 			// Extract method signatures from class body
-			c.extractPythonClassBody(child, source, &sig, preserved)
+			c.extractPythonClassBody(child, source, &sig)
 		case ":":
 			// Skip
 		}
@@ -176,10 +168,9 @@ func (c *CodeCompressor) extractPythonClass(node *sitter.Node, source []byte, ou
 
 	out.WriteString(sig.String())
 	out.WriteString("\n")
-	*preserved = append(*preserved, fmt.Sprintf("class %s", className))
 }
 
-func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
@@ -188,7 +179,7 @@ func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte
 
 		if child.Type() == "function_definition" {
 			out.WriteString("    ")
-			c.extractPythonFuncSignatureOnly(child, source, out, preserved)
+			c.extractPythonFuncSignatureOnly(child, source, out)
 		} else if child.Type() == "decorated_definition" {
 			for j := 0; j < int(child.ChildCount()); j++ {
 				dec := child.Child(j)
@@ -198,14 +189,14 @@ func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte
 					out.WriteString("\n")
 				} else if dec != nil && dec.Type() == "function_definition" {
 					out.WriteString("    ")
-					c.extractPythonFuncSignatureOnly(dec, source, out, preserved)
+					c.extractPythonFuncSignatureOnly(dec, source, out)
 				}
 			}
 		}
 	}
 }
 
-func (c *CodeCompressor) extractPythonFuncSignatureOnly(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractPythonFuncSignatureOnly(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)

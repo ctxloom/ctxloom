@@ -12,22 +12,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// Source is the read port for bundles (ADR 0026): a place bundles load from.
-// *Loader satisfies it; a database- or service-backed adapter would too.
-type Source interface {
-	Load(name string) (*Bundle, error)
-	LoadFile(path string) (*Bundle, error)
-}
-
-// Store is the read+write port: a backing store bundles persist to. The
-// filesystem adapter is the one returned by NewFSStore; MemStore is an
-// in-memory adapter. Operations depends on this interface, never on a concrete
-// store, so storage can change without touching core logic.
+// Store is the read+write port (ADR 0026): a backing store bundles persist
+// to. The filesystem adapter is the one returned by NewFSStore. Operations
+// depends on this interface, never on a concrete store, so storage can change
+// without touching core logic.
 type Store interface {
-	Source
+	Load(name string) (*Bundle, error)
 	Save(b *Bundle) error
 	Delete(name string) error
 }
+
+var _ Store = (*fsStore)(nil)
 
 // fsStore is the filesystem Store adapter. It reads through an embedded Loader
 // and writes/deletes through that Loader's afero.Fs, so reads and writes share
@@ -121,11 +116,3 @@ func (s *fsStore) Delete(name string) error {
 	}
 	return s.fs.Remove(path)
 }
-
-// MemStore is an in-memory Store adapter. It exists to demonstrate that
-// operations are storage-agnostic (ADR 0026) and to give tests a
-// filesystem-free backend. Keyed by name (a bundle's Path is set to its name on
-// Seed/Save so a load-modify-save round-trips).
-// NewMemStore returns an empty in-memory bundle store.
-// Seed inserts a bundle under name, setting its Path to name so a later Save
-// round-trips to the same key.

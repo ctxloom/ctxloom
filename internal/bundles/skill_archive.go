@@ -21,8 +21,7 @@ import (
 // This file holds Part B, slice B1b of the skill/command split: the ARCHIVE
 // CODEC (pack a skill source tree into an Anthropic-Skills-API-shaped zip;
 // unpack a zip or tar.gz back into a source tree) and the HARDENED EXTRACTOR
-// that both import and the future install path (B2/B3) route every archive
-// byte through.
+// that ImportSkillArchive routes every archive byte through.
 //
 // SECURITY: an imported skill archive is ADVERSARIAL INPUT. It may originate
 // from an untrusted remote, a hostile publisher, or a corrupted transfer, and
@@ -183,12 +182,11 @@ const (
 )
 
 // HardenedExtract is THE ONE function every archive byte passes through
-// before landing on disk — used by ImportSkillArchive today and by B2/B3's
-// install path once it exists. It extracts archive (zip or tar.gz per format)
-// into destDir, stripping the archive's single top-level directory (the
-// skill's own directory, matched by name at ParseSkillPackage time) so the
-// files land directly under destDir, and returns that top-level directory's
-// original name.
+// before landing on disk — used by ImportSkillArchive. It extracts archive
+// (zip or tar.gz per format) into destDir, stripping the archive's single
+// top-level directory (the skill's own directory, matched by name at
+// ParseSkillPackage time) so the files land directly under destDir, and
+// returns that top-level directory's original name.
 //
 // INVARIANT (read before touching this function): every entry is validated
 // BEFORE a single byte is written. The full rejection list, enforced for
@@ -224,9 +222,9 @@ const (
 // honoring setuid/setgid/sticky or a world-writable bit from the archive.
 //
 // On ANY rejection, HardenedExtract returns immediately: no partial write of
-// the rejected entry occurs, and the caller (ImportSkillArchive,
-// InstallSkillPackage) is responsible for removing whatever was written for
-// entries processed before the rejection — both callers in this file do.
+// the rejected entry occurs, and the caller (ImportSkillArchive) is
+// responsible for removing whatever was written for entries processed before
+// the rejection — which it does.
 func HardenedExtract(fsys afero.Fs, archive []byte, format ArchiveFormat, destDir string, opts ExtractOptions) (topDir string, err error) {
 	opts = opts.normalized()
 
@@ -687,32 +685,8 @@ func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) 
 	return nil
 }
 
-// SkillSignatureVerifier is the B2 SEAM. InstallSkillPackage calls
-// VerifyManifestSignature over the expected manifest BEFORE extracting a
-// single byte to disk — a failed signature check must never cause any write
-// to occur. B1b wires NoopSkillSignatureVerifier (accepts everything); B2
-// replaces the verifier value passed to InstallSkillPackage with one backed
-// by signing.VerifyPublisher / the trust root and changes nothing else about
-// this function's shape. This is the exact, named gate B2 hooks into.
-type SkillSignatureVerifier interface {
-	VerifyManifestSignature(manifest SkillManifest) error
-}
-
-// NoopSkillSignatureVerifier is the B1b placeholder for SkillSignatureVerifier
-// — it accepts every manifest unconditionally. Until B2 lands, a skill
-// installed via InstallSkillPackage is protected only by HardenedExtract's
-// structural rejections and VerifyExtractedManifest's integrity check, NOT by
-// any authenticity/provenance guarantee. Do not mistake "install succeeded"
-// for "install was signed" while this is the active verifier.
-type NoopSkillSignatureVerifier struct{}
-
-// VerifyManifestSignature implements SkillSignatureVerifier by accepting
-// every manifest. See the type doc: this is a placeholder, not a decision
-// that skills don't need signing.
-func (NoopSkillSignatureVerifier) VerifyManifestSignature(SkillManifest) error { return nil }
-
-// PublisherSkillSignatureVerifier is the PRODUCTION SkillSignatureVerifier
-// (Part B2): it verifies a detached armored signature over the expected
+// PublisherSkillSignatureVerifier is the PRODUCTION skill-manifest signature
+// verifier (Part B2): it verifies a detached armored signature over the expected
 // manifest's canonical bytes (SkillManifest.Serialize()) using the EXACT same
 // signature envelope and trust-root machinery every other ctxloom signature
 // check uses (signing.VerifyPublisher against the publish namespace, resolved
@@ -740,12 +714,12 @@ type PublisherSkillSignatureVerifier struct {
 	Now func() time.Time
 }
 
-// VerifyManifestSignature implements SkillSignatureVerifier: it verifies
-// v.ArmoredSignature covers manifest.Serialize() exactly, signed by a key
-// v.Root trusts for the publish namespace. manifest is always the expected
-// (previously-signed) manifest InstallSkillPackage was called with — it is
-// never recomputed from the archive here; that is VerifyExtractedManifest's
-// job, which runs AFTER extraction against the same manifest value.
+// VerifyManifestSignature verifies v.ArmoredSignature covers
+// manifest.Serialize() exactly, signed by a key v.Root trusts for the publish
+// namespace. manifest is always the expected (previously-signed) manifest the
+// caller already has in hand — it is never recomputed from the archive here;
+// that is VerifyExtractedManifest's job, which runs AFTER extraction against
+// the same manifest value.
 func (v PublisherSkillSignatureVerifier) VerifyManifestSignature(manifest SkillManifest) error {
 	if len(v.ArmoredSignature) == 0 {
 		return fmt.Errorf("no signature present for this skill package — an unsigned skill must go through ctxloom review, not install")
@@ -766,84 +740,6 @@ func (v PublisherSkillSignatureVerifier) VerifyManifestSignature(manifest SkillM
 		// Ordinarily that takes the review path; for an install it is a hard
 		// stop — an untrusted publisher's skill must not land on disk.
 		return fmt.Errorf("signature is not by a publisher this machine trusts for %s — withholding", signing.NamespacePublish)
-	}
-	return nil
-}
-
-// InstallSkillPackage is the fixed, ATOMIC install seam from the skill/command
-// split plan §3.1b.
-//
-// INVARIANT (load-bearing — read before touching this function): the order is
-// verify(SIGNATURE) -> extract(STAGING) -> verify(HASHES) -> rename(staging
-// -> destDir), and it is never reordered:
-//
-//   - verify(sig) runs FIRST, against the expected manifest bytes alone, and
-//     GATES extraction outright: nothing is written to disk at all if it
-//     fails, not even to a staging directory.
-//   - extract runs through HardenedExtract (see its doc comment for the full
-//     rejection list) into a STAGING directory — NEVER directly into destDir.
-//     This is what makes the install atomic: HardenedExtract validates each
-//     entry as it goes, so a hostile archive can fail partway through, after
-//     some earlier entries (e.g. SKILL.md, then an executable scripts/
-//     entry) already landed on disk. Extracting to staging means that partial
-//     write poisons only a throwaway directory, never destDir.
-//   - verify(hashes) necessarily runs AFTER extraction — it checks the actual
-//     bytes on disk, which only exist once written — against staging, not
-//     destDir.
-//   - ONLY once both verifications pass does destDir get replaced by staging
-//     in one rename. Every failure path above returns with destDir untouched
-//     (deferred staging cleanup runs regardless, mirroring
-//     ImportSkillArchive's RemoveAll-on-every-failure pattern) — a rejected
-//     install never leaves a partial, poisoned tree, executable scripts
-//     included, at destDir.
-//
-// manifest MUST be non-nil (U031-F02): a brand-new untrusted import with no
-// prior signed state has no known-good manifest to verify against, but that
-// case belongs to ImportSkillArchive, not here — this seam REJECTS a nil
-// manifest outright rather than merely documenting the boundary, because
-// SkillManifest(nil).Serialize() is a fixed constant ("null") that a single
-// signature could satisfy for any archive's content.
-func InstallSkillPackage(fsys afero.Fs, archive []byte, format ArchiveFormat, destDir string, manifest SkillManifest, verifier SkillSignatureVerifier, opts ExtractOptions) error {
-	// U031-F02: a nil manifest is not a degenerate-but-valid "no known-good
-	// state to verify against" case at THIS seam. SkillManifest(nil).
-	// Serialize() is the fixed 4-byte constant "null", so ONE
-	// trusted-publisher signature made over that constant would satisfy
-	// PublisherSkillSignatureVerifier for a nil-manifest install of ANY
-	// archive's content, and the post-extract hash check below is skipped
-	// entirely (manifest != nil guards it) — combined with a hostile,
-	// all-single-segment archive (U031-F01) this could destroy an installed
-	// skill and replace it with an empty directory, exit 0. This function's
-	// own contract already says a manifest-less import belongs to
-	// ImportSkillArchive; enforce it instead of merely documenting it.
-	if manifest == nil {
-		return fmt.Errorf("skill install: a nil manifest is not accepted here — use ImportSkillArchive for a manifest-less import")
-	}
-	if verifier == nil {
-		verifier = NoopSkillSignatureVerifier{}
-	}
-	if err := verifier.VerifyManifestSignature(manifest); err != nil {
-		return fmt.Errorf("skill install: signature verification failed, withholding: %w", err)
-	}
-
-	staging := filepath.Join(filepath.Dir(destDir), ".ctxloom-install-staging-"+filepath.Base(destDir))
-	if err := fsys.RemoveAll(staging); err != nil {
-		return fmt.Errorf("skill install: clearing staging directory %q: %w", staging, err)
-	}
-	defer fsys.RemoveAll(staging) //nolint:errcheck // best-effort: no-op once renamed away; cleans up on every failure return below
-
-	if _, err := HardenedExtract(fsys, archive, format, staging, opts); err != nil {
-		return err
-	}
-
-	if err := VerifyExtractedManifest(fsys, staging, manifest); err != nil {
-		return err
-	}
-
-	if err := fsys.RemoveAll(destDir); err != nil {
-		return fmt.Errorf("skill install: clearing destination %q: %w", destDir, err)
-	}
-	if err := fsys.Rename(staging, destDir); err != nil {
-		return fmt.Errorf("skill install: moving verified tree into place: %w", err)
 	}
 	return nil
 }

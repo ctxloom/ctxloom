@@ -1,51 +1,26 @@
 package config
 
-// Phase 1 of the config-manager rework (see the config-manager plan in the
-// coordinating session): additive read accessors covering every direct field
-// read of *Config found outside this package. Config.Load() hands the SAME
-// *Config pointer to ~45 call sites; ~40 of them already went through
-// existing accessor methods (ProfileDefinition, ResolveLLM, ...), but a large
-// remainder (operations/mcp_servers.go, operations/agents.go,
-// internal/cli/doctor_cmd.go, internal/lm/backends/*, ...) read exported
-// fields directly. Direct field reads are exactly what make the fields
-// UNEXPORTABLE later (Phase 3) — every one of them has to become a method
-// call first, or unexporting the field is a compile break with nowhere to
-// redirect to.
-//
-// This phase changes NOTHING about how Config is populated or how the six
-// known write sites persist — fields stay exported, direct reads/writes
-// elsewhere in the tree keep compiling unchanged. Phase 2 migrates readers to
-// these accessors, directory by directory; Phase 3 unexports the fields
-// (turning "reads through an accessor" from a convention into a compiler-
-// enforced fact); Phase 4 replaces the write sites with Manager.Update.
-//
-// NAMING: an accessor cannot share its field's exact name while the field is
-// still exported (Go disallows a field and a method of the same name on one
-// type) — so these use this file's own "Get" prefix, matching the
-// convention already established elsewhere in this very package
-// (GetEditorCommand, GetProfileLoader, GetDefaultLLM, GetCompactionLLM,
-// GetCompactionModel, GetDefaultLLMModel, GetCompactionChunkSize). This is
-// the PERMANENT naming — Phase 3 does not rename these once the fields free
-// up the shorter names, to avoid migrating every Phase 2 call site a second
-// time for no functional gain.
+// *Config's fields are unexported; every cross-package read goes through a
+// Get* accessor in this file. NAMING: the "Get" prefix matches the
+// convention already established elsewhere in this package (GetEditorCommand,
+// GetProfileLoader, GetDefaultLLM, GetCompactionLLM, GetCompactionModel,
+// GetDefaultLLMModel, GetCompactionChunkSize) — Go disallows a field and a
+// method of the same name on one type, so a shorter, field-shadowing name
+// was never an option.
 //
 // COPY POLICY (copy-on-read, one level deep): every accessor that returns a
 // map or slice returns a FRESH container — a caller mutating what it gets
-// back must never be able to corrupt what every other Load()/Current() holder
-// sees. This is not a hypothetical: SetAgent (operations/agents.go) does
-// exactly `cfg.Agents[name] = ...` on the shared instance today (armed-chomp,
-// tall-nanny) — a getter that handed back the internal map would just move
-// that same bug to a different call site wearing an accessor's clothes.
+// back must never be able to corrupt what every other Load() holder sees.
 // Elements are copied by value; where an element itself carries a slice/map
 // (agents.Agent.Profiles, a Profile's many []string fields, an MCPServer's
 // Args/Env, ...), that nested container is cloned too, so the common
 // read-then-locally-mutate pattern this codebase actually uses is safe. This
 // does not recurse indefinitely — nothing in the tree reaches three levels
-// deep into a value obtained this way — and the REAL deep-immutability
-// guarantee is Phase 3's unexported fields plus the Phase 4 Manager/Draft
-// write path, not these copies. A copy is a defense for well-behaved callers,
-// not a security boundary; see TestSnapshot_CannotBeMutatedByReaders (Phase
-// 3/4) for the actual enforcement mechanism.
+// deep into a value obtained this way — and the real immutability guarantee
+// is the unexported fields plus the Manager/Draft write path (Manager.Update),
+// not these copies. A copy is a defense for well-behaved callers, not a
+// security boundary; see TestSnapshot_CannotBeMutatedByReaders for the actual
+// enforcement mechanism.
 
 import (
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -280,13 +255,6 @@ func (c *Config) GetAppDir() string { return c.appDir }
 // GetAppRoot returns the project root (parent of the .ctxloom directory).
 func (c *Config) GetAppRoot() string { return c.appRoot }
 
-// GetSource reports whether this config was resolved from a project or the
-// user home directory.
-func (c *Config) GetSource() ConfigSource { return c.source }
-
-// GetVersion returns the config's on-disk schema version.
-func (c *Config) GetVersion() int { return c.version }
-
 // GetWarnings returns a copy of the kind-tagged warnings collected during
 // load.
 func (c *Config) GetWarnings() []Warning { return cloneWarnings(c.warnings) }
@@ -386,16 +354,6 @@ func (c *Config) GetHooksConfig() wire.HooksConfig { return cloneHooksConfig(c.h
 
 // GetSyncConfig returns a copy of the dependency-sync configuration block.
 func (c *Config) GetSyncConfig() SyncConfig { return cloneSync(c.sync) }
-
-// GetEditor returns a copy of the editor configuration block.
-func (c *Config) GetEditor() EditorConfig { return cloneEditor(c.editor) }
-
-// GetUI returns a copy of the interactive-run terminal-layer preferences.
-func (c *Config) GetUI() UIConfig { return cloneUIConfig(c.ui) }
-
-// GetIsolationImages returns a copy of the per-backend user-provided agent
-// image override map.
-func (c *Config) GetIsolationImages() map[string]string { return cloneStringMap(c.isolationImages) }
 
 // GetIsolationDevcontainerService returns the docker-compose service name
 // adopted as the agent image's base, when set.

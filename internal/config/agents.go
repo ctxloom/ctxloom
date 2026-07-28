@@ -14,11 +14,7 @@ import (
 // (nil, nil), which is the correct empty case one level down.
 func (c *Config) agentDirLoader() *agents.Loader {
 	dirs := agents.GetAgentDirs(c.fs, c.appPaths)
-	var opts []agents.LoaderOption
-	if c.fs != nil {
-		opts = append(opts, agents.WithFS(c.fs))
-	}
-	return agents.NewLoader(dirs, opts...)
+	return agents.NewLoader(dirs, c.fs)
 }
 
 // LoadAgents returns every locally-defined agent, merged from the two

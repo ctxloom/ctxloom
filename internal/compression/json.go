@@ -64,8 +64,7 @@ func (c *JSONCompressor) Compress(ctx context.Context, _ ContentType, content st
 	}
 
 	// Compress the structure
-	var stats compressStats
-	compressed := c.compressValue(data, 0, &stats)
+	compressed := c.compressValue(data, 0)
 
 	// Marshal back to JSON. A marshal failure on already-parsed data is not
 	// expected, but degrade to verbatim rather than erroring out.
@@ -75,103 +74,39 @@ func (c *JSONCompressor) Compress(ctx context.Context, _ ContentType, content st
 	}
 
 	return Result{
-		Content:            string(output),
-		OriginalSize:       len(content),
-		CompressedSize:     len(output),
-		Ratio:              float64(len(output)) / float64(len(content)),
-		PreservedElements:  stats.preservedSummary(),
-		CompressedElements: stats.compressedSummary(),
-		ModelID:            "json-compressor",
+		Content: string(output),
+		Ratio:   float64(len(output)) / float64(len(content)),
+		ModelID: "json-compressor",
 	}, nil
 }
 
-// compressStats tallies what was preserved/compressed during a walk. Counts —
-// not one entry per key/leaf — keep Result metadata bounded: a large document
-// would otherwise grow PreservedElements past the compressed content itself.
-type compressStats struct {
-	keys        int // object keys preserved
-	shortStrs   int // short strings preserved
-	highEntropy int // high-entropy values preserved (UUIDs, hashes)
-	identifiers int // identifier-shaped strings preserved
-	numbers     int // numbers preserved
-	primitives  int // bools/nulls preserved
-	longStrs    int // long strings truncated
-	arrayItems  int // array items elided
-}
-
-// countLabel pairs a tally with its summary label.
-type countLabel struct {
-	n     int
-	label string
-}
-
-// countSummary renders each non-zero count as one "N label" entry.
-func countSummary(counts []countLabel) []string {
-	var out []string
-	for _, c := range counts {
-		if c.n > 0 {
-			out = append(out, fmt.Sprintf("%d %s", c.n, c.label))
-		}
-	}
-	return out
-}
-
-func (s *compressStats) preservedSummary() []string {
-	return countSummary([]countLabel{
-		{s.keys, "keys"},
-		{s.shortStrs, "short strings"},
-		{s.highEntropy, "high-entropy values"},
-		{s.identifiers, "identifiers"},
-		{s.numbers, "numbers"},
-		{s.primitives, "primitives"},
-	})
-}
-
-func (s *compressStats) compressedSummary() []string {
-	return countSummary([]countLabel{
-		{s.longStrs, "long strings truncated"},
-		{s.arrayItems, "array items elided"},
-	})
-}
-
-func (c *JSONCompressor) compressValue(v any, depth int, stats *compressStats) any {
+func (c *JSONCompressor) compressValue(v any, depth int) any {
 	switch val := v.(type) {
 	case map[string]any:
-		return c.compressObject(val, depth, stats)
+		return c.compressObject(val, depth)
 
 	case []any:
-		return c.compressArray(val, depth, stats)
+		return c.compressArray(val, depth)
 
 	case string:
-		return c.compressString(val, stats)
-
-	case float64, json.Number:
-		// Numbers are always preserved verbatim (UseNumber keeps big integer
-		// IDs exact); count them for the preserved summary.
-		stats.numbers++
-		return val
-
-	case bool, nil:
-		stats.primitives++
-		return val
+		return c.compressString(val)
 
 	default:
 		return val
 	}
 }
 
-func (c *JSONCompressor) compressObject(obj map[string]any, depth int, stats *compressStats) map[string]any {
+func (c *JSONCompressor) compressObject(obj map[string]any, depth int) map[string]any {
 	result := make(map[string]any)
-	stats.keys += len(obj)
 
 	for key, value := range obj {
-		result[key] = c.compressValue(value, depth+1, stats)
+		result[key] = c.compressValue(value, depth+1)
 	}
 
 	return result
 }
 
-func (c *JSONCompressor) compressArray(arr []any, depth int, stats *compressStats) []any {
+func (c *JSONCompressor) compressArray(arr []any, depth int) []any {
 	if len(arr) == 0 {
 		return arr
 	}
@@ -185,42 +120,36 @@ func (c *JSONCompressor) compressArray(arr []any, depth int, stats *compressStat
 	result := make([]any, 0, keepCount+1)
 
 	for i := 0; i < keepCount; i++ {
-		result = append(result, c.compressValue(arr[i], depth+1, stats))
+		result = append(result, c.compressValue(arr[i], depth+1))
 	}
 
 	// If there are more items, add a summary
 	if len(arr) > keepCount {
 		remaining := len(arr) - keepCount
 		result = append(result, fmt.Sprintf("... %d more items", remaining))
-		stats.arrayItems += remaining
 	}
 
 	return result
 }
 
-func (c *JSONCompressor) compressString(s string, stats *compressStats) string {
+func (c *JSONCompressor) compressString(s string) string {
 	// Keep short strings
 	if len(s) <= c.MaxValueLength {
-		stats.shortStrs++
 		return s
 	}
 
 	// Keep high-entropy strings (likely IDs, hashes, UUIDs)
 	if c.isHighEntropy(s) {
-		stats.highEntropy++
 		return s
 	}
 
 	// Check for common patterns to preserve
 	if c.isIdentifier(s) {
-		stats.identifiers++
 		return s
 	}
 
 	// Truncate long strings on a rune boundary so multibyte runes aren't split.
-	truncated := textutil.TruncateBytes(s, c.MaxValueLength) + "..."
-	stats.longStrs++
-	return truncated
+	return textutil.TruncateBytes(s, c.MaxValueLength) + "..."
 }
 
 // isHighEntropy checks if a string has high information density (UUID, hash, etc.)

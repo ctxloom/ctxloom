@@ -31,9 +31,7 @@ func (r *Router) CompressWithType(ctx context.Context, contentType ContentType, 
 
 	// No compressor available - return original content
 	return Result{
-		Content:        content,
-		OriginalSize:   len(content),
-		CompressedSize: len(content),
-		Ratio:          1.0,
+		Content: content,
+		Ratio:   1.0,
 	}, nil
 }

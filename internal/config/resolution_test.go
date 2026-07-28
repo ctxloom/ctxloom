@@ -70,17 +70,6 @@ func TestProfileResolutionAccessors(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"dev", "go"}, cfg.DefaultAgentProfiles())
-
-	t.Run("ProfileDefinition_hit", func(t *testing.T) {
-		p, ok := cfg.ProfileDefinition("dev")
-		assert.True(t, ok)
-		assert.Equal(t, "development", p.Description)
-	})
-
-	t.Run("ProfileDefinition_miss", func(t *testing.T) {
-		_, ok := cfg.ProfileDefinition("missing")
-		assert.False(t, ok)
-	})
 }
 
 // TestConfig_ShouldUseDistilled covers the Config-level wrapper (delegating to

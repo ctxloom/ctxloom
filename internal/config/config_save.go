@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
@@ -62,64 +61,16 @@ func (c *Config) commitPendingUpgrade(p *upgrade.Pending) error {
 	return nil
 }
 
-// Save writes the configuration to the primary config file. The write itself
-// is serialized across processes with an advisory file lock (the MCP server
-// and a concurrent CLI both call Save — without it one writer's sections are
-// silently lost mid-write) and is atomic so a crash can never tear
-// config.yaml.
-//
-// Save does NOT, by itself, close the LOST-UPDATE window: it re-reads the
-// on-disk file fresh under its own lock, but the fields it merges onto that
-// fresh read (c's own agents/mcp/... state) may have been populated by a
-// Load() long before the lock was ever taken — so two callers that each
-// Load(), mutate their own in-memory copy, then Save() can still silently
-// discard one another's change, despite neither Save() call ever
-// interleaving with the other at the byte level. Manager.Update (see
-// config_manager.go) is what actually closes that window: it takes the SAME
-// lock this method does, but re-Loads fresh AFTER acquiring it — so the
-// in-memory state Save eventually merges is never stale. Save remains the
-// entry point for callers that accept that risk (or, like Manager.Update,
-// have already closed it themselves via saveLocked).
-func (c *Config) Save() error {
-	configPath, err := c.GetConfigFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
-
-	fs := c.getFS()
-
-	// Advisory flock applies only to the real filesystem; an injected (test)
-	// fs has no cross-process readers.
-	//
-	// U109-F01: a lock ACQUISITION failure used to degrade to an unlocked
-	// save — but filelock.Lock is BLOCKING (it waits out contention), so the
-	// only way it can return an error at all is a persistent environmental
-	// failure (EACCES/EROFS/ENOSPC/ENOLCK/a read-only or network-mounted
-	// ~/.ctxloom), never a transient one. That is exactly the condition
-	// under which writing unlocked is least safe, and it recurs on every
-	// subsequent save, not just once. Fail closed instead.
-	// Gated on injectedFS, NOT c.fs's nilness — loadUncached always populates
-	// c.fs with a concrete value (afero.NewOsFs() by default), so c.fs is
-	// never actually nil for a Load()-produced Config; see injectedFS's doc.
-	if !c.injectedFS {
-		unlock, lerr := filelock.Lock(configPath + ".lock")
-		if lerr != nil {
-			return fmt.Errorf("config: acquiring save lock for %s: %w", configPath, lerr)
-		}
-		defer unlock()
-	}
-
-	return c.saveLocked(fs, configPath)
-}
-
-// saveLocked is Save's actual read-merge-write, factored out so
-// Manager.Update can reuse it from INSIDE a lock it already holds — calling
-// Save() there would try to re-acquire the same advisory flock from the same
-// process and deadlock (flock(2) blocks the calling process until the lock
-// is released, and a process can never release a lock it is still waiting to
-// acquire a second one of). Callers of saveLocked are responsible for their
-// own locking (Save() and Manager.Update both fail closed — U109-F01 — when
-// the lock cannot be acquired at all, rather than proceeding unlocked).
+// saveLocked is the read-merge-write at the heart of persisting a Config: it
+// re-reads the on-disk file fresh, merges c's in-memory sections onto it
+// (preserving unknown keys), and writes back atomically so a crash can never
+// tear config.yaml. It takes no lock of its own — the caller (Manager.Update,
+// the only production writer) is responsible for holding the advisory
+// cross-process file lock for the whole read-modify-write, which is what
+// actually closes the lost-update window: two writers that each captured
+// their own in-memory Config before the lock was ever taken would otherwise
+// silently discard one another's change, despite the write itself never
+// interleaving at the byte level.
 func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	existing, err := readExistingConfig(fs, configPath)
 	if err != nil {
@@ -146,9 +97,10 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 }
 
 // Marshal renders the configuration to YAML bytes using the same section
-// assembly as Save (registry role-stripping included), but over a fresh map
-// rather than the on-disk file. Used by callers that build a config in memory
-// and write it themselves (e.g. init), so the written shape matches Save's.
+// assembly as saveLocked (registry role-stripping included), but over a fresh
+// map rather than the on-disk file. Used by callers that build a config in
+// memory and write it themselves (e.g. init), so the written shape matches
+// what a save produces.
 func (c *Config) Marshal() ([]byte, error) {
 	out := make(map[string]interface{})
 	c.applyConfigSections(out)
@@ -160,7 +112,7 @@ func (c *Config) Marshal() ([]byte, error) {
 }
 
 // readExistingConfig loads the current config file into a generic map so that
-// unknown fields are preserved across a Save. A missing file yields an empty
+// unknown fields are preserved across a save. A missing file yields an empty
 // map — that is the normal first-write shape.
 //
 // A file that will not PARSE is refused (U049-F04). The old behaviour warned
@@ -277,7 +229,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// unacknowledged — the "commit" handler still refuses). These were
 	// declared on configDoc/Fixture (toDoc/fromDoc, ToFixture/NewFixture) when
 	// the dirty-tree handler feature landed but never wired into this
-	// section-by-section persist path, so ANY caller that set them via Save()
+	// section-by-section persist path, so ANY caller that set them via a save
 	// or Marshal() (rather than a raw yaml.Marshal(cfg)) silently lost them —
 	// exactly this project's characteristic bug. Fixed here so the
 	// init-interview write (internal/cli/init.go's promptDirtyTreeHandler)
@@ -287,7 +239,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
 	// Agent delegation's execution-concurrency resource ceiling; pruned when
 	// unset (<=0 means "use the built-in default" — Config.agentTurnCap's
-	// doc). Wired here so a Save()/Marshal() round-trip does not silently
+	// doc). Wired here so a save/Marshal() round-trip does not silently
 	// drop it (the exact bug class dirty_tree_handler's own comment above
 	// documents having hit).
 	setOrDelete(existing, "agent_turn_cap", c.agentTurnCap > 0, c.agentTurnCap)

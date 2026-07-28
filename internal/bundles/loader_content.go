@@ -495,25 +495,6 @@ func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
 	return matched, nil
 }
 
-// LoadMultiple loads multiple fragments by name and returns combined content.
-// Returns the content, the names of fragments that were successfully loaded, and any error.
-func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
-	var parts []string
-	var loaded []string
-
-	for _, name := range names {
-		content, err := l.GetFragment(name)
-		if err != nil {
-			// Skip not found, continue with others
-			continue
-		}
-		parts = append(parts, strings.TrimSpace(content.Content))
-		loaded = append(loaded, name)
-	}
-
-	return strings.Join(parts, "\n\n---\n\n"), loaded, nil
-}
-
 // ExpandedRef is one fragment produced by expanding a profile bundle reference.
 // Name is the version-AGNOSTIC canonical fragment identity
 // ("<canonical-bundle>#fragments/<name>") used for dedup/exclusion/ordering;

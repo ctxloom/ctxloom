@@ -592,11 +592,6 @@ func (c *Config) UISurroundEnabled() bool {
 	return c.ui.Surround == nil || *c.ui.Surround
 }
 
-// GetEditorCommand returns the editor binary and arguments to use. This is the
-// single editor-resolution policy: config (editor.command, with editor.args
-// appended), then the VISUAL and EDITOR environment variables, then nano.
-// Multi-word values like "code --wait" are whitespace-split into binary +
-// leading args (strings.Fields — full shell quoting is not supported).
 // IsolationImageFor returns the user-provided agent image override for the
 // named backend's containerized runs, or "" when the backend keeps the built-in
 // default image (nil-safe).
@@ -628,6 +623,11 @@ func (c *Config) IsolationDevcontainerBaseEnabled() bool {
 	return c == nil || c.isolationDevcontainerBase == nil || *c.isolationDevcontainerBase
 }
 
+// GetEditorCommand returns the editor binary and arguments to use. This is the
+// single editor-resolution policy: config (editor.command, with editor.args
+// appended), then the VISUAL and EDITOR environment variables, then nano.
+// Multi-word values like "code --wait" are whitespace-split into binary +
+// leading args (strings.Fields — full shell quoting is not supported).
 func (c *Config) GetEditorCommand() (string, []string) {
 	if bin, args := splitEditorCommand(c.editor.Command); bin != "" {
 		return bin, append(args, c.editor.Args...)
@@ -663,12 +663,6 @@ func splitEditorCommand(value string) (string, []string) {
 	default:
 		return fields[0], fields[1:]
 	}
-}
-
-// ProfileDefinition returns the named profile definition and whether it exists.
-func (c *Config) ProfileDefinition(name string) (Profile, bool) {
-	p, ok := c.profiles.Definitions[name]
-	return p, ok
 }
 
 // DefaultAgentProfiles returns the profiles composed by the always-bound
@@ -1064,12 +1058,12 @@ func Load(opts ...LoadOption) (*Config, error) {
 	defer ambientMu.Unlock()
 
 	stamp := ambientStamp()
-	if ambientCfg != nil && ambientErr == nil && stamp == ambientAt {
+	if ambientCfg != nil && stamp == ambientAt {
 		return ambientCfg, nil
 	}
 
 	cfg, err := loadUncached()
-	ambientCfg, ambientErr, ambientAt = cfg, err, stamp
+	ambientCfg, ambientAt = cfg, stamp
 	return cfg, err
 }
 
@@ -1087,16 +1081,16 @@ func LoadFresh(opts ...LoadOption) (*Config, error) {
 func Invalidate() {
 	ambientMu.Lock()
 	defer ambientMu.Unlock()
-	ambientCfg, ambientErr, ambientAt = nil, nil, ""
+	ambientCfg, ambientAt = nil, ""
 }
 
 // ambient* memoize the no-arg Load. ambientAt is the stat stamp of the
 // config.yaml the memo was built from; a mismatch (or an unfindable file) means
-// re-read. Errors are NOT memoized as successes: a failed load re-attempts.
+// re-read. Errors are NOT memoized as successes: a failed load leaves
+// ambientCfg nil, so a failed load re-attempts.
 var (
 	ambientMu  sync.Mutex
 	ambientCfg *Config
-	ambientErr error
 	ambientAt  string
 )
 
@@ -2058,18 +2052,6 @@ func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string
 		return "", nil
 	}
 	return signing.VerifyPublisher(data, sig, root, time.Now())
-}
-
-// SourceName returns a human-readable name for the config source.
-func (c *Config) SourceName() string {
-	switch c.source {
-	case SourceProject:
-		return "project"
-	case SourceHome:
-		return "home"
-	default:
-		return "unknown"
-	}
 }
 
 // GetConfigFilePath returns the path to the primary config file.

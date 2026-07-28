@@ -70,17 +70,6 @@ func IsSeededPath(path string) bool {
 	return strings.HasPrefix(path, SeededProfilePathPrefix)
 }
 
-// ParseProfile unmarshals profile YAML into a Profile. Name and Path are not
-// set (they are not encoded in the file); callers assign them. Used to parse
-// remote profiles read from the git clone cache before seeding the loader.
-func ParseProfile(data []byte) (*Profile, error) {
-	var p Profile
-	if err := yaml.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("invalid YAML: %w", err)
-	}
-	return &p, nil
-}
-
 // ResolveShortRefs rewrites this profile's bundle and parent references from
 // short same-repo form to canonical form, resolved against sourceURL (the repo
 // the profile was read from). Self-contained refs pass through unchanged. This
@@ -430,11 +419,16 @@ func (l *Loader) List() ([]*Profile, error) {
 	var profiles []*Profile
 	seen := make(map[string]bool)
 
-	// Seeded remote profiles take precedence and are emitted first — they carry
-	// a non-fs Path (the canonical ref) so write paths never touch them.
-	for name, p := range l.seeded {
+	// Seeded remote profiles are emitted first — they carry a non-fs Path (the
+	// canonical ref) so write paths never touch them. This is NOT a precedence
+	// guard against the fs loop below: a seed key always contains "#profiles/"
+	// (built by remote.BundleProfileRef), while the fs loop keys seen by a
+	// .yaml-stripped relative path that never contains that substring, so
+	// `seen[profileName]` there can never match a seeded entry — both a
+	// same-named seeded and on-disk profile are emitted, unlike Load's
+	// (lookupSeeded) precedence. See U091-F17.
+	for _, p := range l.seeded {
 		profiles = append(profiles, p)
-		seen[name] = true
 	}
 
 	for _, dir := range l.dirs {

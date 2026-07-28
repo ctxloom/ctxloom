@@ -11,7 +11,6 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -19,7 +18,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -682,11 +680,6 @@ func (s *BundleSkill) ComputeContentHash(fsys afero.Fs, bundleDir, skillName str
 	return hashContent(data)
 }
 
-// SkillCount returns the number of Agent Skill packages in the bundle.
-func (b *Bundle) SkillCount() int {
-	return len(b.Skills)
-}
-
 // SkillNames returns sorted skill names.
 func (b *Bundle) SkillNames() []string {
 	return slices.Sorted(maps.Keys(b.Skills))
@@ -849,11 +842,6 @@ func (b *Bundle) PromptNames() []string {
 	return slices.Sorted(maps.Keys(b.Commands))
 }
 
-// HasProfiles reports whether the bundle ships any profiles.
-func (b *Bundle) HasProfiles() bool {
-	return len(b.Profiles) > 0
-}
-
 // ProfileCount returns the number of profiles in the bundle.
 func (b *Bundle) ProfileCount() int {
 	return len(b.Profiles)
@@ -862,22 +850,6 @@ func (b *Bundle) ProfileCount() int {
 // ProfileNames returns sorted profile names.
 func (b *Bundle) ProfileNames() []string {
 	return slices.Sorted(maps.Keys(b.Profiles))
-}
-
-// AllTags returns all unique tags from bundle and its contents.
-func (b *Bundle) AllTags() []string {
-	tagSet := collections.NewSet[string]()
-	tagSet.AddAll(b.Tags...)
-	for _, f := range b.Fragments {
-		tagSet.AddAll(f.Tags...)
-	}
-	for _, p := range b.Commands {
-		tagSet.AddAll(p.Tags...)
-	}
-
-	tags := tagSet.Items()
-	sort.Strings(tags)
-	return tags
 }
 
 // ParseBundle parses raw YAML into a Bundle.

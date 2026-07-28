@@ -11,28 +11,44 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
+// orderedSet accumulates comparable values into an insertion-ordered,
+// deduplicated set — the shape every one of profileBuilder's addX methods
+// used to hand-roll separately as a (collections.Set[T], []T) field pair.
+type orderedSet[T comparable] struct {
+	seen  collections.Set[T]
+	order []T
+}
+
+func newOrderedSet[T comparable]() orderedSet[T] {
+	return orderedSet[T]{seen: collections.NewSet[T]()}
+}
+
+// Add inserts v if not already present, preserving first-seen order.
+func (s *orderedSet[T]) Add(v T) {
+	if !s.seen.Has(v) {
+		s.seen.Add(v)
+		s.order = append(s.order, v)
+	}
+}
+
+// Items returns the values in insertion order.
+func (s orderedSet[T]) Items() []T { return s.order }
+
 // profileBuilder collects profile fields using sets to avoid duplicates during inheritance.
 type profileBuilder struct {
-	Description string
-	LLM         string
-	Tags        collections.Set[string]
-	SelectTags  collections.Set[string]
-	Bundles     collections.Set[string]
-	BundleItems collections.Set[string]
-	Fragments   collections.Set[string]
-	Commands    collections.Set[string]
-	Skills      collections.Set[string]
-	Variables   map[string]string
-	Hooks       wire.HooksConfig
-	MCP         wire.MCPConfig
-	// Track insertion order for stable output
-	tagsOrder        []string
-	selectTagsOrder  []string
-	bundlesOrder     []string
-	bundleItemsOrder []string
-	commandsOrder    []string
-	skillsOrder      []string
-	fragmentsOrder   []FragmentRef
+	Description    string
+	LLM            string
+	Tags           orderedSet[string]
+	SelectTags     orderedSet[string]
+	Bundles        orderedSet[string]
+	BundleItems    orderedSet[string]
+	Fragments      collections.Set[string]
+	Commands       orderedSet[string]
+	Skills         orderedSet[string]
+	Variables      map[string]string
+	Hooks          wire.HooksConfig
+	MCP            wire.MCPConfig
+	fragmentsOrder []FragmentRef
 	// Track fragment priorities (keep highest when same fragment referenced multiple times)
 	fragmentPriorities map[string]int
 	// Track seen hooks by key (command+matcher) for deduplication
@@ -48,13 +64,13 @@ type profileBuilder struct {
 
 func newProfileBuilder() *profileBuilder {
 	return &profileBuilder{
-		Tags:               collections.NewSet[string](),
-		SelectTags:         collections.NewSet[string](),
-		Bundles:            collections.NewSet[string](),
-		BundleItems:        collections.NewSet[string](),
+		Tags:               newOrderedSet[string](),
+		SelectTags:         newOrderedSet[string](),
+		Bundles:            newOrderedSet[string](),
+		BundleItems:        newOrderedSet[string](),
 		Fragments:          collections.NewSet[string](),
-		Commands:           collections.NewSet[string](),
-		Skills:             collections.NewSet[string](),
+		Commands:           newOrderedSet[string](),
+		Skills:             newOrderedSet[string](),
 		Variables:          make(map[string]string),
 		fragmentPriorities: make(map[string]int),
 		Hooks: wire.HooksConfig{
@@ -68,54 +84,6 @@ func newProfileBuilder() *profileBuilder {
 		ExcludeFragments: collections.NewSet[string](),
 		ExcludeMCP:       collections.NewSet[string](),
 		DenyTools:        collections.NewSet[string](),
-	}
-}
-
-func (b *profileBuilder) addTag(tag string) {
-	if !b.Tags.Has(tag) {
-		b.Tags.Add(tag)
-		b.tagsOrder = append(b.tagsOrder, tag)
-	}
-}
-
-func (b *profileBuilder) addSelectTag(tag string) {
-	if !b.SelectTags.Has(tag) {
-		b.SelectTags.Add(tag)
-		b.selectTagsOrder = append(b.selectTagsOrder, tag)
-	}
-}
-
-func (b *profileBuilder) addBundle(bundle string) {
-	if !b.Bundles.Has(bundle) {
-		b.Bundles.Add(bundle)
-		b.bundlesOrder = append(b.bundlesOrder, bundle)
-	}
-}
-
-func (b *profileBuilder) addBundleItem(item string) {
-	if !b.BundleItems.Has(item) {
-		b.BundleItems.Add(item)
-		b.bundleItemsOrder = append(b.bundleItemsOrder, item)
-	}
-}
-
-// addCommand accumulates a curated command ref, deduping by its authored
-// string (the version-agnostic identity is the stored ref) so a profile and
-// its parents union without repeating an entry. Insertion order is preserved
-// for a stable export set.
-func (b *profileBuilder) addCommand(command string) {
-	if !b.Commands.Has(command) {
-		b.Commands.Add(command)
-		b.commandsOrder = append(b.commandsOrder, command)
-	}
-}
-
-// addSkill accumulates a curated skill ref, deduping by its authored string —
-// the skill counterpart of addCommand.
-func (b *profileBuilder) addSkill(skill string) {
-	if !b.Skills.Has(skill) {
-		b.Skills.Add(skill)
-		b.skillsOrder = append(b.skillsOrder, skill)
 	}
 }
 
@@ -156,12 +124,6 @@ func (b *profileBuilder) addHook(event string, hooks *[]wire.Hook, h wire.Hook) 
 		b.seenHooks.Add(key)
 		*hooks = append(*hooks, h)
 	}
-}
-
-// mergeMCP merges MCP config from source into the builder.
-// Later sources override earlier ones for the same server name.
-func (b *profileBuilder) mergeMCP(source wire.MCPConfig) {
-	wire.MergeMCPConfig(&b.MCP, &source)
 }
 
 // mergeHookSlice merges source hooks into dest, deduping within the given
@@ -257,13 +219,13 @@ func (b *profileBuilder) toProfile() *Profile {
 	return &Profile{
 		Description:      b.Description,
 		LLM:              b.LLM,
-		Tags:             b.tagsOrder,
-		SelectTags:       b.selectTagsOrder,
-		Bundles:          b.bundlesOrder,
-		BundleItems:      b.bundleItemsOrder,
+		Tags:             b.Tags.Items(),
+		SelectTags:       b.SelectTags.Items(),
+		Bundles:          b.Bundles.Items(),
+		BundleItems:      b.BundleItems.Items(),
 		Fragments:        filteredFragments,
-		Commands:         b.commandsOrder,
-		Skills:           b.skillsOrder,
+		Commands:         b.Commands.Items(),
+		Skills:           b.Skills.Items(),
 		Variables:        b.Variables,
 		Hooks:            b.Hooks,
 		MCP:              filteredMCP,
@@ -354,25 +316,25 @@ func resolveProfileParents(profiles map[string]Profile, profile Profile, name st
 // un-exclude); description comes from the leaf (overwritten by each child).
 func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	for _, tag := range profile.Tags {
-		builder.addTag(tag)
+		builder.Tags.Add(tag)
 	}
 	for _, tag := range profile.SelectTags {
-		builder.addSelectTag(tag)
+		builder.SelectTags.Add(tag)
 	}
 	for _, bundle := range profile.Bundles {
-		builder.addBundle(bundle)
+		builder.Bundles.Add(bundle)
 	}
 	for _, item := range profile.BundleItems {
-		builder.addBundleItem(item)
+		builder.BundleItems.Add(item)
 	}
 	for _, frag := range profile.Fragments {
 		builder.addFragment(frag)
 	}
 	for _, command := range profile.Commands {
-		builder.addCommand(command)
+		builder.Commands.Add(command)
 	}
 	for _, skill := range profile.Skills {
-		builder.addSkill(skill)
+		builder.Skills.Add(skill)
 	}
 	for k, v := range profile.Variables {
 		builder.Variables[k] = v
@@ -380,7 +342,8 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 
 	// Merge hooks (deduplicated by command+matcher) and MCP (later wins).
 	builder.mergeHooks(profile.Hooks)
-	builder.mergeMCP(profile.MCP)
+	mcpSource := profile.MCP
+	wire.MergeMCPConfig(&builder.MCP, &mcpSource)
 
 	for _, frag := range profile.ExcludeFragments {
 		builder.ExcludeFragments.Add(frag)

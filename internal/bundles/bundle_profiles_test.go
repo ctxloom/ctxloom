@@ -33,7 +33,6 @@ profiles:
 	b, err := ParseBundle(data)
 	require.NoError(t, err)
 
-	require.True(t, b.HasProfiles())
 	assert.Equal(t, 1, b.ProfileCount())
 	assert.Equal(t, []string{"reliability-swift"}, b.ProfileNames())
 
@@ -53,7 +52,6 @@ func TestParseBundle_NoProfiles_InitsEmptyMap(t *testing.T) {
 	b, err := ParseBundle([]byte(`version: "1.0.0"`))
 	require.NoError(t, err)
 	assert.NotNil(t, b.Profiles)
-	assert.False(t, b.HasProfiles())
 	assert.Equal(t, 0, b.ProfileCount())
 	assert.Empty(t, b.ProfileNames())
 }

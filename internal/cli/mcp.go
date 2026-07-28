@@ -329,11 +329,16 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !result.Found {
+		// U037-F17: this check used to live INSIDE emit()'s text closure,
+		// which cliemit.Emit only runs for FormatText — every other format
+		// fell through to clifmt.Render(result, format), rendering
+		// {"found":false,...} and exiting 0. Hoisted above emit() so every
+		// format sees the identical error.
+		return fmt.Errorf("MCP server %q not found", name)
+	}
 
 	if err := emit(cmd, result, func() error {
-		if !result.Found {
-			return fmt.Errorf("MCP server %q not found", name)
-		}
 		out := cmd.OutOrStdout()
 		for _, e := range result.Entries {
 			printMCPServerEntry(out, e)
@@ -344,11 +349,12 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Interactive trust review. TTY-gated and json-suppressed so the entry
-	// output above is byte-for-byte unchanged; the review goes to stderr. These
-	// are configured-local servers (first-party, no SetItemTrust ref path), so
-	// the surface reviews the posture rather than offering a t/b action — see
-	// reviewLocalMCPTrust.
-	if mcpShowInteractive && result.Found && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
+	// output above is byte-for-byte unchanged; the review goes to stderr.
+	// result.Found is guaranteed true here (the early return above handles
+	// !Found for every format). These are configured-local servers
+	// (first-party, no SetItemTrust ref path), so the surface reviews the
+	// posture rather than offering a t/b action — see reviewLocalMCPTrust.
+	if mcpShowInteractive && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
 		reviewLocalMCPTrust(cfg, result.Entries)
 	}
 	return nil

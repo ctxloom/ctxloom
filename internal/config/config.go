@@ -1585,15 +1585,11 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	if err == nil {
 		// Walk up the directory tree looking for .ctxloom
 		dir := pwd
-		for {
-			if filepath.Clean(dir) == tempRoot {
-				// Reached the shared OS temp root without finding a project
-				// .ctxloom anywhere beneath it — stop here rather than
-				// resolving to whatever (if anything) lives at tempRoot
-				// itself, and fall through to the home fallback below.
-				break
-			}
-
+		// Loop condition (not an if/break at the top): reached the shared OS
+		// temp root without finding a project .ctxloom anywhere beneath it —
+		// stop here rather than resolving to whatever (if anything) lives at
+		// tempRoot itself, and fall through to the home fallback below.
+		for filepath.Clean(dir) != tempRoot {
 			appPath := filepath.Join(dir, AppDirName)
 			if info, err := fs.Stat(appPath); err == nil && info.IsDir() {
 				return appPath, SourceProject

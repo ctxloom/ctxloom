@@ -7,6 +7,7 @@ package acceptance
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cucumber/godog"
 
@@ -109,10 +110,24 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		if w == nil {
 			return ctx, nil
 		}
-		_ = w.mcp.Close()
-		_ = w.tlMCP.Close()
-		_ = w.env.Cleanup()
-		return ctx, nil
+		// U162-F03: this used to discard all three of these errors, so a
+		// scenario that leaked a subprocess or failed to remove its temp root
+		// reported nothing at all -- testenv.TestEnvironment.Cleanup's own doc
+		// names exactly this discard as the primary, always-reproducible
+		// mechanism behind an observed /tmp leak (see that type's doc).
+		// Returning the first non-nil error lets godog attribute it to the
+		// scenario instead of it vanishing silently.
+		var firstErr error
+		if cerr := w.mcp.Close(); cerr != nil && firstErr == nil {
+			firstErr = fmt.Errorf("mcp client close: %w", cerr)
+		}
+		if cerr := w.tlMCP.Close(); cerr != nil && firstErr == nil {
+			firstErr = fmt.Errorf("taskloom mcp client close: %w", cerr)
+		}
+		if cerr := w.env.Cleanup(); cerr != nil && firstErr == nil {
+			firstErr = fmt.Errorf("env cleanup: %w", cerr)
+		}
+		return ctx, firstErr
 	})
 
 	registerFixtureSteps(ctx)

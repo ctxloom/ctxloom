@@ -439,11 +439,10 @@ func argumentsToRaw(args string) json.RawMessage {
 	// Defensive fallback for a hypothetical non-JSON arguments string: wrap it
 	// as a JSON string literal so ToolInput is always valid JSON, never a raw
 	// byte sequence that breaks a downstream json.Unmarshal. Not observed on
-	// this box (every captured arguments value was valid JSON).
-	wrapped, err := json.Marshal(args)
-	if err != nil {
-		return nil
-	}
+	// this box (every captured arguments value was valid JSON). json.Marshal
+	// of a string cannot fail (invalid UTF-8 is replaced with U+FFFD, never
+	// reported as an error), so there is no error branch to handle here.
+	wrapped, _ := json.Marshal(args)
 	return wrapped
 }
 

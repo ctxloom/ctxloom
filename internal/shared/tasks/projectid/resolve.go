@@ -54,10 +54,31 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 		// discoverable rather than refused outright — but a caller now
 		// gets a warning naming BOTH ids instead of silent, order-dependent
 		// selection.
-		if marker, merr := ReadMarker(projectDir); merr == nil && marker != "" && marker != e.ProjectID {
-			res.Warning = fmt.Sprintf(
-				"%s resolved to project %s by registry lookup, but its own marker names project %s — this directory is registered under two ids; pass --project to pick one explicitly",
-				projectDir, e.ProjectID, marker)
+		if marker, merr := ReadMarker(projectDir); merr == nil {
+			switch {
+			case marker == "":
+				// Self-heal: this package's registry doc already frames
+				// registry+marker as "two places that heal each other",
+				// but only the marker->registry direction (Adopt) was
+				// implemented. A HEALTHY, still-registered tree missing
+				// only its own marker (routinely removed by e.g. `git
+				// clean -xdf` — WriteMarker's own doc: it's gitignored
+				// private working state) is exactly the state
+				// oldTreeGone could later misread as "this tree moved"
+				// the next time some OTHER path resolved to this same id
+				// — re-pointing this project's identity away from the
+				// tree that never actually left, and leaving IT to mint a
+				// brand-new id on its own next resolution, appearing to
+				// have lost every task (U125-F03+F09). Re-write it now,
+				// on the healthy path, before that gap can ever open.
+				// Best-effort: a write failure must not fail an otherwise-
+				// successful resolution.
+				_ = WriteMarker(projectDir, e.ProjectID)
+			case marker != e.ProjectID:
+				res.Warning = fmt.Sprintf(
+					"%s resolved to project %s by registry lookup, but its own marker names project %s — this directory is registered under two ids; pass --project to pick one explicitly",
+					projectDir, e.ProjectID, marker)
+			}
 		}
 		return res, nil
 	}
@@ -153,6 +174,22 @@ func oldTreeGone(oldPath, id string) (gone bool, err error) {
 	marker, readErr := ReadMarker(oldPath)
 	if readErr != nil {
 		return false, readErr
+	}
+	if marker == "" {
+		// A missing marker is NOT evidence of a move: it is gitignored
+		// private working state (WriteMarker's own doc), routinely removed
+		// by e.g. `git clean -xdf` from a tree that never moved at all.
+		// Treating "absent" the same as "names a different id" (both used
+		// to make this function return gone=true) let a markerless-but-
+		// still-there original be silently re-pointed away from ITSELF —
+		// U125-F03+F09. Only a marker naming a DIFFERENT id is real
+		// evidence of a move; report this case as inconclusive instead.
+		// moveOrFork's own fallback already forks (mints a new identity)
+		// rather than repoints on an inconclusive probe, which is the
+		// safe default here too — forking on "can't tell" was always the
+		// intended behavior for a probe failure, this is just one more
+		// shape of "can't tell".
+		return false, fmt.Errorf("projectid: %s has no marker to confirm it is (or is not) still project %s", oldPath, id)
 	}
 	return marker != id, nil
 }

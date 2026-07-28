@@ -208,6 +208,54 @@ func TestResolveForkedInconclusive(t *testing.T) {
 	}
 }
 
+// TestResolveOriginalSurvivesCleanedMarkerWhenCopyResolvesFirst is the
+// flow-level pin for U125-F03+F09 (a defect with no census row of its
+// own — the unit review filed it as a combined "F03 + F09" id the
+// mechanical extraction couldn't parse into a row). The sequence:
+// `git clean -xdf` in a project removes its (gitignored) marker without
+// touching the tree itself; a copy taken earlier still carries the
+// marker. Resolving the COPY first used to have oldTreeGone read the
+// ORIGINAL's now-missing marker as proof it had moved (marker=="" was
+// treated identically to "names a different id"), re-pointing the
+// original's registry entry to the copy. The original, resolved again,
+// then missed by path and had no marker either, minting a brand-new id
+// and appearing to have lost every task.
+func TestResolveOriginalSurvivesCleanedMarkerWhenCopyResolvesFirst(t *testing.T) {
+	m := newManager(t)
+	oldDir := t.TempDir()
+	first := mustResolve(t, m, oldDir) // registers oldDir, writes its marker
+
+	// A copy taken while the marker still existed -- it travels with the
+	// copy.
+	newDir := t.TempDir()
+	if err := WriteMarker(newDir, first.ProjectID); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+	// `git clean -xdf` inside the ORIGINAL: removes only its own marker.
+	// oldDir itself is untouched -- still the same live, registered tree.
+	if err := os.Remove(paths.ProjectMarkerPath(oldDir)); err != nil {
+		t.Fatalf("simulate git clean removing the marker: %v", err)
+	}
+
+	// Resolving the copy first must NOT re-point the original's identity
+	// away from itself just because its marker is temporarily missing --
+	// a missing marker is inconclusive, not proof of a move.
+	copyRes := mustResolve(t, m, newDir)
+	if copyRes.Action != ActionForked {
+		t.Fatalf("copy action = %q, want %q (a markerless-but-live original must be inconclusive, not proof of a move)", copyRes.Action, ActionForked)
+	}
+	if copyRes.ProjectID == first.ProjectID {
+		t.Fatal("the copy must not reuse the original's id")
+	}
+
+	// The original, resolved again, must still resolve to its OWN id --
+	// not mint a fresh one having silently lost it to the copy.
+	origRes := mustResolve(t, m, oldDir)
+	if origRes.ProjectID != first.ProjectID {
+		t.Fatalf("original lost its identity: got %q, want %q (the original's own task log)", origRes.ProjectID, first.ProjectID)
+	}
+}
+
 func TestResolveAdoptUnknownMarker(t *testing.T) {
 	m := newManager(t)
 	dir := t.TempDir()

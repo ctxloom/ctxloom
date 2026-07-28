@@ -127,7 +127,6 @@ package confload
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/knadh/koanf/providers/confmap"
@@ -151,8 +150,10 @@ const delim = "\x1f"
 //   - Name is used as clidiag's "prog" for any warning EnvOverlay/FlagOverlay
 //     emit (e.g. "taskloom: warning: ...").
 //   - DirName/FileName are the conventional per-user/per-project config
-//     location (e.g. ".ctxloom"/"config.yaml"); HomeConfigPath is a small
-//     helper for callers that want to build a Sources from a home directory.
+//     location (e.g. ".ctxloom"/"config.yaml"); each product resolves its own
+//     home-directory path from these today (internal/config's ctxloomProduct,
+//     internal/taskloom/config's product) rather than through a shared helper
+//     here.
 //   - EnvPrefix is the literal prefix an override env var must start with
 //     (e.g. "CTXLOOM_CONFIG_", "TASKLOOM_CONFIG_" — deliberately never a bare
 //     "CTXLOOM_": CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, CTXLOOM_SESSION_HARP,
@@ -176,12 +177,6 @@ type Product struct {
 	FileName  string
 	EnvPrefix string
 	KnownPath func(path []string) bool
-}
-
-// HomeConfigPath joins home/DirName/FileName — the conventional per-user
-// config file location for this product.
-func (p Product) HomeConfigPath(home string) string {
-	return filepath.Join(home, p.DirName, p.FileName)
 }
 
 // Sources is stage-1 bootstrap's output: WHICH files stage 2 (this package)

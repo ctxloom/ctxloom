@@ -515,7 +515,6 @@ func TestConfload_SecondProductReusesPattern(t *testing.T) {
 		FileName:  "config.yaml",
 		EnvPrefix: "TASKLOOM_CONFIG_",
 	}
-	assert.Equal(t, filepath.Join(dir, ".taskloom", "config.yaml"), taskloom.HomeConfigPath(dir))
 
 	o, err := taskloom.ReadOverrides(nil)
 	require.NoError(t, err)

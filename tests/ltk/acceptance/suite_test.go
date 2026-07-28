@@ -79,6 +79,19 @@ func (w *world) markInviolate(command string) error {
 	return nil
 }
 
+// setOnParseErrorDeny switches the project's on_parse_error policy from the
+// default (allow) to deny: an operator opting into "block anything I could
+// not verify". Rebuilds w.app, same as markInviolate above does after
+// mutating w.cfg.
+func (w *world) setOnParseErrorDeny() error {
+	if w.cfg == nil {
+		return fmt.Errorf("no project configured (missing Background)")
+	}
+	w.cfg.Defaults.OnParseError = rules.ActionDeny
+	w.app = app.New(w.cfg)
+	return nil
+}
+
 func (w *world) theAgentRuns(command string) error {
 	if w.app == nil {
 		return fmt.Errorf("no project configured (missing Background)")
@@ -187,6 +200,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	w := &world{fs: afero.NewMemMapFs(), stateFile: filepath.Join(".ltk", "state.json")}
 	sc.Step(`^the project asks agents to use:$`, w.projectRedirects)
 	sc.Step(`^"([^"]*)" is inviolate$`, w.markInviolate)
+	sc.Step(`^defaults\.on_parse_error is deny$`, w.setOnParseErrorDeny)
 	sc.Step(`^the agent runs "([^"]*)"$`, w.theAgentRuns)
 	sc.Step(`^the agent runs "([^"]*)" and is turned away pending confirmation$`, w.theAgentRunsTurnedAwayPending)
 	sc.Step(`^the agent runs "([^"]*)" a second time$`, w.theAgentRunsASecondTime)

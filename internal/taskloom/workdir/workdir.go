@@ -17,23 +17,16 @@ package workdir
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
-// EnvVar is the project-root override variable, shared with ctxloom.
-const EnvVar = "CTXLOOM_ROOT"
-
-var warnOnce sync.Once
-
-// Resolve returns the project work root.
+// Resolve returns the project work root. Resolution delegates entirely to
+// projectroot.WorkDirWithBoundary (U140-F01 — this package no longer keeps
+// its own copy of the env var name, the env-reading step, or the
+// git-root/cwd chain).
 func Resolve() (string, error) {
 	root, _, err := ResolveBoundary()
 	return root, err
@@ -62,7 +55,16 @@ func Resolve() (string, error) {
 // (the primary checkout is gone) is a hard error: this package never falls
 // back to minting a task store nobody will find again.
 func ResolveBoundary() (root string, found bool, err error) {
-	base, found := resolveBase()
+	base, found, berr := projectroot.WorkDirWithBoundary()
+	if berr != nil {
+		// A failing os.Getwd (the only source of this error — see
+		// projectroot.WorkDirWithBoundary) is a hard error here, never
+		// silently treated as "." (U140-F02 — that value was invented by
+		// this package's OWN prior copy of this chain, and could be minted
+		// as a permanent project-registry identity keyed on "wherever any
+		// future process happens to be").
+		return "", false, fmt.Errorf("resolve project work root: %w", berr)
+	}
 	target, terr := projectroot.TaskStoreRoot(afero.NewOsFs(), base)
 	if terr != nil {
 		return "", found, fmt.Errorf("resolve task-store root: %w", terr)
@@ -70,54 +72,3 @@ func ResolveBoundary() (root string, found bool, err error) {
 	return target, found, nil
 }
 
-// resolveBase is ResolveBoundary's chain before the task-store worktree
-// redirect: CTXLOOM_ROOT override, else the enclosing git repository root,
-// else the bare working directory.
-func resolveBase() (root string, found bool) {
-	if r, ok := fromEnv(); ok {
-		return r, true
-	}
-	if r, ok := gitRoot(); ok {
-		return r, true
-	}
-	if wd, err := os.Getwd(); err == nil {
-		return wd, false
-	}
-	return ".", false
-}
-
-// fromEnv returns (root, true) when CTXLOOM_ROOT is set and names an existing
-// directory, where root is its cleaned absolute path. When set but invalid it
-// warns to stderr once per process and returns ("", false). When unset it
-// returns ("", false) with no warning.
-func fromEnv() (string, bool) {
-	raw, set := os.LookupEnv(EnvVar)
-	if !set || raw == "" {
-		return "", false
-	}
-	abs, err := filepath.Abs(raw)
-	if err == nil {
-		abs = filepath.Clean(abs)
-		if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
-			return abs, true
-		}
-	}
-	warnOnce.Do(func() {
-		clidiag.Warn("taskloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, raw)
-	})
-	return "", false
-}
-
-// gitRoot resolves the enclosing git repository root (worktrees and submodules
-// included) via go-git, returning ("", false) when cwd isn't inside a repo.
-func gitRoot() (string, bool) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", false
-	}
-	root, err := gitutil.FindRoot(dir)
-	if err != nil {
-		return "", false
-	}
-	return root, true
-}

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **370** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **387** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 7 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 4 |
-| `open` | no commit names this ID | **1,877** |
+| `open` | no commit names this ID | **1,860** |
 
-**Totals: 2268 findings across 162 units — 370 resolved, 1877 still open, 21 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
+**Totals: 2268 findings across 162 units — 387 resolved, 1860 still open, 21 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started).
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -38,6 +38,25 @@ map/weave defect was already closed by a DIFFERENT unit's fix, U085-F06),
 not a code defect to fix). 6 rows (U041-F06, U098-F04, U114-F01/F02,
 U116-F01, U118-F01) remain open, evidenced, deliberately not fixed this
 wave — see the batch's own report for why each was deferred.)
+Updated again 2026-07-27 during the delegation-flow batch (`flow/delegation-
+wave1`): 18 HIGH rows extracted across U016/U019/U020/U021/U022/U023/U024/
+U025/U026/U027/U038/U085 (stripping `*` from `**HIGH**` per the known
+under-scoping trap), cross-checked against the task's own stated HIGH count
+(18) via findings-index `open` status — matched exactly. 17 RESOLVED this
+wave: U019-F01/F02, U020-F01/F03/F04, U021-F01/F02, U022-F01/F08/F20,
+U024-F03/F04, U025-F02, U038-F01/F02/F03. U020-F02 RESOLVED but citing
+`7d21e305` — already fixed by the U023-F17 commit (startRunPayloadErr,
+which subsumes non-owner children too), the census predating it. 1 row
+(U085-F05, profile_materialize.go) was RE-HOMED, not adjudicated: it is
+domain (d) of U085's four-unrelated-domains package ("profile CRUD +
+import/export + native-surface materialization"), not the delegation
+flow's oneshot.go choke point — left `open` here for whichever batch
+takes the profile-materialize flow. A separately filed defect with no
+census row (sudsy-patio, StartOwnedRun's issueStartRun failure path) was
+investigated and REFUTED with a passing regression test: issueStartRun
+already calls failChild on every one of its own error-return paths
+before returning, so the bare `return nil, err` one level up does not
+skip cleanup as the filed report assumed.
 Updated again 2026-07-27 during the `nervy-carol` materialize-flow batch
 (`flow/materialize-wave1`): all 15 HIGH rows adjudicated by walking the
 materialize flow (assembled context -> engine-native bytes) tip-to-tail —
@@ -124,7 +143,7 @@ RESOLVED 353->370, PARTIAL 6->7, open 1895->1877, HIGH resolved 206->223.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 223 | 152 (+6 refuted, +2 escalated, +7 partial) |
+| HIGH | 376 | 240 | 135 (+6 refuted, +2 escalated, +7 partial) |
 | MED | 999 | 41 | 956 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -231,17 +250,17 @@ Full evidence and the suggested action for any row live in its source review at 
 | U016-F08 | **RESOLVED** `b4111b4f` | `coordination.proto:323-325` | CORRECTNESS | `HarnessSpec.extra_args` documents a security control that does not exist: "runner-validated against an allowlist — the runner has direct CLI control and is the enforcement point." There is no allo... | U016.md |
 | U016-F10 | **RESOLVED** `b4111b4f` | `coordination.proto:453-455,483-484` | CORRECTNESS | The event-plane resume/backpressure contract is a documented no-op. `HelloAck.committed_seq` is described as "the authoritative resume cursor" but the coordinator echoes back whatever the agent cla... | U016.md |
 | U016-F18 | **RESOLVED** `45abcfd3` | `artifacts.proto:120,5; coordination.proto:1232` | SILENTNOOP | The artifact publish path caps the maximum size and never the minimum: a 0-byte file uploads, journals, and returns a success receipt. | U016.md |
-| U019-F01 | open | `checkpoint.go:40–46` | CORRECTNESS | The checkpoint records a journal offset that does **not** correspond to the fold state it saves. `c.items.Offset()` takes and releases `RLock` (journal.go:125–127); `c.items.View()` then takes `RLo... | U019.md |
-| U019-F02 | open | `artifacts.go:81, artifactstore.go:88` | SILENTNOOP | `UploadArtifact` accepts an upload that delivers **zero bytes** and returns an OK `ArtifactReceipt`. `header.size_bytes` is checked against the cap (artifacts.go:102) and then never compared to wha... | U019.md |
-| U020-F01 | open | **`children.go:1261-1269, 1237-1245, 1732-1743, 1754-1768`** | CORRECTNESS | `childRt.slotHeld` conflates "holds a slot" with "intends to acquire one", so a concurrent `releaseSlot`/`onRolePark` inside the claim window either releases a slot that was never acquired (inflati... | U020.md |
-| U020-F02 | open | **`children.go:645-646, 670-676`** | SILENTNOOP | A run can be started with **no input at all** and reported as a complete success. | U020.md |
-| U020-F03 | open | **`children.go:900, 930-932`** | CORRECTNESS | A child's whole turn output is destroyed if the mailbox journal write fails — the accumulator is cleared *before* the delivery attempt and there is no retry or restore. | U020.md |
-| U020-F04 | open | **`children.go:917-921`** | SILENTNOOP | The one diagnostic for "this child's turn produced nothing" goes to a channel the only party who needs it cannot read. | U020.md |
-| U021-F01 | open | `enginehost.go:322-341` | CORRECTNESS | A child can receive coordinator mail as its **first** turn and its briefing (composed context + prompt) second. Every signal reports success. | U021.md |
-| U021-F02 | open | `coordinator.go:590` | DEAD + CORRECTNESS | `RevokeSessionOwner` has **zero** call sites anywhere in the repo, so depth-0 session-owner credentials are **never revoked**. `doc.go:16-18` asserts "revocation at run end severs the credential's ... | U021.md |
-| U022-F01 | open | **`home.go:646-652`** | CORRECTNESS | `abandonPark` **drops a delivered mail batch**. The comment says "requeue"; no requeue exists. | U022.md |
-| U022-F08 | open | `homeartifacts.go:36, 88` | SILENTNOOP | A zero-byte artifact uploads, journals, and downloads as a full success. Nothing on the path rejects empty content. | U022.md |
-| U022-F20 | open | **`items.go:110-128`** | CORRECTNESS | A failed items-journal append **loses the facts permanently and then acks past them**, so the runner drops them from `unacked` too. | U022.md |
+| U019-F01 | **RESOLVED** `c6c0a82b` | `checkpoint.go:40–46` | CORRECTNESS | The checkpoint records a journal offset that does **not** correspond to the fold state it saves. `c.items.Offset()` takes and releases `RLock` (journal.go:125–127); `c.items.View()` then takes `RLo... | U019.md |
+| U019-F02 | **RESOLVED** `c6c0a82b` | `artifacts.go:81, artifactstore.go:88` | SILENTNOOP | `UploadArtifact` accepts an upload that delivers **zero bytes** and returns an OK `ArtifactReceipt`. `header.size_bytes` is checked against the cap (artifacts.go:102) and then never compared to wha... | U019.md |
+| U020-F01 | **RESOLVED** `c2c4195d` | **`children.go:1261-1269, 1237-1245, 1732-1743, 1754-1768`** | CORRECTNESS | `childRt.slotHeld` conflates "holds a slot" with "intends to acquire one", so a concurrent `releaseSlot`/`onRolePark` inside the claim window either releases a slot that was never acquired (inflati... | U020.md |
+| U020-F02 | **RESOLVED** `7d21e305` | **`children.go:645-646, 670-676`** | SILENTNOOP | A run can be started with **no input at all** and reported as a complete success. | U020.md |
+| U020-F03 | **RESOLVED** `e1d59a81` | **`children.go:900, 930-932`** | CORRECTNESS | A child's whole turn output is destroyed if the mailbox journal write fails — the accumulator is cleared *before* the delivery attempt and there is no retry or restore. | U020.md |
+| U020-F04 | **RESOLVED** `e1d59a81` | **`children.go:917-921`** | SILENTNOOP | The one diagnostic for "this child's turn produced nothing" goes to a channel the only party who needs it cannot read. | U020.md |
+| U021-F01 | **RESOLVED** `561c0963` | `enginehost.go:322-341` | CORRECTNESS | A child can receive coordinator mail as its **first** turn and its briefing (composed context + prompt) second. Every signal reports success. | U021.md |
+| U021-F02 | **RESOLVED** `af061e69` | `coordinator.go:590` | DEAD + CORRECTNESS | `RevokeSessionOwner` has **zero** call sites anywhere in the repo, so depth-0 session-owner credentials are **never revoked**. `doc.go:16-18` asserts "revocation at run end severs the credential's ... | U021.md |
+| U022-F01 | **RESOLVED** `9f8a090f` | **`home.go:646-652`** | CORRECTNESS | `abandonPark` **drops a delivered mail batch**. The comment says "requeue"; no requeue exists. | U022.md |
+| U022-F08 | **RESOLVED** `9f8a090f` | `homeartifacts.go:36, 88` | SILENTNOOP | A zero-byte artifact uploads, journals, and downloads as a full success. Nothing on the path rejects empty content. | U022.md |
+| U022-F20 | **RESOLVED** `9f8a090f` | **`items.go:110-128`** | CORRECTNESS | A failed items-journal append **loses the facts permanently and then acks past them**, so the runner drops them from `unacked` too. | U022.md |
 | U023-F01 | **RESOLVED** `ea83598d` | `ladder.go:212-218` + `ladder.go:256-260` | CORRECTNESS | A future-added `ApprovalKind` silently converts a *targeted* ladder rung into a *catch-all* on journal replay — a privilege escalation. | U023.md |
 | U023-F02 | **RESOLVED** `fe525dbb` | `launchgate.go:287-295` + `launchgate.go:309-322` | CORRECTNESS | The retry budget bounds *launch failures only*. A child that attaches and then dies without consuming its mail relaunches forever at **zero backoff** — the exact 2026-07-24 incident shape through a... | U023.md |
 | U023-F03 | **RESOLVED** `c62efae0` | `mailbox.go:184-188` | SILENTNOOP | `takeNextMail`'s journal-error path leaves the message id reserved forever and returns `(Message{}, false)` with the error swallowed — the message becomes permanently invisible and the caller start... | U023.md |
@@ -249,10 +268,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U023-F24 | **RESOLVED** `5ce9f7e7` | `reports.go:105-110` + `reports.go:181` | CORRECTNESS | The summary dedupe key is `(harp, seq)`, but `seq` is a **per-run** counter that restarts at 1 on every resume. Every `agent_report` from a resumed child whose seq has not yet exceeded the previous... | U023.md |
 | U024-F01 | **RESOLVED** `ff151a53` `19198890` | `runchannel.go:183-199` | CORRECTNESS / SILENTNOOP | A RunChannel **reconnect** permanently strands every message tentatively pushed to the old channel: the mail is never re-delivered and `agent_send` already reported success. | U024.md |
 | U024-F02 | **RESOLVED** `19198890` | `runchannel.go:414-420` | SILENTNOOP | When the 64-frame send pump is full, `pushMail` drops the notice but leaves the id **reserved**, so a still-live child never receives that message — and the sender was told the send succeeded. | U024.md |
-| U024-F03 | open | `spawner.go:487-495` | SILENTNOOP | `ResumeContext` silently primes a resumed child with **no history** when the transcript renders empty; only the error branch warns. | U024.md |
-| U024-F04 | open | `runchannel.go:785-812` | CORRECTNESS / DUPLICATE | Plane-2 `agent_stop` (the path a coordinator-capable CHILD uses to stop a grandchild) **never cancels the launch**, so an armed relaunch or an in-flight container prepare carries on behind a respon... | U024.md |
+| U024-F03 | **RESOLVED** `f84d0b26` | `spawner.go:487-495` | SILENTNOOP | `ResumeContext` silently primes a resumed child with **no history** when the transcript renders empty; only the error branch warns. | U024.md |
+| U024-F04 | **RESOLVED** `f84d0b26` | `runchannel.go:785-812` | CORRECTNESS / DUPLICATE | Plane-2 `agent_stop` (the path a coordinator-capable CHILD uses to stop a grandchild) **never cancels the launch**, so an armed relaunch or an in-flight container prepare carries on behind a respon... | U024.md |
 | U024-F05 | **RESOLVED** `b23a9334` | `runchannel.go:745-758` | SILENTNOOP | `agent_run` answers `"spawned <harp> (engine X, runtime container)"` **before any spawn has been attempted** — the disposition asserts a fact that the known container-delivery defect makes false, a... | U024.md |
-| U025-F02 | open | `discover.go:57-59`, `:61`, `:66-68`, `:70-72` | SILENTNOOP | Six failure modes collapse into an empty result with no error channel, and the only consumer turns that into a diagnostic that asserts the opposite of the truth ("no `~/.ctxloom/coord/*/endpoint.js... | U025.md |
+| U025-F02 | **RESOLVED** `ffe6c1b6` | `discover.go:57-59`, `:61`, `:66-68`, `:70-72` | SILENTNOOP | Six failure modes collapse into an empty result with no error channel, and the only consumer turns that into a diagnostic that asserts the opposite of the truth ("no `~/.ctxloom/coord/*/endpoint.js... | U025.md |
 | U028-F01 | **RESOLVED** `f8c13d8b` | `operations/agents.go:191`, `:197`; `cli/agent.go:243` | CORRECTNESS | `ctxloom agent set` is documented to users as an **update** but is a whole-record **replace**, so every axis the caller does not re-supply on that invocation is silently destroyed — not just `Escal... | U028.md |
 | U028-F02 | **RESOLVED** `dfa12019` | **`agents.go:92`; `operations/agents.go:96-113`, `:20-42`, `:191`** | CORRECTNESS | `Agent.Escalation` — the approval-policy ladder — has **no write path, no read-back path, and is destroyed by the only CLI write**. It is settable only by hand-editing YAML, invisible in every list... | U028.md |
 | U028-F03 | **RESOLVED** `dfa12019` | **`agents.go:203-212`** | SILENTNOOP | `ParseAgent` succeeds on empty, comments-only, or entirely-mistyped input, producing a blank binding rather than failing — a named agent that composes nothing, created without a single diagnostic. | U028.md |
@@ -281,9 +300,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U037-F03 | open | `llm_runner_common.go:62-65` | SILENTNOOP | `llm serve` / `llm host` / `llm turn` — three process-owning entry points that load a config and then launch an engine — call `config.Load()` directly and never call `printConfigWarnings` or `failO... | U037.md |
 | U037-F04 | open | `llm_resolve.go:89-100 + run.go:616, 1008-1024` | CORRECTNESS | The config key `binary_path` has two mutually incompatible meanings decided by an unexported type switch, and only three of six backends get the second one. For claude-code/antigravity/codex a non-... | U037.md |
 | U037-F05 | open | `llm_runner_common.go:94-112` | SILENTNOOP | When `config.Load()` fails, `standUpRunner` skips the entire runner-MCP block (`if cfg != nil`) yet still binds the `EngineHost` and lets the engine launch — the exact "hosted delegated run with no... | U037.md |
-| U038-F01 | open | `mcp_runner.go:230` | CORRECTNESS | The runner's cell-path boundary is anchored to the wrong directory: `cwd` comes from the runner's own `os.Getwd()`, which is the **coordinator's** cwd, not the cell work dir the harness actually ru... | U038.md |
-| U038-F02 | open | `mcp_runner.go:521-528` | SILENTNOOP | `recvHandler` permanently loses any mailbox message whose protojson/JSON round-trip fails, and returns SUCCESS. | U038.md |
-| U038-F03 | open | `mcp_forward.go:129-134, 102-123` | SILENTNOOP / ERRHANDLING | The forward proxy will happily stand up an **empty** surface, contradicting its own stated contract, and it discards every resource-listing error while claiming otherwise. | U038.md |
+| U038-F01 | **RESOLVED** `bdaae57b` | `mcp_runner.go:230` | CORRECTNESS | The runner's cell-path boundary is anchored to the wrong directory: `cwd` comes from the runner's own `os.Getwd()`, which is the **coordinator's** cwd, not the cell work dir the harness actually ru... | U038.md |
+| U038-F02 | **RESOLVED** `6230732a` | `mcp_runner.go:521-528` | SILENTNOOP | `recvHandler` permanently loses any mailbox message whose protojson/JSON round-trip fails, and returns SUCCESS. | U038.md |
+| U038-F03 | **RESOLVED** `6230732a` | `mcp_forward.go:129-134, 102-123` | SILENTNOOP / ERRHANDLING | The forward proxy will happily stand up an **empty** surface, contradicting its own stated contract, and it discards every resource-listing error while claiming otherwise. | U038.md |
 | U039-F01 | **RESOLVED** `2822f26e` | `mcp_tools_memory.go:186-195` | CORRECTNESS | `compact_session` with an explicit `session_id` distills someone else's session but keys the output under the **caller's** harp — writing the essence into the caller's harp dir and mutating the cal... | U039.md |
 | U039-F02 | **RESOLVED** `866345c0` | `remote.go:220-239, 271-281` | CORRECTNESS | `ctxloom remote pull` exits 0 when dependencies failed or were retracted — the failures are printed to stdout only. | U039.md |
 | U039-F03 | **RESOLVED** `866345c0` | `remote_browse.go:42-50, 77-80` | SILENTNOOP | A failed remote browse reports `"No bundles found in <remote>"` and exits 0 — the canonical exit-0-zero-payload defect, and the message asserts a false fact (the remote may be full of bundles). | U039.md |

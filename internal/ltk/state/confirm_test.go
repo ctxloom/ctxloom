@@ -84,3 +84,41 @@ func TestConfirmByRepeatReportsSaveError(t *testing.T) {
 		t.Fatal("a Save failure on a read-only store must be reported, not swallowed")
 	}
 }
+
+// TestConfirmByRepeatTooEarlyDoesNotWrite pins U076-F07: an over-eager repeat
+// (still inside the delay) must not persist changed state -- nothing armed or
+// cleared changes on this path, so it must attempt no write. Proven the hard
+// way: arm on a writable fs, snapshot the resulting bytes onto a SEPARATE
+// read-only fs, then repeat too early against that read-only copy. If the
+// too-early branch still called Store.Save (as it did before this fix), this
+// would fail with a permission error, exactly like
+// TestConfirmByRepeatReportsSaveError's arm-branch case above -- the only
+// difference here is that nothing changed, so there is nothing to persist.
+func TestConfirmByRepeatTooEarlyDoesNotWrite(t *testing.T) {
+	const delay, window = 10 * time.Second, 30 * time.Second
+	t0 := time.Unix(1_000_000, 0)
+	denied := engine.Response{Allow: false, Reason: "use just test"}
+
+	writable := afero.NewMemMapFs()
+	if _, _, err := ConfirmByRepeat(writable, denied, "go test", "s.json", t0, delay, window); err != nil {
+		t.Fatalf("arming on a writable fs: %v", err)
+	}
+	armed, err := afero.ReadFile(writable, "s.json")
+	if err != nil {
+		t.Fatalf("read back armed state: %v", err)
+	}
+
+	frozen := afero.NewMemMapFs()
+	if err := afero.WriteFile(frozen, "s.json", armed, 0o644); err != nil {
+		t.Fatalf("seed frozen fs: %v", err)
+	}
+	readOnly := afero.NewReadOnlyFs(frozen)
+
+	_, ok, err := ConfirmByRepeat(readOnly, denied, "go test", "s.json", t0.Add(2*time.Second), delay, window)
+	if ok {
+		t.Fatal("a too-early repeat must not be honored")
+	}
+	if err != nil {
+		t.Fatalf("a too-early repeat changes nothing and must not attempt a write, got: %v", err)
+	}
+}

@@ -100,6 +100,16 @@ func expandCommand(ctx context.Context, commands *SessionCommands, text string) 
 	if !ok {
 		return text, false, nil
 	}
+	// U014-F02 (route b): a matched command resolving to an empty string used
+	// to be treated as a successful expansion — handlePrompt would then
+	// overwrite the turn's text with "" and send the engine a zero-byte
+	// message, reporting success. An empty resolution is exactly as much a
+	// resolve FAILURE as commands.Resolve returning an error would have been:
+	// this command has nothing to say, so send nothing is wrong, not the
+	// "expansion" this function's contract promises.
+	if expanded == "" {
+		return text, false, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "ctxloom acp: command /" + name + " resolved to no content — refusing rather than sending the engine an empty message"}
+	}
 	return expanded, true, nil
 }
 

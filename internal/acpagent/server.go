@@ -578,6 +578,17 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 		blocks = expandedCommandBlocks(blocks, expanded)
 	}
 
+	// U014-F02 (route a): a session/prompt whose blocks are ALL unrecognized
+	// variants flattens to text == "" via promptText's switch (no default
+	// case) and blocks == nil via contentBlocksFromACP's identical switch — a
+	// zero-byte message forwarded to the engine as an ordinary, successful
+	// turn. Refused here, before a turn is even registered, naming the cause
+	// rather than silently running the engine on nothing.
+	if text == "" && len(blocks) == 0 {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "session/prompt: the prompt has no content ctxloom recognizes (no text/resource/resourceLink/image/audio block) — refusing rather than sending the engine an empty message"})
+		return
+	}
+
 	sess.mu.Lock()
 	if sess.inTurn {
 		sess.mu.Unlock()

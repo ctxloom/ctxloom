@@ -122,10 +122,10 @@ type Agent struct {
 }
 
 // DrivingMode is Agent.Driving's enum: the per-turn execution axis a binding
-// declares. See Agent.Driving's doc for the model; ParseDrivingMode/
-// ValidateDriving are the single accessor pair every load path (ParseAgent,
-// operations.resolveAgentBinding, operations.SetAgent) validates through, so
-// the accepted vocabulary lives in exactly one place.
+// declares. See Agent.Driving's doc for the model; ValidateDriving is the
+// single accessor every load path (ParseAgent, operations.resolveAgentBinding,
+// operations.SetAgent) validates through, so the accepted vocabulary lives in
+// exactly one place.
 type DrivingMode string
 
 const (
@@ -146,14 +146,14 @@ func DrivingModeNames() []string {
 	return []string{string(DrivingConversational), string(DrivingOneshot)}
 }
 
-// ParseDrivingMode maps a config/CLI string to a DrivingMode. Unlike
+// parseDrivingMode maps a config/CLI string to a DrivingMode. Unlike
 // ParsePermissionMode it is NOT lenient: driving controls whether a child's
 // engine process survives past a turn boundary, so a typo silently resolving
 // to the default would be a silent, behavior-changing no-op (the class of bug
 // this project treats as its worst). Empty parses as DrivingConversational
 // (the documented default); anything else must match exactly one of
 // DrivingModeNames() or ok is false.
-func ParseDrivingMode(s string) (DrivingMode, bool) {
+func parseDrivingMode(s string) (DrivingMode, bool) {
 	switch DrivingMode(s) {
 	case "":
 		return DrivingConversational, true
@@ -170,7 +170,7 @@ func ParseDrivingMode(s string) (DrivingMode, bool) {
 // agents that bypass ParseAgent entirely), and operations.SetAgent (the CLI
 // write path, so a typo is caught before it is ever persisted) all call.
 func ValidateDriving(d DrivingMode) error {
-	if _, ok := ParseDrivingMode(string(d)); !ok {
+	if _, ok := parseDrivingMode(string(d)); !ok {
 		return fmt.Errorf("invalid driving %q (known: %s)", string(d), strings.Join(DrivingModeNames(), "|"))
 	}
 	return nil
@@ -233,21 +233,14 @@ type Loader struct {
 	fs   afero.Fs
 }
 
-// LoaderOption configures a Loader.
-type LoaderOption func(*Loader)
-
-// WithFS sets a custom filesystem implementation (for testing).
-func WithFS(fs afero.Fs) LoaderOption {
-	return func(l *Loader) { l.fs = fs }
-}
-
-// NewLoader creates an agent directory loader.
-func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
-	l := &Loader{dirs: dirs, fs: afero.NewOsFs()}
-	for _, opt := range opts {
-		opt(l)
+// NewLoader creates an agent directory loader. A nil fs means the real OS
+// filesystem (the production default) — the same nil-fs convention
+// GetAgentDirs uses, so discovery and reads agree on one filesystem.
+func NewLoader(dirs []string, fs afero.Fs) *Loader {
+	if fs == nil {
+		fs = afero.NewOsFs()
 	}
-	return l
+	return &Loader{dirs: dirs, fs: fs}
 }
 
 // List returns every agent defined under the loader's directories, sorted by

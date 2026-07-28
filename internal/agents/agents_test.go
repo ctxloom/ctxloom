@@ -33,7 +33,7 @@ func TestLoader_ListReadsDirectory(t *testing.T) {
 	writeAgentFile(t, dir, "dev.yaml", "engine: claude-code\nprofiles: [go-developer]\n")
 	writeAgentFile(t, dir, "finder.yaml", "profiles: [finder]\n")
 
-	list, err := NewLoader([]string{dir}).List()
+	list, err := NewLoader([]string{dir}, nil).List()
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 	// Sorted by name.
@@ -53,14 +53,14 @@ func TestLoader_FaultTolerantBadFile(t *testing.T) {
 	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
 	writeAgentFile(t, dir, "bad.yaml", "engine: [this, is, not, a, string\n: : :\n")
 
-	list, err := NewLoader([]string{dir}).List()
+	list, err := NewLoader([]string{dir}, nil).List()
 	require.NoError(t, err, "a bad file must not fail the whole list")
 	require.Len(t, list, 1)
 	assert.Equal(t, "good", list[0].Name)
 }
 
 func TestLoader_MissingDirectory(t *testing.T) {
-	list, err := NewLoader([]string{filepath.Join(t.TempDir(), "nope")}).List()
+	list, err := NewLoader([]string{filepath.Join(t.TempDir(), "nope")}, nil).List()
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
@@ -102,7 +102,7 @@ func TestLoader_FaultTolerantBadDriving(t *testing.T) {
 	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
 	writeAgentFile(t, dir, "bad.yaml", "engine: fast\ndriving: bogus\n")
 
-	list, err := NewLoader([]string{dir}).List()
+	list, err := NewLoader([]string{dir}, nil).List()
 	require.NoError(t, err, "a bad driving value must not fail the whole list")
 	require.Len(t, list, 1)
 	assert.Equal(t, "good", list[0].Name)
@@ -143,7 +143,7 @@ func TestLoader_FaultTolerantNoProfiles(t *testing.T) {
 	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
 	writeAgentFile(t, dir, "empty.yaml", "")
 
-	list, err := NewLoader([]string{dir}).List()
+	list, err := NewLoader([]string{dir}, nil).List()
 	require.NoError(t, err, "a profile-less agent file must not fail the whole list")
 	require.Len(t, list, 1)
 	assert.Equal(t, "good", list[0].Name)
@@ -162,7 +162,7 @@ func TestParseDrivingMode(t *testing.T) {
 		{"Conversational", "", false}, // NOT lenient on case, unlike ParsePermissionMode
 	}
 	for _, tc := range cases {
-		got, ok := ParseDrivingMode(tc.in)
+		got, ok := parseDrivingMode(tc.in)
 		assert.Equal(t, tc.wantOk, ok, "in=%q", tc.in)
 		if tc.wantOk {
 			assert.Equal(t, tc.want, got, "in=%q", tc.in)

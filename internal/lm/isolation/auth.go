@@ -99,6 +99,18 @@ func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() (
 	return containerAuth{mode: authNone}, false
 }
 
+// noContainerAuthProfile is the resolveAuth for a backend with NO registered
+// container-auth profile at all (U064-F01): it always returns ok=false, so an
+// unrecognized/unprofiled engine's containerized run degrades honestly
+// (a fatal ClassIsolation finding down the isolation chain, same as any other
+// unresolvable auth) instead of silently inheriting the DEFAULT profile's
+// resolveClaudeContainerAuth and mounting the user's Anthropic credentials
+// into a foreign engine's container. Every backend that SHOULD authenticate
+// must set its own explicit resolveAuth in containerProfileFor.
+func noContainerAuthProfile(_ string, _ string) (containerAuth, bool) {
+	return containerAuth{mode: authNone}, false
+}
+
 // resolveClaudeContainerAuth builds the auth plan for a containerized claude run
 // whose fresh HOME is containerHome. It PREFERS env passthrough (an
 // ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN in the host env — the latter covers a
@@ -922,6 +934,16 @@ func copyCredentialFile(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
+	}
+	// U062-F01: os.WriteFile follows a symlink at the destination (it is
+	// OpenFile(dst, O_WRONLY|O_CREATE|O_TRUNC, perm) under the hood), so an
+	// unvalidated destination — e.g. a repo-tracked `.codex/auth.json` symlink
+	// pointing at the real `~/.codex/auth.json` — turns this seed into an
+	// arbitrary-file overwrite of the user's own credential. Refuse a
+	// pre-existing symlink destination outright rather than writing through
+	// it; a fresh (non-symlink, non-existent) destination is unaffected.
+	if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("credential seed destination %q is a symlink; refusing to write through it", dst)
 	}
 	return os.WriteFile(dst, data, 0o600)
 }

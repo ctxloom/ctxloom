@@ -234,6 +234,11 @@ const (
 	userBaseBuildFixIt         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source"
 	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source, or opt out with isolation_devcontainer_base: false"
 	devcontainerDetectFixIt    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
+	// noComposableEnginesFixIt is attached when isolation_engines resolves to
+	// an empty set (U063-F02/U064-F02): every configured name was unknown or
+	// non-composable, so the composed agent image would otherwise build
+	// green with zero engine-install layers and fail every run.
+	noComposableEnginesFixIt = "set isolation_engines to at least one supported, composable engine (see `ctxloom container build --help`), or leave it unset to compose every composable engine"
 )
 
 // buildSourcesOptions carries every input buildSources needs to order a
@@ -310,6 +315,16 @@ func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 // each candidate base in precedence order.
 func composableBuildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 	engines := resolveEngines(opts.engines)
+	if len(engines) == 0 {
+		// U063-F02/U064-F02: composeAgentContainerfile(nil) still renders a
+		// complete, buildable Containerfile with ZERO engine-install layers —
+		// it builds, tags, and passes every image gate, then fails every run
+		// with the engine binary simply absent. Fail loud here instead of
+		// silently building a green, empty image.
+		strictness.Fail(strictness.ClassIsolation, noComposableEnginesFixIt,
+			"isolation_engines resolved to no known engine; the composed agent image would contain no engine at all")
+		return nil
+	}
 	composed := composeAgentContainerfile(engines)
 	enginesDesc := strings.Join(engines, "+")
 	var out []buildSource
@@ -713,6 +728,13 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 	selfExe, err := resolveSelfExe()
 	if err != nil {
 		if present {
+			// U063-F01: this used to return nil here with NO warning and NO
+			// finding at all — the isolation boundary silently degraded to a
+			// stale, possibly pre-entrypoint (root-running) image. Route the
+			// same fail-loud finding the parallel "rebuild attempted and
+			// failed" branch below already uses for the identical outcome.
+			strictness.Fail(strictness.ClassIsolation, staleRebuildFixIt,
+				"container image %q is STALE and cannot be rebuilt from this binary (%v); the existing image would run as-is", c.image, err)
 			return nil // stale but unbuildable from this binary — run what exists
 		}
 		return fmt.Errorf("container image %q is not present and cannot be built from this binary: %w", c.image, err)

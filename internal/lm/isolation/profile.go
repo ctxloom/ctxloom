@@ -510,13 +510,26 @@ func containerProfileFor(backend string) containerProfile {
 		p.transcriptStoreRel = filepath.FromSlash(".gemini/antigravity-cli/brain")
 		return p
 	default:
+		// U064-F01: this used to be resolveAuth: resolveClaudeContainerAuth —
+		// the unknown-backend default failed OPEN on credentials, so any
+		// unrecognized engine (a real, reachable path: registry.go registers
+		// a generic "acp" backend, and container_transport.go treats an
+		// unrecognized/empty engine name as this default profile) got the
+		// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and
+		// ~/.claude credentials copy-mounted into a FOREIGN engine's
+		// container. codex/kiro/opencode/antigravity above each earned their
+		// own resolveAuth for exactly this reason; the default must not hand
+		// out Anthropic credentials to an engine nobody vetted. It now fails
+		// closed (noContainerAuthProfile) so an unprofiled engine degrades
+		// honestly instead of silently authenticating as claude.
 		return containerProfile{
 			image:       defaultContainerImage,
-			resolveAuth: resolveClaudeContainerAuth,
-			authHint:    claudeContainerAuthHint(),
+			resolveAuth: noContainerAuthProfile,
+			authHint:    "no container-auth profile is registered for this engine; add one in containerProfileFor rather than inheriting the default",
 			overlayDirs: defaultOverlayDirs,
-			// The default profile is claude-oriented throughout (image, auth),
-			// including the store map.
+			// The default profile's image/store-map default stays
+			// claude-oriented (harmless metadata); only the AUTH default
+			// changed — see the resolveAuth comment above.
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		}
 	}

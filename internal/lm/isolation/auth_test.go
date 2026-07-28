@@ -19,6 +19,50 @@ func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, out, "only set, known auth var NAMES cross (no value; empty + unknown dropped)")
 }
 
+// TestCopyCredentialFile_RefusesSymlinkDestination pins U062-F01:
+// copyCredentialFile used to os.WriteFile straight at dst, which FOLLOWS a
+// symlink there — a seed then writes through to whatever the link points at.
+// Live in this repo's own working copy: `.codex/auth.json` can be a symlink
+// to the real `~/.codex/auth.json`, turning a routine credential seed into an
+// arbitrary-file overwrite of the user's own OAuth token. Refuse a
+// pre-existing symlink destination outright.
+func TestCopyCredentialFile_RefusesSymlinkDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.json")
+	require.NoError(t, os.WriteFile(src, []byte("seed-content"), 0o600))
+
+	victim := filepath.Join(dir, "victim.json")
+	require.NoError(t, os.WriteFile(victim, []byte("do-not-touch"), 0o600))
+	dst := filepath.Join(dir, "auth.json")
+	require.NoError(t, os.Symlink(victim, dst))
+
+	err := copyCredentialFile(src, dst)
+	require.Error(t, err, "must refuse to write through a symlinked destination")
+	assert.Contains(t, err.Error(), "symlink")
+
+	victimContent, readErr := os.ReadFile(victim)
+	require.NoError(t, readErr)
+	assert.Equal(t, "do-not-touch", string(victimContent), "the symlink target must be untouched")
+}
+
+// TestCopyCredentialFile_PlainDestinationStillWorks: the guard must not
+// regress the common case — a fresh (non-symlink) destination copies
+// verbatim at 0600, exactly as before.
+func TestCopyCredentialFile_PlainDestinationStillWorks(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.json")
+	require.NoError(t, os.WriteFile(src, []byte("seed-content"), 0o600))
+	dst := filepath.Join(dir, "auth.json")
+
+	require.NoError(t, copyCredentialFile(src, dst))
+	content, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	assert.Equal(t, "seed-content", string(content))
+	info, err := os.Stat(dst)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
 // withFakeHome points hostHomeDir at a temp dir for hermetic credential tests.
 func withFakeHome(t *testing.T) string {
 	t.Helper()

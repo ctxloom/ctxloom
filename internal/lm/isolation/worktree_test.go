@@ -180,6 +180,91 @@ func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "engine creds/state dir is owner-only")
 }
 
+// TestWorktree_UnregisteredBackendRecordsFinding pins U065-F01: a backend
+// registered in NEITHER credentialSeedSpecs nor curatedHomeSpecs (e.g. "acp",
+// a real, user-selectable registered backend — registry.go:392) used to fall
+// through PrepareWorkspace with zero engine-global isolation and no finding
+// at all — the run reports "worktree" isolation while the engine's global
+// config/creds stay fully shared with the host. It must now be loud.
+func TestWorktree_UnregisteredBackendRecordsFinding(t *testing.T) {
+	resetStrictness(t)
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "acp").PrepareWorkspace(context.Background(), "/proj", "agent-a")
+	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
+	t.Cleanup(func() { _ = ws.Cleanup() })
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "an unregistered backend must record exactly one fatal finding")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, `"acp"`)
+	assert.Contains(t, findings[0].Message, "neither the credential-seed nor curated-HOME registry")
+}
+
+// TestWorktree_MockBackendExemptFromUnregisteredFinding is the negative
+// space U065-F01's fix must not break: the built-in "mock" test backend is a
+// NAMED, independently-verified exemption (a bare echo with no on-disk
+// global state — see j9_isolation.feature's own hermeticity note), not an
+// unregistered real backend, so it must never fire the new finding.
+func TestWorktree_MockBackendExemptFromUnregisteredFinding(t *testing.T) {
+	resetStrictness(t)
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "mock").PrepareWorkspace(context.Background(), "/proj", "agent-a")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws.Cleanup() })
+	assert.Empty(t, strictness.All(), "the built-in mock backend has no global state to isolate — it must stay exempt")
+}
+
+// TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure pins U065-F02:
+// the fatal curatedHomeRefusal finding used to be gated BEHIND
+// provisionCuratedHome succeeding, so a transient mkdir/symlink failure
+// suppressed the refusal entirely. The refusal exists because auth AND file
+// writes escape a host worktree for this engine — facts wholly independent
+// of the scratch dir's own I/O outcome — so it must fire regardless.
+func TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure(t *testing.T) {
+	resetStrictness(t)
+	// Force provisionCuratedHome's MkdirAll to fail: point TMPDIR at a plain
+	// FILE, so any path built beneath scratchBase() (which falls back to
+	// os.TempDir() here) fails with ENOTDIR.
+	notADir := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o644))
+	t.Setenv("TMPDIR", notADir)
+
+	spec := curatedHomeSpecs["antigravity"]
+	w := NewWorktree(nil, "antigravity")
+	home := w.provisionCuratedHomeFor("agent-a", spec)
+	assert.Empty(t, home, "provisioning failed, so no curated home path is returned")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "the FATAL refusal must still fire even though provisioning itself failed")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "AUTHENTICATION escapes it")
+}
+
+// TestWorktree_ConfigHomeMkdirFailureRecordsFinding pins U065-F03: a total
+// provisionConfigHome MkdirAll failure — which costs ALL engine-global
+// isolation for claude/codex/kiro/opencode — used to be a plain clidiag.Warn,
+// a QUIETER severity than the LESSER (partial: creds present but unseedable)
+// failure in seedCredentials, which is a strictness.Fail. The ordering was
+// inverted; both must now be fatal-unless-degraded.
+func TestWorktree_ConfigHomeMkdirFailureRecordsFinding(t *testing.T) {
+	resetStrictness(t)
+	notADir := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o644))
+	t.Setenv("TMPDIR", notADir)
+
+	w := NewWorktree(nil, "claude-code")
+	home, denied := w.provisionConfigHome("agent-a")
+	assert.Empty(t, home)
+	assert.Nil(t, denied)
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "a total config-home provisioning failure must now be fatal, matching seedNoSource's severity")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "config-home unavailable")
+}
+
 // TestWorktreeCleanup_SurfacesConfigHomeResidue: the config-home removal was a
 // bare `_ = os.RemoveAll` — an unremovable tree (e.g. wrongly-owned files)
 // must stream a warning naming the path, never vanish silently.

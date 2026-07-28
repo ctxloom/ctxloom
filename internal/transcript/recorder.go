@@ -45,7 +45,7 @@ type fileRecorder struct {
 
 	// failures counts events handed to Record that were NOT captured, and
 	// warned/closeWarned keep that observable without flooding (U144-F04).
-	// Every live capture seam — Tee, TeeAndClose, RecordUserText,
+	// Every live capture seam — tee, TeeAndClose, RecordUserText,
 	// CoordinatedRecorder — deliberately discards Record's error so a
 	// transcript failure can never perturb the chat it shadows. That is the
 	// right call, but with nothing behind it the whole class ("full disk /
@@ -248,7 +248,7 @@ func (r *fileRecorder) Close() error {
 }
 
 // RecordUserText appends one `user` canonical entry for text to rec — the
-// case Tee/TeeAndClose structurally cannot reach, because they only ever
+// case tee/TeeAndClose structurally cannot reach, because they only ever
 // wrap the OUTBOUND ChatEvent stream. Text entered by the caller travels the
 // INBOUND ChatMessage channel instead, so without an explicit tap at each
 // host seam (GRPCClient.Chat's `in` pump, coord/enginehost.go's SetTurnSink
@@ -260,7 +260,7 @@ func (r *fileRecorder) Close() error {
 // permission answer or turn-cancel control message, or a genuinely blank
 // turn) — both are silent no-ops, the same empty-input discipline every
 // other capture path in this package follows. A Record error is swallowed
-// for the same reason Tee swallows its own: transcript capture must never be
+// for the same reason tee swallows its own: transcript capture must never be
 // visible to, or perturb, the live chat it shadows.
 func RecordUserText(rec Recorder, text string) {
 	if rec == nil || text == "" {
@@ -272,23 +272,27 @@ func RecordUserText(rec Recorder, text string) {
 	}})
 }
 
-// Tee wraps events with a passthrough goroutine that calls rec.Record on every
+// tee wraps events with a passthrough goroutine that calls rec.Record on every
 // event before forwarding it unchanged, and returns the forwarding channel.
 // This is the exact shape S2 drops in at its two host seams
 // (GRPCClient.Chat's returned events channel, and coord/enginehost.adapt's
 // consumed `out`) — see docs/transcript-schema.md and the tough-cloud plan
 // §2c. Recording happens BEFORE forwarding so a consumer that stops reading
-// early never causes an event to be forwarded-but-not-recorded.
+// early never causes an event to be forwarded-but-not-recorded. Unexported:
+// TeeAndClose is the only production shape any host seam needs (a bare tee
+// would leak the Recorder's fd), so this stays a package-private helper
+// (U144-F13 — no external caller, only TeeAndClose and this package's tests
+// used the exported name).
 //
 // A Record error is deliberately swallowed except for a debug-log style
 // callback-free drop: capture must never be able to break or stall the live
 // chat it is shadowing (a transcript write failure is not a reason to lose a
 // user's conversation). Record errors are therefore recorded as best-effort;
 // S2, which owns the actual host wiring, decides whether to surface them
-// (e.g. via a logger) when it wires Tee in — this helper's contract is just
+// (e.g. via a logger) when it wires tee in — this helper's contract is just
 // "never blocks, never drops an event from the forwarded stream, never panics
 // the caller's chat on a write failure."
-func Tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
+func tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 	out := make(chan agent.ChatEvent)
 	go func() {
 		defer close(out)
@@ -300,18 +304,18 @@ func Tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 	return out
 }
 
-// TeeAndClose is Tee plus automatic Recorder cleanup: it wraps events exactly
-// like Tee, and once the source channel is fully drained (so Tee's internal
+// TeeAndClose is tee plus automatic Recorder cleanup: it wraps events exactly
+// like tee, and once the source channel is fully drained (so tee's internal
 // goroutine has recorded and forwarded every event and closed its own output),
 // calls rec.Close(). This is the shape S2's host seams actually need —
 // GRPCClient.Chat and coord/enginehost.adapt own no separate "the chat is
-// over" signal of their own beyond the events channel closing, so a bare Tee
+// over" signal of their own beyond the events channel closing, so a bare tee
 // would leak the Recorder's open file handle for the lifetime of the process.
-// Close's error is swallowed for the same reason Tee swallows Record's: a
+// Close's error is swallowed for the same reason tee swallows Record's: a
 // transcript-capture failure must never be visible to (or block) the live
 // chat it is shadowing.
 func TeeAndClose(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
-	teed := Tee(rec, events)
+	teed := tee(rec, events)
 	out := make(chan agent.ChatEvent)
 	go func() {
 		defer close(out)

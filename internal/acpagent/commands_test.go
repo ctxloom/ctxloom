@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -20,7 +21,7 @@ import (
 func TestServe_AvailableCommandsUpdate(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{
+		Available: []operations.CommandInfo{
 			{Name: "code-review", Description: "Review code for issues"},
 			{Name: "no-description", Description: ""},
 		},
@@ -81,7 +82,7 @@ func TestServe_AvailableCommandsUpdate_NoneConfigured(t *testing.T) {
 func TestServe_PromptExpandsCommand(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{{Name: "code-review", Description: "Review code"}},
+		Available: []operations.CommandInfo{{Name: "code-review", Description: "Review code"}},
 		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
 			if name != "code-review" {
 				return "", false, nil
@@ -131,7 +132,7 @@ func TestServe_PromptExpandsCommand(t *testing.T) {
 func TestServe_PromptExpandsCommand_BlocksParity(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{{Name: "code-review"}},
+		Available: []operations.CommandInfo{{Name: "code-review"}},
 		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
 			if name != "code-review" {
 				return "", false, nil
@@ -173,7 +174,7 @@ func TestServe_PromptExpandsCommand_BlocksParity(t *testing.T) {
 func TestServe_PromptUnmatchedSlashPassesThrough_BlocksUnchanged(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{{Name: "code-review"}},
+		Available: []operations.CommandInfo{{Name: "code-review"}},
 		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
 			return "", false, nil // nothing ever matches in this test
 		},
@@ -208,7 +209,7 @@ func TestServe_PromptUnmatchedSlashPassesThrough_BlocksUnchanged(t *testing.T) {
 func TestServe_PromptUnmatchedSlashPassesThrough(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{{Name: "code-review"}},
+		Available: []operations.CommandInfo{{Name: "code-review"}},
 		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
 			return "", false, nil // nothing ever matches in this test
 		},
@@ -248,7 +249,7 @@ func TestServe_PromptUnmatchedSlashPassesThrough(t *testing.T) {
 func TestServe_PromptCommandResolveError(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{{Name: "broken"}},
+		Available: []operations.CommandInfo{{Name: "broken"}},
 		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
 			return "", true, errors.New("bundle vanished mid-session")
 		},
@@ -271,7 +272,7 @@ func TestServe_PromptCommandResolveError(t *testing.T) {
 func TestServe_PromptCommandResolveEmpty(t *testing.T) {
 	eng := newFakeEngine()
 	eng.commands = &SessionCommands{
-		Available: []CommandInfo{{Name: "hollow"}},
+		Available: []operations.CommandInfo{{Name: "hollow"}},
 		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
 			return "", true, nil // matched, but nothing to say
 		},

@@ -16,14 +16,16 @@ import (
 // ConsumerService/WatchRuns; acpagent only ever sees the small ChildUpdate
 // shape.
 
-// ChildUpdateKind and ChildUpdate are frontend-neutral (ISO0): they live in
-// internal/operations (engine_types.go) alongside EngineChat, whose
-// WatchChildren field carries them. Aliases, not new types — every existing
-// acpagent.ChildUpdate* reference keeps compiling unchanged.
-type (
-	ChildUpdateKind = operations.ChildUpdateKind
-	ChildUpdate     = operations.ChildUpdate
-)
+// ChildUpdate is frontend-neutral (ISO0): it lives in internal/operations
+// (engine_types.go) alongside EngineChat, whose WatchChildren field carries
+// it. An alias, not a new type — every existing acpagent.ChildUpdate
+// reference keeps compiling unchanged.
+//
+// U014-F13: ChildUpdateKind used to be aliased here too, with zero
+// references anywhere in the repo outside its own declaration (not even
+// test-only) — deleted; use operations.ChildUpdateKind directly if a
+// consumer ever needs it.
+type ChildUpdate = operations.ChildUpdate
 
 const (
 	// ChildUpdateStarted marks a delegated child's run beginning.

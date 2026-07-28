@@ -2,8 +2,6 @@ package acpagent
 
 import (
 	api "github.com/coder/acp-go-sdk"
-
-	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // This file carries the ACP wire shapes that are NOT plain pass-throughs of
@@ -25,11 +23,11 @@ import (
 // SessionMode/CurrentModeUpdate, which the current spec defines identically
 // to what H1 confirmed ctxloom already emitted.
 
-// DefaultModeID is frontend-neutral (ISO0): it lives in internal/operations
-// (engine_types.go) alongside SessionModes, which uses it as the synthetic
-// mode ID for the configured default profile set (which may compose several
-// profiles, so no single profile name can stand for it).
-const DefaultModeID = operations.DefaultModeID
+// U014-F13: DefaultModeID used to be aliased here too (it lives in
+// internal/operations, engine_types.go, alongside SessionModes, as the
+// synthetic mode ID for the configured default profile set), referenced only
+// by this package's own tests — deleted; tests now spell out
+// operations.DefaultModeID directly.
 
 // newSessionResult is the session/new response body: api.NewSessionResponse's
 // sessionId plus the modes/models state riding alongside it, PLUS (CO1) the

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/acptest"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -102,17 +103,17 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 
 	eng := newFakeEngine()
 	eng.modes = &SessionModes{
-		Current: DefaultModeID,
+		Current: operations.DefaultModeID,
 		Available: []SessionMode{
-			{ID: DefaultModeID, Name: "default"},
+			{ID: operations.DefaultModeID, Name: "default"},
 			{ID: "review", Name: "review", Profiles: []string{"review"}},
 		},
 	}
 	eng.assembleMode = func(context.Context, SessionMode) (string, error) { return "REVIEW CTX", nil }
-	eng.llms = &SessionLLMs{Current: "primary", Available: []LLMInfo{{ID: "primary", Name: "primary"}}}
+	eng.llms = &SessionLLMs{Current: "primary", Available: []operations.LLMInfo{{ID: "primary", Name: "primary"}}}
 	// B4 (gap G5): ctxloom's own available_commands_update, captured below
 	// alongside every other session/new-time notification.
-	eng.commands = &SessionCommands{Available: []CommandInfo{{Name: "code-review", Description: "Review code for issues"}}}
+	eng.commands = &SessionCommands{Available: []operations.CommandInfo{{Name: "code-review", Description: "Review code for issues"}}}
 	go eng.pump()
 
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat("LEAD CONTEXT"), nil })

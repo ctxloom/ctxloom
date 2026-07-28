@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -563,9 +564,9 @@ func TestServe_McpServersPassThrough(t *testing.T) {
 func TestServe_SessionModes(t *testing.T) {
 	eng := newFakeEngine()
 	eng.modes = &SessionModes{
-		Current: DefaultModeID,
+		Current: operations.DefaultModeID,
 		Available: []SessionMode{
-			{ID: DefaultModeID, Name: "default (base)"},
+			{ID: operations.DefaultModeID, Name: "default (base)"},
 			{ID: "review", Name: "review", Profiles: []string{"review"}},
 			{ID: "agent:reviewer", Name: "reviewer (agent)", Profiles: []string{"r1", "r2"}, Engine: "fast"},
 		},
@@ -592,7 +593,7 @@ func TestServe_SessionModes(t *testing.T) {
 		} `json:"modes"`
 	}
 	require.NoError(t, json.Unmarshal(resp.Result, &newResp))
-	assert.Equal(t, DefaultModeID, newResp.Modes.CurrentModeId)
+	assert.Equal(t, operations.DefaultModeID, newResp.Modes.CurrentModeId)
 	require.Len(t, newResp.Modes.AvailableModes, 3)
 	assert.Equal(t, "review", newResp.Modes.AvailableModes[1].Id)
 	assert.Equal(t, "agent:reviewer", newResp.Modes.AvailableModes[2].Id)
@@ -870,7 +871,7 @@ func TestServe_AdvertisesLLMs(t *testing.T) {
 	eng := newFakeEngine()
 	eng.llms = &SessionLLMs{
 		Current:   "fast",
-		Available: []LLMInfo{{ID: "primary", Name: "primary"}, {ID: "fast", Name: "fast"}},
+		Available: []operations.LLMInfo{{ID: "primary", Name: "primary"}, {ID: "fast", Name: "fast"}},
 	}
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })

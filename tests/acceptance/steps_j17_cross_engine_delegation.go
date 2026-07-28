@@ -200,27 +200,36 @@ func j17TranscriptPath(w *World, harp string) string {
 
 // j17ReadTranscriptEntries parses every KindEntry line's payload from harp's
 // transcript, in file (append) order.
-func j17ReadTranscriptEntries(w *World, harp string) ([]j17TranscriptEntry, error) {
+// j17ReadTranscriptEntries parses every `kind:"entry"` line of harp's
+// transcript. skipped and firstSkipErr report any line that failed to
+// unmarshal (U159-F05: this used to `continue` past those silently, with no
+// counter or diagnostic, so a corrupted or schema-drifted transcript read as
+// merely "fewer entries" and surfaced as a 10-second timeout in
+// j17TranscriptAssistantCount instead of naming the real parse failure).
+func j17ReadTranscriptEntries(w *World, harp string) (out []j17TranscriptEntry, skipped int, firstSkipErr error, err error) {
 	path := j17TranscriptPath(w, harp)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("j17: read transcript %s: %w", path, err)
+		return nil, 0, nil, fmt.Errorf("j17: read transcript %s: %w", path, err)
 	}
-	var out []j17TranscriptEntry
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		var l j17TranscriptLine
-		if err := json.Unmarshal([]byte(line), &l); err != nil {
+		if uerr := json.Unmarshal([]byte(line), &l); uerr != nil {
+			skipped++
+			if firstSkipErr == nil {
+				firstSkipErr = fmt.Errorf("line %q: %w", line, uerr)
+			}
 			continue
 		}
 		if l.Kind == "entry" && l.Entry != nil {
 			out = append(out, *l.Entry)
 		}
 	}
-	return out, nil
+	return out, skipped, firstSkipErr, nil
 }
 
 // j17TranscriptAssistantCount waits (bounded) for harp's transcript to carry
@@ -234,11 +243,14 @@ func j17TranscriptAssistantCount(w *World, harp string, want int) ([]j17Transcri
 	deadline := time.Now().Add(10 * time.Second)
 	var assistants []j17TranscriptEntry
 	var lastErr error
+	var lastSkipped int
+	var lastSkipErr error
 	for time.Now().Before(deadline) {
-		entries, err := j17ReadTranscriptEntries(w, harp)
+		entries, skipped, skipErr, err := j17ReadTranscriptEntries(w, harp)
 		if err != nil {
 			lastErr = err
 		} else {
+			lastSkipped, lastSkipErr = skipped, skipErr
 			assistants = assistants[:0]
 			for _, e := range entries {
 				if e.Type == "assistant" {
@@ -253,6 +265,10 @@ func j17TranscriptAssistantCount(w *World, harp string, want int) ([]j17Transcri
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("j17: transcript for harp %q never appeared after 10s: %w", harp, lastErr)
+	}
+	if lastSkipped > 0 {
+		return nil, fmt.Errorf("j17: transcript for harp %q carries %d assistant entr(y/ies) after 10s, want >= %d -- and %d transcript line(s) failed to parse (first: %v), so this may be a corrupted/schema-drifted transcript, not a slow child",
+			harp, len(assistants), want, lastSkipped, lastSkipErr)
 	}
 	return nil, fmt.Errorf("j17: transcript for harp %q carries %d assistant entr(y/ies) after 10s, want >= %d", harp, len(assistants), want)
 }

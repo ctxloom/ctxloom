@@ -82,11 +82,6 @@ type Fake struct {
 	UntrackedList []string
 	UntrackedErr  error
 
-	// DiffNameOnlyFiles is what DiffNameOnly returns; DiffNameOnlyErr, when
-	// set, fails it instead.
-	DiffNameOnlyFiles []string
-	DiffNameOnlyErr   error
-
 	// ApplyPatchErr, when set, fails ApplyPatch. AppliedPatches records every
 	// patch ApplyPatch was called with, in order.
 	ApplyPatchErr  error
@@ -278,16 +273,6 @@ func (f *Fake) CommitAll(_ context.Context, dir, message string) (string, []stri
 		sha = "fake-commit-sha"
 	}
 	return sha, append([]string(nil), f.CommitAllChanged...), nil
-}
-
-// DiffNameOnly returns the configured DiffNameOnlyFiles (a copy).
-func (f *Fake) DiffNameOnly(_ context.Context, _, _, _ string) ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.DiffNameOnlyErr != nil {
-		return nil, f.DiffNameOnlyErr
-	}
-	return append([]string(nil), f.DiffNameOnlyFiles...), nil
 }
 
 // DiffPatch returns the configured DiffPatchValue.

@@ -249,7 +249,7 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 	}
 	postSHA := strings.TrimSpace(postOut)
 
-	changed, err := g.DiffNameOnly(ctx, dir, preSHA, postSHA)
+	changed, err := diffNameOnly(ctx, dir, preSHA, postSHA)
 	if err != nil {
 		// The commit itself landed (postSHA is real) — surface it even
 		// though verification couldn't complete, rather than discarding a
@@ -259,8 +259,11 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 	return postSHA, changed, nil
 }
 
-// DiffNameOnly returns the names of files that differ between two refs.
-func (execGit) DiffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
+// diffNameOnly returns the names of files that differ between two refs.
+// Unexported: it is CommitAll's own verification step (U053-F20 — it was on
+// the public Git interface with no caller outside this package, forcing a
+// Fake stub and two dead fields for no consumer).
+func diffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
 	out, err := output(ctx, dir, "diff", "--name-only", a, b)
 	if err != nil {
 		return nil, err

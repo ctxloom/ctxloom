@@ -123,10 +123,6 @@ type Git interface {
 	// that: git accepted the commit but it carries no diff versus its parent.
 	CommitAll(ctx context.Context, dir, message string) (sha string, changedFiles []string, err error)
 
-	// DiffNameOnly returns the names of files that differ between two refs
-	// (git diff --name-only a b).
-	DiffNameOnly(ctx context.Context, dir, a, b string) ([]string, error)
-
 	// DiffPatch returns a unified diff of dir's TRACKED modifications and
 	// deletions against HEAD (git diff HEAD), suitable for ApplyPatch.
 	// Untracked files never appear in it — ListUntracked covers those.

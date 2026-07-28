@@ -77,12 +77,16 @@ type Runtime interface {
 }
 
 // pathMapper translates a host filesystem path to the path the SAME resource
-// appears at inside the container's mount namespace, and back. It is the
+// appears at inside the container's mount namespace. It is the
 // convergence point runtime.go's doc on Expose already anticipated
 // ("Centralizing every delivery-layer Mount construction here is what lets a
 // future daemonless runtime remap an exposure without touching each call
 // site"): identical-path (Host==Container) is ONE configuration of this seam
-// — identityMapper, the default — not a hardcoded assumption.
+// — identityMapper, the default — not a hardcoded assumption. An inverse
+// toHost method used to sit on this interface for a future consumer that
+// never arrived (U064-F09: zero production callers, only a test); deleted
+// rather than kept as a speculative hook — add it back with the first real
+// need for the reverse direction.
 //
 // Two non-identity mappers are anticipated (both DEFERRED past this task,
 // which builds only the seam + identity default — see the container-runtime-
@@ -105,8 +109,6 @@ type pathMapper interface {
 	// toContainer maps a host path to the in-container path the SAME resource
 	// should be mounted/reached at.
 	toContainer(hostPath string) string
-	// toHost is the inverse: maps an in-container path back to the host path.
-	toHost(containerPath string) string
 }
 
 // identityMapper is the default pathMapper: Host==Container, unconditionally.
@@ -118,7 +120,6 @@ type pathMapper interface {
 type identityMapper struct{}
 
 func (identityMapper) toContainer(hostPath string) string { return hostPath }
-func (identityMapper) toHost(containerPath string) string { return containerPath }
 
 // runtimeMapper returns m if non-nil, else identityMapper{} — the nil-safe
 // getter every Runtime's mapper() implements, so a runtime constructed

@@ -1,14 +1,15 @@
-// Package goplugin is the current (only) implementation of the
+// Package goplugin is the go-plugin implementation of the
 // VIRTUALIZED-PROCESS-IO seam (internal/vpio): it wraps the existing
 // hashicorp/go-plugin-backed bidirectional Run RPC (internal/lm/grpc,
 // llm.proto's `Run`) behind vpio.Launcher/vpio.Session.
 //
-// SWAP POINT: this is the seam's go-plugin transport. A future docker-exec
-// or host-pty implementation of vpio.Launcher/vpio.Session plugs in beside
-// this one — above-the-seam callers (internal/cli/run.go, internal/cli/init.go,
+// SWAP POINT: this is the seam's go-plugin transport. internal/vpio/dockerexec
+// is a second, SHIPPED implementation of vpio.Launcher/vpio.Session (the
+// `docker exec -it` transport for the container-isolation runtime) — above-
+// the-seam callers (internal/cli/run.go, internal/cli/init.go,
 // internal/termui) reference only vpio types and never this package's
-// concrete types, so they need no change when a second implementation lands.
-// Neither swap is implemented here; both are registered future work.
+// concrete types, so they needed no change when it landed. Only a host-pty
+// implementation remains registered future work.
 //
 // This package does not modify internal/lm/grpc's Run RPC, its client
 // implementation (GRPCClient/LLMRunner), or the wire protocol (llm.proto) —
@@ -19,8 +20,6 @@ package goplugin
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"sync"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -56,9 +55,10 @@ type runResult struct {
 // same goroutine-pump semantics inside GRPCClient.RunWithModelInfo — MOVED,
 // not rewritten) and returns a Session that relays Resize calls onto the
 // same resize channel client.Run already understands. Always succeeds
-// synchronously today (the underlying transport is already connected); the
-// error return exists for a future transport whose Start can fail
-// synchronously (e.g. `docker exec` refusing to attach).
+// synchronously here (the underlying transport is already connected); the
+// error return is load-bearing for the sibling dockerexec transport, whose
+// Start CAN fail synchronously (a missing runtime binary or `docker exec`
+// refusing to attach — see dockerexec.Session's TestStart_FailsWhenBinaryMissing).
 func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Session, error) {
 	resizeCh := make(chan *pb.WindowSize, 1)
 	s := &Session{resize: resizeCh, result: make(chan runResult, 1)}
@@ -133,15 +133,6 @@ func (s *Session) Resize(rows, cols uint32) {
 	case s.resize <- ws:
 	default:
 	}
-}
-
-// Signal reports non-support: the go-plugin Run RPC has no out-of-band
-// signal message (see llm.proto's RunInput) — interactive interrupts ride
-// as raw stdin bytes under the terminal's own raw mode instead (see
-// internal/cli/run.go's comment on ^C handling). No above-the-seam caller
-// invokes this today.
-func (s *Session) Signal(sig os.Signal) error {
-	return fmt.Errorf("vpio/goplugin: signal delivery is not supported by the go-plugin transport (requested %v)", sig)
 }
 
 // Wait blocks for client.Run's terminal result.

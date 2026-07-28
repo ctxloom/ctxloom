@@ -7,12 +7,6 @@ package container
 
 import _ "embed"
 
-// Minimal is the transport-only agent image: the static ctxloom binary on a
-// small base, no engine CLI (Info()/mock level).
-//
-//go:embed minimal/Containerfile
-var Minimal []byte
-
 // Base is the DEFAULT shared base image (stage 1 of every locally-built agent
 // image): the distro plus the coding-agent tool layer (git, ripgrep, curl,
 // certs, unzip, jq). The generated composed agent Containerfile

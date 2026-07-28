@@ -32,8 +32,7 @@ func resetStrictness(t *testing.T) {
 // always degrades past a failing policy to None.
 type failingPolicy struct{ name string }
 
-func (f failingPolicy) Name() string       { return f.name }
-func (failingPolicy) Approvals() Approvals { return ApprovalsBypass }
+func (f failingPolicy) Name() string { return f.name }
 func (failingPolicy) PrepareWorkspace(context.Context, string, string) (Workspace, error) {
 	return nil, errors.New("agent image absent")
 }
@@ -52,8 +51,7 @@ func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace
 // stops at the first success).
 type passingPolicy struct{ name string }
 
-func (p passingPolicy) Name() string       { return p.name }
-func (passingPolicy) Approvals() Approvals { return ApprovalsPrompt }
+func (p passingPolicy) Name() string { return p.name }
 func (passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	return None{}.PrepareWorkspace(ctx, projectDir, agentID)
 }
@@ -65,12 +63,11 @@ func (passingPolicy) StartRunner(context.Context, string, string, int, Workspace
 }
 
 // TestNone_IsHostIdentical pins the None policy to today's host behaviour: the
-// workspace IS the project directory, cleanup is a noop, and approvals stay
-// Prompt. This is the behaviour-identity contract Step 0.2 must preserve.
+// workspace IS the project directory and cleanup is a noop. This is the
+// behaviour-identity contract Step 0.2 must preserve.
 func TestNone_IsHostIdentical(t *testing.T) {
 	p := None{}
 	assert.Equal(t, "none", p.Name())
-	assert.Equal(t, ApprovalsPrompt, p.Approvals(), "none keeps the engine's in-tool approval prompt")
 
 	ws, err := p.PrepareWorkspace(context.Background(), "/project/root", "member-a")
 	require.NoError(t, err, "None never fails to prepare a workspace")
@@ -103,16 +100,16 @@ func TestResolve_DefaultsAndDegrades(t *testing.T) {
 		{},
 		{Workspace: WorkspaceShared, Runtime: RuntimeHost},
 	} {
-		p := Resolve(axes, "claude-code", ImageConfig{})
+		p := chainFor(axes, "claude-code", ImageConfig{})[0]
 		assert.IsType(t, None{}, p, "axes %+v resolve to None", axes)
 	}
 	// Unknown axis values still degrade the POLICY to the axis defaults (a bad
 	// runtime ALSO records a fatal finding, asserted elsewhere; the returned lead
 	// policy is unchanged).
-	assert.IsType(t, None{}, Resolve(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
+	assert.IsType(t, None{}, chainFor(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
 		"unknown axis values degrade to None")
 	// Independence: an unknown RUNTIME never drops a requested worktree.
-	assert.IsType(t, Worktree{}, Resolve(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
+	assert.IsType(t, Worktree{}, chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
 		"an unknown runtime axis degrades alone; the workspace axis survives")
 }
 
@@ -349,10 +346,4 @@ func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testi
 		require.NotEmpty(t, chain)
 		assert.Empty(t, strictness.All())
 	})
-}
-
-// TestApprovals_String renders the approvals axis for diagnostics.
-func TestApprovals_String(t *testing.T) {
-	assert.Equal(t, "prompt", ApprovalsPrompt.String())
-	assert.Equal(t, "bypass", ApprovalsBypass.String())
 }

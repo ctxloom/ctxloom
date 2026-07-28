@@ -65,8 +65,7 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // security boundary), so it stays a silent warn-and-continue — unlike a lost
 // CONTAINER boundary, which is fatal unless --degraded.
 type Worktree struct {
-	git     git.Git
-	baseRef string
+	git git.Git
 	// state is the run's session identity, stamped by Prepare
 	// (withSessionState). A known harp homes the per-agent scratch (checkout +
 	// config-home) under the session's ephemeral/ dir instead of the OS temp
@@ -126,15 +125,11 @@ func NewWorktree(g git.Git, backend string) Worktree {
 	if g == nil {
 		g = git.NewExec()
 	}
-	return Worktree{git: g, baseRef: worktreeBaseRef, backend: backend}
+	return Worktree{git: g, backend: backend}
 }
 
 // Name identifies the policy.
 func (Worktree) Name() string { return "worktree" }
-
-// Approvals keeps the engine's in-tool prompt: a worktree isolates CONFIG, not
-// the blast radius. Only container (a real boundary) bypasses.
-func (Worktree) Approvals() Approvals { return ApprovalsPrompt }
 
 // PrepareWorkspace creates a fresh detached worktree for the member. It errors
 // (→ caller degrades to None) when projectDir is not a git repo or the worktree
@@ -177,7 +172,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	}
 
 	wtPath := worktreeScratchPath(w.scratchBase(), worktreeScratchPrefix, agentID)
-	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, w.baseRef); err != nil {
+	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBaseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
 	// Stamp the owner pid IMMEDIATELY after the checkout exists — bony-carry
@@ -259,13 +254,16 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 }
 
 // provisionCuratedHomeFor creates the per-agent curated HOME (curatedhome.go)
-// for a curatedHomeSpecs-registered backend and, when the spec's lever does
-// NOT also isolate authentication, emits either the loud non-fatal
-// curatedHomeAuthFinding or — for a workspaceViable==false spec on the
-// STANDALONE host path (w.containerWrapped false) — the FATAL
-// curatedHomeRefusal. Returns "" on the MkdirAll/symlink-setup failure — the
-// run still proceeds against the shared host HOME (warn), mirroring
-// provisionConfigHome's own best-effort contract; never blocking.
+// for a curatedHomeSpecs-registered backend and emits either the loud
+// non-fatal curatedHomeAuthFinding or — for a workspaceViable==false spec on
+// the STANDALONE host path (w.containerWrapped false) — the FATAL
+// curatedHomeRefusal (no registered spec's lever isolates authentication, so
+// one of the two always fires — see curatedHomeSpec.workspaceViable's doc;
+// U062-F21 deleted the speculative authIsolated axis that used to gate a
+// third, always-untaken "fully isolated" no-op case here). Returns "" on the
+// MkdirAll/symlink-setup failure — the run still proceeds against the shared
+// host HOME (warn), mirroring provisionConfigHome's own best-effort contract;
+// never blocking.
 //
 // The fatal branch is deliberately gated on !w.containerWrapped: this same
 // method runs, unchanged, when called through container_worktree.go's
@@ -282,8 +280,6 @@ func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) 
 	// independent of whether the scratch dir happened to provision cleanly —
 	// so the verdict must fire regardless of the I/O outcome below.
 	switch {
-	case spec.authIsolated:
-		// Fully isolated — no finding at all.
 	case !spec.workspaceViable && !w.containerWrapped:
 		curatedHomeRefusal(agentID, spec)
 	default:

@@ -15,14 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWorktree_Axes pins the policy identity: name "worktree", approvals PROMPT
-// (config isolation is NOT a security boundary — only container bypasses).
-func TestWorktree_Axes(t *testing.T) {
-	p := NewWorktree(&git.Fake{}, "")
-	assert.Equal(t, "worktree", p.Name())
-	assert.Equal(t, ApprovalsPrompt, p.Approvals(), "worktree keeps the engine's in-tool approval prompt")
-}
-
 // TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a detached
 // worktree under the OS temp dir (NOT inside the repo) and exposes it as Dir(),
 // with per-agent config-home envs.
@@ -483,9 +475,9 @@ func TestWorktree_AsymmetryWithNone(t *testing.T) {
 	require.NoError(t, ws.Cleanup())
 }
 
-// TestResolveWorktree wires the workspace axis through Resolve.
+// TestResolveWorktree wires the workspace axis through chainFor's lead policy.
 func TestResolveWorktree(t *testing.T) {
-	p := Resolve(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})
+	p := chainFor(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})[0]
 	assert.Equal(t, "worktree", p.Name())
 	assert.IsType(t, Worktree{}, p)
 }

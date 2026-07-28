@@ -19,24 +19,18 @@ import (
 //     tag cannot be computed (e.g. the base content is unreadable); containerFor
 //     normally overrides it with the content-keyed composed tag (see
 //     composedIdentity).
-//   - officialImage: the client's OFFICIAL upstream image, when the vendor ships
-//     one. Preferred local-build source: ctxloom is overlaid onto it (see
-//     overlayContainerfile), so a fresh `--pull` build rides the vendor's most
-//     recent client. Empty = no official image (community images don't count —
-//     they are not a trustworthy base).
-//   - containerfile: a LEGACY embedded INSTALL Containerfile for a profile with
-//     no engineInstall fragment (today: none — kept as the hook non-composable
-//     profiles could still use). nil for every composable engine; the retired
-//     per-engine production Containerfiles are replaced by engineInstall.
 //   - engineInstall: the composable RUN-layer fragment (locked decision 2/4):
 //     THIS engine's OWN official-installer install block, prereq-ensured
 //     best-effort on an ARBITRARY base then hard-gated by a `<client>
 //     --version` (or PATH-presence) validate — a broken engine layer fails the
 //     BUILD, never ships silently. nil = no known official installer yet
-//     (documented gap; the engine is excluded from composableEngines() and the
-//     backend falls back to the legacy image/officialImage/containerfile
-//     fields exactly as before this existed — see composeAgentContainerfile,
-//     buildSources, composedIdentity).
+//     (documented gap; the engine is excluded from composableEngines() and
+//     buildSources returns nothing for it — no locally-buildable recipe exists
+//     until an installer fragment is written; see composeAgentContainerfile,
+//     buildSources, composedIdentity). U063-F21 deleted the legacy
+//     officialImage/containerfile fallback fields this comment used to
+//     describe: no profile, registered or hypothetical, ever set them, so the
+//     fallback branch they gated in buildSources could never produce output.
 //   - validate: the in-image command that proves the client is runnable (the
 //     `<client> --version` build gate), used by the single-engine `--base-image`
 //     overlay escape hatch (overlayContainerfile) — composition uses
@@ -70,8 +64,6 @@ import (
 // the seam); the names are part of the descriptor contract.
 type containerProfile struct {
 	image              string
-	officialImage      string
-	containerfile      []byte
 	engineInstall      []byte
 	validate           string
 	resolveAuth        func(containerHome, scratchDir string) (containerAuth, bool)

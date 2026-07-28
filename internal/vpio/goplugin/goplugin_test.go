@@ -244,17 +244,3 @@ func TestSession_WaitReturnsExitCodeAndError(t *testing.T) {
 		t.Errorf("Wait code = %d, want 3", status.Code)
 	}
 }
-
-func TestSession_SignalReportsUnsupported(t *testing.T) {
-	fc := &fakeClient{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if err := sess.Signal(nil); err == nil {
-		t.Error("Signal: expected a non-nil error (go-plugin transport has no signal channel), got nil")
-	}
-}

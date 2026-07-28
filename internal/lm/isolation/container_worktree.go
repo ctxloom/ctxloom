@@ -28,8 +28,8 @@ import (
 // would split that lifecycle across the boundary and put worktree creation +
 // teardown out of reach of the host-side WIP-safe Git seam.
 //
-// Approvals bypass (the container is the boundary) and auth (resolveContainerAuth)
-// come from the surrounding Container. Trust caveat: a low-trust fan-out member
+// Auth (resolveContainerAuth) comes from the surrounding Container. Trust
+// caveat: a low-trust fan-out member
 // currently receives the SAME full host creds as the trusted top-level run —
 // per-agent key/budget scoping is a later concern, flagged not solved.
 type worktreeBase struct{ wt Worktree }

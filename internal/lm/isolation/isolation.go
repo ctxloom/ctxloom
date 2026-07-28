@@ -48,35 +48,6 @@ const isolationFixIt = "install/build the agent image and start the container ru
 // exactly what is and isn't isolated. There is no longer a chainFor-level
 // gate for this backend.
 
-// Approvals is the policy's approval-handling axis: whether the engine keeps its
-// in-tool approval prompt or has it bypassed because a real isolation boundary
-// contains the blast radius. It is NOT currently consumed: the run permission
-// posture resolves from config/CLI/agent (agent.PermissionMode), authoritative
-// regardless of the boundary. This axis is retained as the mechanism for the
-// earned-bypass model to be restored once container isolation is relied on again
-// — at which point the resolver may consult it.
-type Approvals int
-
-const (
-	// ApprovalsPrompt keeps the engine's in-tool approval prompting — a trusted
-	// host session guarded cooperatively (ltk). The default.
-	ApprovalsPrompt Approvals = iota
-	// ApprovalsBypass would drop the in-engine prompt because an out-of-engine
-	// boundary (the container) is the safety net instead — the earned-bypass
-	// posture restored once container isolation is relied on again.
-	ApprovalsBypass
-)
-
-// String renders the approvals axis for diagnostics.
-func (a Approvals) String() string {
-	switch a {
-	case ApprovalsBypass:
-		return "bypass"
-	default:
-		return "prompt"
-	}
-}
-
 // Workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
 // a fresh per-agent git worktree (WIP-safe remove); container → the mounted
@@ -90,16 +61,17 @@ type Workspace interface {
 	Cleanup() error
 }
 
-// Policy is the isolation seam: it prepares a per-agent Workspace, spawns the
-// plugin client for that workspace, and declares its approvals axis. All
-// strategies (none | worktree | container) satisfy this one interface, so the
-// fan-out picks a strategy per agent without engine-specific logic.
+// Policy is the isolation seam: it prepares a per-agent Workspace and spawns
+// the plugin client for that workspace. All strategies (none | worktree |
+// container) satisfy this one interface, so the fan-out picks a strategy per
+// agent without engine-specific logic. The run's approval posture resolves
+// wholly from config/CLI/agent (agent.PermissionMode), independent of which
+// strategy is in play — an approvals axis on Policy was tried and deleted as
+// dead (U063-F03): none of the three strategies' resolvers ever consulted it.
 type Policy interface {
 	// Name identifies the policy ("none" | "worktree" | "container"), for
 	// diagnostics and config round-tripping.
 	Name() string
-	// Approvals reports this policy's approval-handling axis (see Approvals).
-	Approvals() Approvals
 	// PrepareWorkspace provisions the workspace the run executes in. projectDir
 	// is the host's live project root; agentID scopes/names a per-agent
 	// workspace (a member label). A policy that cannot prepare its workspace
@@ -370,26 +342,6 @@ type ImageConfig struct {
 	// backend's shared agent image (config isolation_engines); empty = every
 	// engine with a known official-installer fragment (composableEngines()).
 	Engines []string
-}
-
-// Resolve maps the requested axes to the LEAD policy for a run of the named
-// BACKEND — the head of Chain, without preparing anything. Callers that need
-// only the policy identity up front (e.g. run's approvals gating) use this;
-// preparation with per-axis degradation goes through Prepare.
-//
-// The runtime axis degrades HERE when no container runtime is available:
-// only the container dimension is dropped — a requested worktree stays a
-// worktree (axes are independent; degradation never touches the other axis).
-// The container policies degrade AGAIN in PrepareWorkspace (runtime present
-// but the image absent and not buildable, no resolvable auth, scratch
-// creation failure) — see Prepare's chain. A bad WORKSPACE axis value warns and
-// acts as the shared default (CLAUDE.md fault tolerance); a bad RUNTIME axis
-// value is a fatal ClassIsolation finding, not a silent host degrade — see
-// warnUnknownAxes. An EXPLICITLY-requested container that finds no available
-// runtime is likewise a fatal finding (ClassIsolation) the choke owner aborts on
-// unless --degraded.
-func Resolve(axes Axes, backend string, img ImageConfig) Policy {
-	return chainFor(axes, backend, img)[0]
 }
 
 // selectRuntimeProbe is chainFor's seam onto the host runtime probe

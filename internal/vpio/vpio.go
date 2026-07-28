@@ -13,27 +13,24 @@
 //   - BELOW the seam (a Launcher/Session implementation): everything
 //     transport-specific — how the interactive stream is actually carried.
 //
-// The current (only) implementation is internal/vpio/goplugin, which wraps
-// the existing hashicorp/go-plugin-backed bidirectional Run RPC
-// (internal/lm/grpc, llm.proto's `Run`) — a MOVE of the pump/relay logic
-// that used to live inline at the call site, not a rewrite of the wire
-// protocol. This package does not rename github.com/hashicorp/go-plugin (the
-// upstream dependency) or the llm.proto Run RPC; it wraps them.
+// internal/vpio/goplugin was the FIRST implementation, wrapping the existing
+// hashicorp/go-plugin-backed bidirectional Run RPC (internal/lm/grpc,
+// llm.proto's `Run`) — a MOVE of the pump/relay logic that used to live
+// inline at the call site, not a rewrite of the wire protocol. This package
+// does not rename github.com/hashicorp/go-plugin (the upstream dependency)
+// or the llm.proto Run RPC; it wraps them.
 //
-// Two more implementations are REGISTERED FUTURE WORK, not implemented
-// here — the interface is shaped so they can plug in without any
-// above-the-seam caller changing:
-//
-//   - docker-exec: attaches to an already-running container's process via
-//     `docker exec -it`, for the container-isolation runtime.
-//   - host-pty: spawns a bare local process on a host pty, for a
-//     non-plugin engine.
+// internal/vpio/dockerexec has SINCE shipped (docker exec -it against an
+// already-running container's process, for the container-isolation
+// runtime) — the interface was shaped so a second implementation could plug
+// in without any above-the-seam caller changing, and it did. Only host-pty
+// (a bare local process on a host pty, for a non-plugin engine) remains
+// future work.
 package vpio
 
 import (
 	"context"
 	"io"
-	"os"
 )
 
 // ProcessSpec is the per-invocation interactive contract a Launcher starts:
@@ -66,22 +63,15 @@ type Session interface {
 	// transport (coalesce/drop rather than stall the resize pump).
 	Resize(rows, cols uint32)
 
-	// Signal requests delivery of an OS signal to the session. Not every
-	// transport can honor this — the go-plugin transport, for one, has no
-	// out-of-band signal message on the wire (interactive interrupts ride
-	// as raw stdin bytes under the terminal's own raw mode) and returns a
-	// non-nil error rather than silently dropping the request. No
-	// above-the-seam caller invokes this today; it exists so a future
-	// transport that CAN honor it (host-pty, via a real process signal)
-	// has somewhere to plug in.
-	Signal(sig os.Signal) error
-
 	// Wait blocks until the session ends and returns its exit status.
 	Wait() (ExitStatus, error)
 }
 
 // Launcher starts an interactive Session against an already-established
-// backend connection. One implementation ships today: internal/vpio/goplugin.
+// backend connection. Two implementations ship today: internal/vpio/goplugin
+// (the go-plugin Run RPC transport) and internal/vpio/dockerexec (the
+// `docker exec -it` transport for the container-isolation runtime); only
+// host-pty remains future work.
 type Launcher interface {
 	Start(ctx context.Context, spec ProcessSpec) (Session, error)
 }

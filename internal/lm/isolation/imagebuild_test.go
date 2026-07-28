@@ -103,40 +103,33 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 	assert.Contains(t, err.Error(), "no local build recipe")
 }
 
-// TestBuildSources_Precedence pins the source order for a NON-COMPOSABLE
-// profile (no engineInstall — the legacy shape an unknown/unprofiled backend
-// still uses): an explicit base override wins outright; else a user base
-// Containerfile leads, the official client image overlay follows, and the
-// embedded install Containerfile is the fallback; a profile with neither
-// yields nothing.
-func TestBuildSources_Precedence(t *testing.T) {
-	// Synthetic profile with BOTH sources (no current profile ships an official
-	// image — claude's documented ref does not resolve publicly).
-	both := containerProfile{officialImage: "vendor/client:latest", containerfile: []byte("FROM x\n"), validate: "client --version"}
-	srcs := buildSources(both, buildSourcesOptions{})
-	require.Len(t, srcs, 2)
-	assert.Contains(t, srcs[0].desc, "official client image vendor/client:latest")
-	assert.Nil(t, srcs[0].base, "an overlay is single-stage")
-	assert.Contains(t, srcs[1].desc, "install Containerfile")
-	require.NotNil(t, srcs[1].base, "the install recipe layers onto the shared base stage")
-	assert.NotEmpty(t, srcs[1].base.containerfile, "the default base is the embedded Containerfile")
+// TestBuildSources_NonComposableHasNoRecipe pins the NON-COMPOSABLE shape (no
+// engineInstall — an unknown/unprofiled backend, e.g. containerProfileFor's
+// `default` arm): there is no local-build recipe at all, so buildSources
+// yields nothing regardless of the base-Containerfile/devcontainer options —
+// UNLESS an explicit base-image override is given, which still wins outright
+// (the caller asserts the client already lives there; no profile lookup is
+// needed to overlay onto it).
+//
+// U063-F21 deleted the LEGACY officialImage/user-Containerfile/embedded-
+// Containerfile fallback this profile shape used to fall through to: no
+// profile, registered or hypothetical, ever populated those fields (rg over
+// the whole repo found zero assignments), so the fallback's three append
+// blocks could never produce a source — this test used to exercise them only
+// via a synthetic containerProfile{officialImage: ..., containerfile: ...}
+// literal built by nothing in production.
+func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
+	p := containerProfileFor("mock")
+	require.Nil(t, p.engineInstall, "precondition: mock is the non-composable default profile")
 
-	override := buildSources(both, buildSourcesOptions{baseOverride: "my-base:latest"})
-	require.Len(t, override, 1, "an explicit base override wins outright")
+	assert.Empty(t, buildSources(p, buildSourcesOptions{}), "no recipe for an unprofiled/non-composable backend")
+	assert.Empty(t, buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"}),
+		"a user base Containerfile alone still yields nothing without an engineInstall fragment to layer onto it")
+
+	override := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
+	require.Len(t, override, 1, "an explicit base override wins outright, even for a non-composable profile")
 	assert.Contains(t, override[0].desc, "my-base:latest")
 	assert.Nil(t, override[0].base)
-
-	// A user base Containerfile LEADS (their environment, our agent layers),
-	// with the official overlay and the default-base recipe as fallbacks.
-	userBase := buildSources(both, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"})
-	require.Len(t, userBase, 3)
-	assert.Contains(t, userBase[0].desc, "user base Containerfile /proj/Containerfile.base")
-	require.NotNil(t, userBase[0].base)
-	assert.Equal(t, "/proj/Containerfile.base", userBase[0].base.path)
-	assert.Contains(t, userBase[1].desc, "official client image")
-	assert.Contains(t, userBase[2].desc, "install Containerfile")
-
-	assert.Empty(t, buildSources(containerProfileFor("mock"), buildSourcesOptions{}), "no recipe for an unprofiled/non-composable backend")
 }
 
 // TestBuildSources_Composable pins the COMPOSABLE profile shape
@@ -431,7 +424,7 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 	c := Container{
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-stale-unbuildable-test:latest",
-		profile: containerProfile{containerfile: []byte("FROM scratch\n"), validate: "true"},
+		profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
 	}
 	require.NoError(t, c.ensureImage(context.Background()),
 		"the stale image still launches — unbuildable-from-this-binary must never take the container axis down")
@@ -469,28 +462,38 @@ func TestTailLines(t *testing.T) {
 }
 
 // TestEnsureImage_ParallelCallersShareOneBuild: a fan-out drives N members
-// through ensureImage for the SAME absent tag concurrently — exactly one build
-// must run, every caller sharing its outcome (pre-dedup, each member raced its
-// own build and a mid-build untag could flake another's post-build recheck).
-// A later, non-overlapping ensure re-checks presence instead of rebuilding,
-// and a DIFFERENT tag still builds independently — flights are per-tag.
+// through ensureImage for the SAME absent tag concurrently — exactly one
+// FLIGHT must run (2 build invocations: the shared base stage, then the agent
+// stage FROM it — buildFromSource's shape for any source with a non-nil
+// base, which every composable profile carries), every caller sharing its
+// outcome (pre-dedup, each member raced its own build and a mid-build untag
+// could flake another's post-build recheck). A later, non-overlapping ensure
+// re-checks presence instead of rebuilding, and a DIFFERENT tag still builds
+// independently — flights are per-tag.
 func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	withFakeSelfExe(t)
 	t.Setenv("PATH", t.TempDir()) // no companions on PATH: staging warns + skips
 
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "builds.log")
+	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
 	// The fake runtime reports the just-built image's provenance label as
 	// current, so a caller landing after the flight re-checks cheaply instead
-	// of rebuilding.
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	// of rebuilding. This profile is COMPOSABLE (engineInstall != nil), so its
+	// real provenance comes from composedIdentity (content+engine-keyed),
+	// never the legacy HostProvenanceDigest — computed here with the same
+	// nil devBase/nil engines ensureImage itself resolves for this Container
+	// (appRoot == "" short-circuits devcontainer auto-detection to nil).
+	_, provenance, ok := composedIdentity(profile, "", nil, nil)
+	require.True(t, ok, "precondition: a composable profile always resolves a provenance")
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 	script := filepath.Join(dir, "fake-docker")
 	writeFakeRuntimeScript(t, script, logFile, dir, labels)
 
 	c := Container{
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-dedup-test:latest",
-		profile: containerProfile{officialImage: "example/client:1"},
+		profile: profile,
 	}
 
 	const n = 8
@@ -513,15 +516,15 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	for i, err := range errs {
 		assert.NoError(t, err, "caller %d shares the flight outcome", i)
 	}
-	assert.Len(t, buildInvocations(t, logFile), 1, "one build per tag, not one per fan-out member")
+	assert.Len(t, buildInvocations(t, logFile), 2, "one flight (base + agent stage) per tag, not one per fan-out member")
 
 	require.NoError(t, c.ensureImage(context.Background()))
-	assert.Len(t, buildInvocations(t, logFile), 1, "a present, current image never rebuilds")
+	assert.Len(t, buildInvocations(t, logFile), 2, "a present, current image never rebuilds")
 
 	c2 := c
 	c2.image = "ctxloom-agent-dedup-test-2:latest"
 	require.NoError(t, c2.ensureImage(context.Background()))
-	assert.Len(t, buildInvocations(t, logFile), 2, "a different tag is its own flight and builds")
+	assert.Len(t, buildInvocations(t, logFile), 4, "a different tag is its own flight and builds its own base+agent stage pair")
 }
 
 // TestBuildFromSource_BaseTagPerConfigContent: the shared base stage's tag is
@@ -707,7 +710,7 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 		return Container{
 			runtime: fakeRuntime{name: "docker", binary: script, available: true},
 			image:   "ctxloom-agent-stale-test:latest",
-			profile: containerProfile{containerfile: []byte("FROM scratch\n"), validate: "true"},
+			profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
 
@@ -751,7 +754,7 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 			runtime:           fakeRuntime{name: "docker", binary: script, available: true},
 			image:             "ctxloom-agent-userbase-test:latest",
 			baseContainerfile: base,
-			profile:           containerProfile{containerfile: []byte("FROM scratch\n"), validate: "true"},
+			profile:           containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
 		}
 	}
 

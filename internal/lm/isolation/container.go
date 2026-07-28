@@ -124,8 +124,9 @@ var _ Policy = Container{}
 // NewContainer builds a container policy bound to a runtime + an EXPLICIT image
 // over the default (claude-oriented) profile, with no local-build recipe — the
 // image the caller names either exists or the gate degrades. Exposed for the
-// docker-gated integration test and callers with a resolved image;
-// Resolve("container", backend) goes through NewContainerFor instead.
+// docker-gated integration test and callers with a resolved image; the normal
+// {workspace, container} axis resolution (chainFor/Prepare) goes through
+// NewContainerFor instead.
 func NewContainer(rt Runtime, image string) Container {
 	c := NewContainerFor(rt, "")
 	c.image = image
@@ -170,8 +171,6 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c.engines = img.Engines
 	if img.Image != "" {
 		c.image = img.Image
-		c.profile.officialImage = ""
-		c.profile.containerfile = nil
 		c.profile.engineInstall = nil
 		return c
 	}
@@ -220,10 +219,6 @@ func (c Container) Name() string {
 	}
 	return c.base.name()
 }
-
-// Approvals bypasses the engine's in-tool prompt: the container is the boundary,
-// so isolated runs launch with approvals off (better UX, blast radius contained).
-func (Container) Approvals() Approvals { return ApprovalsBypass }
 
 // PrepareWorkspace provisions the container run's host-side scratch and doubles as
 // the degrade gate. It fails (→ caller falls back to None) when no runtime can

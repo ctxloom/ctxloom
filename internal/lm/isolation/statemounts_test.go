@@ -205,7 +205,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
 		profile: containerProfile{
-			officialImage: "example/client:1", // buildable → the run-as-is identity inspect is skipped
+			engineInstall: []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
 			resolveAuth: func(string, string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 			},
@@ -261,7 +261,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
 		profile: containerProfile{
-			officialImage: "example/client:1",
+			engineInstall: []byte("RUN echo fake-install\n"),
 			resolveAuth: func(string, string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv}, true
 			},

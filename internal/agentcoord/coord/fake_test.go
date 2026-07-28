@@ -248,7 +248,7 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 		degraded []string
 	)
 	if gerr := func() error {
-		mark := strictnessCheckpoint()
+		mark := strictness.Checkpoint()
 		perm, degraded = headlessSafePermission(agentName, a.perm)
 		return strictness.FindingsError(mark)
 	}(); gerr != nil {

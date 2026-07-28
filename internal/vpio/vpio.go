@@ -13,21 +13,19 @@
 //   - BELOW the seam (a Launcher/Session implementation): everything
 //     transport-specific — how the interactive stream is actually carried.
 //
-// The current (only) implementation is internal/vpio/goplugin, which wraps
-// the existing hashicorp/go-plugin-backed bidirectional Run RPC
-// (internal/lm/grpc, llm.proto's `Run`) — a MOVE of the pump/relay logic
-// that used to live inline at the call site, not a rewrite of the wire
-// protocol. This package does not rename github.com/hashicorp/go-plugin (the
-// upstream dependency) or the llm.proto Run RPC; it wraps them.
+// internal/vpio/goplugin was the FIRST implementation, wrapping the existing
+// hashicorp/go-plugin-backed bidirectional Run RPC (internal/lm/grpc,
+// llm.proto's `Run`) — a MOVE of the pump/relay logic that used to live
+// inline at the call site, not a rewrite of the wire protocol. This package
+// does not rename github.com/hashicorp/go-plugin (the upstream dependency)
+// or the llm.proto Run RPC; it wraps them.
 //
-// Two more implementations are REGISTERED FUTURE WORK, not implemented
-// here — the interface is shaped so they can plug in without any
-// above-the-seam caller changing:
-//
-//   - docker-exec: attaches to an already-running container's process via
-//     `docker exec -it`, for the container-isolation runtime.
-//   - host-pty: spawns a bare local process on a host pty, for a
-//     non-plugin engine.
+// internal/vpio/dockerexec has SINCE shipped (docker exec -it against an
+// already-running container's process, for the container-isolation
+// runtime) — the interface was shaped so a second implementation could plug
+// in without any above-the-seam caller changing, and it did. Only host-pty
+// (a bare local process on a host pty, for a non-plugin engine) remains
+// future work.
 package vpio
 
 import (
@@ -70,7 +68,10 @@ type Session interface {
 }
 
 // Launcher starts an interactive Session against an already-established
-// backend connection. One implementation ships today: internal/vpio/goplugin.
+// backend connection. Two implementations ship today: internal/vpio/goplugin
+// (the go-plugin Run RPC transport) and internal/vpio/dockerexec (the
+// `docker exec -it` transport for the container-isolation runtime); only
+// host-pty remains future work.
 type Launcher interface {
 	Start(ctx context.Context, spec ProcessSpec) (Session, error)
 }

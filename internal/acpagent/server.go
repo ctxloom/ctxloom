@@ -590,7 +590,16 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	case <-sess.cancelTurnCh: // drop a stale signal from a cancel that raced a completed turn
 	default:
 	}
-	if !sess.contextSent && sess.leadContext != "" {
+	// U014-F01: whether THIS turn carries the lead-context prefix is decided
+	// here, but committing sess.contextSent = true must wait until runTurn
+	// proves the message actually reached the engine (its own send to
+	// sess.engine.In succeeds) — see runTurn's doc. Deciding and committing in
+	// the same critical section, as this used to, marked the context
+	// delivered before it was, so a cancelled-before-send or dead-engine turn
+	// permanently lost the lead block for the rest of the session with no
+	// error anywhere.
+	prependsContext := !sess.contextSent && sess.leadContext != ""
+	if prependsContext {
 		// First turn (or first after a mode switch): ctxloom's assembled
 		// context rides as the lead block — the oneshot fan-out's proven
 		// delivery model, no engine flags needed. The structured form gets
@@ -599,17 +608,16 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 		text = sess.leadContext + "\n\n" + text
 		blocks = append([]agent.ContentBlock{{Kind: "text", Text: sess.leadContext}}, blocks...)
 	}
-	sess.contextSent = true
 	sess.mu.Unlock()
 
-	go s.runTurn(sess, text, blocks, reply)
+	go s.runTurn(sess, text, blocks, prependsContext, reply)
 }
 
 // runTurn runs ONE registered turn: deliver the message, forward the engine's
 // events as session/update notifications, forward its permission requests to
 // the client, relay a session/cancel to the engine, and reply with the stop
 // reason when the turn completes.
-func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock, replyWire func(any, *jsonrpc.Error)) {
+func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock, prependsContext bool, replyWire func(any, *jsonrpc.Error)) {
 	// The turn must close BEFORE its response reaches the wire: the client may
 	// send the next prompt the instant it reads the reply, and that prompt
 	// must not race a deferred reset into "a turn is already in flight".
@@ -623,6 +631,18 @@ func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock
 	// Send the message; a dead engine (closed conversation) surfaces on Errs.
 	select {
 	case sess.engine.In <- agent.ChatMessage{Text: text, ContentBlocks: blocks}:
+		// U014-F01: ONLY now, having proven the engine actually received this
+		// turn's message, is it true that the lead context (if this turn
+		// carried it — see handlePrompt) was delivered. Committing this
+		// earlier (handlePrompt used to, unconditionally, before this send
+		// ever ran) meant a turn that lost the race below — cancelled before
+		// send, or a dead engine — still marked the context sent, silently
+		// losing it for the rest of the session with no error anywhere.
+		if prependsContext {
+			sess.mu.Lock()
+			sess.contextSent = true
+			sess.mu.Unlock()
+		}
 	case <-sess.cancelTurnCh:
 		// Cancelled before the engine even received the message: honor the
 		// cancel without running the turn.

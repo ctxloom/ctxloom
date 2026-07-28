@@ -27,6 +27,13 @@ func renderMarkdown(w io.Writer, v any) error {
 		if err != nil {
 			return err
 		}
+		if node.Empty() {
+			// U154-F02: an all-omitempty struct used to render zero bytes
+			// here — indistinguishable from "the command produced no output
+			// at all" (json/yaml render the same value as `{}`/`null`).
+			_, err := fmt.Fprintln(w, "(none)")
+			return err
+		}
 		return renderNode(w, node, 2, markdownNodeFormat)
 	case reflect.Slice, reflect.Array:
 		elemType := derefType(rv.Type().Elem())
@@ -36,6 +43,14 @@ func renderMarkdown(w io.Writer, v any) error {
 				return err
 			}
 			return writeMarkdownTable(w, tbl)
+		}
+		if rv.Len() == 0 {
+			// U154-F02: an empty SCALAR slice has no columns to derive a
+			// header row from (unlike the struct-slice branch above, which
+			// stays self-evidencing via buildTable's header even with zero
+			// rows) — it used to render zero bytes here.
+			_, err := fmt.Fprintln(w, "(none)")
+			return err
 		}
 		for i := 0; i < rv.Len(); i++ {
 			if _, err := fmt.Fprintf(w, "- %s\n", scalarString(rv.Index(i))); err != nil {

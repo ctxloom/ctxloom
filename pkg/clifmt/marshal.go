@@ -93,10 +93,40 @@ func renderTOML(w io.Writer, v any) error {
 	if !ok {
 		root = map[string]any{"items": generic}
 	}
+	if tomlRootIsEmpty(root) {
+		// U154-F02: TOML has no way to represent a bare null/empty value at
+		// the document root (unlike JSON's `null`/`{}` or YAML's `null`) —
+		// go-toml/v2 silently DROPS a nil map value (confirmed: Marshal(map[
+		// string]any{"items": nil}) and Marshal(map[string]any{}) both
+		// return zero bytes, nil error), so a nil v (or an all-omitempty
+		// struct, which round-trips through toGeneric to the same empty
+		// map) rendered nothing here — indistinguishable from a write that
+		// never happened, while json/yaml render the identical value as
+		// `null`/`{}`. A leading comment is valid TOML (parses back to an
+		// empty table) and makes "there was nothing to render" visible.
+		_, err := io.WriteString(w, "# (none)\n")
+		return err
+	}
 	b, err := toml.Marshal(root)
 	if err != nil {
 		return fmt.Errorf("clifmt: toml marshal: %w", err)
 	}
 	_, err = w.Write(b)
 	return err
+}
+
+// tomlRootIsEmpty reports whether root would marshal to zero bytes: either
+// genuinely empty, or its only key is the non-map "items" wrapper holding a
+// nil value (go-toml/v2 drops a nil-valued map entry outright rather than
+// erroring or emitting anything for it).
+func tomlRootIsEmpty(root map[string]any) bool {
+	if len(root) == 0 {
+		return true
+	}
+	if len(root) == 1 {
+		if v, ok := root["items"]; ok && v == nil {
+			return true
+		}
+	}
+	return false
 }

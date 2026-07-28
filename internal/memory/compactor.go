@@ -104,7 +104,6 @@ type CompactionResult struct {
 	TotalTokensOut int
 	DistilledPath  string
 	Duration       time.Duration
-	Error          string
 }
 
 // Compactor handles session log compaction.

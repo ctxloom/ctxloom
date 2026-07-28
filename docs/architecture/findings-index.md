@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **486** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 9 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **485** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 10 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 5 |
 | `open` | no commit names this ID | **1,758** |
 
-**Totals: 2268 findings across 162 units — 486 resolved, 1758 still open, 23 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
+**Totals: 2268 findings across 162 units — 485 resolved, 1758 still open, 24 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -202,7 +202,7 @@ RESOLVED 446->460, PARTIAL 7->8, open 1800->1785, HIGH resolved 298->312.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 338 | 37 (+6 refuted, +3 escalated, +8 partial) |
+| HIGH | 376 | 337 | 39 (+6 refuted, +3 escalated, +9 partial) |
 | MED | 999 | 42 | 955 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -290,19 +290,15 @@ via `harp.Validate`, and every other `Harp*Path` helper derives through
 it), U092-F02/F03 (`2976b043`, filed under U140-F01/F02:
 `WorkDirWithBoundary` + `taskloom/workdir.ResolveBoundary` already
 implement exactly what these two rows ask for, including the "fail loud
-on unlinked cwd" half). The remaining 14 were FIXED this batch at
+on unlinked cwd" half). Of the remaining 15: 13 were FIXED this batch at
 `9966daef`/`5fbf2be2`: U053-F01/U054-F01 (added `Git.HasIgnoredContent`,
 wired into isolation teardown's WIP gate alongside `IsDirty`), U053-F02
 (stripped `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR`/
 `GIT_OBJECT_DIRECTORY` from every git child process's env via the new
 `gitutil.SanitizedEnviron`, shared by `internal/git` and
 `internal/remote`), U053-F03 (`ApplyPatch` now returns `applied bool`),
-U053-F04 (`Fake.IsDirty` gained `DirtyErr`), U054-F02 (added
-`gitignore.RetireWorktreeConfigBlock`, called once no worktree needs the
-shared common-dir exclude block any more — verified empirically that git
-does NOT honor a linked worktree's own private `info/exclude`, so
-retirement, not relocation, was the only viable fix), U054-F04
-(`appendBlock` now propagates a `Close()` failure), U092-F01
+U053-F04 (`Fake.IsDirty` gained `DirtyErr`), U054-F04 (`appendBlock`
+now propagates a `Close()` failure), U092-F01
 (`DetectWorktree` no longer derives a `MainRoot` for a bare-clone/
 `--separate-git-dir` layout), U109-F01 (`config.Save`/`Manager.Update`
 fail closed on a lock ACQUISITION failure — marked **PARTIAL**: the
@@ -320,9 +316,20 @@ contract — one underlying defect, two units' framing of it), U132-F03
 the two production callers that genuinely need it moved the `MkdirAll`
 to their own call sites), U004-F01 (`harp -n 0`/negative counts now
 reject with an error instead of silently rendering nothing — un-skipped
-a RED test a prior session had already written and parked). Recounted
-(`just test-arch`): RESOLVED 468->486, PARTIAL 8->9, open 1777->1758,
-HIGH resolved 320->338.
+a RED test a prior session had already written and parked). U054-F02
+was ALSO fixed at first (auto-retiring the shared config-exclude block
+once no worktree needed it) but `just test-acceptance` caught a real
+regression: `j9_isolation.feature`'s "A worktree run leaves the
+project tree clean" asserts the block STILL carries the ctxloom
+worktree-config comment immediately after a single worktree's
+teardown. Reverted the auto-trigger at `cf67617f` (220/220 acceptance
+scenarios green again); kept the tested, exported
+`gitignore.RetireWorktreeConfigBlock` utility (the "no removal
+mechanism exists at all" half is fixed) but did not wire it to fire
+automatically anywhere (deciding WHEN is safe is a product call) —
+marked **PARTIAL**, not RESOLVED. See DECISIONS.md for the full story.
+Recounted (`just test-arch`): RESOLVED 468->485, PARTIAL 8->10, open
+1777->1758, HIGH resolved 320->337.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -528,7 +535,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U053-F03 | **RESOLVED** `9966daef` | `exec.go:285-287` | SILENTNOOP | `ApplyPatch` returns `nil` for an empty patch: success reported, zero bytes delivered. If `DiffPatch` ever yields `""` for a reason other than "genuinely nothing tracked changed", the `dirty_tree_h... | U053.md |
 | U053-F04 | **RESOLVED** `9966daef` | `fake.go:197-201` | CORRECTNESS | `Fake.IsDirty` can never return an error, so the teardown's fail-closed unknown-state guard — the one branch standing between an unreadable worktree and its deletion — **has no possible unit test**... | U053.md |
 | U054-F01 | **RESOLVED** `9966daef` | `gitignore.go:72-81` + `internal/git/exec.go:123-129` | CORRECTNESS | **[CONFIRMED]** This set is half of the mechanism that destroys agent work: a worktree whose only contents are agent-authored files reads CLEAN to the WIP check that guards `git worktree remove`. | U054.md |
-| U054-F02 | **RESOLVED** `9966daef` | `isolation/worktree.go:394-408`; `gitignore.go:247-267` | COUPLING | A per-agent, per-worktree isolation concern is installed into the repo's **shared common dir**, repo-wide and permanently, with no removal path — so the developer's own main working tree silently s... | U054.md |
+| U054-F02 | **PARTIAL** `cf67617f` | `isolation/worktree.go:394-408`; `gitignore.go:247-267` | COUPLING | A per-agent, per-worktree isolation concern is installed into the repo's **shared common dir**, repo-wide and permanently, with no removal path — so the developer's own main working tree silently s... | U054.md |
 | U054-F03 | **RESOLVED** `8fef544f` | `gitignore.go:42`, `:76`; `internal/codex/backend.go:22`, `:180-182`, `:271-291` | CORRECTNESS | `.codex/auth.json` is not ignored — while `.claude/` and `.kiro/` are ignored wholesale — so ctxloom's own credential seeding writes a **plaintext OAuth token into the user's repository** where `gi... | U054.md |
 | U054-F04 | **RESOLVED** `9966daef` | `gitignore.go:252` | SILENTNOOP | `appendBlock` discards the `Close` error and never `Sync`s, so a write that never reaches disk is reported as complete success — and the worst instance leaves the project with **fewer** ignore rule... | U054.md |
 | U055-F01 | **RESOLVED** `11500056` | **`backend.go:38,55,153 vs settings.go:73,195`** | CORRECTNESS | Setting `agent:` in a kiro config produces a **broken launch**: ctxloom writes the agent JSON under the hardcoded `defaultAgentName` but passes the user's override to `--agent`, so kiro-cli is told... | U055.md |

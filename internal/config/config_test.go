@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -2052,6 +2054,38 @@ llm:
 	assert.NotNil(t, cfg)
 	// Should have collected warnings about parse/validation issues
 	assert.NotEmpty(t, cfg.warnings)
+}
+
+// U096-F01: a schema-COMPILE failure (as opposed to a document that fails
+// validation against a good schema) used to degrade to "everything is
+// valid" — zap-only, invisible to cfg.warnings and therefore invisible to the
+// strict-startup gate, which keys exclusively on that slice. Force the
+// compile step itself to fail via the newConfigValidatorFn seam (the real
+// embedded schema cannot be made to fail without corrupting a build
+// artifact) and assert the failure is now a fatal-class warning.
+func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
+	orig := newConfigValidatorFn
+	newConfigValidatorFn = func() (*schema.ConfigValidator, error) {
+		return nil, fmt.Errorf("simulated schema compile failure")
+	}
+	defer func() { newConfigValidatorFn = orig }()
+
+	fs := afero.NewMemMapFs()
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
+	require.NotNil(t, cfg)
+
+	var found bool
+	for _, w := range cfg.warnings {
+		if w.Kind == WarnKindValidate && strings.Contains(w.Text, "schema failed to compile") {
+			found = true
+		}
+	}
+	assert.True(t, found, "a schema-compile failure must surface as a fatal-class (WarnKindValidate) warning so the strict-startup gate can see it; warnings: %v", cfg.warnings)
 }
 
 // =============================================================================

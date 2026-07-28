@@ -9,7 +9,7 @@
   "properties": {
     "homing": {
       "type": "string",
-      "description": "Where the project's task-store log is homed. \"home\" keeps it PRIVATE under ~/.ctxloom/tasks/<project-id>.jsonl (today's default behavior; never committed, never shared by a clone). \"repo\" checks the log into the project tree at .taskloom/tasks.jsonl, alongside this config file, so it is SHAREABLE and travels with clones. taskloom refuses to guess: this key (at either the home or project config layer), the TASKLOOM_CONFIG_HOMING environment variable, or the --homing flag must set it before any command that touches a single project's store will run.",
+      "description": "Where the project's task-store log is homed. \"home\" keeps it PRIVATE under ~/.ctxloom/tasks/<project-id>.jsonl (today's default behavior; never committed, never shared by a clone). \"repo\" checks the log into the project tree at .taskloom/tasks.jsonl, alongside this config file, so it is SHAREABLE and travels with clones. Unset (at every layer: this key, the TASKLOOM_CONFIG_HOMING environment variable, and --homing) resolves silently to \"home\" — the pre-homing status quo, a no-op for every existing project. Only an explicitly INVALID value (anything other than \"home\"/\"repo\") is a returned error naming the bad value and the valid set.",
       "enum": ["home", "repo"]
     },
     "tag_schema": {

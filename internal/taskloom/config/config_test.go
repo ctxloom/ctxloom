@@ -115,6 +115,32 @@ func TestConfig_KnownKeyValidates(t *testing.T) {
 	assert.Equal(t, "repo", cfg.Homing)
 }
 
+// TestHomingSchemaDescription_MatchesActualResolveModeBehavior is a
+// regression guard for U138-F09: the schema's published `homing` description
+// once claimed the opposite of what ResolveMode does — "taskloom refuses to
+// guess... must set it before any command... will run" versus the code's
+// actual, deliberate silent default to paths.ModeHome when unset (see this
+// package's own doc and TestHoming_MissingConfigIsSilent). Since that text
+// is rendered into published docs (cmd/taskloom/docs_gen.go), pin that it
+// can never again claim taskloom refuses to run unconfigured.
+func TestHomingSchemaDescription_MatchesActualResolveModeBehavior(t *testing.T) {
+	data, err := resources.GetSchema(SchemaResourceName)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Properties struct {
+			Homing struct {
+				Description string `json:"description"`
+			} `json:"homing"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(data, &parsed))
+
+	desc := parsed.Properties.Homing.Description
+	assert.NotContains(t, desc, "refuses to guess", "the schema must not claim taskloom refuses to run unconfigured — it silently defaults to home, see ResolveMode")
+	assert.Contains(t, desc, "home", "the description should still name the actual silent default")
+}
+
 // TestConfig_EnvOverridesFile proves TASKLOOM_CONFIG_HOMING overrides both
 // file layers.
 func TestConfig_EnvOverridesFile(t *testing.T) {

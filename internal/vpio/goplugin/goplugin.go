@@ -19,8 +19,6 @@ package goplugin
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"sync"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -133,15 +131,6 @@ func (s *Session) Resize(rows, cols uint32) {
 	case s.resize <- ws:
 	default:
 	}
-}
-
-// Signal reports non-support: the go-plugin Run RPC has no out-of-band
-// signal message (see llm.proto's RunInput) — interactive interrupts ride
-// as raw stdin bytes under the terminal's own raw mode instead (see
-// internal/cli/run.go's comment on ^C handling). No above-the-seam caller
-// invokes this today.
-func (s *Session) Signal(sig os.Signal) error {
-	return fmt.Errorf("vpio/goplugin: signal delivery is not supported by the go-plugin transport (requested %v)", sig)
 }
 
 // Wait blocks for client.Run's terminal result.

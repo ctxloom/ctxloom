@@ -187,14 +187,6 @@ func (s *Session) Resize(rows, cols uint32) {
 	_ = pty.Setsize(s.master, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 }
 
-// Signal reports non-support: `docker exec` has no out-of-band signal channel,
-// so interactive interrupts ride as raw stdin bytes under the terminal's own
-// raw mode instead (identical to goplugin.Session). No above-the-seam caller
-// invokes this today.
-func (s *Session) Signal(sig os.Signal) error {
-	return fmt.Errorf("vpio/dockerexec: signal delivery is not supported over docker exec (requested %v); interactive interrupts ride as raw stdin bytes under the terminal's raw mode", sig)
-}
-
 // Wait blocks for the exec turn to end and maps its exit code. The exec CLI
 // PROPAGATES the exec'd command's exit code, so a normal engine exit (0 or the
 // engine's own nonzero) returns as ExitStatus{Code} with a NIL error — run.go's

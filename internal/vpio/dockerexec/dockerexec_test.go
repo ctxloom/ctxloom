@@ -82,7 +82,7 @@ func TestSession_ResizeSetsPtyWinsize(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "sleep", "5")
 	sess, err := startPTYCommand(ctx, cmd, vpio.ProcessSpec{Stdout: io.Discard})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = sess.Signal(nil); cancel(); _, _ = sess.Wait() })
+	t.Cleanup(func() { cancel(); _, _ = sess.Wait() })
 
 	sess.Resize(24, 80)
 	rows, cols, err := pty.Getsize(sess.master)
@@ -161,18 +161,6 @@ func TestSession_StdinEchoesThroughPty(t *testing.T) {
 	_ = stdinW.Close() // EOF ends `cat`
 	cancel()
 	_, _ = sess.Wait()
-}
-
-// TestSession_SignalUnsupported: docker exec has no out-of-band signal channel;
-// interactive interrupts ride as raw stdin bytes, so Signal reports non-support
-// (never silently drops), exactly like goplugin.Session.
-func TestSession_SignalUnsupported(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sleep", "5"), vpio.ProcessSpec{Stdout: io.Discard})
-	require.NoError(t, err)
-	t.Cleanup(func() { cancel(); _, _ = sess.Wait() })
-	assert.Error(t, sess.Signal(nil), "signal delivery is unsupported over docker exec")
 }
 
 // TestStart_FailsWhenBinaryMissing: Start can fail synchronously (the goplugin

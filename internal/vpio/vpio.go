@@ -33,7 +33,6 @@ package vpio
 import (
 	"context"
 	"io"
-	"os"
 )
 
 // ProcessSpec is the per-invocation interactive contract a Launcher starts:
@@ -65,16 +64,6 @@ type Session interface {
 	// implementations must not block the caller on a slow or finished
 	// transport (coalesce/drop rather than stall the resize pump).
 	Resize(rows, cols uint32)
-
-	// Signal requests delivery of an OS signal to the session. Not every
-	// transport can honor this — the go-plugin transport, for one, has no
-	// out-of-band signal message on the wire (interactive interrupts ride
-	// as raw stdin bytes under the terminal's own raw mode) and returns a
-	// non-nil error rather than silently dropping the request. No
-	// above-the-seam caller invokes this today; it exists so a future
-	// transport that CAN honor it (host-pty, via a real process signal)
-	// has somewhere to plug in.
-	Signal(sig os.Signal) error
 
 	// Wait blocks until the session ends and returns its exit status.
 	Wait() (ExitStatus, error)

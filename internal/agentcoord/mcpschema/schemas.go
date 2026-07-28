@@ -50,10 +50,19 @@ func Tools() ([]ToolSpec, error) {
 }
 
 // ToolByName looks one generated tool up.
+//
+// test-only: no production caller (U026-F13) — kept rather than deleted
+// because internal/cli/mcp_runner_test.go, a different package, calls it;
+// Go test files cannot be imported cross-package, so it cannot be moved into
+// a _test.go file the way a same-package-only test helper could be. The
+// goldens are a build product: a Tools() error here means the embedded
+// schema set is corrupt, which is not a recoverable "no such tool" — panic
+// rather than swallow the error into a false "not found" the caller cannot
+// tell apart from a legitimate miss.
 func ToolByName(name string) (ToolSpec, bool) {
 	tools, err := Tools()
 	if err != nil {
-		return ToolSpec{}, false
+		panic(fmt.Errorf("mcpschema: ToolByName(%q): %w", name, err))
 	}
 	for _, t := range tools {
 		if t.Name == name {

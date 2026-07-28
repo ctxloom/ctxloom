@@ -608,7 +608,3 @@ func headlessSafePermission(name, declared string) (agent.PermissionMode, []stri
 	}
 	return agent.PermissionPlan, nil // unreachable in strict mode: strictness.FindingsError refuses
 }
-
-// strictnessCheckpoint is a thin alias so tests in this package can open the
-// same window the production resolve does without importing strictness.
-func strictnessCheckpoint() strictness.Mark { return strictness.Checkpoint() }

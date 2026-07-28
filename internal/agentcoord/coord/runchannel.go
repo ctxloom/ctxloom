@@ -77,11 +77,10 @@ func (c *Coordinator) SetCustomHandlers(handlers map[string]CustomHandler) {
 // depth-0 credential attaches with an empty run_id). All mutable fields are
 // guarded by Coordinator.mu; frames go out through the single writer pump.
 type runChan struct {
-	role     string // the harp this channel serves (child harp, or owner harp)
-	credHash string
-	id       Identity
-	send     chan *agentcoordpb.CoordinatorFrame
-	cancel   context.CancelFunc
+	role   string // the harp this channel serves (child harp, or owner harp)
+	id     Identity
+	send   chan *agentcoordpb.CoordinatorFrame
+	cancel context.CancelFunc
 
 	parked bool     // runner-side agent_recv park is open
 	pushed []string // message ids pushed tentatively (also in c.delivered)
@@ -120,8 +119,6 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	if !ok {
 		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
 	}
-	credHash := hashToken(mdToken(stream.Context()))
-
 	first, err := stream.Recv()
 	if err != nil {
 		return err
@@ -161,7 +158,6 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	streamCtx, cancel := context.WithCancel(stream.Context())
 	ch := &runChan{
 		role:      id.Harp,
-		credHash:  credHash,
 		id:        id,
 		send:      make(chan *agentcoordpb.CoordinatorFrame, 64),
 		cancel:    cancel,
@@ -276,7 +272,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		c.recordSummary(ch.role, ch.id.RunID, ev.GetSeq(), payload.Summary)
 		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_ArtifactProduced:
-		c.recordArtifact(ch.role, ev.GetSeq(), payload.ArtifactProduced)
+		c.recordArtifact(ch.role, payload.ArtifactProduced)
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {

@@ -270,6 +270,15 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRun
 }
 
 // ListRuns is the in-process form of ConsumerService.ListRuns.
+//
+// test-only: no production caller (U020-F11) — production reaches
+// listRunsSnapshot directly (consumerService.ListRuns, serveListRuns). This
+// was deleted once in this wave and reverted: repointing its in-package test
+// call sites at listRunsSnapshot compiled fine, but
+// internal/cli/mcp_tools_agents_test.go (a different package) also calls it
+// via require.Eventually to poll for a roster change — `go vet ./...`, not a
+// package-scoped vet, is what caught that. Kept for that cross-package test
+// caller, the same reason as LoopbackURL (U022-F15).
 func (c *Coordinator) ListRuns(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
 	return c.listRunsSnapshot(includeTerminal, role)
 }

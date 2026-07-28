@@ -507,7 +507,7 @@ func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoor
 // WITHOUT tearing the home down — the engine host's chat-ended signal (the
 // runner process itself stays up until the coordinator kills it; the
 // coordinator's loss synthesis covers a link that is down).
-func (h *Home) ReportRunExited(exitCode int, harnessSessionID string, terminalEventSeen bool) {
+func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 	if h.cfg.RunID == "" {
 		return // a session-owner runner hosts no spawned run
 	}
@@ -519,10 +519,14 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string, terminalEv
 	}
 	if err := link.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_RunExited{
 		RunExited: &agentcoordpb.RunExited{
-			RunId:             h.cfg.RunID,
-			ExitCode:          int32(exitCode),
-			HarnessSessionId:  harnessSessionID,
-			TerminalEventSeen: terminalEventSeen,
+			RunId:            h.cfg.RunID,
+			ExitCode:         int32(exitCode),
+			HarnessSessionId: harnessSessionID,
+			// Always true: ReportRunExited is only ever called after the
+			// engine's chat stream has ended (enginehost.go's adapt), which
+			// is itself the terminal event. There is no call path where the
+			// terminal event was not seen — U021-F18.
+			TerminalEventSeen: true,
 		},
 	}}); err != nil {
 		clidiag.Warn("ctxloom", "runner: report RunExited: %v (coordinator will synthesize loss)", err)

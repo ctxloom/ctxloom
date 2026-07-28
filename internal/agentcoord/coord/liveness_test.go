@@ -81,7 +81,7 @@ func TestLivenessSnapshot_FiresOnStuckChildAndNotOnHealthyOne(t *testing.T) {
 	stuckChildTranscript(t, stuckHarp, 6)
 	healthyChildTranscript(t, healthyHarp)
 
-	reps := c.LivenessSnapshot(context.Background())
+	reps := c.livenessSnapshot(context.Background())
 	require.NotEmpty(t, reps, "the snapshot must cover the children the coordinator holds")
 
 	stuck := reportFor(reps, stuckHarp)
@@ -110,7 +110,7 @@ func TestLivenessSnapshot_ApprovalParkSuppressesTheVerdict(t *testing.T) {
 	stuckChildTranscript(t, harp, 6)
 
 	// Without the approval, this child fires.
-	before := reportFor(c.LivenessSnapshot(context.Background()), harp)
+	before := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, before)
 	require.Equal(t, liveness.StateStalled, before.State, "precondition: %s", before.Reason)
 
@@ -123,7 +123,7 @@ func TestLivenessSnapshot_ApprovalParkSuppressesTheVerdict(t *testing.T) {
 	c.approvals["msg-1"] = &pendingApproval{targetHarp: harp}
 	c.mu.Unlock()
 
-	after := reportFor(c.LivenessSnapshot(context.Background()), harp)
+	after := reportFor(c.livenessSnapshot(context.Background()), harp)
 	require.NotNil(t, after)
 	assert.Equal(t, liveness.StateAwaitingApproval, after.State,
 		"a child parked on an approval must NEVER be reported stalled: %s", after.Reason)

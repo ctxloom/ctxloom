@@ -28,7 +28,7 @@ type engineHome interface {
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
-	ReportRunExited(exitCode int, harnessSessionID string, terminalEventSeen bool)
+	ReportRunExited(exitCode int, harnessSessionID string)
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for forwarding a permission request as an
 	// ApprovalRequest (Wave C2, resolveApproval below).
@@ -503,7 +503,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			NumTurns: uint32(turns),
 		},
 	}}})
-	home.ReportRunExited(exitCode, sessionID, true)
+	home.ReportRunExited(exitCode, sessionID)
 }
 
 // runStartedConfig echoes the HarnessSpec into RunStarted.config so the log

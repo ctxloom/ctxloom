@@ -46,7 +46,6 @@ const KindExited = "exited"
 // parkedPoll is one held agent_recv long-poll. done flips under c.mu so the
 // deliver/timeout/preempt/revoke races resolve to exactly one completion.
 type parkedPoll struct {
-	role string
 	done bool
 	ch   chan pollResult
 }
@@ -275,7 +274,7 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 		prev.done = true
 		go func() { prev.ch <- pollResult{err: ErrRecvPreempted} }()
 	}
-	p := &parkedPoll{role: role, ch: make(chan pollResult, 1)}
+	p := &parkedPoll{ch: make(chan pollResult, 1)}
 	c.polls[role] = p
 	c.mu.Unlock()
 

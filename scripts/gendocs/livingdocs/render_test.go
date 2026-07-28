@@ -14,7 +14,7 @@ func passingFeature() Feature {
 		Description: []string{"A description line."},
 		Tags:        []string{"@doc"},
 		Scenarios: []Scenario{
-			{Keyword: "Scenario", Name: "First scenario", Body: "Scenario: First scenario\n    Given a precondition"},
+			{Name: "First scenario", Body: "Scenario: First scenario\n    Given a precondition"},
 		},
 	}
 }

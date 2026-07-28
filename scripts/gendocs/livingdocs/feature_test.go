@@ -44,7 +44,6 @@ Feature: Setting up a project
 	require.Len(t, feat.Scenarios, 2)
 
 	sc1 := feat.Scenarios[0]
-	assert.Equal(t, "Scenario", sc1.Keyword)
 	assert.Equal(t, "First scenario", sc1.Name)
 	assert.Empty(t, sc1.Tags)
 	assert.Contains(t, sc1.Body, "Given a precondition")
@@ -74,7 +73,6 @@ Feature: An outline feature
 	require.NoError(t, err)
 	require.Len(t, feat.Scenarios, 1)
 	sc := feat.Scenarios[0]
-	assert.Equal(t, "Scenario Outline", sc.Keyword)
 	assert.Contains(t, sc.Body, "Examples:")
 	assert.Contains(t, sc.Body, "| one   |")
 }

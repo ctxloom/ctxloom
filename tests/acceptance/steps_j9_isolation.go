@@ -49,6 +49,11 @@ type j9Record struct {
 type j9State struct {
 	recordDir string
 	records   []j9Record
+	// lastContainerRecPath is the mock-container run's own record file (U161-F06):
+	// distinct from records above, which only the workspace-axis "mock agent"
+	// steps append to. Lets "the run runs on the host" check WHERE the
+	// degraded run actually executed, not merely that it exited 0.
+	lastContainerRecPath string
 }
 
 func j9Of(w *World) *j9State {
@@ -236,6 +241,17 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice runs the container-bound agent with flags "([^"]*)"$`, func(c context.Context, flags string) error {
 		w := worldFrom(c)
+		j9 := j9Of(w)
+		// Fresh record path per invocation, same as the workspace-axis "mock
+		// agent" step above -- the mock engine writes cwd=/workdir= to this
+		// file regardless of whether it ends up running in a container or
+		// (degraded) on the host, which is what lets "the run runs on the
+		// host" actually check WHERE it ran rather than only that it exited 0.
+		recPath := filepath.Join(j9.recordDir, fmt.Sprintf("record-%d.txt", len(j9.records)))
+		if err := w.env.WriteFile(".ctxloom/config.yaml", j9ConfigYAML(recPath)); err != nil {
+			return err
+		}
+		j9.lastContainerRecPath = recPath
 		args := []string{"run", "--agent", "mock-container", "--print"}
 		if flags != "" {
 			args = append(args, strings.Fields(flags)...)
@@ -263,10 +279,29 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the run runs on the host$`, func(c context.Context) error {
 		w := worldFrom(c)
+		j9 := j9Of(w)
 		out := w.env.LastOutput()
 		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
 		if code := w.env.LastExitCode(); code != 0 {
 			return fmt.Errorf("expected exit 0 (degraded host run), got %d; output:\n%s", code, out)
+		}
+		// U161-F06: exit 0 alone does not prove WHERE the run executed -- a
+		// silently container-bound (or nowhere-run) "success" would pass this
+		// check too, in a journey whose entire subject is where the run
+		// landed. Read the mock's own recorded workdir=, the same observable
+		// the sibling workspace-axis step already trusts (:150-154), and
+		// require it to equal the project dir (the host boundary).
+		if j9.lastContainerRecPath == "" {
+			return fmt.Errorf("no container-bound run was recorded yet")
+		}
+		body, err := os.ReadFile(j9.lastContainerRecPath)
+		if err != nil {
+			return fmt.Errorf("read mock record %q: %w", j9.lastContainerRecPath, err)
+		}
+		_, workDir := j9ParseRecord(string(body))
+		w.docStepMaterialized += fmt.Sprintf("\nworkdir=%s", workDir)
+		if workDir != w.env.ProjectDir {
+			return fmt.Errorf("expected the degraded run's workdir to be the project dir %q (the host), got %q", w.env.ProjectDir, workDir)
 		}
 		return nil
 	})

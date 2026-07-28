@@ -446,11 +446,17 @@ func j5AssertHook(w *World, engine string) error {
 	// no-op when capture is off) — kiro diverts session_start to its own
 	// "agentSpawn" event name, which the note below makes visible rather than
 	// leaving it as a fact only findable by re-reading the Go source.
+	//
+	// U161-F03: this used to print j5HookCommand (the WANT, restating the
+	// claim) rather than cmds (what was actually parsed out of the generated
+	// file) — so a failing assertion published evidence that looked
+	// identical whether the real command matched or not. Now prints cmds,
+	// matching j5AssertMCP's own pattern.
 	note := ""
 	if engine == "kiro" {
 		note = "  (kiro diverts session_start → agentSpawn, its own event name)"
 	}
-	w.docStepMaterialized = fmt.Sprintf("%s → hooks.%s%s\n  command: %s", rel, event, note, j5HookCommand)
+	w.docStepMaterialized = fmt.Sprintf("%s → hooks.%s%s\n  commands: %v", rel, event, note, cmds)
 	if found {
 		return nil
 	}

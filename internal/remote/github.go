@@ -233,8 +233,6 @@ func (f *GitHubFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 		entry := DirEntry{
 			Name:  item.GetName(),
 			IsDir: item.GetType() == "dir",
-			SHA:   item.GetSHA(),
-			Size:  int64(item.GetSize()),
 		}
 		entries = append(entries, entry)
 	}
@@ -390,9 +388,6 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 			Description: r.GetDescription(),
 			Stars:       r.GetStargazersCount(),
 			URL:         r.GetHTMLURL(),
-			Topics:      r.Topics,
-			Language:    r.GetLanguage(),
-			UpdatedAt:   r.GetUpdatedAt().Time,
 			Forge:       ForgeGitHub,
 		})
 	}

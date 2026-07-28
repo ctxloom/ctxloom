@@ -172,7 +172,6 @@ func TestStore_NilStore_IsSafe(t *testing.T) {
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
 	_, ok := s.VerifiedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, []byte("z"), root, time.Now())
 	assert.False(t, ok)
-	assert.Empty(t, s.Dir())
 }
 
 func TestStore_ApproveRawDoesNotApproveDistilled(t *testing.T) {
@@ -261,6 +260,47 @@ func TestStore_Index_AppendAndLatestApprove(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "sha256:bbb", got.PayloadHash, "the LATEST entry (by reviewed_at) must win")
+}
+
+// TestStore_LatestApprove_ScopedToKindRefForm pins U137-F13's refutation: the
+// register filed the sidecar index as NOPAY on the theory that its only
+// documented consumer ("ctxloom approvals list") does not exist — but
+// operations.review (review.go:378, UPDATE-vs-NEW labelling + diff base) and
+// operations/trust.go:718 (post-approval index write) are real, live
+// production callers of AppendIndex/LatestApprove, rg-verified. This test
+// pins the exact scoping behaviour that caller depends on: a chronologically
+// LATER entry for a different kind, ref, or form must never win — if it did,
+// operations.review would offer the wrong diff base (or label an UPDATE for
+// the wrong item), which is precisely the substituted-content risk the index
+// exists to avoid.
+func TestStore_LatestApprove_ScopedToKindRefForm(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+
+	// The real entry we care about — earlier in time.
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "x#fragments/y", Kind: "fragments", Form: "raw", Assertion: "approve",
+		PayloadHash: "sha256:real", ReviewedAt: "2026-01-01T00:00:00Z",
+	}))
+	// Chronologically LATER entries that must NOT be selected: different ref,
+	// different kind, different form, respectively.
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "x#fragments/OTHER", Kind: "fragments", Form: "raw", Assertion: "approve",
+		PayloadHash: "sha256:wrong-ref", ReviewedAt: "2026-06-01T00:00:00Z",
+	}))
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "x#fragments/y", Kind: "hooks", Form: "raw", Assertion: "approve",
+		PayloadHash: "sha256:wrong-kind", ReviewedAt: "2026-06-01T00:00:00Z",
+	}))
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "x#fragments/y", Kind: "fragments", Form: "distilled", Assertion: "approve",
+		PayloadHash: "sha256:wrong-form", ReviewedAt: "2026-06-01T00:00:00Z",
+	}))
+
+	got, found, err := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "sha256:real", got.PayloadHash, "a later entry for a different kind/ref/form must never win")
 }
 
 func TestStore_Index_NeverConfusedWithSignedVerification(t *testing.T) {

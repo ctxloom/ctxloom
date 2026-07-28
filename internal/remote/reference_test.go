@@ -484,51 +484,6 @@ func TestExtractRepoName(t *testing.T) {
 	}
 }
 
-func TestReference_ToCanonicalWithVersion(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  Reference
-		want string
-	}{
-		{
-			name: "canonical without content version",
-			ref: Reference{
-				URL:      "https://github.com/owner/repo",
-				ItemType: ItemTypeBundle,
-				Path:     "core-practices",
-			},
-			want: "https://github.com/owner/repo@bundles/core-practices",
-		},
-		{
-			name: "canonical with content version",
-			ref: Reference{
-				URL:            "https://github.com/owner/repo",
-				ItemType:       ItemTypeBundle,
-				Path:           "core-practices",
-				ContentVersion: "v1.2.3",
-			},
-			want: "https://github.com/owner/repo@bundles/core-practices@v1.2.3",
-		},
-		{
-			name: "canonical with empty item type",
-			ref: Reference{
-				URL:      "https://github.com/owner/repo",
-				ItemType: "",
-				Path:     "core",
-			},
-			want: "https://github.com/owner/repo@s/core",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.ToCanonicalWithVersion(); got != tt.want {
-				t.Errorf("ToCanonicalWithVersion() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestReference_CanonicalString(t *testing.T) {
 	tests := []struct {
 		name string

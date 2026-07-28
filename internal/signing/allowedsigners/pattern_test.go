@@ -56,14 +56,14 @@ func TestMatchPatternList_CaseSensitive(t *testing.T) {
 }
 
 func TestGlobMatch_StarCollapsesConsecutive(t *testing.T) {
-	assert.True(t, globMatch("**", "anything"))
-	assert.True(t, globMatch("a**b", "aXXXb"))
+	assert.True(t, globMatchBytes([]byte("**"), []byte("anything")))
+	assert.True(t, globMatchBytes([]byte("a**b"), []byte("aXXXb")))
 }
 
 func TestGlobMatch_NoWildcardsRequiresExactMatch(t *testing.T) {
-	assert.True(t, globMatch("publish.v1.ctxloom.dev", "publish.v1.ctxloom.dev"))
-	assert.False(t, globMatch("publish.v1.ctxloom.dev", "publish.v1.ctxloom.devX"))
-	assert.False(t, globMatch("publish.v1.ctxloom.dev", "Xpublish.v1.ctxloom.dev"))
+	assert.True(t, globMatchBytes([]byte("publish.v1.ctxloom.dev"), []byte("publish.v1.ctxloom.dev")))
+	assert.False(t, globMatchBytes([]byte("publish.v1.ctxloom.dev"), []byte("publish.v1.ctxloom.devX")))
+	assert.False(t, globMatchBytes([]byte("publish.v1.ctxloom.dev"), []byte("Xpublish.v1.ctxloom.dev")))
 }
 
 // --- timestamp parsing (valid-after / valid-before values) ---

@@ -19,19 +19,3 @@ func LoadAuth(configPath string) AuthConfig {
 
 	return auth
 }
-
-// HasGitHubAuth returns true if GitHub authentication is configured.
-func (a AuthConfig) HasGitHubAuth() bool {
-	return a.GitHub != ""
-}
-
-// TokenForForge returns the authentication token for the given forge.
-// The generic git adapter uses ambient git auth and has no token here.
-func (a AuthConfig) TokenForForge(forge ForgeType) string {
-	switch forge {
-	case ForgeGitHub:
-		return a.GitHub
-	default:
-		return ""
-	}
-}

@@ -63,7 +63,6 @@ func TestReference_Companion_StringRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, ref, parsed.String(), "String round-trips")
 			assert.Equal(t, ref, parsed.CanonicalString(), "CanonicalString round-trips")
-			assert.Equal(t, ref, parsed.ToCanonicalWithVersion(), "ToCanonicalWithVersion round-trips")
 		})
 	}
 }

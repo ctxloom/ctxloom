@@ -87,22 +87,6 @@ func TestPipeline_Run_PreservesCommentsAndIndent(t *testing.T) {
 	assert.NotContains(t, string(out), "old:")
 }
 
-func TestPipeline_IsItselfAnUpgrader_Nests(t *testing.T) {
-	inner := Pipeline{
-		renameUpgrade{name: "a", from: "1", to: "2"},
-		renameUpgrade{name: "b", from: "2", to: "3"},
-	}
-	var _ Upgrader = inner // compile-time: Pipeline is an Upgrader
-
-	outer := Pipeline{inner, renameUpgrade{name: "c", from: "3", to: "4"}}
-	out, applied := outer.Run([]byte("1: v\n"))
-	assert.NotEmpty(t, applied)
-
-	var root map[string]any
-	require.NoError(t, yaml.Unmarshal(out, &root))
-	assert.Equal(t, "v", root["4"], "nested pipeline must compose with outer stages")
-}
-
 func TestPipeline_Run_Idempotent_SecondRunIsNoOp(t *testing.T) {
 	p := Pipeline{renameUpgrade{name: "a", from: "old", to: "new"}}
 	once, applied := p.Run([]byte("old: v\n"))

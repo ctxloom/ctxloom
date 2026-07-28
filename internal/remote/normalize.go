@@ -126,14 +126,6 @@ func SplitPromptVersion(ref string) (canonical, version string) {
 	return CanonicalBundleRef(base) + sel, version
 }
 
-// SkillSelector is the selector prefix addressing an Agent Skill package
-// within a bundle ("<bundle>#skills/<name>"). Unlike CommandSelector, a skill
-// carries no distillable content and no historical-version resolution (B6a) —
-// this constant exists purely so producers (profile skills: curation) and
-// consumers (CLI/loader ref parsing) share the grammar in one place, the same
-// reason FragmentSelector/CommandSelector exist.
-const SkillSelector = "#skills/"
-
 // ProfileSelector is the selector prefix addressing a profile shipped INSIDE a
 // bundle ("<bundle>#profiles/<name>"). Profiles are an ungated, COMPOUND bundle
 // item kind — a profile composes leaves (fragments/commands/mcp/hooks/llm/parents/

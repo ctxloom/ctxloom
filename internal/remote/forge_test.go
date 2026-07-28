@@ -103,8 +103,10 @@ func TestRegistry_ForgePersistence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "work-ghe", rem.Forge)
 
-	rf, err := reg.ResolveForge("myprofiles")
-	require.NoError(t, err)
+	// U094-F14 deleted the Registry.ResolveForge convenience wrapper (zero
+	// production callers); this exercises the same resolution its body did,
+	// against the registry state persisted above.
+	rf := resolveForge(rem.URL, rem.Forge, reg.Forges())
 	assert.Equal(t, ForgeGitHub, rf.Type)
 	assert.Equal(t, "https://github.mycorp.com", rf.BaseURL)
 	assert.Equal(t, "GHE_TOKEN", rf.TokenEnv)

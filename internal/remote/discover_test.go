@@ -32,15 +32,15 @@ func TestMockFetcher_SearchRepos(t *testing.T) {
 // RepoInfo captures metadata for display and filtering of discovered repositories.
 
 func TestRepoInfo_Fields(t *testing.T) {
-	// All repository metadata must be accessible for filtering and display
+	// All repository metadata must be accessible for filtering and display.
+	// Topics/Language/UpdatedAt were deleted (U095-F09): written by the
+	// GitHub search adapter, read by no production consumer.
 	repo := RepoInfo{
 		Owner:       "alice",
 		Name:        "ctxloom",
 		Description: "Test repo",
 		Stars:       42,
 		URL:         "https://github.com/alice/ctxloom",
-		Topics:      []string{"golang", "security"},
-		Language:    "Go",
 		Forge:       ForgeGitHub,
 	}
 
@@ -56,17 +56,11 @@ func TestRepoInfo_Fields(t *testing.T) {
 	if repo.URL != "https://github.com/alice/ctxloom" {
 		t.Errorf("URL = %q, want %q", repo.URL, "https://github.com/alice/ctxloom")
 	}
-	if repo.Language != "Go" {
-		t.Errorf("Language = %q, want %q", repo.Language, "Go")
-	}
 	if repo.Stars != 42 {
 		t.Errorf("Stars = %d, want %d", repo.Stars, 42)
 	}
 	if repo.Forge != ForgeGitHub {
 		t.Errorf("Forge = %q, want %q", repo.Forge, ForgeGitHub)
-	}
-	if len(repo.Topics) != 2 {
-		t.Errorf("Topics length = %d, want %d", len(repo.Topics), 2)
 	}
 }
 

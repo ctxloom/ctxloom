@@ -61,7 +61,6 @@ func TestReference_Local_StringRoundTrip(t *testing.T) {
 			parsed, err := ParseReference(ref)
 			require.NoError(t, err)
 			assert.Equal(t, ref, parsed.String(), "String round-trips")
-			assert.Equal(t, ref, parsed.ToCanonicalWithVersion(), "ToCanonicalWithVersion round-trips")
 		})
 	}
 }

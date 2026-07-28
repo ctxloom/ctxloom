@@ -654,27 +654,3 @@ func sshRepoName(repoURL string) string {
 	}
 	return sanitizePath(repoURL)
 }
-
-// ToCanonicalWithVersion builds the full canonical URL string including content version.
-// Used when exporting profiles for sharing.
-//
-// Format: <repo_url>@<type>/<path>@<content_version>
-//
-// If ContentVersion is empty, the @<content_version> suffix is omitted.
-func (r *Reference) ToCanonicalWithVersion() string {
-	if r.URL == "" || r.IsCompanion {
-		return r.String()
-	}
-
-	typeName := r.ItemType.DirName()
-	if typeName == "" {
-		typeName = "bundles" // default
-	}
-
-	base := fmt.Sprintf("%s@%s/%s", r.URL, typeName, r.Path)
-
-	if r.ContentVersion != "" {
-		return fmt.Sprintf("%s@%s", base, r.ContentVersion)
-	}
-	return base
-}

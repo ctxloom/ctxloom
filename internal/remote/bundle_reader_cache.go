@@ -47,10 +47,6 @@ func NewCachingBundleReader(src BundleByteSource) *CachingBundleReader {
 	}
 }
 
-// Inner returns the wrapped source, primarily for tests that want to
-// reach past the cache and assert on the underlying call count.
-func (c *CachingBundleReader) Inner() BundleByteSource { return c.inner }
-
 func (c *CachingBundleReader) ListBundleNames() []string {
 	if c == nil || c.inner == nil {
 		return nil

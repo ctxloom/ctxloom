@@ -38,10 +38,6 @@ func (s *stubVCS) ReadFileAt(_ context.Context, path, rev string) ([]byte, error
 	return s.data, nil
 }
 
-func (s *stubVCS) ResolveRevision(_ context.Context, rev string) (string, error) {
-	return rev, nil
-}
-
 func (s *stubVCS) ListItems(_ context.Context, _ ItemType) ([]string, error) {
 	return s.items, s.err
 }

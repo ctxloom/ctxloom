@@ -8,10 +8,14 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// DefaultHashAlgorithm is the hash algorithm ctxloom uses when it signs.
+// defaultHashAlgorithm is the hash algorithm ctxloom uses when it signs.
 // sha512 matches OpenSSH's own `ssh-keygen -Y sign` default, which is what
 // makes our signatures and OpenSSH's interoperate (see interop_test.go).
-const DefaultHashAlgorithm = sshsig.HashSHA512
+//
+// U134-F12: this was exported as DefaultHashAlgorithm but had zero references
+// anywhere in the repo outside its own use below — unexported since nothing
+// reads it as package API.
+const defaultHashAlgorithm = sshsig.HashSHA512
 
 // Sign signs payload under namespace using signer, and returns an armored
 // (PEM "-----BEGIN SSH SIGNATURE-----") PROTOCOL.sshsig blob — the same wire
@@ -36,7 +40,7 @@ func Sign(payload []byte, signer ssh.Signer, namespace string) ([]byte, error) {
 	if len(payload) == 0 {
 		return nil, fmt.Errorf("signing: refusing to sign an empty payload — a signature over zero bytes attests to nothing")
 	}
-	sig, err := sshsig.Sign(bytes.NewReader(payload), signer, DefaultHashAlgorithm, namespace)
+	sig, err := sshsig.Sign(bytes.NewReader(payload), signer, defaultHashAlgorithm, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("signing: %w", err)
 	}
@@ -61,7 +65,7 @@ func Verify(payload []byte, armored []byte, pub ssh.PublicKey, namespace string)
 		return fmt.Errorf("verify: unarmor: %w", err)
 	}
 	// Verify hashes payload using the algorithm embedded in the signature
-	// itself (rather than a hardcoded DefaultHashAlgorithm), so a signature
+	// itself (rather than a hardcoded defaultHashAlgorithm), so a signature
 	// produced with a different supported algorithm — e.g. a real
 	// `ssh-keygen -Y sign` invocation with -O hashalg=sha256 — still
 	// verifies correctly.

@@ -68,7 +68,6 @@ type configFile struct {
 	Remotes map[string]Remote      `yaml:"remotes,omitempty"`
 	Forges  map[string]ForgeConfig `yaml:"forges,omitempty"`
 	Default string                 `yaml:"default,omitempty"`
-	Auth    AuthConfig             `yaml:"auth,omitempty"`
 }
 
 // load reads remotes from the config file.
@@ -274,16 +273,6 @@ func (r *Registry) SetForge(name, label string) error {
 	return nil
 }
 
-// FindByURL searches for a remote by repository URL.
-// Returns the remote name and whether it was found.
-func (r *Registry) FindByURL(repoURL string) (string, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	normalizedURL := NormalizeURL(repoURL)
-	return r.findByURLLocked(normalizedURL)
-}
-
 // findByURLLocked searches for a remote by URL (must hold lock).
 func (r *Registry) findByURLLocked(normalizedURL string) (string, bool) {
 	for name, remote := range r.remotes {
@@ -429,33 +418,4 @@ func (r *Registry) Forges() map[string]ForgeConfig {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return MergeForges(r.forges)
-}
-
-// ResolveForge returns the forge a remote binds to, applying the resolution
-// order (explicit remote.forge → host match → built-in github → git) against
-// the merged forge set.
-func (r *Registry) ResolveForge(name string) (ResolvedForge, error) {
-	remote, err := r.Get(name)
-	if err != nil {
-		return ResolvedForge{}, err
-	}
-	return resolveForge(remote.URL, remote.Forge, r.Forges()), nil
-}
-
-// ResolveForgeForURL resolves a forge for a bare URL with an optional explicit
-// label, for callers that hold a URL rather than a registered remote name.
-func (r *Registry) ResolveForgeForURL(remoteURL, forgeLabel string) ResolvedForge {
-	return resolveForge(remoteURL, forgeLabel, r.Forges())
-}
-
-// GetFetcher creates a Fetcher for the specified remote, using the remote's
-// resolved forge to pick the adapter, endpoint, and token source.
-func (r *Registry) GetFetcher(name string, auth AuthConfig) (Fetcher, error) {
-	remote, err := r.Get(name)
-	if err != nil {
-		return nil, err
-	}
-
-	rf := resolveForge(remote.URL, remote.Forge, r.Forges())
-	return NewForgeFetcher(remote.URL, rf, auth)
 }

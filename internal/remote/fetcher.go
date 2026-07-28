@@ -35,22 +35,3 @@ type Fetcher interface {
 	// Forge returns the type of forge this fetcher handles.
 	Forge() ForgeType
 }
-
-// FetchResult contains the result of a file fetch operation.
-type FetchResult struct {
-	Content   []byte // File content
-	SHA       string // Commit SHA at time of fetch
-	Path      string // Full path within repo
-	RepoOwner string // Repository owner
-	RepoName  string // Repository name
-}
-
-// FetchOptions configures fetch behavior.
-type FetchOptions struct {
-	// Ref is the git reference to fetch from (tag, branch, commit SHA).
-	// Empty means use default branch.
-	Ref string
-
-	// IncludeSHA includes the resolved SHA in the result even if fetching by branch.
-	IncludeSHA bool
-}

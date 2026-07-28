@@ -186,13 +186,13 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 	return out
 }
 
-// LivenessSnapshot assesses every child this coordinator holds and returns the
+// livenessSnapshot assesses every child this coordinator holds and returns the
 // verdicts. It is the ON-DEMAND surface — a caller (a CLI, a test, a future
 // roster projection) asks and gets an answer computed from the folds, the
 // transcripts, and the runner registry at that instant.
 //
 // It reports only. Nothing here stops, cancels, or reaps anything.
-func (c *Coordinator) LivenessSnapshot(ctx context.Context) []liveness.Report {
+func (c *Coordinator) livenessSnapshot(ctx context.Context) []liveness.Report {
 	return c.livenessMonitor().AssessAll(ctx, c.livenessTargets())
 }
 
@@ -215,7 +215,7 @@ func (c *Coordinator) livenessWatchdog() {
 			return
 		case <-t.C:
 			seen := make(map[string]bool)
-			for _, rep := range c.LivenessSnapshot(c.baseCtx) {
+			for _, rep := range c.livenessSnapshot(c.baseCtx) {
 				seen[rep.Harp] = true
 				prev := last[rep.Harp]
 				last[rep.Harp] = rep.State

@@ -50,11 +50,6 @@ type Adapter struct{}
 
 var _ importer.VendorAdapter = Adapter{}
 
-// New returns an antigravity Adapter. A plain Adapter{} literal works
-// identically — this exists only so callers outside the package don't need
-// to know the type is a zero-size struct they can construct directly.
-func New() Adapter { return Adapter{} }
-
 // Convert reads the antigravity transcript_full.jsonl file at src and
 // appends its conversation to rec in the file's own order. See
 // importer.VendorAdapter's doc comment for the general contract (malformed
@@ -65,7 +60,7 @@ func New() Adapter { return Adapter{} }
 // store the workDir couldn't resolve — docs/transcript-schema.md §2b/§8) —
 // Convert only ever parses a src path it is handed.
 //
-// Lines are read via the same importer.ReadJSONLLines every JSONL-per-
+// Lines are read via the same importer.OpenAndReadJSONLLines every JSONL-per-
 // session engine's adapter uses (codex, claude): an unbounded bufio.Reader,
 // not a capped bufio.Scanner — a PLANNER_RESPONSE step's "thinking" field
 // alone can run to several kilobytes on a real capture (see

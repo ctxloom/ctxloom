@@ -60,7 +60,6 @@ type line struct {
 // decodeContentBlocks below normalizes both into one []contentBlock slice so
 // every caller handles a single shape.
 type message struct {
-	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content"`
 	Model      string          `json:"model,omitempty"`
 	ID         string          `json:"id,omitempty"`
@@ -421,7 +420,10 @@ func (c *converter) recordAll(evs []agent.ChatEvent, sidechain bool) error {
 // rather than assuming a fixed grouping keeps this correct even if that ever
 // changes.
 func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *dropTally) []agent.ChatEvent {
-	if role == "user" && isMeta {
+	// isMeta can only ever be true on the "user" call path — handleAssistant
+	// (below) hardcodes isMeta=false at its call site, so the role=="user"
+	// half of this guard was always true whenever isMeta was (U147-F08).
+	if isMeta {
 		return nil
 	}
 

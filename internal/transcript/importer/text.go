@@ -21,16 +21,3 @@ func JoinNonEmpty(parts []string) string {
 	}
 	return strings.Join(nonEmpty, "\n\n")
 }
-
-// JoinNonEmptyFunc extracts one string from each element of items via get,
-// then joins the non-empty results via JoinNonEmpty — the "flatten a slice
-// of vendor-typed content blocks/results into one joined text" step codex's
-// content blocks and kiro's tool-result content elements both need for
-// their own (different) element type.
-func JoinNonEmptyFunc[T any](items []T, get func(T) string) string {
-	parts := make([]string, len(items))
-	for i, item := range items {
-		parts[i] = get(item)
-	}
-	return JoinNonEmpty(parts)
-}

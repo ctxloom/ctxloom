@@ -56,7 +56,7 @@ func TestPayloadFromChatEvent_AllVariants(t *testing.T) {
 		assert.Equal(t, 258400, session.ContextWindow)
 		require.Len(t, session.MCPServers, 1)
 		assert.Equal(t, "ctxloom", session.MCPServers[0].Name)
-		assert.Equal(t, "sess-1", chatEventSessionID(ev))
+		assert.Equal(t, "sess-1", ev.Session.SessionID)
 	})
 
 	t.Run("complete", func(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// NonEmptyRaw normalizes a zero-length json.RawMessage to nil so
+// nonEmptyRaw normalizes a zero-length json.RawMessage to nil so
 // agent.SessionEntry.ToolInput's omitempty (record.go's EntryPayload.
 // ToolInput) actually omits it, rather than round-tripping an
 // empty-but-non-nil slice that json.RawMessage's own MarshalJSON would
@@ -15,8 +15,9 @@ import (
 // shape that field arrives in vendor-side (codex's is a JSON-encoded
 // STRING wrapping an object; claude's and kiro's are already bare JSON
 // objects) — the vendor-specific unwrap stays in each adapter, only this
-// final "empty means nil" step is shared.
-func NonEmptyRaw(raw json.RawMessage) json.RawMessage {
+// final "empty means nil" step is shared. Unexported: ToolUseEvent, 26
+// lines below in this same file, is its only caller (U145-F07).
+func nonEmptyRaw(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -40,13 +41,13 @@ func TextEntry(entryType agent.SessionEntryType, text string) []agent.ChatEvent 
 // ToolUseEvent builds the canonical tool_use entry every engine emits for a
 // model-issued tool call: its name, the engine-native call id that later
 // correlates it with a tool_result, and its arguments as already-valid JSON
-// (NonEmptyRaw applied here so every caller gets the same omitempty-safe nil
+// (nonEmptyRaw applied here so every caller gets the same omitempty-safe nil
 // normalization for free instead of repeating the check itself).
 func ToolUseEvent(name, callID string, input json.RawMessage) agent.ChatEvent {
 	return agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type:       agent.EntryTypeToolUse,
 		ToolName:   name,
-		ToolInput:  NonEmptyRaw(input),
+		ToolInput:  nonEmptyRaw(input),
 		ToolCallID: callID,
 	}}
 }

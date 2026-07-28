@@ -12,7 +12,7 @@ import (
 
 func TestReadJSONLLines_TrimsAndDropsEmpty(t *testing.T) {
 	in := "  {\"a\":1}  \n\n\t\n{\"b\":2}\n"
-	lines, err := ReadJSONLLines(strings.NewReader(in))
+	lines, err := readJSONLLines(strings.NewReader(in))
 	require.NoError(t, err)
 	require.Len(t, lines, 2)
 	assert.Equal(t, `{"a":1}`, string(lines[0]))
@@ -26,14 +26,14 @@ func TestReadJSONLLines_TrimsAndDropsEmpty(t *testing.T) {
 // copy both had to get right independently; now there's one implementation
 // to get it right once.
 func TestReadJSONLLines_NoTrailingNewline(t *testing.T) {
-	lines, err := ReadJSONLLines(strings.NewReader(`{"only":"line"}`))
+	lines, err := readJSONLLines(strings.NewReader(`{"only":"line"}`))
 	require.NoError(t, err)
 	require.Len(t, lines, 1)
 	assert.Equal(t, `{"only":"line"}`, string(lines[0]))
 }
 
 func TestReadJSONLLines_Empty(t *testing.T) {
-	lines, err := ReadJSONLLines(strings.NewReader(""))
+	lines, err := readJSONLLines(strings.NewReader(""))
 	require.NoError(t, err)
 	assert.Empty(t, lines)
 }
@@ -44,7 +44,7 @@ func TestReadJSONLLines_Empty(t *testing.T) {
 // whole, never truncated or dropped.
 func TestReadJSONLLines_LongLine(t *testing.T) {
 	long := strings.Repeat("x", 5*1024*1024)
-	lines, err := ReadJSONLLines(strings.NewReader(long + "\n"))
+	lines, err := readJSONLLines(strings.NewReader(long + "\n"))
 	require.NoError(t, err)
 	require.Len(t, lines, 1)
 	assert.Len(t, lines[0], len(long))

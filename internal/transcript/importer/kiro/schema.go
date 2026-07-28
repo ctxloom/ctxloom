@@ -185,9 +185,8 @@ type assistantContent struct {
 // reasoning.summary (rollout.go's reasoningEvents doc comment) — still
 // mapped defensively in mapping.go on the chance a future capture has one.
 type toolUseAssistant struct {
-	MessageID string    `json:"message_id"`
-	Content   string    `json:"content"`
-	ToolUses  []toolUse `json:"tool_uses"`
+	Content  string    `json:"content"`
+	ToolUses []toolUse `json:"tool_uses"`
 }
 
 // toolUse is one element of toolUseAssistant.tool_uses. Args is kept as
@@ -209,8 +208,7 @@ type toolUse struct {
 }
 
 type responseAssistant struct {
-	MessageID string `json:"message_id"`
-	Content   string `json:"content"`
+	Content string `json:"content"`
 }
 
 // requestMetadata is one turn's own accounting, co-located with the turn

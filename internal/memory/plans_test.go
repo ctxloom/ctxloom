@@ -3,7 +3,6 @@ package memory
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
@@ -29,7 +28,6 @@ func TestPlanFilesToBlocks(t *testing.T) {
 	})
 	require.Len(t, blocks, 2)
 	assert.Equal(t, 1, blocks[0].Index)
-	assert.Equal(t, PlanKindPlanFile, blocks[0].Kind)
 	assert.Equal(t, "arch", blocks[0].Label)
 	assert.Equal(t, "# arch", blocks[0].Content)
 	assert.Equal(t, 2, blocks[1].Index)
@@ -45,15 +43,12 @@ func TestRenderPlans_Empty(t *testing.T) {
 func TestRenderPlans_RoundTripPreservesContent(t *testing.T) {
 	blocks := []PlanBlock{
 		{
-			Index:     1,
-			Kind:      PlanKindPlanFile,
-			Label:     "ExitPlanMode",
-			Timestamp: time.Date(2026, 5, 25, 14, 30, 0, 0, time.UTC),
-			Content:   "1. step one\n2. step two with a `code` snippet",
+			Index:   1,
+			Label:   "ExitPlanMode",
+			Content: "1. step one\n2. step two with a `code` snippet",
 		},
 		{
 			Index:   2,
-			Kind:    PlanKindPlanFile,
 			Label:   "plan.md",
 			Content: "# Plan\n\n- thing",
 		},
@@ -62,7 +57,7 @@ func TestRenderPlans_RoundTripPreservesContent(t *testing.T) {
 	out := RenderPlans(blocks)
 
 	assert.True(t, strings.HasPrefix(out, "## Preserved plans"))
-	assert.Contains(t, out, "### Plan #1 — ExitPlanMode @ 2026-05-25 14:30")
+	assert.Contains(t, out, "### Plan #1 — ExitPlanMode")
 	assert.Contains(t, out, "1. step one\n2. step two with a `code` snippet")
 	assert.Contains(t, out, "### Plan #2 — plan.md")
 	assert.Contains(t, out, "# Plan\n\n- thing")

@@ -210,7 +210,7 @@ func TestNewRecorder_ValidatesArgs(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestTee_ForwardsAndRecords asserts Tee's two obligations: every event that
+// TestTee_ForwardsAndRecords asserts tee's two obligations: every event that
 // goes in comes out unchanged on the returned channel, AND each one is
 // recorded before being forwarded (so a slow/absent consumer never causes an
 // event to be forwarded-but-unrecorded).
@@ -222,7 +222,7 @@ func TestTee_ForwardsAndRecords(t *testing.T) {
 	require.NoError(t, err)
 
 	in := make(chan agent.ChatEvent)
-	out := Tee(rec, in)
+	out := tee(rec, in)
 
 	go func() {
 		defer close(in)

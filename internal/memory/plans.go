@@ -4,16 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-)
-
-// PlanKind identifies what surface produced a preserved plan block.
-type PlanKind string
-
-const (
-	PlanKindPlanFile PlanKind = "plan_file"
 )
 
 // PlanBlock is a plan document preserved verbatim in the distilled output. The
@@ -21,11 +13,9 @@ const (
 // LLM never has to paraphrase it. Plans come from the session's .plan.md files
 // (served by the agent server), not from the transcript.
 type PlanBlock struct {
-	Index     int       // 1-based position
-	Kind      PlanKind  // source kind (plan_file for session-dir documents)
-	Timestamp time.Time // optional; zero for file plans
-	Label     string    // short handle: the plan file's base name
-	Content   string    // verbatim plan markdown
+	Index   int    // 1-based position
+	Label   string // short handle: the plan file's base name
+	Content string // verbatim plan markdown
 }
 
 // planFileRegex matches paths that look like project plan documents.
@@ -46,7 +36,6 @@ func planFilesToBlocks(files []agent.PlanFile) []PlanBlock {
 	for i, f := range files {
 		blocks = append(blocks, PlanBlock{
 			Index:   i + 1,
-			Kind:    PlanKindPlanFile,
 			Label:   f.Name,
 			Content: f.Content,
 		})
@@ -63,11 +52,7 @@ func RenderPlans(blocks []PlanBlock) string {
 	var b strings.Builder
 	b.WriteString("## Preserved plans\n\n")
 	for _, block := range blocks {
-		ts := ""
-		if !block.Timestamp.IsZero() {
-			ts = " @ " + block.Timestamp.UTC().Format("2006-01-02 15:04")
-		}
-		fmt.Fprintf(&b, "### Plan #%d — %s%s\n\n", block.Index, block.Label, ts)
+		fmt.Fprintf(&b, "### Plan #%d — %s\n\n", block.Index, block.Label)
 		b.WriteString(strings.TrimRight(block.Content, "\n"))
 		b.WriteString("\n\n")
 	}

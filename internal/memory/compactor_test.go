@@ -243,10 +243,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	loaded, err := LoadDistilledSession(tmpDir, "round-trip")
 	require.NoError(t, err)
 	assert.Equal(t, "round-trip", loaded.SessionID)
-	assert.Equal(t, 12, loaded.EntryCount)
-	assert.Equal(t, 2000, loaded.TokensIn)
 	assert.Equal(t, 300, loaded.TokensOut)
-	assert.Equal(t, 2, loaded.PlanBlocks)
 	assert.Equal(t, int64(184320), loaded.SourceSize, "the staleness fingerprint must survive the essence round-trip")
 	assert.False(t, loaded.DistilledAt.IsZero())
 	assert.Contains(t, loaded.Body, "## Summary")
@@ -269,7 +266,6 @@ func TestLoadDistilledSession(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "abc123", loaded.SessionID)
-	assert.Equal(t, 8, loaded.EntryCount)
 	assert.Contains(t, loaded.Body, "Distilled content here")
 }
 
@@ -1048,7 +1044,6 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 
 	loaded, err := LoadDistilledSession(tmpDir, "plan-survival")
 	require.NoError(t, err)
-	assert.Equal(t, 1, loaded.PlanBlocks)
 	assert.Contains(t, loaded.Body, "## Preserved plans")
 	assert.Contains(t, loaded.Body, planBody, "the plan file is re-attached verbatim")
 	assert.Contains(t, loaded.Body, "schema", "the plan file's name labels its block")

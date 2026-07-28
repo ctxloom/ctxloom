@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-// ReadJSONLLines splits r into non-empty, trimmed lines using an UNBOUNDED
+// readJSONLLines splits r into non-empty, trimmed lines using an UNBOUNDED
 // bufio.Reader rather than a capped bufio.Scanner. Every JSONL-per-session
 // vendor store this package's adapters read (codex's rollout-*.jsonl,
 // claude's <uuid>.jsonl, antigravity's transcript_full.jsonl) routinely
@@ -28,7 +28,7 @@ import (
 // beyond dodging the same duplicate-detection gate. There was never a real
 // behavioral reason for three copies: every one of them means "split on
 // newlines, trim, drop empties," so there is now exactly one.
-func ReadJSONLLines(r io.Reader) ([][]byte, error) {
+func readJSONLLines(r io.Reader) ([][]byte, error) {
 	reader := bufio.NewReaderSize(r, 64*1024)
 	var lines [][]byte
 	for {
@@ -49,11 +49,11 @@ func ReadJSONLLines(r io.Reader) ([][]byte, error) {
 }
 
 // OpenAndReadJSONLLines opens the JSONL file at path and reads every line
-// via ReadJSONLLines, wrapping either failure with vendor's own error
+// via readJSONLLines, wrapping either failure with vendor's own error
 // prefix ("codex: open ...", "codex: read ...") — the "open, read, hand the
 // lines to convertLines" shell every JSONL-per-session engine's Convert
 // repeats verbatim once its actual line-reading delegates to
-// ReadJSONLLines.
+// readJSONLLines.
 func OpenAndReadJSONLLines(vendor, path string) ([][]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -61,7 +61,7 @@ func OpenAndReadJSONLLines(vendor, path string) ([][]byte, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	lines, err := ReadJSONLLines(f)
+	lines, err := readJSONLLines(f)
 	if err != nil {
 		return nil, fmt.Errorf("%s: read %s: %w", vendor, path, err)
 	}

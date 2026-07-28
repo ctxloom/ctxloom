@@ -40,19 +40,14 @@ type Adapter struct{}
 
 var _ importer.VendorAdapter = Adapter{}
 
-// New returns a claude Adapter. A plain Adapter{} literal works identically —
-// this exists only so callers outside the package don't need to know the
-// type is a zero-size struct they can construct directly.
-func New() Adapter { return Adapter{} }
-
 // Convert reads the claude transcript JSONL file at src and appends its
 // conversation to rec in the file's own order. See importer.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;
 // a rec.Record failure or ctx cancellation IS fatal). Deliberately mirrors
-// codex.Adapter.Convert's shape (open, ReadJSONLLines, convertLines): the
+// codex.Adapter.Convert's shape (open, readJSONLLines, convertLines): the
 // two-pass shape is the reference pattern every importer.VendorAdapter
 // copies from codex (codex.go's package doc); the line-reading step itself
-// is not a copy at all — both call the same importer.ReadJSONLLines.
+// is not a copy at all — both call the same importer.OpenAndReadJSONLLines.
 func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
 	lines, err := importer.OpenAndReadJSONLLines("claude", src)
 	if err != nil {

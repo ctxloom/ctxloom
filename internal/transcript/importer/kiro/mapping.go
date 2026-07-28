@@ -7,12 +7,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
-// converter carries the streamed per-turn pass's only piece of state: the
-// record func itself. Unlike codex's converter, kiro's needs NO pending-
-// boundary buffer across turns — every historyTurn already carries its own
-// complete request_metadata alongside its content (schema.go's historyTurn
-// doc comment), so there is nothing to correlate across turns before a
-// Complete event can be built.
+// converter carries the streamed per-turn pass's state: the record func, and
+// (U149-F01/F02's fix) a count of real conversation entries recorded so
+// Convert's checkFloor can tell drift from a genuinely empty conversation
+// (U149-F07 — this is why the type is not vacuous). Unlike codex's
+// converter, kiro's needs NO pending-boundary buffer across turns — every
+// historyTurn already carries its own complete request_metadata alongside
+// its content (schema.go's historyTurn doc comment), so there is nothing to
+// correlate across turns before a Complete event can be built.
 type converter struct {
 	record func(agent.ChatEvent) error
 
@@ -94,16 +96,16 @@ func toolResultEvents(results []toolUseResult) []agent.ChatEvent {
 	}
 	evs := make([]agent.ChatEvent, 0, len(results))
 	for _, r := range results {
-		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, joinToolResultText(r.Content), r.Status != "Success"))
+		// Join every content element's Text, dropping any that are empty —
+		// same convention codex's joinContentText uses for the analogous
+		// content-block case.
+		texts := make([]string, len(r.Content))
+		for i, c := range r.Content {
+			texts[i] = c.Text
+		}
+		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, importer.JoinNonEmpty(texts), r.Status != "Success"))
 	}
 	return evs
-}
-
-// joinToolResultText concatenates every content element's Text, dropping any
-// that are empty — the same importer.JoinNonEmptyFunc convention codex's
-// joinContentText uses for the analogous content-block case.
-func joinToolResultText(items []toolResultContent) string {
-	return importer.JoinNonEmptyFunc(items, func(it toolResultContent) string { return it.Text })
 }
 
 // assistantContentEvents maps an assistantContent union to zero or more
@@ -125,7 +127,7 @@ func assistantContentEvents(raw json.RawMessage) []agent.ChatEvent {
 			// function_call.arguments, a JSON-ENCODED STRING that itself
 			// contains an object (codex/rollout.go's argumentsToRaw doc
 			// comment) — so no string-unwrap step applies here; ToolUseEvent's
-			// own NonEmptyRaw normalizes an empty/absent args to nil.
+			// own nonEmptyRaw normalizes an empty/absent args to nil.
 			evs = append(evs, importer.ToolUseEvent(tu.Name, tu.ID, tu.Args))
 		}
 		return evs

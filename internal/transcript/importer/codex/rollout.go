@@ -325,7 +325,7 @@ func (c *converter) handleEventMsg(raw json.RawMessage) error {
 			c.pending = &agent.TurnMeta{}
 		}
 		c.pending.DurationMs = p.DurationMs
-		return importer.FlushComplete(&c.pending, c.record)
+		return c.flushPending()
 	default:
 		return nil
 	}
@@ -355,9 +355,9 @@ func messageEvents(p responseItemPayload) []agent.ChatEvent {
 // this message" and codex has not been observed emitting a non-text block in
 // a message response_item on this box).
 //
-// Deliberately NOT delegating to importer.JoinNonEmpty/JoinNonEmptyFunc (the
-// join primitive joinSummaryText below and every other engine's adapter
-// use): doing so makes this function's normalized shape match an unrelated,
+// Deliberately NOT delegating to importer.JoinNonEmpty (the join primitive
+// joinSummaryText below and every other engine's adapter use): doing so
+// makes this function's normalized shape match an unrelated,
 // pre-existing near-duplicate outside this package — internal/operations/
 // resume.go's JoinLeadBlocks, a resume-prompt helper with nothing to do with
 // vendor-transcript import — which reprise's check flags as an inconsistent
@@ -439,11 +439,10 @@ func argumentsToRaw(args string) json.RawMessage {
 	// Defensive fallback for a hypothetical non-JSON arguments string: wrap it
 	// as a JSON string literal so ToolInput is always valid JSON, never a raw
 	// byte sequence that breaks a downstream json.Unmarshal. Not observed on
-	// this box (every captured arguments value was valid JSON).
-	wrapped, err := json.Marshal(args)
-	if err != nil {
-		return nil
-	}
+	// this box (every captured arguments value was valid JSON). json.Marshal
+	// of a string cannot fail (invalid UTF-8 is replaced with U+FFFD, never
+	// reported as an error), so there is no error branch to handle here.
+	wrapped, _ := json.Marshal(args)
 	return wrapped
 }
 

@@ -45,8 +45,8 @@ func TestDenyMatch(t *testing.T) {
 	if d.Allowed {
 		t.Fatal("go test should be denied")
 	}
-	if d.Rule == nil || d.Rule.ID != "go-test-to-just" {
-		t.Fatalf("wrong rule: %+v", d.Rule)
+	if d.RuleID != "go-test-to-just" {
+		t.Fatalf("wrong rule: %+v", d)
 	}
 	if d.Suggest != "just test" {
 		t.Errorf("suggest = %q", d.Suggest)
@@ -124,8 +124,8 @@ func TestCommandPatternForms(t *testing.T) {
 	}
 	// command + flag from the string form "sh -c".
 	d := Evaluate(cfg, cmd(ir.ShellBash, "sh", "-c", "rm -rf /"))
-	if d.Allowed || d.Rule.ID != "no-shell-wrapper" {
-		t.Errorf("`sh -c …` should match the sh-wrapper rule, got %+v", d.Rule)
+	if d.Allowed || d.RuleID != "no-shell-wrapper" {
+		t.Errorf("`sh -c …` should match the sh-wrapper rule, got %+v", d)
 	}
 	// prefix must match positionally: `sh -e` is not `sh -c`.
 	if !Evaluate(cfg, cmd(ir.ShellBash, "sh", "-e", "script")).Allowed {
@@ -289,8 +289,8 @@ rules:
 	if d.Allowed {
 		t.Fatal("`git commit -m status --no-verify` must be denied: `status` is -m's VALUE, not the allowlisted `git status` subcommand")
 	}
-	if d.Rule == nil || d.Rule.ID != "no-force-commit" {
-		t.Fatalf("wrong rule fired: %+v", d.Rule)
+	if d.RuleID != "no-force-commit" {
+		t.Fatalf("wrong rule fired: %+v", d)
 	}
 }
 

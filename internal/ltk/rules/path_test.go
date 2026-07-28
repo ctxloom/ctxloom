@@ -77,7 +77,7 @@ func TestPathAndCommandRulesDoNotCross(t *testing.T) {
 		{ID: "path", Match: Match{Path: []string{"VERSION"}}, Message: "y"},
 	}}
 	// command eval ignores the path rule; path eval ignores the command rule.
-	if EvaluatePath(cfg, "VERSION").Rule.ID != "path" {
+	if EvaluatePath(cfg, "VERSION").RuleID != "path" {
 		t.Error("EvaluatePath should fire the path rule")
 	}
 	// A non-VERSION edit is allowed even though a command rule exists.

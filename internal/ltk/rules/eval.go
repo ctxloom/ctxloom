@@ -9,10 +9,14 @@ import (
 // Decision is the result of evaluating a script against a config.
 type Decision struct {
 	Allowed bool
-	Rule    *Rule            // the deny rule that fired, if any
-	Command ir.SimpleCommand // the command that triggered a denial
-	Reason  string           // human-facing explanation
-	Suggest string           // suggested replacement command, if any
+	// RuleID is the id of the deny rule that fired, "" if none (U073-F15: this
+	// used to be Rule *Rule, but the whole *Rule was read only by this
+	// package's own tests, and only ever for its ID -- RuleID gives them the
+	// same assertion with a far smaller, loggable value instead of a pointer
+	// into the live rule table).
+	RuleID  string
+	Reason  string // human-facing explanation
+	Suggest string // suggested replacement command, if any
 	// Confirmable reports whether this denial may be lifted by repeating the
 	// command (the "confirm by repeating" override). ConfirmWindowSeconds is the
 	// window for doing so; ConfirmDelaySeconds is a minimum wait before the repeat
@@ -58,8 +62,7 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 				repeatable, window, delay := r.confirmPolicy(cfg.Defaults)
 				decision = Decision{
 					Allowed:              false,
-					Rule:                 r,
-					Command:              c,
+					RuleID:               r.ID,
 					Reason:               r.Message,
 					Suggest:              r.Suggest,
 					Confirmable:          repeatable,
@@ -101,7 +104,7 @@ func EvaluatePath(cfg *Config, filePath string) Decision {
 		repeatable, window, delay := r.confirmPolicy(cfg.Defaults)
 		return Decision{
 			Allowed:              false,
-			Rule:                 r,
+			RuleID:               r.ID,
 			Reason:               r.Message,
 			Suggest:              r.Suggest,
 			Confirmable:          repeatable,

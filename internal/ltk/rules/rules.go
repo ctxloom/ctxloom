@@ -430,6 +430,22 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	return true
 }
 
+// programBasename returns the trailing path component of argv[0] the way the
+// shell that will actually run it resolves a bare-name match. path.Base is
+// POSIX-only (it splits on '/' alone), so a Windows-style absolute program
+// path — `C:\Windows\System32\cmd.exe`, the normal form under the cmd/pwsh
+// dialects this unit itself supports — never reduced to a bare `cmd.exe` the
+// way `/usr/bin/git` already reduces to `git` (U073-F04): a `command: [cmd]`
+// rule silently never fired against an absolute-backslash-path invocation.
+// Scoped to ShellCmd/ShellPwsh so a literal backslash inside an unusual POSIX
+// filename is never misread as a path separator.
+func programBasename(argv0 string, shell ir.Shell) string {
+	if shell == ir.ShellCmd || shell == ir.ShellPwsh {
+		argv0 = strings.ReplaceAll(argv0, "\\", "/")
+	}
+	return path.Base(argv0)
+}
+
 // matchCommand reports whether a command pattern matches a command's argv,
 // using the command's shell to classify flags. See Match.Command for the full
 // model, including why the positional operator depends on strictPrefix.
@@ -445,7 +461,7 @@ func matchCommand(pattern, argv []string, shell ir.Shell, strictPrefix bool) boo
 	if len(pattern) == 0 || len(argv) == 0 {
 		return false
 	}
-	if argv[0] != pattern[0] && path.Base(argv[0]) != pattern[0] {
+	if argv[0] != pattern[0] && programBasename(argv[0], shell) != pattern[0] {
 		return false
 	}
 	positionals, options := classifyArgs(pattern[1:], shell)

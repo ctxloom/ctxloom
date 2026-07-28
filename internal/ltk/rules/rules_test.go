@@ -438,3 +438,23 @@ rules:
 		t.Fatal("nested cmd-dialect `del` must be denied by a shells:[cmd] rule, even though the outer script is bash")
 	}
 }
+
+// TestMatchCommandResolvesWindowsAbsolutePathBasename pins U073-F04:
+// matchCommand's basename fallback used path.Base directly, which is
+// POSIX-only (splits on '/' alone) — a Windows-style absolute invocation
+// (`C:\Windows\System32\cmd.exe`) never reduced to a bare `cmd.exe` the way
+// `/usr/bin/git` already reduces to `git`, so a `command: [cmd]` rule
+// silently never fired under the cmd dialect this exact rule targets.
+func TestMatchCommandResolvesWindowsAbsolutePathBasename(t *testing.T) {
+	cfg := mustParse(t, `
+version: 1
+rules:
+  - id: no-cmd-del
+    match: { command: ["cmd.exe", /c, del], shells: [cmd] }
+    message: "no del via cmd"
+`)
+	d := Evaluate(cfg, cmd(ir.ShellCmd, `C:\Windows\System32\cmd.exe`, "/c", "del", "/f", "x"))
+	if d.Allowed {
+		t.Fatal("an absolute backslash-path invocation of cmd.exe must still match a `command: [cmd.exe, ...]` rule")
+	}
+}

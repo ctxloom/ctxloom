@@ -76,8 +76,18 @@ func unanalyzedNote(r Response) string {
 }
 
 // Message renders the reason and suggestion into a single human-facing string.
+// Message renders the reason and suggestion into a single human-facing
+// string. Never empty: both Adapters' Encode call this only when rendering a
+// DENY, and a deny that renders to zero bytes (U067-F01) tells the agent
+// nothing — no reason, no way to comply. Ordinary rule authoring already
+// cannot produce this in practice (validateRule requires a message or
+// suggest on every enabled deny rule, rules.go), but that is a config-time
+// guard, not a type-level one; this is the belt to its suspenders for any
+// other path that constructs a bare Response{Allow: false}.
 func (r Response) Message() string {
 	switch {
+	case r.Reason == "" && r.Suggest == "":
+		return "denied by ltk (no reason or suggested alternative was configured for this rule)"
 	case r.Suggest == "":
 		return r.Reason
 	case r.Reason == "":

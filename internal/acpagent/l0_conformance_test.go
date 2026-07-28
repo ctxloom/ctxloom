@@ -20,6 +20,8 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -312,4 +314,63 @@ func TestL0_KnownDivergenceSubstringsAreDistinct(t *testing.T) {
 		seen[want] = label
 		require.NotEmpty(t, strings.TrimSpace(want), "%s: an empty expected substring would match ANY error, defeating the check", label)
 	}
+}
+
+// TestCheckL0_StaleKnownDivergenceFailsLoudly pins U014-F21's refutation.
+// The unit review flagged l0KnownDivergences (currently empty) and this
+// map's ratchet branch in checkL0 as NOPAY — "guards an empty map, pays for
+// nothing" — because with zero entries today, checkL0's known-divergence
+// branch never executes and TestL0_KnownDivergenceSubstringsAreDistinct
+// iterates nothing. But the map's own doc comment records it already fired
+// once for real (IR4's divergence was found, listed, fixed, and the map
+// shrunk back to empty when checkL0's require.Error/assert.Contains pair
+// caught the fix landing) — it is armed-but-currently-empty infrastructure
+// with a proven track record, not dead weight. This test arms it
+// synthetically to prove the ratchet still bites: if checkL0 didn't require
+// a LISTED divergence to still be failing, a real regression (an emitter
+// silently starting to conform where it used to knowingly diverge, or vice
+// versa) could hide behind a stale map entry forever.
+// TestCheckL0_StaleKnownDivergenceFailsLoudlySubprocess is the arm-and-fail
+// half of the pair above: it is skipped entirely UNLESS re-invoked in a
+// subprocess by TestCheckL0_StaleKnownDivergenceFailsLoudly, exactly the
+// classic "test a test failure" pattern (Go's own os/exec tests use the same
+// shape for TestHelperProcess/TestCrasher) — a genuinely failing `checkL0`
+// call must not itself mark THIS package's test run red; only the outer test
+// asserts on the outcome, via the subprocess's exit code.
+func TestCheckL0_StaleKnownDivergenceFailsLoudlySubprocess(t *testing.T) {
+	if os.Getenv("CTXLOOM_L0_STALE_DIVERGENCE_SUBPROCESS") != "1" {
+		t.Skip("only runs when re-invoked by TestCheckL0_StaleKnownDivergenceFailsLoudly")
+	}
+	v := mustValidator(t)
+	// SetSessionModeResponse has no required fields in schema-v1.19.0 (see
+	// U014-F23's finding), so `{}` validates cleanly — i.e. exactly the
+	// "listed divergence stopped reproducing" case checkL0 must catch.
+	l0KnownDivergences = map[string]string{"synthetic-stale-divergence": "this substring can never appear because the payload validates cleanly"}
+	checkL0(t, v, l0Capture{
+		label:   "synthetic-stale-divergence",
+		defName: "SetSessionModeResponse",
+		payload: json.RawMessage(`{}`),
+	})
+}
+
+// TestCheckL0_StaleKnownDivergenceFailsLoudly pins U014-F21's refutation.
+// The unit review flagged l0KnownDivergences (currently empty) and this
+// map's ratchet branch in checkL0 as NOPAY — "guards an empty map, pays for
+// nothing" — because with zero entries today, checkL0's known-divergence
+// branch never executes and TestL0_KnownDivergenceSubstringsAreDistinct
+// iterates nothing. But the map's own doc comment records it already fired
+// once for real (IR4's divergence was found, listed, fixed, and the map
+// shrunk back to empty when checkL0's require.Error/assert.Contains pair
+// caught the fix landing) — it is armed-but-currently-empty infrastructure
+// with a proven track record, not dead weight. This test re-invokes this
+// binary (`go test -run`) with a synthetic listed divergence armed against a
+// payload that validates cleanly, and asserts the SUBPROCESS exits non-zero —
+// proving checkL0 still fails loud when a listed divergence stops
+// reproducing, rather than silently letting it ride.
+func TestCheckL0_StaleKnownDivergenceFailsLoudly(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCheckL0_StaleKnownDivergenceFailsLoudlySubprocess$", "-test.v")
+	cmd.Env = append(os.Environ(), "CTXLOOM_L0_STALE_DIVERGENCE_SUBPROCESS=1")
+	out, err := cmd.CombinedOutput()
+	assert.Error(t, err, "checkL0 must fail (nonzero exit) when a LISTED known-divergence payload now validates cleanly -- that is exactly the signal that should force l0KnownDivergences to shrink, not a silent pass. Subprocess output:\n%s", out)
+	assert.Contains(t, string(out), "expected a KNOWN divergence but validation now PASSES", "subprocess output:\n%s", out)
 }

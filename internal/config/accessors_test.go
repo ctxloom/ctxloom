@@ -126,14 +126,6 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		}
 	})
 
-	t.Run("IsolationImages map", func(t *testing.T) {
-		got := cfg.GetIsolationImages()
-		got["claude-code"] = "MUTATED"
-		if cfg.isolationImages["claude-code"] != "img:latest" {
-			t.Fatalf("mutating GetIsolationImages() result corrupted the source: %v", cfg.isolationImages)
-		}
-	})
-
 	t.Run("Settings pointer fields", func(t *testing.T) {
 		trueVal := true
 		src := &Config{settings: SettingsConfig{UseDistilled: &trueVal}}

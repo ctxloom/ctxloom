@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
@@ -46,7 +47,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })
 
-	server, err := newRunnerMCPServer(testConfig(), harp, home, false)
+	server, err := newRunnerMCPServer(testConfig(), harp, home, false, "")
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -113,6 +114,100 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "agent_fetch_artifact", Arguments: json.RawMessage(escapeArgs)})
 	require.Error(t, err, "a dest_path escaping the working directory must be rejected")
+}
+
+// TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir (U038-F01): the
+// runner's cell-path boundary must anchor to the CELL work dir the harness
+// actually runs in, not this process's own os.Getwd() (the coordinator's
+// cwd) — the workspace:worktree shape the finding names, where the runner
+// is spawned with no cmd.Dir and inherits the coordinator's cwd while the
+// harness's engine process runs with cmd.Dir=the per-agent worktree.
+// Deliberately makes the two DIFFER, then proves publish_paths/dest_path
+// resolve against the cell dir, never the coordinator's own cwd.
+func TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir(t *testing.T) {
+	coordCwd := testsupport.ProjectDir(t) // stands in for the coordinator's own cwd
+	cellDir := t.TempDir()                // stands in for the per-agent worktree
+
+	c, err := coord.New(coord.Options{
+		ProjectDir: coordCwd,
+		StateDir:   t.TempDir(),
+		Cfg:        testConfig(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+	require.NoError(t, c.Serve())
+
+	const harp = "owner-harp"
+	token, err := c.RegisterSessionOwner(harp)
+	require.NoError(t, err)
+	home, err := coord.NewHome(context.Background(), coord.HomeConfig{
+		URL:     c.LoopbackURL(),
+		Token:   token,
+		RunID:   "",
+		Harness: "mock",
+		Version: "test",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { home.Close(0, "") })
+
+	server, err := newRunnerMCPServer(testConfig(), harp, home, false, cellDir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	ct, st := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, st, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ss.Close() })
+	client := mcp.NewClient(&mcp.Implementation{Name: "probe", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, ct, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	const relSource = "findings/coverage.json"
+	require.NoError(t, os.MkdirAll(filepath.Join(cellDir, "findings"), 0o755))
+	content := []byte(`{"lines_covered": 87}`)
+	require.NoError(t, os.WriteFile(filepath.Join(cellDir, relSource), content, 0o644))
+	// Confirm it does NOT also exist under the coordinator's cwd (both dirs
+	// are freshly minted, but this pins the setup's own precondition).
+	_, statErr := os.Stat(filepath.Join(coordCwd, relSource))
+	require.True(t, os.IsNotExist(statErr))
+
+	reportArgs, err := json.Marshal(map[string]any{
+		"scope":         "SCOPE_FINAL",
+		"text":          "done",
+		"publish_paths": []string{relSource},
+	})
+	require.NoError(t, err)
+	reportResult, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "agent_report", Arguments: json.RawMessage(reportArgs)})
+	require.NoError(t, err)
+	require.False(t, reportResult.IsError,
+		"agent_report must resolve publish_paths against the CELL work dir (where the file actually is), "+
+			"not the coordinator's own cwd: %+v", reportResult)
+
+	var reportOut struct {
+		ArtifactIDs []string `json:"artifact_ids"`
+	}
+	require.NoError(t, decodeStructured(reportResult, &reportOut))
+	require.Len(t, reportOut.ArtifactIDs, 1)
+	artifactID := reportOut.ArtifactIDs[0]
+
+	const relDest = "retrieved/coverage.json"
+	fetchArgs, err := json.Marshal(map[string]any{
+		"agent_id":    harp,
+		"artifact_id": artifactID,
+		"dest_path":   relDest,
+	})
+	require.NoError(t, err)
+	fetchResult, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "agent_fetch_artifact", Arguments: json.RawMessage(fetchArgs)})
+	require.NoError(t, err)
+	require.False(t, fetchResult.IsError, "agent_fetch_artifact failed: %+v", fetchResult)
+
+	got, err := os.ReadFile(filepath.Join(cellDir, relDest))
+	require.NoError(t, err, "the fetched artifact must be placed under the CELL work dir")
+	require.Equal(t, content, got)
+
+	_, statErr = os.Stat(filepath.Join(coordCwd, relDest))
+	assert.True(t, os.IsNotExist(statErr), "the fetched artifact must NEVER be placed under the coordinator's own cwd")
 }
 
 // decodeStructured re-marshals a CallToolResult's StructuredContent (an

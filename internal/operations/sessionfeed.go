@@ -131,8 +131,18 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 // on the first one that holds the harp live. A candidate the harp isn't
 // live on, or that's unreachable, just moves to the next.
 func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
-	endpoints := discover.List()
+	endpoints, skipped := discover.List()
+	// U025-F02: skipped candidates (unreadable/undecodable endpoint.json, or
+	// discovery itself failing) used to be indistinguishable from "no
+	// endpoint file exists at all" — surface them so a permission error or a
+	// corrupt state dir does not masquerade as "nothing is running".
+	for _, serr := range skipped {
+		clidiag.Warn("ctxloom", "discover coordinator endpoint: %v", serr)
+	}
 	if len(endpoints) == 0 {
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("no usable coordinator endpoint found: %d candidate(s) present but skipped (%v)", len(skipped), skipped[0])
+		}
 		return nil, fmt.Errorf("no coordinator endpoint found (no ~/.ctxloom/coord/*/endpoint.json)")
 	}
 	var lastErr error

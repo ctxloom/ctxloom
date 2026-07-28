@@ -48,6 +48,31 @@ func TestForward_UnixSocketRoundTrip(t *testing.T) {
 	}
 }
 
+// TestBuildForwardServer_RefusesAZeroToolRunner (U038-F03): runMCPForward's
+// own doc claims "an unreachable runner socket is a hard startup error: a
+// silently-empty toolset would be a wrong-context session" — but nothing
+// ever checked that ANY tool actually got registered once the connection
+// itself succeeded. A runner that connects fine but advertises zero tools
+// (a plausible wrong-context shape: e.g. a leaf session's surface computed
+// against the wrong routing table) used to stand up a perfectly
+// healthy-looking, entirely empty forward server.
+func TestBuildForwardServer_RefusesAZeroToolRunner(t *testing.T) {
+	empty := mcp.NewServer(&mcp.Implementation{Name: "empty-runner", Version: "test"}, nil)
+	ct, st := mcp.NewInMemoryTransports()
+	ss, err := empty.Connect(context.Background(), st, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ss.Close() })
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: "test"}, nil)
+	cs, err := client.Connect(context.Background(), ct, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	_, err = buildForwardServer(context.Background(), cs)
+	require.Error(t, err, "a runner advertising zero tools must refuse to stand up a forward session, not silently succeed empty")
+	assert.Contains(t, err.Error(), "zero tools")
+}
+
 // TestDialReachBackSocket_UnixDefault pins the unchanged default: any plain
 // path (no tcp:// marker) dials as a unix socket, exactly as before the
 // off-Linux fallback existed.

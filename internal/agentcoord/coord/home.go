@@ -647,7 +647,18 @@ func (h *Home) abandonPark(p *homePark, err error) error {
 	h.mu.Lock()
 	if p.done {
 		h.mu.Unlock()
-		<-p.ch // the delivery beat us; but the caller is leaving — requeue
+		// U022-F01: the delivery (or a preemption, which sends nil — see
+		// Recv's "newest preempts" branch) beat us to it. The caller is
+		// leaving regardless (this Recv is returning err either way), but a
+		// GENUINE delivery must not be silently dropped: put it back on the
+		// buffer for the next Recv to pick up, exactly like this function's
+		// own comment always claimed it would ("the delivery beat us; but
+		// the caller is leaving — requeue") without ever actually doing it.
+		if msgs := <-p.ch; len(msgs) > 0 {
+			h.mu.Lock()
+			h.buffer = append(msgs, h.buffer...)
+			h.mu.Unlock()
+		}
 		return err
 	}
 	p.done = true

@@ -145,6 +145,17 @@ func (h *Home) DownloadArtifact(ctx context.Context, agentID, artifactID, destPa
 		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
 	}
 
+	// U022-F08: the upload side now refuses a declared size of 0
+	// (coord/artifacts.go's UploadArtifact), so no NEW empty artifact can
+	// be published — but this is the belt half of belt-and-suspenders
+	// against a blob that predates that fix (an existing project's
+	// coordinator state) or a store manipulated out of band. A 0-byte
+	// "artifact" is a receipt for nothing; refuse it here too rather than
+	// writing an empty file to destPath and reporting success.
+	if n == 0 {
+		return "", 0, fmt.Errorf("download %s/%s: the stored artifact is 0 bytes — refusing to place an empty file at %s", agentID, artifactID, destPath)
+	}
+
 	sum := h256.Sum(nil)
 	if !bytes.Equal(sum, header.GetSha256()) {
 		// E1e: refuse to place a file that does not match its own manifest —

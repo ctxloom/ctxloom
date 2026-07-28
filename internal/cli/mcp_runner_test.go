@@ -72,7 +72,7 @@ func testHome(t *testing.T) *coord.Home {
 // TestRunnerServer_ServesExactlyTheClassifiedSurface: the runner's tool set
 // IS the routing table — nothing unclassified, nothing missing.
 func TestRunnerServer_ServesExactlyTheClassifiedSurface(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false)
+	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	tools := listServerTools(t, server)
 
@@ -90,7 +90,7 @@ func TestRunnerServer_ServesExactlyTheClassifiedSurface(t *testing.T) {
 // TestRunnerServer_CoordinationToolsCarryGeneratedSchemas: the generated
 // (proto-canonical) schemas are what the runner advertises.
 func TestRunnerServer_CoordinationToolsCarryGeneratedSchemas(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false)
+	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	tools := listServerTools(t, server)
 
@@ -108,7 +108,7 @@ func TestRunnerServer_CoordinationToolsCarryGeneratedSchemas(t *testing.T) {
 // parity between the runner's host-relay registrations and the stdio
 // server's typed ones — the two surfaces must not drift.
 func TestRunnerServer_HostRelayDescriptionsMatchStdio(t *testing.T) {
-	runner, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false)
+	runner, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	runnerTools := listServerTools(t, runner)
 
@@ -161,7 +161,7 @@ func TestStdioServer_AdvertisesEveryLocallyServedTool(t *testing.T) {
 // TestRunnerServer_AdvertisesEvaluateTriggers pins the same advertisement on
 // the runner surface (where a real harness actually reaches it).
 func TestRunnerServer_AdvertisesEvaluateTriggers(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false)
+	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	tools := listServerTools(t, server)
 	_, ok := tools["evaluate_triggers"]

@@ -317,9 +317,29 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	}
 	eh.goTracked(func() { eh.adapt(ctx, home, adaptOut, chatErr) })
 
+	// U021-F01: SetTurnSink's closure and the briefing goroutine below both
+	// send to the same UNBUFFERED `in`, from two different goroutines, with
+	// no ordering between them — a Go select/send race Go itself does not
+	// resolve in send order. If mail is already queued at standup
+	// (issueStartRun's pushMail, immediately after startRun returns), the
+	// coordinator's mail delivery can win that race and land as the
+	// child's FIRST turn, with the briefing (composed context + prompt)
+	// arriving second — every signal still reports success. `briefed`
+	// gates the turn sink on the briefing's OWN send actually completing
+	// first; a run with no briefing (prompt == "") has nothing to gate on.
+	briefed := make(chan struct{})
+	if prompt == "" {
+		close(briefed)
+	}
+
 	// The engine turn-delivery seam: coordinator mail lands as new turns
 	// (the driver's own loop queues mid-turn arrivals to the next boundary).
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
+		select {
+		case <-briefed:
+		case <-ctx.Done():
+			return false
+		}
 		text := frameCoordinatorMessage(pm)
 		select {
 		case in <- agent.ChatMessage{Text: text}:
@@ -333,6 +353,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// The briefing is the first turn (context already joined coordinator-side).
 	if prompt != "" {
 		eh.goTracked(func() {
+			defer close(briefed)
 			select {
 			case in <- agent.ChatMessage{Text: prompt}:
 			case <-ctx.Done():

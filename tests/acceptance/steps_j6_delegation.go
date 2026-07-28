@@ -61,6 +61,7 @@ type j6State struct {
 	specs      map[string]*j6AgentSpec
 	beforeEdit map[string]*j6AgentSpec // agent name -> its spec as captured just before an edit
 	snapshots  map[string]j6RunFact    // "remembered as" label -> captured journal fact
+	harps      map[string]string       // agent name -> its most recently spawned session harp
 }
 
 // j6RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
@@ -88,6 +89,7 @@ func j6Of(w *World) *j6State {
 			specs:      map[string]*j6AgentSpec{},
 			beforeEdit: map[string]*j6AgentSpec{},
 			snapshots:  map[string]j6RunFact{},
+			harps:      map[string]string{},
 		}
 	}
 	return w.j6
@@ -438,4 +440,36 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 			}
 			return nil
 		})
+
+	// --- FAILURE PATH: every scenario above is happy-path (spawn, succeed,
+	// read the journal back). This flow's own coordinator verbs include a
+	// shutdown edge — agent_stop — that had NO acceptance coverage at all
+	// (completeness_test.go's own census is the only place the string
+	// appeared). U024-F04 (this batch) fixed a real bug on exactly this
+	// path: a stop landing on an already-ended run must still cancel any
+	// armed relaunch, not just report "already ended" as a no-op. These two
+	// scenarios are the tip-to-tail proof that the STOP verb itself behaves
+	// like every other verb in this flow: idempotent on a real run,
+	// refused on a fabricated one — never a silent no-op either way.
+
+	ctx.Step(`^"([^"]*)"'s spawned session is remembered$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		j6 := j6Of(w)
+		harp, ok := w.lastInner["harp"].(string)
+		if !ok || harp == "" {
+			return fmt.Errorf("j6: last tool result carries no harp field for %q; result:\n%s", name, w.lastTool.JSON())
+		}
+		j6.harps[name] = harp
+		return nil
+	})
+
+	ctx.Step(`^the agent calls tool "agent_stop" for "([^"]*)"'s remembered session$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		j6 := j6Of(w)
+		harp, ok := j6.harps[name]
+		if !ok || harp == "" {
+			return fmt.Errorf("j6: no session harp remembered for %q", name)
+		}
+		return callTool(c, "agent_stop", map[string]any{"harp": harp})
+	})
 }

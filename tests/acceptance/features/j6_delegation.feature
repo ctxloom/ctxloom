@@ -113,3 +113,29 @@ Feature: Coordinator delegates isolated work
     Then the tool call succeeds
     And the journal carries both children's MCP server names
     But the journal never carries the command or arguments that launch them
+
+  # FAILURE PATH — every scenario above is happy-path (spawn, succeed, read
+  # the journal back). agent_stop is one of this flow's own coordinator
+  # verbs and had NO acceptance coverage at all before this scenario
+  # (completeness_test.go's census was the only place the string appeared).
+  # U024-F04 (this batch) fixed a real bug on exactly this shutdown edge: a
+  # stop landing on an already-ended run must still cancel any armed
+  # relaunch, not just report "already ended" as a no-op — the 2026-07-24
+  # incident shape. This is the tip-to-tail proof that the STOP verb
+  # behaves like every other verb in this flow: idempotent on a real run
+  # (never errors on a second stop), and refused — never silently
+  # accepted — on a run id that was never spawned at all.
+  Scenario: Stopping a child is idempotent, and stopping a run that never existed is refused
+    When the agent calls tool "agent_run" with:
+      | agent  | fixer |
+      | prompt | go    |
+    Then the tool call succeeds
+    And "fixer"'s spawned session is remembered
+    When the agent calls tool "agent_stop" for "fixer"'s remembered session
+    Then the tool call succeeds
+    When the agent calls tool "agent_stop" for "fixer"'s remembered session
+    Then the tool call succeeds
+    And the tool result contains "already ended"
+    When the agent calls tool "agent_stop" with:
+      | harp | not-a-real-session-at-all |
+    Then the tool call fails

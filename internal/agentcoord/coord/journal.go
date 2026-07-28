@@ -127,6 +127,29 @@ func (s *Store) Offset() (int64, error) {
 	return s.f.Seek(0, io.SeekCurrent)
 }
 
+// OffsetView is Offset and View fused into ONE locked window: it reads the
+// journal's current write position and runs read with the folds quiescent,
+// both under the SAME RLock acquisition, so a concurrent Exec cannot land
+// between the two (U019-F01). A caller that instead calls Offset() and View()
+// as two separate calls — as checkpoint.go's writeItemsSnapshot used to —
+// leaves a gap a concurrent append can land in: the read then observes fold
+// state NEWER than the recorded offset, so a later restore(snapshot) +
+// openStoreFromOffset(offset) tail-replay re-applies the facts that landed in
+// that gap on top of a fold that already includes them. Any snapshot/read
+// pairing that must be internally consistent (i.e. "the state as of exactly
+// this offset") MUST go through this method, not the two primitives
+// separately.
+func (s *Store) OffsetView(read func(offset int64)) (int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	offset, err := s.f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	read(offset)
+	return offset, nil
+}
+
 // replay reads every complete, parseable line from fromOffset forward and
 // applies it to the folds. A torn tail — a final line without its newline,
 // or a final line that does not parse (a crash mid-append) — is truncated

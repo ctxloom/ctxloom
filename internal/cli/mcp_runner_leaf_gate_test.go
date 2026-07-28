@@ -26,7 +26,7 @@ import (
 // agent_recv, agent_report but NOT agent_run, roster, agent_stop, or
 // agent_fetch_artifact.
 func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "leaf-harp", testHome(t), true)
+	server, err := newRunnerMCPServer(testConfig(), "leaf-harp", testHome(t), true, "")
 	require.NoError(t, err)
 	tools := listServerTools(t, server)
 
@@ -47,7 +47,7 @@ func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
 // registers the complete classified surface, coordinator-only tools
 // included — unchanged from before this gate existed.
 func TestRunnerServer_CoordinatorCapableRegistersEverything(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "coord-harp", testHome(t), false)
+	server, err := newRunnerMCPServer(testConfig(), "coord-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	tools := listServerTools(t, server)
 

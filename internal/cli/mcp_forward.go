@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // FORWARD MODE (agentcoord B1.6, runner-terminated MCP): when a `ctxloom mcp`
@@ -90,8 +92,18 @@ func buildForwardServer(ctx context.Context, cs *mcp.ClientSession) (*mcp.Server
 		Version: Version,
 	}, &mcp.ServerOptions{Instructions: instructions})
 
-	if err := forwardTools(ctx, cs, server); err != nil {
+	n, err := forwardTools(ctx, cs, server)
+	if err != nil {
 		return nil, err
+	}
+	// U038-F03: runMCPForward's own doc claims "an unreachable runner socket
+	// is a hard startup error: a silently-empty toolset would be a wrong-
+	// context session" — but nothing ever checked that ANY tool actually
+	// got registered. A runner that connects fine but advertises zero
+	// tools (the wrong-context shape the doc already names) used to stand
+	// up a perfectly healthy-LOOKING, entirely empty forward server.
+	if n == 0 {
+		return nil, fmt.Errorf("ctxloom mcp (forward mode): the runner advertised zero tools — refusing to stand up an empty forwarded session (wrong context?)")
 	}
 	if err := forwardResources(ctx, cs, server); err != nil {
 		return nil, err
@@ -99,12 +111,13 @@ func buildForwardServer(ctx context.Context, cs *mcp.ClientSession) (*mcp.Server
 	return server, nil
 }
 
-func forwardTools(ctx context.Context, cs *mcp.ClientSession, server *mcp.Server) error {
+func forwardTools(ctx context.Context, cs *mcp.ClientSession, server *mcp.Server) (int, error) {
 	cursor := ""
+	n := 0
 	for {
 		page, err := cs.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 		if err != nil {
-			return fmt.Errorf("ctxloom mcp (forward mode): list runner tools: %w", err)
+			return n, fmt.Errorf("ctxloom mcp (forward mode): list runner tools: %w", err)
 		}
 		for _, tool := range page.Tools {
 			name := tool.Name
@@ -114,9 +127,10 @@ func forwardTools(ctx context.Context, cs *mcp.ClientSession, server *mcp.Server
 					Arguments: json.RawMessage(req.Params.Arguments),
 				})
 			})
+			n++
 		}
 		if page.NextCursor == "" {
-			return nil
+			return n, nil
 		}
 		cursor = page.NextCursor
 	}
@@ -128,8 +142,11 @@ func forwardResources(ctx context.Context, cs *mcp.ClientSession, server *mcp.Se
 		page, err := cs.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
 		if err != nil {
 			// A runner without resources is fine; only a transport
-			// fault matters — but the SDK types both as errors, so degrade
-			// to tools-only with the error surfaced.
+			// fault matters — the SDK types both as errors, so this
+			// degrades to tools-only rather than failing the whole
+			// session, but U038-F03: the degrade used to be SILENT despite
+			// the comment claiming "the error surfaced" — it never did.
+			clidiag.Warn("ctxloom", "ctxloom mcp (forward mode): list runner resources: %v (degrading to tools-only)", err)
 			return nil //nolint:nilerr // resources are optional surface
 		}
 		for _, res := range page.Resources {

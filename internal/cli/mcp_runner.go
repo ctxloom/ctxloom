@@ -85,7 +85,17 @@ type runnerMCP struct {
 // any caller that never threads it) — behaviour-identical to before this
 // var existed.
 func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*runnerMCP, error) {
-	server, err := newRunnerMCPServer(cfg, harp, home, leaf)
+	// U038-F01: cellWorkDir must reach the SAME place on both uses — the
+	// discovery marker key below AND the tool surface's own cell-path
+	// boundary (newRunnerMCPServer's ctxServer identity + resolveCellPath
+	// roots). Before this fix only the marker got it; newRunnerMCPServer
+	// took its own independent os.Getwd() — the coordinator's cwd, not the
+	// cell work dir the harness actually runs in (coord/identity.go's own
+	// doc names this mismatch) — so a workspace:worktree run's
+	// agent_report/agent_fetch_artifact resolved against the PARENT
+	// project root instead of the per-agent worktree resolveCellPath
+	// exists to confine them to.
+	server, err := newRunnerMCPServer(cfg, harp, home, leaf, cellWorkDir)
 	if err != nil {
 		return nil, err
 	}
@@ -98,14 +108,7 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 		cleanupSocket()
 		return nil, fmt.Errorf("runner MCP socket %s: %w", path, err)
 	}
-	cwd := cellWorkDir
-	if cwd == "" {
-		var cwdErr error
-		cwd, cwdErr = os.Getwd()
-		if cwdErr != nil {
-			cwd = "."
-		}
-	}
+	cwd := resolveCellWorkDir(cellWorkDir)
 	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
 		Socket: path,
 		Pid:    os.Getpid(),
@@ -216,7 +219,25 @@ func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(
 // top-level human session — RunID == "" — is NEVER leaf): when true, the
 // coordinator-only tools (mcpschema.CoordinatorOnlyTools) are deliberately
 // withheld from THIS session's surface — see the registration loop below.
-func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf bool) (*mcp.Server, error) {
+// resolveCellWorkDir is the DRY form of the "cellWorkDir wins over
+// os.Getwd()" fallback rule (U038-F01): cellWorkDir is the prepared
+// workspace dir the harness's engine process actually runs in, which can
+// differ from THIS process's own os.Getwd() for a workspace:worktree run —
+// the runner is spawned with no cmd.Dir and inherits the coordinator's cwd,
+// while the harness is launched with cmd.Dir=the per-agent worktree. Falls
+// back to os.Getwd() when cellWorkDir is empty (workspace:none/container, or
+// a caller — mcp_docgen.go, tests — that has no real cell to anchor to).
+func resolveCellWorkDir(cellWorkDir string) string {
+	if cellWorkDir != "" {
+		return cellWorkDir
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	return "."
+}
+
+func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Version: Version,
@@ -226,11 +247,11 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 	registered := map[string]bool{}
 
 	// Cell-local content tools + resources: the per-runner ctxServer over
-	// the cell-delivered config. Identity is the runner's own harp.
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
-	}
+	// the cell-delivered config. Identity is the runner's own harp. cwd is
+	// ALSO the cell-path boundary root threaded into coordinationHandler/
+	// artifactFetchHandler below (resolveCellPath) — U038-F01: this used to
+	// be an independent os.Getwd() call, ignoring cellWorkDir entirely.
+	cwd := resolveCellWorkDir(cellWorkDir)
 	s := &ctxServer{cfg: cfg, self: coord.Identity{Harp: harp, Project: cwd}}
 	s.registerContextTools(server)
 	s.registerResources(server)
@@ -516,18 +537,38 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 			}
 			return nil, err
 		}
+		// U038-F02: home.Recv already committed msgs as RETURNED (the
+		// cursor-ack fires on the NEXT Recv) before this loop even starts —
+		// a message that fails to marshal/decode here is gone for good, not
+		// redelivered. The old code silently `continue`d, so an all-fail
+		// batch answered {"messages": []}, a successful call with zero
+		// payload, structurally the same consume-then-decode shape as the
+		// confirmed approval-reply defect. Never silently dropped now: a
+		// failure is logged AND named in the result, so the caller can tell
+		// "genuinely nothing waiting" from "N messages existed and were
+		// lost to a decode failure".
 		items := make([]any, 0, len(msgs))
+		var dropped []string
 		for _, m := range msgs {
 			raw, merr := protojson.MarshalOptions{UseProtoNames: true}.Marshal(m)
 			if merr != nil {
+				dropped = append(dropped, m.GetMessageId())
+				clidiag.Warn("ctxloom", "agent_recv: message %s: marshal: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), merr)
 				continue
 			}
 			var v any
-			if json.Unmarshal(raw, &v) == nil {
-				items = append(items, v)
+			if uerr := json.Unmarshal(raw, &v); uerr != nil {
+				dropped = append(dropped, m.GetMessageId())
+				clidiag.Warn("ctxloom", "agent_recv: message %s: decode: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), uerr)
+				continue
 			}
+			items = append(items, v)
 		}
-		return &mcp.CallToolResult{StructuredContent: map[string]any{"messages": items}}, nil
+		result := map[string]any{"messages": items}
+		if len(dropped) > 0 {
+			result["dropped_message_ids"] = dropped
+		}
+		return &mcp.CallToolResult{StructuredContent: result}, nil
 	}
 }
 

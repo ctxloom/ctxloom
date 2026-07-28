@@ -32,7 +32,7 @@ func NewDocMCPServer() *mcp.Server {
 	if err != nil {
 		panic("docgen: dead-endpoint home: " + err.Error())
 	}
-	server, err := newRunnerMCPServer(nil, "", home, false) // full surface documented, never the leaf-gated subset
+	server, err := newRunnerMCPServer(nil, "", home, false, "") // full surface documented, never the leaf-gated subset
 	if err != nil {
 		panic("docgen: assemble runner MCP surface: " + err.Error())
 	}

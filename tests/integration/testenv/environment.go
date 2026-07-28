@@ -8,17 +8,30 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
-// mcpStdinGrace is how long RunWithStdin keeps stdin open after writing the
-// request(s). The MCP server (SDK stdio transport) dispatches requests
-// asynchronously; if stdin closes immediately after the write, its read loop
-// hits EOF and tears the server down before the handler writes its response.
-// A real MCP client keeps stdin open until it has its responses — this grace
-// models that. Responses arrive in milliseconds; the window is generous so the
-// suite stays reliable on slow CI.
+// mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
+// writing the request(s), for a child that never responds at all. The MCP
+// server (SDK stdio transport) dispatches requests asynchronously; if stdin
+// closes immediately after the write, its read loop hits EOF and tears the
+// server down before the handler writes its response. A real MCP client keeps
+// stdin open until it has its responses — this models that.
+//
+// U163-F08: this used to be an unconditional time.Sleep(mcpStdinGrace) on
+// every one of RunWithStdin's ~10 call sites -- 2s of wall clock per call
+// regardless of how fast the response actually arrived, even though the doc
+// already conceded "responses arrive in milliseconds". waitForStdinResponse
+// now polls and returns as soon as output has arrived and gone quiet;
+// mcpStdinGrace remains only as the worst-case wait for a genuinely silent or
+// hung child, so a slow-CI run is no worse off than before.
 const mcpStdinGrace = 2 * time.Second
+
+// stdinPollInterval is how often waitForStdinResponse checks the child's
+// accumulated output for growth, and also the quiet window required before
+// concluding a response has fully arrived.
+const stdinPollInterval = 10 * time.Millisecond
 
 // TestEnvironment manages isolated test environments with fake home and project directories.
 type TestEnvironment struct {
@@ -586,7 +599,12 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 		return err
 	}
 
-	var stdout, stderr bytes.Buffer
+	// exec.Cmd starts a background goroutine to copy the child's stdout/stderr
+	// into whatever Writer is assigned here as soon as Start() runs; a bare
+	// bytes.Buffer is not safe for that concurrent write racing against the
+	// polling read in waitForStdinResponse below, so both are a mutex-guarded
+	// syncBuffer instead.
+	var stdout, stderr syncBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -595,13 +613,65 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	}
 
 	_, _ = stdinPipe.Write([]byte(stdin))
-	// Give the server time to respond, then close stdin for a clean shutdown.
-	time.Sleep(mcpStdinGrace)
+	waitForStdinResponse(&stdout)
 	_ = stdinPipe.Close()
 
 	err = cmd.Wait()
 	e.recordRun(args, stdout.String()+stderr.String(), err)
 	return err
+}
+
+// waitForStdinResponse polls out for its response to arrive and settle,
+// instead of blindly sleeping the full mcpStdinGrace ceiling on every call
+// (U163-F08): it returns as soon as some output has been written and then
+// stayed unchanged for one poll interval, which is the common case in
+// milliseconds; a child that never writes anything is still bounded by
+// mcpStdinGrace, exactly matching the old fixed-sleep behavior for that case.
+func waitForStdinResponse(out *syncBuffer) {
+	deadline := time.Now().Add(mcpStdinGrace)
+	lastLen := -1
+	var quietSince time.Time
+	for time.Now().Before(deadline) {
+		n := out.Len()
+		if n > 0 && n == lastLen {
+			if quietSince.IsZero() {
+				quietSince = time.Now()
+			} else if time.Since(quietSince) >= stdinPollInterval {
+				return
+			}
+		} else {
+			quietSince = time.Time{}
+		}
+		lastLen = n
+		time.Sleep(stdinPollInterval)
+	}
+}
+
+// syncBuffer is a mutex-guarded byte accumulator, safe to read (Len/String)
+// from one goroutine while exec.Cmd's own copy goroutine is still writing to
+// it -- unlike a bare bytes.Buffer, which guarantees nothing under concurrent
+// use.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // RunCount returns the monotonic number of CLI invocations recorded so far

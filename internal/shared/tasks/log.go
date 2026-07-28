@@ -384,13 +384,10 @@ func (l *eventLog) lock() (func(), error) {
 	}, nil
 }
 
-func (l *eventLog) add(text, status, trigger string) (Task, error) {
-	return l.addWithTags(text, status, trigger, nil)
-}
-
-// addWithTags is add with an initial tag set stamped on the `add` event
-// itself (rather than a follow-on `tag` event), so a task's creation and its
-// starting tags land as one atomic log line.
+// addWithTags is the sole append path for a new task. It stamps an initial
+// tag set on the `add` event itself (rather than a follow-on `tag` event),
+// so a task's creation and its starting tags land as one atomic log line;
+// Store.AddWithTrigger (which has no tags to add) calls it with a nil set.
 func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Task, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -654,16 +651,13 @@ func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 	return out, nil
 }
 
-func (l *eventLog) list(statuses []string, term string) ([]Task, error) {
-	return l.listWithTagQuery(statuses, term, "", nil)
-}
-
-// listWithTagQuery is list with an additional postfix tag-query filter (see
-// filterTasks, backed by tagma). An empty tagQuery behaves exactly like
-// list; a malformed one surfaces as an error, never a silently empty or
-// unfiltered result. schema feeds filterTasks's client-loadable type
-// comparison bridging (tagma SPEC.md §9); nil is fine (no type config
-// contributed), which is why list above passes it through unconditionally.
+// listWithTagQuery filters the store's tasks by status/term and an
+// additional postfix tag-query filter (see filterTasks, backed by tagma).
+// An empty tagQuery behaves like a plain status/term list; a malformed one
+// surfaces as an error, never a silently empty or unfiltered result. schema
+// feeds filterTasks's client-loadable type comparison bridging (tagma
+// SPEC.md §9); nil is fine (no type config contributed) — Store.List passes
+// "" and nil through unconditionally for exactly that case.
 func (l *eventLog) listWithTagQuery(statuses []string, term, tagQuery string, schema *tagschema.Schema) ([]Task, error) {
 	all, err := l.snapshot()
 	if err != nil {

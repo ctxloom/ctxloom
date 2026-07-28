@@ -38,7 +38,7 @@ func (s *Store) Path() string { return s.log.path }
 // (empty = no filter). Term is matched case-insensitively as a substring
 // of the trimmed task text.
 func (s *Store) List(statuses []string, term string) ([]Task, error) {
-	return s.log.list(statuses, term)
+	return s.log.listWithTagQuery(statuses, term, "", nil)
 }
 
 // ListWithTagQuery is List with an additional postfix tag-query filter,
@@ -63,7 +63,7 @@ func (s *Store) AddWithTrigger(text, status, trigger string) (Task, error) {
 	if err := validateStatusTrigger(status, trigger); err != nil {
 		return Task{}, err
 	}
-	return s.log.add(text, status, trigger)
+	return s.log.addWithTags(text, status, trigger, nil)
 }
 
 // AddWithTags is AddWithTrigger with an initial tag set stamped on the same

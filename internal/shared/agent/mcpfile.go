@@ -49,9 +49,10 @@ type MCPFileConfig struct {
 // for every engine this reconciler serves.
 const mcpFileServersKey = "mcpServers"
 
-// MCPFileServer is the stdio server shape ctxloom writes. Remote servers
-// (url/serverUrl) are user-authored and pass through raw.
-type MCPFileServer struct {
+// mcpFileServer is the stdio server shape ctxloom writes. Remote servers
+// (url/serverUrl) are user-authored and pass through raw. Unexported
+// (U101-F28): it had no users outside this file.
+type mcpFileServer struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
@@ -78,24 +79,24 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 	c.dropManaged(mf)
 
 	var managed []string
-	add := func(name string, s MCPFileServer) {
+	add := func(name string, s mcpFileServer) {
 		c.setServer(mf, name, s)
 		managed = append(managed, name)
 	}
 
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(MCPServerName, MCPFileServer{Command: ResolveMCPCommand(c.CommandOverride), Args: CtxloomMCPArgs})
+		add(MCPServerName, mcpFileServer{Command: ResolveMCPCommand(c.CommandOverride), Args: CtxloomMCPArgs})
 	}
 	for name, server := range bundleMCP {
-		add(name, MCPFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
+		add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
 	}
 	if mcp != nil {
 		for name, server := range mcp.Servers {
-			add(name, MCPFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
+			add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
 		}
 		if backendServers, ok := mcp.Plugins[c.PluginKey]; ok {
 			for name, server := range backendServers {
-				add(name, MCPFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
+				add(name, mcpFileServer{Command: server.Command, Args: server.Args, Env: server.Env})
 			}
 		}
 	}
@@ -154,7 +155,7 @@ func (c MCPFileConfig) dropManaged(mf *mcpFile) {
 }
 
 // setServer marshals a typed stdio server entry into the raw server map.
-func (c MCPFileConfig) setServer(mf *mcpFile, name string, s MCPFileServer) {
+func (c MCPFileConfig) setServer(mf *mcpFile, name string, s mcpFileServer) {
 	data, err := json.Marshal(s)
 	if err != nil {
 		c.Warn("failed to marshal MCP server %q: %v", name, err)

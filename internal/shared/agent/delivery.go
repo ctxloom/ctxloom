@@ -93,15 +93,8 @@ func (p ephemeralPlacement) Dir() string {
 	return os.TempDir()
 }
 
-// cwdPlacement writes into a fixed directory (typically the session's working
-// directory): the Placement for surfaces a strategy must materialize where the
-// engine already looks — e.g. a project-rooted config file — rather than in
-// session-scoped scratch.
-type cwdPlacement struct {
-	dir string
-}
-
-// Dir returns the fixed directory this placement was constructed with.
-func (p cwdPlacement) Dir() string {
-	return p.dir
-}
+// A fixed-directory Placement (writing into the session's working directory
+// rather than session-scoped scratch) used to live here as cwdPlacement, but
+// it was test-only (U101-F16): every backend that needs this shape declares
+// its own (claude's dirPlacement, surfaces.go), so there was no real shared
+// consumer to keep it for.

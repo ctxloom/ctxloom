@@ -82,3 +82,53 @@ func TestGenMCPToolsRequiresServer(t *testing.T) {
 		t.Fatal("expected an error generating an MCP page for a product with no MCP server")
 	}
 }
+
+
+// U051-F02(a): a server with zero registered tools used to still write a
+// page with an empty "## Tools" section and return nil -- the same
+// misconfiguration TestGenMCPToolsRequiresServer already treats as fatal for
+// a nil server, but not for an empty one.
+func TestGenMCPTools_ZeroToolsFailsLoud(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "empty"}, nil)
+	p := fakeProduct()
+	p.MCPServer = s
+
+	dir := t.TempDir()
+	if err := GenMCPTools(context.Background(), p, dir); err == nil {
+		t.Fatal("expected an error generating an MCP page for a server with no registered tools")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mcp-tools.md")); err == nil {
+		t.Error("a refused generation must not leave a toolless page behind")
+	}
+}
+
+// U051-F02(b): decodeToolSchema used to swallow a schema it could not decode
+// and return a zero mcpToolSchema, which writeMCPTool then rendered as
+// "_No parameters._" -- identical to a genuinely parameterless tool. Register
+// a tool via the SDK's low-level (non-generic) AddTool with a raw
+// InputSchema whose top level satisfies the SDK's own "type: object" check
+// (so registration itself does not panic) but whose "properties" entry is a
+// shape mcpToolSchema/mcpToolProperty cannot unmarshal -- a bare string
+// where an object is expected -- and prove the page generation now fails
+// instead of publishing "no parameters" for a tool that plainly has one.
+func TestGenMCPTools_UndecodableInputSchemaFailsLoud(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "widget"}, nil)
+	s.AddTool(&mcp.Tool{
+		Name:        "gadget_poke",
+		Description: "Poke a gadget.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"name": "not an object"},
+		},
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return nil, nil
+	})
+
+	p := fakeProduct()
+	p.MCPServer = s
+
+	dir := t.TempDir()
+	if err := GenMCPTools(context.Background(), p, dir); err == nil {
+		t.Fatal("expected an error when a tool's input schema cannot be decoded")
+	}
+}

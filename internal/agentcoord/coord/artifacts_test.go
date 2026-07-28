@@ -424,3 +424,35 @@ func TestUploadArtifact_RejectsSizeMismatch(t *testing.T) {
 	require.NoError(t, rerr)
 	assert.Empty(t, entries, "a size-mismatched upload must not be published to the store")
 }
+
+// TestDownloadArtifact_RefusesAZeroByteStoredBlob pins U022-F08's download
+// half: the upload-side floor (TestUploadArtifact_RefusesAZeroByteArtifact,
+// above) means no NEW empty artifact can be published, but a project's
+// coordinator state can already hold one from BEFORE that fix landed (or a
+// store manipulated out of band) — writeAtomic itself has no non-emptiness
+// rule, only the RPC-level upload handler does. Home.DownloadArtifact must
+// still refuse to place an empty file at the destination and report success.
+func TestDownloadArtifact_RefusesAZeroByteStoredBlob(t *testing.T) {
+	resetStrictness(t)
+	c := newTestCoordinator(t, researcherSpawner(), nil)
+	out := spawnResearcher(t, c)
+	producer := childHome(t, c, out.RunID)
+
+	// Simulate a pre-existing empty blob by writing directly to the
+	// content-addressed store — bypassing the RPC-level floor entirely, the
+	// same way pre-fix state (or an out-of-band write) would have landed.
+	shaHex, size, err := c.artifacts.writeAtomic(bytes.NewReader(nil), nil, 0)
+	require.NoError(t, err)
+	require.Zero(t, size)
+
+	reportArtifact(t, producer, "plan/empty-legacy", nil, &agentcoordpb.ArtifactReceipt{UploadId: shaHex})
+
+	dest := filepath.Join(t.TempDir(), "empty.plan.md")
+	owner := ownerHome(t, c)
+	_, _, err = owner.DownloadArtifact(context.Background(), out.Harp, "plan/empty-legacy", dest)
+	require.Error(t, err, "a 0-byte stored artifact must not download as a success")
+	assert.Contains(t, err.Error(), "0 bytes")
+
+	_, statErr := os.Stat(dest)
+	assert.True(t, os.IsNotExist(statErr), "the empty content must never be placed at the destination")
+}

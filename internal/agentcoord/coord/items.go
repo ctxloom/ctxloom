@@ -116,6 +116,17 @@ func (c *Coordinator) flushItems(ch *runChan) {
 	if len(facts) > 0 {
 		if err := c.items.Exec(func() ([]Fact, error) { return facts, nil }); err != nil {
 			clidiag.Warn("ctxloom", "coordinator: journal %d item events for %s: %v (unacked; the runner re-emits)", len(facts), ch.role, err)
+			// U022-F20: put the facts BACK instead of dropping them — the
+			// old behavior both lost them permanently (they existed in no
+			// buffer, no journal, nowhere) AND let a LATER successful flush
+			// falsely certify durability for them: that flush's own
+			// `target := ch.ackSeq` keeps climbing independent of journal
+			// success (handleAgentEvent advances it on every event), so
+			// without restoring these facts, flushedSeq/ackThrough would
+			// jump straight past the seqs this failed write never wrote.
+			c.mu.Lock()
+			ch.items = append(facts, ch.items...)
+			c.mu.Unlock()
 			return
 		}
 	}

@@ -235,13 +235,15 @@ func runMCPAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	scope := "unified (all backends)"
-	if result.Backend != "" && result.Backend != "unified" {
-		scope = result.Backend + " only"
-	}
-	fmt.Printf("Added MCP server %q (%s)\n", result.Name, scope)
-	fmt.Println("Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
-	return nil
+	return emit(cmd, result, func() error {
+		scope := "unified (all backends)"
+		if result.Backend != "" && result.Backend != "unified" {
+			scope = result.Backend + " only"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Added MCP server %q (%s)\n", result.Name, scope)
+		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
+		return nil
+	})
 }
 
 var mcpRemoveBackend string
@@ -283,15 +285,16 @@ func runMCPRemove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	for _, backend := range result.RemovedFrom {
-		if backend != "unified" {
-			fmt.Printf("Removed from backend: %s\n", backend)
+	return emit(cmd, result, func() error {
+		for _, backend := range result.RemovedFrom {
+			if backend != "unified" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed from backend: %s\n", backend)
+			}
 		}
-	}
-
-	fmt.Printf("Removed MCP server %q\n", result.Name)
-	fmt.Println("Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
-	return nil
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed MCP server %q\n", result.Name)
+		fmt.Fprintln(cmd.OutOrStdout(), "Run 'ctxloom run' or 'ctxloom manage hooks install' to apply changes to backend settings.")
+		return nil
+	})
 }
 
 // mcpShowDeprecation is the one-line pointer cobra prints whenever the
@@ -401,14 +404,14 @@ var mcpRegisterCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Enable auto-registration of ctxloom's own MCP server",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd.Context(), true) },
+	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd, true) },
 }
 
 var mcpUnregisterCmd = &cobra.Command{
 	Use:   "unregister",
 	Short: "Disable auto-registration of ctxloom's own MCP server",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd.Context(), false) },
+	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd, false) },
 }
 
 func init() {

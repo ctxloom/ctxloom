@@ -282,6 +282,11 @@ func Since(mark Mark) []Finding {
 
 // All returns a copy of every finding recorded so far, PROCESS-WIDE across
 // every goroutine — unlike Since, which is scoped to one goroutine's window.
+// Test seam: nothing in production reads it (Since/FindingsError, scoped to
+// the calling goroutine's own window, are what every real gate uses) — it
+// exists for cross-goroutine test assertions that Since structurally cannot
+// provide (see U119-F03). Grows without bound for the life of the process;
+// do not call it from anything long-lived.
 func All() []Finding {
 	mu.Lock()
 	defer mu.Unlock()

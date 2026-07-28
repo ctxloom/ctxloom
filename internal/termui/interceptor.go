@@ -41,11 +41,11 @@ type InterceptorCallbacks struct {
 	AbortLiteral func()
 }
 
-// Interceptor wraps the frontend's raw stdin stream with the prefix-key state
+// interceptor wraps the frontend's raw stdin stream with the prefix-key state
 // machine. It is the single reader of the underlying stream; Read is called
 // by the plugin client's stdin pump (one goroutine), while Disengage/Off may
 // arrive from the controller's overlay goroutine — hence the mutex on state.
-type Interceptor struct {
+type interceptor struct {
 	src    io.Reader
 	prefix byte
 	cb     InterceptorCallbacks
@@ -58,17 +58,17 @@ type Interceptor struct {
 	uiBuf []byte // scratch for viewer-bound bytes, reused across reads
 }
 
-// NewInterceptor wraps src. prefix is the raw control byte from
+// newInterceptor wraps src. prefix is the raw control byte from
 // ParsePrefixKey.
-func NewInterceptor(src io.Reader, prefix byte, cb InterceptorCallbacks) *Interceptor {
-	return &Interceptor{src: src, prefix: prefix, cb: cb}
+func newInterceptor(src io.Reader, prefix byte, cb InterceptorCallbacks) *interceptor {
+	return &interceptor{src: src, prefix: prefix, cb: cb}
 }
 
 // Read implements the engine-bound side: it returns only bytes destined for
 // the engine, routing viewer-bound bytes to the sink in between. When a chunk
 // is consumed entirely by the viewer it reads again rather than returning
 // (0, nil).
-func (ic *Interceptor) Read(p []byte) (int, error) {
+func (ic *interceptor) Read(p []byte) (int, error) {
 	for {
 		n, err := ic.src.Read(p)
 		if n > 0 {
@@ -96,7 +96,7 @@ type ixActions struct {
 // reused scratch buffer. The hot path — passthrough with no prefix byte in
 // the chunk — is a single IndexByte scan returning the chunk unchanged: zero
 // copies, zero allocations.
-func (ic *Interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
+func (ic *interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	switch ic.state {
@@ -138,9 +138,6 @@ func (ic *Interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 			}
 		case ixUI:
 			ui = append(ui, b)
-		case ixOff:
-			chunk[k] = b
-			k++
 		}
 	}
 	if (ic.state == ixFresh || ic.state == ixUI) && !ic.engaged {
@@ -155,7 +152,7 @@ func (ic *Interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 // Engage hook re-enters the interceptor via the controller). A failed engage
 // (nil sink) drops back to passthrough and discards the viewer-bound bytes —
 // they were keystrokes aimed at a viewer that never opened, not engine input.
-func (ic *Interceptor) dispatch(ui []byte, act ixActions) {
+func (ic *interceptor) dispatch(ui []byte, act ixActions) {
 	if act.abort && ic.cb.AbortLiteral != nil {
 		ic.cb.AbortLiteral()
 	}
@@ -188,7 +185,7 @@ func (ic *Interceptor) dispatch(ui []byte, act ixActions) {
 
 // Disengage returns the machine to passthrough after the viewer exits.
 // Idempotent; safe from any goroutine.
-func (ic *Interceptor) Disengage() {
+func (ic *interceptor) Disengage() {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	if ic.state == ixFresh || ic.state == ixUI {
@@ -200,7 +197,7 @@ func (ic *Interceptor) Disengage() {
 
 // Off permanently degrades to pure passthrough (viewer failure): the prefix
 // byte flows to the engine like any other key from here on.
-func (ic *Interceptor) Off() {
+func (ic *interceptor) Off() {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
 	ic.state = ixOff

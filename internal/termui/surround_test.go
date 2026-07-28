@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestSurround(tty *bytes.Buffer, info BarInfo) *Surround {
+func newTestSurround(tty *bytes.Buffer, info BarInfo) *surround {
 	var mu sync.Mutex
-	return NewSurround(&mu, tty, true, info)
+	return newSurround(&mu, tty, true, info)
 }
 
 func TestSurround_EstablishSetsScrollRegionAndPaints(t *testing.T) {
@@ -146,7 +146,7 @@ func TestSurround_SetSizeWhileSuspendedTracksReservationActiveFlip(t *testing.T)
 func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h", PrefixHint: "^]"})
-	s.SetEngineIdle(func() int64 { return 0 }) // engine idle forever
+	s.lastEngineWrite = func() int64 { return 0 } // engine idle forever
 	s.SetSize(24, 80)
 	tty.Reset()
 
@@ -168,7 +168,7 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 	nowNanos = func() int64 { return now }
 	defer func() { nowNanos = restore }()
 
-	s.SetEngineIdle(func() int64 { return now - 1 }) // engine wrote 1ns ago: busy
+	s.lastEngineWrite = func() int64 { return now - 1 } // engine wrote 1ns ago: busy
 	s.SetSize(24, 80)
 	tty.Reset()
 
@@ -184,5 +184,5 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 }
 
 func TestRosterDigest_Empty(t *testing.T) {
-	assert.Equal(t, "no agents", RosterDigest([]RosterEntry{}))
+	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}))
 }

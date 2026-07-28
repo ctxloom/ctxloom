@@ -50,7 +50,6 @@ type Model struct {
 	expanded   map[int]bool
 	cursor     int
 	follow     bool
-	firstLines []int
 	vp         viewport.Model
 
 	injecting  bool   // the inject input line is open: keys type into it
@@ -550,7 +549,6 @@ func (m Model) selectedItems() []feedItem {
 // (bottom-pinned in follow mode).
 func (m *Model) refreshFeed() {
 	lines, first := renderItems(m.items, m.feedWidth(), m.expanded, m.cursor)
-	m.firstLines = first
 	m.vp.SetContent(strings.Join(lines, "\n"))
 	if m.follow {
 		m.vp.GotoBottom()

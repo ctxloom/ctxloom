@@ -146,7 +146,7 @@ func newTestModel(f *fakeSources, copyTo io.Writer) Model {
 
 func TestModel_RosterAutoSelectsAndWatches(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
-		RosterRow{Harp: "perky-same-chevy", Engine: "claude-code", State: "live", Self: true},
+		RosterRow{Harp: "perky-same-chevy", Engine: "claude-code", State: "live"},
 		RosterRow{Harp: "swift-elm-fox", Agent: "dev", State: "executing", Depth: 1},
 	)
 	m := openSelected(t, newTestModel(f, nil), f)

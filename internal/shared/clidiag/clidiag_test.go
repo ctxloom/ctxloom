@@ -47,6 +47,30 @@ func TestWarnErrors_NonEmptyWarnsAndFails(t *testing.T) {
 	}
 }
 
+// TestFwarnOnce_DedupKeyIsProgScoped pins that FwarnOnce (via WarnOnce, its
+// only production caller — clidiag.go:172-174) builds its dedup key with
+// Line, which splices prog INTO the key, not just the format+args. This is
+// the concrete internal wiring the U103-F01/F02 findings mischaracterized as
+// DEAD: Line has zero callers OUTSIDE this package, but FwarnOnce (its sole
+// caller) is on 12 production WarnOnce sites, and this test is what breaks
+// if that wiring is ever removed or "simplified" to a prog-blind key.
+func TestFwarnOnce_DedupKeyIsProgScoped(t *testing.T) {
+	restore := SetSink(nil)
+	defer restore()
+
+	var buf bytes.Buffer
+	SetSink(&buf)
+	defer SetSink(nil)
+
+	WarnOnce("ctxloom", "dial-home failed: %s", "timeout")
+	WarnOnce("taskloom", "dial-home failed: %s", "timeout")
+
+	got := strings.Count(buf.String(), "dial-home failed: timeout")
+	if got != 2 {
+		t.Fatalf("WarnOnce from two different progs with the same format+args should NOT dedup against each other (Line's key includes prog); got %d lines, want 2:\n%s", got, buf.String())
+	}
+}
+
 func TestFwarnOnce_DedupsIdenticalLines(t *testing.T) {
 	var b strings.Builder
 	FwarnOnce(&b, "ctxloom", "dedup case %q", "clidiag-once-first")
@@ -58,14 +82,6 @@ func TestFwarnOnce_DedupsIdenticalLines(t *testing.T) {
 	FwarnOnce(&b, "ctxloom", "dedup case %q", "clidiag-once-second")
 	if got := b.String(); strings.Count(got, "\n") != 2 {
 		t.Fatalf("distinct line should emit, got %q", got)
-	}
-}
-
-func TestWarnerBindsProg(t *testing.T) {
-	var b strings.Builder
-	Fwarn(&b, string(Warner("ltk")), "bad rule %q", "x")
-	if got := b.String(); !strings.HasPrefix(got, "ltk: warning: ") {
-		t.Fatalf("Warner prefix wrong: %q", got)
 	}
 }
 
@@ -145,11 +161,6 @@ func TestSetSink_RedirectsWarnAndWarnOnce(t *testing.T) {
 	WarnOnce("ctxloom", "dial-home failed %d", 1)
 	assert.Equal(t, 1, strings.Count(buf.String(), "dial-home failed 1"),
 		"WarnOnce must honour the sink AND stay deduped through it")
-
-	// Warner (the bound-prog helper) rides the same sink.
-	buf.Reset()
-	Warner("taskloom").Warn("sync failed")
-	assert.Contains(t, buf.String(), "taskloom: warning: sync failed")
 
 	// Restoring puts the default back so a later command is unaffected.
 	restore()

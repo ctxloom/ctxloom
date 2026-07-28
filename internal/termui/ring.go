@@ -1,25 +1,25 @@
 package termui
 
-// Ring is a bounded drop-oldest byte buffer: the engine-output hold while the
-// viewer is engaged. Not goroutine-safe — the OutputGate serializes access
+// ring is a bounded drop-oldest byte buffer: the engine-output hold while the
+// viewer is engaged. Not goroutine-safe — the outputGate serializes access
 // under the tty lock.
-type Ring struct {
+type ring struct {
 	buf     []byte
 	start   int
 	n       int
 	dropped int64
 }
 
-// NewRing allocates a ring of the given capacity (minimum 1).
-func NewRing(capacity int) *Ring {
+// newRing allocates a ring of the given capacity (minimum 1).
+func newRing(capacity int) *ring {
 	if capacity < 1 {
 		capacity = 1
 	}
-	return &Ring{buf: make([]byte, capacity)}
+	return &ring{buf: make([]byte, capacity)}
 }
 
 // Write appends p, evicting the oldest bytes on overflow. Always succeeds.
-func (r *Ring) Write(p []byte) (int, error) {
+func (r *ring) Write(p []byte) (int, error) {
 	w := len(p)
 	if w >= len(r.buf) {
 		// p alone overflows the ring: keep its tail, drop everything held
@@ -44,7 +44,7 @@ func (r *Ring) Write(p []byte) (int, error) {
 
 // Drain returns the held bytes in write order plus the count dropped to
 // overflow, and resets the ring.
-func (r *Ring) Drain() (data []byte, dropped int64) {
+func (r *ring) Drain() (data []byte, dropped int64) {
 	data = make([]byte, r.n)
 	c := copy(data, r.buf[r.start:min(r.start+r.n, len(r.buf))])
 	copy(data[c:], r.buf[:r.n-c])

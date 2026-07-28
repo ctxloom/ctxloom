@@ -13,7 +13,7 @@ import (
 func TestOutputGate_PassthroughWhenOpen(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := NewOutputGate(&mu, &tty, 64, nil, nil)
+	g := newOutputGate(&mu, &tty, 64, nil, nil)
 	_, _ = g.Write([]byte("engine says hi"))
 	assert.Equal(t, "engine says hi", tty.String())
 }
@@ -21,7 +21,7 @@ func TestOutputGate_PassthroughWhenOpen(t *testing.T) {
 func TestOutputGate_HoldDivertsAndReleaseReplays(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := NewOutputGate(&mu, &tty, 64, nil, nil)
+	g := newOutputGate(&mu, &tty, 64, nil, nil)
 
 	_, _ = g.Write([]byte("before|"))
 	g.Hold()
@@ -40,7 +40,7 @@ func TestOutputGate_HoldDivertsAndReleaseReplays(t *testing.T) {
 func TestOutputGate_ReleaseWithOverflowAppendsTruncationNotice(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := NewOutputGate(&mu, &tty, 8, nil, nil)
+	g := newOutputGate(&mu, &tty, 8, nil, nil)
 
 	g.Hold()
 	_, _ = g.Write([]byte("0123456789abcdef")) // 16 into 8: oldest dropped
@@ -56,7 +56,7 @@ func TestOutputGate_ReleaseWithOverflowAppendsTruncationNotice(t *testing.T) {
 func TestOutputGate_ReleaseWhenOpenIsNoop(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := NewOutputGate(&mu, &tty, 64, nil, nil)
+	g := newOutputGate(&mu, &tty, 64, nil, nil)
 	require.NoError(t, g.Release([]byte("<restore>")))
 	assert.Empty(t, tty.String(), "releasing an open gate writes nothing")
 }
@@ -88,7 +88,7 @@ func TestOutputGate_Release_ReturnsWriteErrors(t *testing.T) {
 	var mu sync.Mutex
 	boom := errors.New("boom: tty gone")
 	fw := &failWriter{okCount: 0, err: boom} // every dst.Write from here fails
-	g := NewOutputGate(&mu, fw, 64, nil, nil)
+	g := newOutputGate(&mu, fw, 64, nil, nil)
 
 	g.Hold()
 	_, _ = g.Write([]byte("held bytes"))
@@ -109,7 +109,7 @@ func TestOutputGate_Release_PartialFailureStillAttemptsEveryWrite(t *testing.T) 
 	// okCount 0: the "pre" restore-sequence write (the very first dst.Write
 	// Release makes) already fails.
 	fw := &failWriter{okCount: 0, err: boom}
-	g := NewOutputGate(&mu, fw, 8, nil, nil)
+	g := newOutputGate(&mu, fw, 8, nil, nil)
 
 	g.Hold()
 	_, _ = g.Write([]byte("0123456789abcdef")) // overflow: also exercises the drop-notice write
@@ -126,7 +126,7 @@ func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	calls := 0
-	g := NewOutputGate(&mu, &tty, 64, nil, func() { calls++ })
+	g := newOutputGate(&mu, &tty, 64, nil, func() { calls++ })
 
 	_, _ = g.Write([]byte("a"))
 	assert.Equal(t, 1, calls)

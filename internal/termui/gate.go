@@ -8,16 +8,16 @@ import (
 	"sync/atomic"
 )
 
-// OutputGate sits between the plugin client's output consumer and the tty:
+// outputGate sits between the plugin client's output consumer and the tty:
 // open, it writes through (and lets the surround flush a pending repaint on
-// the writer's coattails — see Surround); held, engine bytes land in the
+// the writer's coattails — see surround); held, engine bytes land in the
 // bounded ring instead of the screen. Release replays the held bytes behind a
 // caller-supplied restore sequence, atomically with the held→open flip so no
 // concurrent engine write can jump the replay.
-type OutputGate struct {
+type outputGate struct {
 	mu   *sync.Mutex // the shared tty lock (surround paints under the same one)
 	dst  io.Writer
-	ring *Ring
+	ring *ring
 	held bool
 
 	// guard filters every child byte bound for the tty: it clamps/repairs
@@ -35,14 +35,14 @@ type OutputGate struct {
 	lastWrite atomic.Int64 // unix nanos of the last passthrough write
 }
 
-// NewOutputGate wraps dst. mu is the tty lock shared with the Surround;
+// newOutputGate wraps dst. mu is the tty lock shared with the surround;
 // guard and afterWrite may be nil.
-func NewOutputGate(mu *sync.Mutex, dst io.Writer, holdCapacity int, guard *vtGuard, afterWrite func()) *OutputGate {
-	return &OutputGate{mu: mu, dst: dst, ring: NewRing(holdCapacity), guard: guard, afterWrite: afterWrite}
+func newOutputGate(mu *sync.Mutex, dst io.Writer, holdCapacity int, guard *vtGuard, afterWrite func()) *outputGate {
+	return &outputGate{mu: mu, dst: dst, ring: newRing(holdCapacity), guard: guard, afterWrite: afterWrite}
 }
 
 // Write implements the engine-output path.
-func (g *OutputGate) Write(p []byte) (int, error) {
+func (g *outputGate) Write(p []byte) (int, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.held {
@@ -66,7 +66,7 @@ func (g *OutputGate) Write(p []byte) (int, error) {
 }
 
 // Hold diverts engine output into the ring (viewer engaged). Idempotent.
-func (g *OutputGate) Hold() {
+func (g *outputGate) Hold() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.held = true
@@ -82,7 +82,7 @@ func (g *OutputGate) Hold() {
 // returns, and nothing signaled that they were gone. Callers should surface
 // a non-nil error (Controller's Close/release do, via Options.Warn) rather
 // than swallow it a second time.
-func (g *OutputGate) Release(pre []byte) error {
+func (g *outputGate) Release(pre []byte) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.held {
@@ -119,4 +119,4 @@ func (g *OutputGate) Release(pre []byte) error {
 
 // LastWriteNanos reports when the last passthrough write hit the tty — the
 // surround's engine-idle heuristic.
-func (g *OutputGate) LastWriteNanos() int64 { return g.lastWrite.Load() }
+func (g *outputGate) LastWriteNanos() int64 { return g.lastWrite.Load() }

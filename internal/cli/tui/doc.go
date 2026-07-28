@@ -11,6 +11,7 @@
 // roster), injected by the CLI wiring and faked in tests, so the model is
 // hermetically testable through Update without a terminal.
 //
-// Injection into a viewed agent is S2: the overlay renders no input line and
-// has no send action yet.
+// Injection into a viewed agent is implemented: an inject input line opens
+// on demand (openInject), owns the keymap while open (updateInjectKey), and
+// sends through Sources.Inject (injectCmd).
 package tui

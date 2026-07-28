@@ -31,7 +31,7 @@ type OverlayFactory func() Overlay
 // OverlayGeometry is the overlay's DRAWABLE terminal size: Rows is the real
 // terminal's row count with the surround's reserved bottom row already
 // subtracted (Cols is unaffected — the reservation is rows-only), exactly
-// like the engine's own viewport (ResizeTranslator.Translate). PanelRows is
+// like the engine's own viewport (resizeTranslator.Translate). PanelRows is
 // the quick panel's height budget on top of that. Because Rows already
 // excludes the reserved row, neither the panel (rows Rows−PanelRows+1..Rows)
 // nor a full-screen presentation (whose content height is Rows) can ever
@@ -90,10 +90,10 @@ type Controller struct {
 	opts  Options
 	ttyMu sync.Mutex
 
-	ic   *Interceptor
-	gate *OutputGate
-	sur  *Surround
-	rt   *ResizeTranslator
+	ic   *interceptor
+	gate *outputGate
+	sur  *surround
+	rt   *resizeTranslator
 
 	// sessionMu serializes engagements: held from engage until the overlay's
 	// teardown finishes, so a re-engage cannot overlap a release in flight.
@@ -116,13 +116,15 @@ func New(opts Options) *Controller {
 		opts.HoldCapacity = 256 << 10
 	}
 	c := &Controller{opts: opts, stopRoster: make(chan struct{})}
-	c.sur = NewSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
+	c.sur = newSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
-	c.gate = NewOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
-	c.sur.SetEngineIdle(c.gate.LastWriteNanos)
-	c.sur.SetPaintSafe(guard.SafeForPaint)
+	c.gate = newOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
+	// SetEngineIdle/SetPaintSafe inlined: construction-only writes, before any
+	// goroutine starts (see U141-F15/F23).
+	c.sur.lastEngineWrite = c.gate.LastWriteNanos
+	c.sur.paintSafe = guard.SafeForPaint
 	// Erase the primary screen once at terminal takeover. The session picker and
 	// startup lines render as plain text on the primary screen; the surround's
 	// DECSTBM (emitted by SetSize below) homes the cursor but erases nothing, and
@@ -132,8 +134,8 @@ func New(opts Options) *Controller {
 	// the surround and child both draw onto a clean screen. ED 2 (not 3) keeps the
 	// picker output in scrollback rather than nuking it.
 	_, _ = io.WriteString(opts.TTY, "\x1b[H\x1b[2J")
-	c.rt = NewResizeTranslator(opts.Resize, c.sur.Reserve(), c.sur.SetSize)
-	c.ic = NewInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{
+	c.rt = newResizeTranslator(opts.Resize, c.sur.reserve, c.sur.SetSize)
+	c.ic = newInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{
 		Engage:       c.engage,
 		AbortLiteral: c.abortLiteral,
 	})
@@ -196,7 +198,7 @@ func (c *Controller) degrade(err error) {
 
 // engage opens the viewer: hold engine output, suspend the bar, save the
 // engine's cursor, and hand the interceptor the overlay's input sink. Runs on
-// the stdin pump goroutine (inside Interceptor.Read's dispatch); the overlay
+// the stdin pump goroutine (inside interceptor.Read's dispatch); the overlay
 // itself runs on its own goroutine. Returns nil when the viewer cannot start
 // — the interceptor then drops back to passthrough.
 func (c *Controller) engage() io.Writer {
@@ -218,7 +220,7 @@ func (c *Controller) engage() io.Writer {
 	}
 	// The overlay draws only the DRAWABLE rows — the same
 	// reservation-subtracted height the engine's own viewport gets
-	// (ResizeTranslator.Translate is the single source of truth for that
+	// (resizeTranslator.Translate is the single source of truth for that
 	// subtraction) — so its content can never reach the surround's reserved
 	// bottom row.
 	drawable := int(c.rt.Translate(&pb.WindowSize{Rows: uint32(rows), Cols: uint32(cols)}).Rows)

@@ -192,7 +192,7 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	assert.Equal(t, uint32(22), first.Rows, "repaint nudge wiggles a row")
 	assert.Equal(t, uint32(23), second.Rows)
 
-	// Interceptor is back to passthrough.
+	// interceptor is back to passthrough.
 	_, _ = h.stdinW.Write([]byte("typed-after"))
 	waitFor(t, "passthrough restored", func() bool { return h.engine.String() == "typed-after" })
 }
@@ -203,7 +203,7 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 // landed exactly on the surround's reserved bar row (real row `rows`). The
 // overlay must instead be handed the DRAWABLE rows — the same
 // reservation-subtracted height the engine's own viewport gets
-// (ResizeTranslator.Translate) — so neither the quick panel nor a
+// (resizeTranslator.Translate) — so neither the quick panel nor a
 // full-screen presentation (whose totalHeight is geo.Rows) can ever address
 // that row.
 func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
@@ -222,17 +222,17 @@ func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
 	}
 
 	const realRows = 24
-	assert.Equal(t, realRows-SurroundReserve, geo.Rows,
+	assert.Equal(t, realRows-surroundReserve, geo.Rows,
 		"the overlay's Rows is the DRAWABLE height (real rows minus the surround's reservation)")
 
 	lastContentRow := geo.Rows - geo.PanelRows + 1 + geo.PanelRows - 1
-	assert.LessOrEqual(t, lastContentRow, realRows-SurroundReserve,
+	assert.LessOrEqual(t, lastContentRow, realRows-surroundReserve,
 		"the overlay's last content row must never reach the reserved bar row (real row %d)", realRows)
 	assert.Equal(t, geo.Rows, lastContentRow, "sanity: last content row is exactly geo.Rows")
 }
 
 // TestController_ResizeWhileEngagedDoesNotRepaintBar is the suspend-guard
-// defect: Surround.SetSize did not check s.suspended, so a SIGWINCH arriving
+// defect: surround.SetSize did not check s.suspended, so a SIGWINCH arriving
 // while the overlay owns the screen repainted the bar (and re-established
 // DECSTBM) directly on top of the live overlay. While suspended, a resize
 // must update recorded size state (so ResumeSequence and the translator pick

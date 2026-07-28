@@ -31,11 +31,6 @@ type SessionStore struct {
 	HomeDir string
 }
 
-// NewSessionStore returns a SessionStore reading through the OS filesystem.
-func NewSessionStore() SessionStore {
-	return SessionStore{FS: afero.NewOsFs()}
-}
-
 // ResolveHomeDir returns the HomeDir override when set, else os.UserHomeDir.
 func (s *SessionStore) ResolveHomeDir() (string, error) {
 	if s.HomeDir != "" {

@@ -252,17 +252,6 @@ func (r Report) EnvViolations() []EnvRecord {
 	return out
 }
 
-// Record returns the first record of the given kind, or false — a convenience
-// for tests asserting on one surface.
-func (r Report) Record(kind string) (ProbeRecord, bool) {
-	for _, rec := range r.Records {
-		if rec.Kind == kind {
-			return rec, true
-		}
-	}
-	return ProbeRecord{}, false
-}
-
 // Report marker lines bracket the machine-readable JSON on stderr, so a caller
 // (a docker-run capturing combined output) can extract exactly the report even
 // when the vendor wire format owns stdout. The markers are distinctive enough

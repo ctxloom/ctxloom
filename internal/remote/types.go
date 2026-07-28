@@ -190,6 +190,20 @@ type LockEntry struct {
 	// RetractedReason is the publisher's stated reason for the retraction
 	// (display-only — never a decision input). Empty when Retracted is false.
 	RetractedReason string `yaml:"retracted_reason,omitempty" json:"retracted_reason,omitempty"`
+
+	// RetractionCheckedAt is when Retracted/RetractedReason were last
+	// established by an ACTUAL manifest read (Puller.resolveRetraction's
+	// "Fresh" branch) — never bumped by a fallback that reused a previously
+	// recorded verdict because the remote could not be reached. This is what
+	// lets a later fallback (see RetractionStaleAfter) know how old the
+	// verdict it is honoring actually is. Zero on an entry written before this
+	// field existed, OR on an entry that has never had a manifest
+	// successfully read for it — both read as UNKNOWN AGE, which
+	// resolveRetraction always warns about when it falls back to them; zero is
+	// deliberately not treated as "just checked" (that would silently read as
+	// fresher than it is) nor as "definitely stale" (a fresh check with no
+	// prior fallback has nothing to be stale relative to).
+	RetractionCheckedAt time.Time `yaml:"retraction_checked_at,omitempty" json:"retraction_checked_at,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.

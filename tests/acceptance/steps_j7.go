@@ -26,6 +26,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -287,6 +288,50 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("Bob's materialized context still contains the retracted marker; content:\n%s", body)
 		}
 		w.docStepMaterialized = j7.bobSyncOutput + "\n" + j7.bobMaterialized
+		return nil
+	})
+
+	// --- Scenario 3: retraction survives the remote going unreachable ---------
+
+	ctx.Step(`^the company's remote becomes unreachable$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j7 := j7Of(w)
+		// The bare repo IS the remote at this URL (file://<companyBare>) — renaming
+		// it away breaks every subsequent fetch/clone against it exactly like a
+		// real network partition or outage would: the fetcher gets an
+		// undifferentiated failure, indistinguishable at that seam from any other
+		// unreachable remote (see internal/remote/retract.go CheckRetracted's doc).
+		broken := j7.companyBare + ".unreachable"
+		if err := os.Rename(j7.companyBare, broken); err != nil {
+			return fmt.Errorf("break the company remote: %w", err)
+		}
+		j7.companyBare = broken
+		return nil
+	})
+
+	ctx.Step(`^Carol is told the bundle is still retracted, and her assistant still does not receive it$`, func(c context.Context) error {
+		w := worldFrom(c)
+		// Same shape as "Carol is told the bundle was retracted..." above:
+		// NthLastOutput(1) is the pull's own output, LastOutput() the
+		// materialize's (U163-F01) — "Carol runs her next routine sync" ran pull
+		// then materialize, in that order, with nothing else in between.
+		carolSyncOutput := w.env.NthLastOutput(1)
+		carolMaterialized := w.env.LastOutput()
+		w.docStepMaterialized = carolSyncOutput + "\n" + carolMaterialized
+		if !strings.Contains(carolSyncOutput, "retracted") {
+			return fmt.Errorf("Carol's sync output does not mention retraction even though the persisted verdict was retracted; output:\n%s", carolSyncOutput)
+		}
+		wantWarn := fmt.Sprintf("retracted by the publisher (%s)", j7RetractReason)
+		if !strings.Contains(carolMaterialized, wantWarn) {
+			return fmt.Errorf("Carol's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, carolMaterialized)
+		}
+		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
+		if err != nil {
+			return fmt.Errorf("read Carol's materialized CLAUDE.md: %w", err)
+		}
+		if strings.Contains(body, j7Marker) {
+			return fmt.Errorf("THE SECURITY-CRITICAL CASE: the remote being unreachable let a previously-retracted bundle reach Carol's assembled context again; content:\n%s", body)
+		}
 		return nil
 	})
 

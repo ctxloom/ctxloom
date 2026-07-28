@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -57,12 +58,16 @@ func TestConfirmRetraction(t *testing.T) {
 		return m
 	}
 
-	p := &Puller{}
+	p := &Puller{
+		lockfileManager: NewLockfileManager(t.TempDir()),
+		now:             func() time.Time { return time.Now().UTC() },
+	}
+	const localName = "https://github.com/alice/repo@bundles/mybundle"
 
 	t.Run("not_retracted_passes", func(t *testing.T) {
 		fetcher := newMockFetcher() // no manifest at all
 		opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}}
-		retracted, reason, err := p.confirmRetraction(context.Background(), fetcher, "alice", "repo", ref, opts)
+		retracted, reason, _, err := p.confirmRetraction(context.Background(), fetcher, "alice", "repo", ref, localName, opts)
 		assert.NoError(t, err)
 		assert.False(t, retracted)
 		assert.Empty(t, reason)
@@ -71,7 +76,7 @@ func TestConfirmRetraction(t *testing.T) {
 	t.Run("retracted_force_proceeds_with_warning", func(t *testing.T) {
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeBundle, Force: true, Stdout: &out}
-		retracted, reason, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
+		retracted, reason, _, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, localName, opts)
 		require.NoError(t, err)
 		assert.Contains(t, out.String(), "retracted", "a forced pull still surfaces the retraction warning")
 		// Force bypasses the block, but the verdict must still be reported so
@@ -83,7 +88,7 @@ func TestConfirmRetraction(t *testing.T) {
 
 	t.Run("retracted_prompt_yes_proceeds", func(t *testing.T) {
 		opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("y\n")}
-		retracted, reason, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
+		retracted, reason, _, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, localName, opts)
 		assert.NoError(t, err)
 		assert.True(t, retracted)
 		assert.Equal(t, "security hole", reason)
@@ -91,7 +96,7 @@ func TestConfirmRetraction(t *testing.T) {
 
 	t.Run("retracted_prompt_no_cancels", func(t *testing.T) {
 		opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("n\n")}
-		retracted, reason, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
+		retracted, reason, _, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, localName, opts)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, errs.ErrCancelled))
 		// Even the cancelled path reports what it found — informational, not

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -71,11 +72,22 @@ type SyncItem struct {
 type RetractionChecker interface {
 	// CheckRetraction reports whether refStr is CURRENTLY retracted in its
 	// remote's manifest — a live network probe, but far cheaper than a full
-	// Pull (no content re-fetch, no lockfile SHA rewrite).
-	CheckRetraction(ctx context.Context, refStr string, itemType remote.ItemType) (retracted bool, reason string, err error)
-	// RecordRetraction persists retracted/reason onto refStr's EXISTING
-	// lockfile entry (a no-op if there is none yet).
-	RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string) error
+	// Pull (no content re-fetch, no lockfile SHA rewrite). When the remote
+	// cannot be reached, this falls back to the last verdict this project
+	// itself recorded for refStr (fail-stale — see
+	// internal/remote/retract.go's RetractionVerdict and
+	// Puller.resolveRetraction) rather than reporting "not retracted"; err is
+	// non-nil only for a genuinely undeterminable manifest (e.g. unparseable),
+	// which the caller must not paper over. checkedAt is when the returned
+	// verdict was actually established (now for a fresh check, the persisted
+	// entry's own timestamp for a fallback) — pass it straight through to
+	// RecordRetraction so a fallback never fabricates a fresher timestamp than
+	// it earned.
+	CheckRetraction(ctx context.Context, refStr string, itemType remote.ItemType) (retracted bool, reason string, checkedAt time.Time, err error)
+	// RecordRetraction persists retracted/reason/checkedAt onto refStr's
+	// EXISTING lockfile entry (a no-op if there is none yet). A zero checkedAt
+	// leaves the persisted timestamp untouched.
+	RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error
 }
 
 // SyncDependenciesResult contains the result of syncing dependencies.
@@ -547,10 +559,19 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 // checkInstalledRetraction re-evaluates retraction for a ref that syncItem is
 // about to skip as already-installed. It is best-effort and fault-tolerant by
 // construction, matching the rest of this file's CLAUDE.md discipline: a
-// puller that doesn't implement RetractionChecker (a minimal test double) or
-// a network/parse failure both silently report "not retracted" rather than
-// blocking or failing the sync — retraction is a security IMPROVEMENT layered
-// on top of sync, never a new way for sync itself to fail.
+// puller that doesn't implement RetractionChecker (a minimal test double)
+// still silently reports "not retracted" rather than blocking or failing the
+// sync — retraction is a security IMPROVEMENT layered on top of sync, never a
+// new way for sync itself to fail.
+//
+// An UNREACHABLE remote is no longer in that "silently not retracted" bucket
+// (U088-F01/U095-F02): CheckRetraction itself now falls back to the last
+// verdict this project recorded for ref (fail-stale), so retracted here
+// reflects that fallback, not a false "clean". Only a genuinely
+// undeterminable manifest (parse failure) still resolves to "not retracted"
+// here — CheckRetracted already turns that into a hard error, and this
+// function's contract stays "never a new way for sync to fail", so it swallows
+// that error rather than propagating it.
 //
 // When the manifest reports NOT retracted, it still calls RecordRetraction to
 // clear any stale retracted flag from a previous sync (RecordRetraction itself
@@ -561,11 +582,17 @@ func checkInstalledRetraction(ctx context.Context, puller Puller, ref string, it
 	if !ok {
 		return false, ""
 	}
-	retracted, reason, err := rc.CheckRetraction(ctx, ref, itemType)
+	// CheckRetraction itself now falls back to the last recorded verdict when
+	// the remote is unreachable (fail-stale), so err here is reserved for a
+	// genuinely undeterminable manifest (e.g. unparseable) — that case still
+	// silently reports "not retracted" rather than blocking sync, matching
+	// this function's fault-tolerant contract; it does NOT re-record (nothing
+	// new was established, so nothing overwrites whatever was already there).
+	retracted, reason, checkedAt, err := rc.CheckRetraction(ctx, ref, itemType)
 	if err != nil {
 		return false, ""
 	}
-	_ = rc.RecordRetraction(itemType, ref, retracted, reason)
+	_ = rc.RecordRetraction(itemType, ref, retracted, reason, checkedAt)
 	return retracted, reason
 }
 

@@ -77,6 +77,23 @@ match wins; it is fail-closed:
      record" is not "nothing is retracted", and collapsing the two re-exposes
      content a publisher deliberately withdrew. An *absent* record is not this
      case: a project with no pins legitimately has nothing retracted.
+   - **2b. the sync-time network probe itself is FAIL-STALE, not fail-open.**
+     `internal/remote.CheckRetracted`'s remote-manifest read is three-valued
+     (`RetractionVerdict`: clean / retracted / unknown), not a bool — a fetch
+     failure (the remote is unreachable, or — indistinguishably at that seam —
+     it simply publishes no manifest, the ordinary case) reports *unknown*,
+     never a silent "clean". `Puller.resolveRetraction` (the caller-side half)
+     turns *unknown* into a decision: fall back to the last verdict this
+     project itself recorded for the ref (`LockEntry.Retracted` +
+     `RetractionCheckedAt`), never to "assume cleared" — so a network
+     partition cannot resurrect content the publisher already retracted. A
+     fallback verdict older than 14 days (`remote.RetractionStaleAfter`), or
+     one with no recorded check time at all (an entry written before this
+     field existed — unknown age, not implicitly fresh), warns via `clidiag`
+     but is still honored, never discarded: staleness degrades toward *more*
+     caution communicated to the operator, never toward more exposure. Closes
+     U088-F01, U095-F02 (fetch-failure half — the parse-failure half was
+     already fixed), and U150-F04.
 3. **local** — the item was authored in this project (`ctxloom:local`), any kind
    including MCP servers and hooks → **ALLOW**.
 4. **builtin** — the item is shipped inside the binary itself

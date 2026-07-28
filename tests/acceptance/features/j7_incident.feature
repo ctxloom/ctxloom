@@ -14,7 +14,7 @@ Feature: An incident — a bad command ships and must be pulled
   # compromise/revocation, and rejection beating a trusted publisher. Writing
   # any of those again here would restate a mechanism J3 already proves — a
   # second green scenario asserting the same thing reads as coverage while
-  # adding none. This journey keeps ONLY the two things J3 cannot express; see
+  # adding none. This journey keeps ONLY the things J3 cannot express; see
   # each scenario's own comment for exactly what that is and what it deliberately
   # does not repeat.
 
@@ -42,6 +42,30 @@ Feature: An incident — a bad command ships and must be pulled
     And Bob runs his next routine sync
     Then Carol is told the bundle was retracted, and her assistant no longer receives it
     And Bob is told the bundle was retracted too, and his assistant no longer receives it either
+
+  # NEW — retraction must SURVIVE the remote going unreachable AFTERWARD. The
+  # scenario above proves retraction reaches every already-installed developer
+  # while the remote answers; it says nothing about what happens once it
+  # doesn't. U088-F01 / U095-F02's fetch-failure half / U150-F04:
+  # CheckRetracted's fetch-failure branches used to return "not retracted"
+  # indistinguishably from a genuine clean bill of health — so a network
+  # partition, an outage, or anyone sitting between a developer and the
+  # publisher could resurrect retracted content merely by making the
+  # retraction check fail. Fixed FAIL-STALE: the last known verdict is
+  # persisted with its own timestamp (internal/remote/types.go
+  # LockEntry.RetractionCheckedAt) and is what gets delivered when the remote
+  # cannot be reached (internal/remote/pull.go Puller.resolveRetraction). This
+  # is the security-critical direction to prove: a bundle already marked
+  # RETRACTED must stay withheld even when the retraction check itself can no
+  # longer run — the opposite failure (fail-open, today's pre-fix behavior)
+  # is exactly what let an unreachable remote read as "cleared".
+  Scenario: A retracted bundle stays withheld even after the remote that retracted it becomes unreachable
+    Given Carol leads a team that already uses the company's "incident-runbook" bundle
+    And Trent retracts the bundle
+    And Carol runs her next routine sync
+    And the company's remote becomes unreachable
+    When Carol runs her next routine sync
+    Then Carol is told the bundle is still retracted, and her assistant still does not receive it
 
   # UPDATED — the key is now VISIBLE, and CAN be locally distrusted. This
   # scenario used to assert the opposite of both halves below: `signer

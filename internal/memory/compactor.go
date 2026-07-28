@@ -997,8 +997,6 @@ type distilledMeta struct {
 	SessionID   string    `yaml:"session_id"`
 	HarpName    string    `yaml:"harp_name,omitempty"`
 	DistilledAt time.Time `yaml:"distilled_at"`
-	SourcePath  string    `yaml:"source_path,omitempty"`
-	SourceMtime time.Time `yaml:"source_mtime,omitempty"`
 	// SourceSize is the backend transcript's byte size at distill time — the
 	// staleness fingerprint. loadOrDistillSession stats the live transcript and
 	// re-distills when it has moved past this; the resume picker badges the row
@@ -1186,13 +1184,8 @@ func harpSessionDir(harpName string) (string, error) {
 type DistilledSession struct {
 	SessionID   string
 	DistilledAt time.Time
-	SourcePath  string
-	SourceMtime time.Time
 	SourceSize  int64
-	EntryCount  int
-	TokensIn    int
 	TokensOut   int
-	PlanBlocks  int
 	Body        string
 }
 
@@ -1225,13 +1218,8 @@ func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
 	return &DistilledSession{
 		SessionID:   meta.SessionID,
 		DistilledAt: meta.DistilledAt,
-		SourcePath:  meta.SourcePath,
-		SourceMtime: meta.SourceMtime,
 		SourceSize:  meta.SourceSize,
-		EntryCount:  meta.EntryCount,
-		TokensIn:    meta.TokensIn,
 		TokensOut:   meta.TokensOut,
-		PlanBlocks:  meta.PlanBlocks,
 		Body:        body,
 	}, nil
 }

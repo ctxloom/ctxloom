@@ -94,22 +94,22 @@ func TestTarget_NamespacedAndBare(t *testing.T) {
 	assert.Equal(t, "urgent", Target(tagma.Tag{Key: "urgent"}))
 }
 
-func TestPriorityFnAndDecayFn_RetrieveDeclaredFormulas(t *testing.T) {
+func TestGet_RetrievesDeclaredPriorityFnAndDecayFnFormulas(t *testing.T) {
 	s, err := Parse([]string{
 		`tagma.priority_fn:"triage:impact"="{{triage:impact}} * {{age_factor}}"`,
 		`tagma.decay_fn:"triage:impact"="1 + {{age_days}} / 365"`,
 	})
 	require.NoError(t, err)
 
-	v, ok := s.PriorityFn("triage:impact")
+	v, ok := s.Get(PriorityFnFacet, "triage:impact")
 	require.True(t, ok)
 	assert.Equal(t, "{{triage:impact}} * {{age_factor}}", v)
 
-	v, ok = s.DecayFn("triage:impact")
+	v, ok = s.Get(DecayFnFacet, "triage:impact")
 	require.True(t, ok)
 	assert.Equal(t, "1 + {{age_days}} / 365", v)
 
-	_, ok = s.PriorityFn("unrelated")
+	_, ok = s.Get(PriorityFnFacet, "unrelated")
 	assert.False(t, ok)
 }
 
@@ -180,9 +180,9 @@ func TestEnumRangePriorityFnDecayFn_NilSchemaIsEmpty(t *testing.T) {
 	_, _, ok, err := s.Range("triage:impact")
 	require.NoError(t, err)
 	assert.False(t, ok)
-	_, ok = s.PriorityFn("triage:impact")
+	_, ok = s.Get(PriorityFnFacet, "triage:impact")
 	assert.False(t, ok)
-	_, ok = s.DecayFn("triage:impact")
+	_, ok = s.Get(DecayFnFacet, "triage:impact")
 	assert.False(t, ok)
 }
 

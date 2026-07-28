@@ -183,30 +183,6 @@ func (s *Schema) IsScalar(target string) bool {
 	return ok && v == ArityScalar
 }
 
-// PriorityFn returns target's declared priority_fn formula (mustache form,
-// e.g. `"{{triage:impact}} * {{age_factor}}"`) and whether one was declared.
-// Compile it with CompileFormula before evaluating.
-func (s *Schema) PriorityFn(target string) (string, bool) {
-	return s.Get(PriorityFnFacet, target)
-}
-
-// DecayFn returns target's declared decay_fn formula (mustache form) and
-// whether one was declared. Compile it with CompileFormula before
-// evaluating.
-func (s *Schema) DecayFn(target string) (string, bool) {
-	return s.Get(DecayFnFacet, target)
-}
-
-// Type returns target's declared tagma.type name (SPEC.md §9) — e.g.
-// SemverTypeName — and whether one was declared. This is the read side of a
-// `tagma.type:<target>=<name>` declaration; the write side (bridging every
-// declared type into a tagma.Index's config so its query-time typeConfig
-// scan finds it, and registering the actual TypeComparator) lives in
-// internal/shared/tasks, this package's only current TypeFacet consumer.
-func (s *Schema) Type(target string) (string, bool) {
-	return s.Get(TypeFacet, target)
-}
-
 // Enum returns target's declared closed enum values — a facet="enum"
 // declaration whose raw value is a comma-separated list, e.g.
 // `tagma.enum:"triage:type"="correctness,security,..."` — and whether one

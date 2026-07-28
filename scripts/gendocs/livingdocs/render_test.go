@@ -186,7 +186,6 @@ func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.
 	assert.Contains(t, page, "the real payload")
 }
 
-
 // U157-F01: a step whose OWN keyword the capture side could not classify
 // (empty -- steps_doc_capture.go's gherkinKeyword returns "" for any pickle
 // type outside Context/Action/Outcome, e.g. a godog version change or an

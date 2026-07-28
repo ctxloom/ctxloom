@@ -83,7 +83,6 @@ func TestGenMCPToolsRequiresServer(t *testing.T) {
 	}
 }
 
-
 // U051-F02(a): a server with zero registered tools used to still write a
 // page with an empty "## Tools" section and return nil -- the same
 // misconfiguration TestGenMCPToolsRequiresServer already treats as fatal for

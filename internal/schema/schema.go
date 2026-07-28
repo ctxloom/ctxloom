@@ -93,7 +93,6 @@ func (v *ConfigValidator) KnownPath(path []string) bool {
 	return true
 }
 
-
 // KnownKeys returns the declared property names of the schema object at path
 // (see KnownPath's doc for the segment-resolution rule), unioned across every
 // anyOf/oneOf/allOf branch reachable from it. This is the enumeration

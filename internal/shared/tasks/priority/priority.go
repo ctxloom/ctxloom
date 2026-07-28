@@ -24,6 +24,7 @@ package priority
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -145,7 +146,24 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 
 	for _, t := range all {
 		tagValues := resolveTagValues(t.Tags)
+
+		// A folded CreatedAt must be a real point in time: a zero value (the
+		// repair path re-adding a displaced task without its original Ts,
+		// see U120-F14) is corrupt data that would otherwise silently pin
+		// this task to the extreme of the decay curve (U124-F03) — Compute
+		// is the only vantage point that can notice it, so it must say so
+		// rather than compute a meaningless age.
+		if t.CreatedAt.IsZero() {
+			return nil, Diagnostics{}, fmt.Errorf("priority: task %s: CreatedAt is unset — cannot compute age", t.HarpID)
+		}
 		ageDays := now.Sub(t.CreatedAt).Hours() / 24
+		if ageDays < 0 {
+			// A CreatedAt in the future (clock skew, a hand-edited log, a
+			// restored backup) must not drive age negative: the shipped
+			// default decay_fn evaluates 1 + age/(age+90), which is exactly
+			// -Inf at age == -90 (U124-F03).
+			ageDays = 0
+		}
 
 		// Step: decay. A Deferred task is parked on purpose — age must not
 		// move a parked task's score, so decay is skipped entirely and
@@ -172,13 +190,23 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 				return nil, Diagnostics{}, fmt.Errorf("priority: task %s: priority_fn: %w", t.HarpID, err)
 			}
 		}
+		if math.IsNaN(score) || math.IsInf(score, 0) {
+			// A non-finite score (typically a NaN-valued tag — see
+			// resolveTagValues and U124-F01) must not reach rankNormalize:
+			// turn what would otherwise be a hang or a garbage priority into
+			// an actionable, named error.
+			return nil, Diagnostics{}, fmt.Errorf("priority: task %s: priority_fn produced a non-finite score (%v) — check its tags for a value that is not a finite number", t.HarpID, score)
+		}
 		raw[t.HarpID] = score
 
 		// Presence alone triggers the override, independent of the tag's
 		// (usually absent) value — a comma-ok map lookup, not a truthiness
 		// check on the resolved float, so a hypothetical `=0`-valued
-		// exploited-in-wild tag still overrides.
-		if _, present := tagValues[ExploitedInWildTarget]; present {
+		// exploited-in-wild tag still overrides. But only for a
+		// non-terminal task: Result.Priority's own contract leaves a
+		// Done/Archived task's priority at 0, and the override must not
+		// contradict that (U124-F02).
+		if _, present := tagValues[ExploitedInWildTarget]; present && !isTerminal(t.Status) {
 			overridden[t.HarpID] = true
 		}
 		if !isTerminal(t.Status) {
@@ -431,7 +459,11 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 		}
 		out[target+"="+*t.Value] = 1.0
 		f, err := strconv.ParseFloat(*t.Value, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			// "NaN"/"Inf"/"-Inf" are legal tagma bare tokens and parse
+			// cleanly as floats, but a non-finite value is never usable
+			// arithmetically (U124-F01) — treat it exactly like an
+			// unparseable value rather than letting it reach a formula.
 			out[target] = 0
 			continue
 		}
@@ -472,6 +504,14 @@ func rankNormalize(raw map[string]float64, population []string) map[string]float
 		j := i
 		v := raw[sorted[i]]
 		for j < n && raw[sorted[j]] == v {
+			j++
+		}
+		// A NaN raw score (e.g. from a stored tag value that parsed as the
+		// literal "NaN") is never equal to itself, so the scan above
+		// cannot advance j past i on it — without this, the outer loop
+		// would spin forever (U124-F01). Treat a lone non-advancing member
+		// as its own group of one so the loop always makes progress.
+		if j == i {
 			j++
 		}
 		p := Max * float64(j) / float64(n)

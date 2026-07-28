@@ -35,7 +35,6 @@ type fakeEngineHome struct {
 	exited []struct {
 		Code      int
 		SessionID string
-		Terminal  bool
 	}
 	seq uint64
 
@@ -97,14 +96,13 @@ func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) 
 	f.sink = sink
 }
 
-func (f *fakeEngineHome) ReportRunExited(code int, sessionID string, terminal bool) {
+func (f *fakeEngineHome) ReportRunExited(code int, sessionID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.exited = append(f.exited, struct {
 		Code      int
 		SessionID string
-		Terminal  bool
-	}{code, sessionID, terminal})
+	}{code, sessionID})
 }
 
 func (f *fakeEngineHome) customNames() []string {
@@ -553,7 +551,6 @@ func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
 	home.mu.Lock()
 	defer home.mu.Unlock()
 	assert.Equal(t, "native-sess-42", home.exited[0].SessionID)
-	assert.True(t, home.exited[0].Terminal)
 	var completed *agentcoordpb.RunCompleted
 	for _, ev := range home.events {
 		if rc := ev.GetRunCompleted(); rc != nil {

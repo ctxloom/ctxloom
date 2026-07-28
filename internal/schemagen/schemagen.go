@@ -35,8 +35,14 @@ type Target struct {
 // Generate writes one <name>-schema.json per target into dir, reflecting each
 // struct via google/jsonschema-go and stamping the $schema, $id, and title so
 // the files are stable, self-describing contracts. Output is deterministic
-// (sorted targets, indented JSON, map-keyed properties) so the regenerate-then-
-// git-diff CI check is meaningful. An unrepresentable type is a hard error — a
+// (indented JSON, map-keyed properties) so re-running Generate over the same
+// targets is a byte-identical no-op diff — useful for reproducibility, but
+// NOT checked by CI: schemaDir is gitignored (see cmd/gen-schemas/main.go's
+// doc), so there is nothing checked-in to regenerate-then-git-diff against.
+// U097-F01: this comment used to claim a "regenerate-then-git-diff CI check"
+// that has never existed (`rg -n gen-schemas-check .` finds no recipe
+// anywhere) — determinism here is worth having for its own sake, not because
+// of a gate that isn't real. An unrepresentable type is a hard error — a
 // silently dropped field would be a lying contract.
 func Generate(dir string, targets []Target) error {
 	// U097-F02: zero targets used to succeed silently — MkdirAll, a no-op sort,

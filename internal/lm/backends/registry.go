@@ -112,8 +112,11 @@ func registerDescriptor(d agentDescriptor) {
 }
 
 // descriptorFor returns the named descriptor, creating an empty one if absent.
-// It backs the incremental Register/RegisterConfig entry points, which remain
-// for callers (and tests) that register a backend piecemeal.
+// It backs RegisterHookGlobalScopeForTesting (delegate_seams.go) — a test-only
+// piecemeal registration seam. The piecemeal Register/RegisterConfig entry
+// points it originally backed were deleted as dead (U057-F03: zero callers
+// anywhere, repo-wide); built-in backends register their complete descriptor
+// via registerDescriptor (below) in one call.
 func descriptorFor(name string) *agentDescriptor {
 	d, ok := descriptors[name]
 	if !ok {
@@ -121,11 +124,6 @@ func descriptorFor(name string) *agentDescriptor {
 		descriptors[name] = d
 	}
 	return d
-}
-
-// Register adds a backend constructor to the registry.
-func Register(name string, constructor func() agent.Backend) {
-	descriptorFor(name).newBackend = constructor
 }
 
 // Get returns a new instance of the named backend.
@@ -189,8 +187,15 @@ func ACPTransportFor(name string) agent.ACPTransport {
 }
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
-// agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so every
-// backend embedding it is a provider.
+// agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so
+// every backend registered in THIS package's descriptor table is a provider —
+// U057-F11 flagged the type assertion below as buying nothing on that
+// evidence alone, but it is not: agent.Backend itself does not require
+// GetBinaryPath (internal/lm/grpc/server_test.go's fakeBackend implements
+// agent.Backend without it), so widening the interface directly would break
+// that non-BaseBackend-embedding implementor. The optional-capability
+// assertion here is the correct shape for a genuinely optional capability,
+// not dead defensiveness.
 type BinaryPathProvider interface {
 	GetBinaryPath() string
 }

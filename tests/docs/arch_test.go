@@ -9,6 +9,7 @@
 package docs
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // indexPath locates docs/architecture/findings-index.md by walking up from the
@@ -249,6 +252,243 @@ func TestArch_FindingsIndex_GateCatchesDrift(t *testing.T) {
 	fGot, _ := parseIndex(t, flipped)
 	if fGot.byStatus["open"] != 0 || fGot.byStatus["RESOLVED"] != 2 {
 		t.Fatalf("the gate does not track a status flip: %+v", fGot.byStatus)
+	}
+}
+
+// flowPartitionPath locates docs/architecture/flow-partition.yaml the same
+// way indexPath locates the census, so the gate does not care where it is
+// run from.
+func flowPartitionPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return filepath.Join(dir, "docs", "architecture", "flow-partition.yaml")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not find the module root (no go.mod above the working directory)")
+		}
+		dir = parent
+	}
+}
+
+// unitIDRe pulls the unit portion ("U028") out of a finding row's ID
+// ("U028-F01"), so a unit can be checked for having ANY row regardless of how
+// many findings it carries.
+var unitIDRe = regexp.MustCompile(`^\|\s*(U\d+)-F\d+\s*\|`)
+
+// unitsWithRows returns every unit that carries at least one row anywhere in
+// the census (including the "Unparsed severity" tail section, which shares
+// the same ID-first row shape).
+func unitsWithRows(body string) map[string]bool {
+	units := map[string]bool{}
+	for _, line := range strings.Split(body, "\n") {
+		if m := unitIDRe.FindStringSubmatch(line); m != nil {
+			units[m[1]] = true
+		}
+	}
+	return units
+}
+
+// TestArch_FlowPartition_IsTotalAndDisjoint gates
+// docs/architecture/flow-partition.yaml, the 14-way partition the
+// remediation campaign uses to divide the census by flow. A campaign that
+// reports "flow X: N rows closed" is unverifiable unless the partition it
+// counted from is itself provably TOTAL (every unit that carries a row is
+// claimed by some flow) and DISJOINT (no unit is claimed by two flows) —
+// otherwise a per-flow count can silently double-count or drop units.
+func TestArch_FlowPartition_IsTotalAndDisjoint(t *testing.T) {
+	body := readIndex(t)
+	units := unitsWithRows(body)
+	if len(units) == 0 {
+		t.Fatal("no unit IDs found in the census — the gate has stopped looking at anything")
+	}
+
+	raw, err := os.ReadFile(flowPartitionPath(t))
+	if err != nil {
+		t.Fatalf("read flow partition: %v", err)
+	}
+	var doc struct {
+		Flows map[string][]string `yaml:"flows"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse flow partition YAML: %v", err)
+	}
+	if len(doc.Flows) == 0 {
+		t.Fatal("no flows found in flow-partition.yaml — the gate has stopped looking at anything")
+	}
+
+	owner := map[string]string{} // unit -> flow that first claimed it
+	var doubleClaimed []string
+	for _, flow := range slices.Sorted(maps.Keys(doc.Flows)) {
+		for _, unit := range doc.Flows[flow] {
+			if prev, dup := owner[unit]; dup {
+				doubleClaimed = append(doubleClaimed, fmt.Sprintf("%s (in both %s and %s)", unit, prev, flow))
+				continue
+			}
+			owner[unit] = flow
+		}
+	}
+	if len(doubleClaimed) > 0 {
+		slices.Sort(doubleClaimed)
+		t.Errorf("units double-claimed across flows: %s", strings.Join(doubleClaimed, ", "))
+	}
+
+	var missingFromYAML []string
+	for unit := range units {
+		if _, ok := owner[unit]; !ok {
+			missingFromYAML = append(missingFromYAML, unit)
+		}
+	}
+	slices.Sort(missingFromYAML)
+	if len(missingFromYAML) > 0 {
+		t.Errorf("units carry rows in findings-index.md but no flow claims them: %s", strings.Join(missingFromYAML, ", "))
+	}
+
+	var orphanedInYAML []string
+	for unit := range owner {
+		if !units[unit] {
+			orphanedInYAML = append(orphanedInYAML, unit)
+		}
+	}
+	slices.Sort(orphanedInYAML)
+	if len(orphanedInYAML) > 0 {
+		t.Errorf("flow-partition.yaml names units that carry zero rows in findings-index.md: %s", strings.Join(orphanedInYAML, ", "))
+	}
+}
+
+// TestArch_FindingsIndex_SeverityTableOpenColumnMatchesTheRows checks the
+// severity table's fourth ("open") column. TestArch_FindingsIndex_SeverityTableMatchesTheRows
+// parses this column into m[4] but never compares it against anything — it
+// only checks count (m[2]) and resolved (m[3]). "open" here means "not yet
+// marked RESOLVED", i.e. count minus resolved: it deliberately folds in
+// PARTIAL, REFUTED and ESCALATED rows, which the leading integer's own
+// parenthetical breaks back out ("39 (+6 refuted, +3 escalated, +9
+// partial)"). Only the leading integer is compared; the annotation is prose
+// about the adjudicated rows, not itself a count.
+func TestArch_FindingsIndex_SeverityTableOpenColumnMatchesTheRows(t *testing.T) {
+	body := readIndex(t)
+	got, _ := parseIndex(t, body)
+
+	rowRe := regexp.MustCompile(`^\|\s*(HIGH|MED|LOW)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)`)
+	found := 0
+	for _, line := range strings.Split(body, "\n") {
+		m := rowRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		found++
+		sec := m[1]
+		n, err := strconv.Atoi(strings.ReplaceAll(m[4], ",", ""))
+		if err != nil {
+			t.Fatalf("unparseable open count %q for %s", m[4], sec)
+		}
+		wantOpen := got.bySeverity[sec] - got.resolvedBySeverity[sec]
+		if n != wantOpen {
+			t.Errorf("severity table claims %s open=%d, the rows say %d (count %d - resolved %d)", sec, n, wantOpen, got.bySeverity[sec], got.resolvedBySeverity[sec])
+		}
+	}
+	if found != 3 {
+		t.Fatalf("expected 3 severity rows (HIGH/MED/LOW), recognised %d — the table format changed", found)
+	}
+}
+
+// categoryColRe pulls the fourth column (Category) out of a finding row.
+// Both 6-column ("## HIGH/MED/LOW" sections) and 7-column ("Unparsed
+// severity" section) tables carry Category in the same position: ID,
+// Status, Loc, Category, ...
+var categoryColRe = regexp.MustCompile(`^\|\s*U\d+-F\d+\s*\|[^|]*\|[^|]*\|\s*([^|]*?)\s*\|`)
+
+// attributedCategory reduces a possibly-compound category cell ("DEAD /
+// NOPAY", "DEAD + CORRECTNESS") to a single bucket by keeping only the FIRST
+// term. This is a documented choice, not a fact recovered from the data: the
+// review process lists the primary category first and any secondary term
+// after the delimiter, so first-term attribution matches how the reviewer
+// themselves ordered the pair. A row with no delimiter (including the bare
+// "—" placeholder) is its own bucket.
+func attributedCategory(raw string) string {
+	if i := strings.IndexAny(raw, "/+"); i >= 0 {
+		return strings.TrimSpace(raw[:i])
+	}
+	return raw
+}
+
+// categoryTally recomputes per-category row counts, attributing every
+// compound cell to its first term per attributedCategory's documented rule.
+func categoryTally(body string) map[string]int {
+	counts := map[string]int{}
+	for _, line := range strings.Split(body, "\n") {
+		m := categoryColRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		counts[attributedCategory(m[1])]++
+	}
+	return counts
+}
+
+// parseCategoryTable reads the "| category | count |" summary table's claimed
+// counts, stopping at the first line after the header that is not a
+// two-column "| NAME | NUMBER |" row (the separator row is skipped, not
+// treated as a stop).
+func parseCategoryTable(t *testing.T, body string) map[string]int {
+	t.Helper()
+	lines := strings.Split(body, "\n")
+	header := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "| category | count |" {
+			header = i
+			break
+		}
+	}
+	if header == -1 {
+		t.Fatal("no '| category | count |' table header found — the gate has stopped looking at anything")
+	}
+
+	rowRe := regexp.MustCompile(`^\|\s*([^|]+?)\s*\|\s*([\d,]+)\s*\|\s*$`)
+	claimed := map[string]int{}
+	for _, line := range lines[header+1:] {
+		if strings.HasPrefix(strings.TrimSpace(line), "|---") {
+			continue
+		}
+		m := rowRe.FindStringSubmatch(line)
+		if m == nil {
+			break
+		}
+		n, err := strconv.Atoi(strings.ReplaceAll(m[2], ",", ""))
+		if err != nil {
+			continue
+		}
+		claimed[m[1]] = n
+	}
+	return claimed
+}
+
+// TestArch_FindingsIndex_CategoryTableMatchesTheRows checks the
+// "| category | count |" summary table, which no existing gate reads at all.
+// See attributedCategory for the documented first-term rule applied to
+// compound cells before comparison.
+func TestArch_FindingsIndex_CategoryTableMatchesTheRows(t *testing.T) {
+	body := readIndex(t)
+	got := categoryTally(body)
+	claimed := parseCategoryTable(t, body)
+
+	if len(claimed) == 0 {
+		t.Fatal("no category rows recognised — the table format changed and this gate has stopped looking at anything")
+	}
+	for _, cat := range slices.Sorted(maps.Keys(claimed)) {
+		if claimed[cat] != got[cat] {
+			t.Errorf("category table claims %s=%d, the rows say %d", cat, claimed[cat], got[cat])
+		}
+	}
+	for _, cat := range slices.Sorted(maps.Keys(got)) {
+		if _, ok := claimed[cat]; !ok {
+			t.Errorf("category %s has %d rows but no entry in the category table", cat, got[cat])
+		}
 	}
 }
 

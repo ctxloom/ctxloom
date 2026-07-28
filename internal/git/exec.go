@@ -34,15 +34,6 @@ func (execGit) IsRepo(dir string) bool {
 	return err == nil && strings.TrimSpace(out) == "true"
 }
 
-// Toplevel returns the working-tree root of the repo containing dir.
-func (execGit) Toplevel(ctx context.Context, dir string) (string, error) {
-	out, err := output(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(out), nil
-}
-
 // CommonDir returns the absolute common git dir. rev-parse yields it relative to
 // dir for the main repo (".git") and absolute for a linked worktree, so resolve
 // the relative form against dir.

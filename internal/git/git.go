@@ -39,10 +39,6 @@ type Git interface {
 	// or missing binary reports false.
 	IsRepo(dir string) bool
 
-	// Toplevel returns the working-tree root of the repo containing dir
-	// (git rev-parse --show-toplevel).
-	Toplevel(ctx context.Context, dir string) (string, error)
-
 	// CommonDir returns the ABSOLUTE path to the repo's common git directory
 	// (git rev-parse --git-common-dir). This is where the shared info/exclude
 	// lives — a linked worktree resolves it to the MAIN repo's .git, which is why

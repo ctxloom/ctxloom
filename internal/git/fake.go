@@ -35,8 +35,6 @@ type Fake struct {
 	IgnoredContent map[string]bool
 	// CommonDirValue is what CommonDir returns (empty → "<dir>/.git").
 	CommonDirValue string
-	// ToplevelValue is what Toplevel returns (empty → the dir passed in).
-	ToplevelValue string
 	// TrackedFiles is what ListTracked returns (the repo-tracked config files a
 	// worktree carries); nil → none, so the skip-worktree pass is a no-op.
 	TrackedFiles []string
@@ -114,16 +112,6 @@ func (f *Fake) IsRepo(dir string) bool {
 		return true
 	}
 	return f.Repos[dir]
-}
-
-// Toplevel returns ToplevelValue, or dir when unset.
-func (f *Fake) Toplevel(_ context.Context, dir string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.ToplevelValue != "" {
-		return f.ToplevelValue, nil
-	}
-	return dir, nil
 }
 
 // CommonDir returns CommonDirValue, or "<dir>/.git" when unset.

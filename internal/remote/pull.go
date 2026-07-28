@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // PullOptions configures pull behavior.
@@ -93,6 +94,11 @@ type Puller struct {
 	lockfileManager *LockfileManager
 	fetcherFactory  FetcherFactory
 	fs              afero.Fs
+	// now is the clock resolveRetraction stamps fresh retraction verdicts
+	// with, and measures persisted-verdict staleness against. A field (not a
+	// bare time.Now() call) so tests can inject a fixed/advancing clock
+	// instead of sleeping past RetractionStaleAfter (see WithPullerClock).
+	now func() time.Time
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -109,6 +115,15 @@ func WithPullerFS(fs afero.Fs) PullerOption {
 func WithLockfileManager(lm *LockfileManager) PullerOption {
 	return func(p *Puller) {
 		p.lockfileManager = lm
+	}
+}
+
+// WithPullerClock sets the clock resolveRetraction uses to stamp fresh
+// verdicts and measure persisted-verdict staleness (for testing — production
+// always takes the default, real time.Now().UTC()).
+func WithPullerClock(now func() time.Time) PullerOption {
+	return func(p *Puller) {
+		p.now = now
 	}
 }
 
@@ -138,6 +153,9 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 	if p.lockfileManager == nil {
 		p.lockfileManager = NewLockfileManager(".ctxloom")
 	}
+	if p.now == nil {
+		p.now = func() time.Time { return time.Now().UTC() }
+	}
 
 	return p
 }
@@ -145,15 +163,16 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 // fetchedItem carries everything resolved during the fetch phase of a Pull
 // (remote, SHA, on-the-wire content) into the install phase.
 type fetchedItem struct {
-	rem              *Remote
-	localName        string // lockfile key, "remote/path"
-	sha              string
-	requestedVersion string       // user-specified version, "" if they took the default
-	resolvedVersion  string       // concrete tag a semver constraint resolved to, "" otherwise
-	kind             SelectorKind // classified selector kind (sha/tag/version/branch)
-	content          []byte
-	retracted        bool   // this fetch's own confirmRetraction verdict
-	retractedReason  string // the publisher's stated reason, when retracted
+	rem                 *Remote
+	localName           string // lockfile key, "remote/path"
+	sha                 string
+	requestedVersion    string       // user-specified version, "" if they took the default
+	resolvedVersion     string       // concrete tag a semver constraint resolved to, "" otherwise
+	kind                SelectorKind // classified selector kind (sha/tag/version/branch)
+	content             []byte
+	retracted           bool      // this fetch's own confirmRetraction verdict (fresh or fail-stale fallback)
+	retractedReason     string    // the publisher's stated reason, when retracted
+	retractionCheckedAt time.Time // when THIS verdict was established (see LockEntry.RetractionCheckedAt)
 }
 
 // Pull downloads an item from a remote and records its pin. It is the
@@ -191,24 +210,24 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 // rewrite a SHA that hasn't moved) just to learn whether the publisher
 // retracted it since the last sync. See operations.RetractionChecker, the
 // seam syncItem consults this through.
-func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType ItemType) (retracted bool, reason string, err error) {
+func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType ItemType) (retracted bool, reason string, checkedAt time.Time, err error) {
 	ref, err := ParseReference(refStr)
 	if err != nil {
-		return false, "", fmt.Errorf("invalid reference: %w", err)
+		return false, "", time.Time{}, fmt.Errorf("invalid reference: %w", err)
 	}
 	repoURL, _, _, err := p.resolveRemoteTarget(ref)
 	if err != nil {
-		return false, "", err
+		return false, "", time.Time{}, err
 	}
 	fetcher, err := p.fetcherFactory(repoURL, p.auth)
 	if err != nil {
-		return false, "", fmt.Errorf("failed to create fetcher: %w", err)
+		return false, "", time.Time{}, fmt.Errorf("failed to create fetcher: %w", err)
 	}
 	owner, repo, err := ParseRepoURL(repoURL)
 	if err != nil {
-		return false, "", fmt.Errorf("invalid remote URL: %w", err)
+		return false, "", time.Time{}, fmt.Errorf("invalid remote URL: %w", err)
 	}
-	return CheckRetracted(ctx, fetcher, owner, repo, ref, itemType)
+	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, ref.CanonicalString())
 }
 
 // RecordRetraction persists retracted/reason onto refStr's EXISTING lockfile
@@ -218,7 +237,7 @@ func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType It
 // matches (no redundant disk write on every sync). This is deliberately NOT
 // folded into updateLockfile: that path always has a freshly-fetched SHA to
 // write alongside; this one mutates an entry that pull isn't touching at all.
-func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bool, reason string) error {
+func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error {
 	ref, err := ParseReference(refStr)
 	if err != nil {
 		return fmt.Errorf("invalid reference: %w", err)
@@ -233,11 +252,18 @@ func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bo
 	if !ok {
 		return nil
 	}
-	if entry.Retracted == retracted && entry.RetractedReason == reason {
+	if entry.Retracted == retracted && entry.RetractedReason == reason && entry.RetractionCheckedAt.Equal(checkedAt) {
 		return nil
 	}
 	entry.Retracted = retracted
 	entry.RetractedReason = reason
+	// A zero checkedAt means the caller had nothing to stamp this with (no
+	// fresh check, no prior fallback verdict either) — leave whatever was
+	// already on disk alone rather than erasing a real timestamp with a
+	// meaningless zero one.
+	if !checkedAt.IsZero() {
+		entry.RetractionCheckedAt = checkedAt
+	}
 	lockfile.AddEntry(itemType, localName, entry)
 	return p.lockfileManager.Save(lockfile)
 }
@@ -260,7 +286,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	retracted, retractedReason, err := p.confirmRetraction(ctx, fetcher, owner, repo, ref, opts)
+	retracted, retractedReason, retractionCheckedAt, err := p.confirmRetraction(ctx, fetcher, owner, repo, ref, localName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +305,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	return &fetchedItem{
 		rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion,
 		resolvedVersion: resolvedVersion, kind: kind, content: content,
-		retracted: retracted, retractedReason: retractedReason,
+		retracted: retracted, retractedReason: retractedReason, retractionCheckedAt: retractionCheckedAt,
 	}, nil
 }
 
@@ -310,33 +336,101 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 // Force=true / non-interactive path, where the warning prints but nothing was
 // previously recorded anywhere — the gap that left a forced/sync re-pull of
 // retracted content just as exposed as before.
-func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) (retracted bool, reason string, err error) {
+func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName string, opts PullOptions) (retracted bool, reason string, checkedAt time.Time, err error) {
 	// The determination failure is NOT discarded (U150-F04). CheckRetracted's
 	// error slot is useless if the caller drops it: an "I could not determine
 	// this" would otherwise carry on indistinguishably from "clean", which is
 	// the exposure the retraction channel exists to prevent. A pull whose
 	// retraction status is unknown does not proceed — not even under Force,
 	// which waives the publisher's WARNING, not the check itself.
-	retracted, reason, err = CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
+	//
+	// resolveRetraction handles the fetch-failure half (U088-F01/U095-F02):
+	// it falls back to the last verdict this project itself recorded for
+	// localName rather than treating an unreachable remote as "clean" —
+	// only a genuinely unparseable manifest still reaches err here.
+	retracted, reason, checkedAt, err = p.resolveRetraction(ctx, fetcher, owner, repo, ref, opts.ItemType, localName)
 	if err != nil {
-		return false, "", err
+		return false, "", time.Time{}, err
 	}
 	if !retracted {
-		return false, "", nil
+		return false, "", checkedAt, nil
 	}
 	_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
 	_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
 	if opts.Force {
-		return true, reason, nil
+		return true, reason, checkedAt, nil
 	}
 	confirmed, cerr := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
 	if cerr != nil {
-		return true, reason, cerr
+		return true, reason, checkedAt, cerr
 	}
 	if !confirmed {
-		return true, reason, fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
+		return true, reason, checkedAt, fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
 	}
-	return true, reason, nil
+	return true, reason, checkedAt, nil
+}
+
+// resolveRetraction determines refStr/ref's retraction status for THIS call:
+// CheckRetracted's live verdict when the remote answered, or — when it could
+// not (RetractionUnknown) — the LAST verdict this project itself recorded for
+// localName, if any. This is the fail-stale fix for U088-F01 and U095-F02's
+// fetch-failure half (U150-F04's parse-failure half was already fixed and is
+// untouched here: a hard error from CheckRetracted still propagates as an
+// error, never falls back).
+//
+// checkedAt reports when the RETURNED verdict was actually established: p.now()
+// for a fresh verdict, or the persisted entry's own RetractionCheckedAt for a
+// fallback — NEVER p.now() for a fallback, since bumping it would erase the
+// staleness signal the next fallback needs (see LockEntry.RetractionCheckedAt
+// and RecordRetraction, which treats a zero checkedAt as "leave the persisted
+// timestamp alone"). checkedAt is the zero time when there is nothing to fall
+// back to at all (no existing lockfile entry for localName).
+//
+// Falling back to a STALE verdict — older than RetractionStaleAfter, or with
+// no recorded check time at all (unknown age: an entry written before this
+// field existed, or one that has simply never had a manifest read
+// successfully) — warns via clidiag, matching the rest of this package's
+// fault-tolerant-but-not-silent diagnostics. Falling back with NOTHING
+// recorded resolves to Clean, un-warned: that is overwhelmingly the ordinary
+// "this remote publishes no manifest" case (see CheckRetracted's doc), not
+// evidence of an outage, and there is no verdict whose age could even be
+// reported.
+func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType, localName string) (retracted bool, reason string, checkedAt time.Time, err error) {
+	verdict, reason, err := CheckRetracted(ctx, fetcher, owner, repo, ref, itemType)
+	if err != nil {
+		return false, "", time.Time{}, err
+	}
+	if verdict != RetractionUnknown {
+		return verdict == RetractionRetracted, reason, p.now(), nil
+	}
+
+	lockfile, lerr := p.lockfileManager.Load()
+	if lerr != nil {
+		// Can't even read the local fallback source — nothing to go on.
+		return false, "", time.Time{}, nil
+	}
+	entry, ok := lockfile.GetEntry(itemType, localName)
+	if !ok {
+		// Never previously checked at all: there is no verdict to fall back
+		// to, and this is far more often "this remote has no manifest" than a
+		// first-pull outage. See the doc above.
+		return false, "", time.Time{}, nil
+	}
+
+	unknownAge := entry.RetractionCheckedAt.IsZero()
+	age := p.now().Sub(entry.RetractionCheckedAt)
+	if unknownAge || age > RetractionStaleAfter {
+		if unknownAge {
+			clidiag.Warn("ctxloom",
+				"could not reach %s/%s to re-check whether %s is retracted; falling back to a previously recorded verdict of UNKNOWN AGE (recorded before this project tracked check times) — its retraction status may be out of date",
+				owner, repo, localName)
+		} else {
+			clidiag.Warn("ctxloom",
+				"could not reach %s/%s to re-check whether %s is retracted; falling back to the verdict last confirmed %s ago (older than the %s freshness window) — its retraction status may be out of date",
+				owner, repo, localName, age.Round(time.Hour), RetractionStaleAfter)
+		}
+	}
+	return entry.Retracted, entry.RetractedReason, entry.RetractionCheckedAt, nil
 }
 
 // resolveContentSHA resolves the commit SHA to fetch through the constraint
@@ -387,7 +481,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason); err != nil {
+	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt); err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
 
@@ -432,12 +526,14 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // whether the pulled content ever reaches the agent is decided per item by the
 // content-hash trust gate, not by which lockfile the pin lives in.
 //
-// retracted/retractedReason are THIS pull's own fresh confirmRetraction verdict
-// (never carried forward from the previous entry — a pull always re-checks the
-// live manifest, so its result is authoritative) — persisted here so
-// operations.EffectiveTrust can withhold exposure later without a network call
-// of its own (see operations.RetractionRecords).
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string) error {
+// retracted/retractedReason/retractionCheckedAt are THIS pull's own
+// confirmRetraction verdict — a FRESH read of the live manifest when the
+// remote answered, or a fail-stale FALLBACK to the previously persisted
+// verdict (unchanged, timestamp and all) when it did not (see
+// resolveRetraction) — persisted here so operations.EffectiveTrust can
+// withhold exposure later without a network call of its own (see
+// operations.RetractionRecords).
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time) error {
 	itemType := opts.ItemType
 	target := p.lockfileManager
 	lockfile, err := target.Load()
@@ -448,14 +544,15 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 	existing, hadExisting := lockfile.GetEntry(itemType, localName)
 
 	entry := LockEntry{
-		SHA:              sha,
-		URL:              remote.URL,
-		RequestedVersion: requestedVersion,
-		Version:          resolvedVersion,
-		Kind:             kind,
-		FetchedAt:        time.Now().UTC(),
-		Retracted:        retracted,
-		RetractedReason:  retractedReason,
+		SHA:                 sha,
+		URL:                 remote.URL,
+		RequestedVersion:    requestedVersion,
+		Version:             resolvedVersion,
+		Kind:                kind,
+		FetchedAt:           time.Now().UTC(),
+		Retracted:           retracted,
+		RetractedReason:     retractedReason,
+		RetractionCheckedAt: retractionCheckedAt,
 	}
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull

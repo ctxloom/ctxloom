@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -83,6 +84,7 @@ type recordedRetraction struct {
 	ref       string
 	retracted bool
 	reason    string
+	checkedAt time.Time
 }
 
 // syncMockRetractionPuller extends syncMockPuller with the RetractionChecker
@@ -96,22 +98,27 @@ type syncMockRetractionPuller struct {
 
 	retracted bool
 	reason    string
+	checkedAt time.Time // echoed back by CheckRetraction; defaults to time.Now() below when zero
 	checkErr  error
 
 	checkCalls []string
 	recorded   []recordedRetraction
 }
 
-func (m *syncMockRetractionPuller) CheckRetraction(_ context.Context, refStr string, _ remote.ItemType) (bool, string, error) {
+func (m *syncMockRetractionPuller) CheckRetraction(_ context.Context, refStr string, _ remote.ItemType) (bool, string, time.Time, error) {
 	m.checkCalls = append(m.checkCalls, refStr)
 	if m.checkErr != nil {
-		return false, "", m.checkErr
+		return false, "", time.Time{}, m.checkErr
 	}
-	return m.retracted, m.reason, nil
+	checkedAt := m.checkedAt
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	}
+	return m.retracted, m.reason, checkedAt, nil
 }
 
-func (m *syncMockRetractionPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string) error {
-	m.recorded = append(m.recorded, recordedRetraction{itemType: itemType, ref: refStr, retracted: retracted, reason: reason})
+func (m *syncMockRetractionPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error {
+	m.recorded = append(m.recorded, recordedRetraction{itemType: itemType, ref: refStr, retracted: retracted, reason: reason, checkedAt: checkedAt})
 	return nil
 }
 
@@ -573,6 +580,64 @@ remotes:
 	assert.Empty(t, result.Retracted)
 	assert.Len(t, result.Skipped, 1)
 	assert.Len(t, puller.checkCalls, 1)
+}
+
+// TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict is the
+// sync-layer half of the fail-stale fix (U088-F01/U095-F02): when the puller
+// cannot reach the remote, Puller.CheckRetraction (the real implementation)
+// falls back to the last recorded verdict instead of erroring — reflected
+// here as the mock reporting a RETRACTED verdict stamped with a PAST
+// checkedAt rather than "now" (exactly what a fallback, as opposed to a fresh
+// check, produces). checkInstalledRetraction must plumb that verdict through
+// to the sync result AND pass the SAME (past) checkedAt to RecordRetraction —
+// bumping it to "now" would fabricate freshness the check never earned and
+// silently defeat the 14-day staleness warning on every subsequent sync.
+func TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := config.NewFixture(config.Fixture{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	})
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+    version: v1
+`), 0644)
+
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+
+	fallbackCheckedAt := time.Now().UTC().Add(-20 * 24 * time.Hour) // stale, but still the truth
+	puller := &syncMockRetractionPuller{
+		retracted: true,
+		reason:    "shipped an incorrect deploy step",
+		checkedAt: fallbackCheckedAt,
+	}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
+
+	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+		Force:        false,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, result.Retracted, 1, "an unreachable-remote fallback verdict of RETRACTED must still be reported, exactly like a fresh one")
+	assert.Equal(t, "shipped an incorrect deploy step", result.Retracted[0].Error)
+
+	require.Len(t, puller.recorded, 1)
+	assert.True(t, puller.recorded[0].retracted)
+	assert.True(t, puller.recorded[0].checkedAt.Equal(fallbackCheckedAt),
+		"the fallback's own (past) checkedAt must be persisted verbatim, never bumped to now")
 }
 
 // TestSyncDependencies_SkipCanonicalizesRef pins ref canonicalization in the

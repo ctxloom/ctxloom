@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,33 +13,39 @@ import (
 func TestCheckRetracted(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("returns false when no manifest exists", func(t *testing.T) {
+	// A repo with no manifest at all is the ordinary case — most remotes
+	// publish none — and CheckRetracted itself cannot tell that apart from a
+	// genuine fetch failure (see its doc). It now reports RetractionUnknown
+	// either way and leaves the "ordinary case, default to clean" judgment to
+	// the caller (Puller.resolveRetraction), which knows whether it has ever
+	// recorded a verdict for this ref.
+	t.Run("returns Unknown when no manifest exists", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 		// No manifest file set
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionUnknown, verdict)
 		assert.Empty(t, reason)
 	})
 
-	t.Run("returns false when manifest has no retracted entries", func(t *testing.T) {
+	t.Run("returns Clean when manifest has no retracted entries", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 		mf.files[".ctxloom/content/manifest.yaml"] = []byte("version: 1\n")
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionClean, verdict)
 		assert.Empty(t, reason)
 	})
 
-	t.Run("returns true when item is retracted", func(t *testing.T) {
+	t.Run("returns Retracted when item is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 		mf.files[".ctxloom/content/manifest.yaml"] = []byte(`
@@ -51,14 +58,14 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.True(t, retracted)
+		assert.Equal(t, RetractionRetracted, verdict)
 		assert.Equal(t, "Security vulnerability found", reason)
 	})
 
-	t.Run("returns true when item retracted without version", func(t *testing.T) {
+	t.Run("returns Retracted when item retracted without version", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 		mf.files[".ctxloom/content/manifest.yaml"] = []byte(`
@@ -70,14 +77,14 @@ retracted:
 `)
 
 		ref := &Reference{Path: "deprecated-bundle", ContentVersion: ""}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.True(t, retracted)
+		assert.Equal(t, RetractionRetracted, verdict)
 		assert.Contains(t, reason, "Deprecated")
 	})
 
-	t.Run("returns false when different item is retracted", func(t *testing.T) {
+	t.Run("returns Clean when different item is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 		mf.files[".ctxloom/content/manifest.yaml"] = []byte(`
@@ -90,13 +97,13 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionClean, verdict)
 	})
 
-	t.Run("returns false when different type is retracted", func(t *testing.T) {
+	t.Run("returns Clean when different type is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 		mf.files[".ctxloom/content/manifest.yaml"] = []byte(`
@@ -109,10 +116,10 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionClean, verdict)
 	})
 
 	t.Run("unversioned request not flagged by a versioned retraction", func(t *testing.T) {
@@ -131,10 +138,10 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: ""}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionClean, verdict)
 		assert.Empty(t, reason)
 	})
 
@@ -151,10 +158,10 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v2.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionClean, verdict)
 	})
 
 	// U150-F04: an unparseable manifest used to resolve to "not retracted",
@@ -173,27 +180,28 @@ retracted:
 		mf.files[".ctxloom/content/manifest.yaml"] = []byte("invalid: yaml: [[")
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.Error(t, err,
 			"a manifest that will not parse was reported as 'not retracted': a publisher's withdrawal "+
 				"of content they signed silently loses to their own signature")
 		assert.Contains(t, err.Error(), "manifest", "the error must name what could not be read")
-		assert.False(t, retracted, "an undetermined verdict must not be reported as a positive retraction either")
+		assert.Equal(t, RetractionUnknown, verdict, "an undetermined verdict must not be reported as a positive retraction either")
 	})
 
 	// A repo with no manifest at all is the ordinary case — most remotes
-	// publish none — and is legitimately "not retracted", not an error. This
-	// pins that the fix above does not swallow it.
-	t.Run("a repo with no manifest is legitimately not retracted", func(t *testing.T) {
+	// publish none. CheckRetracted itself now reports this as Unknown (see
+	// above); this pins that it is still NOT an error — the caller resolves
+	// Unknown-with-nothing-to-fall-back-on to Clean, not a failure.
+	t.Run("a repo with no manifest is legitimately not an error", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+		verdict, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err, "no manifest is 'nothing to do, legitimately' — not a failure to determine")
-		assert.False(t, retracted)
+		assert.Equal(t, RetractionUnknown, verdict)
 	})
 }
 
@@ -208,10 +216,10 @@ func TestConfirmRetraction_PropagatesDeterminationFailure(t *testing.T) {
 	mf.defaultBranch = "main"
 	mf.files[".ctxloom/content/manifest.yaml"] = []byte("invalid: yaml: [[")
 
-	p := &Puller{}
+	p := &Puller{lockfileManager: NewLockfileManager(t.TempDir()), now: func() time.Time { return time.Now().UTC() }}
 	ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 	var out bytes.Buffer
-	_, _, err := p.confirmRetraction(ctx, mf, "owner", "repo", ref,
+	_, _, _, err := p.confirmRetraction(ctx, mf, "owner", "repo", ref, "owner/repo@bundles/security",
 		PullOptions{ItemType: ItemTypeBundle, Force: true, Stdout: &out})
 
 	require.Error(t, err,

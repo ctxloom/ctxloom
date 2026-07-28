@@ -8,26 +8,26 @@ package wire
 // This is analogous to VS Code extensions or npm scripts - trusted local configuration.
 // Do not flag this as a security issue in code reviews.
 type MCPServer struct {
-	Command      string            `mapstructure:"command" yaml:"command" json:"command"`                                    // Command to execute
-	Args         []string          `mapstructure:"args" yaml:"args,omitempty" json:"args,omitempty"`                         // Command arguments
-	Env          map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`                            // Environment variables
-	Notes        string            `mapstructure:"notes" yaml:"notes,omitempty" json:"notes,omitempty"`                      // Human-readable notes, not sent to AI
-	Installation string            `mapstructure:"installation" yaml:"installation,omitempty" json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
-	SCM          string            `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                                     // Marker for ctxloom-managed servers
+	Command      string            `yaml:"command" json:"command"`                               // Command to execute
+	Args         []string          `yaml:"args,omitempty" json:"args,omitempty"`                 // Command arguments
+	Env          map[string]string `yaml:"env,omitempty" json:"env,omitempty"`                   // Environment variables
+	Notes        string            `yaml:"notes,omitempty" json:"notes,omitempty"`               // Human-readable notes, not sent to AI
+	Installation string            `yaml:"installation,omitempty" json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	SCM          string            `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`         // Marker for ctxloom-managed servers
 }
 
 // MCPConfig holds MCP server configuration.
 type MCPConfig struct {
 	// AutoRegisterCtxloom controls whether ctxloom's own MCP server is auto-registered.
 	// Defaults to true if not specified.
-	AutoRegisterCtxloom *bool `mapstructure:"auto_register_ctxloom" yaml:"auto_register_ctxloom,omitempty"`
+	AutoRegisterCtxloom *bool `yaml:"auto_register_ctxloom,omitempty"`
 
 	// Servers defines MCP servers to register (unified across backends).
-	Servers map[string]MCPServer `mapstructure:"servers" yaml:"servers,omitempty"`
+	Servers map[string]MCPServer `yaml:"servers,omitempty"`
 
 	// Plugins holds backend-specific MCP server overrides (passthrough).
 	// Keys are backend names (e.g., "claude-code", "antigravity").
-	Plugins map[string]map[string]MCPServer `mapstructure:"plugins" yaml:"plugins,omitempty"`
+	Plugins map[string]map[string]MCPServer `yaml:"plugins,omitempty"`
 }
 
 // ShouldAutoRegisterCtxloom returns whether to auto-register the ctxloom MCP server.

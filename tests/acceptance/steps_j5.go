@@ -47,6 +47,14 @@ func j5Of(w *World) *j5State {
 	return w.j5
 }
 
+// j5TargetFor is the one definition of J5's per-engine materialize target
+// dir (U161-F10: this used to be "out-"+engine, independently written at two
+// step handlers -- one connascence-of-meaning bug waiting for the two copies
+// to drift).
+func j5TargetFor(engine string) string {
+	return "out-" + engine
+}
+
 // j5TeamBundleYAML renders the shared "team" bundle: one fragment, one command,
 // one MCP server, one hook — all first-party (authored directly in the
 // project, not pulled from a remote), so the executable trust gate exempts
@@ -95,7 +103,7 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j5 := j5Of(w)
 		j5.engine = engine
-		j5.target = "out-" + engine
+		j5.target = j5TargetFor(engine)
 		return runOK(w, "profile", "materialize", "team", "--target", j5.target, "--backend", engine)
 	})
 
@@ -127,8 +135,19 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice's team already hand-authored (\S+) for (\S+) with their own conventions$`, func(c context.Context, file, engine string) error {
 		w := worldFrom(c)
 		j5 := j5Of(w)
+		// U161-F10: this hand-authored step MUST run before "Alice
+		// materializes the team profile for <engine>" for the byte-for-byte
+		// regression it sets up to mean anything -- previously enforced only
+		// by a comment ("Given/And ordering, not execution order inferred
+		// from step registration"). Failing loudly here if a materialize
+		// already ran turns that ordering requirement into something the
+		// suite itself catches rather than something only a careful reader
+		// of the Gherkin would notice was violated.
+		if j5.target != "" {
+			return fmt.Errorf("j5: hand-authoring %s for %s after a materialize already ran (target %q already set) -- this step must come BEFORE \"Alice materializes the team profile for %s\" in the Gherkin", file, engine, j5.target, engine)
+		}
 		j5.engine = engine
-		j5.target = "out-" + engine
+		j5.target = j5TargetFor(engine)
 		rel := filepath.Join(j5.target, file)
 		return w.env.WriteFile(rel, "# Team conventions\n"+j5HandAuthoredMarker+"\n")
 	})

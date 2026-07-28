@@ -428,12 +428,3 @@ func permissionPayload(p *agent.PermissionRequest) *PermissionPayload {
 	return out
 }
 
-// chatEventSessionID extracts the native session id carried by a Session
-// event, when present — the value the recorder latches onto Record.SessionID
-// for this and every subsequent line (see Record.SessionID doc).
-func chatEventSessionID(ev agent.ChatEvent) string {
-	if ev.Session != nil {
-		return ev.Session.SessionID
-	}
-	return ""
-}

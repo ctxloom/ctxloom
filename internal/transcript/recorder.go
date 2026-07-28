@@ -190,7 +190,7 @@ func (r *fileRecorder) record(ev agent.ChatEvent) error {
 	}
 
 	if kind == KindSession && session != nil {
-		if sid := chatEventSessionID(ev); sid != "" {
+		if sid := ev.Session.SessionID; sid != "" {
 			r.sessionID = sid
 		}
 	}

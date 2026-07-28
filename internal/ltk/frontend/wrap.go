@@ -104,7 +104,7 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 			// An argv-prepending wrapper's inner command is already argv, not a
 			// string to re-parse — just append it as a same-shell nested command
 			// so Walk (and further wrapper expansion) sees it too.
-			if inner, ok := prefixWrapped(sc.Argv, s.Shell); ok {
+			if inner, ok := prefixWrapped(sc.Argv); ok {
 				sc.Nested = append(sc.Nested, &ir.Script{
 					Shell:     s.Shell,
 					Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{Argv: inner}}}},
@@ -383,11 +383,13 @@ var prefixWrapperRules = []prefixWrapperRule{
 
 // prefixWrapped reports whether argv is a recognized argv-prepending wrapper
 // invocation and, if so, the inner command's argv — the wrapper's own
-// program and recognized options/operands stripped off. shell is unused today
-// (argv-prepending wrappers don't change dialect the way `cmd /c` or `pwsh
-// -Command` do) but kept for symmetry with wrappedCommand and in case a future
-// wrapper needs it.
-func prefixWrapped(argv []string, _ ir.Shell) ([]string, bool) {
+// program and recognized options/operands stripped off. Unlike wrappedCommand
+// (interpreter wrappers, which switch dialect), a prefix wrapper's inner
+// command runs in the same shell as the wrapper itself, so there is no shell
+// parameter to carry (U068-F11 — a prior speculative `_ ir.Shell` parameter
+// had no reader anywhere and was dropped; re-add it if a future wrapper
+// actually needs to know the dialect).
+func prefixWrapped(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return nil, false
 	}

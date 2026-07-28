@@ -72,6 +72,30 @@ func TestLocateTranscript_SkipsSubagentInteriors(t *testing.T) {
 	}
 }
 
+// TestLocateTranscript_SubagentOnlyStore_NeverResolves: a harp whose store
+// contains ONLY a subagent interior (no main transcript at all — e.g. the
+// bind hook never fired and the only structured child that ever wrote
+// anything was an in-harness subagent) must resolve to nothing, not to the
+// subagent file. This is the failure-path complement to
+// TestLocateTranscript_SkipsSubagentInteriors (which always has a real main
+// file to fall back to): it pins that fs.SkipDir on the "subagents" subtree
+// genuinely removes those files from consideration rather than merely
+// demoting their rank, which is what LocateTranscript's callers (Find,
+// ListForProject, Reconcile, via fillTranscriptByLocation at index.go's
+// production call site) depend on to avoid ever binding a harp to another
+// session's private interior.
+func TestLocateTranscript_SubagentOnlyStore_NeverResolves(t *testing.T) {
+	home := testsupport.Isolate(t)
+	base := time.Now().Add(-time.Hour)
+
+	writeStoreFile(t, home, "brisk-teal-otter",
+		"-proj-enc/uuid/subagents/agent-a1b2c3.jsonl", base)
+
+	if got, ok := LocateTranscript("brisk-teal-otter"); ok {
+		t.Fatalf("expected no transcript for a subagent-interior-only store, got %q", got)
+	}
+}
+
 // TestLocateTranscript_JSONFallback: with no .jsonl in the store (the kiro
 // layout), the newest .json is returned.
 func TestLocateTranscript_JSONFallback(t *testing.T) {

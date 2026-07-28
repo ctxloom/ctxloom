@@ -50,8 +50,6 @@ func (t ItemType) DirName() string {
 type DirEntry struct {
 	Name  string `json:"name"`
 	IsDir bool   `json:"is_dir"`
-	SHA   string `json:"sha"`
-	Size  int64  `json:"size"`
 }
 
 // RepoInfo contains metadata about a discovered remote repository.
@@ -61,9 +59,6 @@ type RepoInfo struct {
 	Description string    `json:"description"`
 	Stars       int       `json:"stars"`
 	URL         string    `json:"url"`
-	Topics      []string  `json:"topics"`
-	Language    string    `json:"language"`
-	UpdatedAt   time.Time `json:"updated_at"`
 	Forge       ForgeType `json:"forge"`
 }
 

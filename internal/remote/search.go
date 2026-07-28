@@ -178,16 +178,10 @@ func matchTags(entryTags []string, query TagQuery) bool {
 	}
 }
 
-// SearchResults holds results from searching across remotes.
-type SearchResults struct {
-	Results []SearchResult
-}
-
 // SearchResult represents a single search match.
 type SearchResult struct {
-	Remote      string        // Remote name
-	Entry       ManifestEntry // Matched entry
-	RemoteURL   string        // URL of the remote repo
-	MatchedTags []string      // Which tags matched (for highlighting)
-	ItemType    ItemType      // Type of item (bundle or profile)
+	Remote    string        // Remote name
+	Entry     ManifestEntry // Matched entry
+	RemoteURL string        // URL of the remote repo
+	ItemType  ItemType      // Type of item (bundle or profile)
 }

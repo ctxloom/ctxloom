@@ -95,7 +95,6 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 		entries = append(entries, DirEntry{
 			Name:  entry.Name,
 			IsDir: !entry.Mode.IsFile(),
-			SHA:   entry.Hash.String(),
 		})
 	}
 

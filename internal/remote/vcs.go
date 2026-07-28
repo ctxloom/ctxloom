@@ -60,9 +60,6 @@ type VCS interface {
 type Versioned interface {
 	// ReadFileAt reads path as of rev (concrete or symbolic).
 	ReadFileAt(ctx context.Context, path, rev string) ([]byte, error)
-	// ResolveRevision resolves a symbolic rev (tag/branch) to a concrete,
-	// pinnable id.
-	ResolveRevision(ctx context.Context, rev string) (string, error)
 	// ListDeletedItems returns item paths under ctxloom/<kind>/ that existed at
 	// some past revision but are gone at the current state — content removed
 	// upstream. Same path shape as VCS.ListItems (relative, suffix stripped). A
@@ -113,11 +110,6 @@ func (v *gitForgeVCS) ReadFile(ctx context.Context, path string) ([]byte, error)
 // ReadFileAt reads path at the given git revision (tag/branch/SHA).
 func (v *gitForgeVCS) ReadFileAt(ctx context.Context, path, rev string) ([]byte, error) {
 	return v.fetcher.FetchFile(ctx, v.owner, v.repo, path, rev)
-}
-
-// ResolveRevision resolves a tag/branch to its commit SHA via the forge.
-func (v *gitForgeVCS) ResolveRevision(ctx context.Context, rev string) (string, error) {
-	return v.fetcher.ResolveRef(ctx, v.owner, v.repo, rev)
 }
 
 // ListItems walks .ctxloom/content/<kind>/ in the repo tree at the default
@@ -323,18 +315,6 @@ func (v *localGitVCS) ReadFileAt(_ context.Context, path, rev string) ([]byte, e
 		return nil, fmt.Errorf("read %s at %s: %w", repoPath, rev, err)
 	}
 	return []byte(contents), nil
-}
-
-// ResolveRevision resolves a symbolic project revision (branch/tag/short SHA) to
-// its concrete commit id. Unlike the remote clone backend, a local working copy's
-// refs ARE the project's own — there is no origin/ remote-tracking indirection —
-// so go-git's rev-parse resolution is correct directly.
-func (v *localGitVCS) ResolveRevision(_ context.Context, rev string) (string, error) {
-	hash, err := v.repo.ResolveRevision(plumbing.Revision(rev))
-	if err != nil {
-		return "", fmt.Errorf("resolve revision %q: %w", rev, err)
-	}
-	return hash.String(), nil
 }
 
 // ListDeletedItems is the history-walk capability of Versioned. Project-authored

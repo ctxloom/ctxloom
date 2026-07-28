@@ -50,16 +50,6 @@ func TestGitForgeVCS_ReadFileAt_Revision(t *testing.T) {
 	assert.Equal(t, "abc123", mf.FetchFileCalls[0].Ref)
 }
 
-func TestGitForgeVCS_ResolveRevision(t *testing.T) {
-	ctx := context.Background()
-	mf := NewMockFetcher().WithRef("v1.0.0", "deadbeef")
-
-	v := gitVCS(t, mf).(Versioned)
-	sha, err := v.ResolveRevision(ctx, "v1.0.0")
-	require.NoError(t, err)
-	assert.Equal(t, "deadbeef", sha)
-}
-
 func TestGitForgeVCSFactory_InvalidURL(t *testing.T) {
 	_, err := GitForgeVCSFactory(mockFetcherFactory(NewMockFetcher()), AuthConfig{})("not-a-valid-repo-url")
 	assert.Error(t, err)

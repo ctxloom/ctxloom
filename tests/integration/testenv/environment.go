@@ -222,7 +222,20 @@ func candidateBinaryPaths() []string {
 // findProjectRoot walks up from the current directory looking for go.mod,
 // falling back to the current directory if none is found.
 func findProjectRoot() string {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		// U163-F12: os.Getwd's error used to be silently discarded and root
+		// walked from "" -- filepath.Join("", "go.mod") happens to resolve
+		// relative to the process's real cwd via the OS anyway, but
+		// filepath.Dir("") is "." (not ""), so the loop's own root/parent
+		// comparison behaves subtly differently than intended on this path.
+		// An unreadable cwd (deleted out from under the process) is rare but
+		// real; "." is the same "no discoverable root, use something
+		// relative" fallback the loop's own last line already returns on a
+		// genuine miss, just reached without the Stat calls that would
+		// otherwise silently resolve against the wrong implicit base.
+		return "."
+	}
 	root := cwd
 	for {
 		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {

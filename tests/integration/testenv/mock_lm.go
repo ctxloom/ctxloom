@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -135,12 +136,21 @@ func quotedYAMLString(v string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v, Style: yaml.DoubleQuotedStyle}
 }
 
+// ErrMockNeverInvoked is returned by GetRecordedInput when the record file
+// does not exist -- U163-F09: this used to collapse into ("", nil), making a
+// mock that was NEVER invoked indistinguishable from one invoked with empty
+// input, and any negative assertion over the returned string ("does not
+// contain X") would pass vacuously against either. Callers that want the old
+// tolerant behavior (a fresh fixture, before any run) can check for this
+// sentinel explicitly and treat it as "".
+var ErrMockNeverInvoked = errors.New("mock was never invoked: no recorded input file exists")
+
 // GetRecordedInput returns the input that was sent to the mock LM.
 func (m *MockLM) GetRecordedInput() (string, error) {
 	data, err := os.ReadFile(m.RecordedInputPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return "", ErrMockNeverInvoked
 		}
 		return "", err
 	}

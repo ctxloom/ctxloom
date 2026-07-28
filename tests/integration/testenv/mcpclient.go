@@ -37,6 +37,11 @@ const mcpRecvTimeout = 15 * time.Second
 // acceptance suites speak to the server through this type rather than
 // re-implementing the wire plumbing. Every method returns an error (no
 // *testing.T) so it composes with both Go tests and godog steps.
+// MCPClient is single-goroutine: every request method reads and increments
+// nextID unsynchronized (U163-F10). Nothing here is safe for concurrent use
+// from more than one goroutine -- unlike Command (environment.go), whose doc
+// explicitly advertises building many concurrently, MCPClient carries no such
+// contract and must not be treated as if it did.
 type MCPClient struct {
 	cmd     *exec.Cmd
 	ctx     context.Context // cancelled by Close; unblocks a parked reader send
@@ -44,7 +49,7 @@ type MCPClient struct {
 	stdin   io.WriteCloser
 	lines   chan string // server stdout, one line per receive; closed on read error
 	readErr error       // why lines closed; written before close, read only after
-	nextID  int
+	nextID  int         // request id counter; single-goroutine only, see type doc
 
 	// initResult is the raw "initialize" response envelope, captured by
 	// Initialize so callers can inspect what the server advertised (e.g.

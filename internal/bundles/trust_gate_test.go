@@ -87,7 +87,6 @@ func TestLoaderGate_WithholdsCommand(t *testing.T) {
 	}
 }
 
-
 // TestLoaderGate_PassesEffectiveHash proves the gate keys on the effective-content
 // hash of the EXACT bytes exposed: a distilled fragment (preferDistilled true)
 // must be gated on its distilled hash + form, never the raw content.

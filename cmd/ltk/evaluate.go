@@ -301,10 +301,20 @@ func knownShells() string {
 // confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
 // using the wall clock, and notes on stderr when a repeat was honored. The logic
 // lives in internal/state so the acceptance suite can exercise it too.
+// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
+// using the wall clock, and notes on stderr when a repeat was honored. The logic
+// lives in internal/state so the acceptance suite can exercise it too.
 func confirmByRepeat(resp engine.Response, command, stateFile string, delay, window time.Duration) engine.Response {
-	out, overridden := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
+	out, overridden, err := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
 	if overridden {
 		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
+	}
+	if err != nil {
+		// U076-F01: a persistence failure here previously vanished silently —
+		// the override would then never arm (or never clear), so every future
+		// identical repeat kept getting denied with a message promising a
+		// repeat WOULD work. Diagnostic only; the decision above is unchanged.
+		fmt.Fprintf(os.Stderr, "%s: could not persist confirm-by-repeat state (%v) — the override may not take effect\n", progName, err)
 	}
 	return out
 }

@@ -171,8 +171,6 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c.engines = img.Engines
 	if img.Image != "" {
 		c.image = img.Image
-		c.profile.officialImage = ""
-		c.profile.containerfile = nil
 		c.profile.engineInstall = nil
 		return c
 	}

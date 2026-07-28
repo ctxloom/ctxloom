@@ -13,8 +13,6 @@ import (
 func TestContainerProfileFor_Claude(t *testing.T) {
 	p := containerProfileFor("claude-code")
 	assert.Equal(t, defaultContainerImage, p.image)
-	assert.Empty(t, p.officialImage, "no publicly-resolvable official claude-code image (verified live); the composed engine fragment builds")
-	assert.Empty(t, p.containerfile, "composable via engineInstall, not the retired embedded monolithic Containerfile")
 	assert.NotEmpty(t, p.engineInstall, "claude is composable (official npm installer fragment)")
 	assert.Contains(t, string(p.engineInstall), "npm install -g @anthropic-ai/claude-code")
 	assert.Equal(t, "claude --version", p.validate)
@@ -39,8 +37,6 @@ func TestContainerProfileFor_Claude(t *testing.T) {
 func TestContainerProfileFor_Kiro(t *testing.T) {
 	p := containerProfileFor("kiro")
 	assert.Equal(t, "ctxloom-agent-kiro:latest", p.image)
-	assert.Empty(t, p.officialImage, "kiro ships no official container image (community images are not a trustworthy base)")
-	assert.Empty(t, p.containerfile, "composable via engineInstall, not the retired embedded monolithic Containerfile")
 	assert.NotEmpty(t, p.engineInstall, "kiro is composable (official installer fragment)")
 	assert.Contains(t, string(p.engineInstall), "cli.kiro.dev/install")
 	assert.Equal(t, "kiro-cli --version", p.validate)
@@ -74,7 +70,6 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 	for _, name := range []string{"", "mock"} {
 		p := containerProfileFor(name)
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
-		assert.Empty(t, p.containerfile, "backend %q has no local-build recipe", name)
 		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
 		assert.Contains(t, p.overlayDirs, ".claude", "backend %q", name)
 		require.NotNil(t, p.resolveAuth, "backend %q must still wire a resolver, just one that fails closed", name)
@@ -181,7 +176,7 @@ func TestNewContainerFor_UsesProfileImage(t *testing.T) {
 
 	explicit := NewContainer(fakeRuntime{name: "docker", available: true}, "custom:tag")
 	assert.Equal(t, "custom:tag", explicit.image)
-	assert.Empty(t, explicit.profile.containerfile, "an explicit image is never locally built")
+	assert.Nil(t, explicit.profile.engineInstall, "an explicit image is never locally built")
 }
 
 // TestResolveKiroContainerAuth pins kiro's container auth: KIRO_API_KEY env

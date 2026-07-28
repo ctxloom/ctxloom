@@ -270,11 +270,13 @@ type buildSourcesOptions struct {
 // Containerfile, the auto-detected project devcontainer, and the embedded
 // default base — precedence locked decision 8 (explicit beats auto-detect
 // beats default). A non-composable profile (no known official-installer
-// fragment yet — an unknown backend) keeps the LEGACY behaviour unchanged: a
-// user base Containerfile leads, the client's OFFICIAL image overlay
-// follows, and the embedded per-backend install recipe (p.containerfile,
-// when set) over the default base is the fallback. Empty means the image
-// cannot be built locally.
+// fragment yet — an unknown/unprofiled backend, e.g. containerProfileFor's
+// `default` arm) has no local-build recipe at all: empty means the image
+// cannot be built locally, and the caller must have a preexisting image or
+// degrade. (U063-F21 deleted the LEGACY officialImage/user-Containerfile/
+// embedded-Containerfile fallback this used to fall through to: no profile,
+// registered or hypothetical, ever populated those fields, so the fallback
+// could never produce a source.)
 func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 	if opts.baseOverride != "" {
 		return []buildSource{{
@@ -285,28 +287,7 @@ func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 	if p.engineInstall != nil {
 		return composableBuildSources(p, opts)
 	}
-	var out []buildSource
-	if len(p.containerfile) > 0 && opts.baseContainerfile != "" {
-		out = append(out, buildSource{
-			desc:          "agent stage on the user base Containerfile " + opts.baseContainerfile,
-			containerfile: p.containerfile,
-			base:          userBaseStage(opts.baseContainerfile),
-		})
-	}
-	if p.officialImage != "" {
-		out = append(out, buildSource{
-			desc:          "overlay on the official client image " + p.officialImage,
-			containerfile: overlayContainerfile(p.officialImage, p.validate),
-		})
-	}
-	if len(p.containerfile) > 0 {
-		out = append(out, buildSource{
-			desc:          "embedded install Containerfile",
-			containerfile: p.containerfile,
-			base:          defaultBaseStage(),
-		})
-	}
-	return out
+	return nil
 }
 
 // composableBuildSources builds the ordered source list for a COMPOSABLE

@@ -18,13 +18,12 @@ import (
 )
 
 // EnvKeys is the canonical set of host/session environment variables ctxloom
-// production code reads. Isolate clears each so a test inherits none of the
-// ambient session's values. TestEnvKeysCoversProductionReads enforces that every
-// CTXLOOM_* variable read in production appears here.
-// EnvKeys is the canonical set of host/session environment variables ctxloom
-// production code reads. Isolate clears each so a test inherits none of the
-// ambient session's values. TestEnvKeysCoversProductionReads enforces that every
-// CTXLOOM_* variable read in production appears here.
+// production code reads (plus one deliberate exception, CTXLOOM_REQUIRE_DOCKER
+// — testsupport/dockergate's CI-only knob, not production state; see
+// taskstest.EnvKeys' own comment for why it is listed here anyway). Isolate
+// clears each so a test inherits none of the ambient session's values.
+// TestEnvKeysCoversProductionReads enforces that every CTXLOOM_* variable read
+// in production appears here.
 //
 // This IS taskstest.EnvKeys (not a copy) — see that package's doc (U127-F01):
 // two separate lists here and there is exactly how one drifted to cover only

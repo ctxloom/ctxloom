@@ -197,9 +197,10 @@ var knownUncoveredTools = []string{
 	// agent_send/agent_recv are now exercised by J17
 	// (steps_j17_cross_engine_delegation.go, j17_cross_engine_delegation.feature
 	// — the real two-way bus, both directions, content asserted on each side).
-	// agent_stop and trigger evaluation remain unexercised. Backfill: task
-	// spry-niece.
-	"agent_stop",
+	// agent_stop is now exercised by J6's failure-path scenario
+	// (flow/delegation-wave1: idempotent double-stop + a refused stop on a
+	// run id that was never spawned — U024-F04's own regression). Trigger
+	// evaluation remains unexercised. Backfill: task spry-niece.
 	"evaluate_triggers",
 	// Session-memory tools named only in mcp_tools.feature's prose, never
 	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.

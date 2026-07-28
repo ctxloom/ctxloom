@@ -51,7 +51,6 @@ type summaryFact struct {
 // artifactFact is factArtifact's payload.
 type artifactFact struct {
 	Harp       string `json:"harp"`
-	Seq        uint64 `json:"seq,omitempty"`
 	ArtifactID string `json:"artifact_id"`
 	Revision   uint32 `json:"revision"`
 	Kind       string `json:"kind,omitempty"`
@@ -222,7 +221,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 // recordArtifact journals one artifact manifest, assigning the monotonic
 // revision inside the journal's serialized window (the producer sends 0; an
 // unchanged sha256 is not a new revision).
-func (c *Coordinator) recordArtifact(harp string, seq uint64, a *agentcoordpb.ArtifactProduced) {
+func (c *Coordinator) recordArtifact(harp string, a *agentcoordpb.ArtifactProduced) {
 	sha := hex.EncodeToString(a.GetSha256())
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		rev := a.GetRevision()
@@ -235,7 +234,6 @@ func (c *Coordinator) recordArtifact(harp string, seq uint64, a *agentcoordpb.Ar
 		}
 		return []Fact{factAt(factArtifact, c.now(), artifactFact{
 			Harp:       harp,
-			Seq:        seq,
 			ArtifactID: a.GetArtifactId(),
 			Revision:   rev,
 			Kind:       a.GetKind().String(),

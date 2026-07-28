@@ -17,7 +17,11 @@ import (
 // labeled entry may carry. The backend owns this struct; the config package
 // only carries the raw body that decodes into it.
 type ClaudeConfig struct {
-	Model      string            `mapstructure:"model"`
+	// Model is intentionally NOT a field here (U032-F14): the effective model
+	// is read untyped from the same YAML body via config.ResolveLLM
+	// (entry.Body["model"].(string)) — mapstructure would silently accept an
+	// unknown "model" key even without a matching field, so a typed field
+	// here would just be a second, dead reader of the same key.
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
 	Env        map[string]string `mapstructure:"env"`
@@ -182,8 +186,9 @@ type claudeJSONResult struct {
 // model that generated the result: the CLI may route a large read through an
 // ancillary fast model (high input, tiny output) while the requested model does
 // the actual generation, so output — not input — marks the working model.
+// inputTokens is in the envelope too but this package never reads it
+// (U032-F13); json.Unmarshal ignores it automatically, so it isn't modeled.
 type claudeModelUsage struct {
-	InputTokens  int `json:"inputTokens"`
 	OutputTokens int `json:"outputTokens"`
 }
 

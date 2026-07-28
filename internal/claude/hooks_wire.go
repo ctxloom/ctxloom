@@ -22,11 +22,11 @@ import "encoding/json"
 //     warning cannot rely on stderr — see App.Warn's doc in ltk's app package
 //     for the consequence.
 
-// HookEventPreToolUse is the event name carried in payloads and decisions.
-const HookEventPreToolUse = "PreToolUse"
+// hookEventPreToolUse is the event name carried in payloads and decisions.
+const hookEventPreToolUse = "PreToolUse"
 
-// PermissionDeny is the permissionDecision value that blocks the tool call.
-const PermissionDeny = "deny"
+// permissionDeny is the permissionDecision value that blocks the tool call.
+const permissionDeny = "deny"
 
 // HookPayload is the JSON Claude Code writes to a PreToolUse hook's stdin.
 type HookPayload struct {
@@ -109,8 +109,8 @@ func DecodeHookPayload(data []byte) (HookPayload, error) {
 // EncodeDeny renders the deny decision Claude Code expects on stdout.
 func EncodeDeny(reason string) ([]byte, error) {
 	return json.Marshal(HookOutput{HookSpecificOutput: HookSpecificOutput{
-		HookEventName:            HookEventPreToolUse,
-		PermissionDecision:       PermissionDeny,
+		HookEventName:            hookEventPreToolUse,
+		PermissionDecision:       permissionDeny,
 		PermissionDecisionReason: reason,
 	}})
 }

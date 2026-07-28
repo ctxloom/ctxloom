@@ -180,6 +180,12 @@ func (f *itemsFold) apply(fact Fact) {
 }
 
 // countsFor returns a copy of the run's item counts by kind.
+//
+// test-only: no production caller (U022-F21) — a defensive-copy assertion
+// accessor used across the dedupe/replay/offset-view/checkpoint test suites.
+// Keep: returning a copy (rather than inlining a direct map read at each of
+// the 10 call sites) is what makes those reads race-safe outside a View
+// window.
 func (f *itemsFold) countsFor(runID string) map[string]int {
 	out := make(map[string]int, len(f.counts[runID]))
 	for k, v := range f.counts[runID] {

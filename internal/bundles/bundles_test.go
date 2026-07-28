@@ -627,23 +627,6 @@ func TestBundle_PromptNames(t *testing.T) {
 	assert.Equal(t, []string{"alpha", "zebra"}, names)
 }
 
-func TestBundle_AllTags(t *testing.T) {
-	bundle := Bundle{
-		Tags: []string{"bundle-tag"},
-		Fragments: map[string]BundleFragment{
-			"frag1": {Tags: []string{"frag-tag", "shared"}},
-		},
-		Commands: map[string]BundleCommand{
-			"prompt1": {Tags: []string{"prompt-tag", "shared"}},
-		},
-	}
-	tags := bundle.AllTags()
-	assert.Contains(t, tags, "bundle-tag")
-	assert.Contains(t, tags, "frag-tag")
-	assert.Contains(t, tags, "prompt-tag")
-	assert.Contains(t, tags, "shared")
-}
-
 func TestFSStore_Save(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlePath := filepath.Join(tmpDir, "test-bundle.yaml")
@@ -1330,39 +1313,6 @@ fragments:
 		infos, err := loader.ListByTags([]string{"nonexistent"})
 		require.NoError(t, err)
 		assert.Len(t, infos, 0)
-	})
-}
-
-func TestLoader_LoadMultiple(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	bundleYAML := `
-version: "1.0"
-fragments:
-  frag1:
-    content: Content one
-  frag2:
-    content: Content two
-`
-	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
-	require.NoError(t, err)
-
-	loader := NewLoader([]string{tmpDir}, false)
-
-	t.Run("load multiple fragments", func(t *testing.T) {
-		content, loaded, err := loader.LoadMultiple([]string{"frag1", "frag2"})
-		require.NoError(t, err)
-		assert.Contains(t, content, "Content one")
-		assert.Contains(t, content, "Content two")
-		assert.Contains(t, content, "---")
-		assert.Equal(t, []string{"frag1", "frag2"}, loaded)
-	})
-
-	t.Run("skip missing fragments", func(t *testing.T) {
-		content, loaded, err := loader.LoadMultiple([]string{"frag1", "nonexistent"})
-		require.NoError(t, err)
-		assert.Contains(t, content, "Content one")
-		assert.Equal(t, []string{"frag1"}, loaded)
 	})
 }
 

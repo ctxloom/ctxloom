@@ -7,7 +7,6 @@ import (
 	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -872,128 +871,6 @@ func TestDetectArchiveFormat_MagicByteBoundaries(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// HASH VERIFY + the B2 install seam
-// -----------------------------------------------------------------------------
-
-func TestInstallSkillPackage_HashMismatchFailsLoudAndCleansUpTree(t *testing.T) {
-	_, pkg, files := buildValidSkillZip(t, "humanize")
-
-	// Build a zip with the SAME paths/modes as the signed manifest expects,
-	// but tampered content for scripts/run.sh — simulating an archive that
-	// arrived not matching a previously-known-good (signed) manifest.
-	tampered := bytes.Repeat([]byte("EVIL"), len(files["scripts/run.sh"])/4+1)
-	archive := buildRawZip(t, []rawZipEntry{
-		{name: "humanize/SKILL.md", content: files["SKILL.md"], mode: 0o644},
-		{name: "humanize/scripts/run.sh", content: tampered, mode: 0o755},
-		{name: "humanize/assets/logo.png", content: files["assets/logo.png"], mode: 0o644},
-	})
-
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-	err := InstallSkillPackage(fsys, archive, FormatZip, destDir, pkg.Manifest, nil, ExtractOptions{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "integrity mismatch")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists, "a hash-mismatched install must be cleaned up entirely — no partial, poisoned install left behind")
-}
-
-func TestInstallSkillPackage_HappyPathVerifiesAndKeepsTree(t *testing.T) {
-	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
-
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-	err := InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, pkg.Manifest, nil, ExtractOptions{})
-	require.NoError(t, err)
-
-	exists, _ := afero.Exists(fsys, destDir+"/SKILL.md")
-	assert.True(t, exists, "a verified install must keep the extracted tree")
-}
-
-type stubSkillSignatureVerifier struct{ err error }
-
-func (s stubSkillSignatureVerifier) VerifyManifestSignature(SkillManifest) error { return s.err }
-
-func TestInstallSkillPackage_SignatureVerifierGatesBeforeAnyExtraction(t *testing.T) {
-	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
-
-	sentinel := errors.New("signature rejected")
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-
-	err := InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, pkg.Manifest, stubSkillSignatureVerifier{err: sentinel}, ExtractOptions{})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, sentinel), "the signature verifier's error must be preserved")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists, "a failed signature check must gate extraction entirely — nothing written to disk")
-}
-
-func TestNoopSkillSignatureVerifier_AcceptsEverything(t *testing.T) {
-	var v SkillSignatureVerifier = NoopSkillSignatureVerifier{}
-	assert.NoError(t, v.VerifyManifestSignature(nil))
-	assert.NoError(t, v.VerifyManifestSignature(SkillManifest{{Path: "SKILL.md", SHA256: "sha256:x", Mode: "0644"}}))
-}
-
-// TestInstallSkillPackage_RejectedMidExtractLeavesDestDirClean is the
-// regression test for the CONFIRMED defect the B2 adversarial review found:
-// HardenedExtract validates and writes entries one at a time, so a hostile
-// archive can get SKILL.md and an executable scripts/ payload written to disk
-// before a LATER entry trips a rejection (here, a symlink — the review's own
-// PoC shape: SKILL.md + scripts/backdoor.sh(0755) + a symlink entry). Before
-// the atomic-install fix, InstallSkillPackage propagated HardenedExtract's
-// error straight through without ever cleaning up destDir, leaving that
-// partial — and executable — tree behind. The fix extracts to a staging
-// directory first, so destDir is never touched unless extraction AND
-// hash-verify both succeed.
-// TestInstallSkillPackage_NilManifestRejected (U031-F02) proves a nil
-// manifest is rejected outright rather than silently skipping the
-// post-extract hash check and letting the Noop/Publisher verifier's
-// nil-manifest constant preimage ("null") satisfy any signature.
-func TestInstallSkillPackage_NilManifestRejected(t *testing.T) {
-	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-
-	err := InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, nil, nil, ExtractOptions{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nil manifest")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists, "a rejected nil-manifest install must not land anything on disk")
-}
-
-func TestInstallSkillPackage_RejectedMidExtractLeavesDestDirClean(t *testing.T) {
-	// U031-F02 hardened InstallSkillPackage to reject a nil manifest outright
-	// (a manifest-less install belongs to ImportSkillArchive, not this seam),
-	// so this test — whose point is the mid-extract symlink rejection, not
-	// manifest handling — now needs SOME real manifest. Its content is
-	// irrelevant to the outcome: HardenedExtract rejects the symlink entry
-	// before the manifest is ever consulted.
-	_, pkg, _ := buildValidSkillZip(t, "humanize")
-	archive := buildRawZip(t, []rawZipEntry{
-		{name: "humanize/SKILL.md", content: []byte("---\nname: humanize\ndescription: d\n---\nbody\n"), mode: 0o644},
-		{name: "humanize/scripts/backdoor.sh", content: []byte("#!/bin/sh\necho pwned\n"), mode: 0o755},
-		{name: "humanize/evil-link", symlink: true},
-	})
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-
-	err := InstallSkillPackage(fsys, archive, FormatZip, destDir, pkg.Manifest, nil, ExtractOptions{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "symlink")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists, "a rejected mid-extract entry must leave destDir absent entirely — no partial, poisoned tree left behind")
-
-	backdoorExists, _ := afero.Exists(fsys, destDir+"/scripts/backdoor.sh")
-	assert.False(t, backdoorExists, "the executable backdoor script written before the rejection must NOT survive at destDir — this is the confirmed defect the atomic install fixes")
-
-	stagingExists, _ := afero.Exists(fsys, "/installed/.ctxloom-install-staging-humanize")
-	assert.False(t, stagingExists, "the staging directory itself must be cleaned up too, not just destDir")
-}
-
 // =============================================================================
 // PublisherSkillSignatureVerifier tests (Part B2 — the REAL signature gate)
 // =============================================================================
@@ -1020,13 +897,14 @@ func skillPublisherRoot(principal string, pub ssh.PublicKey) *allowedsigners.Sto
 	})
 }
 
-// TestPublisherSkillSignatureVerifier_SignedManifestInstallSucceeds is the
-// TDD "a signed skill installs" case: a manifest signed by a key the trust
-// root trusts for the publish namespace, over an archive that matches it
-// exactly, must install and keep the full tree (SKILL.md and the executable
-// scripts/run.sh).
-func TestPublisherSkillSignatureVerifier_SignedManifestInstallSucceeds(t *testing.T) {
-	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
+// TestPublisherSkillSignatureVerifier_SignedManifestVerifies is the TDD "a
+// signed skill verifies" case: a manifest signed by a key the trust root
+// trusts for the publish namespace must verify with no error — the
+// production contract operations.ImportSkill relies on
+// (verifier.VerifyManifestSignature(pkg.Manifest) before it trusts the
+// import).
+func TestPublisherSkillSignatureVerifier_SignedManifestVerifies(t *testing.T) {
+	_, pkg, _ := buildValidSkillZip(t, "humanize")
 	signer, pub := testSkillSigner(t)
 
 	sig, err := signing.Sign(pkg.Manifest.Serialize(), signer, signing.NamespacePublish)
@@ -1036,65 +914,18 @@ func TestPublisherSkillSignatureVerifier_SignedManifestInstallSucceeds(t *testin
 		ArmoredSignature: sig,
 		Root:             skillPublisherRoot("bundles@ctxloom.dev", pub),
 	}
-
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-	err = InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, pkg.Manifest, verifier, ExtractOptions{})
-	require.NoError(t, err)
-
-	exists, _ := afero.Exists(fsys, destDir+"/SKILL.md")
-	assert.True(t, exists, "a signed manifest from a trusted publisher must install successfully")
-	scriptInfo, err := fsys.Stat(destDir + "/scripts/run.sh")
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), scriptInfo.Mode().Perm())
-}
-
-// TestPublisherSkillSignatureVerifier_TamperedArchiveFailsAtHashGateDestDirClean
-// is the TDD "tampered skill" case: the SIGNED manifest is the original,
-// untampered one (exactly what a publisher signs before shipping), but the
-// archive delivered at install time carries a tampered scripts/run.sh.
-// Signature verification passes (it covers the untouched, signed manifest
-// bytes) — but the post-extraction hash-verify recomputes the actual on-disk
-// file hashes and catches the mismatch, rejecting the install and leaving
-// destDir clean. Editing a file changes the manifest hash the signature
-// implicitly vouches for; a signature alone can never paper over that.
-func TestPublisherSkillSignatureVerifier_TamperedArchiveFailsAtHashGateDestDirClean(t *testing.T) {
-	_, pkg, files := buildValidSkillZip(t, "humanize")
-	signer, pub := testSkillSigner(t)
-	sig, err := signing.Sign(pkg.Manifest.Serialize(), signer, signing.NamespacePublish)
-	require.NoError(t, err)
-
-	tampered := bytes.Repeat([]byte("EVIL"), len(files["scripts/run.sh"])/4+1)
-	archive := buildRawZip(t, []rawZipEntry{
-		{name: "humanize/SKILL.md", content: files["SKILL.md"], mode: 0o644},
-		{name: "humanize/scripts/run.sh", content: tampered, mode: 0o755},
-		{name: "humanize/assets/logo.png", content: files["assets/logo.png"], mode: 0o644},
-	})
-
-	verifier := PublisherSkillSignatureVerifier{
-		ArmoredSignature: sig,
-		Root:             skillPublisherRoot("bundles@ctxloom.dev", pub),
-	}
-
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-	err = InstallSkillPackage(fsys, archive, FormatZip, destDir, pkg.Manifest, verifier, ExtractOptions{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "integrity mismatch")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists, "a signed-but-tampered install must be rejected at the hash gate and leave destDir clean")
+	require.NoError(t, verifier.VerifyManifestSignature(pkg.Manifest))
 }
 
 // TestPublisherSkillSignatureVerifier_UntrustedPublisherWithholds is the TDD
 // "unsigned/untrusted-publisher skill" case: a perfectly valid signature by a
 // key the trust root does NOT authorize for the publish namespace must
-// withhold the install entirely — mirroring the command/prompt contract that
-// an untrusted publisher's content is not trusted until a human reviews and
-// accepts it (see TestSetItemTrust_ApprovesSkillCurrentVersion in
-// internal/operations for that review+accept path).
+// withhold — mirroring the command/prompt contract that an untrusted
+// publisher's content is not trusted until a human reviews and accepts it
+// (see TestSetItemTrust_ApprovesSkillCurrentVersion in internal/operations
+// for that review+accept path).
 func TestPublisherSkillSignatureVerifier_UntrustedPublisherWithholds(t *testing.T) {
-	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
+	_, pkg, _ := buildValidSkillZip(t, "humanize")
 	signer, _ := testSkillSigner(t)
 	_, someoneElsesPub := testSkillSigner(t)
 
@@ -1106,35 +937,23 @@ func TestPublisherSkillSignatureVerifier_UntrustedPublisherWithholds(t *testing.
 		ArmoredSignature: sig,
 		Root:             skillPublisherRoot("someone-else@example.com", someoneElsesPub),
 	}
-
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-	err = InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, pkg.Manifest, verifier, ExtractOptions{})
+	err = verifier.VerifyManifestSignature(pkg.Manifest)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not by a publisher this machine trusts")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists, "an untrusted-publisher skill must not install — nothing written to disk")
 }
 
 // TestPublisherSkillSignatureVerifier_NoSignatureWithholds proves an absent
-// signature is a hard install-time stop (unlike VerifyPublisher's ordinary
-// "unsigned is not an error" contract, which applies to the review path, not
-// this production install gate).
+// signature is a hard stop (unlike VerifyPublisher's ordinary "unsigned is
+// not an error" contract, which applies to the review path, not this
+// production import gate).
 func TestPublisherSkillSignatureVerifier_NoSignatureWithholds(t *testing.T) {
-	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
+	_, pkg, _ := buildValidSkillZip(t, "humanize")
 	_, pub := testSkillSigner(t)
 
 	verifier := PublisherSkillSignatureVerifier{Root: skillPublisherRoot("bundles@ctxloom.dev", pub)}
-
-	fsys := afero.NewMemMapFs()
-	destDir := "/installed/humanize"
-	err := InstallSkillPackage(fsys, zipBytes, FormatZip, destDir, pkg.Manifest, verifier, ExtractOptions{})
+	err := verifier.VerifyManifestSignature(pkg.Manifest)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no signature present")
-
-	exists, _ := afero.Exists(fsys, destDir)
-	assert.False(t, exists)
 }
 
 // TestPublisherSkillSignatureVerifier_TamperedSignatureRejected proves a

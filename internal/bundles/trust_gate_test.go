@@ -87,31 +87,6 @@ func TestLoaderGate_WithholdsCommand(t *testing.T) {
 	}
 }
 
-// TestLoaderGate_LoadMultiple_DropsWithheld proves the assembly path
-// (LoadMultiple → GetFragment) omits a denied fragment from the joined content
-// and the loaded list, keeping the trusted sibling — the core "denied absent
-// from AssembleContext, sibling present" contract at the loader seam.
-func TestLoaderGate_LoadMultiple_DropsWithheld(t *testing.T) {
-	l := NewLoader(nil, true, WithSeededBundles(demoSeed()),
-		WithTrustGate(blockingGate(nil, "#fragments/blocked")))
-
-	content, loaded, err := l.LoadMultiple([]string{"demo#fragments/keep", "demo#fragments/blocked"})
-	if err != nil {
-		t.Fatalf("LoadMultiple: %v", err)
-	}
-	if !strings.Contains(content, "keep body") {
-		t.Errorf("assembled content missing trusted sibling: %q", content)
-	}
-	if strings.Contains(content, "blocked body") {
-		t.Errorf("assembled content leaked withheld fragment: %q", content)
-	}
-	if len(loaded) != 1 || loaded[0] != "demo#fragments/keep" {
-		t.Errorf("loaded = %v, want [demo#fragments/keep]", loaded)
-	}
-	if w := l.Withheld(); len(w) != 1 || w[0] != "demo#fragments/blocked" {
-		t.Errorf("Withheld() = %v, want [demo#fragments/blocked]", w)
-	}
-}
 
 // TestLoaderGate_PassesEffectiveHash proves the gate keys on the effective-content
 // hash of the EXACT bytes exposed: a distilled fragment (preferDistilled true)

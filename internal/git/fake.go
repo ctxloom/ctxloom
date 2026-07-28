@@ -47,13 +47,10 @@ type Fake struct {
 	// Dirs is what RepoDirs returns; Changes is what WorkingChanges returns.
 	Dirs    []string
 	Changes []string
-	// RepoStateErr, when set, fails both RepoDirs and WorkingChanges.
-	RepoStateErr error
 
 	// Error injectors: when set, the matching method fails (fault-tolerance tests).
-	AddErr    error
-	ListErr   error
-	RemoveErr error
+	AddErr  error
+	ListErr error
 
 	// CurrentBranchValue is what CurrentBranch returns ("main" when empty);
 	// CurrentBranchErr, when set, fails it instead.
@@ -72,15 +69,11 @@ type Fake struct {
 	CommitAllErr     error
 	CommitMessages   []string
 
-	// DiffPatchValue is what DiffPatch returns; DiffPatchErr, when set,
-	// fails it instead.
+	// DiffPatchValue is what DiffPatch returns.
 	DiffPatchValue string
-	DiffPatchErr   error
 
-	// UntrackedList is what ListUntracked returns; UntrackedErr, when set,
-	// fails it instead.
+	// UntrackedList is what ListUntracked returns.
 	UntrackedList []string
-	UntrackedErr  error
 
 	// ApplyPatchErr, when set, fails ApplyPatch. AppliedPatches records every
 	// patch ApplyPatch was called with, in order.
@@ -139,9 +132,6 @@ func (f *Fake) WorktreeRemove(_ context.Context, _, path string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record(fmt.Sprintf("remove %s", path))
-	if f.RemoveErr != nil {
-		return f.RemoveErr
-	}
 	if f.Dirty[path] {
 		return fmt.Errorf("worktree %s contains modified or untracked files, use --force to delete it", path)
 	}
@@ -219,9 +209,6 @@ func (f *Fake) LogSince(_ context.Context, dir string, _ time.Time, maxEntries i
 func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.RepoStateErr != nil {
-		return nil, f.RepoStateErr
-	}
 	dirs := f.Dirs
 	if maxDirs > 0 && len(dirs) > maxDirs {
 		dirs = dirs[:maxDirs]
@@ -234,9 +221,6 @@ func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, err
 func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.RepoStateErr != nil {
-		return nil, f.RepoStateErr
-	}
 	changes := f.Changes
 	if maxEntries > 0 && len(changes) > maxEntries {
 		changes = changes[:maxEntries]
@@ -279,9 +263,6 @@ func (f *Fake) CommitAll(_ context.Context, dir, message string) (string, []stri
 func (f *Fake) DiffPatch(_ context.Context, _ string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.DiffPatchErr != nil {
-		return "", f.DiffPatchErr
-	}
 	return f.DiffPatchValue, nil
 }
 
@@ -289,9 +270,6 @@ func (f *Fake) DiffPatch(_ context.Context, _ string) (string, error) {
 func (f *Fake) ListUntracked(_ context.Context, _ string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.UntrackedErr != nil {
-		return nil, f.UntrackedErr
-	}
 	return append([]string(nil), f.UntrackedList...), nil
 }
 

@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -93,6 +94,35 @@ func TestGetExampleConfig(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Fatal("example config must be non-empty")
+	}
+}
+
+// TestGetExampleConfig_MatchesOnDiskFile pins U155-F03 as REFUTED, not dead:
+// the finding is that GetExampleConfig's only callers are tests
+// (internal/schema/schema_test.go's "embedded example config is valid" and
+// internal/config/arch_test.go's TestArch_ConfigSchema_ShippedConfigsValidate,
+// both build-tagged `arch` or plain, in OTHER packages). Those are not
+// throwaway reach-only tests -- they are the schema-drift regression gate for
+// resources/example-config.yaml, the file cmd/validate also treats as a
+// REQUIRED build-gate target (cmd/validate/main.go's defaultTargets). Reading
+// it back out of the embedded FS (rather than a repo-relative os.ReadFile)
+// is deliberate: a relative path assumes the process CWD is the repo root --
+// exactly the fragility this campaign flags elsewhere (U003-F06, U009-F04) --
+// while resourcesFS is baked in at compile time and is CWD-independent.
+//
+// This asserts the embed is faithful to its source file, which is what makes
+// those two cross-package drift tests meaningful in the first place.
+func TestGetExampleConfig_MatchesOnDiskFile(t *testing.T) {
+	embedded, err := GetExampleConfig()
+	if err != nil {
+		t.Fatalf("GetExampleConfig: %v", err)
+	}
+	onDisk, err := os.ReadFile("example-config.yaml")
+	if err != nil {
+		t.Fatalf("read resources/example-config.yaml from disk: %v", err)
+	}
+	if string(embedded) != string(onDisk) {
+		t.Fatal("GetExampleConfig's embedded bytes do not match resources/example-config.yaml on disk")
 	}
 }
 

@@ -69,14 +69,6 @@ func (s *Store) configured() error {
 	return fmt.Errorf("countersignature store: no directory configured (unresolvable home directory?)")
 }
 
-// Dir returns the store's root directory.
-func (s *Store) Dir() string {
-	if s == nil {
-		return ""
-	}
-	return s.dir
-}
-
 // Readable probes whether this store can actually be read, distinguishing
 // two situations a caller must NOT treat alike:
 //
@@ -98,7 +90,7 @@ func (s *Store) Dir() string {
 //
 // It does NOT verify any signature — a record that parses fine but fails
 // cryptographic verification (untrusted signer, bytes that no longer match)
-// is not an error here: that is the normal "not proven" outcome Verified
+// is not an error here: that is the normal "not proven" outcome verified
 // exists to report, and every session carrying one stale record would
 // otherwise deny everything.
 //
@@ -253,7 +245,7 @@ func (s *Store) WriteRefReject(kind signing.ItemKind, ref string, signer ssh.Sig
 }
 
 // candidates returns the armored signature blobs found under header+payload's
-// index hash. Finding one proves NOTHING — see Verified.
+// index hash. Finding one proves NOTHING — see verified.
 func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][]byte {
 	if s == nil {
 		return nil
@@ -280,7 +272,7 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 	return out
 }
 
-// Verified reports whether ANY candidate signature for header+payload in this
+// verified reports whether ANY candidate signature for header+payload in this
 // store verifies under a key root trusts for the assertion's namespace, at
 // time now. This is the store's ONLY entry point that may say yes: every
 // candidate is cryptographically re-verified against the RECONSTRUCTED
@@ -290,36 +282,40 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 // implementer trap #2; and see the required trap test in the operations
 // package: a corrupted signature body at the RIGHT index hash still resolves
 // pending, never allow).
-func (s *Store) Verified(header signing.CountersignHeader, payload []byte, root signing.TrustRoot, now time.Time) (principal string, ok bool) {
+//
+// U137-F11: unexported — its only callers are the three wrappers below
+// (rg-verified zero external/test callers of the exported spelling), which
+// are the intended API surface.
+func (s *Store) verified(header signing.CountersignHeader, payload []byte, root signing.TrustRoot, now time.Time) (principal string, ok bool) {
 	if s == nil {
 		return "", false
 	}
 	for _, armored := range s.candidates(header, payload) {
-		if p, verified := signing.VerifyCountersignature(header, payload, armored, root, now); verified {
+		if p, ok := signing.VerifyCountersignature(header, payload, armored, root, now); ok {
 			return p, true
 		}
 	}
 	return "", false
 }
 
-// VerifiedApprove is the Verified convenience wrapper for an approve query.
+// VerifiedApprove is the verified convenience wrapper for an approve query.
 func (s *Store) VerifiedApprove(kind signing.ItemKind, ref string, form signing.Form, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
 	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Kind: kind, Ref: ref, Form: form}
-	return s.Verified(h, payload, root, now)
+	return s.verified(h, payload, root, now)
 }
 
-// VerifiedContentReject is the Verified convenience wrapper for a
+// VerifiedContentReject is the verified convenience wrapper for a
 // content-reject query (ref omitted, matching WriteContentReject).
 func (s *Store) VerifiedContentReject(kind signing.ItemKind, form signing.Form, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: "", Form: form}
-	return s.Verified(h, payload, root, now)
+	return s.verified(h, payload, root, now)
 }
 
-// VerifiedRefReject is the Verified convenience wrapper for a ref-reject
+// VerifiedRefReject is the verified convenience wrapper for a ref-reject
 // query (matching WriteRefReject: form none, payload empty).
 func (s *Store) VerifiedRefReject(kind signing.ItemKind, ref string, root signing.TrustRoot, now time.Time) (string, bool) {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: ref, Form: signing.FormNone}
-	return s.Verified(h, nil, root, now)
+	return s.verified(h, nil, root, now)
 }
 
 // --- the degraded, UNSIGNED path (spec §9.5) ---------------------------------
@@ -413,7 +409,8 @@ func (s *Store) HasUnsignedRefReject(kind signing.ItemKind, ref string) bool {
 // store uses it for exactly that: `ctxloom review` labels an item UPDATE vs
 // NEW and offers a diff base by consulting the index — never by trusting it
 // as an approval. Every actual trust decision still goes through
-// Verified/VerifiedApprove/etc., which re-verifies from scratch.
+// VerifiedApprove/VerifiedContentReject/VerifiedRefReject, which re-verifies
+// from scratch.
 
 // IndexEntry is one appended record in the sidecar index.
 type IndexEntry struct {

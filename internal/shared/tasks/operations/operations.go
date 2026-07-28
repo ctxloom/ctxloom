@@ -566,7 +566,7 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 			return fmt.Errorf("tag %q's value %v is outside %s's declared range [%v,%v]", tag, f, target, min, max)
 		}
 	}
-	if typeName, ok := schema.Type(target); ok && typeName == tagschema.SemverTypeName {
+	if typeName, ok := schema.Get(tagschema.TypeFacet, target); ok && typeName == tagschema.SemverTypeName {
 		if _, verr := semver.StrictNewVersion(value); verr != nil {
 			return fmt.Errorf("tag %q's value %q is not a valid SemVer 2.0.0 version, required by %s's declared type %q: %w", tag, value, target, typeName, verr)
 		}

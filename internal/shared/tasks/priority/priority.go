@@ -261,10 +261,10 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 // DECLARED formula that fails to compile (bad expr syntax) is still a hard
 // error: that's a config defect, not an absent-feature no-op.
 func compileAll(schema *tagschema.Schema) (priorityFn, decayFn *tagschema.Formula, err error) {
-	if priorityFn, err = compileFacet(schema, tagschema.PriorityFnFacet, schema.PriorityFn); err != nil {
+	if priorityFn, err = compileFacet(schema, tagschema.PriorityFnFacet); err != nil {
 		return nil, nil, err
 	}
-	if decayFn, err = compileFacet(schema, tagschema.DecayFnFacet, schema.DecayFn); err != nil {
+	if decayFn, err = compileFacet(schema, tagschema.DecayFnFacet); err != nil {
 		return nil, nil, err
 	}
 	return priorityFn, decayFn, nil
@@ -317,16 +317,16 @@ func sortedBuiltinNames(known map[string]bool) []string {
 }
 
 // compileFacet compiles EVERY target schema declares under facet (via
-// getter — schema.PriorityFn or schema.DecayFn), syntax-checking each one
-// regardless of how many there are, then returns the compiled Formula for
-// the single declared target — or nil if none is declared. More than one
-// declared target for facet is a returned ambiguity error naming all of
-// them; it is never silently resolved by picking one.
-func compileFacet(schema *tagschema.Schema, facet string, getter func(string) (string, bool)) (*tagschema.Formula, error) {
+// schema.Get(facet, target)), syntax-checking each one regardless of how
+// many there are, then returns the compiled Formula for the single declared
+// target — or nil if none is declared. More than one declared target for
+// facet is a returned ambiguity error naming all of them; it is never
+// silently resolved by picking one.
+func compileFacet(schema *tagschema.Schema, facet string) (*tagschema.Formula, error) {
 	var compiled []*tagschema.Formula
 	var declared []string
 	for _, target := range schema.Targets(facet) {
-		raw, ok := getter(target)
+		raw, ok := schema.Get(facet, target)
 		if !ok {
 			continue
 		}

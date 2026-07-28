@@ -23,18 +23,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 )
 
-// Resolve returns the project work root. Resolution delegates entirely to
-// projectroot.WorkDirWithBoundary (U140-F01 — this package no longer keeps
-// its own copy of the env var name, the env-reading step, or the
-// git-root/cwd chain).
-func Resolve() (string, error) {
-	root, _, err := ResolveBoundary()
-	return root, err
-}
-
-// ResolveBoundary is Resolve, but also reports whether a genuine project
-// boundary was found — a CTXLOOM_ROOT override or an enclosing git repository
-// — as opposed to falling all the way through to the bare working directory.
+// ResolveBoundary returns the project work root, and also reports whether a
+// genuine project boundary was found — a CTXLOOM_ROOT override or an
+// enclosing git repository — as opposed to falling all the way through to
+// the bare working directory.
 // Minting a project identity is fine for a real boundary (including a git
 // repo's first-ever taskloom call); it is not fine for "whatever directory
 // the shell happened to be in", which is what a bare-cwd fallback means. The

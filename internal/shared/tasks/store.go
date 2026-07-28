@@ -38,7 +38,7 @@ func (s *Store) Path() string { return s.log.path }
 // (empty = no filter). Term is matched case-insensitively as a substring
 // of the trimmed task text.
 func (s *Store) List(statuses []string, term string) ([]Task, error) {
-	return s.log.list(statuses, term)
+	return s.log.listWithTagQuery(statuses, term, "", nil)
 }
 
 // ListWithTagQuery is List with an additional postfix tag-query filter,
@@ -55,26 +55,22 @@ func (s *Store) ListWithTagQuery(statuses []string, term, tagQuery string, schem
 	return s.log.listWithTagQuery(statuses, term, tagQuery, schema)
 }
 
-// Add appends a new task with an auto-generated unique harp ID. Empty
-// status defaults to StatusToDo. Returns the persisted task.
-func (s *Store) Add(text, status string) (Task, error) {
-	return s.AddWithTrigger(text, status, "")
-}
-
-// AddWithTrigger is Add with a revive trigger for a Deferred task. A Deferred
-// status without a trigger is rejected (ErrTriggerRequired).
+// AddWithTrigger appends a new task with an auto-generated unique harp ID
+// and a revive trigger for a Deferred task. Empty status defaults to
+// StatusToDo. A Deferred
+// status without a trigger is rejected (errTriggerRequired).
 func (s *Store) AddWithTrigger(text, status, trigger string) (Task, error) {
-	if err := ValidateStatusTrigger(status, trigger); err != nil {
+	if err := validateStatusTrigger(status, trigger); err != nil {
 		return Task{}, err
 	}
-	return s.log.add(text, status, trigger)
+	return s.log.addWithTags(text, status, trigger, nil)
 }
 
 // AddWithTags is AddWithTrigger with an initial tag set stamped on the same
 // `add` event, so a task's creation and its starting tags land as one atomic
 // log line rather than an add followed by a separate tag event.
 func (s *Store) AddWithTags(text, status, trigger string, tags ...string) (Task, error) {
-	if err := ValidateStatusTrigger(status, trigger); err != nil {
+	if err := validateStatusTrigger(status, trigger); err != nil {
 		return Task{}, err
 	}
 	return s.log.addWithTags(text, status, trigger, tags)
@@ -109,12 +105,6 @@ func (s *Store) CurrentTags(harpID string) ([]string, error) {
 // if the harp ID isn't present. The harp is never reissued.
 func (s *Store) Remove(harpID string) (Task, error) {
 	return s.log.remove(harpID)
-}
-
-// SetStatus moves a task to a different status. Errors if the harp ID
-// isn't present.
-func (s *Store) SetStatus(harpID, status string) (Task, error) {
-	return s.SetStatusWithTrigger(harpID, status, "")
 }
 
 // SetStatusWithTrigger moves a task to a different status, optionally setting

@@ -3,6 +3,7 @@ package tagschema
 import (
 	"testing"
 
+	"github.com/expr-lang/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -125,4 +126,23 @@ func TestCompileFormula_TagValuesNeverReachTheExpressionText(t *testing.T) {
 	got, err := f.Eval(mapFn(map[string]float64{"triage:impact": 0}), constFn(0))
 	require.NoError(t, err)
 	assert.Equal(t, 0.0, got, "an unparseable tag value must be inert (0), never evaluated as an expression")
+}
+
+// TestEval_NonFloat64ResultIsAReturnedErrorNotAPanic pins U126-F05's REFUTED
+// verdict: Eval's `v, ok := out.(float64); if !ok { return 0, err }` guard
+// is documented as unreachable via CompileFormula (expr.AsFloat64() already
+// coerces at compile time), which makes it look like dead-weight TRIVIAL
+// code. It is not test-only, and it is not a no-op alternative to a blind
+// assert -- construct a Formula whose program was compiled WITHOUT
+// AsFloat64 (bypassing CompileFormula, exactly as a future library upgrade
+// or a changed Env might), so Eval genuinely receives a non-float64 result,
+// and confirm it degrades to an error rather than panicking.
+func TestEval_NonFloat64ResultIsAReturnedErrorNotAPanic(t *testing.T) {
+	program, err := expr.Compile("true", expr.Env(formulaEnv{}))
+	require.NoError(t, err)
+	f := &Formula{program: program, source: "true"}
+
+	_, err = f.Eval(constFn(0), constFn(0))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "non-numeric result")
 }

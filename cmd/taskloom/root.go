@@ -93,7 +93,7 @@ func taskContext() (operations.TaskContext, error) {
 	if projectID == "" {
 		projectID = os.Getenv("CTXLOOM_PROJECT_ID")
 	}
-	workDir, err := workdir.Resolve()
+	workDir, _, err := workdir.ResolveBoundary()
 	if err != nil {
 		if projectID == "" {
 			return operations.TaskContext{}, err

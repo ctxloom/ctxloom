@@ -42,7 +42,7 @@ func typeConfigTags(schema *tagschema.Schema) []tagma.Tag {
 	ns := tagmaTypeNamespace
 	out := make([]tagma.Tag, 0, len(targets))
 	for _, target := range targets {
-		name, ok := schema.Type(target)
+		name, ok := schema.Get(tagschema.TypeFacet, target)
 		if !ok {
 			continue
 		}

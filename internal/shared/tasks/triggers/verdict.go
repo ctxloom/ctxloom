@@ -38,9 +38,6 @@ func (o Outcome) Valid() bool {
 	return false
 }
 
-// String satisfies fmt.Stringer so an Outcome prints as its wire value.
-func (o Outcome) String() string { return string(o) }
-
 // Verdict is the model's structured judgment for one Deferred task's
 // trigger. It is a PROPOSAL for a human to confirm — nothing in this package
 // or its ctxloom-side caller ever applies a Verdict to task status.

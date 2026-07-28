@@ -132,11 +132,11 @@ func buildTagSchemaDoc(schema *tagschema.Schema) (*tagSchemaDoc, error) {
 		}
 	}
 	for _, target := range schema.Targets(tagschema.PriorityFnFacet) {
-		fn, _ := schema.PriorityFn(target)
+		fn, _ := schema.Get(tagschema.PriorityFnFacet, target)
 		get(target).PriorityFn = fn
 	}
 	for _, target := range schema.Targets(tagschema.DecayFnFacet) {
-		fn, _ := schema.DecayFn(target)
+		fn, _ := schema.Get(tagschema.DecayFnFacet, target)
 		get(target).DecayFn = fn
 	}
 

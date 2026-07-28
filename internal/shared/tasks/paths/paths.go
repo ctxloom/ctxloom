@@ -21,9 +21,9 @@ const (
 	// it rather than minting a parallel dot-dir.
 	AppDirName = ".ctxloom"
 
-	// ProjectsDir is the home-rooted subdirectory holding the project-identity
+	// projectsDir is the home-rooted subdirectory holding the project-identity
 	// registry that maps a stable project-id to its current path.
-	ProjectsDir = "projects"
+	projectsDir = "projects"
 
 	// IndexFileName is the name of the registry index file.
 	IndexFileName = "index.yaml"
@@ -32,10 +32,10 @@ const (
 	// task logs, one <project-id>.jsonl per project.
 	TasksDir = "tasks"
 
-	// ProjectMarkerFileName is the in-tree marker carrying a project's stable
+	// projectMarkerFileName is the in-tree marker carrying a project's stable
 	// project-id. It lives at <projectDir>/.ctxloom/project-id and is gitignored:
 	// private working-state identity must never ride a distributable tree.
-	ProjectMarkerFileName = "project-id"
+	projectMarkerFileName = "project-id"
 
 	// TasksLogExt is the suffix for a per-project task log file.
 	TasksLogExt = ".jsonl"
@@ -71,20 +71,20 @@ const (
 	ModeRepo Mode = "repo"
 )
 
-// HomeProjectsDir returns ~/.ctxloom/projects — the home-rooted directory
+// homeProjectsDir returns ~/.ctxloom/projects — the home-rooted directory
 // holding the project-identity registry.
-func HomeProjectsDir() (string, error) {
+func homeProjectsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, AppDirName, ProjectsDir), nil
+	return filepath.Join(home, AppDirName, projectsDir), nil
 }
 
 // ProjectRegistryPath returns ~/.ctxloom/projects/index.yaml — the registry
 // mapping each stable project-id to its current path.
 func ProjectRegistryPath() (string, error) {
-	root, err := HomeProjectsDir()
+	root, err := homeProjectsDir()
 	if err != nil {
 		return "", err
 	}
@@ -172,5 +172,5 @@ func ValidateProjectID(id string) error {
 // ProjectMarkerPath returns <projectDir>/.ctxloom/project-id — the in-tree
 // marker carrying the project's stable project-id.
 func ProjectMarkerPath(projectDir string) string {
-	return filepath.Join(projectDir, AppDirName, ProjectMarkerFileName)
+	return filepath.Join(projectDir, AppDirName, projectMarkerFileName)
 }

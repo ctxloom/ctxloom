@@ -36,7 +36,7 @@ func writeConfig(t *testing.T, dir, body string) {
 func homingFlagSet(t *testing.T) *pflag.FlagSet {
 	t.Helper()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	fs.String(HomingFlagName, "", "")
+	fs.String(homingFlagName, "", "")
 	fs.StringArray(confload.ConfigSetFlagName, nil, "")
 	return fs
 }

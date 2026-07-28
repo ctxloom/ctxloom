@@ -58,10 +58,10 @@ const (
 	DirName  = paths.RepoDirName // ".taskloom"
 	FileName = "config.yaml"
 
-	// EnvPrefix mirrors ctxloom's own CTXLOOM_CONFIG_ convention (see
+	// envPrefix mirrors ctxloom's own CTXLOOM_CONFIG_ convention (see
 	// internal/config's ctxloomProduct), scoped to taskloom so the two never
 	// collide even when both binaries run in the same process tree.
-	EnvPrefix = "TASKLOOM_CONFIG_"
+	envPrefix = "TASKLOOM_CONFIG_"
 
 	// SchemaResourceName is the embedded schema path (relative to
 	// resources/schema/) read via resources.GetSchema, and the CLI-facing
@@ -76,14 +76,9 @@ const (
 	// --config-set/TASKLOOM_CONFIG_ override, must set.
 	HomingConfigKey = "homing"
 
-	// HomingFlagName is taskloom's dedicated root flag naming the same
+	// homingFlagName is taskloom's dedicated root flag naming the same
 	// setting for a single invocation (highest precedence — see ResolveMode).
-	HomingFlagName = "homing"
-
-	// TagSchemaConfigKey is the dotted config key holding the tag-schema
-	// declaration list (see the TagSchema field and internal/shared/tasks/
-	// tagschema).
-	TagSchemaConfigKey = "tag_schema"
+	homingFlagName = "homing"
 )
 
 // DefaultTagSchema is the tag_schema shipped when a project's config leaves
@@ -188,8 +183,10 @@ type Config struct {
 	Homing string `yaml:"homing,omitempty"`
 
 	// TagSchema declares taskloom's tag-schema: a list of tagma-syntax
-	// DECLARATION strings (see internal/shared/tasks/tagschema.Parse and
-	// TagSchemaConfigKey's doc). Empty means unset at every config layer;
+	// DECLARATION strings (see internal/shared/tasks/tagschema.Parse). The
+	// dotted config key is "tag_schema", spelled directly in the yaml tag
+	// below and in the JSON Schema, since nothing else binds it. Empty means
+	// unset at every config layer;
 	// ResolvedTagSchema falls back to DefaultTagSchema in that case, exactly
 	// mirroring how Homing/ResolveMode default when unset (see this
 	// package's doc).
@@ -226,16 +223,16 @@ func product(validator *schema.ConfigValidator) confload.Product {
 		Name:      "taskloom",
 		DirName:   DirName,
 		FileName:  FileName,
-		EnvPrefix: EnvPrefix,
+		EnvPrefix: envPrefix,
 		KnownPath: validator.KnownPath,
 	}
 }
 
-// NewValidator compiles taskloom's own embedded config JSON Schema
+// newValidator compiles taskloom's own embedded config JSON Schema
 // (resources/schema/input/taskloom-config-schema.json, via resources.GetSchema
 // — see docsgen.go:12-18's doc for why the generator, and this validator,
 // walk the hand-authored schema rather than reflecting the Config struct).
-func NewValidator() (*schema.ConfigValidator, error) {
+func newValidator() (*schema.ConfigValidator, error) {
 	data, err := resources.GetSchema(SchemaResourceName)
 	if err != nil {
 		return nil, fmt.Errorf("load taskloom config schema: %w", err)
@@ -243,8 +240,8 @@ func NewValidator() (*schema.ConfigValidator, error) {
 	return schema.NewValidatorFromSchema(data)
 }
 
-// HomeConfigPath returns ~/.taskloom/config.yaml.
-func HomeConfigPath() (string, error) {
+// homeConfigPath returns ~/.taskloom/config.yaml.
+func homeConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -252,9 +249,9 @@ func HomeConfigPath() (string, error) {
 	return filepath.Join(home, DirName, FileName), nil
 }
 
-// ProjectConfigPath returns <workDir>/.taskloom/config.yaml ("" when workDir
+// projectConfigPath returns <workDir>/.taskloom/config.yaml ("" when workDir
 // is "").
-func ProjectConfigPath(workDir string) string {
+func projectConfigPath(workDir string) string {
 	if workDir == "" {
 		return ""
 	}
@@ -273,7 +270,7 @@ func ProjectConfigPath(workDir string) string {
 // InstallOverridesFromFlags convention: one bad override never blocks
 // startup.
 func loadRaw(workDir string, fs *pflag.FlagSet) (map[string]any, error) {
-	validator, _ := NewValidator() // nil on failure: degrade, never block a load over it
+	validator, _ := newValidator() // nil on failure: degrade, never block a load over it
 	p := product(validator)
 
 	o, oerr := p.ReadOverrides(fs)
@@ -282,10 +279,10 @@ func loadRaw(workDir string, fs *pflag.FlagSet) (map[string]any, error) {
 	}
 
 	var src confload.Sources
-	if hp, herr := HomeConfigPath(); herr == nil {
+	if hp, herr := homeConfigPath(); herr == nil {
 		src.HomePath = hp
 	}
-	src.ProjectPath = ProjectConfigPath(workDir)
+	src.ProjectPath = projectConfigPath(workDir)
 
 	merged, err := p.Load(src, o)
 	if err != nil {
@@ -326,7 +323,7 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 	// shape, or any other schema violation passes straight through with no
 	// signal, contradicting this function's own documented fail-loud
 	// guarantee.
-	v, verr := NewValidator()
+	v, verr := newValidator()
 	if verr != nil {
 		return Config{}, fmt.Errorf("taskloom: load config schema: %w", verr)
 	}

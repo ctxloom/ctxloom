@@ -353,19 +353,14 @@ func renderGlobalTaskTable(out io.Writer, rows []taskRow, cfg tagma.HideConfig) 
 	return w.Err()
 }
 
-// noteHiddenMatches tells the user (on stderr, so stdout stays parseable) when
-// the default active-only view suppressed tasks their filter matched. Only a
+// noteHidden tells the user (on stderr, so stdout stays parseable) when the
+// default active-only view suppressed tasks their filter matched. Only a
 // searching intent (--term / --tag-query) earns the note: a bare `list` is a
 // "show my active work" view where hiding finished tasks is the whole point,
 // but a query that matches 49 tasks and prints 11 with no trace is a silent
-// truncation of an answer.
-func noteHiddenMatches(w io.Writer, res *operations.TaskListResult, filtered bool) {
-	noteHidden(w, res.HiddenCompleted, res.HiddenDeferred, filtered)
-}
-
-// noteHidden is noteHiddenMatches' body, taking the counts directly rather
-// than an operations.TaskListResult — the --global aggregation path sums
-// counts across several projects' stores rather than getting them from one
+// truncation of an answer. Takes the counts directly rather than an
+// operations.TaskListResult — the --global aggregation path sums counts
+// across several projects' stores rather than getting them from one
 // TaskListResult, so it needs the same hint off the raw numbers.
 func noteHidden(w io.Writer, hiddenCompleted, hiddenDeferred int, filtered bool) {
 	hidden := hiddenCompleted + hiddenDeferred

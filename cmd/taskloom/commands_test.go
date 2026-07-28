@@ -42,11 +42,11 @@ func mustTaskContext(t *testing.T) operations.TaskContext {
 	return tc
 }
 
-// TestNoteHiddenMatches pins the anti-silent-truncation hint: a --term or
+// TestNoteHidden pins the anti-silent-truncation hint: a --term or
 // --tag-query listing whose matches were partly suppressed by the default
 // active-only view says so (with per-kind counts and the flag that reveals
 // them), while an unfiltered listing or one with nothing hidden stays quiet.
-func TestNoteHiddenMatches(t *testing.T) {
+func TestNoteHidden(t *testing.T) {
 	cases := []struct {
 		name      string
 		res       operations.TaskListResult
@@ -79,7 +79,7 @@ func TestNoteHiddenMatches(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var buf strings.Builder
-			noteHiddenMatches(&buf, &c.res, c.filtered)
+			noteHidden(&buf, c.res.HiddenCompleted, c.res.HiddenDeferred, c.filtered)
 			out := buf.String()
 			if len(c.wantParts) == 0 {
 				if out != "" {

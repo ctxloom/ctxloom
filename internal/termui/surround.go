@@ -9,12 +9,12 @@ import (
 	"unicode/utf8"
 )
 
-// SurroundReserve is how many bottom rows the surround bar reserves.
-const SurroundReserve = 1
+// surroundReserve is how many bottom rows the surround bar reserves.
+const surroundReserve = 1
 
 // minRowsForReserve is the terminal height below which reservation is skipped
 // entirely (bar off, sizes forwarded untranslated): protecting one row of a
-// five-row terminal costs more than it informs. The ResizeTranslator applies
+// five-row terminal costs more than it informs. The resizeTranslator applies
 // the same predicate so the engine viewport and the protected region always
 // agree.
 const minRowsForReserve = 6
@@ -49,13 +49,13 @@ type RosterEntry struct {
 	LastActivityUnix int64
 }
 
-// Surround owns the reserved bottom row: it establishes a DECSTBM scroll
+// surround owns the reserved bottom row: it establishes a DECSTBM scroll
 // region protecting it, paints the status line, and restores the full region
 // on exit. All writes go out under the shared tty lock; painting is skipped
 // while an overlay is engaged (Suspend) and rides the output gate's
 // afterWrite hook when the engine is mid-stream (FlushLocked), so a bar
 // repaint never lands inside a split engine escape sequence.
-type Surround struct {
+type surround struct {
 	mu      *sync.Mutex // the shared tty lock
 	w       io.Writer
 	enabled bool
@@ -83,14 +83,14 @@ type Surround struct {
 	buf        []byte // render scratch, reused (guarded by mu)
 }
 
-// NewSurround builds the bar renderer. mu is the tty lock shared with the
-// OutputGate; enabled=false renders nothing ever (reserve stays 0).
-func NewSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *Surround {
+// newSurround builds the bar renderer. mu is the tty lock shared with the
+// outputGate; enabled=false renders nothing ever (reserve stays 0).
+func newSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *surround {
 	reserve := 0
 	if enabled {
-		reserve = SurroundReserve
+		reserve = surroundReserve
 	}
-	return &Surround{
+	return &surround{
 		mu:               mu,
 		w:                w,
 		enabled:          enabled,
@@ -101,19 +101,19 @@ func NewSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *Surro
 }
 
 // Reserve is the row count the resize translation must subtract.
-func (s *Surround) Reserve() int { return s.reserve }
+func (s *surround) Reserve() int { return s.reserve }
 
 // SetEngineIdle wires the gate's last-write clock for the busy heuristic.
-func (s *Surround) SetEngineIdle(lastWriteNanos func() int64) { s.lastEngineWrite = lastWriteNanos }
+func (s *surround) SetEngineIdle(lastWriteNanos func() int64) { s.lastEngineWrite = lastWriteNanos }
 
 // SetPaintSafe wires the gate guard's stream-boundary check; paints attempted
 // while the child stream is mid-sequence defer to the next safe flush.
-func (s *Surround) SetPaintSafe(safe func() bool) { s.paintSafe = safe }
+func (s *surround) SetPaintSafe(safe func() bool) { s.paintSafe = safe }
 
 // regionBottomLocked is the guard's clamp bound: the last protected-region
 // row while the reservation stands, else 0 (child owns the full screen — no
 // clamping). Requires s.mu.
-func (s *Surround) regionBottomLocked() int {
+func (s *surround) regionBottomLocked() int {
 	if !s.active || s.restored {
 		return 0
 	}
@@ -124,7 +124,7 @@ func (s *Surround) regionBottomLocked() int {
 // sequence that clobbered the region (RIS, DECSTR, alt-screen leave): scroll
 // region re-established and the bar repainted, wrapped in DECSC/DECRC so the
 // child's cursor position survives the DECSTBM home. Requires s.mu.
-func (s *Surround) reassertLocked() []byte {
+func (s *surround) reassertLocked() []byte {
 	if !s.active || s.suspended || s.restored {
 		return nil
 	}
@@ -139,7 +139,7 @@ func (s *Surround) reassertLocked() []byte {
 // markDirtyLocked flags the bar for the gate's next afterWrite flush — the
 // guard's notice that a child sequence erased the bar row (ED 2/3, alt-screen
 // enter) without touching the margins. Requires s.mu (same write cycle).
-func (s *Surround) markDirtyLocked() { s.dirty.Store(true) }
+func (s *surround) markDirtyLocked() { s.dirty.Store(true) }
 
 // SetSize records the REAL terminal size and (re)establishes or releases the
 // protected region as the reservation predicate flips. Called on the resize
@@ -152,7 +152,7 @@ func (s *Surround) markDirtyLocked() { s.dirty.Store(true) }
 // (and the reservation-active flag it drives) is still recorded so
 // ResumeSequence and the resize translator pick up the latest dimensions;
 // the actual region+bar paint is deferred to ResumeSequence on release.
-func (s *Surround) SetSize(rows, cols int) {
+func (s *surround) SetSize(rows, cols int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	prevRows := s.rows
@@ -211,7 +211,7 @@ func (s *Surround) SetSize(rows, cols int) {
 // SetRoster stores the latest children snapshot and requests a repaint —
 // immediate when the engine output is idle, deferred to the gate's
 // afterWrite flush when mid-stream.
-func (s *Surround) SetRoster(roster []RosterEntry) {
+func (s *surround) SetRoster(roster []RosterEntry) {
 	s.mu.Lock()
 	s.roster = roster
 	s.hasRoster = true
@@ -221,7 +221,7 @@ func (s *Surround) SetRoster(roster []RosterEntry) {
 
 // RequestPaint repaints now if the engine is idle, else marks the bar dirty
 // for the gate's next afterWrite flush.
-func (s *Surround) RequestPaint() {
+func (s *surround) RequestPaint() {
 	if s.lastEngineWrite != nil {
 		if since := nowNanos() - s.lastEngineWrite(); since < int64(s.engineBusyWindow) {
 			s.dirty.Store(true)
@@ -235,14 +235,14 @@ func (s *Surround) RequestPaint() {
 
 // FlushLocked is the gate's afterWrite hook: repaint a dirty bar between
 // engine output chunks. Requires the tty lock (held by the gate).
-func (s *Surround) FlushLocked() {
+func (s *surround) FlushLocked() {
 	if s.dirty.CompareAndSwap(true, false) {
 		s.paintLocked()
 	}
 }
 
 // Suspend stops painting while an overlay owns the screen.
-func (s *Surround) Suspend() {
+func (s *surround) Suspend() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.suspended = true
@@ -256,7 +256,7 @@ func (s *Surround) Suspend() {
 // interleaving. The bar paint here deliberately avoids DECSC/DECRC: the
 // single save slot still holds the engine's engage-time cursor, which the
 // controller restores right after.
-func (s *Surround) ResumeSequence() []byte {
+func (s *surround) ResumeSequence() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.suspended = false
@@ -273,7 +273,7 @@ func (s *Surround) ResumeSequence() []byte {
 // Restore hands the terminal back on exit: full scroll region, bar row
 // cleared, cursor parked on the cleared bottom row so the shell prompt lands
 // clean. Idempotent; after it the surround never paints again.
-func (s *Surround) Restore() {
+func (s *surround) Restore() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.restored {
@@ -294,7 +294,7 @@ func (s *Surround) Restore() {
 // paintLocked renders the bar row. Requires s.mu. A paint attempted while the
 // child stream ends mid-sequence (inside an OSC/DCS string) re-marks the bar
 // dirty for the next safe flush instead of tearing the sequence.
-func (s *Surround) paintLocked() {
+func (s *surround) paintLocked() {
 	if !s.active || s.suspended || s.restored {
 		return
 	}
@@ -309,7 +309,7 @@ func (s *Surround) paintLocked() {
 // appendBar appends the full bar paint sequence: save cursor (DECSC), draw
 // the bar, restore cursor (DECRC). Single Write, no allocations once the
 // scratch has grown.
-func (s *Surround) appendBar(b []byte) []byte {
+func (s *surround) appendBar(b []byte) []byte {
 	b = append(b, "\x1b7"...)
 	b = s.appendBarBody(b)
 	return append(b, "\x1b8"...)
@@ -318,7 +318,7 @@ func (s *Surround) appendBar(b []byte) []byte {
 // appendBarBody addresses the bar row and draws the reverse-video status
 // line padded to the terminal width — no cursor save/restore (callers that
 // already own the DECSC slot use this directly).
-func (s *Surround) appendBarBody(b []byte) []byte {
+func (s *surround) appendBarBody(b []byte) []byte {
 	b = append(b, "\x1b["...)
 	b = strconv.AppendInt(b, int64(s.rows), 10)
 	b = append(b, ";1H\x1b[2K\x1b[7m"...)
@@ -326,11 +326,11 @@ func (s *Surround) appendBarBody(b []byte) []byte {
 	return append(b, "\x1b[0m"...)
 }
 
-func (s *Surround) rosterDigestLocked() string {
+func (s *surround) rosterDigestLocked() string {
 	if !s.hasRoster {
 		return ""
 	}
-	return RosterDigest(s.roster)
+	return rosterDigest(s.roster)
 }
 
 // appendBarContent renders ` harp · agent · engine/model │ digest │ hint `
@@ -383,10 +383,10 @@ func fitWidth(b []byte, start, width int) []byte {
 	return b
 }
 
-// RosterDigest summarizes orchestrator-held children for the bar: counts by
+// rosterDigest summarizes orchestrator-held children for the bar: counts by
 // state glyph (● executing, ◐ waiting: queued/parked/idle, ✓ ended) plus the
 // latest transition. Empty roster reads "no agents".
-func RosterDigest(roster []RosterEntry) string {
+func rosterDigest(roster []RosterEntry) string {
 	if len(roster) == 0 {
 		return "no agents"
 	}

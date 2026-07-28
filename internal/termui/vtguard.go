@@ -27,7 +27,7 @@ import "strconv"
 //     bar row without touching the margins; they mark the bar dirty so the
 //     gate's afterWrite flush repaints it on the same write cycle.
 //
-// The guard is not goroutine-safe: the OutputGate calls it under the shared
+// The guard is not goroutine-safe: the outputGate calls it under the shared
 // tty lock, the same lock the surround paints under.
 type vtGuard struct {
 	// regionBottom returns the last protected-region row (rows−reserve) while

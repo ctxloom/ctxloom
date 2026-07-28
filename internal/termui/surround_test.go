@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestSurround(tty *bytes.Buffer, info BarInfo) *Surround {
+func newTestSurround(tty *bytes.Buffer, info BarInfo) *surround {
 	var mu sync.Mutex
-	return NewSurround(&mu, tty, true, info)
+	return newSurround(&mu, tty, true, info)
 }
 
 func TestSurround_EstablishSetsScrollRegionAndPaints(t *testing.T) {
@@ -184,5 +184,5 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 }
 
 func TestRosterDigest_Empty(t *testing.T) {
-	assert.Equal(t, "no agents", RosterDigest([]RosterEntry{}))
+	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}))
 }

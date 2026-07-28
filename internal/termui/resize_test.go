@@ -25,7 +25,7 @@ func recvSize(t *testing.T, ch <-chan *pb.WindowSize) *pb.WindowSize {
 func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
 	src := make(chan *pb.WindowSize, 4)
 	var sizes [][2]int
-	rt := NewResizeTranslator(src, 1, func(rows, cols int) { sizes = append(sizes, [2]int{rows, cols}) })
+	rt := newResizeTranslator(src, 1, func(rows, cols int) { sizes = append(sizes, [2]int{rows, cols}) })
 
 	src <- &pb.WindowSize{Rows: 24, Cols: 80} // watchResize's initial emit
 	ws := recvSize(t, rt.Out())
@@ -48,9 +48,9 @@ func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
 
 // TestResizeTranslator_EstablishesSurroundRegionSynchronously pins the other
 // half of DEFECT lucid-judo: run.go's watchResize emits the real terminal
-// size synchronously (buffered) BEFORE termui.New/NewResizeTranslator is ever
+// size synchronously (buffered) BEFORE termui.New/newResizeTranslator is ever
 // called, and setupTerminalUI runs strictly before the plugin's Run stream is
-// started (goplugin.Launcher.Start / RunStart) — so if NewResizeTranslator
+// started (goplugin.Launcher.Start / RunStart) — so if newResizeTranslator
 // establishes the surround's scroll region synchronously too, the region is
 // guaranteed to exist on the tty before the engine can possibly exist to
 // paint into it. If establishment is left entirely to the async t.run
@@ -67,10 +67,10 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 	src := make(chan *pb.WindowSize, 1)
 	src <- &pb.WindowSize{Rows: 24, Cols: 80} // watchResize's pre-buffered initial emit
 
-	rt := NewResizeTranslator(src, sur.Reserve(), sur.SetSize)
+	rt := newResizeTranslator(src, sur.Reserve(), sur.SetSize)
 
 	assert.Contains(t, tty.String(), "\x1b[1;23r",
-		"DECSTBM must already be on the tty by the time NewResizeTranslator returns")
+		"DECSTBM must already be on the tty by the time newResizeTranslator returns")
 
 	select {
 	case ws := <-rt.Out():
@@ -83,7 +83,7 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 
 func TestResizeTranslator_TinyTerminalForwardsUntranslated(t *testing.T) {
 	src := make(chan *pb.WindowSize, 1)
-	rt := NewResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil)
 	src <- &pb.WindowSize{Rows: 5, Cols: 80} // below minRowsForReserve
 	ws := recvSize(t, rt.Out())
 	assert.Equal(t, uint32(5), ws.Rows, "no reservation below the threshold — matches the surround's predicate")
@@ -92,7 +92,7 @@ func TestResizeTranslator_TinyTerminalForwardsUntranslated(t *testing.T) {
 
 func TestResizeTranslator_ZeroReserveIsIdentity(t *testing.T) {
 	src := make(chan *pb.WindowSize, 1)
-	rt := NewResizeTranslator(src, 0, nil)
+	rt := newResizeTranslator(src, 0, nil)
 	src <- &pb.WindowSize{Rows: 24, Cols: 80}
 	ws := recvSize(t, rt.Out())
 	assert.Equal(t, uint32(24), ws.Rows)
@@ -101,7 +101,7 @@ func TestResizeTranslator_ZeroReserveIsIdentity(t *testing.T) {
 
 func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 	src := make(chan *pb.WindowSize, 1)
-	rt := NewResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil)
 	src <- &pb.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
 
@@ -126,7 +126,7 @@ func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 // degenerates back into exactly the bug Nudge exists to fix.
 func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
 	src := make(chan *pb.WindowSize, 1)
-	rt := NewResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil)
 	src <- &pb.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
 
@@ -158,7 +158,7 @@ func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
 // pre-Nudge value.
 func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 	src := make(chan *pb.WindowSize, 4)
-	rt := NewResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil)
 	src <- &pb.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain initial translated size (23)
 
@@ -187,7 +187,7 @@ func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 
 func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 	src := make(chan *pb.WindowSize)
-	rt := NewResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil)
 	rt.Nudge()
 	select {
 	case ws := <-rt.Out():
@@ -199,7 +199,7 @@ func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 
 func TestResizeTranslator_OutClosesWithSource(t *testing.T) {
 	src := make(chan *pb.WindowSize)
-	rt := NewResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil)
 	close(src) // watchResize closes on ctx done
 	select {
 	case _, ok := <-rt.Out():

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func writeString(t *testing.T, r *Ring, s string) {
+func writeString(t *testing.T, r *ring, s string) {
 	t.Helper()
 	n, err := r.Write([]byte(s))
 	assert.NoError(t, err)
@@ -14,7 +14,7 @@ func writeString(t *testing.T, r *Ring, s string) {
 }
 
 func TestRing_OrderPreserved(t *testing.T) {
-	r := NewRing(16)
+	r := newRing(16)
 	writeString(t, r, "hello ")
 	writeString(t, r, "world")
 	data, dropped := r.Drain()
@@ -23,7 +23,7 @@ func TestRing_OrderPreserved(t *testing.T) {
 }
 
 func TestRing_OverflowDropsOldest(t *testing.T) {
-	r := NewRing(8)
+	r := newRing(8)
 	writeString(t, r, "abcdef") // 6
 	writeString(t, r, "ghij")   // +4 → evict "ab"
 	data, dropped := r.Drain()
@@ -32,7 +32,7 @@ func TestRing_OverflowDropsOldest(t *testing.T) {
 }
 
 func TestRing_SingleWriteLargerThanCapacity(t *testing.T) {
-	r := NewRing(4)
+	r := newRing(4)
 	writeString(t, r, "xy")
 	writeString(t, r, "abcdefgh") // keeps only the tail
 	data, dropped := r.Drain()
@@ -41,7 +41,7 @@ func TestRing_SingleWriteLargerThanCapacity(t *testing.T) {
 }
 
 func TestRing_DrainResets(t *testing.T) {
-	r := NewRing(4)
+	r := newRing(4)
 	writeString(t, r, "abcdef")
 	_, dropped := r.Drain()
 	assert.Equal(t, int64(2), dropped)
@@ -53,7 +53,7 @@ func TestRing_DrainResets(t *testing.T) {
 }
 
 func TestRing_WrapAroundReadback(t *testing.T) {
-	r := NewRing(5)
+	r := newRing(5)
 	writeString(t, r, "abcd")
 	writeString(t, r, "ef") // evicts "a", wraps
 	data, dropped := r.Drain()

@@ -7,14 +7,14 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// ResizeTranslator sits on the existing resize seam (run_resize_unix.go →
+// resizeTranslator sits on the existing resize seam (run_resize_unix.go →
 // client stdin pump → engine PTY): it forwards every size event — the initial
 // emit and every SIGWINCH — with the surround's reserved rows subtracted, so
 // the engine's PTY is allocated (rows−N) tall and can never address the bar
 // row. It also notifies the surround of the REAL size (region + bar repaint)
 // and provides the repaint nudge the controller fires after an overlay
 // disengages.
-type ResizeTranslator struct {
+type resizeTranslator struct {
 	out     chan *pb.WindowSize
 	reserve int
 	onSize  func(rows, cols int) // surround SetSize (real size); may be nil
@@ -24,7 +24,7 @@ type ResizeTranslator struct {
 	closed     bool   // out closed (src ended); guards Nudge racing the close
 }
 
-// NewResizeTranslator starts forwarding from src (closing out when src
+// newResizeTranslator starts forwarding from src (closing out when src
 // closes, matching watchResize's contract so the client pump ends cleanly).
 //
 // If src already has an initial size buffered — watchResize (and its Windows
@@ -39,8 +39,8 @@ type ResizeTranslator struct {
 // the engine's first paint could possibly land. Non-blocking: if nothing is
 // buffered yet (GetSize failed, or a test source fed after construction),
 // this is a no-op and the async path below carries it exactly as before.
-func NewResizeTranslator(src <-chan *pb.WindowSize, reserve int, onSize func(rows, cols int)) *ResizeTranslator {
-	t := &ResizeTranslator{
+func newResizeTranslator(src <-chan *pb.WindowSize, reserve int, onSize func(rows, cols int)) *resizeTranslator {
+	t := &resizeTranslator{
 		// Small buffer: Nudge sends a wiggle pair and must not block the
 		// disengage path if the run stream already died.
 		out:     make(chan *pb.WindowSize, 4),
@@ -59,9 +59,9 @@ func NewResizeTranslator(src <-chan *pb.WindowSize, reserve int, onSize func(row
 }
 
 // Out is the translated channel handed to the plugin client's Run.
-func (t *ResizeTranslator) Out() <-chan *pb.WindowSize { return t.out }
+func (t *resizeTranslator) Out() <-chan *pb.WindowSize { return t.out }
 
-func (t *ResizeTranslator) run(src <-chan *pb.WindowSize) {
+func (t *resizeTranslator) run(src <-chan *pb.WindowSize) {
 	defer func() {
 		// Close under the lock: Nudge (the overlay-disengage path) may race
 		// the source ending, and a send on a closed channel would panic.
@@ -77,9 +77,9 @@ func (t *ResizeTranslator) run(src <-chan *pb.WindowSize) {
 
 // consume applies one REAL size event: record it, notify the surround, and
 // forward the translated (reservation-subtracted) size to Out(). Shared by
-// NewResizeTranslator's synchronous initial drain and run's async loop so
+// newResizeTranslator's synchronous initial drain and run's async loop so
 // both paths behave identically.
-func (t *ResizeTranslator) consume(ws *pb.WindowSize) {
+func (t *resizeTranslator) consume(ws *pb.WindowSize) {
 	t.mu.Lock()
 	t.rows, t.cols = ws.Rows, ws.Cols
 	t.mu.Unlock()
@@ -91,7 +91,7 @@ func (t *ResizeTranslator) consume(ws *pb.WindowSize) {
 
 // Translate subtracts the reservation when it applies at this size (same
 // predicate the surround uses, so viewport and protected region agree).
-func (t *ResizeTranslator) Translate(ws *pb.WindowSize) *pb.WindowSize {
+func (t *resizeTranslator) Translate(ws *pb.WindowSize) *pb.WindowSize {
 	rows := ws.Rows
 	if reserveActive(int(rows), t.reserve) {
 		rows -= uint32(t.reserve)
@@ -100,7 +100,7 @@ func (t *ResizeTranslator) Translate(ws *pb.WindowSize) *pb.WindowSize {
 }
 
 // Current returns the last REAL terminal size (0,0 before the first event).
-func (t *ResizeTranslator) Current() (rows, cols int) {
+func (t *resizeTranslator) Current() (rows, cols int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return int(t.rows), int(t.cols)
@@ -131,7 +131,7 @@ const nudgeWiggleSeparation = 50 * time.Millisecond
 // genuinely separated in time (see nudgeWiggleSeparation) so the two don't
 // coalesce into one delivery. The wiggle stays inside the engine's viewport
 // so nothing ever addresses the reserved rows.
-func (t *ResizeTranslator) Nudge() {
+func (t *resizeTranslator) Nudge() {
 	t.mu.Lock()
 	rows, cols := t.rows, t.cols
 	t.mu.Unlock()
@@ -173,7 +173,7 @@ func (t *ResizeTranslator) Nudge() {
 
 // send is latest-wins like watchResize: a full buffer means the consumer is
 // gone or far behind — evict the stalest event rather than block.
-func (t *ResizeTranslator) send(ws *pb.WindowSize) {
+func (t *resizeTranslator) send(ws *pb.WindowSize) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.closed {

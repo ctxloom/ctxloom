@@ -30,7 +30,7 @@ func (c *chunkReader) Read(p []byte) (int, error) {
 
 // ixHarness wires an interceptor to recording callbacks and drains it.
 type ixHarness struct {
-	ic      *Interceptor
+	ic      *interceptor
 	engaged int
 	aborted int
 	ui      bytes.Buffer
@@ -46,7 +46,7 @@ func newHarness(chunks ...string) *ixHarness {
 	for _, c := range chunks {
 		cr.chunks = append(cr.chunks, []byte(c))
 	}
-	h.ic = NewInterceptor(cr, testPrefix, InterceptorCallbacks{
+	h.ic = newInterceptor(cr, testPrefix, InterceptorCallbacks{
 		Engage: func() io.Writer {
 			h.engaged++
 			return h.engageSink()

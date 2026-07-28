@@ -10,9 +10,6 @@ import (
 	"github.com/go-git/go-git/v5"
 )
 
-// GetRemoteURL returns the URL of the named remote in the git repository
-// enclosing the given path. Returns an error if the path is not in a git repo
-// or if the remote is not configured.
 // RepoLocationEnvVars are environment variables that override WHICH
 // repository git operates on, ignoring an exec.Cmd's Dir entirely: GIT_DIR/
 // GIT_WORK_TREE point git at a different worktree outright; GIT_INDEX_FILE/
@@ -48,6 +45,9 @@ func SanitizedEnviron() []string {
 	return out
 }
 
+// GetRemoteURL returns the URL of the named remote in the git repository
+// enclosing the given path. Returns an error if the path is not in a git repo
+// or if the remote is not configured.
 func GetRemoteURL(startPath, remoteName string) (string, error) {
 	absPath, err := filepath.Abs(startPath)
 	if err != nil {
@@ -59,6 +59,12 @@ func GetRemoteURL(startPath, remoteName string) (string, error) {
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
 		DetectDotGit: true,
+		// U110-F01: without this, go-git resolves a linked worktree's ".git"
+		// FILE (gitdir: pointer) as the WHOLE repository — a private
+		// per-worktree admin dir with no `config` (that lives only in the
+		// common dir) — so `remote` always reports unconfigured there, even
+		// when origin genuinely exists.
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
@@ -95,6 +101,12 @@ func FindRoot(startPath string) (string, error) {
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
 		DetectDotGit: true,
+		// U110-F01: consistent with GetRemoteURL above, even though
+		// FindRoot's own result is unaffected either way (the worktree
+		// filesystem root is the containing directory regardless of common-
+		// dir resolution) — one word, twice, so the two literals never
+		// silently diverge again.
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)

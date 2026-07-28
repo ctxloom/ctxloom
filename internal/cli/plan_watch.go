@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/signal"
 	"strings"
 	"time"
@@ -53,7 +54,14 @@ func runPlanWatch(cmd *cobra.Command, args []string) error {
 
 	// Recursive: plans live in per-harp subdirectories, and new session dirs
 	// appear over a session's life. Filter to *.plan.md so unrelated session
-	// files (transcripts, essence) don't churn the stream.
+	// files (transcripts, essence) don't churn the stream. watch.New no
+	// longer creates the root itself (U132-F03) — this IS the reviewable
+	// call site that genuinely needs it: a fresh project with no session yet
+	// has no sessions dir at all, and this command should still be able to
+	// watch for the first one appearing.
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
 	w, err := watch.New(root, true, func(p string) bool {
 		return strings.HasSuffix(p, ".plan.md")
 	})

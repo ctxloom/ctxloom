@@ -144,6 +144,59 @@ func TestListVanishedSessionDirIsNotAnError(t *testing.T) {
 	}
 }
 
+
+// TestList_FindsNestedPlanFiles pins U115-F01/U132-F01: List enumerated only
+// <root>/<harp>/*.plan.md — exactly one level deep — while the paired
+// watcher (internal/shared/watch, wired in internal/cli/plan_watch.go) is
+// explicitly recursive. A plan nested one level deeper than that (this
+// project's own arch-review session directories are shaped exactly this
+// way) fired a change event with nothing in the re-queried list to show for
+// it.
+func TestList_FindsNestedPlanFiles(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "alpha-harp", "top.plan.md"), "---\ntitle: Top\n---\n")
+	mustWrite(t, filepath.Join(root, "alpha-harp", "review", "nested.plan.md"), "---\ntitle: Nested\n---\n")
+	mustWrite(t, filepath.Join(root, "alpha-harp", "review", "deep", "deeper.plan.md"), "no frontmatter")
+
+	got, err := List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d plans, want 3 (one top-level + two nested): %+v", len(got), got)
+	}
+
+	byName := map[string]Plan{}
+	for _, p := range got {
+		byName[p.Name] = p
+	}
+	nested, ok := byName["review/nested"]
+	if !ok {
+		t.Fatalf("nested plan not found by its relative name; got names: %v", namesOf(got))
+	}
+	if nested.Session != "alpha-harp" {
+		t.Errorf("nested plan Session = %q, want alpha-harp", nested.Session)
+	}
+	if nested.Title != "Nested" {
+		t.Errorf("nested plan Title = %q, want Nested", nested.Title)
+	}
+	deeper, ok := byName["review/deep/deeper"]
+	if !ok {
+		t.Fatalf("two-level-nested plan not found; got names: %v", namesOf(got))
+	}
+	if deeper.Session != "alpha-harp" {
+		t.Errorf("two-level-nested plan Session = %q, want alpha-harp", deeper.Session)
+	}
+}
+
+func namesOf(plans []Plan) []string {
+	out := make([]string, len(plans))
+	for i, p := range plans {
+		out[i] = p.Name
+	}
+	return out
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

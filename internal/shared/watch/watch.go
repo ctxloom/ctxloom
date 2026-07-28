@@ -10,6 +10,7 @@
 package watch
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -49,8 +50,20 @@ type Watcher struct {
 // filter, when non-nil, keeps only events whose path it accepts. root is created
 // if missing so the watch can attach before the first write.
 func New(root string, recursive bool, filter func(path string) bool) (*Watcher, error) {
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, err
+	// U132-F03: New used to os.MkdirAll(root) unconditionally, so a
+	// nonexistent, typo'd, or wrongly-resolved root produced a healthy-
+	// looking watcher on an empty directory that streams zero events
+	// forever, at exit 0 — indistinguishable from a correct-but-quiet watch,
+	// and a read-shaped operation mutating the filesystem as a side effect.
+	// A caller that genuinely needs the directory to exist (a log file whose
+	// directory may not have been created yet) creates it explicitly at its
+	// own call site, where that intent is local and reviewable.
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("watch %s: %w", root, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("watch %s: not a directory", root)
 	}
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {

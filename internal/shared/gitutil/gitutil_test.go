@@ -2,6 +2,7 @@ package gitutil
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 func TestFindRoot_FromRepoRoot(t *testing.T) {
@@ -150,3 +153,28 @@ func TestGetRemoteURL_FilePathResolvesToRepo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/example/repo.git", url)
 }
+
+
+// TestGetRemoteURL_FromLinkedWorktree pins U110-F01: PlainOpenOptions was
+// constructed with DetectDotGit true but EnableDotGitCommonDir left false. In
+// a linked git worktree (this project's own standard agent workflow), go-git
+// then resolves the ".git" FILE's `gitdir:` pointer directly as the repo
+// filesystem — a private per-worktree admin dir containing no `config` (that
+// lives only in the common dir) — so `remote "origin" not configured` fires
+// in EVERY linked worktree even though the origin genuinely exists.
+func TestGetRemoteURL_FromLinkedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping linked-worktree integration test")
+	}
+	main, linked := taskstest.RealGitWorktreeFixture(t)
+	cmd := exec.Command("git", "remote", "add", "origin", "https://example.com/repo.git")
+	cmd.Dir = main
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+
+	url, err := GetRemoteURL(linked, "origin")
+	require.NoError(t, err, "origin IS configured — in the shared common dir a linked worktree must resolve through")
+	assert.Equal(t, "https://example.com/repo.git", url)
+}
+

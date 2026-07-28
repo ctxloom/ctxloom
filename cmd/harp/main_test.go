@@ -94,8 +94,6 @@ func TestRunGenerate_Number(t *testing.T) {
 // until U004-F01's fix lands. Un-skip once runGenerate rejects a
 // non-positive --number.
 func TestRunGenerate_NumberZero(t *testing.T) {
-	t.Skip("pins the correct behaviour for U004-F01 (findings-index.md); production still silently no-ops on -n<=0 — un-skip once runGenerate rejects it")
-
 	root := newRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)

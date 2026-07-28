@@ -22,6 +22,21 @@ func recv(t *testing.T, w *Watcher) Event {
 	return Event{}
 }
 
+
+// TestNew_FailsOnMissingRoot pins U132-F03: New used to silently MkdirAll the
+// root it was asked to watch, so a nonexistent, typo'd, or wrongly-resolved
+// root produced a healthy-looking watcher on an empty directory that streams
+// zero events forever, at exit 0 — indistinguishable from a correct-but-quiet
+// watch. New must fail instead; a caller that genuinely needs the directory
+// to exist creates it explicitly, locally, where that intent is reviewable.
+func TestNew_FailsOnMissingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "does-not-exist")
+	_, err := New(root, false, func(p string) bool { return true })
+	if err == nil {
+		t.Fatal("New succeeded watching a directory that does not exist")
+	}
+}
+
 // A write to the single watched file in a directory is reported, and unrelated
 // siblings (e.g. the .lock) are filtered out — the taskloom task-log case.
 func TestWatch_FileInDir_Filtered(t *testing.T) {

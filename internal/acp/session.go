@@ -1242,6 +1242,21 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
+	// U012-F02: the spec types Limit as "maximum number of lines to read" and
+	// Line as "1-based" — a negative limit and a sub-1 line are both
+	// unexpressable per that contract, not degenerate-but-valid requests.
+	// Rejecting them here, loudly, is what stops sliceLines from ever seeing
+	// them: unguarded, `end := start + *limit` with a negative limit yields
+	// `lines[start:end]` with end < start, which panics ("slice bounds out of
+	// range") on the read-loop goroutine. (Limit == 0 is left alone: "at most
+	// zero lines" is a valid, if unusual, request and "" is its correct
+	// answer — not this finding's defect.)
+	if req.Limit != nil && *req.Limit < 0 {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("fs/read_text_file: limit must be >= 0, got %d", *req.Limit)}
+	}
+	if req.Line != nil && *req.Line < 1 {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("fs/read_text_file: line is 1-based and must be >= 1, got %d", *req.Line)}
+	}
 	safePath, cerr := confineToWorkspace(s.workspaceRoot, req.Path)
 	if cerr != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "fs/read_text_file: " + cerr.Error()}
@@ -1343,7 +1358,11 @@ func sliceLines(content string, line, limit *int) string {
 		return ""
 	}
 	end := len(lines)
-	if limit != nil && start+*limit < end {
+	// U012-F02: handleFsRead already rejects a negative limit before this ever
+	// runs, but this function has no other guard of its own — clamped here too
+	// so a negative limit can never again reach `lines[start:end]` with
+	// end < start (a slice-bounds panic) no matter what a future caller does.
+	if limit != nil && *limit >= 0 && start+*limit < end {
 		end = start + *limit
 	}
 	return strings.Join(lines[start:end], "\n")

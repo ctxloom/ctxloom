@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -446,4 +447,60 @@ func requireDenied(t *testing.T, resp rpcMessage, mustNotContain string) {
 	t.Helper()
 	require.NotNil(t, resp.Error, "expected a denial, got result %s", string(resp.Result))
 	assert.NotContains(t, string(resp.Result), mustNotContain, "the denial must not carry the protected content")
+}
+
+// TestFsRead_RejectsNegativeLimit pins U012-F02: a negative `limit` from the
+// engine used to reach sliceLines unguarded — `end := start + *limit` with a
+// negative limit yields end < start, and `lines[start:end]` panics ("slice
+// bounds out of range") on the read-loop goroutine, which has no recover
+// (U013-F01), taking the whole process down over one malformed fs/*
+// callback. It must be refused as invalid params instead.
+func TestFsRead_RejectsNegativeLimit(t *testing.T) {
+	f := newFsFixture(t)
+	target := filepath.Join(f.root, "file.txt")
+	require.NoError(t, os.WriteFile(target, []byte("one\ntwo\nthree\n"), 0o644))
+	h, events := startConfinedChat(t, f)
+
+	resp := l0CallClient(h.fa, api.ClientMethodFsReadTextFile, map[string]any{"path": target, "limit": -5})
+	require.NotNil(t, resp.Error, "a negative limit must be refused, not panic the process")
+	assert.Equal(t, jsonrpc.CodeInvalidParams, resp.Error.Code)
+
+	closeChat(t, h, events)
+}
+
+// TestFsRead_RejectsSubOneLine is U012-F02's other half: `line` is documented
+// 1-based, so 0 (and negative) are malformed input, not "start of file" —
+// silently treating them as such is the wrong direction for a boundary that
+// should fail closed on anything it cannot honor.
+func TestFsRead_RejectsSubOneLine(t *testing.T) {
+	f := newFsFixture(t)
+	target := filepath.Join(f.root, "file.txt")
+	require.NoError(t, os.WriteFile(target, []byte("one\ntwo\nthree\n"), 0o644))
+	h, events := startConfinedChat(t, f)
+
+	resp := l0CallClient(h.fa, api.ClientMethodFsReadTextFile, map[string]any{"path": target, "line": 0})
+	require.NotNil(t, resp.Error, "a sub-1 line must be refused")
+	assert.Equal(t, jsonrpc.CodeInvalidParams, resp.Error.Code)
+
+	closeChat(t, h, events)
+}
+
+// TestFsRead_LimitZero_IsAValidEmptyRead pins the DELIBERATE non-fix half of
+// U012-F02: limit 0 means "at most zero lines" per the spec's own wording
+// ("Maximum number of lines to read"), so an empty, successful read is the
+// CORRECT answer here, not the silent-noop the finding's title suggested —
+// only the negative case above is the actual defect.
+func TestFsRead_LimitZero_IsAValidEmptyRead(t *testing.T) {
+	f := newFsFixture(t)
+	target := filepath.Join(f.root, "file.txt")
+	require.NoError(t, os.WriteFile(target, []byte("one\ntwo\nthree\n"), 0o644))
+	h, events := startConfinedChat(t, f)
+
+	resp := l0CallClient(h.fa, api.ClientMethodFsReadTextFile, map[string]any{"path": target, "limit": 0})
+	require.Nil(t, resp.Error)
+	var body api.ReadTextFileResponse
+	require.NoError(t, json.Unmarshal(resp.Result, &body))
+	assert.Equal(t, "", body.Content)
+
+	closeChat(t, h, events)
 }

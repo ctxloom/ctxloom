@@ -3,6 +3,7 @@ package frontend
 import (
 	"context"
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -131,7 +132,7 @@ func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 	prog := strings.ToLower(path.Base(argv[0]))
 	args := argv[1:]
 	for _, rule := range wrapperRules {
-		if !containsFold(rule.programs, prog) {
+		if !slices.Contains(rule.programs, prog) {
 			continue
 		}
 		inner, ok := rule.extract(args)
@@ -329,15 +330,6 @@ func innerShell(prog string, outer ir.Shell) ir.Shell {
 	return outer
 }
 
-func containsFold(list []string, s string) bool {
-	for _, v := range list {
-		if strings.EqualFold(v, s) {
-			return true
-		}
-	}
-	return false
-}
-
 // ---- argv-prepending wrappers (lusty-probe) --------------------------------
 //
 // wrapperRule (above) covers INTERPRETER wrappers, whose inner command is a
@@ -402,7 +394,7 @@ func prefixWrapped(argv []string, _ ir.Shell) ([]string, bool) {
 	prog := strings.ToLower(path.Base(argv[0]))
 	args := argv[1:]
 	for _, rule := range prefixWrapperRules {
-		if !containsFold(rule.programs, prog) {
+		if !slices.Contains(rule.programs, prog) {
 			continue
 		}
 		start, ok := rule.skip(args)

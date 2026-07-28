@@ -60,13 +60,6 @@ consume:
 			}
 			personality = vendorArgs[1]
 			vendorArgs = vendorArgs[2:]
-		case "--surface":
-			if len(vendorArgs) < 2 {
-				fmt.Fprintln(os.Stderr, "mock-engine: --surface needs a value")
-				return 2
-			}
-			surface = agent.CLISurface(vendorArgs[1])
-			vendorArgs = vendorArgs[2:]
 		case "--":
 			vendorArgs = vendorArgs[1:]
 			break consume

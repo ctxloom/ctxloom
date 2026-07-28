@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -37,8 +38,23 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the tool result contains "([^"]*)"$`, func(c context.Context, want string) error {
 		w := worldFrom(c)
-		if !strings.Contains(w.lastTool.JSON(), want) {
-			return fmt.Errorf("tool result does not contain %q; result:\n%s", want, w.lastTool.JSON())
+		// U162-F07: this used to substring-match the WHOLE re-marshalled
+		// JSON-RPC envelope (w.lastTool.JSON()) -- field names, the isError
+		// flag, and any error text included -- so a tool call that FAILED
+		// with an error message quoting `want` would pass. Match against the
+		// unwrapped inner payload instead (the same one "the tool result
+		// field … equals …" already trusts), and fail loud if the envelope
+		// could not be unwrapped at all rather than silently falling through
+		// to the raw envelope.
+		if w.lastInnerErr != nil {
+			return fmt.Errorf("tool result envelope could not be unwrapped: %v; result:\n%s", w.lastInnerErr, w.lastTool.JSON())
+		}
+		innerJSON, err := json.Marshal(w.lastInner)
+		if err != nil {
+			return fmt.Errorf("re-marshal unwrapped tool result: %w; result:\n%s", err, w.lastTool.JSON())
+		}
+		if !strings.Contains(string(innerJSON), want) {
+			return fmt.Errorf("tool result does not contain %q; unwrapped result:\n%s", want, innerJSON)
 		}
 		return nil
 	})

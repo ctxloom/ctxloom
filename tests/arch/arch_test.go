@@ -68,6 +68,12 @@ var testSupportImporters = map[string]string{
 	// binaries; it is a test fixture that happens to live in ordinary .go
 	// files so several test packages can share it.
 	"tests/integration/testenv": "shared harness for the -tags integration suite; never linked into a binary",
+	// The acceptance suite (godog step registrations, `//go:build acceptance`)
+	// is the same shape: ordinary .go files that only ever compile into a
+	// `-tags acceptance` test binary, never a shipped one. steps_isolation_probe.go
+	// imports dockergate (U159-F02) to mirror its skip/fail decision for the
+	// container-axis probe.
+	"tests/acceptance": "godog acceptance suite, compiled only under -tags acceptance; never linked into a binary",
 }
 
 // pkg is one directory's worth of parsed, non-test Go source.

@@ -1567,12 +1567,29 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 		return appPath, SourceProject
 	}
 
+	// The walk-up-from-cwd loop below has one deliberate boundary: the OS
+	// shared temp directory (os.TempDir(), typically /tmp). That directory is
+	// multi-tenant scratch space, not a project root — anyone (another
+	// process, another test run, a leftover from days ago) can have left a
+	// `.ctxloom` sitting directly in it, and walking past a bare temp dir
+	// with no boundary would silently adopt that unrelated directory as THIS
+	// process's project config. The boundary check runs BEFORE the .ctxloom
+	// stat for that one directory only — subdirectories under the temp root
+	// (an ordinary t.TempDir(), a real project checked out under /tmp) are
+	// still walked and still honor their OWN .ctxloom marker exactly as
+	// before; only the temp root itself is excluded from consideration.
+	tempRoot := filepath.Clean(os.TempDir())
+
 	// Try to find project .ctxloom by walking up from cwd
 	pwd, err := os.Getwd()
 	if err == nil {
 		// Walk up the directory tree looking for .ctxloom
 		dir := pwd
-		for {
+		// Loop condition (not an if/break at the top): reached the shared OS
+		// temp root without finding a project .ctxloom anywhere beneath it —
+		// stop here rather than resolving to whatever (if anything) lives at
+		// tempRoot itself, and fall through to the home fallback below.
+		for filepath.Clean(dir) != tempRoot {
 			appPath := filepath.Join(dir, AppDirName)
 			if info, err := fs.Stat(appPath); err == nil && info.IsDir() {
 				return appPath, SourceProject

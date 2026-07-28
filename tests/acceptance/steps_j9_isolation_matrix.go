@@ -358,8 +358,27 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^Alice has no "([^"]*)" credentials on the host$`, func(context.Context) error {
-		return nil // the fresh TestEnvironment HOME never has one; nothing to do
+	ctx.Step(`^Alice has no "([^"]*)" credentials on the host$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		// U161-F07: this used to be an unconditional no-op on the ASSUMPTION
+		// that "the fresh TestEnvironment HOME never has one" -- true today,
+		// but an assumption a scenario ordering change or a future fixture
+		// helper writing into HOME earlier could silently invalidate. The
+		// isoCredHostPath helper this file already has for the opposite
+		// fixture step (:339-344, "Alice HAS a credential fixture") makes the
+		// positive check cheap for the engines it knows (claude-code, codex).
+		// Some engines (opencode) have no file-based host-credential concept
+		// at all -- isoCredHostPath errors for those, which is not this
+		// step's failure to report; there is genuinely nothing to check, so
+		// it stays the documented no-op for exactly those engines.
+		rel, err := isoCredHostPath(engine)
+		if err != nil {
+			return nil
+		}
+		if w.env.HomeFileExists(rel) {
+			return fmt.Errorf("expected no %s credential fixture at ~/%s, but one exists", engine, rel)
+		}
+		return nil
 	})
 
 	ctx.Step(`^Alice has set the "([^"]*)" API key in the environment$`, func(c context.Context, engine string) error {

@@ -433,7 +433,17 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 				case <-ctx.Done():
 					break loop
 				case <-ticker.C:
-					if lines, err := dockerDiff(runtimeBin, name); err == nil && len(lines) >= 0 {
+					// U158-F01: len(lines) >= 0 is tautological (a slice
+					// length is never negative), so this used to overwrite
+					// snap.Diff on EVERY successful poll, including a
+					// genuinely empty enumeration -- silently erasing a
+					// prior good (non-empty) snapshot and contradicting this
+					// function's own doc ("never overwrites a good snapshot
+					// with nothing"). Only a non-empty enumeration updates
+					// the kept snapshot now; a transient empty `docker diff`
+					// mid-run no longer wipes out real evidence already
+					// captured.
+					if lines, err := dockerDiff(runtimeBin, name); err == nil && len(lines) > 0 {
 						snap.Diff = lines
 					}
 				}
@@ -636,7 +646,17 @@ func probePrompt(token string) string {
 // for the container axis only, runtime: container.
 func probeConfigYAML(backendType string, axis probeAxis) string {
 	key := backendTypeToLiveKey(backendType)
-	base := liveAgents[key].config
+	agent, ok := liveAgents[key]
+	if !ok {
+		// U158-F04: liveAgents[key] with no ok check silently produced a
+		// zero-value liveAgent (empty base config), so an unregistered engine
+		// name -- a new @live Examples row added without a matching
+		// liveAgents entry -- rendered a config.yaml missing the engine's own
+		// llm.configs block entirely, surfacing much later as a confusing,
+		// unrelated failure rather than naming the actual mistake here.
+		panic(fmt.Sprintf("probeConfigYAML: %q (resolved key %q) is not registered in liveAgents -- add it there before using it in a @live Examples row", backendType, key))
+	}
+	base := agent.config
 	var b strings.Builder
 	b.WriteString(base)
 	b.WriteString("agents:\n  probe:\n    engine: ")

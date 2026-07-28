@@ -24,6 +24,7 @@ package acceptance
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -107,12 +108,24 @@ func registerJ2Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^it reached him without any review, because the project is first-party$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runBob(w, "review", "--list"); err != nil {
+		// U160-F08: this used to grep for the exact prose sentence "Nothing
+		// is pending review." -- a wording change would silently break the
+		// assertion into a false red, or (if the new wording still contained
+		// that substring) a false green. review --list --format json emits
+		// operations.PendingReviewResult, whose Total field is the real
+		// structured signal this step means to check.
+		if err := runBob(w, "review", "--list", "--format", "json"); err != nil {
 			return err
 		}
 		out := w.j2().bobOutput
-		if !strings.Contains(out, "Nothing is pending review.") {
-			return fmt.Errorf("expected first-party project content to need no review; `review --list` output:\n%s", out)
+		var res struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal([]byte(out), &res); err != nil {
+			return fmt.Errorf("review --list --format json: not valid JSON: %w (output:\n%s)", err, out)
+		}
+		if res.Total != 0 {
+			return fmt.Errorf("expected first-party project content to need no review (total=0), got total=%d; `review --list --format json` output:\n%s", res.Total, out)
 		}
 		return nil
 	})

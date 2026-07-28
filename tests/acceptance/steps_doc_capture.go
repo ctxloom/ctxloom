@@ -3,9 +3,17 @@
 // Package acceptance: the @doc capture sidecar.
 //
 // This is a PROTOTYPE seam for a proposed "living docs" pipeline (see
-// docs/living-docs/PROPOSAL.md at the repo root of this worktree) — it is not
-// wired into `just test-acceptance` or CI. It is inert unless
-// CTXLOOM_DOC_CAPTURE_DIR is set, in which case every step of every
+// docs/living-docs/PROPOSAL.md at the repo root of this worktree). It is NOT
+// part of the ordinary `just test-acceptance` run — no plain acceptance
+// invocation sets CTXLOOM_DOC_CAPTURE_DIR — but it IS wired into CI: `just
+// gen-living-docs` (invoked by .github/workflows/docs.yml's "Generate
+// living-docs journey pages" step) sets CTXLOOM_DOC_CAPTURE_DIR, runs the
+// acceptance suite with capture on, then renders
+// website/src/content/docs/journeys/ from that run's real captured output
+// (U158-F10: this comment used to claim "not wired into … CI" outright,
+// which stopped being true once docs.yml started calling gen-living-docs).
+// It is inert unless CTXLOOM_DOC_CAPTURE_DIR is set, in which case every step
+// of every
 // @doc-tagged scenario has its real, run-produced evidence — CLI stdout/
 // stderr and, where applicable, the mock engine's recorded input (the
 // "=== Prompt ===" payload from internal/lm/backends/mock.go) — routed
@@ -29,43 +37,25 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/shared/doccapture"
 )
 
-// docCapture accumulates one @doc scenario's real, observed evidence across
-// its steps, for both the native godog attachment channel and the direct
-// per-scenario JSON sidecar this prototype's generator reads.
-type docCapture struct {
-	Scenario string           `json:"scenario"`
-	Outline  string           `json:"outline,omitempty"` // Examples row, e.g. "engine=claude-code"
-	Feature  string           `json:"feature"`           // source .feature file URI
-	Tags     []string         `json:"tags"`
-	Steps    []docCaptureStep `json:"steps"`
-}
-
-// docCaptureStep is one step's text, pass/fail outcome, and whatever real
-// terminal evidence the harness observed became available immediately after
-// that step ran.
-type docCaptureStep struct {
-	Text    string `json:"text"`
-	Keyword string `json:"keyword,omitempty"` // reconstructed Gherkin keyword (Given/When/Then/And) for syntax highlighting
-	Status  string `json:"status"`
-
-	CLIOutput    string `json:"cli_output,omitempty"`
-	MockRecorded string `json:"mock_recorded,omitempty"`
-	// Materialized is evidence a step observed that never flowed through
-	// w.env.LastOutput(): a file it read (J2 teammate's materialized command,
-	// J3's assembled CLAUDE.md / generated .mcp.json / settings.json), a
-	// captured PTY session (J3 forgery refusal), or a sync notice that a later
-	// materialize overwrote (J3 retraction). Marker-bearing proof no CLI stdout
-	// carries; rendered as its own captured block.
-	Materialized string `json:"materialized,omitempty"`
-}
+// docCapture and docCaptureStep are this package's names for the shared
+// living-docs wire contract (internal/shared/doccapture) both this writer and
+// scripts/gendocs/livingdocs's reader use (U158-F06: these used to be two
+// independent, byte-for-byte-identical struct declarations, held in sync only
+// by a comment demanding it). Aliased, not copied, so every existing
+// w.docCapture.Steps-style field access below is unaffected.
+type docCapture = doccapture.DocCapture
+type docCaptureStep = doccapture.DocCaptureStep
 
 // gherkinKeyword reconstructs a Gherkin keyword from a pickle step's Type.
 // Pickles drop the authored keyword and keep only a coarse Type (Context /
@@ -312,6 +302,17 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 // flushDocCapture writes one scenario's accumulated capture to
 // <dir>/<file>.json. dir is created if missing.
 func flushDocCapture(dir, file string, cap *docCapture) error {
+	// U158-F09: a capture with zero steps is not a legitimate empty result —
+	// the After-hook wrapper above appends exactly one docCaptureStep per
+	// step actually executed (plus a synthetic one on a mid-scenario error),
+	// so reaching here with none means the Before hook fired but nothing
+	// downstream of it ever ran a step at all. Writing a syntactically valid
+	// JSON file for that would let assertAllPassed/assertAllHaveEvidence
+	// (scripts/gendocs/livingdocs/render.go) both pass VACUOUSLY over an
+	// empty Steps slice and generate a page proving nothing happened.
+	if len(cap.Steps) == 0 {
+		return fmt.Errorf("doc capture for scenario %q (%s) has zero steps -- refusing to write a capture that would let the generator's honesty checks pass vacuously", cap.Scenario, cap.Feature)
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}

@@ -3,9 +3,6 @@
 package testenv
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -28,89 +25,54 @@ type GitRepo struct {
 // given files (path -> content), and returns it. Paths are repo-relative and may
 // contain slashes (e.g. ".ctxloom/content/bundles/x.yaml"). The repo is created under
 // t.TempDir(), so it is cleaned up automatically.
+//
+// This is the *testing.T-fatal wrapper around SeedRemote (gitserve_acceptance.go)
+// — the same init-bare/init-work/config/write/add/commit/push/symbolic-ref
+// sequence used to live here a second time, hand-duplicated with its own
+// runGit/gitConfig twins (U163-F04). SeedRemote is the one implementation now;
+// this trades its returned error for t.Fatalf, matching every other
+// *testing.T helper in this package.
 func SeedGitRepo(t *testing.T, files map[string]string) *GitRepo {
 	t.Helper()
 
-	root := t.TempDir()
-	bare := filepath.Join(root, "remote.git")
-	work := filepath.Join(root, "work")
-
-	runGit(t, root, "init", "--bare", "-b", "main", bare)
-	runGit(t, root, "init", "-b", "main", work)
-	gitConfig(t, work)
-
-	for relPath, content := range files {
-		full := filepath.Join(work, filepath.FromSlash(relPath))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatalf("mkdir for %s: %v", relPath, err)
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			t.Fatalf("write %s: %v", relPath, err)
-		}
+	e := &TestEnvironment{Root: t.TempDir()}
+	url, err := e.SeedRemote(files)
+	if err != nil {
+		t.Fatalf("SeedGitRepo: %v", err)
 	}
+	bare := strings.TrimPrefix(url, "file://")
 
-	runGit(t, work, "add", "-A")
-	runGit(t, work, "commit", "-m", "seed")
-	runGit(t, work, "remote", "add", "origin", bare)
-	runGit(t, work, "push", "origin", "main")
-	// Point the bare repo's HEAD at main so default-branch clones resolve it.
-	runGit(t, bare, "symbolic-ref", "HEAD", "refs/heads/main")
-
-	sha := strings.TrimSpace(runGit(t, work, "rev-parse", "HEAD"))
+	sha, err := gitOutput(bare, "rev-parse", "refs/heads/main")
+	if err != nil {
+		t.Fatalf("SeedGitRepo: rev-parse HEAD: %v", err)
+	}
 
 	return &GitRepo{
 		Dir: bare,
-		URL: "file://" + bare,
-		SHA: sha,
+		URL: url,
+		SHA: strings.TrimSpace(sha),
 	}
 }
 
 // CommitFile adds/updates a file on main and pushes it, returning the new tip
 // SHA. Used to exercise the fetch/update path after an initial clone.
+//
+// Wraps AdvanceRemote (gitserve_acceptance.go) the same way SeedGitRepo wraps
+// SeedRemote — see that doc.
 func (r *GitRepo) CommitFile(t *testing.T, relPath, content string) string {
 	t.Helper()
-	work := t.TempDir()
-	runGit(t, filepath.Dir(work), "clone", r.URL, work)
-	gitConfig(t, work)
 
-	full := filepath.Join(work, filepath.FromSlash(relPath))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	e := &TestEnvironment{Root: t.TempDir()}
+	if err := e.AdvanceRemote(r.Dir, map[string]string{relPath: content}); err != nil {
+		t.Fatalf("CommitFile: %v", err)
 	}
-	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	runGit(t, work, "add", "-A")
-	runGit(t, work, "commit", "-m", "update "+relPath)
-	runGit(t, work, "push", "origin", "main")
-	r.SHA = strings.TrimSpace(runGit(t, work, "rev-parse", "HEAD"))
-	return r.SHA
-}
 
-func gitConfig(t *testing.T, dir string) {
-	t.Helper()
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "commit.gpgsign", "false")
-}
-
-func runGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	// Deterministic, hermetic git invocation.
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
-	)
-	out, err := cmd.CombinedOutput()
+	sha, err := gitOutput(r.Dir, "rev-parse", "refs/heads/main")
 	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+		t.Fatalf("CommitFile: rev-parse HEAD: %v", err)
 	}
-	return string(out)
+	r.SHA = strings.TrimSpace(sha)
+	return r.SHA
 }
 
 // CtxloomV1Layout returns a minimal ctxloom repo layout (a single bundle)

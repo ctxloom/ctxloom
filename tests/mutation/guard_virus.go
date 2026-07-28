@@ -4,6 +4,7 @@ package mutation
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/printer"
 	"go/token"
@@ -87,10 +88,20 @@ func newGuardNegate() *guardNegate {
 // render turns an ast.Expr back into its source text so it can be matched
 // against cascadeGuards. A fresh empty FileSet is fine here: we only need the
 // expression's own text, never its position.
+// render turns an ast.Expr back into its source text so it can be matched
+// against cascadeGuards. A fresh empty FileSet is fine here: we only need the
+// expression's own text, never its position.
+//
+// U164-F02: printer.Fprint's error used to be swallowed, returning "" -- an
+// unprintable expression then fell through the targets[""] lookup as
+// "not a target", indistinguishable from an ordinary non-cascade if, and
+// silently lowering the mutation floor this virus exists to enforce. A
+// well-formed *ast.Expr produced by go/parser failing to print is not a
+// condition this tool should paper over; panic names it instead.
 func render(expr ast.Expr) string {
 	var buf bytes.Buffer
 	if err := printer.Fprint(&buf, token.NewFileSet(), expr); err != nil {
-		return ""
+		panic(fmt.Sprintf("guardNegate.render: printer.Fprint failed on a parsed expression: %v", err))
 	}
 	return buf.String()
 }

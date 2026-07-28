@@ -490,7 +490,12 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 	if err != nil {
 		t.Fatalf("test env: %v", err)
 	}
-	t.Cleanup(func() { _ = env.Cleanup() })
+	// U163-F03: Cleanup's error used to be discarded here too.
+	t.Cleanup(func() {
+		if err := env.Cleanup(); err != nil {
+			t.Errorf("test environment cleanup: %v", err)
+		}
+	})
 	if err := env.Setup(); err != nil {
 		t.Fatalf("setup: %v", err)
 	}

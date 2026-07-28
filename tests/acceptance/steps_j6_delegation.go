@@ -150,26 +150,39 @@ func j6JournalRaw(w *World) (string, error) {
 
 // j6AllFactsForAgent parses every run.enqueued fact for one agent name, in
 // journal (append) order.
-func j6AllFactsForAgent(w *World, agent string) ([]j6RunFact, error) {
+// j6AllFactsForAgent parses run.enqueued facts for one agent. skipped and
+// firstSkipErr report any journal line that failed to unmarshal, or whose
+// run.enqueued payload (Data) failed to decode (U161-F04: these used to be
+// silently `continue`d past uncounted, so a schema-drifted journal read as
+// "no journaled run.enqueued fact found for agent X" -- indistinguishable
+// from a child that genuinely never spawned).
+func j6AllFactsForAgent(w *World, agent string) (out []j6RunFact, skipped int, firstSkipErr error, err error) {
 	raw, err := j6JournalRaw(w)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
-	var out []j6RunFact
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		var jl j6JournalLine
-		if err := json.Unmarshal([]byte(line), &jl); err != nil {
+		if uerr := json.Unmarshal([]byte(line), &jl); uerr != nil {
+			skipped++
+			if firstSkipErr == nil {
+				firstSkipErr = fmt.Errorf("journal line %q: %w", line, uerr)
+			}
 			continue
 		}
 		if jl.Kind != "run.enqueued" {
 			continue
 		}
 		var f j6RunFact
-		if err := json.Unmarshal(jl.Data, &f); err != nil {
+		if uerr := json.Unmarshal(jl.Data, &f); uerr != nil {
+			skipped++
+			if firstSkipErr == nil {
+				firstSkipErr = fmt.Errorf("run.enqueued data %q: %w", string(jl.Data), uerr)
+			}
 			continue
 		}
 		if f.Agent != agent {
@@ -177,7 +190,7 @@ func j6AllFactsForAgent(w *World, agent string) ([]j6RunFact, error) {
 		}
 		out = append(out, f)
 	}
-	return out, nil
+	return out, skipped, firstSkipErr, nil
 }
 
 // j6LatestFactForAgent returns the MOST RECENT run.enqueued fact for agent —
@@ -185,11 +198,14 @@ func j6AllFactsForAgent(w *World, agent string) ([]j6RunFact, error) {
 // spawns "fixer" twice and relies on "remembered as" snapshots (below) to
 // keep the first one reachable once a second exists.
 func j6LatestFactForAgent(w *World, agent string) (*j6RunFact, error) {
-	facts, err := j6AllFactsForAgent(w, agent)
+	facts, skipped, skipErr, err := j6AllFactsForAgent(w, agent)
 	if err != nil {
 		return nil, err
 	}
 	if len(facts) == 0 {
+		if skipped > 0 {
+			return nil, fmt.Errorf("no journaled run.enqueued fact found for agent %q -- and %d journal line(s) failed to parse (first: %v), so this may be a schema-drifted journal, not a child that never spawned", agent, skipped, skipErr)
+		}
 		return nil, fmt.Errorf("no journaled run.enqueued fact found for agent %q", agent)
 	}
 	return &facts[len(facts)-1], nil

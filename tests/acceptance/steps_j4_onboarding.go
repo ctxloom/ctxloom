@@ -17,6 +17,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -169,11 +170,24 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		// step on Bob is an item landing pending — first-party team content
 		// never does (see EffectiveTrust step 3, LOCAL). Mirrors
 		// steps_j2_team.go's "it reached him without any review" check.
-		if err := runBob(w, "review", "--list"); err != nil {
+		//
+		// U160-F08: asserts the structured total from --format json rather
+		// than grepping for the exact prose sentence "Nothing is pending
+		// review." (a wording change would silently break the assertion into
+		// a false red, or a false green if the new wording still contained
+		// that substring).
+		if err := runBob(w, "review", "--list", "--format", "json"); err != nil {
 			return err
 		}
-		if !strings.Contains(w.j2().bobOutput, "Nothing is pending review.") {
-			return fmt.Errorf("expected nothing to require Bob's review/configuration; `review --list` output:\n%s", w.j2().bobOutput)
+		out := w.j2().bobOutput
+		var res struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal([]byte(out), &res); err != nil {
+			return fmt.Errorf("review --list --format json: not valid JSON: %w (output:\n%s)", err, out)
+		}
+		if res.Total != 0 {
+			return fmt.Errorf("expected nothing to require Bob's review/configuration (total=0), got total=%d; `review --list --format json` output:\n%s", res.Total, out)
 		}
 		return nil
 	})

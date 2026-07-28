@@ -441,7 +441,7 @@ func registerJ11Steps(ctx *godog.ScenarioContext) {
 // snapshots. Called once after every taskloom mutation in the append-only
 // scenario.
 func (j11 *j11State) snapshotTaskLog(w *World) error {
-	lines, err := readTaskLogLines(w)
+	lines, err := readTaskLogLines(w, false) // pre-mutation baseline: absence is legitimate
 	if err != nil {
 		return err
 	}
@@ -469,29 +469,26 @@ func (j11 *j11State) foldedTask(w *World) (*tasks.Task, error) {
 	return nil, fmt.Errorf("task %s not found in %v", j11.harp, got)
 }
 
-// j11RawEvent decodes just the fields the tag-schema scalar-collapse
-// scenarios need from a raw JSONL log line (internal/shared/tasks.Event is
-// the authoritative shape; this is a same-tags-JSON subset so this file
-// doesn't need to import the tasks package for a build-tagged acceptance
-// test).
-type j11RawEvent struct {
-	Op   string   `json:"op"`
-	Task string   `json:"task"`
-	Tags []string `json:"tags"`
-}
-
 // taskEvents reads the current on-disk task log and returns every event
 // belonging to j11.harp, in file order — the raw seam the scalar-collapse
 // scenarios assert against directly (proving the log records BOTH a
 // collapsing untag and the new tag, not just the folded Task.Tags view).
-func (j11 *j11State) taskEvents(w *World) ([]j11RawEvent, error) {
-	lines, err := readTaskLogLines(w)
+//
+// U159-F03: this used to decode into a local j11RawEvent subset-of-Event
+// type, justified by a comment claiming "this file doesn't need to import
+// the tasks package for a build-tagged acceptance test" — false even at the
+// time it was written, since the file already imports
+// internal/shared/tasks for tasks.Task (foldedTask, above). Decoding
+// straight into tasks.Event removes a duplicate that could silently drift
+// from the real on-disk shape.
+func (j11 *j11State) taskEvents(w *World) ([]tasks.Event, error) {
+	lines, err := readTaskLogLines(w, true) // called only after a mutation this scenario performed: absence is a real failure
 	if err != nil {
 		return nil, err
 	}
-	var out []j11RawEvent
+	var out []tasks.Event
 	for _, line := range lines {
-		var ev j11RawEvent
+		var ev tasks.Event
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			return nil, fmt.Errorf("unmarshal event line %q: %w", line, err)
 		}
@@ -505,12 +502,23 @@ func (j11 *j11State) taskEvents(w *World) ([]j11RawEvent, error) {
 // readTaskLogLines reads the isolated env's single per-project task log and
 // splits it into non-empty lines. Returns an empty (nil) slice, not an
 // error, when the log does not exist yet (before the first mutation).
-func readTaskLogLines(w *World) ([]string, error) {
+func readTaskLogLines(w *World, mustExist bool) ([]string, error) {
 	matches, err := filepath.Glob(filepath.Join(w.env.HomeDir, ".ctxloom", "tasks", "*.jsonl"))
 	if err != nil {
 		return nil, fmt.Errorf("glob task log: %w", err)
 	}
 	if len(matches) == 0 {
+		// U159-F04: absence used to be unconditionally tolerant ((nil, nil)),
+		// which is right for the pre-mutation baseline (snapshotTaskLog, before
+		// the first taskloom mutation ever ran) but wrong for taskEvents, which
+		// is only ever called AFTER a mutation this scenario itself just
+		// performed — there a missing log is indistinguishable from "the
+		// mutation wrote nothing", and a negative assertion ("no untag of X")
+		// would pass vacuously against zero events either way. mustExist lets
+		// each caller declare which case it is in.
+		if mustExist {
+			return nil, fmt.Errorf("expected a per-project task log under %s after a taskloom mutation, found none", filepath.Join(w.env.HomeDir, ".ctxloom", "tasks"))
+		}
 		return nil, nil
 	}
 	if len(matches) != 1 {

@@ -163,15 +163,32 @@ func provisionCuratedHome(home string) error {
 		return fmt.Errorf("create curated HOME: %w", err)
 	}
 	hostHome, err := hostHomeDir()
-	if err != nil || hostHome == "" {
-		return nil // no resolvable host HOME — curated dir stays usable, just empty
+	if err != nil {
+		// U062-F03: the resolution error used to be discarded with no
+		// warning at all — the caller would then point $HOME at an empty
+		// curated dir and report success. A genuinely empty ALLOWLIST match
+		// (host has neither ~/.gitconfig nor ~/.ssh) is a legitimate host
+		// state and stays silent below; an unresolvable host HOME is not.
+		clidiag.Warn("ctxloom", "curated HOME: could not resolve the host HOME to link dotfiles from (%v); the curated HOME starts empty", err)
+		return nil
+	}
+	if hostHome == "" {
+		clidiag.Warn("ctxloom", "curated HOME: the host HOME resolved empty; the curated HOME starts empty")
+		return nil
 	}
 	for _, name := range curatedHomeAllowlist {
 		src := filepath.Join(hostHome, name)
 		if _, statErr := os.Lstat(src); statErr != nil {
 			continue // absent on the host — skip; never create a dangling link
 		}
-		_ = os.Symlink(src, filepath.Join(home, name))
+		if symErr := os.Symlink(src, filepath.Join(home, name)); symErr != nil {
+			// U062-F03: every per-file Symlink failure used to be discarded
+			// with no count and no warning (fails when the destination
+			// already exists, and fails for the whole allowlist on Windows
+			// without the privilege) — now at least loud, even though the
+			// curated HOME still proceeds without that one entry.
+			clidiag.Warn("ctxloom", "curated HOME: could not link %s into it (%v); it will be missing from the curated HOME", name, symErr)
+		}
 	}
 	return nil
 }

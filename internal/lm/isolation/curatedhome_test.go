@@ -99,6 +99,41 @@ func TestProvisionCuratedHome_PartialPresenceLinksOnlyWhatExists(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
+// TestProvisionCuratedHome_WarnsOnUnresolvableHostHome pins half of U062-F03:
+// an os.UserHomeDir error used to be discarded with NO warning at all — the
+// caller then points $HOME at the curated dir (still empty) and reports
+// success. It must now be loud, even though provisioning still succeeds
+// (an unresolvable host HOME is not itself a reason to fail the whole run).
+func TestProvisionCuratedHome_WarnsOnUnresolvableHostHome(t *testing.T) {
+	orig := hostHomeDir
+	hostHomeDir = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { hostHomeDir = orig })
+	buf := captureWarnings(t)
+
+	home := filepath.Join(t.TempDir(), "curated-home")
+	require.NoError(t, provisionCuratedHome(home))
+	assert.Contains(t, buf.String(), "could not resolve the host HOME", "an unresolvable host HOME must be loud, not silent")
+}
+
+// TestProvisionCuratedHome_WarnsOnSymlinkFailure pins the other half of
+// U062-F03: os.Symlink failing for an allowlisted entry (e.g. the
+// destination somehow already exists) used to be discarded with no count
+// and no warning at all. It must now name the entry that failed.
+func TestProvisionCuratedHome_WarnsOnSymlinkFailure(t *testing.T) {
+	hostHome := withFakeHome(t)
+	require.NoError(t, os.WriteFile(filepath.Join(hostHome, ".gitconfig"), []byte("x"), 0o644))
+	buf := captureWarnings(t)
+
+	home := filepath.Join(t.TempDir(), "curated-home")
+	// Pre-create the destination as a plain (non-symlink) file so
+	// os.Symlink fails with EEXIST for .gitconfig specifically.
+	require.NoError(t, os.MkdirAll(home, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("pre-existing"), 0o644))
+
+	require.NoError(t, provisionCuratedHome(home), "a per-entry symlink failure must not fail the whole provision")
+	assert.Contains(t, buf.String(), ".gitconfig", "the warning must name the entry that failed to link")
+}
+
 // TestProvisionCuratedHome_AllowlistIsExactlyGitconfigAndSSH locks the
 // allowlist scope: extending it is a deliberate decision (a concrete
 // breakage), never speculative widening. netrc/npmrc/gnupg carry plaintext

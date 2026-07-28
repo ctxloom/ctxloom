@@ -135,6 +135,16 @@ func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Sessi
 // diagnostics). Factored out of Start so the pty/exit/resize plumbing is
 // unit-testable against a plain command (sh/cat) with no docker daemon.
 func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) (*Session, error) {
+	// U152-F01: a nil spec.Stdout used to silently substitute io.Discard —
+	// the pump ran, Wait still returned ExitStatus{Code: 0}, nil, and the
+	// ENTIRE interactive session's output vanished with no error, no
+	// warning, no log: exit 0, success, zero bytes delivered. vpio.ProcessSpec
+	// documents nil-handling for Stdin only (a non-interactive turn); nil
+	// Stdout is not a sanctioned input for this transport, so refuse it
+	// loudly instead of guessing.
+	if spec.Stdout == nil {
+		return nil, fmt.Errorf("vpio/dockerexec: ProcessSpec.Stdout is nil; this transport has nowhere to deliver the session's output")
+	}
 	master, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("vpio/dockerexec: start exec under host pty: %w", err)
@@ -147,11 +157,7 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 
 	go func() {
 		defer close(s.outDone)
-		dst := io.Discard
-		if spec.Stdout != nil {
-			dst = spec.Stdout
-		}
-		_, _ = io.Copy(io.MultiWriter(dst, s.ring), master)
+		_, _ = io.Copy(io.MultiWriter(spec.Stdout, s.ring), master)
 	}()
 
 	return s, nil

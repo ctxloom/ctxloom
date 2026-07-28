@@ -60,11 +60,16 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 }
 
 // TestContainerProfileFor_UnknownIsDefault: a genuinely unknown/unregistered
-// backend name keeps the pre-profile semantics — the generic image, claude
-// auth, NO local build (run if the image is present, degrade if not). This is
-// now the ONLY door into the default profile — every REGISTERED backend
-// (claude-code/kiro/codex/opencode/antigravity) has its own case with its
-// own auth, asserted by the tests below (the paced-even regression guard).
+// backend name keeps the pre-profile semantics for image/overlay/build shape
+// — the generic image, NO local build (run if the image is present, degrade
+// if not) — but, per U064-F01, no longer fails OPEN on credentials. Before
+// the fix the default wired resolveClaudeContainerAuth, so any unrecognized
+// engine (registry.go's generic "acp" backend; container_transport.go's own
+// doc names this exact fallthrough) got the user's ANTHROPIC_API_KEY/
+// ANTHROPIC_AUTH_TOKEN passed through and ~/.claude credentials copy-mounted
+// into a foreign engine's container. It must now fail CLOSED: resolveAuth
+// always returns ok=false, and the hint names the missing profile rather
+// than Anthropic's env vars.
 func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 	for _, name := range []string{"", "mock"} {
 		p := containerProfileFor(name)
@@ -72,10 +77,12 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 		assert.Empty(t, p.containerfile, "backend %q has no local-build recipe", name)
 		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
 		assert.Contains(t, p.overlayDirs, ".claude", "backend %q", name)
-		// The default profile is claude-oriented throughout, including auth —
-		// legitimate ONLY for a truly unrecognized backend name.
-		require.NotNil(t, p.resolveAuth, "backend %q wires the default (claude) auth resolver", name)
-		assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q inherits claude's degrade hint", name)
+		require.NotNil(t, p.resolveAuth, "backend %q must still wire a resolver, just one that fails closed", name)
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-test")
+		_, ok := p.resolveAuth("/root", t.TempDir())
+		assert.False(t, ok, "backend %q must NOT authenticate as claude — no profile is registered for it", name)
+		assert.NotContains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q must not inherit claude's degrade hint", name)
 	}
 }
 

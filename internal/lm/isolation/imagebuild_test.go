@@ -409,6 +409,59 @@ func TestEnsureImage_UnbuildableBinaryDegrades(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot be built from this binary")
 }
 
+// TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding pins U063-F01:
+// a STALE (present, provenance mismatch) image that cannot even be REBUILT
+// because resolveSelfExe fails (e.g. this dev host cannot serve in-container)
+// used to `return nil` here with NO warning and NO finding at all — silently
+// degrading the isolation boundary to a stale, possibly pre-entrypoint
+// (root-running) image. It must now record the SAME fatal ClassIsolation
+// finding the parallel "rebuild attempted and failed" branch already
+// produces for the identical outcome (TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded).
+func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T) {
+	resetStrictness(t)
+	forceProvenance(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-docker")
+	writeInspectOKBuildFailScript(t, script, `{"ctxloom.provenance":"stale-nomatch"}`)
+
+	orig := resolveSelfExe
+	resolveSelfExe = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { resolveSelfExe = orig })
+
+	c := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-stale-unbuildable-test:latest",
+		profile: containerProfile{containerfile: []byte("FROM scratch\n"), validate: "true"},
+	}
+	require.NoError(t, c.ensureImage(context.Background()),
+		"the stale image still launches — unbuildable-from-this-binary must never take the container axis down")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "a stale image that cannot even be rebuilt from this binary must record exactly one fatal finding")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "STALE")
+	assert.Contains(t, findings[0].FixIt, "--degraded")
+}
+
+// TestComposableBuildSources_EmptyEnginesFailsLoud pins U063-F02/U064-F02:
+// isolation_engines resolving to NO known engine (every configured name
+// unknown or non-composable) used to silently produce a composed
+// Containerfile with zero engine-install layers — it builds, tags, passes
+// every gate, and the run fails with the engine binary simply absent. It
+// must now record a fatal ClassIsolation finding and return no build
+// sources at all, rather than a green recipe for an empty image.
+func TestComposableBuildSources_EmptyEnginesFailsLoud(t *testing.T) {
+	resetStrictness(t)
+	p := containerProfile{engineInstall: []byte("RUN something\n")}
+	sources := composableBuildSources(p, buildSourcesOptions{engines: []string{"totally-unknown-engine"}})
+	assert.Nil(t, sources, "no build source at all for a resolved-empty engine set")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1)
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "no known engine")
+}
+
 // TestTailLines bounds the failure diagnostics to the last n lines.
 func TestTailLines(t *testing.T) {
 	assert.Equal(t, "b\nc", tailLines("a\nb\nc\n", 2))

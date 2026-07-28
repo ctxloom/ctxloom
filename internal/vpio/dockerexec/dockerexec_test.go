@@ -52,6 +52,19 @@ func TestBuildExecCmd_RendersTurnArgv(t *testing.T) {
 	assert.Contains(t, env, "TERM=dumb", "the turn process runs under TERM=dumb")
 }
 
+// TestStartPTYCommand_NilStdoutErrors pins U152-F01: a nil spec.Stdout used
+// to silently substitute io.Discard — the pump ran, Wait still returned
+// ExitStatus{Code: 0}, nil, and the entire interactive session's output
+// vanished with no error, no warning, no log at all: exit 0, success, zero
+// bytes delivered. It must now refuse instead of guessing.
+func TestStartPTYCommand_NilStdoutErrors(t *testing.T) {
+	ctx := context.Background()
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "true"), vpio.ProcessSpec{})
+	require.Error(t, err, "a nil Stdout must be refused, not silently discarded")
+	assert.Nil(t, sess)
+	assert.Contains(t, err.Error(), "Stdout is nil")
+}
+
 // TestBuildExecCmd_NoLabel omits --label when the TurnSpec carries none.
 func TestBuildExecCmd_NoLabel(t *testing.T) {
 	cmd := NewLauncher(isolation.Docker{}, "c", TurnSpec{Backend: "claude", StartPath: "/p"}).buildExecCmd(context.Background())

@@ -24,6 +24,18 @@ import (
 // runtime to start.
 const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var, or pass --degraded (env CTXLOOM_DEGRADED=1) to run this member on the shared host config instead of an isolated one"
 
+// backendsWithNoGlobalState are registered backends that provably have NO
+// engine-global config/credential state of their own to isolate, so the
+// U065-F01 "unregistered backend" finding below must not fire for them. Only
+// entry today: "mock", ctxloom's own built-in test double — a bare echo that
+// never spawns a grandchild process and never touches disk (see
+// tests/acceptance/features/j9_isolation.feature's own hermeticity note).
+// This is a NAMED, independently-verified exemption, never a convenience
+// default — a real, user-selectable backend (e.g. "acp") that falls through
+// both registries is exactly the bug U065-F01 fixes, not a candidate for
+// this list.
+var backendsWithNoGlobalState = map[string]bool{"mock": true}
+
 // worktreeBaseRef is the ref each per-agent worktree is checked out to: HEAD,
 // DETACHED (T0.2). Ephemeral per-agent checkouts are never branch-per-agent in
 // this phase — detached avoids "branch already checked out elsewhere" collisions
@@ -203,6 +215,20 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	if spec, ok := curatedHomeSpecs[w.backend]; ok {
 		ws.curatedHome = w.provisionCuratedHomeFor(agentID, spec)
 	} else {
+		if _, seeded := credentialSeedSpecs[w.backend]; !seeded && w.backend != "" && !backendsWithNoGlobalState[w.backend] {
+			// U065-F01: a backend registered in NEITHER credentialSeedSpecs
+			// nor curatedHomeSpecs (e.g. "acp") used to fall through here with
+			// zero engine-global isolation and NO finding at all — the run
+			// reports "worktree" isolation while the engine's global
+			// config/creds stay fully shared with the host. w.backend == ""
+			// stays silent: that is the documented no-context construction,
+			// not an unregistered backend. backendsWithNoGlobalState is the
+			// one, independently-verified exemption (the built-in mock
+			// backend), not a silent carve-out.
+			strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
+				"worktree isolation for agent %q: backend %q is registered in neither the credential-seed nor curated-HOME registry — only the working directory is isolated; the engine's global config and credentials remain fully shared with the host",
+				agentID, w.backend)
+		}
 		ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID)
 	}
 	ws.scratchDir = w.provisionScratchDir(agentID)
@@ -249,6 +275,20 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 // getting the pre-existing warn-only curatedHomeAuthFinding exactly as
 // before. See Worktree.containerWrapped's doc for how that invariant is set.
 func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) string {
+	// U065-F02: the finding switch used to run AFTER provisionCuratedHome, so
+	// an early `return ""` on a transient mkdir/symlink failure suppressed the
+	// FATAL curatedHomeRefusal entirely. The refusal exists because this
+	// engine's auth and/or file writes escape a host worktree — facts wholly
+	// independent of whether the scratch dir happened to provision cleanly —
+	// so the verdict must fire regardless of the I/O outcome below.
+	switch {
+	case spec.authIsolated:
+		// Fully isolated — no finding at all.
+	case !spec.workspaceViable && !w.containerWrapped:
+		curatedHomeRefusal(agentID, spec)
+	default:
+		curatedHomeAuthFinding(agentID, spec)
+	}
 	home := worktreeScratchPath(w.scratchBase(), "ctxloom-home", agentID)
 	if err := provisionCuratedHome(home); err != nil {
 		clidiag.Warn("ctxloom", "worktree: curated HOME for %s unavailable (using the shared host HOME): %v", spec.engine, err)
@@ -258,14 +298,6 @@ func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) 
 		// leave a fully-created, unreferenced dir on disk.
 		_ = os.RemoveAll(home)
 		return ""
-	}
-	switch {
-	case spec.authIsolated:
-		// Fully isolated — no finding at all.
-	case !spec.workspaceViable && !w.containerWrapped:
-		curatedHomeRefusal(agentID, spec)
-	default:
-		curatedHomeAuthFinding(agentID, spec)
 	}
 	return home
 }
@@ -300,7 +332,17 @@ func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[s
 	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
 	// world-traversable.
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		clidiag.Warn("ctxloom", "worktree: per-agent config-home unavailable (using shared global config): %v", err)
+		// U065-F03: this used to be a plain clidiag.Warn, while a LESSER
+		// (partial: creds present but unseedable) failure two frames later in
+		// seedCredentials is a strictness.Fail(ClassIsolation) — inverting
+		// the severity ordering, so a TOTAL loss of engine-global isolation
+		// was quieter than a partial one, and a strict run would proceed
+		// unsandboxed-in-config where it would have aborted on the lesser
+		// fault. Escalate to match: fatal unless --degraded, like every
+		// sibling isolation gate.
+		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
+			"worktree isolation for agent %q: per-agent config-home unavailable (%v) — falling back to the shared global config, with no engine-global isolation at all",
+			agentID, err)
 		// Defensive against a mutant flipping this check: home is a
 		// deterministic path (not MkdirTemp-random), so a real success
 		// misclassified as failure would otherwise leave a fully-created,

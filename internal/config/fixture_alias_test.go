@@ -17,7 +17,7 @@ import (
 // struct was copied, the containers behind it were not. That re-opened exactly
 // the shared-mutation hole the unexported fields plus accessors.go's
 // copy-on-read policy exist to close: a Fixture handed out of a Config was a
-// live window onto the shared instance every Load()/Current() holder sees.
+// live window onto the shared instance every Load() holder sees.
 //
 // These are CLASS gates, not instance checks. They walk both values
 // reflectively, so a field added to Fixture (or to Config) tomorrow and

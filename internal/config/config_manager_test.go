@@ -217,7 +217,7 @@ func TestConfig_SaveLockedAloneLosesConcurrentWrites(t *testing.T) {
 }
 
 // TestUpdate_AbandonedMutationDoesNotLeak proves an Update whose fn returns
-// an error leaves the shared state — both the on-disk file and any Snapshot
+// an error leaves the shared state — both the on-disk file and any Config instance
 // another holder already has — completely untouched.
 func TestUpdate_AbandonedMutationDoesNotLeak(t *testing.T) {
 	appDir := managerTestDir(t)
@@ -238,10 +238,10 @@ func TestUpdate_AbandonedMutationDoesNotLeak(t *testing.T) {
 	})
 	require.ErrorIs(t, err, wantErr)
 
-	// The Snapshot obtained BEFORE the abandoned Update is untouched — Update
-	// never mutates any live *Snapshot in place, only a private Config value
+	// The Config instance obtained BEFORE the abandoned Update is untouched —
+	// Update never mutates any live instance in place, only a private Config value
 	// scoped to the call.
-	assert.Equal(t, "original", before.GetDefaultAgent(), "a prior Snapshot holder must never observe an abandoned mutation")
+	assert.Equal(t, "original", before.GetDefaultAgent(), "a prior Config holder must never observe an abandoned mutation")
 
 	after, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
@@ -249,9 +249,9 @@ func TestUpdate_AbandonedMutationDoesNotLeak(t *testing.T) {
 }
 
 // TestReload_ReappliesPersistentOverlays proves an env/--config-set override
-// survives Reload onto freshly-read files: the override is not something
-// only the FIRST Current() resolves, it re-applies every time exactly like a
-// fresh process start would.
+// survives Invalidate()+Load() onto freshly-read files: the override is not
+// something only the FIRST Load() resolves, it re-applies every time exactly
+// like a fresh process start would.
 func TestReload_ReappliesPersistentOverlays(t *testing.T) {
 	path := writeProjectConfig(t, "version: 6\nworkspace: none\n")
 	appDir := filepath.Dir(path)
@@ -261,7 +261,7 @@ func TestReload_ReappliesPersistentOverlays(t *testing.T) {
 	})
 	t.Cleanup(ResetOverrides)
 
-	snap, err := Current()
+	snap, err := Load()
 	require.NoError(t, err)
 	require.Equal(t, "worktree", snap.GetWorkspace(), "precondition: the override beats the file's own value")
 
@@ -269,35 +269,38 @@ func TestReload_ReappliesPersistentOverlays(t *testing.T) {
 	// value the override must continue to beat.
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\nworkspace: worktree\nruntime: container\n"), 0o644))
 
-	reloaded, err := Reload()
+	Invalidate()
+	reloaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "worktree", reloaded.GetWorkspace(), "the override must still beat the freshly re-read file after Reload")
+	assert.Equal(t, "worktree", reloaded.GetWorkspace(), "the override must still beat the freshly re-read file after a reload")
 	assert.Equal(t, "container", reloaded.GetRuntime(), "a freshly-added file value with no override must still come through")
 }
 
 // TestReload_ExistingSnapshotHoldersUnaffected proves a holder of a prior
-// Snapshot keeps it — Reload never mutates a *Snapshot in place, it only
-// changes what the NEXT Current() call returns.
+// Config instance keeps it — Invalidate()+Load() never mutates an existing
+// *Config in place, it only changes what the NEXT Load() call returns.
 func TestReload_ExistingSnapshotHoldersUnaffected(t *testing.T) {
 	path := writeProjectConfig(t, "version: 6\ndefault_agent: alpha\n")
 	appDir := filepath.Dir(path)
 
-	held, err := Current()
+	held, err := Load()
 	require.NoError(t, err)
 	require.Equal(t, "alpha", held.GetDefaultAgent())
 
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\ndefault_agent: beta\n"), 0o644))
 
-	reloaded, err := Reload()
+	Invalidate()
+	reloaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "beta", reloaded.GetDefaultAgent(), "Reload must see the on-disk change")
-	assert.Equal(t, "alpha", held.GetDefaultAgent(), "a Snapshot obtained BEFORE Reload must be completely unaffected by it")
-	assert.NotSame(t, held, reloaded, "Reload must hand back an independent Snapshot, never mutate the held one")
+	assert.Equal(t, "beta", reloaded.GetDefaultAgent(), "a reload must see the on-disk change")
+	assert.Equal(t, "alpha", held.GetDefaultAgent(), "a Config instance obtained BEFORE the reload must be completely unaffected by it")
+	assert.NotSame(t, held, reloaded, "a reload must hand back an independent Config instance, never mutate the held one")
 }
 
 // TestSnapshot_CannotBeMutatedByReaders documents (and, at the one point Go
-// lets a test assert it directly, proves) that Snapshot's immutability is a
-// COMPILE error, not a runtime check: every one of Config's fields is
+// lets a test assert it directly, proves) that a shared *Config's
+// immutability is a COMPILE error, not a runtime check: every one of Config's
+// fields is
 // unexported (Phase 3), so no code outside this package can even NAME
 // cfg.Agents, cfg.MCP, etc., let alone assign to them — there is no runtime
 // path to test here because the illegal statement never compiles. The
@@ -329,17 +332,17 @@ func TestSnapshot_CannotBeMutatedByReaders(t *testing.T) {
 	agentsCopy := cfg.GetConfiguredAgents()
 	agentsCopy["injected"] = agents.Agent{Engine: "should-not-appear"}
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected",
-		"mutating an accessor's returned copy must never reach the shared Snapshot")
+		"mutating an accessor's returned copy must never reach the shared instance")
 }
 
 // TestSnapshot_CannotBeReplacedWholesale proves there is no exported,
-// zero-effort way to swap out what a *Snapshot points to from outside this
-// package: no exported field to assign into (Snapshot IS Config, and every
-// Config field is unexported), and the only exported ways to OBTAIN a
-// *Snapshot — Load, LoadFresh, Current, Reload, NewFixture — each return an
-// independent value tied to a real source (a config.yaml, or an explicit
-// Fixture — never an arbitrary in-place swap of an existing *Snapshot's
-// contents). Two Load calls against different app dirs never alias.
+// zero-effort way to swap out what a shared *Config points to from outside
+// this package: no exported field to assign into (every Config field is
+// unexported), and the only exported ways to OBTAIN a *Config — Load,
+// LoadFresh, NewFixture — each return an independent value tied to a real
+// source (a config.yaml, or an explicit Fixture — never an arbitrary
+// in-place swap of an existing instance's contents). Two Load calls against
+// different app dirs never alias.
 func TestSnapshot_CannotBeReplacedWholesale(t *testing.T) {
 	appDirA := managerTestDir(t)
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDirA), []byte("version: 6\ndefault_agent: a\n"), 0o644))
@@ -353,7 +356,7 @@ func TestSnapshot_CannotBeReplacedWholesale(t *testing.T) {
 	b, err := Load(WithAppDir(appDirB))
 	require.NoError(t, err)
 
-	assert.NotSame(t, a, b, "two Load calls against different app dirs must never return the same *Snapshot")
+	assert.NotSame(t, a, b, "two Load calls against different app dirs must never return the same *Config")
 	assert.Equal(t, "a", a.GetDefaultAgent())
 	assert.Equal(t, "b", b.GetDefaultAgent(), "loading b must never have overwritten a's contents")
 }

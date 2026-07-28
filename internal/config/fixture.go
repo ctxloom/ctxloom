@@ -63,7 +63,7 @@ type Fixture struct {
 // ToFixture returns a Fixture carrying a copy of every one of c's fields —
 // the read half of the NewFixture round-trip, for callers that need to take
 // an independent Config they already hold (e.g. one built by ParseConfig, not
-// the ambient Load()/Current() instance), change a handful of fields, and
+// the ambient Load() instance), change a handful of fields, and
 // re-marshal. operations.BuildInitialConfig does exactly this: it parses the
 // embedded init scaffold, overrides llm/default_agent/agents for the chosen
 // engine, and marshals the result — none of which touches the shared ambient

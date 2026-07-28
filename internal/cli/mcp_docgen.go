@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"fmt"
+	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -37,4 +39,45 @@ func NewDocMCPServer() *mcp.Server {
 		panic("docgen: assemble runner MCP surface: " + err.Error())
 	}
 	return server
+}
+
+
+// ListDocMCPToolNames returns the sorted tool names registered on the
+// documented (runner-terminated) MCP surface built by NewDocMCPServer, via an
+// in-memory client round trip -- the SDK exposes no direct accessor on the
+// server itself (see internal/docsgen/mcp.go's enumerateMCPSurface, which
+// does the identical round trip to render the published reference page).
+//
+// U156-F01: this exists so a completeness gate can measure the SAME surface
+// this package documents. Before it, tests/acceptance/completeness_test.go
+// only ever enumerated the STANDALONE `ctxloom mcp serve` surface (a
+// deliberately reduced agent-delegation surface with different schemas --
+// see mcpIntro's own caution block), so the surface a real harness actually
+// talks to through `ctxloom run`/`ctxloom acp` had zero completeness
+// coverage: roster, agent_report and agent_fetch_artifact are named in this
+// package's own doc as existing only here, and were never checked by
+// anything.
+func ListDocMCPToolNames(ctx context.Context) ([]string, error) {
+	server := NewDocMCPServer()
+	serverT, clientT := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, serverT, nil); err != nil {
+		return nil, fmt.Errorf("connect doc server: %w", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "completeness-check"}, nil)
+	cs, err := client.Connect(ctx, clientT, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect doc client: %w", err)
+	}
+	defer cs.Close()
+
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list tools: %w", err)
+	}
+	names := make([]string, 0, len(res.Tools))
+	for _, t := range res.Tools {
+		names = append(names, t.Name)
+	}
+	sort.Strings(names)
+	return names, nil
 }

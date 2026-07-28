@@ -209,6 +209,21 @@ var knownUncoveredTools = []string{
 	"list_sessions",
 }
 
+// knownUncoveredRunnerOnlyTools is the exact set of tools that exist ONLY on
+// the documented (runner-terminated, cli.NewDocMCPServer) MCP surface -- not
+// on the standalone `ctxloom mcp serve` surface knownUncoveredTools governs
+// -- and are not yet exercised by any scenario (U156-F01). roster,
+// agent_report, and agent_fetch_artifact are named explicitly in
+// scripts/gendocs/main.go's mcpIntro as existing only on this surface;
+// before this list and its subtest existed, they had no completeness
+// coverage of any kind. Backfill: task spry-niece (same task as
+// knownUncoveredTools's evaluate_triggers/session-memory entries).
+var knownUncoveredRunnerOnlyTools = []string{
+	"agent_fetch_artifact",
+	"agent_report",
+	"roster",
+}
+
 // assertExactUncovered fails t if got (the actual uncovered set, need not be
 // pre-sorted) differs from want (a knownUncovered* allowlist) in either
 // direction: an item in got but not want is a NEW gap (something regressed);
@@ -376,6 +391,50 @@ func TestCompleteness(t *testing.T) {
 			}
 		}
 		assertExactUncovered(t, "mcp tools", uncovered, knownUncoveredTools)
+	})
+
+	// U156-F01: everything above measures the STANDALONE `ctxloom mcp
+	// serve` surface (liveSurface spawns it via env.StartMCP()). That is
+	// NOT the surface ctxloom documents: scripts/gendocs/main.go's
+	// mcpIntro states outright that the standalone surface is a reduced
+	// agent-delegation surface with different schemas, and points its
+	// generated reference page at cli.NewDocMCPServer() instead -- the
+	// RUNNER-terminated surface every harness actually sees through
+	// `ctxloom run`/`ctxloom acp`. Before this subtest, the tools that
+	// exist ONLY on that documented surface (roster, agent_report,
+	// agent_fetch_artifact -- named explicitly in mcpIntro's own caution
+	// block) had ZERO completeness coverage: they never appeared in
+	// `tools` above, so the loop just never saw them, and the gate
+	// stayed green regardless of whether a real scenario ever touched
+	// them.
+	t.Run("mcp tools (documented runner surface)", func(t *testing.T) {
+		docTools, err := cli.ListDocMCPToolNames(t.Context())
+		if err != nil {
+			t.Fatalf("list documented MCP tools: %v", err)
+		}
+		standalone := make(map[string]bool, len(tools))
+		for _, name := range tools {
+			standalone[name] = true
+		}
+
+		var uncovered []string
+		for _, name := range docTools {
+			if standalone[name] {
+				// Covered (or allowlisted) by the standalone subtest
+				// above -- this subtest exists for the DELTA, the
+				// runner-only tools the standalone enumeration cannot
+				// see at all.
+				continue
+			}
+			if reason, ok := excludedTools[name]; ok {
+				t.Logf("excluded runner-only tool: %s — %s", name, reason)
+				continue
+			}
+			if !ranAsTool(corpus, name) {
+				uncovered = append(uncovered, name)
+			}
+		}
+		assertExactUncovered(t, "mcp tools (runner-only)", uncovered, knownUncoveredRunnerOnlyTools)
 	})
 
 	t.Run("mcp resources", func(t *testing.T) {

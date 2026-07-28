@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **460** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **468** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 8 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 5 |
-| `open` | no commit names this ID | **1,785** |
+| `open` | no commit names this ID | **1,777** |
 
-**Totals: 2268 findings across 162 units — 460 resolved, 1785 still open, 22 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
+**Totals: 2268 findings across 162 units — 468 resolved, 1777 still open, 22 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -202,7 +202,7 @@ RESOLVED 446->460, PARTIAL 7->8, open 1800->1785, HIGH resolved 298->312.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 312 | 64 (+6 refuted, +3 escalated, +7 partial) |
+| HIGH | 376 | 320 | 56 (+6 refuted, +3 escalated, +7 partial) |
 | MED | 999 | 42 | 955 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -226,6 +226,50 @@ section, which also corrects a wrong claim in the `gooey-basil` PAUSE note
 that ADR-0021 blessed this path (it predates the mechanism by one day and
 never mentions it). Recounted (`just test-arch`): RESOLVED 415->416,
 ESCALATED 6->5, open unchanged at 1831, HIGH resolved 268->269.
+
+Updated again 2026-07-28 during the `flow/generation-wave1` generation-flow
+batch (walking Cobra tree / Go structs / JSON schemas -> generator ->
+committed artifact -> CI drift gate, units U003/U009/U051/U087/U096/U097/
+U155/U156/U157): extraction found 17 HIGH rows total across the 9 assigned
+units (grepped each unit review's Severity column, plain and bolded `HIGH`,
+cross-referenced against this file's section boundaries), of which 9 were
+already RESOLVED/REFUTED before the batch started (U003-F01, U009-F01,
+U087-F02/F03/F04/F05/F06/F25, U097-F02) — leaving 8 open, one short of the
+task's stated 9-HIGH count; flagged as a disagreement rather than
+reconciled (plausibly a concurrent session resolving one HIGH row between
+task authoring and this batch's extraction). All 8 open HIGH rows fixed
+with a red-then-green test each: U096-F01 `e9e9cbd9` (schema-compile
+failure now a fatal-class cfg.warnings entry via a new test seam), U096-F03
+`8206227c` (convertToJSON now converts time.Time and non-string-keyed maps —
+the only two shapes it existed to convert), U096-F02 `f16b4588` (deleted
+config's duplicate raw-schema walker — configSchemaDocument/knownKeysAt,
+~50 lines — added ConfigValidator.KnownKeys unioning anyOf/oneOf/allOf
+branches, unlike KnownPath's first-match), U097-F01 `64976a28` (schemagen.go
+no longer claims a git-diff CI check that has never existed anywhere in the
+repo), U051-F01 `a403ba0c` (GenConfig refuses a valid-but-content-free
+schema instead of writing a fieldless page), U051-F02 `b941d4cd`
+(GenMCPTools fails on zero registered tools and propagates a tool's
+input-schema decode error instead of publishing "_No parameters._"),
+U157-F01 `173553cb` (stepIsAssertion fails closed on a step whose own
+keyword the capture side could not classify, instead of silently exempting
+it from the evidence gate), U156-F01 `814761df` (added
+cli.ListDocMCPToolNames + a new completeness subtest covering the
+documented RUNNER-terminated MCP surface, which previously had zero
+coverage for roster/agent_report/agent_fetch_artifact — the standalone
+`ctxloom mcp serve` surface `completeness_test.go` measured is explicitly
+NOT what ctxloom documents). U087 confirmed mis-homed wholesale onto this
+flow per the task's own caveat: every U087 row (sign.go/signer.go/skills.go/
+sessions.go/sessionfeed.go) is about bundle-signing, skill import/export, or
+session lifecycle — none touch schema/docs generation — so no U087 fix
+landed in this batch; the open U087 rows (MED/LOW) should be re-homed to
+whichever flow governs trust/signing and session lifecycle respectively, not
+this one. No journey to wire: the task's own tip-to-tail test for this flow
+is the CI drift gates themselves (`just gen-docs-check` / `just
+gen-mcp-schemas-check`, both confirmed to actually run via `.github/
+workflows/ci.yml:219,225`) — verified `just gen-schemas-check` still does
+not exist anywhere (only cited as a documented non-existent gate, now
+consistently so on both sides after U097-F01). Recounted (`just
+test-arch`): RESOLVED 460->468, open 1785->1777, HIGH resolved 312->320.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -424,8 +468,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U049-F08 | **RESOLVED** `442e7aae` | `config_bundles.go:161, :284, :352, :398` | SILENTNOOP | An unresolvable profile is skipped by a bare `continue` in **all four** bundle resolvers, so `ctxloom run -p <typo>` delivers zero MCP servers, zero hooks, zero commands and zero skills without any... | U049.md |
 | U050-F01 | **RESOLVED** `8df12187` | `unknown_keys.go:17-18` (mechanism); `resources/schema/input/config-schema.json:605` (hole)` | SILENTNOOP | The file's founding premise — "The config schema is authored with additionalProperties:false at every level, so an unknown key IS already detected on load" — is false. `$defs/hook` sets `"additiona... | U050.md |
 | U050-F02 | **PARTIAL** `1096d3ed` `8df12187` | `trustroot.go:206-210` | SILENTNOOP / ERRHANDLING | `parseAllowedSigners` conflates "file absent" with "file present but unreadable": both `return nil` (zero keys) and only the absent case is benign. A `chmod 000` / EACCES / directory-in-its-place `... | U050.md |
-| U051-F01 | open | **`config.go:55`, `config.go:103-105`** | SILENTNOOP | `GenConfig` succeeds writing a config page with **zero documented fields** when the schema is valid JSON but carries no `properties`. It cannot distinguish "this product has no config fields" from ... | U051.md |
-| U051-F02 | open | **`mcp.go:63-66`, `mcp.go:141-143`, `mcp.go:179-184`** | SILENTNOOP | `GenMCPTools` emits an **empty `## Tools` section** for a server with zero registered tools, and `decodeToolSchema` **swallows both JSON errors**, causing `writeMCPTool` to document a parameterized... | U051.md |
+| U051-F01 | **RESOLVED** `a403ba0c` | **`config.go:55`, `config.go:103-105`** | SILENTNOOP | `GenConfig` succeeds writing a config page with **zero documented fields** when the schema is valid JSON but carries no `properties`. It cannot distinguish "this product has no config fields" from ... | U051.md |
+| U051-F02 | **RESOLVED** `b941d4cd` | **`mcp.go:63-66`, `mcp.go:141-143`, `mcp.go:179-184`** | SILENTNOOP | `GenMCPTools` emits an **empty `## Tools` section** for a server with zero registered tools, and `decodeToolSchema` **swallows both JSON errors**, causing `writeMCPTool` to document a parameterized... | U051.md |
 | U053-F01 | open | `exec.go:124` | CORRECTNESS | `IsDirty` reports **clean** for a worktree holding gitignored/excluded files, and the teardown then permanently destroys them — both WIP guards miss it. Amplified by ctxloom itself: `internal/lm/is... | U053.md |
 | U053-F02 | open | `exec.go:437` | CORRECTNESS | `cmd.Env = os.Environ()` inherits `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR`, and those **override `cmd.Dir` completely**. Every operation in this package — including `worktree rem... | U053.md |
 | U053-F03 | open | `exec.go:285-287` | SILENTNOOP | `ApplyPatch` returns `nil` for an empty patch: success reported, zero bytes delivered. If `DiffPatch` ever yields `""` for a reason other than "genuinely nothing tracked changed", the `dirty_tree_h... | U053.md |
@@ -551,10 +595,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U095-F01 | **RESOLVED** `d556ec56` | `repo_cache.go:292-310, :127` | CORRECTNESS | `safeRepoPath` uses `c.baseDir` as its "unsafe" sentinel; the caller immediately `os.RemoveAll`s the returned path, so a degenerate repo URL **deletes the entire clone cache**. A bare-host URL dele... | U095.md |
 | U095-F02 | **RESOLVED** `6b265cf5` `ca05dc0f` | `retract.go:12-44` | CORRECTNESS | `CheckRetracted` **can never return a non-nil error**: a failed default-branch lookup (:15), a failed manifest fetch (:21) and a malformed manifest (:27) all return `(false, "", nil)` — indistinguishable from a genuine clean bill of health. `6b265cf5` converted the malformed-manifest half to a hard error; `ca05dc0f` closes the remaining fetch-failure half — not by erroring (that would break every manifest-less remote), but by reporting a third verdict (`RetractionUnknown`) that callers fall back to the last recorded verdict for, rather than silently reading "clean". | U095.md |
 | U095-F03 | **RESOLVED** `d3e29524` | `vcs.go:213-215, :217-227` | SILENTNOOP | `fsVCS.ListItems` swallows the `afero.DirExists` error and every per-file walk error, so an unreadable/permission-denied local content directory reports "no items" with success. | U095.md |
-| U096-F01 | open | **`schema.go:21,37` (contract); `config/config.go:1158-1162,1485`; `taskloom/config/config.go:322`** | SILENTNOOP | A schema **compile failure degrades to "everything is valid"** — the answer to the brief's question is yes, in three places, and one of them discards the error entirely. | U096.md |
-| U096-F02 | open | **`schema.go:105` vs `config/unknown_keys.go:173-227`** | DUPLICATE | `config.knownKeysAt` + `configSchemaDocument` re-implement this package's walker against the **raw** JSON and get it wrong; ~55 lines are deletable. | U096.md |
-| U096-F03 | open | **`schema.go:132`** | CORRECTNESS | `convertToJSON` is a no-op deep copy that **misses the only two conversions it exists to perform**, and the resulting error is not a `*jsonschema.ValidationError`, silently defeating the config pac... | U096.md |
-| U097-F01 | open | `schemagen.go:40-41`; `cmd/gen-schemas/main.go:5-7` vs `:18-21` | CORRECTNESS | **`Generate`'s determinism is justified by a CI check that does not exist**, and the generator file contradicts itself about whether the output is even checked in. The stated safety net — "a struct... | U097.md |
+| U096-F01 | **RESOLVED** `e9e9cbd9` | **`schema.go:21,37` (contract); `config/config.go:1158-1162,1485`; `taskloom/config/config.go:322`** | SILENTNOOP | A schema **compile failure degrades to "everything is valid"** — the answer to the brief's question is yes, in three places, and one of them discards the error entirely. | U096.md |
+| U096-F02 | **RESOLVED** `f16b4588` | **`schema.go:105` vs `config/unknown_keys.go:173-227`** | DUPLICATE | `config.knownKeysAt` + `configSchemaDocument` re-implement this package's walker against the **raw** JSON and get it wrong; ~55 lines are deletable. | U096.md |
+| U096-F03 | **RESOLVED** `8206227c` | **`schema.go:132`** | CORRECTNESS | `convertToJSON` is a no-op deep copy that **misses the only two conversions it exists to perform**, and the resulting error is not a `*jsonschema.ValidationError`, silently defeating the config pac... | U096.md |
+| U097-F01 | **RESOLVED** `64976a28` | `schemagen.go:40-41`; `cmd/gen-schemas/main.go:5-7` vs `:18-21` | CORRECTNESS | **`Generate`'s determinism is justified by a CI check that does not exist**, and the generator file contradicts itself about whether the output is even checked in. The stated safety net — "a struct... | U097.md |
 | U097-F02 | **RESOLVED** `20451f26` | `schemagen.go:43-72`; `cmd/gen-schemas/main.go:26-35` | SILENTNOOP | **`Generate` with zero targets succeeds silently**, and because the output is gitignored (F01) and unverified, an accidentally-empty target list produces a green build that ships a binary with no s... | U097.md |
 | U098-F01 | **RESOLVED** `b3140c76` | `selfexec.go:51-67` | ERRHANDLING | `Path` has inverted error polarity: it converts two resolution failures into a plausible success value, and the one invariant it exists to uphold is silently voided on exactly that path. | U098.md |
 | U098-F04 | **RESOLVED** `fdb0cfb6` | `selfexec.go:51` (contract), consumed at `internal/shared/agent/chat_mcp.go:39` | COUPLING | This package's "one absolute host path" contract is the wrong contract for a `runtime:container` child, and the codebase's own correction for that (`ResolveMCPCommand`) is bypassed on the chat path... | U098.md |
@@ -661,8 +705,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U150-F05 | **RESOLVED** `6fc84f68` | `docs/trust-model.md:57-134` vs `internal/operations/trust.go:193-243` | CORRECTNESS | **The normative doc documents a SIX-step decision function; the code implements SEVEN.** Retraction — an entire top-of-cascade DENY step and an entire `Source` value — is **absent from `docs/trust-... | U150.md |
 | U152-F01 | **RESOLVED** `a6d9bd95` | `dockerexec.go:154-157` | SILENTNOOP | Given a nil `spec.Stdout`, the output pump discards the **entire interactive session's output** and `Wait` still returns `ExitStatus{Code: 0}, nil` — exit 0, success, zero bytes delivered. | U152.md |
 | U154-F02 | **RESOLVED** `71bdccd3` | **`text.go:16`, `markdown.go:13`, `noderender.go:25`, `marshal.go:87`** | SILENTNOOP | Four distinct inputs render **zero bytes and return nil**: an all-`omitempty` struct (text and markdown), an empty scalar slice (text/markdown), and `nil` (toml). Same values produce `{}` / `null` ... | U154.md |
-| U156-F01 | open | **`main.go:40-47`** | CORRECTNESS | The MCP surface ctxloom **documents** and the MCP surface the acceptance suite **measures for completeness** are two different servers with different tool sets and different schemas — so the runner... | U156.md |
-| U157-F01 | open | **`render.go:207-216`** | SILENTNOOP | `stepIsAssertion` returns `false` when it cannot classify a step's governing keyword, and the doc endorses it: "A step whose keyword this generator can't classify (empty …) is treated as non-assert... | U157.md |
+| U156-F01 | **RESOLVED** `814761df` | **`main.go:40-47`** | CORRECTNESS | The MCP surface ctxloom **documents** and the MCP surface the acceptance suite **measures for completeness** are two different servers with different tool sets and different schemas — so the runner... | U156.md |
+| U157-F01 | **RESOLVED** `173553cb` | **`render.go:207-216`** | SILENTNOOP | `stepIsAssertion` returns `false` when it cannot classify a step's governing keyword, and the doc endorses it: "A step whose keyword this generator can't classify (empty …) is treated as non-assert... | U157.md |
 | U158-F07 | **RESOLVED** `835be6a7` | `live_engine_registry.go:659,675,708,732,760` | SILENTNOOP | Every `copy*Credentials` function **succeeds while copying zero bytes** when the source is absent or unreadable: each `continue`s or `return`s on `os.ReadFile` error and every `os.WriteFile`/`Mkdir... | U158.md |
 | U158-F08 | **RESOLVED** `771a2b0b` | `steps_cli.go:86` | CORRECTNESS | `ctxloomArgs` splits the feature-file command line on **bare whitespace**, so the acceptance suite structurally cannot express a quoted argument, an argument containing spaces, or a flag whose valu... | U158.md |
 | U159-F01 | **RESOLVED** `932461df` | `steps_fixture.go:229-240` | SILENTNOOP | The `the mock LLM responds "…"` step calls `SetupMockLM`, whose `WriteConfig` **overwrites the project's config.yaml wholesale**, preserving only a top-level `profiles:` section — silently destroyi... | U159.md |

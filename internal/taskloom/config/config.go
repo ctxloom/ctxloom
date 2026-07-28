@@ -319,10 +319,19 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 		return Config{}, fmt.Errorf("taskloom: parse merged config: %w", err)
 	}
 
-	if v, verr := NewValidator(); verr == nil {
-		if err := v.ValidateBytes(data); err != nil {
-			return cfg, fmt.Errorf("taskloom: config error: %w", err)
-		}
+	// A schema-compile failure must not degrade to "valid" (U138-F01): the
+	// embedded schema is a build-time resource, so this either fails
+	// uniformly for every invocation or never — silently skipping
+	// ValidateBytes here would mean an unknown key, a malformed tag_schema
+	// shape, or any other schema violation passes straight through with no
+	// signal, contradicting this function's own documented fail-loud
+	// guarantee.
+	v, verr := NewValidator()
+	if verr != nil {
+		return Config{}, fmt.Errorf("taskloom: load config schema: %w", verr)
+	}
+	if err := v.ValidateBytes(data); err != nil {
+		return cfg, fmt.Errorf("taskloom: config error: %w", err)
 	}
 	return cfg, nil
 }

@@ -117,6 +117,40 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// U128-F01: the exact one-field-short shape that used to parse
+			// clean and reach a human as a proposal to revive a task with
+			// zero justification.
+			name:    "fired with no reasoning at all",
+			raw:     `[{"harp_id":"a","outcome":"fired","evidence":["commit abc"]}]`,
+			wantErr: true,
+		},
+		{
+			name:    "blank (whitespace-only) reasoning is rejected",
+			raw:     `[{"harp_id":"a","outcome":"not-fired","evidence":[],"reasoning":"   "}]`,
+			wantErr: true,
+		},
+		{
+			name:    "fired with empty evidence is self-contradictory",
+			raw:     `[{"harp_id":"a","outcome":"fired","evidence":[],"reasoning":"it shipped"}]`,
+			wantErr: true,
+		},
+		{
+			name:    "fired with no evidence key at all",
+			raw:     `[{"harp_id":"a","outcome":"fired","reasoning":"it shipped"}]`,
+			wantErr: true,
+		},
+		{
+			// The escape hatch: cannot-determine legitimately has no
+			// evidence by definition, so it must NOT be rejected as long as
+			// reasoning is present.
+			name: "cannot-determine with empty evidence is legal",
+			raw:  `[{"harp_id":"a","outcome":"cannot-determine","evidence":[],"reasoning":"depends on a person's statement"}]`,
+			check: func(t *testing.T, got []Verdict) {
+				require.Len(t, got, 1)
+				assert.Equal(t, CannotDetermine, got[0].Outcome)
+			},
+		},
+		{
 			name:    "empty string",
 			raw:     "",
 			wantErr: true,
@@ -145,7 +179,7 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 		},
 		{
 			name: "a model-supplied cached field is always reset to false",
-			raw:  `[{"harp_id":"a","outcome":"fired","evidence":[],"reasoning":"x","cached":true}]`,
+			raw:  `[{"harp_id":"a","outcome":"fired","evidence":["commit abc"],"reasoning":"x","cached":true}]`,
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.False(t, got[0].Cached, "Cached must never be model-controlled")

@@ -56,19 +56,23 @@ catch drift — it exits non-zero when any violation is found.`,
 // runLintCmd is lintCmd's RunE body, factored out so it can be driven in
 // tests without cobra machinery — mirroring runListCmd's own convention.
 func runLintCmd(out io.Writer, tc operations.TaskContext, format clifmt.Format) error {
-	violations, err := operations.LintTasks(tc)
+	result, err := operations.LintTasks(tc)
 	if err != nil {
 		return err
 	}
+	violations := result.Violations
 	if format != clifmt.FormatText {
-		if err := clifmt.Render(out, violations, format); err != nil {
+		if err := clifmt.Render(out, result, format); err != nil {
 			return err
 		}
 	} else {
 		w := iox.NewErrWriter(out)
-		if len(violations) == 0 {
+		switch {
+		case result.CheckedTargets == 0:
+			w.Println("0 targets checked — this project's tag_schema declares no enum/range facets for lint to check")
+		case len(violations) == 0:
 			w.Println("no triage-standard violations found")
-		} else {
+		default:
 			for _, v := range violations {
 				w.Printf("%s: %s\n", v.HarpID, v.Reason)
 			}
@@ -76,6 +80,9 @@ func runLintCmd(out io.Writer, tc operations.TaskContext, format clifmt.Format) 
 		if err := w.Err(); err != nil {
 			return err
 		}
+	}
+	if result.CheckedTargets == 0 {
+		return fmt.Errorf("taskloom lint checked 0 targets — this project's tag_schema declares no enum/range facets, so the CI gate is not actually checking anything")
 	}
 	if len(violations) > 0 {
 		return fmt.Errorf("%d triage-standard violation(s) found", len(violations))

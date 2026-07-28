@@ -10,6 +10,7 @@
 package projectroot
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -67,25 +68,59 @@ func FromEnv(fs afero.Fs) (string, bool) {
 	return root, ok
 }
 
+// WorkDirWithBoundary resolves the project root — CTXLOOM_ROOT override, else
+// the enclosing git repository root, else the bare current working directory
+// — and also reports whether that root came from a genuine boundary (an
+// override or a discovered git repo) as opposed to falling all the way
+// through to the bare cwd (found=false; see RootFromFallback). This is the
+// ONE implementation of that three-step chain: WorkDir, RootFromFallback, and
+// internal/taskloom/workdir.ResolveBoundary all resolve to it rather than
+// each carrying their own copy (U140-F01 — three separate copies, one of
+// which additionally duplicated the env-reading step verbatim, warning
+// string included, so a bad override could warn twice in one process).
+//
+// Unlike the three prior copies, a failing os.Getwd is a returned error, not
+// silently treated as "." (U140-F02): "." is a directory name meaning
+// "wherever any future process happens to be", and minting a project
+// identity keyed on it (as internal/shared/tasks/projectid's registry would)
+// lets two completely unrelated projects collide onto one task log the
+// moment either one's cwd is unavailable — exactly the situation (a reaped
+// worktree) this package's callers most need to fail loud in, not paper over.
+func WorkDirWithBoundary() (root string, found bool, err error) {
+	if r, ok := FromEnv(afero.NewOsFs()); ok {
+		return r, true, nil
+	}
+	if r, gerr := gitutil.FindRoot("."); gerr == nil {
+		return r, true, nil
+	}
+	cwd, gerr := os.Getwd()
+	if gerr != nil {
+		return "", false, fmt.Errorf("resolve project root: working directory unavailable: %w", gerr)
+	}
+	return cwd, false, nil
+}
+
 // WorkDir resolves the project work root for sessions and project identity,
 // honoring the override above git-root detection:
 //
 //	CTXLOOM_ROOT (valid) -> git root -> cwd -> "."
 //
-// It replaces the inline gitutil.FindRoot(".")/cwd blocks so the override is
-// applied consistently at every site. It operates on the OS filesystem, since
-// git-root detection and cwd resolution are inherently process-level.
+// It operates on the OS filesystem, since git-root detection and cwd
+// resolution are inherently process-level. See WorkDirWithBoundary for the
+// underlying chain and RootFromFallback for the boundary-found signal.
+
 func WorkDir() string {
-	if root, ok := FromEnv(afero.NewOsFs()); ok {
-		return root
+	root, _, err := WorkDirWithBoundary()
+	if err != nil {
+		// WorkDir's public contract predates a possible error (an unlinked
+		// cwd — os.Getwd failing — is the only source): preserve its exact
+		// legacy behavior for every existing caller rather than changing
+		// this function's signature. WorkDirWithBoundary is the one that
+		// surfaces the error to a caller equipped to act on it (today,
+		// internal/taskloom/workdir.ResolveBoundary).
+		return "."
 	}
-	if root, err := gitutil.FindRoot("."); err == nil {
-		return root
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return "."
+	return root
 }
 
 // RootFromFallback reports whether WorkDir resolved to the bare cwd fallback —
@@ -96,11 +131,13 @@ func WorkDir() string {
 // resume from a launch one level up or down. It mirrors WorkDir's branches and,
 // like WorkDir, runs against the OS filesystem and real git/cwd detection.
 func RootFromFallback() bool {
-	if _, ok := FromEnv(afero.NewOsFs()); ok {
-		return false
+	_, found, err := WorkDirWithBoundary()
+	if err != nil {
+		// An unresolvable working directory is, if anything, MORE of a
+		// fallback situation than a bare cwd — callers use this boolean
+		// only to decide whether to warn, so erring toward "yes, warn" is
+		// the safe default.
+		return true
 	}
-	if _, err := gitutil.FindRoot("."); err == nil {
-		return false
-	}
-	return true
+	return !found
 }

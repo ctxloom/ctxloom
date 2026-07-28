@@ -1,6 +1,7 @@
 package priority
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -539,4 +540,116 @@ func TestRankNormalize_HigherRawGetsHigherOrEqualPriority(t *testing.T) {
 func TestRankNormalize_EmptyPopulationYieldsEmptyMap(t *testing.T) {
 	got := rankNormalize(map[string]float64{}, nil)
 	assert.Empty(t, got)
+}
+
+// TestRankNormalize_NaNRawDoesNotHang pins U121-F08/U122-F12/U124-F01: a
+// stored tag value of the literal string "NaN" survives both the write-time
+// validator and the lint sweep (both use ParseFloat then a `<`/`>` bounds
+// test, and every comparison against NaN is false) and reaches priority as a
+// real math.NaN() raw score. rankNormalize's tie-grouping loop advances by
+// finding the run of members equal to raw[sorted[i]] — but NaN != NaN, so a
+// NaN member is never equal to itself and `j` never moves past `i`,
+// spinning forever. Run it on a goroutine with a hard deadline: the
+// characteristic failure mode here is not a wrong answer, it is that
+// rankNormalize NEVER RETURNS.
+func TestRankNormalize_NaNRawDoesNotHang(t *testing.T) {
+	raw := map[string]float64{
+		"a": 1, "b": math.NaN(), "c": 3,
+	}
+	population := []string{"a", "b", "c"}
+
+	done := make(chan map[string]float64, 1)
+	go func() {
+		done <- rankNormalize(raw, population)
+	}()
+
+	select {
+	case got := <-done:
+		assert.Len(t, got, 3, "every population member must still receive a priority")
+		for _, id := range population {
+			assert.False(t, math.IsNaN(got[id]), "a NaN raw score must not propagate into the displayed priority for %s", id)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("rankNormalize did not return within 2s — NaN raw score hung the tie-grouping loop (U124-F01)")
+	}
+}
+
+// TestCompute_NaNTagValueDoesNotHang is the flow-level twin of the test
+// above: a task carrying a tag whose value literally parses as NaN (a legal
+// tagma bare token) must not hang `taskloom list --sort priority` end to
+// end via Compute.
+func TestCompute_NaNTagValueDoesNotHang(t *testing.T) {
+	schema := mustSchema(t, `tagma.priority_fn:"triage:impact"="{{triage:impact}}"`)
+	all := []tasks.Task{
+		{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:impact=NaN"}, CreatedAt: fixedNow},
+		{HarpID: "b", Status: tasks.StatusToDo, Tags: []string{"triage:impact=2"}, CreatedAt: fixedNow},
+	}
+
+	type result struct {
+		results map[string]Result
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		results, _, err := Compute(all, schema, fixedNow)
+		done <- result{results, err}
+	}()
+
+	select {
+	case r := <-done:
+		// Either outcome is acceptable as long as Compute returns: a named
+		// error is the fix this row recommends, but the hang is the defect
+		// under test.
+		if r.err == nil {
+			for id, res := range r.results {
+				assert.False(t, math.IsNaN(res.Priority), "task %s must not carry a NaN priority", id)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Compute did not return within 2s given a NaN-valued tag (U124-F01)")
+	}
+}
+
+// TestCompute_ExploitedInWildOverride_NotAppliedToTerminalTask pins
+// U124-F02: Result.Priority's own doc says a terminal (Done/Archived) task
+// is left at 0 because it never enters the normalization population — but
+// the exploited-in-wild override was applied unconditionally, before the
+// terminal check, forcing a closed task's Priority to Max.
+func TestCompute_ExploitedInWildOverride_NotAppliedToTerminalTask(t *testing.T) {
+	schema := mustSchema(t, `tagma.priority_fn:"triage:kind"="1"`)
+	all := []tasks.Task{
+		{HarpID: "closed", Status: tasks.StatusDone, Tags: []string{"triage:exploited-in-wild"}, CreatedAt: fixedNow},
+		{HarpID: "open", Status: tasks.StatusToDo, CreatedAt: fixedNow},
+	}
+	results, _, err := Compute(all, schema, fixedNow)
+	require.NoError(t, err)
+
+	closed := results["closed"]
+	assert.Equal(t, 0.0, closed.Priority, "a terminal task's priority must stay 0 per Result.Priority's documented contract")
+	assert.False(t, closed.Overridden, "the exploited-in-wild override must not fire for a terminal task")
+}
+
+// TestCompute_ZeroCreatedAtIsAnError pins the first half of U124-F03: a
+// task whose CreatedAt folded to the zero time.Time (e.g. log.go's repair()
+// re-add, which drops Ts — see U120-F14) must not silently pin to the
+// decay curve's extreme; Compute has the only vantage point that can
+// notice the corrupt input, and must say so.
+func TestCompute_ZeroCreatedAtIsAnError(t *testing.T) {
+	schema := mustSchema(t, `tagma.decay_fn:"triage:kind"="{{age_days}}"`)
+	all := []tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, CreatedAt: time.Time{}}}
+	_, _, err := Compute(all, schema, fixedNow)
+	require.Error(t, err, "a zero CreatedAt is corrupt data and Compute must reject it rather than silently pinning age to ~739000 days")
+}
+
+// TestCompute_FutureCreatedAtClampsAgeToZero pins the second half of
+// U124-F03: clock skew or a hand-edited log can produce a CreatedAt in the
+// future. The shipped default decay_fn evaluates 1 + age/(age+90), which is
+// -Inf at age == -90 exactly — age must clamp at 0 rather than go negative.
+func TestCompute_FutureCreatedAtClampsAgeToZero(t *testing.T) {
+	schema := mustSchema(t, `tagma.decay_fn:"triage:kind"="{{age_days}}"`, `tagma.priority_fn:"triage:kind"="{{age_factor}}"`)
+	future := fixedNow.Add(90 * 24 * time.Hour)
+	all := []tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, CreatedAt: future}}
+	results, _, err := Compute(all, schema, fixedNow)
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, results["a"].Raw, "a future CreatedAt must clamp age_days at 0, not go negative")
 }

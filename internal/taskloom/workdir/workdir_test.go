@@ -162,3 +162,24 @@ func TestResolve_BareCwdFallbackIsUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, wantDir, resolved)
 }
+
+// TestResolve_UnlinkedCwdFailsLoudRatherThanInventingDot pins U140-F02: when
+// os.Getwd fails (a reaped worktree's cwd — precisely this package's problem
+// domain, per ResolveBoundary's own doc), the prior chain silently returned
+// ".", a directory name meaning "wherever any future process happens to be"
+// — which flowed all the way into the project registry and could be minted
+// as a permanent identity two unrelated projects then collide onto. It must
+// be a returned error instead.
+func TestResolve_UnlinkedCwdFailsLoudRatherThanInventingDot(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "will-be-removed")
+	require.NoError(t, os.Mkdir(sub, 0o755))
+	taskstest.ChangeDir(t, sub)
+	require.NoError(t, os.RemoveAll(sub))
+
+	root, found, err := ResolveBoundary()
+	assert.Error(t, err, "an unlinked cwd (os.Getwd failing) must be a returned error, never silently resolved to \".\"")
+	assert.Empty(t, root)
+	assert.False(t, found)
+}

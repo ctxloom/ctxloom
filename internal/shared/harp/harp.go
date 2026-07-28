@@ -171,8 +171,14 @@ func GenerateName() string {
 // GenerateShortName returns a two-word name ("adj-noun"). Used where the
 // identity space can be smaller and a shorter, more uniform id reads better —
 // e.g. per-project task ids, which are few and benefit from tidy columns.
+// GenerateShortName is a 2-component name (adjective-noun, no verb/predicate
+// component) drawn from the "long" word group: 1269 adjectives × 4396 nouns
+// = ~5.58M combinations, an 11x wider identity space than drawing the same
+// 2 components from DefaultGroup's 443×1102 (~488k) would give — the space
+// task harp minting draws from, where the verified downstream consequence of
+// a collision is a store where every read fails loud (U111-F03).
 func GenerateShortName() string {
-	return GenerateNameWithOptions(Options{Components: 2})
+	return GenerateNameWithOptions(Options{Components: 2, Group: "long"})
 }
 
 // UniqueFrom returns the first id produced by gen that is not already a key of
@@ -182,14 +188,22 @@ func GenerateShortName() string {
 // GenerateShortName). On exhaustion (100 collisions) it returns one final
 // unredeemed gen() — a tidy, rare best-effort fallback; callers that cannot
 // tolerate even a residual collision should check the result against used.
-func UniqueFrom(used map[string]struct{}, gen func() string) string {
+// UniqueFrom draws names from gen until one isn't in used, retrying up to
+// 100 times. Callers that cannot tolerate even a residual collision must
+// check the returned error: on exhaustion (100 consecutive collisions,
+// astronomically rare for any reasonably-sized word group) it returns an
+// error rather than the prior best-effort behavior of silently handing
+// back one final, unchecked (and possibly still-colliding) name (U111-F02
+// — both of this function's own callers skipped the check its doc used to
+// tell them to perform, because there was no honest way to perform it).
+func UniqueFrom(used map[string]struct{}, gen func() string) (string, error) {
 	for range 100 {
 		id := gen()
 		if _, dup := used[id]; !dup {
-			return id
+			return id, nil
 		}
 	}
-	return gen()
+	return "", fmt.Errorf("harp: exhausted 100 attempts to generate a name not already in a set of %d used names", len(used))
 }
 
 // Validate reports whether name is usable as a harp identifier — the key of a

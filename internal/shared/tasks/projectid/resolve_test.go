@@ -3,6 +3,7 @@ package projectid
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
@@ -67,6 +68,61 @@ func TestResolveNormalInPlace(t *testing.T) {
 	}
 	if second.ProjectID != first.ProjectID {
 		t.Fatalf("id changed: %q -> %q", first.ProjectID, second.ProjectID)
+	}
+}
+
+// TestResolveFastPath_WarnsWhenMarkerDisagreesWithRegistry pins the
+// fixable half of U125-F01: the fast path (registry-by-path hit) used to
+// return whichever entry matched with no cross-check at all, even though
+// the in-tree marker — when present — names the authoritative identity
+// and could catch a directory registered under two ids. This must not
+// block resolution (Adopt/EntriesAtPath's own detect-and-warn design
+// depends on the ambiguity staying discoverable rather than refused
+// outright — see TestEntriesAtPath_ReturnsEveryEntryAtThatPath), but it
+// must not stay silent either.
+func TestResolveFastPath_WarnsWhenMarkerDisagreesWithRegistry(t *testing.T) {
+	m := newManager(t)
+	dir := t.TempDir()
+
+	first := mustResolve(t, m, dir) // mints an id, writes its own marker at dir
+
+	// Simulate the marker having drifted to name a DIFFERENT already-
+	// registered id (a stale marker from a copy, a hand edit, ...) while
+	// the registry-by-path entry for dir is untouched.
+	other, err := m.Mint(t.TempDir())
+	if err != nil {
+		t.Fatalf("mint other: %v", err)
+	}
+	if err := WriteMarker(dir, other.ProjectID); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	res := mustResolve(t, m, dir)
+	if res.Action != ActionNormal {
+		t.Fatalf("action = %q, want %q (the fast path must still win)", res.Action, ActionNormal)
+	}
+	if res.ProjectID != first.ProjectID {
+		t.Fatalf("fast path must still resolve by registry: got %q, want %q", res.ProjectID, first.ProjectID)
+	}
+	if res.Warning == "" {
+		t.Fatal("expected a warning naming the marker/registry disagreement, got none")
+	}
+	if !strings.Contains(res.Warning, first.ProjectID) || !strings.Contains(res.Warning, other.ProjectID) {
+		t.Fatalf("warning %q must name both ids (%q and %q)", res.Warning, first.ProjectID, other.ProjectID)
+	}
+}
+
+// TestResolveFastPath_NoWarningWhenMarkerAgrees is the negative case: the
+// overwhelmingly common shape (marker matches the registry) must stay
+// silent, exactly as before this change.
+func TestResolveFastPath_NoWarningWhenMarkerAgrees(t *testing.T) {
+	m := newManager(t)
+	dir := t.TempDir()
+
+	mustResolve(t, m, dir)
+	res := mustResolve(t, m, dir)
+	if res.Warning != "" {
+		t.Fatalf("expected no warning when marker agrees with the registry, got %q", res.Warning)
 	}
 }
 
@@ -149,6 +205,54 @@ func TestResolveForkedInconclusive(t *testing.T) {
 	}
 	if res.ProjectID == ghost {
 		t.Fatal("inconclusive probe reused the contested id")
+	}
+}
+
+// TestResolveOriginalSurvivesCleanedMarkerWhenCopyResolvesFirst is the
+// flow-level pin for U125-F03+F09 (a defect with no census row of its
+// own — the unit review filed it as a combined "F03 + F09" id the
+// mechanical extraction couldn't parse into a row). The sequence:
+// `git clean -xdf` in a project removes its (gitignored) marker without
+// touching the tree itself; a copy taken earlier still carries the
+// marker. Resolving the COPY first used to have oldTreeGone read the
+// ORIGINAL's now-missing marker as proof it had moved (marker=="" was
+// treated identically to "names a different id"), re-pointing the
+// original's registry entry to the copy. The original, resolved again,
+// then missed by path and had no marker either, minting a brand-new id
+// and appearing to have lost every task.
+func TestResolveOriginalSurvivesCleanedMarkerWhenCopyResolvesFirst(t *testing.T) {
+	m := newManager(t)
+	oldDir := t.TempDir()
+	first := mustResolve(t, m, oldDir) // registers oldDir, writes its marker
+
+	// A copy taken while the marker still existed -- it travels with the
+	// copy.
+	newDir := t.TempDir()
+	if err := WriteMarker(newDir, first.ProjectID); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+	// `git clean -xdf` inside the ORIGINAL: removes only its own marker.
+	// oldDir itself is untouched -- still the same live, registered tree.
+	if err := os.Remove(paths.ProjectMarkerPath(oldDir)); err != nil {
+		t.Fatalf("simulate git clean removing the marker: %v", err)
+	}
+
+	// Resolving the copy first must NOT re-point the original's identity
+	// away from itself just because its marker is temporarily missing --
+	// a missing marker is inconclusive, not proof of a move.
+	copyRes := mustResolve(t, m, newDir)
+	if copyRes.Action != ActionForked {
+		t.Fatalf("copy action = %q, want %q (a markerless-but-live original must be inconclusive, not proof of a move)", copyRes.Action, ActionForked)
+	}
+	if copyRes.ProjectID == first.ProjectID {
+		t.Fatal("the copy must not reuse the original's id")
+	}
+
+	// The original, resolved again, must still resolve to its OWN id --
+	// not mint a fresh one having silently lost it to the copy.
+	origRes := mustResolve(t, m, oldDir)
+	if origRes.ProjectID != first.ProjectID {
+		t.Fatalf("original lost its identity: got %q, want %q (the original's own task log)", origRes.ProjectID, first.ProjectID)
 	}
 }
 

@@ -179,7 +179,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 			notice = limitation
 		}
 		clidiag.Fwarn(errw, "taskloom", "%s", notice)
-		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp)
+		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, opts.Limit)
 		if err != nil {
 			return wrapTagQueryError(err)
 		}
@@ -187,6 +187,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 			clidiag.Fwarn(errw, "taskloom", "%s", gres.PriorityWarning)
 		}
 		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, filtered)
+		noteOmittedByLimit(errw, gres.OmittedByLimit)
 		if opts.Format != clifmt.FormatText {
 			if opts.Compact {
 				return clifmt.Render(out, compactRows(gres.Rows), opts.Format)

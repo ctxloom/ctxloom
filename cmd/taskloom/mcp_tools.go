@@ -206,7 +206,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		} else {
 			notice = limitation
 		}
-		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp)
+		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, in.Limit)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -216,6 +216,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 			Notice:          notice,
 			HiddenCompleted: gres.HiddenCompleted,
 			HiddenDeferred:  gres.HiddenDeferred,
+			OmittedByLimit:  gres.OmittedByLimit,
 			PriorityWarning: gres.PriorityWarning,
 		}
 		if in.Compact {

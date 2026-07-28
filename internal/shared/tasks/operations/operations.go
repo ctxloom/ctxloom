@@ -7,6 +7,7 @@ package operations
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -314,23 +315,32 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 	var task tasks.Task
 	if len(add) > 0 {
 		addTags := add
+		var toUntag []string
 		if tc.TagSchema != nil {
 			existing, cerr := store.CurrentTags(harpID)
 			if cerr != nil {
 				return nil, fmt.Errorf("add tags: %w", cerr)
 			}
-			var toUntag []string
 			addTags, toUntag = scalarCollapse(tc.TagSchema, existing, add)
-			if len(toUntag) > 0 {
-				if _, uerr := store.RemoveTags(harpID, toUntag...); uerr != nil {
-					return nil, fmt.Errorf("add tags: collapse superseded scalar tag: %w", uerr)
-				}
-			}
 		}
+		// Add BEFORE untag: the log is append-only, so this pair is
+		// necessarily two separate writes, not one atomic operation. If the
+		// add lands and the untag then fails, the task carries a transient
+		// duplicate value on a scalar target — recoverable (lint already
+		// flags it, and a later collapse fixes it). The old ordering did
+		// the untag first: if the add then failed, the task's previous
+		// scalar value was already gone with nothing written to replace
+		// it — an unrecoverable loss (U122-F01).
 		if len(addTags) > 0 {
 			task, err = store.AddTags(harpID, addTags...)
 			if err != nil {
 				return nil, fmt.Errorf("add tags: %w", err)
+			}
+		}
+		if len(toUntag) > 0 {
+			task, err = store.RemoveTags(harpID, toUntag...)
+			if err != nil {
+				return nil, fmt.Errorf("add tags: collapse superseded scalar tag: %w", err)
 			}
 		}
 	}
@@ -541,6 +551,14 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 			return fmt.Errorf("tag %q: %w", tag, rerr)
 		}
 		f, perr := strconv.ParseFloat(value, 64)
+		// strconv.ParseFloat accepts "NaN"/"Inf"/"-Inf" case-insensitively,
+		// and every `<`/`>` comparison against NaN is false — so a NaN
+		// value would otherwise pass this gate silently (U122-F12) and go
+		// on to hang priority.rankNormalize (U124-F01). Treat non-finite
+		// exactly like an unparseable value.
+		if perr == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
+			perr = fmt.Errorf("%q is not a finite number", value)
+		}
 		if perr != nil {
 			return fmt.Errorf("tag %q's value %q does not parse as a number, required by %s's declared range [%v,%v]", tag, value, target, min, max)
 		}
@@ -707,16 +725,36 @@ func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.R
 // of status — lint is read-time and advisory (see that package's doc); it
 // never blocks a write and never filters what it inspects, unlike ListTasks'
 // active-only default view.
-func LintTasks(tc TaskContext) ([]lint.Violation, error) {
+func LintTasks(tc TaskContext) (lint.Result, error) {
 	store, _, _, err := resolveTaskStore(tc)
 	if err != nil {
-		return nil, err
+		return lint.Result{}, err
 	}
 	all, err := store.Snapshot()
 	if err != nil {
-		return nil, fmt.Errorf("snapshot for lint: %w", err)
+		return lint.Result{}, fmt.Errorf("snapshot for lint: %w", err)
 	}
 	return lint.Lint(all, tc.TagSchema)
+}
+
+// RepairStore re-introduces, under a fresh harp each, any task the log
+// detected as a displaced duplicate-add (two different tasks independently
+// minted with the same harp id — see tasks.Store.Repair and
+// log.go's anomalyError). Idempotent; a no-op on a log with no unresolved
+// collision.
+//
+// This is the shipped surface the fatal collision error itself names
+// ("run Store.Repair()") — before this, that remedy was unreachable from
+// anywhere a user could act on it: no `taskloom repair` command and no
+// `task_repair` MCP tool existed, so every read (list/summary/tag-query/
+// priority/lint) kept failing loud with no way to actually resolve it
+// (U007-F11, entangled with U120-F01).
+func RepairStore(tc TaskContext) error {
+	store, _, _, err := resolveTaskStore(tc)
+	if err != nil {
+		return err
+	}
+	return store.Repair()
 }
 
 // projectIdentity names the project a task operation resolved to, so

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -171,6 +172,25 @@ func (l *eventLog) fold() (*folded, error) {
 	return f, nil
 }
 
+// foldChecked is fold() plus the anomaly gate every read and write other
+// than repair() itself must apply. Previously only snapshot()/
+// deferredSince() checked anomalyError after folding — every mutator
+// (add, addTags, removeTags, setStatus, setText, remove) and currentTags
+// called fold() directly, so an unresolved harp collision made every read
+// fail loud while every write kept right on succeeding into a store
+// nothing could read (U122-F02). repair() is the one caller that must see
+// the raw anomalies, so it keeps calling fold() directly.
+func (l *eventLog) foldChecked() (*folded, error) {
+	f, err := l.fold()
+	if err != nil {
+		return nil, err
+	}
+	if err := f.anomalyError(l.path); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 // apply folds a single event into state. An unrecognized op is a fatal fold
 // error, not silently ignored: the project rejects silent forward-compat
 // record dropping (see CLAUDE.md; no-backward-compat-shims policy applies in
@@ -298,7 +318,7 @@ func (f *folded) anomalyError(path string) error {
 		}
 		descs = append(descs, fmt.Sprintf("harp %q: %s, displaced task text %q (session %q)", a.Task, kept, a.Text, a.Session))
 	}
-	return fmt.Errorf("%s: unresolved harp collision(s) — two different tasks were independently minted with the same harp id (most likely two branches, each correct against what it could see, later union-merged); the displaced task is NOT lost but is excluded from this view, and every event addressed to its harp is silently applying to the OTHER task instead. This cannot be auto-repaired (reassigning a harp would break every plan file and cross-reference pointing at it) — inspect and run Store.Repair() to re-add the displaced task(s) under a fresh harp: %s", path, strings.Join(descs, "; "))
+	return fmt.Errorf("%s: unresolved harp collision(s) — two different tasks were independently minted with the same harp id (most likely two branches, each correct against what it could see, later union-merged); the displaced task is NOT lost but is excluded from this view, and every event addressed to its harp is silently applying to the OTHER task instead. This cannot be auto-repaired (reassigning a harp would break every plan file and cross-reference pointing at it) — inspect and run `taskloom repair` (or Store.Repair() directly) to re-add the displaced task(s) under a fresh harp: %s", path, strings.Join(descs, "; "))
 }
 
 // append writes one event as a single JSON line under O_APPEND. The caller
@@ -319,13 +339,36 @@ func (l *eventLog) append(ev Event) error {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	if _, err := f.Write(append(b, '\n')); err != nil {
+	return appendLine(f, append(b, '\n'))
+}
+
+// appendLine writes line to f — already opened O_APPEND, so the write always
+// lands at the file's current end — and fsyncs it before returning success.
+// If either the write or the sync fails partway (ENOSPC, EIO, a killed
+// process resumed with a stale fd, ...), it rolls the file back to its
+// length as of just before this call rather than leaving a torn line on
+// disk. That matters because fold() treats ANY unparseable line as fatal
+// for the whole log (U120-F05) — without this, a single failed append from
+// THIS process would brick every future read and write of the store, with
+// "move the file aside and re-add every task" as the only stated recovery.
+// Truncate's own error is deliberately ignored: it is already best-effort
+// (the original Write/Sync error is what the caller needs to see), and if
+// the filesystem is in a state where even Truncate fails, there is nothing
+// more this function can do about it.
+func appendLine(f *os.File, line []byte) error {
+	off, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
 		return err
 	}
-	// Flush to stable storage before reporting success: a power loss must not
-	// drop a just-confirmed event. One small append under an exclusive flock,
-	// so the fsync latency is acceptable for a task tracker.
-	return f.Sync()
+	if _, werr := f.Write(line); werr != nil {
+		_ = f.Truncate(off)
+		return werr
+	}
+	if serr := f.Sync(); serr != nil {
+		_ = f.Truncate(off)
+		return serr
+	}
+	return nil
 }
 
 func (l *eventLog) lock() (func(), error) {
@@ -367,11 +410,14 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 	}
 	defer release()
 
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return Task{}, err
 	}
-	id := uniqueHarpIDFromSet(f.issued)
+	id, err := uniqueHarpIDFromSet(f.issued)
+	if err != nil {
+		return Task{}, err
+	}
 	// Stamped explicitly (rather than left zero for append() to default)
 	// so the Ts actually written matches the CreatedAt returned below —
 	// otherwise a caller reading the just-added task's CreatedAt back would
@@ -403,7 +449,7 @@ func (l *eventLog) setStatus(harpID, status, trigger string) (Task, error) {
 	}
 	defer release()
 
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return Task{}, err
 	}
@@ -444,7 +490,7 @@ func (l *eventLog) setText(harpID, text string) (Task, error) {
 	}
 	defer release()
 
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return Task{}, err
 	}
@@ -468,7 +514,7 @@ func (l *eventLog) remove(harpID string) (Task, error) {
 	}
 	defer release()
 
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return Task{}, err
 	}
@@ -496,7 +542,7 @@ func (l *eventLog) addTags(harpID string, tags []string) (Task, error) {
 	}
 	defer release()
 
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return Task{}, err
 	}
@@ -526,7 +572,7 @@ func (l *eventLog) removeTags(harpID string, tags []string) (Task, error) {
 	}
 	defer release()
 
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return Task{}, err
 	}
@@ -554,7 +600,7 @@ func (l *eventLog) currentTags(harpID string) ([]string, error) {
 	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
 		defer unlock()
 	}
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
 		return nil, err
 	}
@@ -578,11 +624,8 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
 		defer unlock()
 	}
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
-		return nil, err
-	}
-	if err := f.anomalyError(l.path); err != nil {
 		return nil, err
 	}
 	return f.taskList(), nil
@@ -598,11 +641,8 @@ func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
 		defer unlock()
 	}
-	f, err := l.fold()
+	f, err := l.foldChecked()
 	if err != nil {
-		return nil, err
-	}
-	if err := f.anomalyError(l.path); err != nil {
 		return nil, err
 	}
 	out := make(map[string]time.Time, len(f.deferredSince))
@@ -666,7 +706,10 @@ func (l *eventLog) repair() error {
 		if _, done := f.repaired[key]; done {
 			continue
 		}
-		id := uniqueHarpIDFromSet(f.issued)
+		id, err := uniqueHarpIDFromSet(f.issued)
+		if err != nil {
+			return err
+		}
 		f.issued[id] = struct{}{}
 		f.repaired[key] = struct{}{}
 		// Carry the displaced add's trigger through the repair: a Deferred task
@@ -678,7 +721,15 @@ func (l *eventLog) repair() error {
 		if err := ValidateStatusTrigger(status, trigger); err != nil {
 			status, trigger = StatusToDo, ""
 		}
-		ev := Event{Op: opAdd, Task: id, Text: a.Text, Status: status, Trigger: trigger, Session: a.Session, RepairOf: key}
+		// Carry Tags and Ts through too (U120-F14): the displaced task's own
+		// fields, not the repair's own defaults. Dropping Tags silently
+		// discards payload despite reporting success; dropping Ts (the
+		// original add's timestamp) makes append() re-stamp the CURRENT
+		// time as CreatedAt, silently pinning the recovered task to the
+		// extreme of any age-based decay_fn (see priority.Compute's own
+		// CreatedAt.IsZero guard, U124-F03) instead of preserving its real
+		// age.
+		ev := Event{Op: opAdd, Task: id, Text: a.Text, Status: status, Trigger: trigger, Session: a.Session, Tags: a.Tags, Ts: a.Ts, RepairOf: key}
 		if err := l.append(ev); err != nil {
 			return err
 		}

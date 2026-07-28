@@ -298,11 +298,13 @@ func (w *AntigravityHookWriter) warn(format string, args ...interface{}) {
 func (w *AntigravityHookWriter) saveHooksFile(path string, hf *antigravityHooksFile) error {
 	output := make(map[string]interface{})
 	for k, v := range hf.Other {
+		// hf.Other's values are always syntactically valid JSON — they came
+		// from a successful json.Unmarshal into map[string]json.RawMessage in
+		// loadHooksFile — so re-decoding into interface{} here cannot fail.
+		// U029-F12: the prior warn+skip branch for that "failure" was
+		// unreachable dead code that read as a real hazard.
 		var val interface{}
-		if err := json.Unmarshal(v, &val); err != nil {
-			w.warn("failed to preserve hooks.json field %q: %v", k, err)
-			continue
-		}
+		_ = json.Unmarshal(v, &val)
 		output[k] = val
 	}
 
@@ -398,17 +400,17 @@ func (w *AntigravityHookWriter) addUnifiedHooks(hf *antigravityHooksFile, unifie
 			if hook.Matcher == "" {
 				hook.Matcher = ".*"
 			}
-			w.addHook(hf, "PreToolUse", hook)
+			w.addHook(hf, EventPreToolUse, hook)
 			continue
 		}
 		w.addHook(hf, "SessionStart", h)
 	}
 	agent.RouteUnifiedHooks("antigravity", []agent.HookRoute{
 		{Hooks: unified.SessionEnd, Event: "SessionEnd"},
-		{Hooks: unified.PreTool, Event: "PreToolUse"},
-		{Hooks: unified.PostTool, Event: "PostToolUse"},
-		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: antigravityShellMatcher},
-		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: antigravityFileEditMatcher},
+		{Hooks: unified.PreTool, Event: EventPreToolUse},
+		{Hooks: unified.PostTool, Event: EventPostToolUse},
+		{Hooks: unified.PreShell, Event: EventPreToolUse, DefaultMatcher: antigravityShellMatcher},
+		{Hooks: unified.PostFileEdit, Event: EventPostToolUse, DefaultMatcher: antigravityFileEditMatcher},
 	}, func(event string, h wire.Hook) {
 		w.addHook(hf, event, h)
 	})

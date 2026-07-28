@@ -91,7 +91,8 @@ type opencodeListEntry struct {
 	Created   int64  `json:"created"`
 	Updated   int64  `json:"updated"`
 	Directory string `json:"directory"`
-	ProjectID string `json:"projectId"`
+	// projectId (U080-F18: declared, never read by anything, including tests)
+	// is intentionally not modeled — json.Unmarshal ignores it.
 }
 
 // GetCurrentSession returns the most recent session transcript for workDir.

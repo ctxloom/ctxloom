@@ -44,7 +44,13 @@ const (
 	ApproachHook
 )
 
-// String renders the approach for diagnostics and error text.
+// String renders the approach for diagnostics and error text. The five
+// per-surface enums below (ContextWrite, MCPWrite, SettingsWrite,
+// CommandsWrite, SkillsWrite) used to each carry their own String() forwarding
+// to this one via approach() — all five were test-only (U100-F06; error text
+// that actually renders an approach goes through THIS method, via
+// approach()), so they were deleted. Their approach() converters stay: they
+// are the compile-time cross-surface guard SupportedApproaches/Build rely on.
 func (a Approach) String() string {
 	switch a {
 	case ApproachSystemPrompt:
@@ -75,9 +81,6 @@ const (
 	ContextWriteHook
 )
 
-// String renders the context-write approach for diagnostics.
-func (c ContextWrite) String() string { return c.approach().String() }
-
 // approach converts the caller-facing enum to the shared dispatch key.
 func (c ContextWrite) approach() Approach {
 	switch c {
@@ -99,9 +102,6 @@ type MCPWrite int
 // mcp_config.json, .kiro/settings/mcp.json).
 const MCPWriteUnsafeFile MCPWrite = iota
 
-// String renders the MCP-write approach for diagnostics.
-func (m MCPWrite) String() string { return m.approach().String() }
-
 // approach converts the caller-facing enum to the shared dispatch key.
 func (m MCPWrite) approach() Approach { return ApproachUnsafeFile }
 
@@ -113,9 +113,6 @@ type SettingsWrite int
 // (.claude/settings.json, codex config.toml, .agents/hooks.json, kiro agent JSON).
 const SettingsWriteUnsafeFile SettingsWrite = iota
 
-// String renders the settings-write approach for diagnostics.
-func (w SettingsWrite) String() string { return w.approach().String() }
-
 // approach converts the caller-facing enum to the shared dispatch key.
 func (w SettingsWrite) approach() Approach { return ApproachUnsafeFile }
 
@@ -126,9 +123,6 @@ type CommandsWrite int
 // CommandsWriteUnsafeFile writes the engine's native commands/skill dir
 // (.claude/commands/, $CODEX_HOME/prompts, .agents/skills/, .kiro/skills/).
 const CommandsWriteUnsafeFile CommandsWrite = iota
-
-// String renders the commands-write approach for diagnostics.
-func (w CommandsWrite) String() string { return w.approach().String() }
 
 // approach converts the caller-facing enum to the shared dispatch key.
 func (w CommandsWrite) approach() Approach { return ApproachUnsafeFile }
@@ -143,9 +137,6 @@ type SkillsWrite int
 // SkillsWriteUnsafeFile writes the engine's native skills dir (claude
 // .claude/skills/<name>/, kiro .kiro/skills/<name>/, …).
 const SkillsWriteUnsafeFile SkillsWrite = iota
-
-// String renders the skills-write approach for diagnostics.
-func (w SkillsWrite) String() string { return w.approach().String() }
 
 // approach converts the caller-facing enum to the shared dispatch key.
 func (w SkillsWrite) approach() Approach { return ApproachUnsafeFile }

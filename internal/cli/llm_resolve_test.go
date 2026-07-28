@@ -36,19 +36,23 @@ func twoLabelConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
-				"alpha": {Type: "claude-code", Body: map[string]interface{}{"model": "model-alpha"}},
-				"beta":  {Type: "claude-code", Body: map[string]interface{}{"model": "model-beta"}},
+				"alpha": {Type: "claude-code", Body: map[string]interface{}{"binary_path": "/bin/alpha"}},
+				"beta":  {Type: "claude-code", Body: map[string]interface{}{"binary_path": "/bin/beta"}},
 			},
 		},
 	})
 }
 
-func decodedClaudeModel(t *testing.T, cfg *config.Config) string {
+// decodedClaudeBinaryPath decodes the resolved claude-code config and returns
+// BinaryPath — used as the distinguishing marker between the two labels
+// (ClaudeConfig.Model was deleted as dead, U032-F14: decoded and never read
+// by this package, the effective model resolves untyped elsewhere).
+func decodedClaudeBinaryPath(t *testing.T, cfg *config.Config) string {
 	t.Helper()
 	bc := decodeBackendConfigForType(cfg, "claude-code")
 	cc, ok := bc.(*claude.ClaudeConfig)
 	require.True(t, ok, "expected *claude.ClaudeConfig, got %#v", bc)
-	return cc.Model
+	return cc.BinaryPath
 }
 
 func TestDecodeBackendConfigForType_PrefersPrimaryLabel(t *testing.T) {
@@ -56,13 +60,13 @@ func TestDecodeBackendConfigForType_PrefersPrimaryLabel(t *testing.T) {
 	f.LM.Defaults.Primary = "beta"
 	cfg := config.NewFixture(f)
 
-	assert.Equal(t, "model-beta", decodedClaudeModel(t, cfg))
+	assert.Equal(t, "/bin/beta", decodedClaudeBinaryPath(t, cfg))
 }
 
 func TestDecodeBackendConfigForType_DeterministicWithoutPrimary(t *testing.T) {
 	cfg := twoLabelConfig()
 
-	assert.Equal(t, "model-alpha", decodedClaudeModel(t, cfg),
+	assert.Equal(t, "/bin/alpha", decodedClaudeBinaryPath(t, cfg),
 		"ties resolve to the lexicographically first label")
 }
 
@@ -106,6 +110,6 @@ func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 	f.LM.Defaults.Primary = "agy"
 	cfg := config.NewFixture(f)
 
-	assert.Equal(t, "model-alpha", decodedClaudeModel(t, cfg),
+	assert.Equal(t, "/bin/alpha", decodedClaudeBinaryPath(t, cfg),
 		"a primary of a different type falls back to the sorted-label scan")
 }

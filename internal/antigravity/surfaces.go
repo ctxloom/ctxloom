@@ -181,7 +181,8 @@ func (f deliveredFunc) Cleanup() error { return f() }
 
 // Surfaces is agy's set of delivery surfaces for one run — five surface objects:
 // context (AGENTS.md), MCP (mcp_config.json), hooks (hooks.json), commands
-// (skills/<name>.md), and skills (skills/<name>/SKILL.md).
+// (skills/<name>/SKILL.md), and skills (skills/<name>/SKILL.md, same parent —
+// see the collision-resolution doc above NewSurfaces).
 type Surfaces struct {
 	Context  *contextSurface
 	MCP      *mcpSurface

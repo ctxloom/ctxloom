@@ -151,7 +151,7 @@ func (b *LaunchBackend) ExecuteEnv(req *ExecuteRequest) map[string]string {
 	for k, v := range req.Env {
 		env[k] = v
 	}
-	if p := b.ContextFilePath(); p != "" {
+	if p := b.contextFilePath(); p != "" {
 		env[SCMContextFileEnv] = p
 	}
 	if b.extraEnv != nil {
@@ -162,10 +162,11 @@ func (b *LaunchBackend) ExecuteEnv(req *ExecuteRequest) map[string]string {
 	return env
 }
 
-// ContextFilePath returns the on-disk path of the provided context file, or ""
-// when no context was provided. Execute passes it into the child env via the
-// SCM context-file variable.
-func (b *LaunchBackend) ContextFilePath() string {
+// contextFilePath returns the on-disk path of the provided context file, or ""
+// when no context was provided. ExecuteEnv passes it into the child env via
+// the SCM context-file variable. Unexported (U101-F22): its only caller is
+// in this file.
+func (b *LaunchBackend) contextFilePath() string {
 	if b.context == nil {
 		return ""
 	}
@@ -313,14 +314,12 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 		return nil
 	}
 
-	var cell interface {
-		Deliver(Delivery) (Delivered, error)
-	}
-	if req.CellKind == CellKindProcessIsolated {
-		cell = NewProcessIsolatedCell(b.WorkDir())
-	} else {
-		cell = NewDirectoryIsolatedCell(b.WorkDir())
-	}
+	// U100-F07: DirectoryIsolatedCell/ProcessIsolatedCell used to be two
+	// distinct types chosen between here on req.CellKind, but both were
+	// `isolatedCell{dir}` with no added field or method — the branch had no
+	// observable effect. Collapsed to one IsolatedCell; the CellKind
+	// distinction survives where it actually matters (buildArgs/env).
+	cell := NewIsolatedCell(b.WorkDir())
 	for _, kd := range resolved.Deliveries() {
 		d, err := cell.Deliver(kd)
 		if err != nil {

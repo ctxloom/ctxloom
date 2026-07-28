@@ -259,7 +259,7 @@ func (EmptySurfaceSet) SharedRealization(SurfaceKind) (func() (Delivered, error)
 // Setup/buildArgs know which cell they run in. It is the plugin-side mirror of
 // the grpc CellKind enum. The zero value is CellKindShared, matching the wire's
 // UNSPECIFIED→Shared decode. It names the same three cells as the typed cell
-// values above (SharedCell / DirectoryIsolatedCell / ProcessIsolatedCell).
+// values above (SharedCell / IsolatedCell).
 type CellKind int
 
 const (
@@ -283,40 +283,35 @@ func (k CellKind) String() string {
 	}
 }
 
-// isolatedCell is the shared base for cells that own a PRIVATE directory (a
-// per-agent worktree, or a container's in-namespace filesystem). A well-known
-// write into a private dir cannot race another session, so an isolated cell
-// accepts ANY Delivery — the Deliver signature encodes that safety.
-type isolatedCell struct {
+// IsolatedCell is the cell for anything that owns a PRIVATE directory — a
+// per-agent WORKTREE (dir is the private checkout) or a CONTAINER (dir is the
+// filesystem-namespace location the co-located in-container engine reads; the
+// host-vs-guest resolution of dir from internal/lm/isolation is the seam wired
+// later — plan S4; the container-mount question stays open there). A
+// well-known write into a private dir cannot race another session, so an
+// isolated cell accepts ANY Delivery — the Deliver signature encodes that
+// safety.
+//
+// U100-F07: DirectoryIsolatedCell and ProcessIsolatedCell used to be two
+// distinct (behaviourally identical) types wrapping this one, chosen between
+// via a branch on req.CellKind that added nothing an isolated cell's shared
+// Deliver didn't already do — collapsed to this single type. The CellKind
+// distinction itself survives where it actually matters (buildArgs/env).
+type IsolatedCell struct {
 	dir string
 }
 
 // Deliver writes the surface to this cell's private directory via the surface's
 // well-known Delivery. Accepting a plain Delivery is safe precisely because the
 // directory is private.
-func (c isolatedCell) Deliver(s Delivery) (Delivered, error) {
+func (c IsolatedCell) Deliver(s Delivery) (Delivered, error) {
 	return s.Deliver(c.dir)
 }
 
-// DirectoryIsolatedCell is the isolated cell for a per-agent WORKTREE: dir is
-// the private checkout, so Delivery lands the engine's native well-known files
-// inside that checkout.
-type DirectoryIsolatedCell struct {
-	isolatedCell
-}
-
-// ProcessIsolatedCell is the isolated cell for a CONTAINER: dir is the
-// filesystem-namespace location the co-located in-container engine reads. (The
-// host-vs-guest resolution of dir from internal/lm/isolation is the seam wired
-// later — plan S4; the container-mount question stays open there.)
-type ProcessIsolatedCell struct {
-	isolatedCell
-}
-
-// NewDirectoryIsolatedCell builds a worktree cell that writes surfaces into the
-// private checkout dir.
-func NewDirectoryIsolatedCell(dir string) DirectoryIsolatedCell {
-	return DirectoryIsolatedCell{isolatedCell{dir: dir}}
+// NewIsolatedCell builds an isolated cell (worktree or container) that writes
+// surfaces into the private dir.
+func NewIsolatedCell(dir string) IsolatedCell {
+	return IsolatedCell{dir: dir}
 }
 
 // surfaceOrder is the stable cross-backend delivery order — context, MCP,
@@ -445,8 +440,8 @@ func containsApproach(list []Approach, a Approach) bool {
 }
 
 // DeliverUnder is the convenience terminal for the at-rest callers (materialize,
-// apply, remove): it Builds the selection and delivers each resolved surface into a
-// DirectoryIsolatedCell rooted at dir. A Build error (an unsupported approach, or
+// apply, remove): it Builds the selection and delivers each resolved surface into an
+// IsolatedCell rooted at dir. A Build error (an unsupported approach, or
 // context-Hook selected without settings) is returned as the sole entry in errs.
 // See ResolvedSelection.DeliverUnder for the collect-all-failures semantics.
 func (s *SurfaceSelection) DeliverUnder(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
@@ -504,8 +499,8 @@ func (r *ResolvedSelection) Deliveries() []KindedDelivery {
 	return out
 }
 
-// DeliverUnder delivers each resolved surface's native (well-known) write into a
-// DirectoryIsolatedCell rooted at dir — the at-rest path (materialize/apply/remove),
+// DeliverUnder delivers each resolved surface's native (well-known) write into
+// an IsolatedCell rooted at dir — the at-rest path (materialize/apply/remove),
 // where a private dir makes every write race-free. It ERRORS on any surface
 // resolved at ApproachSystemPrompt: that approach writes an out-of-cwd scratch file
 // consumed via a launch flag, and DeliverUnder has no argv sink to hand that flag
@@ -520,7 +515,7 @@ func (r *ResolvedSelection) Deliveries() []KindedDelivery {
 // Hook no-op) is neither reported nor held, so the report reflects what was
 // actually written.
 func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
-	cell := NewDirectoryIsolatedCell(dir)
+	cell := NewIsolatedCell(dir)
 	for _, rs := range r.surfaces {
 		if rs.approach == ApproachSystemPrompt {
 			errs = append(errs, fmt.Errorf("surface %s: system-prompt delivery has no argv sink at rest (dir %s)", rs.kind, dir))
@@ -546,6 +541,16 @@ func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kin
 // collecting per-surface failures like DeliverUnder. It is the shared-cwd
 // counterpart of DeliverUnder; the launch path uses deliverOneShared directly (per
 // surface) instead, so it can keep its context-failure fallback.
+//
+// U100-F04 found this has no PRODUCTION call site — true, but the review's
+// suggested fix ("port callers onto deliverOneShared directly") does not work
+// for its actual callers: deliverOneShared is unexported, and every current
+// caller of DeliverShared (claude/kiro/codex/antigravity's surfaces_test.go,
+// selection_test.go) lives in a DIFFERENT package, so it cannot reach an
+// unexported method here. DeliverShared is the sanctioned, exported seam those
+// five packages' tests use to exercise the shared-cwd "unsafe: warn and
+// proceed" behavior end to end (real UnsafeInfo() strings, real target
+// paths) — kept deliberately, not oversight.
 func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
 	for _, rs := range r.surfaces {
 		d, err := r.deliverOneShared(rs, dir)
@@ -589,10 +594,4 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (De
 	}
 	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, dir)
 	return rs.delivery.Deliver(dir)
-}
-
-// NewProcessIsolatedCell builds a container cell that writes surfaces into the
-// in-namespace mount dir.
-func NewProcessIsolatedCell(dir string) ProcessIsolatedCell {
-	return ProcessIsolatedCell{isolatedCell{dir: dir}}
 }

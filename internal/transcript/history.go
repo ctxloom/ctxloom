@@ -196,7 +196,11 @@ func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, 
 //     because the writer creates the file lazily on the first SUCCESSFUL
 //     Record (see NewRecorder), so it cannot legitimately decode to nothing.
 func ParseTranscriptFile(path, id string) (*agent.Session, error) {
-	store := agent.NewSessionStore()
+	// agent.NewSessionStore() used to be the OS-filesystem constructor here,
+	// but a zero-value SessionStore{} is identical: every FS use goes through
+	// agent.GetFS, which already defaults a nil Fs to afero.NewOsFs()
+	// (U102-F17 deleted the redundant constructor).
+	store := agent.SessionStore{}
 
 	var (
 		lines, decoded int

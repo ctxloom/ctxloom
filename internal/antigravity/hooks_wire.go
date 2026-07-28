@@ -17,10 +17,12 @@ import "encoding/json"
 
 // Hook event names agy loads handlers for. SessionStart/SessionEnd entries in
 // hooks.json are silently skipped by agy v1.0.7 (no handler loads, no error).
+// The single source of truth for both the wire contract and antigravity.go's
+// own hooks.json event routing (addUnifiedHooks) — routing through these
+// constants instead of duplicating the string literals is what U029-F03 fixed.
 const (
 	EventPreToolUse  = "PreToolUse"
 	EventPostToolUse = "PostToolUse"
-	EventStop        = "Stop"
 )
 
 // Antigravity tool names observed on the PreToolUse wire. Cascade-engine
@@ -31,20 +33,17 @@ const (
 	ToolExecuteCommand     = "execute_command"
 	ToolWriteToFile        = "write_to_file"
 	ToolReplaceFileContent = "replace_file_content"
-	ToolViewFile           = "view_file"
-	ToolListDir            = "list_dir"
 )
 
 // HookPayload is the JSON agy writes to a hook's stdin. The hook process runs
 // with its working directory set to <workspace>/.agents and
 // ANTIGRAVITY_CONVERSATION_ID in its environment.
 type HookPayload struct {
-	ArtifactDirectoryPath string   `json:"artifactDirectoryPath,omitempty"`
-	ConversationID        string   `json:"conversationId,omitempty"`
-	StepIdx               int      `json:"stepIdx,omitempty"`
-	ToolCall              ToolCall `json:"toolCall"`
-	TranscriptPath        string   `json:"transcriptPath,omitempty"`
-	WorkspacePaths        []string `json:"workspacePaths,omitempty"`
+	ConversationID string   `json:"conversationId,omitempty"`
+	StepIdx        int      `json:"stepIdx,omitempty"`
+	ToolCall       ToolCall `json:"toolCall"`
+	TranscriptPath string   `json:"transcriptPath,omitempty"`
+	WorkspacePaths []string `json:"workspacePaths,omitempty"`
 }
 
 // ToolCall is the tool invocation under review.
@@ -72,9 +71,6 @@ type ToolArgs struct {
 
 	// view_file
 	AbsolutePath string `json:"AbsolutePath,omitempty"`
-
-	// list_dir
-	DirectoryPath string `json:"DirectoryPath,omitempty"`
 }
 
 // FilePath returns the file the tool call targets, across the per-tool

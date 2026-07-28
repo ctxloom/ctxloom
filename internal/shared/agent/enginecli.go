@@ -142,8 +142,6 @@ func (f CLIFlag) TakesValue() bool { return f.Value != ValueNone }
 type PromptDelivery string
 
 const (
-	// PromptNone means this surface carries no prompt.
-	PromptNone PromptDelivery = "none"
 	// PromptPositional means the prompt is the trailing argv positional.
 	PromptPositional PromptDelivery = "positional"
 	// PromptStdin means the prompt is written to the child's stdin.
@@ -182,6 +180,8 @@ const (
 
 // ProbeKindOf maps a delivery SurfaceKind onto its probe category, so the
 // declaration never restates a label the SurfaceKind enum already owns.
+// Test-only (U101-F16): its whole job is guarding that mapping in
+// enginecli_test.go, so "no production caller" is the point, not a defect.
 func ProbeKindOf(k SurfaceKind) ProbeKind { return ProbeKind(k.String()) }
 
 // ProbeScope says where a probe's search roots come from.
@@ -273,15 +273,6 @@ func (c EngineCLI) LookupFlag(name string) (CLIFlag, bool) {
 	return c.Flags[i], true
 }
 
-// FlagNames returns every declared flag name, in declaration order.
-func (c EngineCLI) FlagNames() []string {
-	out := make([]string, 0, len(c.Flags))
-	for _, f := range c.Flags {
-		out = append(out, f.Name)
-	}
-	return out
-}
-
 // ProbesFor returns the declared probes for one kind, in precedence order.
 func (c EngineCLI) ProbesFor(kind ProbeKind) []CLIProbe {
 	var out []CLIProbe
@@ -297,7 +288,9 @@ func (c EngineCLI) ProbesFor(kind ProbeKind) []CLIProbe {
 // ScopeFlagValue probe naming a flag this surface does not declare (or one that
 // takes no value), or a probe whose scope and fields disagree. It exists so a
 // malformed declaration fails at its own test rather than producing a
-// mysteriously wrong parse downstream.
+// mysteriously wrong parse downstream. Test-only by design (U101-F16): every
+// call site is a declaration's own anti-drift test guarding itself, which is
+// exactly the job, not a sign it is unused.
 func (c EngineCLI) Validate() error {
 	seen := make(map[string]bool, len(c.Flags))
 	for _, f := range c.Flags {
@@ -379,17 +372,6 @@ func (p ParsedArgv) Value(name string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// Values returns every occurrence's value for the named flag, in argv order.
-func (p ParsedArgv) Values(name string) []string {
-	var out []string
-	for _, f := range p.Flags {
-		if f.Flag.Name == name {
-			out = append(out, f.Value)
-		}
-	}
-	return out
 }
 
 // UndeclaredFlagError is what makes drift LOUD: the driver emitted a flag the

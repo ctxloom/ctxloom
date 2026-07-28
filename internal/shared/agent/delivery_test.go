@@ -20,8 +20,3 @@ func TestEphemeralPlacementDir(t *testing.T) {
 	empty := ephemeralPlacement{harp: ""}
 	assert.Equal(t, os.TempDir(), empty.Dir())
 }
-
-func TestCwdPlacementDir(t *testing.T) {
-	p := cwdPlacement{dir: "/some/work/dir"}
-	assert.Equal(t, "/some/work/dir", p.Dir())
-}

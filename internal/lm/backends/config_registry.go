@@ -10,14 +10,6 @@ import (
 // configDecoder turns an LLM entry's raw body into a backend's typed config.
 type configDecoder func(body map[string]interface{}) (agent.BackendConfig, error)
 
-// RegisterConfig registers a backend's config decoder under its type
-// discriminator on the descriptor table. Built-in backends set decodeConfig
-// directly in their descriptor (registry.go init); this entry point remains
-// for piecemeal registration alongside Register.
-func RegisterConfig(backendType string, decode configDecoder) {
-	descriptorFor(backendType).decodeConfig = decode
-}
-
 // DecodeLLMConfig decodes a labeled entry's raw body into the typed config for
 // the named backend type. An unknown type is an error the caller degrades
 // (fault tolerance). The label that keyed the entry is NOT consulted — only the

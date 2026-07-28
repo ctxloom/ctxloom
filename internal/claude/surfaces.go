@@ -231,10 +231,10 @@ func (s *commandsSurface) Kind() agent.SurfaceKind { return agent.SurfaceCommand
 // type is reusable here (unlike commands) because claude's skill writer needs
 // no home-dir dedup or DeliverIsolated variant: no engine has an out-of-cwd
 // flag for a skill package, matching commands' own "no SharedRealization"
-// (see Surfaces.SharedRealization below). SurfaceInputs.SelfContainedSkills
-// rides alongside Skills for parity with SelfContainedCommands (a future
-// engine's skill writer may gain a dedup to opt out of); claude's own
-// WriteSkillFiles has none yet, so it is not threaded further than here.
+// (see Surfaces.SharedRealization below). SurfaceInputs no longer carries a
+// SelfContainedSkills knob (U033-F02 deleted it): it was threaded in from
+// three call sites and read by nothing here — claude's WriteSkillFiles has no
+// dedup to opt out of, so there was nothing for it to control.
 func newSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
 	return agent.NewManagedSkillPackagesDelivery("claude/skills", skills, func(dir string, skills []agent.SkillExport) error {
 		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
@@ -261,8 +261,6 @@ type SurfaceInputs struct {
 	SelfContainedCommands bool
 	// Skills carries the Agent Skill package exports for .claude/skills/.
 	Skills []agent.SkillExport
-	// SelfContainedSkills mirrors SelfContainedCommands for the skills surface.
-	SelfContainedSkills bool
 	// MCPCommandOverride mirrors agent.SurfaceInputs.MCPCommandOverride: when
 	// non-empty, the MCP surface stamps this as the ctxloom-managed .mcp.json
 	// entry's command instead of agent.CtxloomCommand() (dire-five's fix; set

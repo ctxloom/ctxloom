@@ -88,9 +88,11 @@ var (
 
 // ---- isolated cells --------------------------------------------------------
 
-// An isolated cell (worktree or container) accepts ANY Delivery and writes it
-// into its own private dir — the compile-time signature (Deliver(Delivery))
-// encodes that a well-known write into a private dir is safe.
+// An isolated cell (worktree or container — both the SAME IsolatedCell type
+// since U100-F07 collapsed the two behaviourally-identical wrapper types)
+// accepts ANY Delivery and writes it into its own private dir — the
+// compile-time signature (Deliver(Delivery)) encodes that a well-known write
+// into a private dir is safe.
 func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -99,8 +101,8 @@ func TestIsolatedCells_DeliverAnyDeliveryIntoPrivateDir(t *testing.T) {
 		}
 		dir string
 	}{
-		{"worktree", NewDirectoryIsolatedCell("/worktrees/agent-x"), "/worktrees/agent-x"},
-		{"container", NewProcessIsolatedCell("/home/agent"), "/home/agent"},
+		{"worktree", NewIsolatedCell("/worktrees/agent-x"), "/worktrees/agent-x"},
+		{"container", NewIsolatedCell("/home/agent"), "/home/agent"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var call deliveryCall
@@ -165,11 +167,11 @@ func TestDeliverOneShared_PrefersSharedRealization(t *testing.T) {
 // deliverOneShared via its isolated path when the set advertises a
 // SharedRealization for its kind.
 func TestDualCapableSurface_WorksInEveryMechanism(t *testing.T) {
-	if _, err := NewDirectoryIsolatedCell("/wt").Deliver(dualStub{}); err != nil {
-		t.Fatalf("isolated cell: %v", err)
+	if _, err := NewIsolatedCell("/wt").Deliver(dualStub{}); err != nil {
+		t.Fatalf("isolated cell (worktree): %v", err)
 	}
-	if _, err := NewProcessIsolatedCell("/home/agent").Deliver(dualStub{}); err != nil {
-		t.Fatalf("container cell: %v", err)
+	if _, err := NewIsolatedCell("/home/agent").Deliver(dualStub{}); err != nil {
+		t.Fatalf("isolated cell (container): %v", err)
 	}
 	r := &ResolvedSelection{set: fakeSharedSet{realize: dualStub{}.DeliverIsolated}}
 	if _, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: dualStub{}}, "/live"); err != nil {

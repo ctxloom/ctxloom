@@ -85,7 +85,15 @@ func StripManagedSection(content string) string {
 	rest := content[begin+len(ManagedContextBegin):]
 	end := strings.Index(rest, ManagedContextEnd)
 	if end < 0 {
-		return strings.TrimRight(content[:begin], "\n") + ifNonEmptySuffix(content[:begin], "\n")
+		// U101-F17: check the TRIMMED prefix for emptiness, not the untrimmed
+		// one — an all-blank-lines prefix (e.g. "\n\n" before the marker) must
+		// vanish entirely, not survive as a stray "\n". The prior helper
+		// (ifNonEmptySuffix) tested content[:begin] untrimmed, so it appended
+		// "\n" even when the trimmed result was "".
+		if prefix := strings.TrimRight(content[:begin], "\n"); prefix != "" {
+			return prefix + "\n"
+		}
+		return ""
 	}
 	after := strings.TrimLeft(rest[end+len(ManagedContextEnd):], "\n")
 	before := content[:begin]
@@ -93,14 +101,6 @@ func StripManagedSection(content string) string {
 		return after
 	}
 	return before + after
-}
-
-// ifNonEmptySuffix returns suffix when s is non-empty, else "".
-func ifNonEmptySuffix(s, suffix string) string {
-	if s == "" {
-		return ""
-	}
-	return suffix
 }
 
 // DeliveredFunc adapts a cleanup closure to Delivered, for a Delivery whose

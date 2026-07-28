@@ -415,7 +415,7 @@ func TestDirectoryIsolatedCell_AcceptsAllKiroSurfaces(t *testing.T) {
 	ds := s.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
-	cell := agent.NewDirectoryIsolatedCell(dir)
+	cell := agent.NewIsolatedCell(dir)
 	for _, surface := range ds {
 		d, err := cell.Deliver(surface)
 		require.NoError(t, err)

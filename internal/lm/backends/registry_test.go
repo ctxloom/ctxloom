@@ -89,6 +89,10 @@ func TestIsAvailable(t *testing.T) {
 // into the backend's own typed struct, keyed solely by the type discriminator.
 func TestDecodeLLMConfig(t *testing.T) {
 	t.Run("claude-code decodes its fields", func(t *testing.T) {
+		// "model" is deliberately included even though ClaudeConfig has no
+		// Model field (U032-F14, deleted as dead): mapstructure ignores
+		// unknown body keys, so a config carrying "model" alongside
+		// "binary_path" must still decode cleanly.
 		bc, err := DecodeLLMConfig("claude-code", map[string]interface{}{
 			"model":       "haiku",
 			"binary_path": "/custom/claude",
@@ -96,7 +100,6 @@ func TestDecodeLLMConfig(t *testing.T) {
 		require.NoError(t, err)
 		cc, ok := bc.(*claude.ClaudeConfig)
 		require.True(t, ok, "decoder must yield *ClaudeConfig")
-		assert.Equal(t, "haiku", cc.Model)
 		assert.Equal(t, "/custom/claude", cc.BinaryPath)
 	})
 

@@ -1,30 +1,7 @@
 // Package collections provides generic data structure utilities.
 //
-// # Set Implementation
-//
-// This package provides a lightweight generic Set type that wraps map[T]struct{}.
-// It offers cleaner syntax for common set operations without external dependencies.
-//
-// # When to Consider a Library
-//
-// If set usage expands significantly, consider switching to a dedicated library:
-//
-//   - github.com/deckarep/golang-set/v2
-//     Battle-tested, used by Docker/Ethereum/HashiCorp/1Password.
-//     Features: thread-safe option, JSON marshaling, full set algebra.
-//     Go 1.18+
-//
-//   - github.com/hashicorp/go-set
-//     HashSet (custom hash), TreeSet (sorted), standard Set.
-//     Features: Min/Max/TopK for TreeSet, custom hash functions.
-//     Go 1.23+, not thread-safe.
-//
-// Switch triggers:
-//   - Need thread-safe sets for concurrent access
-//   - Need JSON marshaling/unmarshaling of sets
-//   - Need set algebra (Union, Intersection, Difference, SymmetricDifference)
-//   - Need sorted iteration (TreeSet)
-//   - Need custom hash functions for complex structs
+// It provides a lightweight generic Set type that wraps map[T]struct{}, for
+// cleaner syntax at the "seen"/"visited" idiom's call sites.
 package collections
 
 // Set is a generic set implementation backed by a map.

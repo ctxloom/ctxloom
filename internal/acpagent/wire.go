@@ -40,6 +40,15 @@ const DefaultModeID = operations.DefaultModeID
 // clients (agentic.nvim, formulahendry's picker) drive session/set_mode and
 // the models advertisement TODAY and almost certainly do not speak
 // session/set_config_option yet.
+//
+// U014-F11 RETIREMENT TRIGGER (recorded, not yet met): drop the `models`
+// field from this struct and loadSessionResult, and delete modelState/
+// modelWire/modelStateWire entirely, once BOTH named target clients
+// (agentic.nvim, formulahendry's picker) speak session/set_config_option's
+// spec-general "model" category config option in a released version — or,
+// failing a confirmed release date from either, on the next deliberate ACP
+// compat-surface review. Until then this is duplicated wire surface with a
+// known, not open-ended, removal condition.
 type newSessionResult struct {
 	SessionId     api.SessionId             `json:"sessionId"`
 	Modes         *api.SessionModeState     `json:"modes,omitempty"`

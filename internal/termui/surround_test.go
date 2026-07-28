@@ -146,7 +146,7 @@ func TestSurround_SetSizeWhileSuspendedTracksReservationActiveFlip(t *testing.T)
 func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h", PrefixHint: "^]"})
-	s.SetEngineIdle(func() int64 { return 0 }) // engine idle forever
+	s.lastEngineWrite = func() int64 { return 0 } // engine idle forever
 	s.SetSize(24, 80)
 	tty.Reset()
 
@@ -168,7 +168,7 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 	nowNanos = func() int64 { return now }
 	defer func() { nowNanos = restore }()
 
-	s.SetEngineIdle(func() int64 { return now - 1 }) // engine wrote 1ns ago: busy
+	s.lastEngineWrite = func() int64 { return now - 1 } // engine wrote 1ns ago: busy
 	s.SetSize(24, 80)
 	tty.Reset()
 

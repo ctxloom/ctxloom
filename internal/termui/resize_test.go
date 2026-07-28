@@ -67,7 +67,7 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 	src := make(chan *pb.WindowSize, 1)
 	src <- &pb.WindowSize{Rows: 24, Cols: 80} // watchResize's pre-buffered initial emit
 
-	rt := newResizeTranslator(src, sur.Reserve(), sur.SetSize)
+	rt := newResizeTranslator(src, sur.reserve, sur.SetSize)
 
 	assert.Contains(t, tty.String(), "\x1b[1;23r",
 		"DECSTBM must already be on the tty by the time newResizeTranslator returns")

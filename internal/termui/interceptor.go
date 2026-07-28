@@ -138,9 +138,6 @@ func (ic *interceptor) scan(chunk []byte) (out, ui []byte, act ixActions) {
 			}
 		case ixUI:
 			ui = append(ui, b)
-		case ixOff:
-			chunk[k] = b
-			k++
 		}
 	}
 	if (ic.state == ixFresh || ic.state == ixUI) && !ic.engaged {

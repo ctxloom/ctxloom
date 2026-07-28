@@ -121,8 +121,10 @@ func New(opts Options) *Controller {
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
 	c.gate = newOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
-	c.sur.SetEngineIdle(c.gate.LastWriteNanos)
-	c.sur.SetPaintSafe(guard.SafeForPaint)
+	// SetEngineIdle/SetPaintSafe inlined: construction-only writes, before any
+	// goroutine starts (see U141-F15/F23).
+	c.sur.lastEngineWrite = c.gate.LastWriteNanos
+	c.sur.paintSafe = guard.SafeForPaint
 	// Erase the primary screen once at terminal takeover. The session picker and
 	// startup lines render as plain text on the primary screen; the surround's
 	// DECSTBM (emitted by SetSize below) homes the cursor but erases nothing, and
@@ -132,7 +134,7 @@ func New(opts Options) *Controller {
 	// the surround and child both draw onto a clean screen. ED 2 (not 3) keeps the
 	// picker output in scrollback rather than nuking it.
 	_, _ = io.WriteString(opts.TTY, "\x1b[H\x1b[2J")
-	c.rt = newResizeTranslator(opts.Resize, c.sur.Reserve(), c.sur.SetSize)
+	c.rt = newResizeTranslator(opts.Resize, c.sur.reserve, c.sur.SetSize)
 	c.ic = newInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{
 		Engage:       c.engage,
 		AbortLiteral: c.abortLiteral,

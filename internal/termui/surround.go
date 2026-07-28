@@ -100,16 +100,6 @@ func newSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *surro
 	}
 }
 
-// Reserve is the row count the resize translation must subtract.
-func (s *surround) Reserve() int { return s.reserve }
-
-// SetEngineIdle wires the gate's last-write clock for the busy heuristic.
-func (s *surround) SetEngineIdle(lastWriteNanos func() int64) { s.lastEngineWrite = lastWriteNanos }
-
-// SetPaintSafe wires the gate guard's stream-boundary check; paints attempted
-// while the child stream is mid-sequence defer to the next safe flush.
-func (s *surround) SetPaintSafe(safe func() bool) { s.paintSafe = safe }
-
 // regionBottomLocked is the guard's clamp bound: the last protected-region
 // row while the reservation stands, else 0 (child owns the full screen — no
 // clamping). Requires s.mu.

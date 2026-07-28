@@ -90,24 +90,20 @@ func TestNewPublishManager(t *testing.T) {
 		assert.NotNil(t, pm.fs)
 		assert.NotNil(t, pm.publisherFactory)
 		assert.NotNil(t, pm.fetcherFactory)
-		assert.NotNil(t, pm.lockfileManager)
 	})
 
 	t.Run("accepts custom options", func(t *testing.T) {
 		customFS := afero.NewMemMapFs()
 		mp := newMockPublisher()
 		mf := newMockFetcher()
-		lm := NewLockfileManager("/test", WithLockfileFS(customFS))
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(customFS),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-			WithPublishLockfileManager(lm),
 		)
 
 		assert.Equal(t, customFS, pm.fs)
-		assert.Equal(t, lm, pm.lockfileManager)
 	})
 }
 

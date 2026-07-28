@@ -46,7 +46,6 @@ type PublishManager struct {
 	auth             AuthConfig
 	publisherFactory PublisherFactory
 	fetcherFactory   FetcherFactory
-	lockfileManager  *LockfileManager
 	fs               afero.Fs
 }
 
@@ -74,13 +73,6 @@ func WithPublishFetcherFactory(ff FetcherFactory) PublishManagerOption {
 	}
 }
 
-// WithPublishLockfileManager sets a custom lockfile manager (for testing).
-func WithPublishLockfileManager(lm *LockfileManager) PublishManagerOption {
-	return func(pm *PublishManager) {
-		pm.lockfileManager = lm
-	}
-}
-
 // NewPublishManager creates a new publish manager.
 func NewPublishManager(registry *Registry, auth AuthConfig, opts ...PublishManagerOption) *PublishManager {
 	pm := &PublishManager{
@@ -94,11 +86,6 @@ func NewPublishManager(registry *Registry, auth AuthConfig, opts ...PublishManag
 	// Apply options
 	for _, opt := range opts {
 		opt(pm)
-	}
-
-	// Initialize defaults for nil dependencies
-	if pm.lockfileManager == nil {
-		pm.lockfileManager = NewLockfileManager(".ctxloom")
 	}
 
 	return pm
@@ -464,16 +451,13 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 	return strings.Join(sections, "\n\n---\n\n")
 }
 
-// buildPublishPath constructs the remote file path for an item.
-func buildPublishPath(itemType ItemType, name string) string {
-	var dir string
-	switch itemType {
-	case ItemTypeBundle:
-		dir = "bundles"
-	default:
-		dir = "bundles"
-	}
-	return path.Join(paths.RepoContentPrefix, dir, name+".yaml")
+// buildPublishPath constructs the remote file path for an item. itemType is
+// currently unused: ItemTypeBundle is the only distributed item type (see
+// types.go), so every publish target lives under "bundles"; the parameter is
+// kept so a future second ItemType doesn't require re-widening the signature
+// (U094-F04 — the switch this replaced had an identical case and default arm).
+func buildPublishPath(_ ItemType, name string) string {
+	return path.Join(paths.RepoContentPrefix, "bundles", name+".yaml")
 }
 
 // NewPublisher creates a publisher for the given repository URL.

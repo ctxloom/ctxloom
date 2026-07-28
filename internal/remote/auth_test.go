@@ -41,4 +41,3 @@ func TestLoadAuth_NoTokens(t *testing.T) {
 	auth := LoadAuth("")
 	assert.Empty(t, auth.GitHub)
 }
-

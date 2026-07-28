@@ -28,7 +28,6 @@ func installItemEnv(t *testing.T) (afero.Fs, *Registry) {
 
 func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ...PullerOption) *Puller {
 	opts := []PullerOption{
-		WithPullerFS(fs),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 	}
 	opts = append(opts, extra...)

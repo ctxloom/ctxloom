@@ -35,4 +35,3 @@ type Fetcher interface {
 	// Forge returns the type of forge this fetcher handles.
 	Forge() ForgeType
 }
-

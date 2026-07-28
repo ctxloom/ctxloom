@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -93,7 +91,6 @@ type Puller struct {
 	auth            AuthConfig
 	lockfileManager *LockfileManager
 	fetcherFactory  FetcherFactory
-	fs              afero.Fs
 	// now is the clock resolveRetraction stamps fresh retraction verdicts
 	// with, and measures persisted-verdict staleness against. A field (not a
 	// bare time.Now() call) so tests can inject a fixed/advancing clock
@@ -103,13 +100,6 @@ type Puller struct {
 
 // PullerOption is a functional option for configuring a Puller.
 type PullerOption func(*Puller)
-
-// WithPullerFS sets a custom filesystem implementation (for testing).
-func WithPullerFS(fs afero.Fs) PullerOption {
-	return func(p *Puller) {
-		p.fs = fs
-	}
-}
 
 // WithLockfileManager sets a custom lockfile manager (for testing).
 func WithLockfileManager(lm *LockfileManager) PullerOption {
@@ -141,7 +131,6 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 		registry:       registry,
 		auth:           auth,
 		fetcherFactory: DefaultFetcherFactory,
-		fs:             afero.NewOsFs(),
 	}
 
 	// Apply options first to allow overrides
@@ -460,10 +449,15 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
 	content := item.content
 
-	localPath, overwritten, err := p.writePulledContent(ref, opts, item.localName, item.sha, content)
-	if err != nil {
-		return nil, err
-	}
+	// Remote bundles AND profiles are pure references: the git clone cache +
+	// lockfile pair is the storage, and reads at the locked SHA go through
+	// remote.BundleReader / remote.ProfileReader. Nothing is materialized to
+	// disk, so LocalPath is a synthetic informational string and a pull never
+	// overwrites a local file (U094-F10 — this used to be a separate
+	// writePulledContent method whose only real parameters were localName and
+	// sha).
+	localPath := fmt.Sprintf("<remote>:%s@%s", item.localName, item.sha)
+	const overwritten = false
 
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via

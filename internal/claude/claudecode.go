@@ -89,7 +89,6 @@ func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) a
 		Commands:              in.Commands,
 		SelfContainedCommands: in.SelfContainedCommands,
 		Skills:                in.Skills,
-		SelfContainedSkills:   in.SelfContainedSkills,
 		MCPCommandOverride:    in.MCPCommandOverride,
 		DenyTools:             in.DenyTools,
 	}, dirPlacement{dir: isolatedDir}, nil)

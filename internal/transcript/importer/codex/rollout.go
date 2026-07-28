@@ -325,7 +325,7 @@ func (c *converter) handleEventMsg(raw json.RawMessage) error {
 			c.pending = &agent.TurnMeta{}
 		}
 		c.pending.DurationMs = p.DurationMs
-		return importer.FlushComplete(&c.pending, c.record)
+		return c.flushPending()
 	default:
 		return nil
 	}

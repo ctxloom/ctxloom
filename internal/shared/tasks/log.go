@@ -414,7 +414,10 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 	if err != nil {
 		return Task{}, err
 	}
-	id := uniqueHarpIDFromSet(f.issued)
+	id, err := uniqueHarpIDFromSet(f.issued)
+	if err != nil {
+		return Task{}, err
+	}
 	// Stamped explicitly (rather than left zero for append() to default)
 	// so the Ts actually written matches the CreatedAt returned below —
 	// otherwise a caller reading the just-added task's CreatedAt back would
@@ -703,7 +706,10 @@ func (l *eventLog) repair() error {
 		if _, done := f.repaired[key]; done {
 			continue
 		}
-		id := uniqueHarpIDFromSet(f.issued)
+		id, err := uniqueHarpIDFromSet(f.issued)
+		if err != nil {
+			return err
+		}
 		f.issued[id] = struct{}{}
 		f.repaired[key] = struct{}{}
 		// Carry the displaced add's trigger through the repair: a Deferred task

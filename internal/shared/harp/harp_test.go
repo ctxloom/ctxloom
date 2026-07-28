@@ -163,6 +163,72 @@ func TestGenerateName_CollisionRate(t *testing.T) {
 	}
 }
 
+// TestGenerateShortName_DrawsFromLongGroup pins U111-F03: the short (2-
+// component) name task harp minting draws from used to draw from
+// DefaultGroup — 443 adjectives × 1102 nouns ≈ 488k combinations, small
+// enough that two branches minting independently collide at percent-level
+// rates (0.5% at 50+50 tasks, per the unit review's own math), and the
+// verified downstream consequence of a harp collision is a task store
+// where every read fails loud. It must draw from the wider "long" group
+// instead (1269×4396 ≈ 5.58M, an 11x improvement at the same word count).
+func TestGenerateShortName_DrawsFromLongGroup(t *testing.T) {
+	long := groups["long"]
+	for range 50 {
+		name := GenerateShortName()
+		parts := strings.Split(name, "-")
+		if len(parts) != 2 {
+			t.Fatalf("GenerateShortName() = %q, want exactly 2 components", name)
+		}
+		if !inList(long.adjectives, parts[0]) {
+			t.Errorf("GenerateShortName() adjective %q is not in the long group's adjective list", parts[0])
+		}
+		if !inList(long.nouns, parts[1]) {
+			t.Errorf("GenerateShortName() noun %q is not in the long group's noun list", parts[1])
+		}
+	}
+}
+
+// TestUniqueFrom_ExhaustionReturnsError pins U111-F02: UniqueFrom's doc
+// used to say it "returns one final unredeemed gen()" on exhaustion — a
+// best-effort fallback that COULD be a duplicate, and neither of its two
+// (former) callers checked the result against used as the doc told them
+// to. The contract is now honest: exhaustion is a returned error, not a
+// silently-possibly-colliding name.
+func TestUniqueFrom_ExhaustionReturnsError(t *testing.T) {
+	used := map[string]struct{}{"only-option": {}}
+	gen := func() string { return "only-option" } // never NOT a duplicate
+
+	got, err := UniqueFrom(used, gen)
+	if err == nil {
+		t.Fatalf("UniqueFrom with an unwinnable gen = (%q, nil), want a non-nil error", got)
+	}
+	if got != "" {
+		t.Errorf("UniqueFrom on exhaustion returned %q, want empty string alongside the error", got)
+	}
+}
+
+// TestUniqueFrom_SucceedsOnFirstNonDuplicate is the positive case: a gen
+// that eventually produces something not in used must return it with no
+// error, exactly as before this change.
+func TestUniqueFrom_SucceedsOnFirstNonDuplicate(t *testing.T) {
+	used := map[string]struct{}{"taken": {}}
+	calls := 0
+	gen := func() string {
+		calls++
+		if calls == 1 {
+			return "taken"
+		}
+		return "free"
+	}
+	got, err := UniqueFrom(used, gen)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "free" {
+		t.Errorf("UniqueFrom = %q, want %q", got, "free")
+	}
+}
+
 func inList(list []string, s string) bool {
 	return slices.Contains(list, s)
 }

@@ -182,9 +182,13 @@ func (m *Manager) Mint(projectDir string) (Entry, error) {
 			return p, nil
 		}
 	}
+	id, err := generateUniqueID(used)
+	if err != nil {
+		return Entry{}, fmt.Errorf("mint project id: %w", err)
+	}
 	now := time.Now().UTC()
 	e := Entry{
-		ProjectID:  generateUniqueID(used),
+		ProjectID:  id,
 		Path:       cleanPath(projectDir),
 		CreatedAt:  now,
 		LastSeenAt: now,
@@ -276,6 +280,6 @@ func cleanPath(p string) string {
 // the session harp allocator. Identity comes from the same harp generator;
 // project-ids and session harps live in separate registries, so an incidental
 // string match across the two is harmless.
-func generateUniqueID(used map[string]struct{}) string {
+func generateUniqueID(used map[string]struct{}) (string, error) {
 	return harp.UniqueFrom(used, harp.GenerateName)
 }

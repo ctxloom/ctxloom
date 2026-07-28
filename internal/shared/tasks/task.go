@@ -150,7 +150,7 @@ func hashText(s string) string {
 // the smaller identity space is ample and the ids stay tidy in the list. 100
 // attempts is overkill against the name space and a small set; the log backend's
 // mint-with-check (and the fold-and-repair pass) cover the residual case.
-func uniqueHarpIDFromSet(used map[string]struct{}) string {
+func uniqueHarpIDFromSet(used map[string]struct{}) (string, error) {
 	return harp.UniqueFrom(used, harp.GenerateShortName)
 }
 

@@ -27,7 +27,10 @@ const codexAuthFileName = "auth.json"
 // CodexConfig is codex's typed LLM config. The backend owns this struct; the
 // config package only carries the raw body that decodes into it.
 type CodexConfig struct {
-	Model      string            `mapstructure:"model"`
+	// Model is intentionally NOT a field here (U045-F10): it would be decoded
+	// and read by nothing — the model actually reaches the run through
+	// config.Body["model"] (config.ResolveLLM), and mapstructure ignores an
+	// unmatched "model" key in the raw body without complaint.
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
 	Env        map[string]string `mapstructure:"env"`

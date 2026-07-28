@@ -6,7 +6,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func newLog(t *testing.T, session string) *Store {
@@ -557,5 +559,130 @@ func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("repair not idempotent, got %d tasks", len(got))
+	}
+}
+
+// TestLogRepairPreservesTagsAndCreatedAt pins U120-F14: repair()'s re-add
+// event dropped the displaced task's Tags and Ts entirely, so the
+// recovered task came back detagged and with CreatedAt silently reset to
+// the repair's own timestamp — a payload-dropping "success" and, per
+// priority.Compute's CreatedAt handling, a task whose age is now a lie.
+func TestLogRepairPreservesTagsAndCreatedAt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"first writer","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"alpha","text":"displaced writer","status":"To Do","tags":["triage:kind=defect","urgent"],"ts":"2020-06-15T00:00:00Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	if err := s.Repair(); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("post-repair list: %v", err)
+	}
+	var recovered *Task
+	for i := range got {
+		if got[i].Text == "displaced writer" {
+			recovered = &got[i]
+		}
+	}
+	if recovered == nil {
+		t.Fatalf("displaced task not found in %+v", got)
+	}
+	if !slices.Contains(recovered.Tags, "triage:kind=defect") || !slices.Contains(recovered.Tags, "urgent") {
+		t.Fatalf("repair must carry the displaced task's tags forward, got %v", recovered.Tags)
+	}
+	wantCreated := time.Date(2020, 6, 15, 0, 0, 0, 0, time.UTC)
+	if !recovered.CreatedAt.Equal(wantCreated) {
+		t.Fatalf("repair must carry the displaced task's original Ts forward as CreatedAt, got %v want %v", recovered.CreatedAt, wantCreated)
+	}
+}
+
+// TestEventLog_WriteFailsLoudOnUnresolvedAnomaly pins U122-F02: every read
+// in this package went dark on an unresolved harp collision (via
+// snapshot()/deferredSince()'s anomalyError gate) while every write kept
+// succeeding — task_add, tag, status, and text mutations landed silently
+// into a store that could no longer be read at all. Writes must fail the
+// same way reads do until the collision is resolved (Store.Repair).
+func TestEventLog_WriteFailsLoudOnUnresolvedAnomaly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"first writer","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"alpha","text":"displaced writer","status":"To Do","ts":"2026-01-01T00:00:01Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+
+	if _, err := s.Add("a new task", ""); err == nil {
+		t.Fatal("Add must fail loud while an unresolved harp collision exists, not silently succeed into an unreadable store")
+	}
+	if _, err := s.SetStatus("alpha", StatusInProgress); err == nil {
+		t.Fatal("SetStatus must fail loud on an unresolved anomaly")
+	}
+	if _, err := s.AddTags("alpha", "urgent"); err == nil {
+		t.Fatal("AddTags must fail loud on an unresolved anomaly")
+	}
+	if _, err := s.CurrentTags("alpha"); err == nil {
+		t.Fatal("CurrentTags must fail loud on an unresolved anomaly")
+	}
+
+	// Repair resolves it; every operation must work normally afterward.
+	if err := s.Repair(); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if _, err := s.Add("a new task", ""); err != nil {
+		t.Fatalf("Add after repair: %v", err)
+	}
+}
+
+// TestAppendLine_LeavesFileUnchangedOnWriteFailure pins U120-F05: append()
+// had no rollback, so a write that failed partway (ENOSPC, EIO, ...) left a
+// torn line on disk — and fold() treats ANY unparseable line as fatal for
+// the WHOLE log, so one failed append from this process alone would brick
+// every future read and write, with "move the file aside and re-add every
+// task" as the only stated recovery.
+//
+// A genuine mid-write OS failure (a short write followed by ENOSPC) isn't
+// portably forceable from a Go unit test without OS-specific privileges
+// this sandbox doesn't have (rlimits deliver SIGXFSZ asynchronously and
+// proved unreliable to intercept here). Closing the file's raw fd out from
+// under the still-open *os.File is a reliable, portable way to make the
+// NEXT Write on it fail deterministically (EBADF) without corrupting
+// anything else — it exercises the same error-handling branch appendLine
+// must take on any write failure, and lets this test assert the contract
+// that actually matters: the file's bytes are UNCHANGED after a failed
+// append, never showing a torn line.
+func TestAppendLine_LeavesFileUnchangedOnWriteFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	const existing = "prefix-line-that-must-survive\n"
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Close(int(f.Fd())); err != nil {
+		t.Fatalf("close underlying fd: %v", err)
+	}
+
+	if err := appendLine(f, []byte("this line must never land\n")); err == nil {
+		t.Fatal("expected an error writing through a closed fd")
+	}
+
+	// Re-open a fresh handle (the corrupted one is unusable) to inspect
+	// what actually landed on disk.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(got) != existing {
+		t.Fatalf("file changed after a failed append: got %q, want unchanged %q", got, existing)
 	}
 }

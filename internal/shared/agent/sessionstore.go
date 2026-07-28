@@ -48,48 +48,36 @@ func (s *SessionStore) ResolveHomeDir() (string, error) {
 	return homeDir, nil
 }
 
-// SortSessionsMostRecentFirst sorts session metadata by start time, most
-// recent first — the order every agent's ListSessions returns.
-func SortSessionsMostRecentFirst(sessions []SessionMeta) {
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].StartTime.After(sessions[j].StartTime)
-	})
-}
-
-// MostRecentSession is the GetCurrentSession skeleton: given a ListSessions
-// result (already sorted most recent first), it loads the newest session via
-// get, surfacing the listing error or "no sessions found" first.
-func MostRecentSession(sessions []SessionMeta, err error, get func(SessionMeta) (*Session, error)) (*Session, error) {
+// GetCurrentSessionViaGetSession is the common GetCurrentSession shape shared
+// by every per-agent SessionHistory whose per-session loader takes (workDir,
+// id string) — opencode's GetSession does (the claude/codex/antigravity
+// readers that used to share this shape were deleted, tough-cloud S5): call
+// list(workDir), sort most-recent-first by StartTime, then load the newest
+// session via getSession(workDir, id).
+//
+// U102-F02/F03: this used to be three functions —
+// SortSessionsMostRecentFirst (a helper with ZERO callers: the ordering
+// invariant it exists to enforce was assumed, in a doc comment, rather than
+// actually applied), MostRecentSession (which trusted that assumed ordering
+// and took sessions[0] unsorted), and GetCurrentSessionViaListSessions (a
+// pure pass-through with no caller of its own — GetCurrentSessionViaGetSession
+// was its only user). Collapsed into one function that actually sorts, so the
+// "most recent first" precondition is enforced here instead of merely
+// documented; previously the guarantee depended entirely on each engine's
+// ListSessions independently getting the order right (opencode's does, via
+// its own sort.SliceStable, but nothing enforced that generically).
+func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]SessionMeta, error), getSession func(workDir, id string) (*Session, error)) (*Session, error) {
+	sessions, err := list(workDir)
 	if err != nil {
 		return nil, err
 	}
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions found")
 	}
-	return get(sessions[0])
-}
-
-// GetCurrentSessionViaListSessions is the common GetCurrentSession shape
-// shared by every per-agent SessionHistory: call list(workDir), then load the
-// most recent result via get (MostRecentSession). Originally factored out
-// when claude/kiro/antigravity's SessionHistory readers (since deleted,
-// tough-cloud S5) each grew their own drifting copy of this shape; opencode's
-// surviving native reader still uses it.
-func GetCurrentSessionViaListSessions(workDir string, list func(string) ([]SessionMeta, error), get func(SessionMeta) (*Session, error)) (*Session, error) {
-	sessions, err := list(workDir)
-	return MostRecentSession(sessions, err, get)
-}
-
-// GetCurrentSessionViaGetSession is the common case of
-// GetCurrentSessionViaListSessions where the per-session loader is simply
-// "load this session by id": list(workDir), then getSession(workDir, id) on
-// the newest result. Shared by every SessionHistory whose loader takes
-// (workDir, id string) — opencode's GetSession does (the claude/codex readers
-// that used to share this shape were deleted, tough-cloud S5).
-func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]SessionMeta, error), getSession func(workDir, id string) (*Session, error)) (*Session, error) {
-	return GetCurrentSessionViaListSessions(workDir, list, func(m SessionMeta) (*Session, error) {
-		return getSession(workDir, m.ID)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].StartTime.After(sessions[j].StartTime)
 	})
+	return getSession(workDir, sessions[0].ID)
 }
 
 // ParseSessionFile reads a JSONL transcript at path into the normalized

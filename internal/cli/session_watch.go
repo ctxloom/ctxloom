@@ -111,7 +111,9 @@ func streamWatchEvents(out io.Writer, format string, events <-chan operations.Se
 			return err
 		}
 	case "", formatText:
-		writeWatchText(out, events)
+		if err := writeWatchText(out, events); err != nil {
+			return err
+		}
 	default:
 		return unknownFormatError(format)
 	}
@@ -152,7 +154,7 @@ func writeWatchNDJSON(out io.Writer, events <-chan operations.SessionFeedEvent) 
 
 // writeWatchText pretty-prints turns, rules off response boundaries, and
 // makes a live gap explicit (a viewer must know it missed events).
-func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) {
+func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) error {
 	w := iox.NewErrWriter(out)
 	for fe := range events {
 		if fe.Event == nil {
@@ -170,6 +172,13 @@ func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) {
 			// Idle keepalive — nothing to show a human.
 		}
 	}
+	// U113-F03: ErrWriter's write methods are void-returning by design (so
+	// call sites above can chain freely without per-line error checks), which
+	// makes an unchecked Err() invisible to errcheck. Surfacing it here is
+	// the one place that must not skip it: a failed write must not silently
+	// drain the rest of the event stream to nothing while this command
+	// exits 0.
+	return w.Err()
 }
 
 // renderWatchEntryText writes one normalized entry in a human-readable shape.

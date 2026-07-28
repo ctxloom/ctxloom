@@ -86,6 +86,14 @@ func groupsHelp() string {
 // separated" shapes this binary needs, with no per-command rendering code
 // of its own.
 func runGenerate(cmd *cobra.Command, opts generateOpts) error {
+	// U004-F01: count<=0 used to silently render an empty payload at exit 0
+	// (text's default renderer writes nothing for an empty slice, so the
+	// default invocation path failed silently). A generator asked to
+	// generate something that produces nothing has failed, not succeeded.
+	if opts.count < 1 {
+		return fmt.Errorf("--number must be at least 1, got %d", opts.count)
+	}
+
 	format, err := resolveFormat(cmd)
 	if err != nil {
 		return err
@@ -97,7 +105,7 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 		Separator:        opts.separator,
 		Group:            opts.group,
 	}
-	names := make([]string, 0, max(opts.count, 0))
+	names := make([]string, 0, opts.count)
 	for range opts.count {
 		names = append(names, harp.GenerateNameWithOptions(genOpts))
 	}

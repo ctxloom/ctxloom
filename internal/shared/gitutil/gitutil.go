@@ -5,9 +5,45 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 )
+
+// RepoLocationEnvVars are environment variables that override WHICH
+// repository git operates on, ignoring an exec.Cmd's Dir entirely: GIT_DIR/
+// GIT_WORK_TREE point git at a different worktree outright; GIT_INDEX_FILE/
+// GIT_COMMON_DIR/GIT_OBJECT_DIRECTORY redirect pieces of it. If any of these
+// leak from ctxloom's own process environment into a git child process,
+// every operation could silently target the wrong repository (U053-F02).
+var RepoLocationEnvVars = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+}
+
+// SanitizedEnviron returns os.Environ() with RepoLocationEnvVars stripped —
+// removed outright, not set to empty (git treats GIT_DIR="" as still
+// present) — so cmd.Dir is the only thing that can select which repository a
+// git child process operates on. Shared by internal/git (the exec.Cmd-based
+// git.Git implementation) and internal/remote (clone/fetch over the network)
+// so the one list of dangerous env vars lives in one place.
+func SanitizedEnviron() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		blocked := false
+		for _, bad := range RepoLocationEnvVars {
+			if key == bad {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
 
 // GetRemoteURL returns the URL of the named remote in the git repository
 // enclosing the given path. Returns an error if the path is not in a git repo
@@ -23,6 +59,12 @@ func GetRemoteURL(startPath, remoteName string) (string, error) {
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
 		DetectDotGit: true,
+		// U110-F01: without this, go-git resolves a linked worktree's ".git"
+		// FILE (gitdir: pointer) as the WHOLE repository — a private
+		// per-worktree admin dir with no `config` (that lives only in the
+		// common dir) — so `remote` always reports unconfigured there, even
+		// when origin genuinely exists.
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)
@@ -59,6 +101,12 @@ func FindRoot(startPath string) (string, error) {
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
 		DetectDotGit: true,
+		// U110-F01: consistent with GetRemoteURL above, even though
+		// FindRoot's own result is unaffected either way (the worktree
+		// filesystem root is the containing directory regardless of common-
+		// dir resolution) — one word, twice, so the two literals never
+		// silently diverge again.
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %w", err)

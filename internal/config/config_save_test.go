@@ -218,6 +218,30 @@ func TestConfig_Save_TakesAdvisoryLockWhenFSNotInjected(t *testing.T) {
 	}
 }
 
+// TestConfig_Save_FailsClosedWhenLockCannotBeAcquired pins U109-F01: the
+// polarity used to be inverted — a lock ACQUISITION failure (as opposed to
+// blocking on contention, which filelock.Lock already handles by waiting)
+// was treated as permission to proceed unlocked, silently. filelock.Lock is
+// blocking, so the only way it can return an error at all is a persistent
+// environmental failure (EACCES/EROFS/ENOSPC/ENOLCK/...) — exactly the case
+// where writing unlocked is least safe. Forced here by making the lock
+// FILE PATH itself a pre-existing directory, so os.OpenFile(O_CREATE|O_RDWR)
+// fails with EISDIR — a real, reproducible lock-acquisition failure with no
+// contention involved at all.
+func TestConfig_Save_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{appPaths: []string{tmpDir}}
+	require.False(t, cfg.injectedFS)
+
+	configPath, err := cfg.GetConfigFilePath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(configPath+".lock", 0o755),
+		"make the lock path a directory so acquiring it as a lock FILE fails")
+
+	err = cfg.Save()
+	require.Error(t, err, "Save must fail closed rather than silently write unlocked when the lock cannot be acquired")
+}
+
 // TestConfig_Save_LeavesNoTempFiles pins the atomic-write contract: Save goes
 // through a unique temp + rename (a torn config.yaml must be impossible), and
 // the temp never outlives the call.

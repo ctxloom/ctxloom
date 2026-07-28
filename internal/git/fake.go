@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +26,13 @@ type Fake struct {
 	Worktrees []Worktree
 	// Dirty maps a worktree path to whether IsDirty reports it as carrying WIP.
 	Dirty map[string]bool
+	// DirtyErr, when set, is returned by IsDirty instead of Dirty — the only
+	// way a caller's fail-closed "unknown state" guard around IsDirty can be
+	// unit-tested at all (U053-F04).
+	DirtyErr error
+	// IgnoredContent maps a worktree path to whether HasIgnoredContent
+	// reports it as holding gitignored/excluded files.
+	IgnoredContent map[string]bool
 	// CommonDirValue is what CommonDir returns (empty → "<dir>/.git").
 	CommonDirValue string
 	// ToplevelValue is what Toplevel returns (empty → the dir passed in).
@@ -198,6 +206,9 @@ func (f *Fake) ListTracked(_ context.Context, _ string, _ ...string) ([]string, 
 func (f *Fake) IsDirty(_ context.Context, dir string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.DirtyErr != nil {
+		return false, f.DirtyErr
+	}
 	return f.Dirty[dir], nil
 }
 
@@ -314,12 +325,25 @@ func (f *Fake) ListUntracked(_ context.Context, _ string) ([]string, error) {
 // ApplyPatch records patch and returns ApplyPatchErr (nil = success). Unlike
 // the real implementation it never actually applies anything — tests that
 // need a REAL apply-and-verify round trip use initRepo + execGit directly.
-func (f *Fake) ApplyPatch(_ context.Context, dir, patch string) error {
+func (f *Fake) ApplyPatch(_ context.Context, dir, patch string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record(fmt.Sprintf("apply-patch %s", dir))
+	if strings.TrimSpace(patch) == "" {
+		return false, f.ApplyPatchErr
+	}
 	f.AppliedPatches = append(f.AppliedPatches, patch)
-	return f.ApplyPatchErr
+	if f.ApplyPatchErr != nil {
+		return false, f.ApplyPatchErr
+	}
+	return true, nil
+}
+
+// HasIgnoredContent reports IgnoredContent[dir] (false when unconfigured).
+func (f *Fake) HasIgnoredContent(_ context.Context, dir string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.IgnoredContent[dir], nil
 }
 
 // drop removes the worktree with the given path from the list (caller holds mu).

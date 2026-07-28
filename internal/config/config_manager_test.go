@@ -74,6 +74,29 @@ func TestUpdate_SerializesConcurrentWritersInProcess(t *testing.T) {
 	}
 }
 
+// TestUpdate_FailsClosedWhenLockCannotBeAcquired pins U109-F01's Manager.Update
+// half: a lock ACQUISITION failure (as opposed to blocking on contention,
+// which filelock.Lock already handles by waiting) used to degrade to an
+// unlocked read-modify-write, silently. Forced here the same way as Save's
+// sibling test: make the lock file's path a pre-existing directory so
+// os.OpenFile(O_CREATE|O_RDWR) fails outright, with no contention involved.
+func TestUpdate_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
+	appDir := managerTestDir(t)
+	mgr := NewManager(WithAppDir(appDir))
+
+	pathCfg, err := loadUncached(mgr.opts...)
+	require.NoError(t, err)
+	configPath, err := pathCfg.GetConfigFilePath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(configPath+".lock", 0o755))
+
+	err = mgr.Update(func(d *Draft) error {
+		d.DefaultAgent = "should-not-be-written"
+		return nil
+	})
+	require.Error(t, err, "Update must fail closed rather than silently update unlocked when the lock cannot be acquired")
+}
+
 // TestUpdate_HoldsFileLockAcrossReadModifyWrite is the lost-update guard:
 // it proves the lock spans the WHOLE transaction, not just the final write.
 // Writer A is parked mid-transaction (inside fn, lock held); writer B's

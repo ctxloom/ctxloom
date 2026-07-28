@@ -87,6 +87,21 @@ func DetectWorktree(fs afero.Fs, dir string) (WorktreeInfo, error) {
 		return WorktreeInfo{}, nil // e.g. a submodule -- not a worktree
 	}
 	commonDir := filepath.Dir(worktreesParent)
+
+	// U092-F01: mainRoot=filepath.Dir(commonDir) only names a real MAIN
+	// WORKTREE when commonDir is the standard "<main>/.git" layout. For a
+	// bare clone (`git clone --bare url repo.git; git worktree add ../wt`)
+	// or `git init --separate-git-dir=...`, commonDir is a bare repo/
+	// separate gitdir with NO enclosing worktree, and filepath.Dir(commonDir)
+	// is just some existing, unrelated parent directory -- silently
+	// "resolving" as a plausible-looking main root that is not one. Treat
+	// this exactly like a stale pointer: Linked, but with no derivable main
+	// root, so TaskStoreRoot's existing MainRootExists==false branch (which
+	// already fails loud and names `ctxloom init` as the remedy) handles it,
+	// rather than a new, distinct failure mode.
+	if filepath.Base(commonDir) != ".git" {
+		return WorktreeInfo{Linked: true}, nil
+	}
 	mainRoot := filepath.Dir(commonDir)
 
 	exists := false

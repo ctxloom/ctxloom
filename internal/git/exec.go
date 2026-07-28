@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // execGit is the default Git: it shells out to the system git binary. Stateless —
@@ -126,6 +127,24 @@ func (execGit) IsDirty(ctx context.Context, dir string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(out) != "", nil
+}
+
+// HasIgnoredContent reports whether dir holds any ignored/excluded file —
+// `status --porcelain --ignored=matching` lists each one with a leading
+// "!! " marker (distinct from the "?? " IsDirty already treats as WIP), so
+// this deliberately does NOT reuse IsDirty's plain --porcelain output: that
+// call intentionally omits ignored entries.
+func (execGit) HasIgnoredContent(ctx context.Context, dir string) (bool, error) {
+	out, err := output(ctx, dir, "status", "--porcelain", "--ignored=matching")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range splitNonEmptyLines(out) {
+		if strings.HasPrefix(line, "!!") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Bounds for the repo-state evidence, so a large monorepo can never blow the
@@ -281,12 +300,14 @@ func (execGit) ListUntracked(ctx context.Context, dir string) ([]string, error) 
 
 // ApplyPatch applies patch to dir's working tree. An empty/whitespace-only
 // patch is a deliberate no-op (there was nothing tracked to reproduce).
-func (execGit) ApplyPatch(ctx context.Context, dir, patch string) error {
+func (execGit) ApplyPatch(ctx context.Context, dir, patch string) (bool, error) {
 	if strings.TrimSpace(patch) == "" {
-		return nil
+		return false, nil
 	}
-	_, err := outputStdin(ctx, dir, patch, "apply")
-	return err
+	if _, err := outputStdin(ctx, dir, patch, "apply"); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // defaultLogSinceMax bounds LogSince when the caller passes maxEntries<=0, so
@@ -434,7 +455,7 @@ func outputStdin(ctx context.Context, dir, stdin string, args ...string) (string
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Env = os.Environ()
+	cmd.Env = gitutil.SanitizedEnviron()
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}

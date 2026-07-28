@@ -677,9 +677,8 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	}
 
 	for _, inner := range nestedUnder(list, target) {
-		dirty, derr := w.git.IsDirty(ctx, inner.Path)
-		if derr != nil || dirty {
-			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q has uncommitted work (or unknown state); leaving %q in place to preserve it", inner.Path, target)
+		if unsafe, reason := w.unsafeToRemove(ctx, inner.Path); unsafe {
+			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q %s; leaving %q in place to preserve it", inner.Path, reason, target)
 			return
 		}
 		if err := w.git.WorktreeRemove(ctx, w.repoDir, inner.Path, false); err != nil {
@@ -688,8 +687,8 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 		}
 	}
 
-	if dirty, derr := w.git.IsDirty(ctx, target); derr != nil || dirty {
-		clidiag.Warn("ctxloom", "worktree %q has uncommitted changes (or unknown state); leaving it in place to preserve WIP", target)
+	if unsafe, reason := w.unsafeToRemove(ctx, target); unsafe {
+		clidiag.Warn("ctxloom", "worktree %q %s; leaving it in place to preserve WIP", target, reason)
 		return
 	}
 	if err := w.git.WorktreeRemove(ctx, w.repoDir, target, false); err != nil {
@@ -699,8 +698,62 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	if err := w.git.WorktreePrune(ctx, w.repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
+	// U054-F02: NOT auto-retiring the shared config-exclude block here.
+	// A first draft called gitignore.RetireWorktreeConfigBlock once no
+	// linked worktree remained, and it regressed a live, currently-passing
+	// acceptance contract — tests/acceptance/features/j9_isolation.feature's
+	// "A worktree run leaves the project tree clean" asserts the shared
+	// common-dir info/exclude STILL carries the ctxloom worktree-config
+	// block immediately after a single worktree's teardown (the scenario's
+	// own comment: proof the per-agent config edits were hidden from the
+	// shared tree during the run, not proof the mechanism was torn down
+	// again right after). Auto-retiring on every ordinary single-agent
+	// teardown would strip that evidence — and, worse, cause the block to
+	// flap in and out across back-to-back agent runs, re-triggering the
+	// exact "won't delete / deletes when it must not" instability this
+	// package's own comments describe as the historical bug the block was
+	// added to fix in the first place. RetireWorktreeConfigBlock is kept as
+	// a tested, exported utility (gitignore.go) — the "no removal path
+	// exists at all" half of U054-F02 is fixed — but deciding WHEN it is
+	// safe to invoke (process exit? an explicit gc/reap command? never
+	// automatically?) is a product call, not one this batch makes alone;
+	// see DECISIONS.md.
 }
 
+// unsafeToRemove is teardown's WIP-safety gate, extended past IsDirty alone
+// (U053-F01/U054-F01): IsDirty's `status --porcelain` deliberately does NOT
+// see gitignored/excluded content — that blindness is what lets a prepared
+// agent worktree's own delivered noise (.claude/, CLAUDE.md, .ctxloom/cache/,
+// written into this same repo's common-dir info/exclude) coexist with the
+// WIP check at all. But it means a worktree holding ONLY ignored files reads
+// clean here, and `git worktree remove` (force=false) happily deletes it —
+// this was the other half of the mechanism that destroyed agent-authored
+// work. An error from EITHER probe is treated the same as "dirty": an
+// unreadable state must never be read as "safe to delete".
+func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (unsafe bool, reason string) {
+	if dirty, err := w.git.IsDirty(ctx, dir); err != nil || dirty {
+		return true, "has uncommitted changes (or unknown state)"
+	}
+	if ignored, err := w.git.HasIgnoredContent(ctx, dir); err != nil || ignored {
+		return true, "holds gitignored/excluded files (or unknown state)"
+	}
+	return false, ""
+}
+
+// retireConfigExcludeIfUnused removes the shared config-exclude block
+// (§3.1, gitignore.WorktreeArtifactPatterns under gitignore.WorktreeComment)
+// from the repo's common-dir info/exclude, but ONLY once no worktree other
+// than the main one remains — U054-F02: the block lives in the repo's ONE
+// shared common-dir file (git has no per-worktree info/exclude), so removing
+// it while a SIBLING agent worktree is still alive would strip that
+// sibling's own noise-hiding, false-dirtying it and re-triggering the exact
+// destructive-teardown risk unsafeToRemove exists to catch. Best-effort:
+// any failure just leaves the block in place (the safe default) rather than
+// risk removing it under uncertainty.
+// sameWorktreePath reports whether a and b name the same directory, tolerating
+// the symlink-alias case CommonDir's own tests already guard against (macOS
+// /tmp vs /private/tmp and similar): an exact string match short-circuits,
+// falling back to a same-file stat comparison only when both paths exist.
 // nestedUnder returns the worktrees strictly nested inside target, DEEPEST-FIRST
 // (by path-separator depth) so inner worktrees are handled before their parents.
 func nestedUnder(list []git.Worktree, target string) []git.Worktree {

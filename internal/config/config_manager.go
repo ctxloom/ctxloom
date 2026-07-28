@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
@@ -107,9 +106,11 @@ func NewManager(opts ...LoadOption) *Manager {
 //   - On success, the ambient memo is invalidated (via saveLocked, the same
 //     Save() itself already relies on), so the very next Current() sees the
 //     write.
-//   - A lock failure degrades to an unlocked read-modify-write (CLAUDE.md
-//     fault tolerance, matching Save()'s own degrade) rather than blocking
-//     forever — logged, not silent.
+//   - A lock ACQUISITION failure (as opposed to ordinary blocking on
+//     contention, which the lock already waits out) fails the whole call
+//     closed (U109-F01) — filelock.Lock can only error on a persistent
+//     environmental failure, exactly when writing unlocked would be least
+//     safe, so this never silently degrades to an unlocked read-modify-write.
 func (m *Manager) Update(fn func(*Draft) error) error {
 	// Resolve the target path first, UNLOCKED — this only walks directories
 	// (findAppDir) to learn WHICH config.yaml is in play, touching none of
@@ -124,12 +125,17 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 	}
 
 	fs := pathCfg.getFS()
+	// U109-F01: see Save's identical fix — filelock.Lock is BLOCKING, so an
+	// error from it is a persistent environmental failure, never transient
+	// contention. Proceeding unlocked on that failure is exactly backwards:
+	// it discards the read-modify-write serialization this method exists to
+	// provide, silently, on every subsequent Update call. Fail closed.
 	if !pathCfg.injectedFS {
-		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
-			defer unlock()
-		} else {
-			clidiag.Warn("ctxloom", "config lock failed, updating unlocked: %v", lerr)
+		unlock, lerr := filelock.Lock(configPath + ".lock")
+		if lerr != nil {
+			return fmt.Errorf("config: acquiring update lock for %s: %w", configPath, lerr)
 		}
+		defer unlock()
 	}
 
 	// Re-read FRESH now that the lock is held: this is the "read" half of

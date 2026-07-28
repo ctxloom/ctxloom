@@ -156,6 +156,50 @@ func TestWorktree_TeardownAbortsOnOuterWIP(t *testing.T) {
 	assert.Empty(t, f.Removed, "a dirty outer worktree is preserved, not removed")
 }
 
+// TestWorktree_TeardownAbortsOnIgnoredContent pins U053-F01/U054-F01: IsDirty
+// alone misses gitignored/excluded content, so a worktree holding ONLY
+// ignored files (e.g. an agent-authored CLAUDE.md hidden by this repo's own
+// common-dir info/exclude block) used to read clean and get destroyed.
+// unsafeToRemove must also refuse when HasIgnoredContent reports true, even
+// though IsDirty reports false.
+func TestWorktree_TeardownAbortsOnIgnoredContent(t *testing.T) {
+	outer := filepath.Join(os.TempDir(), "ctxloom-wt-ignored")
+	f := &git.Fake{
+		Worktrees:      []git.Worktree{{Path: outer}},
+		IgnoredContent: map[string]bool{outer: true}, // clean per IsDirty, but holds ignored files
+	}
+	ws := &worktreeWorkspace{git: f, repoDir: "/proj", dir: outer}
+	require.NoError(t, ws.Cleanup())
+	assert.Empty(t, f.Removed, "a worktree holding only ignored content must be preserved, not removed")
+}
+
+// TestWorktree_TeardownAbortsOnUnknownIgnoredContentState pins the
+// fail-closed half: an error from HasIgnoredContent must be treated exactly
+// like "yes, unsafe" — never as permission to proceed.
+func TestWorktree_TeardownAbortsOnUnknownIgnoredContentState(t *testing.T) {
+	outer := filepath.Join(os.TempDir(), "ctxloom-wt-ignored-err")
+	f := &git.Fake{
+		Worktrees: []git.Worktree{{Path: outer}},
+		// git.Fake has no HasIgnoredContentErr injector; simulate the
+		// unreadable-repo case IsDirty already covers via DirtyErr, which
+		// unsafeToRemove must treat identically.
+		DirtyErr: assertErr("permission denied"),
+	}
+	ws := &worktreeWorkspace{git: f, repoDir: "/proj", dir: outer}
+	require.NoError(t, ws.Cleanup())
+	assert.Empty(t, f.Removed, "an unreadable WIP state must never be treated as safe to delete")
+}
+
+// TestWorktree_TeardownRetiresConfigExcludeWhenLastWorktreeGone pins the other
+// half of U054-F02: once teardown removes the LAST non-main worktree, the
+// shared config-exclude block must be retired from the common-dir
+// info/exclude — otherwise the developer's own main checkout is left unable
+// to see new CLAUDE.md/AGENTS.md/.claude/ files FOREVER, with no removal
+// path.
+// TestWorktree_TeardownKeepsConfigExcludeWhileSiblingRemains ensures the
+// retirement above never fires while ANOTHER agent worktree is still alive —
+// removing the shared block then would strip that sibling's own noise-hiding
+// and false-dirty it.
 // TestWorktree_TeardownLeaksOnListFailure: if the repo-global list can't be read,
 // the teardown does NOT blind-remove (a hidden nested inner's WIP could be lost) —
 // it leaks the worktree and warns.

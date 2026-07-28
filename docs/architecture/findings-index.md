@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **468** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 8 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **485** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 10 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 10 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 5 |
-| `open` | no commit names this ID | **1,777** |
+| `open` | no commit names this ID | **1,758** |
 
-**Totals: 2268 findings across 162 units — 468 resolved, 1777 still open, 22 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
+**Totals: 2268 findings across 162 units — 485 resolved, 1758 still open, 24 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -202,7 +202,7 @@ RESOLVED 446->460, PARTIAL 7->8, open 1800->1785, HIGH resolved 298->312.
 
 | severity | count | resolved | open |
 |---|---|---|---|
-| HIGH | 376 | 320 | 56 (+6 refuted, +3 escalated, +7 partial) |
+| HIGH | 376 | 337 | 39 (+6 refuted, +3 escalated, +9 partial) |
 | MED | 999 | 42 | 955 (+2 refuted) |
 | LOW | 871 | 106 | 762 (+3 partial/escalated) |
 | (unparsed) | 22 | 0 | 20 (+2 refuted) |
@@ -270,6 +270,66 @@ workflows/ci.yml:219,225`) — verified `just gen-schemas-check` still does
 not exist anywhere (only cited as a documented non-existent gate, now
 consistently so on both sides after U097-F01). Recounted (`just
 test-arch`): RESOLVED 460->468, open 1785->1777, HIGH resolved 312->320.
+
+Updated again 2026-07-28 during the `flow/foundation-wave1` foundation batch
+(the shared substrate every other flow crosses — paths, projectroot,
+git/gitignore, filelock, iox, collections, watch, plans, textutil, tokens,
+plus the ctxloom/harp/mockengine entrypoints; no tip-to-tail journey of its
+own, so TDD here was unit/property-level, not acceptance-level): extraction
+found 25 HIGH rows across the 16 assigned units (grepped each unit review's
+Severity column, plain and bolded `HIGH`, cross-referenced against this
+file's `open` rows) — 6 were already RESOLVED (U079-F01/F02/F03/F04/F05 at
+`92780e05`, U115-F02 at `82b4ff31`), leaving exactly 19 open HIGH rows,
+matching the task's own stated 19-HIGH count exactly (no disagreement to
+flag this time). Of those 19: 4 were found ALREADY-FIXED-BUT-STALE by a
+commit that named a DIFFERENT ID and so never cross-marked here —
+U054-F03 (`8fef544f`, filed under U045-F01: `.codex/auth.json` already
+added to both gitignore pattern sets, with its own passing test),
+U090-F01 (`0eada046`, filed under U087-F04: `HarpDir` already validates
+via `harp.Validate`, and every other `Harp*Path` helper derives through
+it), U092-F02/F03 (`2976b043`, filed under U140-F01/F02:
+`WorkDirWithBoundary` + `taskloom/workdir.ResolveBoundary` already
+implement exactly what these two rows ask for, including the "fail loud
+on unlinked cwd" half). Of the remaining 15: 13 were FIXED this batch at
+`9966daef`/`5fbf2be2`: U053-F01/U054-F01 (added `Git.HasIgnoredContent`,
+wired into isolation teardown's WIP gate alongside `IsDirty`), U053-F02
+(stripped `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR`/
+`GIT_OBJECT_DIRECTORY` from every git child process's env via the new
+`gitutil.SanitizedEnviron`, shared by `internal/git` and
+`internal/remote`), U053-F03 (`ApplyPatch` now returns `applied bool`),
+U053-F04 (`Fake.IsDirty` gained `DirtyErr`), U054-F04 (`appendBlock`
+now propagates a `Close()` failure), U092-F01
+(`DetectWorktree` no longer derives a `MainRoot` for a bare-clone/
+`--separate-git-dir` layout), U109-F01 (`config.Save`/`Manager.Update`
+fail closed on a lock ACQUISITION failure — marked **PARTIAL**: the
+finding's other three call sites, `internal/shared/tasks/log.go`'s
+read-only `LockShared` sites, are a deliberate, documented best-effort
+design for reads and were REFUTED as in-scope defects, not fixed —
+changing them would make every read block/error on lock contention,
+which is the opposite of what a read-only lookup should do), U110-F01
+(`EnableDotGitCommonDir: true` on both `PlainOpenOptions` literals),
+U113-F03 (`writeWatchText` now returns `iox.ErrWriter`'s `Err()`),
+U115-F01/U132-F01 (`plans.List` now walks recursively via
+`filepath.WalkDir`, matching the paired watcher's own recursive
+contract — one underlying defect, two units' framing of it), U132-F03
+(`watch.New` no longer `os.MkdirAll`s the root it is asked to watch;
+the two production callers that genuinely need it moved the `MkdirAll`
+to their own call sites), U004-F01 (`harp -n 0`/negative counts now
+reject with an error instead of silently rendering nothing — un-skipped
+a RED test a prior session had already written and parked). U054-F02
+was ALSO fixed at first (auto-retiring the shared config-exclude block
+once no worktree needed it) but `just test-acceptance` caught a real
+regression: `j9_isolation.feature`'s "A worktree run leaves the
+project tree clean" asserts the block STILL carries the ctxloom
+worktree-config comment immediately after a single worktree's
+teardown. Reverted the auto-trigger at `cf67617f` (220/220 acceptance
+scenarios green again); kept the tested, exported
+`gitignore.RetireWorktreeConfigBlock` utility (the "no removal
+mechanism exists at all" half is fixed) but did not wire it to fire
+automatically anywhere (deciding WHEN is safe is a product call) —
+marked **PARTIAL**, not RESOLVED. See DECISIONS.md for the full story.
+Recounted (`just test-arch`): RESOLVED 468->485, PARTIAL 8->10, open
+1777->1758, HIGH resolved 320->337.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -343,7 +403,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | ID | Status | Loc | Category | Claim | Source |
 |---|---|---|---|---|---|
 | U003-F01 | **RESOLVED** `9a61c77e` | `stub.go:8` | SILENTNOOP | `go run ./cmd/gen-schemas` (i.e. forgetting `-tags schemagen`) prints nothing, writes nothing, and **exits 0**. This is the exact defect class the project treats as characteristic: a generator that... | U003.md |
-| U004-F01 | open | **`root.go:100-105`** | SILENTNOOP | **`harp -n 0` prints zero bytes and exits 0** — and so does every negative count. `for range opts.count` runs zero times for any `count <= 0`, producing an empty `[]string`; `clifmt`'s text rendere... | U004.md |
+| U004-F01 | **RESOLVED** `5fbf2be2` | **`root.go:100-105`** | SILENTNOOP | **`harp -n 0` prints zero bytes and exits 0** — and so does every negative count. `for range opts.count` runs zero times for any `count <= 0`, producing an empty `[]string`; `clifmt`'s text rendere... | U004.md |
 | U005-F01 | **RESOLVED** `243d11fd` | `check.go:93-98`, `evaluate.go:150-174` | SILENTNOOP | The CLI has **no channel** for "ltk could not analyze this". A parse failure and a clean allow are byte-identical on both surfaces. | U005.md |
 | U005-F02 | **RESOLVED** `bfd6abca` | **`manage.go:106,152,219-232`** | SILENTNOOP | `writeFile` will atomically write **zero bytes** over the user's settings file and report success. Nothing checks `len(data)`. | U005.md |
 | U005-F04 | **RESOLVED** `243d11fd` | `evaluate.go:97-104` | CORRECTNESS | The unknown-`--engine` fail-closed branch emits the **claude-code** wire format regardless of which host is actually running the hook. On an Antigravity host the deny is unrecognizable and the bran... | U005.md |
@@ -470,14 +530,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U050-F02 | **PARTIAL** `1096d3ed` `8df12187` | `trustroot.go:206-210` | SILENTNOOP / ERRHANDLING | `parseAllowedSigners` conflates "file absent" with "file present but unreadable": both `return nil` (zero keys) and only the absent case is benign. A `chmod 000` / EACCES / directory-in-its-place `... | U050.md |
 | U051-F01 | **RESOLVED** `a403ba0c` | **`config.go:55`, `config.go:103-105`** | SILENTNOOP | `GenConfig` succeeds writing a config page with **zero documented fields** when the schema is valid JSON but carries no `properties`. It cannot distinguish "this product has no config fields" from ... | U051.md |
 | U051-F02 | **RESOLVED** `b941d4cd` | **`mcp.go:63-66`, `mcp.go:141-143`, `mcp.go:179-184`** | SILENTNOOP | `GenMCPTools` emits an **empty `## Tools` section** for a server with zero registered tools, and `decodeToolSchema` **swallows both JSON errors**, causing `writeMCPTool` to document a parameterized... | U051.md |
-| U053-F01 | open | `exec.go:124` | CORRECTNESS | `IsDirty` reports **clean** for a worktree holding gitignored/excluded files, and the teardown then permanently destroys them — both WIP guards miss it. Amplified by ctxloom itself: `internal/lm/is... | U053.md |
-| U053-F02 | open | `exec.go:437` | CORRECTNESS | `cmd.Env = os.Environ()` inherits `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR`, and those **override `cmd.Dir` completely**. Every operation in this package — including `worktree rem... | U053.md |
-| U053-F03 | open | `exec.go:285-287` | SILENTNOOP | `ApplyPatch` returns `nil` for an empty patch: success reported, zero bytes delivered. If `DiffPatch` ever yields `""` for a reason other than "genuinely nothing tracked changed", the `dirty_tree_h... | U053.md |
-| U053-F04 | open | `fake.go:197-201` | CORRECTNESS | `Fake.IsDirty` can never return an error, so the teardown's fail-closed unknown-state guard — the one branch standing between an unreadable worktree and its deletion — **has no possible unit test**... | U053.md |
-| U054-F01 | open | `gitignore.go:72-81` + `internal/git/exec.go:123-129` | CORRECTNESS | **[CONFIRMED]** This set is half of the mechanism that destroys agent work: a worktree whose only contents are agent-authored files reads CLEAN to the WIP check that guards `git worktree remove`. | U054.md |
-| U054-F02 | open | `isolation/worktree.go:394-408`; `gitignore.go:247-267` | COUPLING | A per-agent, per-worktree isolation concern is installed into the repo's **shared common dir**, repo-wide and permanently, with no removal path — so the developer's own main working tree silently s... | U054.md |
-| U054-F03 | open | `gitignore.go:42`, `:76`; `internal/codex/backend.go:22`, `:180-182`, `:271-291` | CORRECTNESS | `.codex/auth.json` is not ignored — while `.claude/` and `.kiro/` are ignored wholesale — so ctxloom's own credential seeding writes a **plaintext OAuth token into the user's repository** where `gi... | U054.md |
-| U054-F04 | open | `gitignore.go:252` | SILENTNOOP | `appendBlock` discards the `Close` error and never `Sync`s, so a write that never reaches disk is reported as complete success — and the worst instance leaves the project with **fewer** ignore rule... | U054.md |
+| U053-F01 | **RESOLVED** `9966daef` | `exec.go:124` | CORRECTNESS | `IsDirty` reports **clean** for a worktree holding gitignored/excluded files, and the teardown then permanently destroys them — both WIP guards miss it. Amplified by ctxloom itself: `internal/lm/is... | U053.md |
+| U053-F02 | **RESOLVED** `9966daef` | `exec.go:437` | CORRECTNESS | `cmd.Env = os.Environ()` inherits `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR`, and those **override `cmd.Dir` completely**. Every operation in this package — including `worktree rem... | U053.md |
+| U053-F03 | **RESOLVED** `9966daef` | `exec.go:285-287` | SILENTNOOP | `ApplyPatch` returns `nil` for an empty patch: success reported, zero bytes delivered. If `DiffPatch` ever yields `""` for a reason other than "genuinely nothing tracked changed", the `dirty_tree_h... | U053.md |
+| U053-F04 | **RESOLVED** `9966daef` | `fake.go:197-201` | CORRECTNESS | `Fake.IsDirty` can never return an error, so the teardown's fail-closed unknown-state guard — the one branch standing between an unreadable worktree and its deletion — **has no possible unit test**... | U053.md |
+| U054-F01 | **RESOLVED** `9966daef` | `gitignore.go:72-81` + `internal/git/exec.go:123-129` | CORRECTNESS | **[CONFIRMED]** This set is half of the mechanism that destroys agent work: a worktree whose only contents are agent-authored files reads CLEAN to the WIP check that guards `git worktree remove`. | U054.md |
+| U054-F02 | **PARTIAL** `cf67617f` | `isolation/worktree.go:394-408`; `gitignore.go:247-267` | COUPLING | A per-agent, per-worktree isolation concern is installed into the repo's **shared common dir**, repo-wide and permanently, with no removal path — so the developer's own main working tree silently s... | U054.md |
+| U054-F03 | **RESOLVED** `8fef544f` | `gitignore.go:42`, `:76`; `internal/codex/backend.go:22`, `:180-182`, `:271-291` | CORRECTNESS | `.codex/auth.json` is not ignored — while `.claude/` and `.kiro/` are ignored wholesale — so ctxloom's own credential seeding writes a **plaintext OAuth token into the user's repository** where `gi... | U054.md |
+| U054-F04 | **RESOLVED** `9966daef` | `gitignore.go:252` | SILENTNOOP | `appendBlock` discards the `Close` error and never `Sync`s, so a write that never reaches disk is reported as complete success — and the worst instance leaves the project with **fewer** ignore rule... | U054.md |
 | U055-F01 | **RESOLVED** `11500056` | **`backend.go:38,55,153 vs settings.go:73,195`** | CORRECTNESS | Setting `agent:` in a kiro config produces a **broken launch**: ctxloom writes the agent JSON under the hardcoded `defaultAgentName` but passes the user's override to `--agent`, so kiro-cli is told... | U055.md |
 | U055-F06 | **RESOLVED** `abda01dc` | **`settings.go:230-234`** | SILENTNOOP | A failed or missing context read **removes the steering file and reports success**. `agent.ReadContextFile` returns `("", nil)` for a missing file (contextfile.go:174-176), which flows to `writeSte... | U055.md |
 | U056-F01 | **RESOLVED** `3060b28c` | `transcript.go:148-154, monitor.go:377-385, monitor.go:295-306` | ERRHANDLING | A transcript that exists but cannot be **opened** is converted into a confident `StateStalled` claiming the engine emitted zero events. | U056.md |
@@ -579,12 +639,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U089-F01 | **RESOLVED** `1a27dd9c` | **`upgrade.go:65`** | CORRECTNESS | `ctxloom remote upgrade` **silently un-retracts every non-held bundle**, violating an invariant documented on the field itself. | U089.md |
 | U089-F02 | open | **`upgrade.go:56-93`** | SILENTNOOP | An **empty proposed closure wipes lock.yaml and reports success** — exit 0, "Everything is up to date.", all pins destroyed. | U089.md |
 | U089-F03 | **RESOLVED** `c6bdca23` | `vendorimport.go:122-145, vendorimport_backfill.go:47-48` | SILENTNOOP | `session backfill` reports **"converted: `<harp>`"** for sessions where zero canonical bytes were written. | U089.md |
-| U090-F01 | open | **`paths.go:182 (`HarpDir`)`** | CORRECTNESS | `HarpDir` accepts an unvalidated harp: `""` silently aliases the **sessions root**, and a harp containing `/` or `..` escapes it. The invariant is enforced downstream in only ~half the call sites, ... | U090.md |
+| U090-F01 | **RESOLVED** `0eada046` | **`paths.go:182 (`HarpDir`)`** | CORRECTNESS | `HarpDir` accepts an unvalidated harp: `""` silently aliases the **sessions root**, and a harp containing `/` or `..` escapes it. The invariant is enforced downstream in only ~half the call sites, ... | U090.md |
 | U091-F01 | **RESOLVED** `e28fa43e` | **`profiles.go:599-604, 753-865`** | SILENTNOOP | A zero-byte, `{}`, fully-commented-out, or key-with-no-items profile resolves with `err=nil` to a completely empty `ResolvedProfile` and records **zero** strictness findings — a session launched on... | U091.md |
 | U091-F02 | **RESOLVED** `065fbcbd` | **`profiles.go:780-829 (`cloneVisited` at 790, `l.Load` at 748)`** | COMPLEXITY | Parent resolution is **exponential and unmemoized**: every parent branch gets a cloned `visited` map, so a shared ancestor is re-`Load`ed (re-read from disk, re-run through the 3-stage upgrade pipe... | U091.md |
-| U092-F01 | open | **`worktree.go:89-95`** | CORRECTNESS | **`MainRoot` is silently wrong for a linked worktree of a bare clone or a `--separate-git-dir` repo.** The derivation assumes the common dir is named `.git` and sits inside the main worktree. When ... | U092.md |
-| U092-F02 | open | `projectroot.go:85-88` | CORRECTNESS | **`WorkDir` can return `"."`** — a relative path — where its three other branches return cleaned absolute paths and all 8 callers treat the result as a stable project root. Nothing in the signature... | U092.md |
-| U092-F03 | open | `projectroot.go:78-106 vs `internal/taskloom/workdir/workdir.go:32-121` | DUPLICATE | **The resolution chain is implemented three times.** `WorkDir`, `RootFromFallback`, and `taskloom/workdir.resolveBase` each independently encode `CTXLOOM_ROOT → git root → cwd → "."`, with a duplic... | U092.md |
+| U092-F01 | **RESOLVED** `9966daef` | **`worktree.go:89-95`** | CORRECTNESS | **`MainRoot` is silently wrong for a linked worktree of a bare clone or a `--separate-git-dir` repo.** The derivation assumes the common dir is named `.git` and sits inside the main worktree. When ... | U092.md |
+| U092-F02 | **RESOLVED** `2976b043` | `projectroot.go:85-88` | CORRECTNESS | **`WorkDir` can return `"."`** — a relative path — where its three other branches return cleaned absolute paths and all 8 callers treat the result as a stable project root. Nothing in the signature... | U092.md |
+| U092-F03 | **RESOLVED** `2976b043` | `projectroot.go:78-106 vs `internal/taskloom/workdir/workdir.go:32-121` | DUPLICATE | **The resolution chain is implemented three times.** `WorkDir`, `RootFromFallback`, and `taskloom/workdir.resolveBase` each independently encode `CTXLOOM_ROOT → git root → cwd → "."`, with a duplic... | U092.md |
 | U093-F01 | **RESOLVED** `ae02bb16` | **`bundle_reader.go:185; fetch_ref.go:26`** | SILENTNOOP | An empty `entry.SHA` silently converts a *pinned* read into a *latest* read — the pin, which is the security control, evaporates with no error. | U093.md |
 | U093-F02 | **RESOLVED** `5b68d6ee` | **`lockfile.go:66-101`** | SILENTNOOP | A present-but-empty `lock.yaml` loads as a valid empty lockfile with a nil error, and every remote bundle then vanishes from the session with no diagnostic. | U093.md |
 | U093-F04 | open | `detect.go:66-86` | CORRECTNESS | `DetectForge` rejects scp-style SSH URLs that the rest of the package documents and accepts, so a bundle whose lockfile key uses that form cannot be read at all. | U093.md |
@@ -623,16 +683,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U108-F01 | **RESOLVED** `43b65d6c` | `confload.go:314-316` | SILENTNOOP | `Merge` silently drops an entire config layer on a koanf load failure, and its signature makes reporting impossible. | U108.md |
 | U108-F02 | **RESOLVED** `43b65d6c` | `confload.go:320-326` | SILENTNOOP | On unmarshal failure `Merge` returns an **empty map as a valid result**, discarding every successfully-loaded layer. | U108.md |
 | U108-F06 | **RESOLVED** `ffe55fad` | **`overlay.go:312-318`** | CORRECTNESS | Type detection tries bool before int, and `strconv.ParseBool` accepts `"0"` and `"1"` — so **every 0/1 integer override is silently converted to a boolean**, and there is no way to express those va... | U108.md |
-| U109-F01 | open | `filelock.go:21-35` (API shape); realised at `config/config_save.go:99`, `config/config_manager.go:128`, `tasks/log.go:554,578,598` | CORRECTNESS | **The failure polarity is inverted at five call sites: a lock *acquisition failure* is treated as permission to proceed unlocked.** Two of the five are *writes*. The rationale the callers give for ... | U109.md |
-| U110-F01 | open | `gitutil.go:30-32` and `gitutil.go:66-68` | CORRECTNESS | `PlainOpenOptions` is constructed with `DetectDotGit: true` but **`EnableDotGitCommonDir` left false**. In a *linked git worktree* — this project's standard agent workflow — go-git then treats `<ma... | U110.md |
+| U109-F01 | **PARTIAL** `9966daef` | `filelock.go:21-35` (API shape); realised at `config/config_save.go:99`, `config/config_manager.go:128`, `tasks/log.go:554,578,598` | CORRECTNESS | **The failure polarity is inverted at five call sites: a lock *acquisition failure* is treated as permission to proceed unlocked.** Two of the five are *writes*. The rationale the callers give for ... | U109.md |
+| U110-F01 | **RESOLVED** `5fbf2be2` | `gitutil.go:30-32` and `gitutil.go:66-68` | CORRECTNESS | `PlainOpenOptions` is constructed with `DetectDotGit: true` but **`EnableDotGitCommonDir` left false**. In a *linked git worktree* — this project's standard agent workflow — go-git then treats `<ma... | U110.md |
 | U111-F01 | **RESOLVED** `0eada046` | `harp.go` (absence) → `internal/paths/paths.go:182` | CORRECTNESS | **No harp validator exists anywhere in the repo**, and harps are used unvalidated as filesystem path segments — giving two user-reachable directory-traversal entries. Validation belongs in this pac... | U111.md |
 | U111-F02 | open | `harp.go:185-193` | CORRECTNESS | `UniqueFrom` is documented as best-effort and *can return a duplicate*, and **neither of its two callers performs the check its own doc tells them to**. | U111.md |
 | U111-F03 | open | `harp.go:174-176` | CORRECTNESS | The short-name identity space is **488,186** — small enough that task-id minting collides at percent-level rates across branches, and the verified downstream consequence is a task store where **eve... | U111.md |
 | U112-F01 | open | **`marker.go:45,60,73`** | DEAD | **The read half of this package has no production caller.** `Scan`, `Find`, and `findInValue` — 57 of the file's 101 lines, including all the nested-escaping machinery the package doc spends 8 line... | U112.md |
-| U113-F03 | open | `internal/shared/iox/errwriter.go:34-67` + `internal/cli/session_watch.go:156` | SILENTNOOP | `ErrWriter`'s void-returning write methods make an unchecked `Err()` invisible to `errcheck`, and `ctxloom session watch`'s primary text output takes exactly that path: a failed write silently drai... | U113.md |
+| U113-F03 | **RESOLVED** `5fbf2be2` | `internal/shared/iox/errwriter.go:34-67` + `internal/cli/session_watch.go:156` | SILENTNOOP | `ErrWriter`'s void-returning write methods make an unchecked `Err()` invisible to `errcheck`, and `ctxloom session watch`'s primary text output takes exactly that path: a failed write silently drai... | U113.md |
 | U114-F01 | **RESOLVED** `9f18e71a` | **`pidalive_unix.go:19`, `pidalive_windows.go:11`** | CORRECTNESS | **`Alive` returns a total `bool`, so it cannot say "I could not tell" — and every probe failure collapses into a confident `false` ("dead"), the destructive direction for two of its three consumers... | U114.md |
 | U114-F02 | **RESOLVED** `9f18e71a` | **`pidalive_windows.go:7-13`** | CORRECTNESS | **The Windows implementation errs toward DEAD for any process the caller cannot open — and its own doc claims the exact opposite.** It also violates the consumer contract's stated rule that a proce... | U114.md |
-| U115-F01 | open | **`plans.go:60-103` (vs `internal/cli/plan_watch.go:57`)`** | CORRECTNESS | `List` enumerates only `<root>/<harp>/*.plan.md` — one level deep — while the paired watcher `ctxloom plan watch` is explicitly **recursive**. Plans in nested subdirectories are watched but never l... | U115.md |
+| U115-F01 | **RESOLVED** `5fbf2be2` | **`plans.go:60-103` (vs `internal/cli/plan_watch.go:57`)`** | CORRECTNESS | `List` enumerates only `<root>/<harp>/*.plan.md` — one level deep — while the paired watcher `ctxloom plan watch` is explicitly **recursive**. Plans in nested subdirectories are watched but never l... | U115.md |
 | U115-F02 | **RESOLVED** `82b4ff31` | **`plans.go:75-78`** | SILENTNOOP | A per-harp `os.ReadDir` failure drops that harp's entire plan set with zero diagnostic and a success return. `taskloom plan list` then prints `(no plans)` and exits 0. | U115.md |
 | U116-F01 | **ESCALATED** (Windows-only, unverifiable on this host — fix designed, see DECISIONS.md) | `ptyrunner.go:69-85`, `:233`; `prepare_windows.go:59` | CORRECTNESS | **On Windows, `drainPTY` burns the full 2-second `ptyDrainGrace` on *every* interactive run** — 1000 iterations of a 2ms sleep — because none of its three exit conditions can fire early. The same h... | U116.md |
 | U116-F02 | **RESOLVED** `56241477` | `ptyrunner.go:221` (with `:233`, `:239`)` | SILENTNOOP | **A write failure on the output path is discarded, and `RunInteractive` then reports success with a zero exit code having delivered nothing.** The one thing this function exists to do can fail comp... | U116.md |
@@ -656,8 +716,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U131-F01 | open | **`upgrade.go:32`** | COUPLING | `Upgrader.Apply` returns only `bool` and **no error**, so an upgrader that cannot safely migrate a document must either silently skip or silently clobber. This is the structural root cause of the c... | U131.md |
 | U131-F02 | open | **`upgrade.go:83-85`** | SILENTNOOP | On encode failure `Run` returns `data, nil` — telling the caller "this file is already current" **after** the pipeline demonstrably fired. The caller then parses legacy bytes as if current, and the... | U131.md |
 | U131-F04 | open | **`upgrade.go:61-88`, `upgrade.go:156-163`** | CORRECTNESS | Two silent-data-destruction paths in the byte driver and its helpers, both of which end up written verbatim to the user's file. (a) **Multi-document YAML**: `yaml.Unmarshal` into a `yaml.Node` deco... | U131.md |
-| U132-F01 | open | **`watch.go:51` (the `recursive` parameter) at `internal/cli/plan_watch.go:57`, vs `internal/shared/plans/plans.go:60-80`** | COUPLING | **`plan watch` is recursive but `plans.List` is exactly two levels deep, so nested plan files fire change events that the list they trigger can never show.** The frontend re-queries, sees no differ... | U132.md |
-| U132-F03 | open | **`watch.go:52`** | SILENTNOOP | **`New` creates the directory it was asked to watch.** A nonexistent, typo'd, or wrongly-resolved root therefore produces a healthy watcher on an empty directory that streams zero events forever, a... | U132.md |
+| U132-F01 | **RESOLVED** `5fbf2be2` | **`watch.go:51` (the `recursive` parameter) at `internal/cli/plan_watch.go:57`, vs `internal/shared/plans/plans.go:60-80`** | COUPLING | **`plan watch` is recursive but `plans.List` is exactly two levels deep, so nested plan files fire change events that the list they trigger can never show.** The frontend re-queries, sees no differ... | U132.md |
+| U132-F03 | **RESOLVED** `5fbf2be2` | **`watch.go:52`** | SILENTNOOP | **`New` creates the directory it was asked to watch.** A nonexistent, typo'd, or wrongly-resolved root therefore produces a healthy watcher on an empty directory that streams zero events forever, a... | U132.md |
 | U133-F01 | **RESOLVED** `40b49a7f` | **`hooks.go:38` (+ `internal/lm/grpc/llm.proto:447-455`, `internal/lm/grpc/managed.go:91-115`)`** | SILENTNOOP | `Hook.PreToolFallback` does not survive the gRPC round-trip, so on the `ctxloom run` path an antigravity fallback hook is delivered with the flag cleared and therefore never registered — and the de... | U133.md |
 | U134-F01 | **RESOLVED** `5cd9bf90` | **`sign.go:29`** | SILENTNOOP | `Sign` signs a zero-byte payload and reports success. **Confirms** the `operations.SignBundleFile` finding — there is no floor in `SignBundleFile` *and none in `signing.Sign`.* | U134.md |
 | U134-F02 | **RESOLVED** `28f723a6` | `payload.go:56` + `internal/bundles/loader_skills.go:105` | CORRECTNESS | **Confirmed independently.** A manifest-less skill's preimage is the constant `{"preimage":"ctxloom-exec/1","manifest":[]}`, invariant under every byte in the skill's tree — and the integrity check... | U134.md |

@@ -306,7 +306,9 @@ func TestExecGit_DiffPatch_ApplyPatch_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, dirtyBefore)
 
-	require.NoError(t, g.ApplyPatch(ctx, target, patch))
+	applied, err := g.ApplyPatch(ctx, target, patch)
+	require.NoError(t, err)
+	require.True(t, applied)
 
 	got, err := os.ReadFile(filepath.Join(target, "keep.txt"))
 	require.NoError(t, err)
@@ -329,8 +331,115 @@ func TestExecGit_ApplyPatch_EmptyIsNoop(t *testing.T) {
 	ctx := context.Background()
 	g := NewExec()
 	repo := initRepo(t)
-	assert.NoError(t, g.ApplyPatch(ctx, repo, ""))
-	assert.NoError(t, g.ApplyPatch(ctx, repo, "   \n"))
+	applied, err := g.ApplyPatch(ctx, repo, "")
+	assert.NoError(t, err)
+	assert.False(t, applied)
+	applied, err = g.ApplyPatch(ctx, repo, "   \n")
+	assert.NoError(t, err)
+	assert.False(t, applied)
+}
+
+// TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied pins U053-F03: an
+// empty patch and a real patch must be distinguishable at the type level, not
+// just "no error" for both. A caller that skips ApplyPatch on an empty patch
+// (as applyCopySnapshot does today) still needs a way to notice if THIS
+// method silently no-ops for a reason other than "genuinely nothing to
+// apply" — e.g. a future call site that stops guarding the empty case.
+func TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping ApplyPatch integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	applied, err := g.ApplyPatch(ctx, repo, "")
+	require.NoError(t, err)
+	assert.False(t, applied, "an empty patch must report applied=false, not just nil error")
+
+	applied, err = g.ApplyPatch(ctx, repo, "   \n")
+	require.NoError(t, err)
+	assert.False(t, applied, "a whitespace-only patch must report applied=false")
+
+	require.NoError(t, writeFile(filepath.Join(repo, "keep.txt"), "keep me"))
+	commit(t, repo, "keep.txt", "keep me", "add keep.txt")
+	require.NoError(t, writeFile(filepath.Join(repo, "keep.txt"), "keep me, modified"))
+	patch, err := g.DiffPatch(ctx, repo)
+	require.NoError(t, err)
+	require.NotEmpty(t, patch)
+	require.NoError(t, run(ctx, repo, "checkout", "--", "keep.txt"))
+
+	applied, err = g.ApplyPatch(ctx, repo, patch)
+	require.NoError(t, err)
+	assert.True(t, applied, "a real patch must report applied=true")
+}
+
+// TestExecGit_HasIgnoredContent pins U053-F01/U054-F01: IsDirty deliberately
+// treats gitignored/excluded content as clean (that is what lets a prepared
+// agent worktree's OWN delivered noise — .claude/, CLAUDE.md, .ctxloom/cache/
+// — coexist with a real WIP check). But teardown needs a SEPARATE signal for
+// "this worktree holds ignored files that would be destroyed", which nothing
+// in this package exposes today.
+func TestExecGit_HasIgnoredContent(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping HasIgnoredContent integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	has, err := g.HasIgnoredContent(ctx, repo)
+	require.NoError(t, err)
+	assert.False(t, has, "a fresh repo with no ignored content reports false")
+
+	// The .gitignore itself must be COMMITTED (clean, tracked) so the only
+	// remaining signal is the ignored file it excludes — otherwise the
+	// untracked .gitignore alone would make IsDirty true too, muddying what
+	// this test is isolating.
+	commit(t, repo, ".gitignore", "secret.txt\n", "add .gitignore")
+	require.NoError(t, writeFile(filepath.Join(repo, "secret.txt"), "do not lose me"))
+
+	has, err = g.HasIgnoredContent(ctx, repo)
+	require.NoError(t, err)
+	assert.True(t, has, "an ignored file the WIP check would miss must be detected")
+
+	dirty, err := g.IsDirty(ctx, repo)
+	require.NoError(t, err)
+	assert.False(t, dirty, "IsDirty's existing contract is unchanged: ignored content alone is still not \"dirty\"")
+}
+
+// TestExecGit_DoesNotInheritGitRepoEnvVars pins U053-F02: GIT_DIR/GIT_WORK_TREE/
+// GIT_INDEX_FILE/GIT_COMMON_DIR override cmd.Dir completely when inherited from
+// the calling process's environment. A ctxloom process that itself runs inside
+// (or is launched by something that sets) one of these must not have every git
+// operation in this package silently redirected to a DIFFERENT repository.
+func TestExecGit_DoesNotInheritGitRepoEnvVars(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping env-leak integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+
+	repoA := initRepo(t)
+	repoB := initRepo(t)
+	commit(t, repoB, "only-in-b.txt", "b", "add only-in-b.txt")
+
+	// Point the poisoned env vars at repo B while operating on repo A.
+	t.Setenv("GIT_DIR", filepath.Join(repoB, ".git"))
+	t.Setenv("GIT_WORK_TREE", repoB)
+
+	top, err := g.Toplevel(ctx, repoA)
+	require.NoError(t, err)
+	assert.Equal(t, resolvePath(t, repoA), resolvePath(t, top),
+		"Toplevel must resolve repo A, not the repo GIT_DIR/GIT_WORK_TREE point at")
+
+	branch, err := g.CurrentBranch(ctx, repoA)
+	require.NoError(t, err)
+	assert.Equal(t, "main", branch)
+
+	changes, err := g.WorkingChanges(ctx, repoA, 0)
+	require.NoError(t, err)
+	assert.Empty(t, changes, "repo A is clean; a leak would show repo B's uncommitted state instead")
 }
 
 // TestExecGit_ListUntracked proves the untracked inventory honors BOTH

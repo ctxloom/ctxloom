@@ -51,8 +51,14 @@ the backend, not the client).`,
 		// Watch the tasks directory (not the file directly): the log may not
 		// exist yet, and watching the dir catches its creation too. Filter to
 		// this project's log so other projects' churn — and the .lock — are
-		// ignored.
-		w, err := watch.New(filepath.Dir(logPath), false, func(p string) bool {
+		// ignored. watch.New no longer creates the root itself (U132-F03) —
+		// this IS the reviewable call site that genuinely needs it to exist
+		// before the log's first append.
+		tasksDir := filepath.Dir(logPath)
+		if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+			return err
+		}
+		w, err := watch.New(tasksDir, false, func(p string) bool {
 			return p == logPath
 		})
 		if err != nil {

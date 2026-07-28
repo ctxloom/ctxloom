@@ -7,6 +7,7 @@ package plans
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -74,55 +75,64 @@ func ListHome() ([]Plan, error) {
 // VANISHED between listing and reading (a session reaped mid-scan) — that is
 // skipped silently, because it genuinely holds no plans any more.
 func List(root string) ([]Plan, error) {
-	dirs, err := os.ReadDir(root)
-	if err != nil {
+	if _, err := os.Stat(root); err != nil {
 		if os.IsNotExist(err) {
 			return []Plan{}, nil
 		}
 		return nil, err
 	}
 	out := []Plan{}
-	for _, d := range dirs {
-		if !d.IsDir() {
-			continue
-		}
-		harp := d.Name()
-		dir := filepath.Join(root, harp)
-		files, err := os.ReadDir(dir)
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if os.IsNotExist(err) {
-				continue
+				// Vanished between listing and reading (a session reaped
+				// mid-scan): genuinely holds nothing any more, not a failure.
+				return nil
 			}
-			return nil, fmt.Errorf("read session dir %s: %w", harp, err)
+			return fmt.Errorf("read %s: %w", path, err)
 		}
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), planExt) {
-				continue
-			}
-			path := filepath.Join(dir, f.Name())
-			name := strings.TrimSuffix(f.Name(), planExt)
-			title := name
-			var sessions []string
-			data, err := os.ReadFile(path)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				return nil, fmt.Errorf("read plan %s: %w", path, err)
-			}
-			t, ss := ParseFrontmatter(string(data))
-			if t != "" {
-				title = t
-			}
-			sessions = ss
-			out = append(out, Plan{
-				Path:     path,
-				Name:     name,
-				Title:    title,
-				Session:  harp,
-				Sessions: sessions,
-			})
+		if path == root {
+			return nil
 		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		segs := strings.Split(rel, string(filepath.Separator))
+		harp := segs[0]
+		if d.IsDir() {
+			return nil // descend; plans may live in nested subdirectories (U115-F01/U132-F01)
+		}
+		if len(segs) < 2 {
+			return nil // a file directly under root, not inside any harp dir — never a plan
+		}
+		if !strings.HasSuffix(d.Name(), planExt) {
+			return nil
+		}
+		name := strings.TrimSuffix(strings.Join(segs[1:], "/"), planExt)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("read plan %s: %w", path, err)
+		}
+		title := name
+		t, ss := ParseFrontmatter(string(data))
+		if t != "" {
+			title = t
+		}
+		out = append(out, Plan{
+			Path:     path,
+			Name:     name,
+			Title:    title,
+			Session:  harp,
+			Sessions: ss,
+		})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Session != out[j].Session {

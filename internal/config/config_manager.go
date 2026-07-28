@@ -3,6 +3,9 @@ package config
 import (
 	"fmt"
 
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
@@ -76,22 +79,21 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 	// Resolve the target path first, UNLOCKED — this only walks directories
 	// (findAppDir) to learn WHICH config.yaml is in play, touching none of
 	// its bytes, so there is nothing here for a concurrent writer to race.
-	pathCfg, err := loadUncached(m.opts...)
+	// U049-F15: this used to be a full loadUncached() — schema validation,
+	// every config layer, the upgrade pipeline, bundle-profile seeding — run
+	// and discarded, solely to learn a path and an fs. resolveUpdateTarget
+	// does only the bootstrap stage-1 resolution that path actually needs.
+	fs, injectedFS, configPath, err := resolveUpdateTarget(m.opts...)
 	if err != nil {
 		return fmt.Errorf("resolve config path: %w", err)
 	}
-	configPath, err := pathCfg.GetConfigFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
 
-	fs := pathCfg.getFS()
 	// U109-F01: see Save's identical fix — filelock.Lock is BLOCKING, so an
 	// error from it is a persistent environmental failure, never transient
 	// contention. Proceeding unlocked on that failure is exactly backwards:
 	// it discards the read-modify-write serialization this method exists to
 	// provide, silently, on every subsequent Update call. Fail closed.
-	if !pathCfg.injectedFS {
+	if !injectedFS {
 		unlock, lerr := filelock.Lock(configPath + ".lock")
 		if lerr != nil {
 			return fmt.Errorf("config: acquiring update lock for %s: %w", configPath, lerr)
@@ -101,8 +103,8 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 
 	// Re-read FRESH now that the lock is held: this is the "read" half of
 	// read-modify-write, and it is what makes this safe against a writer
-	// that finished just before we acquired the lock — a Load() taken before
-	// the lock (like pathCfg above) could not see that writer's change;
+	// that finished just before we acquired the lock — the path resolution
+	// above (taken before the lock) could not see that writer's change;
 	// this one can.
 	fresh, err := loadUncached(m.opts...)
 	if err != nil {
@@ -122,4 +124,37 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 	return nil
+}
+
+// resolveUpdateTarget resolves the filesystem, whether that filesystem was
+// explicitly injected, and the config.yaml path Update should lock and
+// write — the same bootstrap stage-1 resolution loadUncached performs before
+// it ever touches a config layer's bytes (fs default, then options.appDir or
+// findAppDir), but WITHOUT running the schema validator, reading any config
+// layer, applying the upgrade pipeline, or seeding bundle profiles. Update
+// only needs the path and the fs to acquire its lock; the actual content read
+// happens separately, under the lock, via loadUncached.
+func resolveUpdateTarget(opts ...LoadOption) (fs afero.Fs, injectedFS bool, configPath string, err error) {
+	options := &loadOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	fs = options.fs
+	injectedFS = fs != nil
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+
+	var appPath string
+	if options.appDir != "" {
+		appPath = options.appDir
+	} else {
+		appPath, _ = findAppDir(fs)
+	}
+	if appPath == "" {
+		return nil, false, "", fmt.Errorf("no .ctxloom directory found; run 'ctxloom init --local' first")
+	}
+
+	return fs, injectedFS, paths.ConfigPath(appPath), nil
 }

@@ -51,6 +51,20 @@ func drainMigrationWarnings() []string {
 // pre-versioning generation (version 0/1) and is upgraded on load.
 const CurrentConfigVersion = 6
 
+// configUpgrades is the canonical, ordered set of config schema upgrades,
+// oldest-first. Append an Upgrader here as the schema evolves and bump
+// CurrentConfigVersion (immediately above) to match. The loader runs this
+// pipeline over the raw config bytes on every load (see loadConfigFile);
+// upgrades apply in memory and are only persisted after the user confirms
+// (see Config.CommitUpgrade).
+var configUpgrades = upgrade.Pipeline{
+	llmRenameUpgrade{},
+	labeledConfigUpgrade{},
+	geminiToAntigravityUpgrade{},
+	profileCommandSelectorUpgrade{},
+	defaultAgentUpgrade{},
+}
+
 // llmRenameUpgrade is the v1→v2 config upgrade: the schema generation that
 // renamed the "plugin" abstraction to "llm". It rewrites pre-rename keys so
 // configs written before the rename load correctly:

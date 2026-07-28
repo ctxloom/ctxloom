@@ -43,20 +43,8 @@ type Result struct {
 	// Content is the compressed output.
 	Content string
 
-	// OriginalSize is the byte length of the original content.
-	OriginalSize int
-
-	// CompressedSize is the byte length of the compressed content.
-	CompressedSize int
-
 	// Ratio is the actual compression ratio achieved (compressed/original).
 	Ratio float64
-
-	// PreservedElements lists what structural elements were kept.
-	PreservedElements []string
-
-	// CompressedElements lists what was elided or summarized.
-	CompressedElements []string
 
 	// ModelID identifies which compressor/model was used (e.g., "ast:go", "claude-3-sonnet").
 	ModelID string
@@ -67,11 +55,9 @@ type Result struct {
 // content passes through unchanged rather than failing the whole pipeline.
 func verbatimResult(content, modelID string) Result {
 	return Result{
-		Content:        content,
-		OriginalSize:   len(content),
-		CompressedSize: len(content),
-		Ratio:          1.0,
-		ModelID:        modelID,
+		Content: content,
+		Ratio:   1.0,
+		ModelID: modelID,
 	}
 }
 

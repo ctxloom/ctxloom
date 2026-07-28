@@ -105,31 +105,13 @@ func TestDetectContentType_Empty(t *testing.T) {
 // TestResult_Calculation verifies ratio calculation
 func TestResult_Calculation(t *testing.T) {
 	result := Result{
-		Content:        "compressed",
-		OriginalSize:   100,
-		CompressedSize: 50,
-		Ratio:          0.5,
-		ModelID:        "test-model",
+		Content: "compressed",
+		Ratio:   0.5,
+		ModelID: "test-model",
 	}
 
-	assert.Equal(t, 100, result.OriginalSize)
-	assert.Equal(t, 50, result.CompressedSize)
 	assert.Equal(t, 0.5, result.Ratio)
 	assert.Equal(t, "test-model", result.ModelID)
-}
-
-// TestResult_PreservedAndCompressed verifies metadata tracking
-func TestResult_PreservedAndCompressed(t *testing.T) {
-	result := Result{
-		Content:            "content",
-		PreservedElements:  []string{"function1", "function2"},
-		CompressedElements: []string{"docstring", "test"},
-	}
-
-	assert.Len(t, result.PreservedElements, 2)
-	assert.Len(t, result.CompressedElements, 2)
-	assert.Contains(t, result.PreservedElements, "function1")
-	assert.Contains(t, result.CompressedElements, "test")
 }
 
 // =============================================================================

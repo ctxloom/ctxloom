@@ -3,38 +3,37 @@
 package compression
 
 import (
-	"fmt"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
 // goVerbatim lists Go top-level node kinds kept verbatim (text + suffix).
-var goVerbatim = map[string]verbatimEmit{
-	"package_clause":     {"\n\n", "package clause"},
-	"import_declaration": {"\n", "imports"},
-	"type_declaration":   {"\n\n", "type declaration"},
-	"const_declaration":  {"\n", "const/var declaration"},
-	"var_declaration":    {"\n", "const/var declaration"},
+var goVerbatim = map[string]string{
+	"package_clause":     "\n\n",
+	"import_declaration": "\n",
+	"type_declaration":   "\n\n",
+	"const_declaration":  "\n",
+	"var_declaration":    "\n",
 }
 
 // extractGo handles Go-specific AST extraction: one verbatim/handler branch
 // per top-level node kind.
-func (c *CodeCompressor) extractGo(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
+func (c *CodeCompressor) extractGo(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 
-		if v, ok := goVerbatim[child.Type()]; ok {
-			c.emitVerbatim(child, source, out, preserved, v)
+		if suffix, ok := goVerbatim[child.Type()]; ok {
+			c.emitVerbatim(child, source, out, suffix)
 			continue
 		}
 
 		switch child.Type() {
 		case "function_declaration", "method_declaration":
-			c.extractGoFunc(child, source, out, preserved)
+			c.extractGoFunc(child, source, out)
 		case "comment":
 			c.emitGoComment(child, source, out)
 		}
@@ -49,10 +48,9 @@ func (c *CodeCompressor) emitGoComment(child *sitter.Node, source []byte, out *s
 	}
 }
 
-func (c *CodeCompressor) extractGoFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractGoFunc(node *sitter.Node, source []byte, out *strings.Builder) {
 	// For Go, the simplest approach is to get the full signature from source
 	// by finding the block and taking everything before it
-	var funcName string
 	var blockStart uint32
 	hasBlock := false
 
@@ -60,11 +58,6 @@ func (c *CodeCompressor) extractGoFunc(node *sitter.Node, source []byte, out *st
 		child := node.Child(i)
 		if child == nil {
 			continue
-		}
-		// function_declaration names are identifier nodes;
-		// method_declaration names are field_identifier nodes.
-		if (child.Type() == "identifier" || child.Type() == "field_identifier") && funcName == "" {
-			funcName = c.nodeText(child, source)
 		}
 		if child.Type() == "block" {
 			blockStart = child.StartByte()
@@ -82,9 +75,5 @@ func (c *CodeCompressor) extractGoFunc(node *sitter.Node, source []byte, out *st
 		// No block child (e.g. forward declaration) - emit the node verbatim.
 		out.WriteString(strings.TrimSpace(c.nodeText(node, source)))
 		out.WriteString("\n\n")
-	}
-
-	if funcName != "" {
-		*preserved = append(*preserved, fmt.Sprintf("func %s", funcName))
 	}
 }

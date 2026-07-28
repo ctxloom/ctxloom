@@ -3,8 +3,6 @@ package compression
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -291,32 +289,6 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// TestJSONCompressor_BoundedMetadata pins the stats aggregation: a large
-// document must yield a handful of "N label" count summaries, not one
-// PreservedElements entry per key/leaf (which could dwarf the compressed
-// content itself).
-func TestJSONCompressor_BoundedMetadata(t *testing.T) {
-	c := NewJSONCompressor()
-
-	var b strings.Builder
-	b.WriteString("{")
-	for i := 0; i < 500; i++ {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		fmt.Fprintf(&b, `"key%d": %d`, i, i)
-	}
-	b.WriteString("}")
-
-	result, err := c.Compress(context.Background(), ContentTypeJSON, b.String(), 0.5)
-	require.NoError(t, err)
-
-	assert.LessOrEqual(t, len(result.PreservedElements), 6,
-		"PreservedElements must aggregate into counts, not grow per key: %v", result.PreservedElements)
-	assert.Contains(t, result.PreservedElements, "500 keys")
-	assert.Contains(t, result.PreservedElements, "500 numbers")
 }
 
 // TestJSONCompressor_PreservesBigIntegers pins the UseNumber decode: numbers

@@ -22,11 +22,9 @@ import (
 // the per-language extractors split out of code_treesitter.go (unscathed-aged-glucose):
 // code_go.go, code_python.go, code_javascript.go, code_rust.go, code_java.go.
 
-// langCase exercises one language end-to-end: detectLanguage must route to the
-// intended extractor, the structural signatures must survive, and the elided
-// bodies must not. Each fixture is crafted so detectLanguage() classifies it
-// correctly (note: JS keywords are checked before TS, so the TS fixture avoids
-// "function"/"const").
+// langCase exercises one language end-to-end via its explicit ct: Compress
+// must route to the intended extractor, the structural signatures must
+// survive, and the elided bodies must not.
 type langCase struct {
 	name           string
 	ct             ContentType
@@ -210,8 +208,7 @@ func TestCodeCompressor_JavaNoBodyMethod(t *testing.T) {
 	c := NewCodeCompressor()
 	ctx := context.Background()
 
-	// "public class " routes detectLanguage to Java; findById has no body.
-	// No "package " line (it would misroute to the Go parser).
+	// Compress is called with ContentTypeJava explicitly; findById has no body.
 	source := `public class Repository {
     void findById(long id);
 
@@ -236,8 +233,6 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 		got := verbatimResult(content, "ast:go")
 		assert.Equal(t, content, got.Content)
 		assert.Equal(t, 1.0, got.Ratio)
-		assert.Equal(t, len(content), got.OriginalSize)
-		assert.Equal(t, len(content), got.CompressedSize)
 	})
 
 	t.Run("garbage code never panics and never errors", func(t *testing.T) {

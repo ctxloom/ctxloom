@@ -3,42 +3,41 @@
 package compression
 
 import (
-	"fmt"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
 // jsVerbatim lists JS/TS top-level node kinds kept verbatim (text + suffix).
-var jsVerbatim = map[string]verbatimEmit{
-	"import_statement":       {"\n", "import"},
-	"interface_declaration":  {"\n\n", "interface"},
-	"type_alias_declaration": {"\n", "type alias"},
+var jsVerbatim = map[string]string{
+	"import_statement":       "\n",
+	"interface_declaration":  "\n\n",
+	"type_alias_declaration": "\n",
 }
 
 // extractJS handles JavaScript/TypeScript AST extraction: one verbatim/handler
 // branch per top-level node kind.
-func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
+func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 
-		if v, ok := jsVerbatim[child.Type()]; ok {
-			c.emitVerbatim(child, source, out, preserved, v)
+		if suffix, ok := jsVerbatim[child.Type()]; ok {
+			c.emitVerbatim(child, source, out, suffix)
 			continue
 		}
 
 		switch child.Type() {
 		case "export_statement":
-			c.extractJSExport(child, source, out, preserved)
+			c.extractJSExport(child, source, out)
 		case "function_declaration":
-			c.extractJSFunc(child, source, out, preserved)
+			c.extractJSFunc(child, source, out)
 		case "class_declaration":
-			c.extractJSClass(child, source, out, preserved)
+			c.extractJSClass(child, source, out)
 		case "lexical_declaration":
-			c.extractJSLexical(child, source, out, preserved)
+			c.extractJSLexical(child, source, out)
 		}
 	}
 }
@@ -50,16 +49,16 @@ func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *string
 // `export * from './b'`) and `export default <expr>` — are kept verbatim too:
 // emitting a dangling "export " and dropping the rest is content loss in a
 // compressor whose contract is that type definitions survive.
-func (c *CodeCompressor) extractJSExport(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJSExport(node *sitter.Node, source []byte, out *strings.Builder) {
 	prefix := "export "
 	for j := 0; j < int(node.ChildCount()); j++ {
 		exp := node.Child(j)
 		if exp == nil {
 			continue
 		}
-		if v, ok := jsVerbatim[exp.Type()]; ok {
+		if suffix, ok := jsVerbatim[exp.Type()]; ok {
 			out.WriteString(prefix)
-			c.emitVerbatim(exp, source, out, preserved, v)
+			c.emitVerbatim(exp, source, out, suffix)
 			return
 		}
 		switch exp.Type() {
@@ -67,15 +66,15 @@ func (c *CodeCompressor) extractJSExport(node *sitter.Node, source []byte, out *
 			prefix += "default "
 		case "function_declaration":
 			out.WriteString(prefix)
-			c.extractJSFunc(exp, source, out, preserved)
+			c.extractJSFunc(exp, source, out)
 			return
 		case "class_declaration", "abstract_class_declaration":
 			out.WriteString(prefix)
-			c.extractJSClass(exp, source, out, preserved)
+			c.extractJSClass(exp, source, out)
 			return
 		case "lexical_declaration", "variable_declaration":
 			out.WriteString(prefix)
-			c.extractJSLexical(exp, source, out, preserved)
+			c.extractJSLexical(exp, source, out)
 			return
 		}
 	}
@@ -83,12 +82,10 @@ func (c *CodeCompressor) extractJSExport(node *sitter.Node, source []byte, out *
 	// expression. These carry no function body to elide — keep the statement.
 	out.WriteString(c.nodeText(node, source))
 	out.WriteString("\n")
-	*preserved = append(*preserved, "export")
 }
 
-func (c *CodeCompressor) extractJSFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJSFunc(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
-	var funcName string
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -101,8 +98,7 @@ func (c *CodeCompressor) extractJSFunc(node *sitter.Node, source []byte, out *st
 			sig.WriteString(c.nodeText(child, source))
 			sig.WriteString(" ")
 		case "identifier":
-			funcName = c.nodeText(child, source)
-			sig.WriteString(funcName)
+			sig.WriteString(c.nodeText(child, source))
 		case "formal_parameters":
 			sig.WriteString(c.nodeText(child, source))
 		case "type_annotation":
@@ -114,12 +110,10 @@ func (c *CodeCompressor) extractJSFunc(node *sitter.Node, source []byte, out *st
 
 	out.WriteString(sig.String())
 	out.WriteString("\n\n")
-	*preserved = append(*preserved, fmt.Sprintf("function %s", funcName))
 }
 
-func (c *CodeCompressor) extractJSClass(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJSClass(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
-	var className string
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -131,24 +125,22 @@ func (c *CodeCompressor) extractJSClass(node *sitter.Node, source []byte, out *s
 		case "class":
 			sig.WriteString("class ")
 		case "identifier", "type_identifier":
-			className = c.nodeText(child, source)
-			sig.WriteString(className)
+			sig.WriteString(c.nodeText(child, source))
 		case "class_heritage":
 			sig.WriteString(" ")
 			sig.WriteString(c.nodeText(child, source))
 		case "class_body":
 			sig.WriteString(" {\n")
-			c.extractJSClassBody(child, source, &sig, preserved)
+			c.extractJSClassBody(child, source, &sig)
 			sig.WriteString("}")
 		}
 	}
 
 	out.WriteString(sig.String())
 	out.WriteString("\n\n")
-	*preserved = append(*preserved, fmt.Sprintf("class %s", className))
 }
 
-func (c *CodeCompressor) extractJSClassBody(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJSClassBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
@@ -200,7 +192,7 @@ func (c *CodeCompressor) extractJSMethodSig(node *sitter.Node, source []byte, ou
 	}
 }
 
-func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out *strings.Builder) {
 	// Handle const/let declarations - keep if they're arrow functions
 	text := c.nodeText(node, source)
 	if strings.Contains(text, "=>") {
@@ -218,7 +210,6 @@ func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out 
 			out.WriteString(text)
 			out.WriteString("\n")
 		}
-		*preserved = append(*preserved, "arrow function")
 	} else {
 		// Regular const/let. Keep short declarations verbatim; for long ones,
 		// elide the value after the first '=' so the binding (name + type
@@ -237,6 +228,5 @@ func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out 
 			out.WriteString(text)
 		}
 		out.WriteString("\n")
-		*preserved = append(*preserved, "const/let")
 	}
 }

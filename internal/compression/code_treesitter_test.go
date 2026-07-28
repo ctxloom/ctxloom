@@ -96,11 +96,6 @@ func generateID() int {
 	assert.Contains(t, result.Content, "func NewUser(name string)")
 	assert.Contains(t, result.Content, "func (u *User) GetFullName()")
 
-	// Both functions AND methods must be recorded in PreservedElements
-	// (method_declaration names are field_identifier nodes, not identifier).
-	assert.Contains(t, result.PreservedElements, "func NewUser")
-	assert.Contains(t, result.PreservedElements, "func GetFullName")
-
 	// Should elide function bodies
 	assert.Contains(t, result.Content, "{ ... }")
 
@@ -113,7 +108,6 @@ func generateID() int {
 	assert.Less(t, result.Ratio, 0.7, "Expected significant compression")
 
 	t.Logf("Compression ratio: %.2f%%", result.Ratio*100)
-	t.Logf("Preserved: %v", result.PreservedElements)
 	t.Logf("\n--- Compressed output ---\n%s", result.Content)
 }
 

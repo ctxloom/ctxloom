@@ -23,12 +23,8 @@ func (c *CodeCompressor) CanHandle(ct ContentType) bool {
 // Compress returns the original content unchanged.
 func (c *CodeCompressor) Compress(ctx context.Context, _ ContentType, content string, ratio float64) (Result, error) {
 	return Result{
-		Content:        content,
-		OriginalSize:   len(content),
-		CompressedSize: len(content),
-		Ratio:          1.0,
-		CompressedElements: []string{
-			"tree-sitter not available (build with -tags treesitter)",
-		},
+		Content: content,
+		Ratio:   1.0,
+		ModelID: "tree-sitter not available (build with -tags treesitter)",
 	}, nil
 }

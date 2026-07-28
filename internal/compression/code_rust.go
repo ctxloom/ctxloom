@@ -3,43 +3,42 @@
 package compression
 
 import (
-	"fmt"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
 // rustVerbatim lists Rust top-level node kinds kept verbatim (text + suffix).
-var rustVerbatim = map[string]verbatimEmit{
-	"use_declaration": {"\n", "use"},
-	"mod_item":        {"\n", "mod"},
-	"struct_item":     {"\n\n", "struct"},
-	"enum_item":       {"\n\n", "enum"},
-	"trait_item":      {"\n\n", "trait"},
-	"type_item":       {"\n", "type alias"},
-	"const_item":      {"\n", "const/static"},
-	"static_item":     {"\n", "const/static"},
+var rustVerbatim = map[string]string{
+	"use_declaration": "\n",
+	"mod_item":        "\n",
+	"struct_item":     "\n\n",
+	"enum_item":       "\n\n",
+	"trait_item":      "\n\n",
+	"type_item":       "\n",
+	"const_item":      "\n",
+	"static_item":     "\n",
 }
 
 // extractRust handles Rust AST extraction: one verbatim/handler branch per
 // top-level node kind.
-func (c *CodeCompressor) extractRust(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
+func (c *CodeCompressor) extractRust(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 
-		if v, ok := rustVerbatim[child.Type()]; ok {
-			c.emitVerbatim(child, source, out, preserved, v)
+		if suffix, ok := rustVerbatim[child.Type()]; ok {
+			c.emitVerbatim(child, source, out, suffix)
 			continue
 		}
 
 		switch child.Type() {
 		case "impl_item":
-			c.extractRustImpl(child, source, out, preserved)
+			c.extractRustImpl(child, source, out)
 		case "function_item":
-			c.extractRustFunc(child, source, out, preserved)
+			c.extractRustFunc(child, source, out)
 		}
 	}
 }
@@ -56,9 +55,8 @@ var rustSigParts = map[string]struct{ prefix, suffix string }{
 }
 
 // extractRustFunc emits a Rust function signature, walking its child nodes.
-func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
-	var funcName string
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -77,8 +75,7 @@ func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *
 		case "fn":
 			sig.WriteString("fn ")
 		case "identifier":
-			funcName = c.nodeText(child, source)
-			sig.WriteString(funcName)
+			sig.WriteString(c.nodeText(child, source))
 		case "block":
 			sig.WriteString(" { ... }")
 		}
@@ -86,10 +83,9 @@ func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *
 
 	out.WriteString(sig.String())
 	out.WriteString("\n\n")
-	*preserved = append(*preserved, fmt.Sprintf("fn %s", funcName))
 }
 
-func (c *CodeCompressor) extractRustImpl(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractRustImpl(node *sitter.Node, source []byte, out *strings.Builder) {
 	var sig strings.Builder
 	sig.WriteString("impl")
 
@@ -110,17 +106,16 @@ func (c *CodeCompressor) extractRustImpl(node *sitter.Node, source []byte, out *
 			sig.WriteString(" for")
 		case "declaration_list":
 			sig.WriteString(" {\n")
-			c.extractRustImplBody(child, source, &sig, preserved)
+			c.extractRustImplBody(child, source, &sig)
 			sig.WriteString("}")
 		}
 	}
 
 	out.WriteString(sig.String())
 	out.WriteString("\n\n")
-	*preserved = append(*preserved, "impl block")
 }
 
-func (c *CodeCompressor) extractRustImplBody(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+func (c *CodeCompressor) extractRustImplBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {

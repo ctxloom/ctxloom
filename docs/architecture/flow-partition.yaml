@@ -1,0 +1,18 @@
+# Recovered 2026-07-28 from taskloom `high-tight-gulf` revision 3 and
+# independently corroborated from `findings-index.md` prose; U017/U018 are
+# absent because they were briefed but never reviewed and carry zero rows.
+flows:
+  authoring:   [U028, U030, U031, U035, U036, U046, U047, U048, U049, U050, U081, U082, U091, U107, U108]
+  trust:       [U043, U086, U088, U089, U093, U094, U095, U131, U134, U135, U136, U137, U150]
+  delegation:  [U016, U019, U020, U021, U022, U023, U024, U025, U026, U027, U038, U085]
+  launch:      [U040, U041, U056, U059, U060, U061, U083, U084, U098, U114, U116, U117, U118, U133]
+  materialize: [U029, U032, U033, U045, U055, U057, U080, U100, U101, U102]
+  tasks:       [U007, U008, U111, U112, U120, U121, U122, U123, U124, U125, U126, U127, U128, U138, U139, U140]
+  foundation:  [U002, U004, U006, U053, U054, U079, U090, U092, U106, U109, U110, U113, U115, U129, U130, U132]
+  capture:     [U039, U042, U078, U099, U144, U145, U146, U147, U148, U149]
+  output:      [U037, U044, U052, U103, U104, U105, U119, U141, U154]
+  guardrail:   [U005, U066, U067, U068, U069, U070, U071, U072, U073, U074, U075, U076, U077]
+  acp:         [U001, U011, U012, U013, U014, U015, U034, U058]
+  isolation:   [U010, U062, U063, U064, U065, U151, U152, U153]
+  generation:  [U003, U009, U051, U096, U097, U155, U156, U157, U087]
+  testbed:     [U142, U143, U158, U159, U160, U161, U162, U163, U164]

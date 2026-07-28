@@ -25,10 +25,9 @@ type Feature struct {
 // step/Examples row), used verbatim when a scenario has no capture to render
 // from.
 type Scenario struct {
-	Keyword string
-	Name    string
-	Tags    []string
-	Body    string
+	Name string
+	Tags []string
+	Body string
 }
 
 // ParseFeature parses a .feature file just enough to render it: deliberately
@@ -85,11 +84,6 @@ func ParseFeature(path string) (Feature, error) {
 			}
 
 		case strings.HasPrefix(stripped, "Scenario Outline:") || strings.HasPrefix(stripped, "Scenario:"):
-			keyword := "Scenario"
-			head, _, _ := strings.Cut(stripped, ":")
-			if strings.Contains(head, "Outline") {
-				keyword = "Scenario Outline"
-			}
 			_, rest, _ := strings.Cut(stripped, ":")
 			name := strings.TrimSpace(rest)
 			tags := currentTags
@@ -116,10 +110,9 @@ func ParseFeature(path string) (Feature, error) {
 				body = body[:len(body)-1]
 			}
 			scenarios = append(scenarios, Scenario{
-				Keyword: keyword,
-				Name:    name,
-				Tags:    tags,
-				Body:    strings.Join(body, "\n"),
+				Name: name,
+				Tags: tags,
+				Body: strings.Join(body, "\n"),
 			})
 
 		default:

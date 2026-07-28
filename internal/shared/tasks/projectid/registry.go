@@ -32,8 +32,8 @@ type Entry struct {
 	LastSeenAt time.Time `yaml:"last_seen_at,omitempty"`
 }
 
-// Registry is the on-disk form of the project registry.
-type Registry struct {
+// registry is the on-disk form of the project registry.
+type registry struct {
 	Projects []Entry `yaml:"projects"`
 }
 
@@ -62,26 +62,23 @@ func Open(override string) (*Manager, error) {
 	return &Manager{path: path}, nil
 }
 
-// Path returns the absolute path to the registry file.
-func (m *Manager) Path() string { return m.path }
-
-// Load reads the registry from disk. Returns an empty Registry if the file
+// Load reads the registry from disk. Returns an empty registry if the file
 // doesn't exist (first-run case).
-func (m *Manager) Load() (*Registry, error) {
+func (m *Manager) load() (*registry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.loadLocked()
 }
 
-func (m *Manager) loadLocked() (*Registry, error) {
+func (m *Manager) loadLocked() (*registry, error) {
 	data, err := os.ReadFile(m.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return &Registry{}, nil
+		return &registry{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var reg Registry
+	var reg registry
 	if len(data) == 0 {
 		return &reg, nil
 	}
@@ -91,7 +88,7 @@ func (m *Manager) loadLocked() (*Registry, error) {
 	return &reg, nil
 }
 
-func (m *Manager) saveLocked(reg *Registry) error {
+func (m *Manager) saveLocked(reg *registry) error {
 	data, err := yaml.Marshal(reg)
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)
@@ -102,7 +99,7 @@ func (m *Manager) saveLocked(reg *Registry) error {
 // ResolveByPath returns a copy of the entry whose path matches projectDir, or
 // nil if none.
 func (m *Manager) ResolveByPath(projectDir string) (*Entry, error) {
-	reg, err := m.Load()
+	reg, err := m.load()
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +122,7 @@ func (m *Manager) ResolveByPath(projectDir string) (*Entry, error) {
 // tasks/operations.missingLogSiblingNote) needs every such entry, not just
 // whichever one ResolveByPath's fast path happens to prefer.
 func (m *Manager) EntriesAtPath(projectDir string) ([]Entry, error) {
-	reg, err := m.Load()
+	reg, err := m.load()
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +138,7 @@ func (m *Manager) EntriesAtPath(projectDir string) ([]Entry, error) {
 
 // ResolveByID returns a copy of the entry with the given project-id, or nil.
 func (m *Manager) ResolveByID(id string) (*Entry, error) {
-	reg, err := m.Load()
+	reg, err := m.load()
 	if err != nil {
 		return nil, err
 	}

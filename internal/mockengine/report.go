@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // The discovery report is the whole point of the mock: it inverts a context
@@ -221,10 +223,10 @@ func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 // mirroring ProbeRecord's "SHA256 is empty when Present is false": hashing
 // nothing produces e3b0c442…, a perfectly ordinary-looking hash, and the field
 // that exists to prove delivery then proves it on every run (U079-F03).
-func BuildReport(engine, surface string, recs []ProbeRecord, env []EnvRecord, prompt []byte) Report {
+func BuildReport(cli agent.EngineCLI, recs []ProbeRecord, env []EnvRecord, prompt []byte) Report {
 	rep := Report{
-		Engine:          engine,
-		Surface:         surface,
+		Engine:          cli.Engine,
+		Surface:         string(cli.Surface),
 		Records:         recs,
 		Env:             env,
 		PromptPresent:   len(prompt) > 0,
@@ -252,17 +254,6 @@ func (r Report) EnvViolations() []EnvRecord {
 	return out
 }
 
-// Record returns the first record of the given kind, or false — a convenience
-// for tests asserting on one surface.
-func (r Report) Record(kind string) (ProbeRecord, bool) {
-	for _, rec := range r.Records {
-		if rec.Kind == kind {
-			return rec, true
-		}
-	}
-	return ProbeRecord{}, false
-}
-
 // Report marker lines bracket the machine-readable JSON on stderr, so a caller
 // (a docker-run capturing combined output) can extract exactly the report even
 // when the vendor wire format owns stdout. The markers are distinctive enough
@@ -277,7 +268,10 @@ func (r Report) Marshal() ([]byte, error) { return json.MarshalIndent(r, "", "  
 
 // ExtractReport pulls the report JSON from a stream that brackets it with the
 // begin/end markers and unmarshals it — the reader half of the stderr channel,
-// shared by the binary's own round-trip test and the container test.
+// used by the binary's own round-trip test (runtime_test.go) and by the
+// container test (container_docker_integration_test.go), which cross-checks
+// it against the file-channel report to prove the two agree from inside a
+// real container.
 func ExtractReport(s string) (Report, error) {
 	var rep Report
 	i := strings.Index(s, ReportBegin)

@@ -17,22 +17,13 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Op is a normalized filesystem operation, collapsing fsnotify's bitmask into a
-// single dominant verb for the wire.
-type Op string
-
-const (
-	OpCreate Op = "create"
-	OpWrite  Op = "write"
-	OpRemove Op = "remove"
-	OpRename Op = "rename"
-	OpChmod  Op = "chmod"
-)
-
-// Event is a single change to a watched path.
+// Event is a single change to a watched path. Op-level detail (create/write/
+// remove/...) was deleted (U132-F04): both consumers (cmd/taskloom watch,
+// ctxloom plan watch) discard the whole event and emit a fixed
+// {"event":"changed"} line — fsnotify's bitmask never reached a wire. Add it
+// back only alongside a real consumer.
 type Event struct {
 	Path string
-	Op   Op
 }
 
 // Watcher reports change Events for paths under a root until it is closed.
@@ -137,7 +128,7 @@ func (w *Watcher) pump() {
 				continue
 			}
 			select {
-			case w.events <- Event{Path: ev.Name, Op: normalize(ev.Op)}:
+			case w.events <- Event{Path: ev.Name}:
 			case <-w.done:
 				return
 			}
@@ -150,21 +141,5 @@ func (w *Watcher) pump() {
 			default:
 			}
 		}
-	}
-}
-
-// normalize collapses fsnotify's op bitmask to a single dominant verb.
-func normalize(op fsnotify.Op) Op {
-	switch {
-	case op.Has(fsnotify.Create):
-		return OpCreate
-	case op.Has(fsnotify.Write):
-		return OpWrite
-	case op.Has(fsnotify.Remove):
-		return OpRemove
-	case op.Has(fsnotify.Rename):
-		return OpRename
-	default:
-		return OpChmod
 	}
 }

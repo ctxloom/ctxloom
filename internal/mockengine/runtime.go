@@ -72,7 +72,7 @@ func (r *Runtime) Run() int {
 
 	recs := Walk(r.CLI, r.Argv, r.Res)
 	env := ObserveEnv(r.CLI, r.lookupenv)
-	report := BuildReport(r.CLI.Engine, string(r.CLI.Surface), recs, env, prompt)
+	report := BuildReport(r.CLI, recs, env, prompt)
 	r.emitReport(report)
 
 	outcome := Dispatch(string(prompt), r.getenv)
@@ -134,7 +134,11 @@ func (r *Runtime) render(promptLen int, outcome Outcome) error {
 	case agent.CLISurfaceOneshot:
 		return renderOneshotWire(r.CLI.Engine, r.Stdout, r.Argv, promptLen, outcome)
 	default:
-		_, err := io.WriteString(r.Stdout, outcome.Response)
-		return err
+		// U079-F13: no interactive personality exists (--surface has no
+		// caller, main.go hard-codes oneshot), so this arm used to echo the
+		// response for ANY unknown surface — silently tolerating exactly the
+		// drift renderOneshotWire's own unknown-ENGINE branch refuses. Fail
+		// loud instead, matching that stance.
+		return fmt.Errorf("mock-engine: no wire adapter for surface %q", r.CLI.Surface)
 	}
 }

@@ -265,7 +265,7 @@ func TestReport_DigestExcludesAbsolutePaths(t *testing.T) {
 		cwd := t.TempDir()
 		writeFile(t, cwd, "CLAUDE.md", body)
 		recs := mockengine.Walk(cli, argv, mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }})
-		return mockengine.BuildReport(cli.Engine, string(cli.Surface), recs, nil, nil).DiscoveryDigest
+		return mockengine.BuildReport(cli, recs, nil, nil).DiscoveryDigest
 	}
 	if a, b := digest(), digest(); a != b {
 		t.Fatalf("digest varied with the absolute root: %s != %s", a, b)

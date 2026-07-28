@@ -56,10 +56,10 @@ func TestWalk_AbsentSurfaceIsPresentFalse(t *testing.T) {
 		Home:   t.TempDir(),
 		Getenv: func(string) string { return "" },
 	})
-	rep := mockengine.BuildReport(cli.Engine, string(cli.Surface), recs, nil, nil)
+	rep := mockengine.BuildReport(cli, recs, nil, nil)
 
 	// The present:false row for the absent agents directory.
-	agents, ok := rep.Record("agents")
+	agents, ok := recordByKind(rep, "agents")
 	if !ok {
 		t.Fatal("no probe record for the agents surface — a dropped row is exactly what a silent no-op looks like")
 	}
@@ -94,4 +94,22 @@ func recordAt(t *testing.T, rep mockengine.Report, kind, scope string) mockengin
 	}
 	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
 	return mockengine.ProbeRecord{}
+}
+
+// recordByKind returns the first record of the given kind, or false. U079-F15:
+// this used to be the exported Report.Record method, but it had no production
+// caller (test-only convenience) and Report.Records is already an exported
+// field every test in this package can range over directly — recordFor/
+// recordForRel in container_docker_integration_test.go already duplicate this
+// exact idea with a better (kind, scope) key. Kept as a plain test helper
+// rather than deleted outright because two different _test.go files
+// (discovery_test.go, arch_test.go) genuinely want "first record of this
+// kind" with no scope to narrow by.
+func recordByKind(rep mockengine.Report, kind string) (mockengine.ProbeRecord, bool) {
+	for _, r := range rep.Records {
+		if r.Kind == kind {
+			return r, true
+		}
+	}
+	return mockengine.ProbeRecord{}, false
 }

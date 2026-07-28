@@ -51,10 +51,6 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.True(t, g.IsRepo(repo), "the initialized dir is a repo")
 	assert.False(t, g.IsRepo(t.TempDir()), "a bare temp dir is not a repo")
 
-	top, err := g.Toplevel(ctx, repo)
-	require.NoError(t, err)
-	assert.Equal(t, resolvePath(t, repo), resolvePath(t, top))
-
 	common, err := g.CommonDir(ctx, repo)
 	require.NoError(t, err)
 	assert.Equal(t, resolvePath(t, filepath.Join(repo, ".git")), resolvePath(t, common))
@@ -76,7 +72,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.True(t, dirty, "an untracked file makes the worktree dirty (WIP)")
 	require.NoError(t, rm(filepath.Join(wt, "new.txt")))
 
-	require.NoError(t, g.WorktreeRemove(ctx, repo, wt, false))
+	require.NoError(t, g.WorktreeRemove(ctx, repo, wt))
 	list, err = g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
 	assert.False(t, containsPath(list, wt), "the worktree is gone after remove")
@@ -427,11 +423,6 @@ func TestExecGit_DoesNotInheritGitRepoEnvVars(t *testing.T) {
 	// Point the poisoned env vars at repo B while operating on repo A.
 	t.Setenv("GIT_DIR", filepath.Join(repoB, ".git"))
 	t.Setenv("GIT_WORK_TREE", repoB)
-
-	top, err := g.Toplevel(ctx, repoA)
-	require.NoError(t, err)
-	assert.Equal(t, resolvePath(t, repoA), resolvePath(t, top),
-		"Toplevel must resolve repo A, not the repo GIT_DIR/GIT_WORK_TREE point at")
 
 	branch, err := g.CurrentBranch(ctx, repoA)
 	require.NoError(t, err)

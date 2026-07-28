@@ -161,7 +161,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 			no:   limbRun{},
 			yes:  limbRun{files: map[string]string{codex.AgentsMDFile: "# AGENTS.md\n"}},
 			check: func(t *testing.T, no mockengine.Report) {
-				rec, ok := no.Record(string(agent.ProbeKindContext))
+				rec, ok := recordByKind(no, string(agent.ProbeKindContext))
 				if !ok || rec.Present {
 					t.Errorf("undelivered context surface did not record present:false: %+v", rec)
 				}

@@ -34,15 +34,6 @@ func (execGit) IsRepo(dir string) bool {
 	return err == nil && strings.TrimSpace(out) == "true"
 }
 
-// Toplevel returns the working-tree root of the repo containing dir.
-func (execGit) Toplevel(ctx context.Context, dir string) (string, error) {
-	out, err := output(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(out), nil
-}
-
 // CommonDir returns the absolute common git dir. rev-parse yields it relative to
 // dir for the main repo (".git") and absolute for a linked worktree, so resolve
 // the relative form against dir.
@@ -63,15 +54,10 @@ func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, ref string) error
 	return run(ctx, repoDir, "worktree", "add", "--detach", path, ref)
 }
 
-// WorktreeRemove removes the worktree at path; force adds --force (skips git's
-// dirty/locked refusal — callers pass false to keep the WIP-safe default).
-func (execGit) WorktreeRemove(ctx context.Context, repoDir, path string, force bool) error {
-	args := []string{"worktree", "remove"}
-	if force {
-		args = append(args, "--force")
-	}
-	args = append(args, path)
-	return run(ctx, repoDir, args...)
+// WorktreeRemove removes the worktree at path. Never --force: git refuses a
+// dirty or locked worktree, which is the WIP-safe behavior every caller wants.
+func (execGit) WorktreeRemove(ctx context.Context, repoDir, path string) error {
+	return run(ctx, repoDir, "worktree", "remove", path)
 }
 
 // WorktreeList parses the repo-global porcelain worktree list.
@@ -258,7 +244,7 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 	}
 	postSHA := strings.TrimSpace(postOut)
 
-	changed, err := g.DiffNameOnly(ctx, dir, preSHA, postSHA)
+	changed, err := diffNameOnly(ctx, dir, preSHA, postSHA)
 	if err != nil {
 		// The commit itself landed (postSHA is real) — surface it even
 		// though verification couldn't complete, rather than discarding a
@@ -268,8 +254,11 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 	return postSHA, changed, nil
 }
 
-// DiffNameOnly returns the names of files that differ between two refs.
-func (execGit) DiffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
+// diffNameOnly returns the names of files that differ between two refs.
+// Unexported: it is CommitAll's own verification step (U053-F20 — it was on
+// the public Git interface with no caller outside this package, forcing a
+// Fake stub and two dead fields for no consumer).
+func diffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
 	out, err := output(ctx, dir, "diff", "--name-only", a, b)
 	if err != nil {
 		return nil, err

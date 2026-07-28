@@ -35,8 +35,6 @@ type Fake struct {
 	IgnoredContent map[string]bool
 	// CommonDirValue is what CommonDir returns (empty → "<dir>/.git").
 	CommonDirValue string
-	// ToplevelValue is what Toplevel returns (empty → the dir passed in).
-	ToplevelValue string
 	// TrackedFiles is what ListTracked returns (the repo-tracked config files a
 	// worktree carries); nil → none, so the skip-worktree pass is a no-op.
 	TrackedFiles []string
@@ -49,13 +47,10 @@ type Fake struct {
 	// Dirs is what RepoDirs returns; Changes is what WorkingChanges returns.
 	Dirs    []string
 	Changes []string
-	// RepoStateErr, when set, fails both RepoDirs and WorkingChanges.
-	RepoStateErr error
 
 	// Error injectors: when set, the matching method fails (fault-tolerance tests).
-	AddErr    error
-	ListErr   error
-	RemoveErr error
+	AddErr  error
+	ListErr error
 
 	// CurrentBranchValue is what CurrentBranch returns ("main" when empty);
 	// CurrentBranchErr, when set, fails it instead.
@@ -74,20 +69,11 @@ type Fake struct {
 	CommitAllErr     error
 	CommitMessages   []string
 
-	// DiffPatchValue is what DiffPatch returns; DiffPatchErr, when set,
-	// fails it instead.
+	// DiffPatchValue is what DiffPatch returns.
 	DiffPatchValue string
-	DiffPatchErr   error
 
-	// UntrackedList is what ListUntracked returns; UntrackedErr, when set,
-	// fails it instead.
+	// UntrackedList is what ListUntracked returns.
 	UntrackedList []string
-	UntrackedErr  error
-
-	// DiffNameOnlyFiles is what DiffNameOnly returns; DiffNameOnlyErr, when
-	// set, fails it instead.
-	DiffNameOnlyFiles []string
-	DiffNameOnlyErr   error
 
 	// ApplyPatchErr, when set, fails ApplyPatch. AppliedPatches records every
 	// patch ApplyPatch was called with, in order.
@@ -95,7 +81,7 @@ type Fake struct {
 	AppliedPatches []string
 
 	// Calls records every mutating call in order, e.g. "add /tmp/wt",
-	// "remove(force=false) /tmp/wt/inner", "prune". Read for ordering assertions.
+	// "remove /tmp/wt/inner", "prune". Read for ordering assertions.
 	Calls []string
 	// Removed lists paths passed to WorktreeRemove (in order).
 	Removed []string
@@ -114,16 +100,6 @@ func (f *Fake) IsRepo(dir string) bool {
 		return true
 	}
 	return f.Repos[dir]
-}
-
-// Toplevel returns ToplevelValue, or dir when unset.
-func (f *Fake) Toplevel(_ context.Context, dir string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.ToplevelValue != "" {
-		return f.ToplevelValue, nil
-	}
-	return dir, nil
 }
 
 // CommonDir returns CommonDirValue, or "<dir>/.git" when unset.
@@ -149,17 +125,14 @@ func (f *Fake) WorktreeAdd(_ context.Context, _, path, ref string) error {
 	return nil
 }
 
-// WorktreeRemove records the removal (with its force flag), fails when the target
-// is dirty and force is false (mirroring git's refusal), and otherwise drops the
-// worktree from the list.
-func (f *Fake) WorktreeRemove(_ context.Context, _, path string, force bool) error {
+// WorktreeRemove records the removal, fails when the target is dirty
+// (mirroring git's refusal — there is no force escape hatch, see
+// Git.WorktreeRemove's doc), and otherwise drops the worktree from the list.
+func (f *Fake) WorktreeRemove(_ context.Context, _, path string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("remove(force=%v) %s", force, path))
-	if f.RemoveErr != nil {
-		return f.RemoveErr
-	}
-	if !force && f.Dirty[path] {
+	f.record(fmt.Sprintf("remove %s", path))
+	if f.Dirty[path] {
 		return fmt.Errorf("worktree %s contains modified or untracked files, use --force to delete it", path)
 	}
 	f.Removed = append(f.Removed, path)
@@ -236,9 +209,6 @@ func (f *Fake) LogSince(_ context.Context, dir string, _ time.Time, maxEntries i
 func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.RepoStateErr != nil {
-		return nil, f.RepoStateErr
-	}
 	dirs := f.Dirs
 	if maxDirs > 0 && len(dirs) > maxDirs {
 		dirs = dirs[:maxDirs]
@@ -251,9 +221,6 @@ func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, err
 func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.RepoStateErr != nil {
-		return nil, f.RepoStateErr
-	}
 	changes := f.Changes
 	if maxEntries > 0 && len(changes) > maxEntries {
 		changes = changes[:maxEntries]
@@ -292,23 +259,10 @@ func (f *Fake) CommitAll(_ context.Context, dir, message string) (string, []stri
 	return sha, append([]string(nil), f.CommitAllChanged...), nil
 }
 
-// DiffNameOnly returns the configured DiffNameOnlyFiles (a copy).
-func (f *Fake) DiffNameOnly(_ context.Context, _, _, _ string) ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.DiffNameOnlyErr != nil {
-		return nil, f.DiffNameOnlyErr
-	}
-	return append([]string(nil), f.DiffNameOnlyFiles...), nil
-}
-
 // DiffPatch returns the configured DiffPatchValue.
 func (f *Fake) DiffPatch(_ context.Context, _ string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.DiffPatchErr != nil {
-		return "", f.DiffPatchErr
-	}
 	return f.DiffPatchValue, nil
 }
 
@@ -316,9 +270,6 @@ func (f *Fake) DiffPatch(_ context.Context, _ string) (string, error) {
 func (f *Fake) ListUntracked(_ context.Context, _ string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.UntrackedErr != nil {
-		return nil, f.UntrackedErr
-	}
 	return append([]string(nil), f.UntrackedList...), nil
 }
 

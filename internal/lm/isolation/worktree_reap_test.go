@@ -85,10 +85,10 @@ func TestReapOrphanedWorktrees_SparesUncommittedWIP(t *testing.T) {
 	wtDir := ws.Dir()
 	t.Cleanup(func() {
 		// Manual force-cleanup: this test's whole point is proving the tree
-		// SURVIVES the sweep, so a raw RemoveAll (never the production
-		// force-remove path) plus a real `worktree remove --force` keeps git's
-		// own bookkeeping tidy without touching WorktreeRemove's force=false
-		// contract.
+		// SURVIVES the sweep, so a raw RemoveAll plus a real
+		// `worktree remove --force` keeps git's own bookkeeping tidy without
+		// going through git.WorktreeRemove at all — that seam never force-
+		// removes (U053-F05: no force parameter exists on it).
 		_ = os.RemoveAll(wtDir)
 		_ = gitRunNoFail(repo, "worktree", "remove", "--force", wtDir)
 	})

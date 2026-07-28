@@ -21,25 +21,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-func TestEstimateTokens(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected int
-	}{
-		{"empty string", "", 0},
-		{"short string", "test", 1},                 // 4 chars / 4 = 1
-		{"longer string", "hello world testing", 4}, // 19 chars / 4 = 4
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := estimateTokens(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestCompactor_SessionToText(t *testing.T) {
 	c := &Compactor{config: CompactionConfig{}}
 

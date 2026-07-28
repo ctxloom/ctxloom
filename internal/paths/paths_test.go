@@ -33,18 +33,6 @@ func TestCacheBundlesPath_InCache(t *testing.T) {
 	assert.Equal(t, "/project/.ctxloom/cache/bundles", CacheBundlesPath("/project/.ctxloom"))
 }
 
-func TestVendorPath_InCache(t *testing.T) {
-	assert.Equal(t, ".ctxloom/cache/vendor", VendorPath(".ctxloom"))
-}
-
-func TestContextPath_InCache(t *testing.T) {
-	assert.Equal(t, ".ctxloom/cache/context", ContextPath(".ctxloom"))
-}
-
-func TestMemoryPath_InCache(t *testing.T) {
-	assert.Equal(t, ".ctxloom/cache/memory", MemoryPath(".ctxloom"))
-}
-
 // =============================================================================
 // Root-Level Persistent Items Tests
 // =============================================================================
@@ -76,20 +64,6 @@ func TestProfilesPath_AtRoot(t *testing.T) {
 // =============================================================================
 // Harp Session Directory Tests
 // =============================================================================
-
-func TestHarpPlanPath_InSessionDir(t *testing.T) {
-	testsupport.Isolate(t)
-	assert.Equal(t, ".plan.md", PlanFileExt)
-
-	harpDir, err := HarpDir("swift-amber-falcon")
-	assert.NoError(t, err)
-	planPath, err := HarpPlanPath("swift-amber-falcon", "v1-removal")
-	assert.NoError(t, err)
-	// Plans are .plan.md files directly in the harp dir (next to tasks.md),
-	// so a session can hold multiple distinctly named plans.
-	assert.Equal(t, filepath.Join(harpDir, "v1-removal.plan.md"), planPath)
-	assert.True(t, strings.HasSuffix(planPath, filepath.Join("sessions", "swift-amber-falcon", "v1-removal.plan.md")))
-}
 
 // TestTriggerCacheDir_HomeRootedUnderCache pins the trigger verdict cache to
 // ~/.ctxloom/cache/triggers — home-rooted (never inside a project tree) and
@@ -138,20 +112,8 @@ func TestProjectSessionsDir(t *testing.T) {
 // Default Path Tests
 // =============================================================================
 
-func TestDefaultAppDir(t *testing.T) {
-	assert.Equal(t, ".ctxloom", DefaultAppDir())
-}
-
 func TestDefaultRemotesPath(t *testing.T) {
 	assert.Equal(t, ".ctxloom/remotes.yaml", DefaultRemotesPath())
-}
-
-func TestDefaultLockPath(t *testing.T) {
-	assert.Equal(t, ".ctxloom/lock.yaml", DefaultLockPath())
-}
-
-func TestDefaultVendorPath(t *testing.T) {
-	assert.Equal(t, ".ctxloom/cache/vendor", DefaultVendorPath())
 }
 
 // =============================================================================

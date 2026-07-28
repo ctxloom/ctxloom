@@ -200,7 +200,7 @@ func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte("# OS files\n.DS_Store\n\n# ctxloom local files\n.ctxloom/\n"), 0644))
 
-	changed, err := RetireSuperseded(dir)
+	changed, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.True(t, changed, "retiring a blanket .ctxloom/ rule must report a change")
 
@@ -219,7 +219,7 @@ func TestRetireSuperseded_PreservesGranularRules(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte(".ctxloom/cache/\n.ctxloom/sessions/\n.ctxloom/project-id\n"), 0644))
 
-	changed, err := RetireSuperseded(dir)
+	changed, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.False(t, changed, "granular patterns are current, not superseded")
 
@@ -237,7 +237,7 @@ func TestRetireSuperseded_Idempotent(t *testing.T) {
 	original := "# OS files\n.DS_Store\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(original), 0644))
 
-	changed, err := RetireSuperseded(dir)
+	changed, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	assert.False(t, changed)
 	assert.Equal(t, original, readGitignore(t, dir), "a file with nothing to retire must not be rewritten")
@@ -246,7 +246,7 @@ func TestRetireSuperseded_Idempotent(t *testing.T) {
 // TestRetireSuperseded_MissingFile is a no-op, not an error: a project may have
 // no .gitignore at all.
 func TestRetireSuperseded_MissingFile(t *testing.T) {
-	changed, err := RetireSuperseded(t.TempDir())
+	changed, err := RetireSupersededFile(filepath.Join(t.TempDir(), ".gitignore"))
 	require.NoError(t, err)
 	assert.False(t, changed)
 }
@@ -289,7 +289,7 @@ func TestRetireSuperseded_ThenEnsure_UnignoresContent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
 		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
 
-	_, err := RetireSuperseded(dir)
+	_, err := RetireSupersededFile(filepath.Join(dir, ".gitignore"))
 	require.NoError(t, err)
 	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
 

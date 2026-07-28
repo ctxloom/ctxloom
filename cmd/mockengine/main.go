@@ -24,10 +24,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// EnvPersonality selects the personality when no --claude/--personality flag is
+// envPersonality selects the personality when no --claude/--personality flag is
 // present — the clean channel when the mock is installed via a config `env:`
 // block and the driver owns the argv.
-const EnvPersonality = "MOCKENGINE_PERSONALITY"
+const envPersonality = "MOCKENGINE_PERSONALITY"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
@@ -35,7 +35,7 @@ func main() { os.Exit(run(os.Args[1:])) }
 // via the backends resolver, parses the remaining vendor argv against L1, and
 // runs the L2 runtime. It returns a process exit code.
 func run(args []string) int {
-	personality := os.Getenv(EnvPersonality)
+	personality := os.Getenv(envPersonality)
 	surface := agent.CLISurfaceOneshot // this slice: oneshot is the built surface
 	vendorArgs := args
 
@@ -60,13 +60,6 @@ consume:
 			}
 			personality = vendorArgs[1]
 			vendorArgs = vendorArgs[2:]
-		case "--surface":
-			if len(vendorArgs) < 2 {
-				fmt.Fprintln(os.Stderr, "mock-engine: --surface needs a value")
-				return 2
-			}
-			surface = agent.CLISurface(vendorArgs[1])
-			vendorArgs = vendorArgs[2:]
 		case "--":
 			vendorArgs = vendorArgs[1:]
 			break consume
@@ -76,7 +69,7 @@ consume:
 	}
 
 	if personality == "" {
-		fmt.Fprintf(os.Stderr, "mock-engine: no personality selected — pass --claude or set %s\n", EnvPersonality)
+		fmt.Fprintf(os.Stderr, "mock-engine: no personality selected — pass --claude or set %s\n", envPersonality)
 		return 2
 	}
 

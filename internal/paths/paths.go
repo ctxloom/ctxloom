@@ -22,12 +22,6 @@ const (
 	// BundlesDir is the subdirectory for bundles.
 	BundlesDir = "bundles"
 
-	// VendorDir is the subdirectory for vendored dependencies.
-	VendorDir = "vendor"
-
-	// ContextDir is the subdirectory for context files.
-	ContextDir = "context"
-
 	// RemotesFileName is the name of the remotes file (without extension).
 	RemotesFileName = "remotes"
 
@@ -88,9 +82,6 @@ const (
 	// publisher that builds a repo-relative content path routes through this
 	// constant so there is exactly one on-disk layout, not a scattered literal.
 	RepoContentPrefix = ".ctxloom/content"
-
-	// MemoryDir is the subdirectory for memory/session files.
-	MemoryDir = "memory"
 
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
@@ -312,18 +303,6 @@ func ProjectSessionsDir(appDir string) string {
 	return filepath.Join(AppDirName, SessionsDir)
 }
 
-// HarpPlanPath returns ~/.ctxloom/sessions/<harp>/<name>.plan.md — a plan
-// document for a harp-named session. Plans sit directly in the session
-// directory next to tasks.md; name is the descriptive base (no extension),
-// and a session may have several distinctly named plans.
-func HarpPlanPath(harp, name string) (string, error) {
-	dir, err := HarpDir(harp)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, name+PlanFileExt), nil
-}
-
 // TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted
 // directory holding ctxloom's cached revive-trigger verdicts, one file per
 // project (see internal/operations' verdict cache). It deliberately lives
@@ -466,21 +445,6 @@ func LocalBundlesPath(appPath string) string {
 	return filepath.Join(LocalPath(appPath), BundlesDir)
 }
 
-// VendorPath returns the path to the vendor directory (under cache/).
-func VendorPath(appPath string) string {
-	return filepath.Join(CachePath(appPath), VendorDir)
-}
-
-// ContextPath returns the path to the context directory (under cache/).
-func ContextPath(appPath string) string {
-	return filepath.Join(CachePath(appPath), ContextDir)
-}
-
-// MemoryPath returns the path to the memory directory (under cache/).
-func MemoryPath(appPath string) string {
-	return filepath.Join(CachePath(appPath), MemoryDir)
-}
-
 // ReposCachePath returns the path to the repos cache directory (under cache/).
 func ReposCachePath(appPath string) string {
 	return filepath.Join(CachePath(appPath), ReposCacheDir)
@@ -495,22 +459,7 @@ func TrustObjectsPath(appPath string) string {
 	return filepath.Join(CachePath(appPath), TrustFileName, "objects")
 }
 
-// DefaultAppDir returns the default app directory path relative to current directory.
-func DefaultAppDir() string {
-	return AppDirName
-}
-
 // DefaultRemotesPath returns the default remotes path relative to current directory.
 func DefaultRemotesPath() string {
 	return RemotesPath(AppDirName)
-}
-
-// DefaultLockPath returns the default lock path relative to current directory.
-func DefaultLockPath() string {
-	return LockPath(AppDirName)
-}
-
-// DefaultVendorPath returns the default vendor path relative to current directory.
-func DefaultVendorPath() string {
-	return VendorPath(AppDirName)
 }

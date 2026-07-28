@@ -169,6 +169,18 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 		t.Fatalf("report identity = %s/%s, want claude-code/oneshot", rep.Engine, rep.Surface)
 	}
 
+	// U079-F16: also exercise the marker-bracketed stderr channel ExtractReport
+	// reads — it previously had no container caller at all, despite its own
+	// doc claiming one. Both channels must agree.
+	stderrRep, err := mockengine.ExtractReport(stderr.String())
+	if err != nil {
+		t.Fatalf("ExtractReport on captured stderr: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if stderrRep.DiscoveryDigest != rep.DiscoveryDigest {
+		t.Fatalf("stderr-channel report digest %s != file-channel report digest %s",
+			stderrRep.DiscoveryDigest, rep.DiscoveryDigest)
+	}
+
 	// DELIVERED: the context file the mock discovered inside the container must
 	// match the bytes ctxloom wrote on the host — same file, seen across the
 	// container boundary.
@@ -326,6 +338,17 @@ func TestMockEngineContainer_CodexDiscoversDeliveredSurfaces(t *testing.T) {
 
 	if rep.Engine != "codex" || rep.Surface != "oneshot" {
 		t.Fatalf("report identity = %s/%s, want codex/oneshot", rep.Engine, rep.Surface)
+	}
+
+	// U079-F16: also exercise the marker-bracketed stderr channel ExtractReport
+	// reads — see the claude test above for why.
+	stderrRep, err := mockengine.ExtractReport(stderr.String())
+	if err != nil {
+		t.Fatalf("ExtractReport on captured stderr: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if stderrRep.DiscoveryDigest != rep.DiscoveryDigest {
+		t.Fatalf("stderr-channel report digest %s != file-channel report digest %s",
+			stderrRep.DiscoveryDigest, rep.DiscoveryDigest)
 	}
 
 	// DELIVERED: the AGENTS.md the mock discovered inside the container must match

@@ -677,7 +677,7 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q %s; leaving %q in place to preserve it", inner.Path, reason, target)
 			return
 		}
-		if err := w.git.WorktreeRemove(ctx, w.repoDir, inner.Path, false); err != nil {
+		if err := w.git.WorktreeRemove(ctx, w.repoDir, inner.Path); err != nil {
 			clidiag.Warn("ctxloom", "worktree teardown: cannot remove nested worktree %q; leaving %q in place: %v", inner.Path, target, err)
 			return
 		}
@@ -687,7 +687,7 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 		clidiag.Warn("ctxloom", "worktree %q %s; leaving it in place to preserve WIP", target, reason)
 		return
 	}
-	if err := w.git.WorktreeRemove(ctx, w.repoDir, target, false); err != nil {
+	if err := w.git.WorktreeRemove(ctx, w.repoDir, target); err != nil {
 		clidiag.Warn("ctxloom", "worktree teardown: cannot remove %q: %v", target, err)
 		return
 	}

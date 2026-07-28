@@ -1,6 +1,7 @@
 package plans
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,6 +186,59 @@ func TestList_FindsNestedPlanFiles(t *testing.T) {
 	}
 	if deeper.Session != "alpha-harp" {
 		t.Errorf("two-level-nested plan Session = %q, want alpha-harp", deeper.Session)
+	}
+}
+
+// TestPlan_JSONShape_IncludesSessions pins U115-F12: Plan.Sessions has no
+// in-repo reader (rg -n '\.Sessions\b' --type go -g '!*_test.go' finds only
+// unrelated idx.Sessions hits in internal/sessions and
+// internal/shared/plans/scoped.go). Its only possible consumer is the
+// out-of-repo VS Code Plan view, whose wire contract this package cannot
+// observe breaking. Rather than delete the field on unverifiable evidence,
+// this golden test asserts the exact JSON shape List produces — including
+// "sessions" — end to end through List/ParseFrontmatter, so a future change
+// that silently drops or renames the field (removing ParseFrontmatter's
+// sessions: block parsing, or changing the json tag) fails a test instead of
+// only ever being noticed by a frontend nobody here can run.
+func TestPlan_JSONShape_IncludesSessions(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "swift-amber-falcon", "v1-removal.plan.md"),
+		"---\ntitle: V1 removal\nsessions:\n  - swift-amber-falcon\n  - busy-lived-denim\n---\nbody\n")
+
+	got, err := List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d plans, want 1: %+v", len(got), got)
+	}
+	plan := got[0]
+
+	data, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var wire map[string]any
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	for _, key := range []string{"path", "name", "title", "session", "sessions"} {
+		if _, ok := wire[key]; !ok {
+			t.Errorf("wire JSON is missing %q — the VS Code Plan view's contract requires it; got keys: %v", key, wire)
+		}
+	}
+
+	sessionsWire, ok := wire["sessions"].([]any)
+	if !ok {
+		t.Fatalf(`wire["sessions"] = %#v (%T), want a JSON array`, wire["sessions"], wire["sessions"])
+	}
+	if len(sessionsWire) != 2 {
+		t.Fatalf(`wire["sessions"] = %v, want 2 entries (parsed from the frontmatter block)`, sessionsWire)
+	}
+	if sessionsWire[0] != "swift-amber-falcon" || sessionsWire[1] != "busy-lived-denim" {
+		t.Errorf(`wire["sessions"] = %v, want [swift-amber-falcon busy-lived-denim] in frontmatter order`, sessionsWire)
 	}
 }
 

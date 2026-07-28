@@ -105,15 +105,10 @@ var SupersededPatterns = []string{".ctxloom", ".ctxloom/", "/.ctxloom", "/.ctxlo
 // comment is never removed, even if it sits above a retired rule.
 var supersededComments = []string{"# ctxloom local files"}
 
-// RetireSuperseded removes any SupersededPatterns line (and any ctxloom-authored
-// header left heading nothing) from projectDir/.gitignore, reporting whether the
-// file changed. An absent .gitignore is a no-op, not an error. Callers that
+// RetireSupersededFile removes any SupersededPatterns line (and any
+// ctxloom-authored header left heading nothing) from path, reporting whether
+// the file changed. An absent file is a no-op, not an error. Callers that
 // write the private-state block should retire first, then Ensure.
-func RetireSuperseded(projectDir string) (bool, error) {
-	return RetireSupersededFile(filepath.Join(projectDir, ".gitignore"))
-}
-
-// RetireSupersededFile is RetireSuperseded targeting an arbitrary ignore file.
 func RetireSupersededFile(path string) (bool, error) {
 	return retireBlock(path, supersededComments, SupersededPatterns)
 }

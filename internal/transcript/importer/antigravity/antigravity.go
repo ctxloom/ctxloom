@@ -65,7 +65,7 @@ func New() Adapter { return Adapter{} }
 // store the workDir couldn't resolve — docs/transcript-schema.md §2b/§8) —
 // Convert only ever parses a src path it is handed.
 //
-// Lines are read via the same importer.ReadJSONLLines every JSONL-per-
+// Lines are read via the same importer.OpenAndReadJSONLLines every JSONL-per-
 // session engine's adapter uses (codex, claude): an unbounded bufio.Reader,
 // not a capped bufio.Scanner — a PLANNER_RESPONSE step's "thinking" field
 // alone can run to several kilobytes on a real capture (see

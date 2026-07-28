@@ -680,6 +680,35 @@ func TestServe_SessionLoad(t *testing.T) {
 	require.Nil(t, resp.Error)
 }
 
+// TestServe_SessionLoad_ReplaysNothingWarnsVisibly pins U014-F03: a recorded
+// history whose every entry maps to ZERO session/update frames (here: a
+// user entry with empty Content, which replayEntry explicitly drops) used to
+// let session/load reply success having replayed nothing — the editor sees
+// an empty transcript for a session that is NOT actually empty, with no
+// indication anything was lost. It must now say so, visibly, before the
+// load response.
+func TestServe_SessionLoad_ReplaysNothingWarnsVisibly(t *testing.T) {
+	eng := newFakeEngine()
+	eng.replay = []agent.SessionEntry{
+		{Type: agent.EntryTypeUser, Content: ""}, // replayEntry maps this to nil
+	}
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	id := c.send("session/load", `{"sessionId":"tidy-old-harp","cwd":"/proj","mcpServers":[]}`)
+	resp, updates := c.waitResponse(id)
+	require.Nil(t, resp.Error)
+
+	var sawWarning bool
+	for _, u := range updates {
+		if strings.Contains(string(u.Params), "agent_message_chunk") && strings.Contains(string(u.Params), "1 recorded history entries") {
+			sawWarning = true
+		}
+	}
+	assert.True(t, sawWarning, "session/load must visibly warn the editor when a non-empty recorded history replayed zero frames, got updates: %v", updates)
+}
+
 // TestPromptText_ResourceBlocks: promptText inlines `resource` (embedded text,
 // labeled by uri) and renders `resource_link` as a labeled reference line, so
 // "add context" content reaches the engine. Text passes through; a binary blob

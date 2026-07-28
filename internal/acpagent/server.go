@@ -453,12 +453,30 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		reply(nil, rerr)
 		return
 	}
+	// U014-F03: count what actually reached the wire against what the
+	// recorded history HAD, rather than trusting the loop ran. replayEntry
+	// (mapping.go) returns nil for entry types/shapes it does not map — a
+	// history recorded entirely in unmapped shapes replays zero frames and,
+	// without this count, session/load still replies success: the editor
+	// sees an empty transcript for a session that provably has one, with no
+	// indication anything was lost.
+	replayed := 0
 	for _, entry := range sess.engine.Replay {
 		for _, upd := range sess.replayEntry(entry) {
 			if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: upd}); err != nil {
 				reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "replay: " + err.Error()})
 				return
 			}
+			replayed++
+		}
+	}
+	if len(sess.engine.Replay) > 0 && replayed == 0 {
+		clidiag.Warn("ctxloom", "acp agent: session/load %s: %d recorded history entries replayed ZERO frames (all unmapped by replayEntry) — the editor is about to see an empty transcript for a session that is not actually empty", sess.id, len(sess.engine.Replay))
+		if rerr := s.emitUpdate(sess, api.SessionUpdate{AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{
+			Content: textBlock(fmt.Sprintf("ctxloom: this session has %d recorded history entries that could not be replayed into this transcript (unsupported entry type) — the conversation is not actually empty, only this view of it is.", len(sess.engine.Replay))),
+		}}); rerr != nil {
+			reply(nil, rerr)
+			return
 		}
 	}
 	// B4 (gap G5): see handleSessionNew's identical call for why this rides a

@@ -117,8 +117,8 @@ func TestWorktree_TeardownNestedFirst(t *testing.T) {
 	require.NotEmpty(t, f.Calls)
 	assert.Equal(t, "prune", f.Calls[len(f.Calls)-1], "prune runs last")
 
-	innerIdx := indexOf(f.Calls, "remove(force=false) "+inner)
-	outerIdx := indexOf(f.Calls, "remove(force=false) "+outer)
+	innerIdx := indexOf(f.Calls, "remove "+inner)
+	outerIdx := indexOf(f.Calls, "remove "+outer)
 	require.GreaterOrEqual(t, innerIdx, 0)
 	require.GreaterOrEqual(t, outerIdx, 0)
 	assert.Less(t, innerIdx, outerIdx, "the inner remove is ordered before the outer remove")

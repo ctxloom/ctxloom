@@ -54,15 +54,10 @@ func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, ref string) error
 	return run(ctx, repoDir, "worktree", "add", "--detach", path, ref)
 }
 
-// WorktreeRemove removes the worktree at path; force adds --force (skips git's
-// dirty/locked refusal — callers pass false to keep the WIP-safe default).
-func (execGit) WorktreeRemove(ctx context.Context, repoDir, path string, force bool) error {
-	args := []string{"worktree", "remove"}
-	if force {
-		args = append(args, "--force")
-	}
-	args = append(args, path)
-	return run(ctx, repoDir, args...)
+// WorktreeRemove removes the worktree at path. Never --force: git refuses a
+// dirty or locked worktree, which is the WIP-safe behavior every caller wants.
+func (execGit) WorktreeRemove(ctx context.Context, repoDir, path string) error {
+	return run(ctx, repoDir, "worktree", "remove", path)
 }
 
 // WorktreeList parses the repo-global porcelain worktree list.

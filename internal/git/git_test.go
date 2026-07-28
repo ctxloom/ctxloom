@@ -72,7 +72,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.True(t, dirty, "an untracked file makes the worktree dirty (WIP)")
 	require.NoError(t, rm(filepath.Join(wt, "new.txt")))
 
-	require.NoError(t, g.WorktreeRemove(ctx, repo, wt, false))
+	require.NoError(t, g.WorktreeRemove(ctx, repo, wt))
 	list, err = g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
 	assert.False(t, containsPath(list, wt), "the worktree is gone after remove")

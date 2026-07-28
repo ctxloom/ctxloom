@@ -50,10 +50,13 @@ type Git interface {
 	// are ephemeral per-agent checkouts, never branch-per-agent.
 	WorktreeAdd(ctx context.Context, repoDir, path, ref string) error
 
-	// WorktreeRemove removes the worktree at path. force=false makes git REFUSE a
-	// dirty worktree — the WIP-safe default the teardown relies on; force=true is
-	// only for known-clean removals.
-	WorktreeRemove(ctx context.Context, repoDir, path string, force bool) error
+	// WorktreeRemove removes the worktree at path (no --force: git REFUSES a
+	// dirty worktree, the WIP-safe default the teardown relies on). There is
+	// deliberately no force-remove escape hatch on this seam — this is the
+	// exact area where the project's standing rule is "never force-remove
+	// without inspecting/preserving WIP first" (U053-F05), so the capability
+	// is structurally unavailable rather than merely unused-by-convention.
+	WorktreeRemove(ctx context.Context, repoDir, path string) error
 
 	// WorktreeList returns the repo-GLOBAL worktree list (parsed from
 	// git -C repoDir worktree list --porcelain). Needed by the nested-worktree-

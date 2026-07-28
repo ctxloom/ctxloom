@@ -88,7 +88,7 @@ type Fake struct {
 	AppliedPatches []string
 
 	// Calls records every mutating call in order, e.g. "add /tmp/wt",
-	// "remove(force=false) /tmp/wt/inner", "prune". Read for ordering assertions.
+	// "remove /tmp/wt/inner", "prune". Read for ordering assertions.
 	Calls []string
 	// Removed lists paths passed to WorktreeRemove (in order).
 	Removed []string
@@ -132,17 +132,17 @@ func (f *Fake) WorktreeAdd(_ context.Context, _, path, ref string) error {
 	return nil
 }
 
-// WorktreeRemove records the removal (with its force flag), fails when the target
-// is dirty and force is false (mirroring git's refusal), and otherwise drops the
-// worktree from the list.
-func (f *Fake) WorktreeRemove(_ context.Context, _, path string, force bool) error {
+// WorktreeRemove records the removal, fails when the target is dirty
+// (mirroring git's refusal — there is no force escape hatch, see
+// Git.WorktreeRemove's doc), and otherwise drops the worktree from the list.
+func (f *Fake) WorktreeRemove(_ context.Context, _, path string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("remove(force=%v) %s", force, path))
+	f.record(fmt.Sprintf("remove %s", path))
 	if f.RemoveErr != nil {
 		return f.RemoveErr
 	}
-	if !force && f.Dirty[path] {
+	if f.Dirty[path] {
 		return fmt.Errorf("worktree %s contains modified or untracked files, use --force to delete it", path)
 	}
 	f.Removed = append(f.Removed, path)

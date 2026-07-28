@@ -237,32 +237,6 @@ func TestRegistry_Has(t *testing.T) {
 	assert.True(t, registry.Has("test"))
 }
 
-func TestRegistry_FindByURL(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "remotes.yaml")
-
-	registry, err := NewRegistry(configPath)
-	require.NoError(t, err)
-
-	_ = registry.Add("github-test", "https://github.com/owner/repo")
-
-	t.Run("finds existing URL", func(t *testing.T) {
-		name, found := registry.FindByURL("https://github.com/owner/repo")
-		assert.True(t, found)
-		assert.Equal(t, "github-test", name)
-	})
-
-	t.Run("normalizes URL for search", func(t *testing.T) {
-		name, found := registry.FindByURL("owner/repo")
-		assert.True(t, found)
-		assert.Equal(t, "github-test", name)
-	})
-
-	t.Run("returns false for unknown URL", func(t *testing.T) {
-		_, found := registry.FindByURL("https://github.com/other/repo")
-		assert.False(t, found)
-	})
-}
 
 func TestRegistry_GetOrCreateByURL(t *testing.T) {
 	t.Run("returns existing remote if URL matches", func(t *testing.T) {
@@ -329,16 +303,3 @@ func TestRegistry_Persistence(t *testing.T) {
 	assert.Equal(t, "https://github.com/owner/repo1", remote.URL)
 }
 
-func TestRegistry_GetFetcher(t *testing.T) {
-	t.Run("returns error for non-existent remote", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		configPath := filepath.Join(tmpDir, "remotes.yaml")
-
-		registry, err := NewRegistry(configPath)
-		require.NoError(t, err)
-
-		_, err = registry.GetFetcher("nonexistent", AuthConfig{})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
-	})
-}

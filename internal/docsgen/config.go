@@ -37,7 +37,21 @@ func GenConfig(p *Product, schemaPath, dir string) error {
 		return fmt.Errorf("parse config schema: %w", err)
 	}
 
-	c := &configDoc{defs: objectMap(root["$defs"])}
+	// U051-F01: json.Unmarshal accepts a bare `null` document into a map with
+	// no error, leaving root == nil; every subsequent map read on a nil map
+	// is legal Go, so nothing panics and nothing errors either. Combined with
+	// a schema that parses but carries no "properties" and no "$defs" (an
+	// empty object, or any other valid-but-content-free JSON), this used to
+	// still write a config.md with a heading and zero fields, exit 0, and
+	// print success -- indistinguishable from --config-schema pointing at
+	// the wrong file entirely. Refuse before writing anything.
+	props := objectMap(root["properties"])
+	defs := objectMap(root["$defs"])
+	if len(props) == 0 && len(defs) == 0 {
+		return fmt.Errorf("docsgen: config schema %s has no properties or $defs -- nothing to document", schemaPath)
+	}
+
+	c := &configDoc{defs: defs}
 
 	c.b.WriteString(configFrontmatter(schemaPath))
 	if title, _ := root["title"].(string); title != "" {
@@ -48,7 +62,7 @@ func GenConfig(p *Product, schemaPath, dir string) error {
 		dotDir, dotDir)
 	fmt.Fprintf(&c.b, "The canonical machine-readable form is the JSON Schema at `%s`.\n\n", schemaPath)
 
-	c.b.WriteString(overrideChainSection(objectMap(root["properties"]), p.envPrefix()))
+	c.b.WriteString(overrideChainSection(props, p.envPrefix()))
 
 	// Top-level fields (root has description on the schema itself; suppress it
 	// here since the intro above already covers it).

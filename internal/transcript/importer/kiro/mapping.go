@@ -7,12 +7,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
-// converter carries the streamed per-turn pass's only piece of state: the
-// record func itself. Unlike codex's converter, kiro's needs NO pending-
-// boundary buffer across turns — every historyTurn already carries its own
-// complete request_metadata alongside its content (schema.go's historyTurn
-// doc comment), so there is nothing to correlate across turns before a
-// Complete event can be built.
+// converter carries the streamed per-turn pass's state: the record func, and
+// (U149-F01/F02's fix) a count of real conversation entries recorded so
+// Convert's checkFloor can tell drift from a genuinely empty conversation
+// (U149-F07 — this is why the type is not vacuous). Unlike codex's
+// converter, kiro's needs NO pending-boundary buffer across turns — every
+// historyTurn already carries its own complete request_metadata alongside
+// its content (schema.go's historyTurn doc comment), so there is nothing to
+// correlate across turns before a Complete event can be built.
 type converter struct {
 	record func(agent.ChatEvent) error
 

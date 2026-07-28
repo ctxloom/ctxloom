@@ -4,6 +4,7 @@ package schema
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
@@ -137,6 +138,26 @@ func convertToJSON(v interface{}) interface{} {
 			m[k] = convertToJSON(val)
 		}
 		return m
+	// U096-F03: yaml.v3 hands back exactly two shapes that are NOT already
+	// JSON-native, and this function's whole reason to exist is to convert
+	// them. Both used to fall through to `default` untouched, so the schema
+	// validator saw a *jsonType* error (not a *jsonschema.ValidationError*)
+	// for either — silently defeating classifyValidationError's errors.As
+	// and reporting neither the offending key nor a usable message.
+	case map[interface{}]interface{}:
+		// A YAML mapping key that isn't a bare string (e.g. a bare `1:` or a
+		// `true:`) decodes into this shape rather than map[string]interface{}.
+		m := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			m[fmt.Sprint(k)] = convertToJSON(val)
+		}
+		return m
+	case time.Time:
+		// An unquoted YAML timestamp (e.g. `2026-07-24`) decodes to time.Time,
+		// which encoding/json — and this validator's schema.Validate — cannot
+		// represent; JSON Schema's own "date"/"date-time" formats expect a
+		// string. RFC3339 round-trips both a bare date and a full timestamp.
+		return v.Format(time.RFC3339)
 	case []interface{}:
 		arr := make([]interface{}, len(v))
 		for i, val := range v {

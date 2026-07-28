@@ -484,7 +484,6 @@ func TestExtractRepoName(t *testing.T) {
 	}
 }
 
-
 func TestReference_CanonicalString(t *testing.T) {
 	tests := []struct {
 		name string

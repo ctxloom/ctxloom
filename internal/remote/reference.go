@@ -654,4 +654,3 @@ func sshRepoName(repoURL string) string {
 	}
 	return sanitizePath(repoURL)
 }
-

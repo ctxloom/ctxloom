@@ -489,15 +489,6 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	}, nil
 }
 
-// writePulledContent records a pulled remote item. Remote bundles AND profiles
-// are pure references: the git clone cache + lockfile pair is the storage, and
-// reads at the locked SHA go through remote.BundleReader / remote.ProfileReader.
-// Nothing is materialized to disk, so this returns a synthetic informational
-// LocalPath and never overwrites a local file.
-func (p *Puller) writePulledContent(_ *Reference, _ PullOptions, localName, sha string, _ []byte) (localPath string, overwritten bool, err error) {
-	return fmt.Sprintf("<remote>:%s@%s", localName, sha), false, nil
-}
-
 // promptConfirmation asks the user for yes/no confirmation.
 // Default is NO - user must explicitly type 'y' or 'yes'.
 func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {

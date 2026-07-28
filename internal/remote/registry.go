@@ -419,4 +419,3 @@ func (r *Registry) Forges() map[string]ForgeConfig {
 	defer r.mu.RUnlock()
 	return MergeForges(r.forges)
 }
-

@@ -237,7 +237,6 @@ func TestRegistry_Has(t *testing.T) {
 	assert.True(t, registry.Has("test"))
 }
 
-
 func TestRegistry_GetOrCreateByURL(t *testing.T) {
 	t.Run("returns existing remote if URL matches", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -302,4 +301,3 @@ func TestRegistry_Persistence(t *testing.T) {
 	remote, _ := registry2.Get("test1")
 	assert.Equal(t, "https://github.com/owner/repo1", remote.URL)
 }
-

@@ -126,7 +126,6 @@ func SplitPromptVersion(ref string) (canonical, version string) {
 	return CanonicalBundleRef(base) + sel, version
 }
 
-
 // ProfileSelector is the selector prefix addressing a profile shipped INSIDE a
 // bundle ("<bundle>#profiles/<name>"). Profiles are an ungated, COMPOUND bundle
 // item kind — a profile composes leaves (fragments/commands/mcp/hooks/llm/parents/

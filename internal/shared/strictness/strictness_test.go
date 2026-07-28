@@ -215,3 +215,56 @@ func TestConcurrentWindows_EachSeesOnlyOwnFindings(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("finding from goroutine %d", i), got[0].Message)
 	}
 }
+
+// TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows pins U119-F01:
+// FailOnce's recording dedup key used to be built from the LIVE global
+// generation counter read at record() time, not the generation the
+// RECORDING goroutine's own window captured at ITS last Checkpoint. generation
+// is a single counter shared by every goroutine (each Checkpoint call bumps
+// it once, regardless of caller) and strictly increases — so a goroutine
+// that checkpoints EARLIER (a lower generation) but records LATER than a
+// second, concurrently checkpointing goroutine used to compute its dedup key
+// from whatever generation the counter had advanced to BY THEN, which could
+// be the same value the second goroutine's own record() call also reads.
+// Two different windows landing on the same key means the second goroutine's
+// FailOnce for a message it has never actually seen gets silently swallowed
+// as "already recorded" by the first goroutine's entry.
+//
+// Repro shape: A checkpoints (generation -> 1), THEN B checkpoints while A's
+// window is still open (generation -> 2), THEN A records — pre-fix, A's key
+// read the LIVE generation (2, B's value, not A's own 1) — THEN B records the
+// identical message. Pre-fix both keys read the live counter (2) and
+// collide; B's finding vanishes. Post-fix each window remembers its own
+// captured generation (A: 1, B: 2), so the keys differ and both windows see
+// their own recording.
+func TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows(t *testing.T) {
+	resetForTest(t)
+
+	aCheckpointed := make(chan struct{})
+	bCheckpointed := make(chan struct{})
+	aRecorded := make(chan struct{})
+	aDone := make(chan struct{})
+	var markA Mark
+	var foundA []Finding
+
+	go func() {
+		defer close(aDone)
+		markA = Checkpoint() // generation 1
+		close(aCheckpointed)
+		<-bCheckpointed // B has now bumped generation to 2 while A's window is still open
+		FailOnce(ClassSync, "", "duplicate message")
+		close(aRecorded)
+		foundA = Since(markA)
+	}()
+
+	<-aCheckpointed
+	markB := Checkpoint() // generation 2, while A's window is still open
+	close(bCheckpointed)
+	<-aRecorded // A has already recorded, under whatever generation ITS window remembers
+	FailOnce(ClassSync, "", "duplicate message")
+	foundB := Since(markB)
+	<-aDone
+
+	require.Len(t, foundA, 1, "goroutine A's own FailOnce must land in its own window")
+	require.Len(t, foundB, 1, "goroutine B's FailOnce for the SAME message must still record — it is a DIFFERENT goroutine's window/generation, not a repeat within A's, and must not be swallowed by a dedup key collision on the shared live generation counter")
+}

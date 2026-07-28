@@ -104,13 +104,20 @@ var (
 	// (clidiag.WarnOnce) deliberately stays process-wide; worst case of the
 	// window scoping is a duplicate line inside one findings listing.
 	//
-	// generation stays a single global counter (not per-window) even after
-	// the per-window ownership fix below: two concurrently-opened windows
-	// simply get two different generations (each Checkpoint call bumps it
-	// once, under mu), so a FailOnce message fired in window A's generation
-	// never dedups against the same message fired in window B's — each
-	// window still sees its own message exactly once. Concurrency-safe as-is;
-	// nothing here needed to change for the fix.
+	// generation stays a single global COUNTER (each Checkpoint call bumps it
+	// once, under mu, regardless of which goroutine calls it) — but each
+	// window (below) captures its OWN generation value at the moment ITS
+	// goroutine last called Checkpoint (U119-F01 fix), and record()'s dedup
+	// key reads that captured value, never this live variable directly.
+	// Two concurrently-opened windows get two different generation numbers
+	// exactly as the paragraph above always intended, but that guarantee
+	// only holds because each window remembers ITS OWN number — reading this
+	// shared, still-mutating counter directly at record() time (the
+	// pre-fix shape) let a later Checkpoint on a DIFFERENT goroutine bump
+	// this value out from under an earlier window before that window ever
+	// recorded anything, so two different windows could end up computing the
+	// SAME dedup key from the SAME live value and silently swallow one
+	// another's FailOnce.
 	generation   int
 	onceRecorded = map[string]struct{}{}
 
@@ -133,6 +140,21 @@ type window struct {
 	gid      int64
 	mu       sync.Mutex
 	findings []Finding
+	// generation is the global generation value captured by the most recent
+	// Checkpoint() call ON THIS GOROUTINE (U119-F01 fix). record's FailOnce
+	// dedup key must scope to the RECORDING goroutine's own checkpoint
+	// window, not to whatever the shared, monotonically-bumped global
+	// generation counter happens to read at the moment record() runs — two
+	// windows opened close together (goroutine A checkpoints at generation 1,
+	// goroutine B checkpoints at generation 2 while A is still running) used
+	// to collide on the SAME live generation value by the time either one
+	// actually recorded a finding, silently swallowing one goroutine's
+	// FailOnce as "already seen" under the other's window. Zero (the Go zero
+	// value) is a legitimate generation for a goroutine that records without
+	// ever calling Checkpoint — its dedup then stays scoped to the whole
+	// goroutine lifetime, matching pre-fix behavior for a process where no
+	// Checkpoint has fired yet.
+	generation int
 }
 
 // currentWindow returns (creating if absent) the calling goroutine's window.
@@ -220,11 +242,19 @@ type Mark struct {
 func Checkpoint() Mark {
 	mu.Lock()
 	generation++
+	gen := generation
 	mu.Unlock()
 
 	w := currentWindow()
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// U119-F01: stamp THIS goroutine's window with the generation value this
+	// very Checkpoint call captured, so record()'s dedup key (below) reads
+	// this goroutine's own last-checkpointed generation instead of the live,
+	// shared global counter — which a concurrently-checkpointing goroutine
+	// could have bumped again before this one's window ever records
+	// anything.
+	w.generation = gen
 	return Mark{w: w, idx: len(w.findings)}
 }
 
@@ -362,13 +392,23 @@ func Record(class Class, fixit, format string, args ...any) {
 // GOROUTINE's own window (Since()'s view) — never any other goroutine's
 // window, which is the per-window ownership fix.
 func record(class Class, fixit, msg string, once bool) {
+	// U119-F01: fetch the recording goroutine's OWN window generation before
+	// taking mu, so the FailOnce dedup key below is scoped to this
+	// goroutine's last-checkpointed generation — never the live global
+	// counter, which a different, concurrently-checkpointing goroutine may
+	// have advanced past this one's value by the time this call runs.
+	w := currentWindow()
+	w.mu.Lock()
+	gen := w.generation
+	w.mu.Unlock()
+
 	mu.Lock()
 	if degraded {
 		mu.Unlock()
 		return
 	}
 	if once {
-		key := fmt.Sprintf("%d\x00%s\x00%s", generation, class, msg)
+		key := fmt.Sprintf("%d\x00%s\x00%s", gen, class, msg)
 		if _, seen := onceRecorded[key]; seen {
 			mu.Unlock()
 			return
@@ -379,7 +419,6 @@ func record(class Class, fixit, msg string, once bool) {
 	findings = append(findings, f)
 	mu.Unlock()
 
-	w := currentWindow()
 	w.mu.Lock()
 	w.findings = append(w.findings, f)
 	w.mu.Unlock()

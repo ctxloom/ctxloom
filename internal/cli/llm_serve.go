@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
@@ -11,6 +12,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var llmServeCmd = &cobra.Command{
@@ -21,6 +23,14 @@ var llmServeCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	Hidden:  true, // Hide from help since it's for internal use
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Fail-loudly gate (U037-F03): checkpoint before standUpRunner's config
+		// load, so a fatal-class finding it records (a corrupted/malformed
+		// config.yaml, via printConfigWarnings) aborts this process-owning
+		// entry point below instead of silently serving an empty/partial
+		// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
+		// escape hatch, same as `ctxloom run`/`ctxloom mcp`.
+		startupMark := strictness.Checkpoint()
+
 		backendName := args[0]
 
 		// Get the backend from the registry
@@ -36,6 +46,9 @@ var llmServeCmd = &cobra.Command{
 		standup, err := standUpRunner(cmd, backend, backendName)
 		if err != nil {
 			return err
+		}
+		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+			return ferr
 		}
 
 		// Create the plugin map with our backend

@@ -1,6 +1,7 @@
 package termui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -74,17 +75,27 @@ func (g *OutputGate) Hold() {
 // Release reopens the gate: writes pre (the screen-restore sequence), replays
 // the held bytes, and appends a truncation notice when the ring overflowed —
 // all under the tty lock. A no-op when not held.
-func (g *OutputGate) Release(pre []byte) {
+//
+// Returns the first write failure encountered, if any (U141-F01): a failing
+// tty used to silently lose the entire replay — the ring is drained
+// unconditionally above, so those bytes exist nowhere else once Release
+// returns, and nothing signaled that they were gone. Callers should surface
+// a non-nil error (Controller's Close/release do, via Options.Warn) rather
+// than swallow it a second time.
+func (g *OutputGate) Release(pre []byte) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.held {
-		return
+		return nil
 	}
 	g.held = false
 	data, dropped := g.ring.Drain()
+	var errs []error
 	if len(pre) > 0 {
 		// pre is the controller's own restore sequence — trusted, never filtered.
-		_, _ = g.dst.Write(pre)
+		if _, err := g.dst.Write(pre); err != nil {
+			errs = append(errs, fmt.Errorf("writing restore sequence: %w", err))
+		}
 	}
 	if g.guard != nil && len(data) > 0 {
 		// The replay is child bytes like any other: same clamping, same
@@ -93,12 +104,17 @@ func (g *OutputGate) Release(pre []byte) {
 		data = g.guard.Filter(data)
 	}
 	if len(data) > 0 {
-		_, _ = g.dst.Write(data)
+		if _, err := g.dst.Write(data); err != nil {
+			errs = append(errs, fmt.Errorf("writing %d bytes of held engine output: %w", len(data), err))
+		}
 	}
 	if dropped > 0 {
-		_, _ = fmt.Fprintf(g.dst, "\r\n\x1b[7m ctxloom: %d bytes of engine output dropped while the viewer was open \x1b[0m\r\n", dropped)
+		if _, err := fmt.Fprintf(g.dst, "\r\n\x1b[7m ctxloom: %d bytes of engine output dropped while the viewer was open \x1b[0m\r\n", dropped); err != nil {
+			errs = append(errs, fmt.Errorf("writing drop notice: %w", err))
+		}
 	}
 	g.lastWrite.Store(nowNanos())
+	return errors.Join(errs...)
 }
 
 // LastWriteNanos reports when the last passthrough write hit the tty — the

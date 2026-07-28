@@ -64,6 +64,14 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string
 		clidiag.Warn("ctxloom", "config load failed; serving %s unconfigured: %v", backendName, cfgErr)
 	}
 	if cfg != nil {
+		// U037-F03: config.Load downgrades an unreadable/malformed/schema-invalid
+		// config.yaml to warnings rather than an error — surface them (and
+		// record the fatal-class findings the RunE's failOnFindings gate below
+		// checks) so a corrupted config never silently launches an
+		// empty/partial-context engine. Mirrors GetConfig/GetConfigForUpdate
+		// (root.go) and runMCPServerSDK (mcp_server.go), the other
+		// process-owning entry points.
+		printConfigWarnings(os.Stderr, cfg.GetWarnings())
 		if bc := serveBackendConfig(cfg, backendName, llmServeLabel); bc != nil {
 			if c, ok := backend.(backends.Configurable); ok {
 				c.Configure(bc)
@@ -91,7 +99,8 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string
 	}
 	standup.home = h
 
-	if cfg != nil {
+	switch {
+	case cfg != nil:
 		endpoint, merr := serveRunnerMCP(cfg, harp, h, leaf, cellWorkDir)
 		switch {
 		case merr != nil && standup.engineHost != nil:
@@ -109,6 +118,15 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string
 			// the harness env over os.Environ.
 			_ = os.Setenv(coord.EnvMCPSocket, endpoint.socketPath)
 		}
+	case runnerMustRefuseNoConfigReachBack(cfg, standup.engineHost):
+		// U037-F05: config.Load failed (cfg == nil), so there is no
+		// runner-local MCP to stand up or dial — exactly the same
+		// "hosted delegated run with no reach-back" condition the merr branch
+		// above refuses for. Hoist the identical fail-loud here instead of
+		// falling through to BIND LAST below and binding EngineHost with
+		// CTXLOOM_MCP_SOCKET never exported (the same end state, silently).
+		h.Close(1, "")
+		return nil, fmt.Errorf("config load failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", homeCfg.RunID, cfgErr)
 	}
 	// BIND LAST — strictly after the MCP socket exists and its env is exported
 	// (icy-value): BindHome unblocks EngineHost.Handle, and StartRun is what
@@ -118,6 +136,23 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string
 		standup.engineHost.BindHome(h)
 	}
 	return standup, nil
+}
+
+// runnerMustRefuseNoConfigReachBack reports whether standUpRunner must
+// refuse to launch its engine because this runner hosts a delegated run
+// (engineHost != nil, i.e. it has a RunID and a StructuredChat backend) but
+// config.Load() failed, so there is no config to build a runner-local MCP
+// endpoint from (U037-F05). Binding EngineHost in that state would let the
+// engine launch with CTXLOOM_MCP_SOCKET never exported — the same "hosted
+// delegated run with no reach-back" condition standUpRunner's merr branch
+// (a few lines up) already refuses for when serveRunnerMCP itself fails.
+// Extracted as a pure predicate so the branch condition is unit-testable
+// without needing config.Load() to actually fail — which the loader's own
+// fault tolerance (CLAUDE.md) makes hard to trigger from real file content;
+// nearly every load fault degrades to a warning (cfg != nil, cfg.GetWarnings()
+// non-empty) rather than this cfg == nil path.
+func runnerMustRefuseNoConfigReachBack(cfg *config.Config, engineHost *coord.EngineHost) bool {
+	return cfg == nil && engineHost != nil
 }
 
 // teardown reports the runner's exit through home.Close, mirroring

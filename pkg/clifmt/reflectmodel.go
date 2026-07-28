@@ -18,6 +18,15 @@ type Node struct {
 	Tables   []TableField
 }
 
+// Empty reports whether node carries no scalars, sections, or tables — the
+// case renderNode (noderender.go) writes zero bytes for and returns nil
+// (U154-F02: an all-omitempty struct silently rendered as nothing, in both
+// text and markdown, indistinguishable from a write that never happened).
+// Callers use this to render an explicit "(none)" marker instead.
+func (n *Node) Empty() bool {
+	return len(n.Scalars) == 0 && len(n.Sections) == 0 && len(n.Tables) == 0
+}
+
 // ScalarField is one "Label: value" line.
 type ScalarField struct {
 	Label string

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // runStartHandoffFile is the fixed name of the 0600 RunStart handoff dropped in
@@ -45,6 +46,17 @@ var llmTurnCmd = &cobra.Command{
 		// (dockerexec.turnTermValue). The engine child still gets real color via
 		// RunStart.Options.Env's TERM (stamped by startContainerInteractive),
 		// which overrides the turn's dumb in the child's BuildEnv.
+
+		// Fail-loudly gate (U037-F03): same shape as `llm serve`/`llm host` —
+		// checkpoint before standUpRunner's config load. Unlike serve/host, a
+		// standUpRunner ERROR here is deliberately downgraded to a warning
+		// below (interactive turn has no RunID, so no EngineHost, and an MCP
+		// hiccup degrades to the shim's local fallback rather than failing the
+		// turn) — but a fatal-class FINDING (a corrupted/malformed
+		// config.yaml) is a different, stronger signal and still aborts unless
+		// --degraded, same as the other two process-owning entry points.
+		startupMark := strictness.Checkpoint()
+
 		backendName := args[0]
 		backend := backends.Get(backendName)
 		if backend == nil {
@@ -77,6 +89,10 @@ var llmTurnCmd = &cobra.Command{
 			standup = &runnerStandup{}
 		}
 		defer standup.teardown()
+
+		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+			return ferr
+		}
 
 		// Resize: the exec TTY's SIGWINCH (delivered by the daemon when the host
 		// resizes) drives the engine's pty via the same watchResize the go-plugin

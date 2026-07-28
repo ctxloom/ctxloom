@@ -171,7 +171,12 @@ func (c *Controller) Close() {
 	// repaint after the final restore.
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
-	c.gate.Release(nil)
+	if err := c.gate.Release(nil); err != nil {
+		// U141-F01: a failing tty on the final restore used to silently lose
+		// the whole held-output replay; surface it instead of swallowing it a
+		// second time here.
+		c.warn("output gate release: %v", err)
+	}
 	c.sur.Restore()
 }
 
@@ -280,13 +285,18 @@ func (c *Controller) runOverlay(ov Overlay, pr *io.PipeReader, geo OverlayGeomet
 func (c *Controller) release(geo OverlayGeometry) {
 	if c.closed.Load() {
 		// Close owns the final restore; don't repaint a handed-back terminal.
-		c.gate.Release(nil)
+		if err := c.gate.Release(nil); err != nil {
+			c.warn("output gate release: %v", err)
+		}
 		return
 	}
 	pre := panelClearSeq(geo)
 	pre = append(pre, c.sur.ResumeSequence()...)
 	pre = append(pre, "\x1b8"...)
-	c.gate.Release(pre)
+	if err := c.gate.Release(pre); err != nil {
+		// U141-F01: surface a failing tty write instead of discarding it.
+		c.warn("output gate release: %v", err)
+	}
 	c.rt.Nudge()
 }
 

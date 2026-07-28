@@ -118,6 +118,18 @@ Stdout carries the protocol; all diagnostics go to stderr.`,
 // runACPServer is the ACP-server RunE, shared by acpServerCmd (the real home)
 // and the Deprecated bare acpCmd alias, so the two can never drift.
 func runACPServer(cmd *cobra.Command, args []string) error {
+	// U034-F03: --workspace is documented (acpServerCmd's Long text, above) as
+	// "Requires --agent" — worktree isolation is for a deliberately-configured
+	// agent entry, never the plain, agent-less server. acpWorkspaceAxis
+	// (internal/operations/engine_session.go) already silently returns the
+	// empty axis whenever acpAgent is empty; left unchecked, a user who
+	// passes --workspace worktree with no --agent gets NO isolation and is
+	// told nothing — the worst failure direction for an isolation flag.
+	// Checked here (not a PreRunE) so the bare `acp` alias and `acp server`
+	// share one enforcement point without duplicating the wiring.
+	if err := validateACPWorkspaceRequiresAgent(cmd, acpAgent); err != nil {
+		return err
+	}
 	// COORDINATOR HOSTING (agentcoord Wave B1, review R1): an ACP-launched
 	// session has no run wrapper — acp opens engines directly — so it
 	// stands the runtime coordinator up itself, one per acp process,
@@ -134,6 +146,17 @@ func runACPServer(cmd *cobra.Command, args []string) error {
 	return acpagent.Serve(cmd.Context(), os.Stdin, os.Stdout, func(ctx context.Context, req acpagent.OpenRequest) (*acpagent.EngineChat, error) {
 		return operations.OpenEngineSession(ctx, req, acpCoord, acpProfile, acpAgent, acpLLM, acpWorkspace)
 	})
+}
+
+// validateACPWorkspaceRequiresAgent enforces U034-F03: --workspace only means
+// anything paired with --agent (acpWorkspaceAxis silently returns the empty
+// axis otherwise). Split out from runACPServer so it can be unit tested
+// without going anywhere near acpagent.Serve's blocking stdio read loop.
+func validateACPWorkspaceRequiresAgent(cmd *cobra.Command, agent string) error {
+	if cmd.Flags().Changed("workspace") && agent == "" {
+		return fmt.Errorf("--workspace requires --agent (worktree isolation is scoped to a specific agent entry, not the plain acp server)")
+	}
+	return nil
 }
 
 // registerACPServerFlags binds the ACP-server flag set to cmd. Shared by the

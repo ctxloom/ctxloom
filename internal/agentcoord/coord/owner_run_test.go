@@ -109,7 +109,7 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 
 	// Parent-less, owner-owned: ParentRunID is empty on the roster projection.
 	var found *agentcoordpb.ListRunsResult_RunInfo
-	for _, r := range c.listRunsSnapshot(true, "").GetRuns() {
+	for _, r := range c.ListRuns(true, "").GetRuns() {
 		if r.GetRunId() == outcome.RunID {
 			found = r
 		}

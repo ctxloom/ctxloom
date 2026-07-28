@@ -159,7 +159,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 
 	// (2) Parent-less, owner-owned.
 	var info *agentcoordpb.ListRunsResult_RunInfo
-	for _, r := range c.listRunsSnapshot(true, "").GetRuns() {
+	for _, r := range c.ListRuns(true, "").GetRuns() {
 		if r.GetRunId() == outcome.RunID {
 			info = r
 		}

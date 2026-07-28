@@ -118,9 +118,9 @@ func TestListRuns_SurfacesPermissionAndMCPServerNames(t *testing.T) {
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 
-	var result = c.listRunsSnapshot(true, "")
+	var result = c.ListRuns(true, "")
 	require.Eventually(t, func() bool {
-		result = c.listRunsSnapshot(true, "")
+		result = c.ListRuns(true, "")
 		return len(result.GetRuns()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 

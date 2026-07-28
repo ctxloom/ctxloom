@@ -269,6 +269,11 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRun
 	return snapshot, events, cancel, narrow
 }
 
+// ListRuns is the in-process form of ConsumerService.ListRuns.
+func (c *Coordinator) ListRuns(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
+	return c.listRunsSnapshot(includeTerminal, role)
+}
+
 // consumerService implements agentcoord.v1.ConsumerService (D1): additive,
 // read-only, no change to CoordinatorService. Both RPCs also work called
 // in-process (no gRPC hop) via the Coordinator methods below — D3's acp

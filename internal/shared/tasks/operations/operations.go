@@ -737,6 +737,26 @@ func LintTasks(tc TaskContext) (lint.Result, error) {
 	return lint.Lint(all, tc.TagSchema)
 }
 
+// RepairStore re-introduces, under a fresh harp each, any task the log
+// detected as a displaced duplicate-add (two different tasks independently
+// minted with the same harp id — see tasks.Store.Repair and
+// log.go's anomalyError). Idempotent; a no-op on a log with no unresolved
+// collision.
+//
+// This is the shipped surface the fatal collision error itself names
+// ("run Store.Repair()") — before this, that remedy was unreachable from
+// anywhere a user could act on it: no `taskloom repair` command and no
+// `task_repair` MCP tool existed, so every read (list/summary/tag-query/
+// priority/lint) kept failing loud with no way to actually resolve it
+// (U007-F11, entangled with U120-F01).
+func RepairStore(tc TaskContext) error {
+	store, _, _, err := resolveTaskStore(tc)
+	if err != nil {
+		return err
+	}
+	return store.Repair()
+}
+
 // projectIdentity names the project a task operation resolved to, so
 // frontends can show which store they acted on — in multi-root workspaces
 // (several .ctxloom trees under one repo) the resolved project is genuinely

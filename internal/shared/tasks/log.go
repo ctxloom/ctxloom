@@ -318,7 +318,7 @@ func (f *folded) anomalyError(path string) error {
 		}
 		descs = append(descs, fmt.Sprintf("harp %q: %s, displaced task text %q (session %q)", a.Task, kept, a.Text, a.Session))
 	}
-	return fmt.Errorf("%s: unresolved harp collision(s) — two different tasks were independently minted with the same harp id (most likely two branches, each correct against what it could see, later union-merged); the displaced task is NOT lost but is excluded from this view, and every event addressed to its harp is silently applying to the OTHER task instead. This cannot be auto-repaired (reassigning a harp would break every plan file and cross-reference pointing at it) — inspect and run Store.Repair() to re-add the displaced task(s) under a fresh harp: %s", path, strings.Join(descs, "; "))
+	return fmt.Errorf("%s: unresolved harp collision(s) — two different tasks were independently minted with the same harp id (most likely two branches, each correct against what it could see, later union-merged); the displaced task is NOT lost but is excluded from this view, and every event addressed to its harp is silently applying to the OTHER task instead. This cannot be auto-repaired (reassigning a harp would break every plan file and cross-reference pointing at it) — inspect and run `taskloom repair` (or Store.Repair() directly) to re-add the displaced task(s) under a fresh harp: %s", path, strings.Join(descs, "; "))
 }
 
 // append writes one event as a single JSON line under O_APPEND. The caller

@@ -147,7 +147,7 @@ func TestBindSession_EmptyArgsIsANoOp_NoWriteAttempted(t *testing.T) {
 	entry, err := m.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
-	dir := filepath.Dir(m.Path())
+	dir := filepath.Dir(m.path)
 	require.NoError(t, os.Chmod(dir, 0o555))
 	defer func() { _ = os.Chmod(dir, 0o755) }()
 

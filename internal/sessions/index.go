@@ -118,9 +118,6 @@ func Open(override string) (*Manager, error) {
 	return &Manager{path: path}, nil
 }
 
-// Path returns the absolute path to the index file.
-func (m *Manager) Path() string { return m.path }
-
 // Load reads the index from disk. Returns an empty Index if the file
 // doesn't exist (first-run case).
 func (m *Manager) Load() (*Index, error) {

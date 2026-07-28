@@ -142,7 +142,7 @@ func TestFind_FillsTranscriptByLocation(t *testing.T) {
 	}
 
 	// Never persisted: the on-disk index still has no transcript_path.
-	raw, err := os.ReadFile(mgr.Path())
+	raw, err := os.ReadFile(mgr.path)
 	if err != nil {
 		t.Fatal(err)
 	}

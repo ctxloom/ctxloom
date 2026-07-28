@@ -236,7 +236,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// Convert entries to text for chunking. Plans live in separate files now, so
 	// there are no in-transcript plan blocks to placeholder out.
 	logText := c.sessionToText(session)
-	result.TotalTokensIn = estimateTokens(logText)
+	result.TotalTokensIn = tokens.Estimate(logText)
 
 	// male-aide: a session with zero main-thread entries has nothing to
 	// distill — see isEmptySession for why "zero entries" (not a byte/token
@@ -265,7 +265,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 
 	combined := strings.Join(distilled, "\n\n---\n\n")
-	result.TotalTokensOut = estimateTokens(combined)
+	result.TotalTokensOut = tokens.Estimate(combined)
 
 	// Any multi-chunk session needs the reduce pass: it unifies the concatenated
 	// per-chunk summaries into one canonical essence (YAML frontmatter + the
@@ -284,7 +284,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 			return nil, rerr
 		}
 		combined = reduced
-		result.TotalTokensOut = estimateTokens(combined)
+		result.TotalTokensOut = tokens.Estimate(combined)
 	}
 
 	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
@@ -1245,11 +1245,6 @@ func ListDistilledSessions(sessionsDir string) ([]string, error) {
 		}
 	}
 	return sessions, nil
-}
-
-// estimateTokens provides a rough token count estimate.
-func estimateTokens(text string) int {
-	return tokens.Estimate(text)
 }
 
 // sessionDistillPrompt is the system prompt for session distillation.

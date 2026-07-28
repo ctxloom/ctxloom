@@ -83,3 +83,18 @@ func TestFunctionCallOutputEvents_NeverGuessesIsError(t *testing.T) {
 	require.Len(t, evs, 1)
 	assert.False(t, evs[0].Entry.IsError, "codex's function_call_output carries no explicit error field; a nonzero exit code in free text must not be sniffed into a fabricated boolean")
 }
+
+// TestScanSessionInfo_FallsBackToSessionIDOnOlderBuilds pins U148-F06: older
+// codex CLI builds' session_meta payload carries the session id ONLY under
+// the legacy "session_id" key (never observed with an empty "id" AND no
+// "session_id" on this box, but the fallback exists specifically because a
+// future/older codex build could omit "id"). Absence from today's fixture
+// corpus is not evidence this branch is dead — it is untested vendor-format
+// defensive handling, exactly the shape this project's review discipline
+// says to keep and cover, not delete.
+func TestScanSessionInfo_FallsBackToSessionIDOnOlderBuilds(t *testing.T) {
+	line := []byte(`{"type":"session_meta","payload":{"session_id":"legacy-only-id"}}`)
+	info := scanSessionInfo([][]byte{line})
+	require.NotNil(t, info, "a session_meta line, even id-less, must latch SOME session info")
+	assert.Equal(t, "legacy-only-id", info.SessionID, "id-less session_meta must fall back to the legacy session_id key")
+}

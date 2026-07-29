@@ -37,7 +37,7 @@ With a path after #, displays just that item's content.
 Path formats:
   bundle-name                     Full bundle YAML
   bundle-name#fragments/name      Fragment content
-  bundle-name#commands/name      Prompt content
+  bundle-name#commands/name       Command content
   bundle-name#mcp/name            MCP server config
   bundle-name#profiles/name       Profile definition
 

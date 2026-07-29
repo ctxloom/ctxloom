@@ -696,7 +696,7 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyGitIdentityAndACPAdapter(t *te
 	root := t.TempDir()
 	out, err := runDoctor(t, root, "--deps", "--format", "json")
 	require.NoError(t, err)
-	var report DoctorReport
+	var report doctorReport
 	require.NoError(t, json.Unmarshal([]byte(out), &report))
 	require.Len(t, report.Checks, 4)
 	markers := make([]string, len(report.Checks))
@@ -719,8 +719,8 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 	out, err := runDoctor(t, root, "--format", "json")
 	require.NoError(t, err)
 
-	var report DoctorReport
-	require.NoError(t, json.Unmarshal([]byte(out), &report), "output must be valid JSON matching DoctorReport")
+	var report doctorReport
+	require.NoError(t, json.Unmarshal([]byte(out), &report), "output must be valid JSON matching doctorReport")
 	require.NotEmpty(t, report.Checks)
 
 	markers := make([]string, 0, len(report.Checks))

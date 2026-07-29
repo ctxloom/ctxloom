@@ -112,7 +112,6 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
 		Socket: path,
 		Pid:    os.Getpid(),
-		Harp:   harp,
 	})
 	if merr != nil {
 		clidiag.Warn("ctxloom", "runner MCP discovery marker: %v (the shim will still find this runner via %s)", merr, coord.EnvMCPSocket)

@@ -127,81 +127,6 @@ Examples:
 
 var fragmentDistillForce bool
 
-var fragmentSearchTags []string
-
-// fragmentSearchDeprecation is the one-line pointer cobra prints whenever
-// `ctxloom fragment search` still runs (CLI-primary reorg plan, Decision 4:
-// `fragment search` -> `search --type fragment`).
-const fragmentSearchDeprecation = "use `ctxloom search --type fragment` instead"
-
-var fragmentSearchCmd = &cobra.Command{
-	Use:        "search [query]",
-	Short:      "Search fragments",
-	Deprecated: fragmentSearchDeprecation,
-	Long: `Search for fragments by name or tags.
-
-Examples:
-  ctxloom fragment search cache           # Search by name
-  ctxloom fragment search -t golang       # Search by tag
-  ctxloom fragment search -t golang,testing  # Search by multiple tags
-
-DEPRECATED: use 'ctxloom search --type fragment' instead.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		query := ""
-		if len(args) > 0 {
-			query = args[0]
-		}
-		// Use unified search with local-only scope for fragments
-		return runUnifiedSearch(cmd, query, fragmentSearchTags, "fragment", true, false)
-	},
-}
-
-var (
-	fragmentPushPR      bool
-	fragmentPushMessage string
-	fragmentPushSign    bool
-	fragmentPushNoSign  bool
-)
-
-// fragmentPushDeprecation is the one-line pointer cobra prints whenever
-// `ctxloom fragment push` still runs (CLI-primary reorg plan, Decision 4:
-// `fragment push` -> `bundle push`).
-const fragmentPushDeprecation = "use `ctxloom bundle push` instead"
-
-var fragmentPushCmd = &cobra.Command{
-	Use:        "push <bundle> [remote]",
-	Short:      "Push a bundle to remote",
-	Deprecated: fragmentPushDeprecation,
-	Long: `Push a bundle containing fragments to a remote repository.
-
-This publishes the entire bundle (which contains fragments, prompts, etc.)
-to the specified remote.
-
---sign publishes a detached signature alongside the bundle (signature-
-envelope spec §3.1) so anyone who trusts your key can verify it came from
-you, using the same zero-config key discovery 'ctxloom bundle sign' uses. Set
-'sign.default: true' in config to make every push sign unless --no-sign is
-given for one invocation — the best signing ceremony is the one that
-already happened.
-
-Examples:
-  ctxloom fragment push my-bundle
-  ctxloom fragment push my-bundle ctxloom-default
-  ctxloom fragment push my-bundle --pr
-  ctxloom fragment push my-bundle --sign
-
-DEPRECATED: use 'ctxloom bundle push' instead.`,
-	Args: cobra.RangeArgs(1, 2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		remoteName := ""
-		if len(args) > 1 {
-			remoteName = args[1]
-		}
-		return pushBundle(cmd, args[0], remoteName, fragmentPushPR, fragmentPushMessage, fragmentPushSign, fragmentPushNoSign)
-	},
-}
-
 func init() {
 	rootCmd.AddCommand(fragmentCmd)
 
@@ -211,19 +136,10 @@ func init() {
 	fragmentCmd.AddCommand(fragmentDeleteCmd)
 	fragmentCmd.AddCommand(fragmentEditCmd)
 	fragmentCmd.AddCommand(fragmentDistillCmd)
-	fragmentCmd.AddCommand(fragmentPushCmd)
-	fragmentCmd.AddCommand(fragmentSearchCmd)
 
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	fragmentEditCmd.Flags().BoolVar(&fragmentEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
-
-	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")
-	fragmentPushCmd.Flags().StringVarP(&fragmentPushMessage, "message", "m", "", "Commit message")
-	fragmentPushCmd.Flags().BoolVar(&fragmentPushSign, "sign", false, "sign the published bundle (spec §3.1)")
-	fragmentPushCmd.Flags().BoolVar(&fragmentPushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
-
-	fragmentSearchCmd.Flags().StringSliceVarP(&fragmentSearchTags, "tag", "t", nil, "Filter by tags (comma-separated)")
 }

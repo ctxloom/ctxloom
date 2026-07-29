@@ -79,18 +79,18 @@ var doctorEngineBinaries = map[string]string{
 // outcome the old map's absence produced, but derived from the SAME source
 // of truth as the Chat() gate instead of a second copy of it.
 
-// DoctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
+// doctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
 // vocabulary this command shares with the "ctxloom-doctor" Agent Skill, so a
 // human or an LLM reading either surface sees one language.
-type DoctorCheck struct {
+type doctorCheck struct {
 	Marker string `json:"marker"`
 	Status string `json:"status"` // "ok" | "warn" | "info"
 	Detail string `json:"detail"`
 }
 
-// DoctorReport is `ctxloom doctor`'s structured result.
-type DoctorReport struct {
-	Checks []DoctorCheck `json:"checks"`
+// doctorReport is `ctxloom doctor`'s structured result.
+type doctorReport struct {
+	Checks []doctorCheck `json:"checks"`
 }
 
 // doctorDepsOnlyFlag backs --deps: scopes the report to ONLY the machine-
@@ -145,16 +145,16 @@ exit code.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		cfg, cfgErr := GetConfig()
-		var checks []DoctorCheck
+		var checks []doctorCheck
 		if doctorDepsOnlyFlag {
-			checks = []DoctorCheck{
+			checks = []doctorCheck{
 				doctorCheckDeps(cfg),
 				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
 				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
 				doctorCheckACPAdapter(cfg),
 			}
 		} else {
-			checks = []DoctorCheck{
+			checks = []doctorCheck{
 				doctorCheckSetupMarker(cfg, cfgErr),
 				doctorCheckDeps(cfg),
 				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
@@ -168,7 +168,7 @@ exit code.`,
 				doctorCheckSetupAuthPing(),
 			}
 		}
-		report := DoctorReport{Checks: checks}
+		report := doctorReport{Checks: checks}
 		return emit(cmd, report, func() error { return renderDoctorReport(cmd.OutOrStdout(), report) })
 	},
 }
@@ -203,7 +203,7 @@ func doctorConfiguredEngines(cfg *config.Config) []string {
 // doctorDepBinariesRecommended's doc for why: ctxloom never execs either;
 // signing is pure Go). The two buckets are reported separately so "missing"
 // never conflates an optional convenience with a real hard dependency.
-func doctorCheckDeps(cfg *config.Config) DoctorCheck {
+func doctorCheckDeps(cfg *config.Config) doctorCheck {
 	var missingRequired []string
 	for _, bin := range doctorDepBinariesRequired {
 		if _, err := exec.LookPath(bin); err != nil {
@@ -229,7 +229,7 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 		missingRequired = append(missingRequired, "docker/podman (container runtime)")
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
-		return DoctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "ok",
+		return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "ok",
 			Detail: "git, every configured engine's client, and a container runtime are all on PATH (required); ssh and ssh-keygen are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either)"}
 	}
 	sort.Strings(missingRequired)
@@ -241,7 +241,7 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 	if len(missingRecommended) > 0 {
 		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
 	}
-	return DoctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn", Detail: strings.Join(parts, "; ")}
+	return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn", Detail: strings.Join(parts, "; ")}
 }
 
 // doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
@@ -266,7 +266,7 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 // checkSystemDeps, see init.go) beats a user hitting agentkey.NoKeyError or
 // the unsigned-approval prompt cold at their first real `ctxloom review`/
 // `ctxloom sign`.
-func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
+func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) doctorCheck {
 	const marker = "DOCTOR-CHECK-SIGNKEY-k1"
 	explicit := ""
 	if cfg != nil {
@@ -274,9 +274,9 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 	}
 	ok, detail := signKeyResolutionDetail(ctx, discoverer, explicit)
 	if ok {
-		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
 	}
-	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
 }
 
 // signKeyResolutionDetail runs internal/signing/agentkey's real resolution
@@ -374,13 +374,13 @@ type gitConfigFunc = func(ctx context.Context, dir, key string) (value string, o
 // this never blocks — a project that never runs agent worktrees at all has
 // no immediate need, so a bare `ctxloom doctor` there must not manufacture a
 // false alarm.
-func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) DoctorCheck {
+func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) doctorCheck {
 	const marker = "DOCTOR-CHECK-GITIDENT-l2"
 	ok, detail := gitIdentityDetail(ctx, gitConfig)
 	if ok {
-		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
 	}
-	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
 }
 
 // gitIdentityDetail runs gitConfig for user.name and user.email and renders
@@ -449,13 +449,13 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 // `req.Runtime != agent.RuntimeContainer` gate — the host process's PATH is
 // never consulted for a containerized run), so the warn below says so
 // explicitly rather than reading as a universal blocker.
-func doctorCheckACPAdapter(cfg *config.Config) DoctorCheck {
+func doctorCheckACPAdapter(cfg *config.Config) doctorCheck {
 	const marker = "DOCTOR-CHECK-ACPADAPTER-m3"
 	ok, detail := acpAdapterDetail(doctorConfiguredEngines(cfg))
 	if ok {
-		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
 	}
-	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
 }
 
 // acpAdapterDetail checks, for every engine in configuredEngines whose
@@ -505,13 +505,13 @@ func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
 // project with genuinely zero agents is rare enough that silently calling it
 // "info" would hide the far more common case, an interrupted/incomplete
 // setup.
-func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
-		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
 	configuredAgents := cfg.GetConfiguredAgents()
 	if len(configuredAgents) == 0 {
-		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn",
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn",
 			Detail: "no agents configured (run `/ctxloom-init` phase 5, or `ctxloom agent set <name> ...`)"}
 	}
 	names := make([]string, 0, len(configuredAgents))
@@ -526,18 +526,18 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 		}
 	}
 	if len(failed) == 0 {
-		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "ok",
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "ok",
 			Detail: fmt.Sprintf("%d agent(s) resolve cleanly: %s", len(names), strings.Join(names, ", "))}
 	}
-	return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: strings.Join(failed, "; ")}
+	return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: strings.Join(failed, "; ")}
 }
 
 // doctorCheckVersion is deliberately best-effort/skill-guided: there is no
 // update-check infrastructure (internal/cli/version.go is a bare print), so
 // this reports the running version and defers comparison to the
 // ctxloom-doctor skill (or a human) rather than faking a currency verdict.
-func doctorCheckVersion() DoctorCheck {
-	return DoctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: "info",
+func doctorCheckVersion() doctorCheck {
+	return doctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: "info",
 		Detail: fmt.Sprintf("running %s; comparing against the newest remote tag is best-effort/skill-guided (no --check-version yet)", Version)}
 }
 
@@ -548,9 +548,9 @@ func doctorCheckVersion() DoctorCheck {
 // read, not a bare file-existence guess), plus how many signers the trust
 // store carries (operations.ListSigners — always includes the embedded root,
 // so a healthy store is never reported as empty).
-func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
-		return DoctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
 	var parts []string
 	status := "ok"
@@ -599,7 +599,7 @@ func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error
 		}
 		parts = append(parts, fmt.Sprintf("trust store: %d active signer(s)", active))
 	}
-	return DoctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: status, Detail: strings.Join(parts, "; ")}
+	return doctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: status, Detail: strings.Join(parts, "; ")}
 }
 
 // ===== init-as-skill Phase 6 postcondition checks (plan.md §8.2) =====
@@ -608,7 +608,7 @@ func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error
 // already uses (config.Config, operations.AssembleContext, config.
 // DiscoverCompanions/ProbeCompanions/ProbeCompanionLoadouts) rather than
 // re-implementing any of their logic — this file's job is to CALL them and
-// translate the result into a DoctorCheck, never to re-derive what "locked",
+// translate the result into a doctorCheck, never to re-derive what "locked",
 // "resolves", or "registered" means. Deliberately absent: anything that
 // opens a third-party client's own config file (Zed settings.json, Nori's
 // config.toml, ...) — see doctorCmd's Long text and init-as-skill.plan.md
@@ -634,17 +634,17 @@ func doctorAppDir(cfg *config.Config) string {
 // config loaded without a hard error — the ground-floor precondition every
 // other check in this report assumes. Read-only: it inspects config.Load's
 // ALREADY-resolved record instead of re-globbing the filesystem for .ctxloom.
-func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
 	if cfgErr != nil {
-		return DoctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
 	appDir := doctorAppDir(cfg)
 	if appDir == "" {
-		return DoctorCheck{Marker: marker, Status: "warn",
+		return doctorCheck{Marker: marker, Status: "warn",
 			Detail: "no .ctxloom marker directory found (run `ctxloom manage install` or `ctxloom init`)"}
 	}
-	return DoctorCheck{Marker: marker, Status: "ok", Detail: "marker present, config valid: " + appDir}
+	return doctorCheck{Marker: marker, Status: "ok", Detail: "marker present, config valid: " + appDir}
 }
 
 // doctorCheckSetupLockAndAssembly verifies the two "seeded deps are actually
@@ -655,10 +655,10 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 // end to end. AssembleContext exercises the trust gate, companion-loadout
 // seeding, and fragment/profile resolution for real; none of that is
 // reimplemented here.
-func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-DEPS-h8"
 	if cfgErr != nil {
-		return DoctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
 	var parts []string
 	status := "ok"
@@ -680,7 +680,7 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 	} else {
 		parts = append(parts, "context assembly: succeeds for the configured default profile(s)")
 	}
-	return DoctorCheck{Marker: marker, Status: status, Detail: strings.Join(parts, "; ")}
+	return doctorCheck{Marker: marker, Status: status, Detail: strings.Join(parts, "; ")}
 }
 
 // doctorCheckSetupCompanions reports companion discovery + loadout probing —
@@ -691,17 +691,17 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 // are optional add-ons), so this is never a "warn"; it respects
 // --no-companions/CTXLOOM_NO_COMPANIONS (config.CompanionsDisabled) by
 // reporting that instead of executing companion binaries a second time.
-func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-COMPANIONS-i9"
 	if cfgErr != nil {
-		return DoctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
 	if config.CompanionsDisabled() {
-		return DoctorCheck{Marker: marker, Status: "info", Detail: "companion probing disabled (--no-companions)"}
+		return doctorCheck{Marker: marker, Status: "info", Detail: "companion probing disabled (--no-companions)"}
 	}
 	bins := config.DiscoverCompanions()
 	if len(bins) == 0 {
-		return DoctorCheck{Marker: marker, Status: "info", Detail: "no companions discovered"}
+		return doctorCheck{Marker: marker, Status: "info", Detail: "no companions discovered"}
 	}
 	var present []string
 	for _, st := range config.ProbeCompanions() {
@@ -714,7 +714,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) DoctorCheck {
 	if len(present) > 0 {
 		presentDetail = strings.Join(present, ", ")
 	}
-	return DoctorCheck{Marker: marker, Status: "ok", Detail: fmt.Sprintf(
+	return doctorCheck{Marker: marker, Status: "ok", Detail: fmt.Sprintf(
 		"discovered: %s; on PATH: %s; loadout verified: %d",
 		strings.Join(bins, ", "), presentDetail, len(loadouts))}
 }
@@ -726,15 +726,15 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) DoctorCheck {
 // skill.plan.md §10④, init bootstrap rework), not this one's. Reported as
 // "info" so the gap is VISIBLE in the postcondition report instead of
 // silently missing.
-func doctorCheckSetupAuthPing() DoctorCheck {
-	return DoctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: "info",
+func doctorCheckSetupAuthPing() doctorCheck {
+	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: "info",
 		Detail: "no auth-ping surface exists in this build yet (deferred; verify by launching the engine's own CLI)"}
 }
 
 // renderDoctorReport writes the human-readable check list, one
 // "DOCTOR-CHECK-* [status] detail" line per check, in the fixed order the
 // checks were run.
-func renderDoctorReport(out io.Writer, report DoctorReport) error {
+func renderDoctorReport(out io.Writer, report doctorReport) error {
 	w := iox.NewErrWriter(out)
 	w.Println("ctxloom doctor")
 	for _, c := range report.Checks {

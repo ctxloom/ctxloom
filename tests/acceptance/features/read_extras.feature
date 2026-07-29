@@ -13,7 +13,7 @@ Feature: Additional read and configuration commands
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "testing" in bundle "demo" exists
-    When I run "ctxloom fragment search testing"
+    When I run "ctxloom search --type fragment testing"
     Then the command succeeds
     And the output contains "testing"
 

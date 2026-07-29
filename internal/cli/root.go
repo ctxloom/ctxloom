@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -117,9 +118,9 @@ var rootCmd = &cobra.Command{
 		// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 		// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 		// text/markdown or an unresolvable value — an invalid --format is
-		// reported by the command's own emit()/resolveFormat call, not here, so
+		// reported by the command's own emit()/cliemit.Resolve call, not here, so
 		// this just falls back to the safe default rather than erroring twice.
-		format, ferr := resolveFormat(cmd)
+		format, ferr := cliemit.Resolve(cmd)
 		clidiag.SetStructured(ferr == nil && format.Structured())
 	},
 	// U104-F01's runtime guard (format.go): fires only after a successful
@@ -178,7 +179,7 @@ func Execute() {
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}
-		format, ferr := resolveFormat(rootCmd)
+		format, ferr := cliemit.Resolve(rootCmd)
 		if ferr != nil {
 			// The --format value itself was rejected; report err (the ORIGINAL
 			// failure) rather than the format error, in the one shape every

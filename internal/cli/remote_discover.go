@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
@@ -34,82 +35,95 @@ Examples:
   ctxloom remote discover golang               # Filter by 'golang' in description
   ctxloom remote discover --stars 10           # Only repos with 10+ stars`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-
-		query := ""
-		if len(args) > 0 {
-			query = strings.Join(args, " ")
-		}
-
-		fmt.Printf("Searching repositories...")
-
-		result, err := operations.DiscoverRemotes(cmd.Context(), cfg, operations.DiscoverRemotesRequest{
-			Query:    query,
-			Source:   discoverSource,
-			MinStars: discoverStars,
-			Limit:    discoverLimit,
-		})
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf(" found %d\n", result.Count)
-
-		// Print errors
-		for _, errMsg := range result.Errors {
-			clidiag.Warn("ctxloom", "%s", errMsg)
-		}
-
-		if result.Count == 0 {
-			// U040-F01: a total search failure (every configured source
-			// errored — today that is the sole GitHub fetcher, so any Error
-			// here means the WHOLE search failed) used to print the exact
-			// same "No ctxloom repositories found" a genuinely-empty,
-			// successful search prints. The warnings above already named the
-			// failure; the terminal line must not still claim a clean search.
-			if len(result.Errors) > 0 {
-				return fmt.Errorf("repository search failed (see warning(s) above); no results could be retrieved")
-			}
-			fmt.Println("\nNo ctxloom repositories found.")
-			if query != "" {
-				fmt.Printf("Try a different search term or remove the filter.\n")
-			}
-			return nil
-		}
-
-		// Display results
-		fmt.Println()
-		fmt.Printf("  # │ Forge  │ Repository          │ Stars │ Description\n")
-		fmt.Printf("────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
-
-		for i, r := range result.Repositories {
-			// Truncate description
-			desc := r.Description
-			if len(desc) > 35 {
-				desc = textutil.TruncateBytes(desc, 32) + "..."
-			}
-
-			repoName := fmt.Sprintf("%s/%s", r.Owner, r.Name)
-			if len(repoName) > 19 {
-				repoName = textutil.TruncateBytes(repoName, 16) + "..."
-			}
-
-			fmt.Printf("%3d │ %-6s │ %-19s │ %5d │ %s\n",
-				i+1, "GitHub", repoName, r.Stars, desc)
-		}
-
-		fmt.Println()
-
-		// Interactive add
-		if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {
-			return err
-		}
-
-		return nil
+		return runRemoteDiscover(cmd, args, GetConfig, nil)
 	},
+}
+
+// runRemoteDiscover searches for discoverable ctxloom repositories and offers
+// to add one interactively. Extracted from discoverCmd's inline RunE
+// (U040-F01 escalation) so the total-search-failure fix below has a
+// regression test that doesn't need a live cobra dispatch or network access
+// — mirrors runRemoteUpgrade's injected-loadConfig shape (remote_upgrade.go).
+// fetcher is nil in production (operations.DiscoverRemotes falls back to the
+// real GitHub fetcher); tests inject a remote.MockFetcher to force
+// SearchRepos to fail deterministically.
+func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*config.Config, error), fetcher remote.Fetcher) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	query := ""
+	if len(args) > 0 {
+		query = strings.Join(args, " ")
+	}
+
+	fmt.Printf("Searching repositories...")
+
+	result, err := operations.DiscoverRemotes(cmd.Context(), cfg, operations.DiscoverRemotesRequest{
+		Query:         query,
+		Source:        discoverSource,
+		MinStars:      discoverStars,
+		Limit:         discoverLimit,
+		GitHubFetcher: fetcher,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf(" found %d\n", result.Count)
+
+	// Print errors
+	for _, errMsg := range result.Errors {
+		clidiag.Warn("ctxloom", "%s", errMsg)
+	}
+
+	if result.Count == 0 {
+		// U040-F01: a total search failure (every configured source
+		// errored — today that is the sole GitHub fetcher, so any Error
+		// here means the WHOLE search failed) used to print the exact
+		// same "No ctxloom repositories found" a genuinely-empty,
+		// successful search prints. The warnings above already named the
+		// failure; the terminal line must not still claim a clean search.
+		if len(result.Errors) > 0 {
+			return fmt.Errorf("repository search failed (see warning(s) above); no results could be retrieved")
+		}
+		fmt.Println("\nNo ctxloom repositories found.")
+		if query != "" {
+			fmt.Printf("Try a different search term or remove the filter.\n")
+		}
+		return nil
+	}
+
+	// Display results
+	fmt.Println()
+	fmt.Printf("  # │ Forge  │ Repository          │ Stars │ Description\n")
+	fmt.Printf("────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
+
+	for i, r := range result.Repositories {
+		// Truncate description
+		desc := r.Description
+		if len(desc) > 35 {
+			desc = textutil.TruncateBytes(desc, 32) + "..."
+		}
+
+		repoName := fmt.Sprintf("%s/%s", r.Owner, r.Name)
+		if len(repoName) > 19 {
+			repoName = textutil.TruncateBytes(repoName, 16) + "..."
+		}
+
+		fmt.Printf("%3d │ %-6s │ %-19s │ %5d │ %s\n",
+			i+1, "GitHub", repoName, r.Stars, desc)
+	}
+
+	fmt.Println()
+
+	// Interactive add
+	if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // interactiveAdd prompts the user to add a discovered repo as a remote. It

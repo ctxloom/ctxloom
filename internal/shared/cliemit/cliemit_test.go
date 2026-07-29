@@ -99,3 +99,24 @@ func TestResolve_UnknownFormatErrors(t *testing.T) {
 		t.Fatalf("want ErrUnsupportedFormat, got %v", err)
 	}
 }
+
+// TestResolve_AcceptsAllFiveEncodings pins Resolve's full accepted vocabulary
+// (json/yaml/toml/text/markdown), formerly covered only through
+// internal/cli's now-deleted resolveFormat pass-through (U035-F24).
+func TestResolve_AcceptsAllFiveEncodings(t *testing.T) {
+	for _, want := range []clifmt.Format{
+		clifmt.FormatJSON, clifmt.FormatYAML, clifmt.FormatTOML, clifmt.FormatText, clifmt.FormatMarkdown,
+	} {
+		c, _ := newCmd(false)
+		if err := c.Flags().Set("format", string(want)); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Resolve(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("want %q, got %q", want, got)
+		}
+	}
+}

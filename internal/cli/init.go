@@ -101,21 +101,13 @@ Run this (or ask your agent to) any time you want to reconfigure.`,
 
 func init() {
 	rootCmd.AddCommand(initCmd)
-	bindInitFlags(initCmd)
+	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
+	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
+	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
+	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, antigravity, etc.)")
+	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
+	initCmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 	initCmd.AddCommand(initPromptCmd)
-}
-
-// bindInitFlags binds the init flag set to cmd. Shared by the top-level `init`
-// alias and `manage init` so both surfaces accept the same options against the
-// same package-level flag vars (a cobra command has exactly one parent, so the
-// alias must be a distinct command sharing the operation, not the *cobra.Command).
-func bindInitFlags(cmd *cobra.Command) {
-	cmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
-	cmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
-	cmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, antigravity, etc.)")
-	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
-	cmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
@@ -147,16 +139,12 @@ func stdoutIsTerminal() bool {
 
 // initPrompts handles interactive user prompts during init.
 type initPrompts struct {
-	reader   *bufio.Reader
-	oldState *term.State
+	reader *bufio.Reader
 }
 
-func newInitPrompts() *initPrompts {
-	return newInitPromptsFrom(os.Stdin)
-}
-
-// newInitPromptsFrom is newInitPrompts reading from an arbitrary r instead of
-// os.Stdin directly.
+// newInitPromptsFrom builds an initPrompts reading from an arbitrary r
+// instead of os.Stdin directly (the production path calls
+// newInitPromptsFrom(os.Stdin)).
 func newInitPromptsFrom(r io.Reader) *initPrompts {
 	p := &initPrompts{reader: bufio.NewReader(r)}
 
@@ -165,7 +153,6 @@ func newInitPromptsFrom(r io.Reader) *initPrompts {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		oldState, err := term.GetState(int(os.Stdin.Fd()))
 		if err == nil {
-			p.oldState = oldState
 			// Restore to cooked mode by making raw then restoring
 			// This is a workaround since there's no "MakeCooked" function
 			_, _ = term.MakeRaw(int(os.Stdin.Fd()))
@@ -246,7 +233,7 @@ func getAvailableEngines() (primary, secondary []string) {
 
 	// Get secondary engines (all others except mock)
 	for _, name := range backends.List() {
-		if name == "mock" || primarySet[name] {
+		if isMockBackend(name) || primarySet[name] {
 			continue
 		}
 		if backends.IsAvailable(name) {
@@ -493,8 +480,6 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 		return opt.value, opt.value == "commit", nil
 	}
 }
-
-// generateConfig creates a config.yaml with the selected engine and options.
 
 // discoverySessionPrompt returns the ONE prompt the init discovery session
 // receives: ctxloom's built-in five-phase setup body (ctxloomInitPrompt, see
@@ -891,7 +876,7 @@ func warnNoEnginesDetected() {
 // ""/false — the same silent-default shape init had before this question
 // existed (built-in "commit" default, unacknowledged).
 func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
-	prompts := newInitPrompts()
+	prompts := newInitPromptsFrom(os.Stdin)
 
 	engine, err = prompts.promptEngineSelection()
 	if err != nil {

@@ -394,7 +394,7 @@ var manageHooksStatusCmd = &cobra.Command{
 // manageMcpCmd is kept as a working alias namespace (CLI-primary reorg plan,
 // Decision 3: `manage mcp install/uninstall` -> `mcp register/unregister`,
 // `manage mcp servers *` -> `mcp server *`). Its leaves carry the real cobra
-// Deprecated field; this parent stays undecorated (memoryCmd's shape) so
+// Deprecated field; this parent stays undecorated (trustCmd's shape) so
 // Deprecated doesn't hide the whole subtree from `--help`.
 var manageMcpCmd = &cobra.Command{
 	Use:   "mcp",
@@ -511,7 +511,7 @@ func setStatusline(cmd *cobra.Command, enabled bool) error {
 // 6). configCmd itself is now the top-level command (wired in config.go);
 // these are distinct leaf commands sharing its RunE bodies — a cobra command
 // has exactly one parent, so config.go's configCmd can't also hang off
-// manageCmd. manageConfigCmd (the parent) stays undecorated, like memoryCmd,
+// manageCmd. manageConfigCmd (the parent) stays undecorated, like trustCmd,
 // so Deprecated on it wouldn't hide the leaves below from `--help`.
 var manageConfigCmd = &cobra.Command{
 	Use:   "config",

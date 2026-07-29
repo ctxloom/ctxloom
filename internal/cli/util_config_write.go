@@ -310,8 +310,8 @@ func backupBeforeEdit(fs afero.Fs, path string, data []byte) (string, error) {
 func deepMergeConfigMaps(base, patch map[string]any) map[string]any {
 	for k, pv := range patch {
 		if bv, ok := base[k]; ok {
-			if bMap, ok1 := asConfigMap(bv); ok1 {
-				if pMap, ok2 := asConfigMap(pv); ok2 {
+			if bMap, ok1 := bv.(map[string]any); ok1 {
+				if pMap, ok2 := pv.(map[string]any); ok2 {
 					base[k] = deepMergeConfigMaps(bMap, pMap)
 					continue
 				}
@@ -320,11 +320,6 @@ func deepMergeConfigMaps(base, patch map[string]any) map[string]any {
 		base[k] = pv
 	}
 	return base
-}
-
-func asConfigMap(v any) (map[string]any, bool) {
-	m, ok := v.(map[string]any)
-	return m, ok
 }
 
 // containsConfigPatch implements rule 5's payload verification: it confirms
@@ -338,8 +333,8 @@ func containsConfigPatch(data, patch map[string]any) bool {
 		if !ok {
 			return false
 		}
-		if pMap, ok2 := asConfigMap(pv); ok2 {
-			dMap, ok3 := asConfigMap(dv)
+		if pMap, ok2 := pv.(map[string]any); ok2 {
+			dMap, ok3 := dv.(map[string]any)
 			if !ok3 || !containsConfigPatch(dMap, pMap) {
 				return false
 			}

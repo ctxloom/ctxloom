@@ -134,10 +134,6 @@ instead, set isolation_images in config — those are run as-is and never built.
 	},
 }
 
-// containerDiagnose is the Diagnose seam, a var so the CLI rendering is
-// testable with an injected report.
-var containerDiagnose = isolation.Diagnose
-
 // containerProvenanceCmd prints the content digest of the ctxloom + companion
 // binaries THIS ctxloom would bake into an agent image — the value stamped as
 // the image's ctxloom.provenance label. Hidden plumbing: the ahead-of-time
@@ -314,7 +310,7 @@ or keep agents on 'runtime: host'.`,
 		if cfg, err := GetConfig(); err == nil {
 			img = operations.IsolationImageConfig(cfg, backend)
 		}
-		d := containerDiagnose(cmd.Context(), backend, img)
+		d := isolation.Diagnose(cmd.Context(), backend, img)
 		return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
 	},
 }

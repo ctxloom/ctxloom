@@ -33,61 +33,41 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	remoteName := args[0]
 
 	// Only bundles are distributed at the top level (top-level profile
-	// distribution was retired; profiles ship inside bundles).
-	types := []string{"bundle"}
-
-	totalCount := 0
-	var browseErrs []error
-
-	for _, itemType := range types {
-		result, err := operations.BrowseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
-			Remote:    remoteName,
-			ItemType:  itemType,
-			Recursive: browseRecursive,
-		})
-		if err != nil {
-			clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "failed to browse %ss: %v", itemType, err)
-			browseErrs = append(browseErrs, err)
-			continue
-		}
-
-		if result.Count == 0 {
-			continue
-		}
-
-		totalCount += result.Count
-
-		// Display results
-		title := strings.ToUpper(itemType[:1]) + itemType[1:] + "s"
-		if len(types) > 1 {
-			fmt.Printf("\n%s:\n", title)
-		} else {
-			fmt.Printf("%s in %s (%s):\n\n", title, result.Remote, result.URL)
-		}
-
-		// Sort entries by path
-		items := result.Items
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].Path < items[j].Path
-		})
-
-		for _, item := range items {
-			fmt.Printf("  %s\n", item.PullRef)
-		}
+	// distribution was retired; profiles ship inside bundles) — so this
+	// browses exactly one item type. It used to loop over a slice of
+	// item types (a leftover from when profiles were browsable
+	// separately); U039-F09 inlined that to the single call it always was.
+	const itemType = "bundle"
+	result, err := operations.BrowseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
+		Remote:    remoteName,
+		ItemType:  itemType,
+		Recursive: browseRecursive,
+	})
+	if err != nil {
+		// U039-F03: a browse failure (network, auth, an unresolvable remote
+		// name) must not be reported as "No bundles found" — that asserts a
+		// false fact (the remote may be full of bundles; the browse just
+		// never reached it) and would otherwise exit 0.
+		clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "failed to browse %ss: %v", itemType, err)
+		return fmt.Errorf("browse %s: %w", remoteName, err)
 	}
 
-	if totalCount == 0 {
-		// U039-F03: totalCount == 0 for two entirely different reasons — a
-		// genuinely empty remote, or every itemType's browse call failing
-		// outright (network, auth, an unresolvable remote name). Only the
-		// first is "No bundles found"; the second is a failure asserting a
-		// false fact ("the remote has nothing" when the remote was simply
-		// never reached), and must not exit 0.
-		if len(browseErrs) == len(types) {
-			return fmt.Errorf("browse %s: %w", remoteName, browseErrs[0])
-		}
+	if result.Count == 0 {
 		fmt.Printf("No bundles found in %s\n", remoteName)
 		return nil
+	}
+
+	title := strings.ToUpper(itemType[:1]) + itemType[1:] + "s"
+	fmt.Printf("%s in %s (%s):\n\n", title, result.Remote, result.URL)
+
+	// Sort entries by path
+	items := result.Items
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Path < items[j].Path
+	})
+
+	for _, item := range items {
+		fmt.Printf("  %s\n", item.PullRef)
 	}
 
 	fmt.Println()

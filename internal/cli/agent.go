@@ -232,8 +232,8 @@ var agentSetupCmd = &cobra.Command{
 }
 
 // agentSetupDeprecation is the one-line pointer cobra prints whenever
-// `ctxloom agent setup` still runs (see memory.go's memoryListDeprecation for
-// the same shape/rationale — additive deprecation shim, not yet a removal).
+// `ctxloom agent setup` still runs (the same additive-deprecation-shim shape
+// as this package's other one-line-pointer deprecations — not yet a removal).
 const agentSetupDeprecation = "use `ctxloom init prompt` instead"
 
 var (

@@ -35,7 +35,7 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distil
 	if backend == "" {
 		return nil
 	}
-	return &mcpLLMDistillerSDK{
+	return &llmDistiller{
 		llmName:  backend,
 		llmLabel: label,
 		llmEnv:   llmEnvFor(cfg, label),
@@ -44,10 +44,10 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distil
 	}
 }
 
-// mcpLLMDistillerSDK adapts the cmd distill helpers to the operations.Distiller
+// llmDistiller adapts the cmd distill helpers to the operations.Distiller
 // interface. State is captured at construction so each Distill call is
 // self-contained.
-type mcpLLMDistillerSDK struct {
+type llmDistiller struct {
 	llmName  string
 	llmLabel string // resolved config label, so serve configures exactly this entry
 	llmEnv   map[string]string
@@ -55,7 +55,7 @@ type mcpLLMDistillerSDK struct {
 	prompt   string
 }
 
-func (d *mcpLLMDistillerSDK) Distill(ctx context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
+func (d *llmDistiller) Distill(ctx context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
 	var excludeName string
 	switch req.Kind {
 	case operations.DistillKindFragment:

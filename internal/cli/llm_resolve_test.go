@@ -113,3 +113,13 @@ func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 	assert.Equal(t, "/bin/alpha", decodedClaudeBinaryPath(t, cfg),
 		"a primary of a different type falls back to the sorted-label scan")
 }
+
+// TestIsMockBackend pins the one predicate both usableLLMs (run.go) and
+// getAvailableEngines (init.go) now share (U057-F14 escalation): the "mock"
+// backend must never surface in a user-facing engine list, and nothing else
+// should be caught by the same check.
+func TestIsMockBackend(t *testing.T) {
+	assert.True(t, isMockBackend("mock"))
+	assert.False(t, isMockBackend("claude-code"))
+	assert.False(t, isMockBackend(""))
+}

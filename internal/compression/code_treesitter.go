@@ -55,7 +55,7 @@ func (c *CodeCompressor) CanHandle(ct ContentType) bool {
 // The routed contentType picks the grammar; content sniffing is only a
 // fallback for an unknown type, and an unsniffable input degrades to verbatim
 // — parsing under a guessed grammar silently loses the content.
-func (c *CodeCompressor) Compress(ctx context.Context, ct ContentType, content string, ratio float64) (Result, error) {
+func (c *CodeCompressor) Compress(ctx context.Context, ct ContentType, content string) (Result, error) {
 	// Fault tolerance: a missing parser or a parse failure degrades to
 	// verbatim pass-through rather than failing the caller.
 	pool, err := c.parserPool(ct)

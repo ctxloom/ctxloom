@@ -347,7 +347,7 @@ func (h *tearHarness) child(s string) {
 // roster requests a bar repaint; with the clock frozen right after a child
 // write it always defers to the gate's next afterWrite flush.
 func (h *tearHarness) roster(state string) {
-	h.c.sur.SetRoster([]RosterEntry{{Harp: "sixth-royal-kelp", Agent: "finder", State: state, LastActivityUnix: 1}})
+	h.c.sur.SetRoster([]RosterEntry{{Harp: "sixth-royal-kelp", State: state, LastActivityUnix: 1}})
 }
 
 // idle advances the frozen clock past the busy window so the next repaint

@@ -187,18 +187,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"plan watch":    {skip: "streaming: same shape as session watch"},
 	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
-	// --- skip: legacy aliases for `session *`, slated for removal (Decision 2) ---
-	// T19 audit (source-verified, not registry-trusted): runMemoryShow and
-	// runMemoryCompact are standalone functions (memory.go), NOT thin wrappers
-	// around session_cmd.go's emit()-wired sessionShowCmd/runSessionDistill —
-	// neither calls emit(); both are real format debt, not just deprecated-
-	// alias noise. runMemoryList is the one exception: it DOES call emit()
-	// (confirmed via find_referencing_symbols on cliemit.Emit), so `memory
-	// list` is fine and NOT formatDebt despite living in this group.
-	"memory list":    {skip: "deprecated alias for `session list`, being removed (plan Decision 2); not independently exercised"},
-	"memory show":    {skip: "deprecated alias for `session show`; runMemoryShow (memory.go) is its own implementation and never calls emit() — T19 debt", formatDebt: true},
-	"memory compact": {skip: "deprecated alias for `session distill`; runMemoryCompact (memory.go) is its own implementation and never calls emit() — T19 debt", formatDebt: true},
-
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
 	"sign":                {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
 	"bundle sign":         {skip: "deprecated-alias's real home (`ctxloom sign`); same ssh-agent/git identity requirement"},
@@ -251,8 +239,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"remote remove":   {skip: "needs a configured remote fixture", formatDebt: true},
 	"remote update":   {skip: "network: updates pinned bundle content from a real remote", formatDebt: true},
 	"remote upgrade":  {skip: "network: upgrades pinned bundle content from a real remote", formatDebt: true},
-	"bundle push":     {skip: "network: publishes to a real remote repository (shares pushBundleCfg with fragment/command push, covered by push_sign_test.go)"},
-	"fragment push":   {skip: "network: same pushBundleCfg path as bundle push"},
+	"bundle push":     {skip: "network: publishes to a real remote repository (shares pushBundleCfg with command push, covered by push_sign_test.go)"},
 	"command push":    {skip: "network: same pushBundleCfg path as bundle push"},
 
 	// --- skip: docker / container runtime required ---
@@ -315,7 +302,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"fragment delete":  {skip: "not wired to emit() yet", formatDebt: true},
 	"fragment edit":    {skip: "not wired to emit() yet", formatDebt: true},
 	"fragment distill": {skip: "not wired to emit() yet", formatDebt: true},
-	"fragment search":  {skip: "not wired to emit() yet", formatDebt: true},
 	"command show":     {skip: "not wired to emit() yet", formatDebt: true},
 	"command create":   {skip: "not wired to emit() yet", formatDebt: true},
 	"command delete":   {skip: "not wired to emit() yet", formatDebt: true},
@@ -513,7 +499,6 @@ var formatDebtAllowlist = map[string]string{
 	"fragment delete":  "fragment.go: the delete RunE must route through emit()",
 	"fragment edit":    "fragment.go: the edit RunE must route through emit()",
 	"fragment distill": "fragment.go: the distill RunE must route through emit()",
-	"fragment search":  "fragment.go: the search RunE must route through emit()",
 	"command show":     "command_cmd.go: the show RunE must route through emit()",
 	"command create":   "command_cmd.go: the create RunE must route through emit()",
 	"command delete":   "command_cmd.go: the delete RunE must route through emit()",
@@ -539,12 +524,6 @@ var formatDebtAllowlist = map[string]string{
 	"session rename":  "session_cmd.go: the rename RunE (inline closure) must route through emit()",
 	"session forget":  "session_cmd.go: the forget RunE (inline closure) must route through emit()",
 	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
-
-	// --- memory deprecated-alias surface (memory.go) ---
-	// NOTE: unlike `memory list` (which shares session list's emit()-wired
-	// code and is NOT debt), show/compact are standalone implementations.
-	"memory show":    "memory.go: runMemoryShow is a standalone implementation (not a thin session-show wrapper) and must route through emit() independently",
-	"memory compact": "memory.go: runMemoryCompact is a standalone implementation (not a thin session-distill wrapper) and must route through emit() independently",
 }
 
 // TestFormatCoverage_DebtAllowlistTracksRegistry is T19's enforcing half: it

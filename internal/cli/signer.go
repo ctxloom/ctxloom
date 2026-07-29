@@ -24,7 +24,7 @@ import (
 // signerCmd is kept as a working alias namespace (CLI-primary reorg plan,
 // Decision 1/3: top-level `signer *` -> `trust signer *`). Its leaves below
 // carry the real cobra Deprecated field (see trustSignerAddCmd etc. in this
-// file for the new home); this parent stays undecorated — like memoryCmd — so
+// file for the new home); this parent stays undecorated — like trustCmd — so
 // marking it Deprecated doesn't hide the whole subtree from `--help`.
 var signerCmd = &cobra.Command{
 	Use:   "signer",

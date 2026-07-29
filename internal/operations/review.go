@@ -210,6 +210,11 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		srv := bundle.MCP[name]
 		payload, perr := srv.ContentPayload()
 		if perr != nil {
+			// U086-F19: mirror classify's warning for a structurally
+			// identical "cannot address this item" case — the gate withholds
+			// it anyway, so review is the only place the user could learn
+			// why an item they can see in the bundle never appears.
+			clidiag.Warn("ctxloom", "review: skipping mcp %q in bundle %q: %v", name, bundleRef, perr)
 			continue
 		}
 		item, ok := e.classify(bundleRef, "mcp", name, payload, string(bundles.FormRaw), signer, true)
@@ -222,6 +227,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 	for _, entry := range bundle.Hooks.Entries() {
 		payload, perr := entry.Hook.ContentPayload()
 		if perr != nil {
+			clidiag.Warn("ctxloom", "review: skipping hook %q in bundle %q: %v", entry.ID(), bundleRef, perr)
 			continue
 		}
 		item, ok := e.classify(bundleRef, "hooks", entry.ID(), payload, string(bundles.FormRaw), signer, true)
@@ -250,10 +256,12 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		// approval of files review never displayed.
 		manifest, merr := skill.EffectiveManifest(e.fs, skillDir, name)
 		if merr != nil {
+			clidiag.Warn("ctxloom", "review: skipping skill %q in bundle %q: %v", name, bundleRef, merr)
 			continue
 		}
 		payload, perr := skill.ContentPayload(e.fs, skillDir, name)
 		if perr != nil {
+			clidiag.Warn("ctxloom", "review: skipping skill %q in bundle %q: %v", name, bundleRef, perr)
 			continue
 		}
 		// executable=false: unlike mcp/hooks, a skill IS a reviewable TREE —

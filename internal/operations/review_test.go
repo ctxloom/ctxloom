@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -462,4 +464,44 @@ func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 	solid := byRef[reviewSeedKey+"#fragments/solid"]
 	assert.Equal(t, "solid raw body", solid.CurrentContent)
 	assert.Empty(t, solid.AlternateContent, "a single-form item has no second countersigned form")
+}
+
+// TestPendingReview_UnreadableSkillIsWarned is a regression guard for
+// U086-F19: pendingItems dropped an MCP server, hook, or skill whose
+// ContentPayload()/EffectiveManifest() failed via a bare `continue`, with NO
+// warning — unlike classify's structurally identical unaddressable-item case,
+// which does warn. A manifest-less skill (no authored Files) whose on-disk
+// tree cannot be parsed (no SKILL.md at the resolved directory) is the one
+// branch of the four bare continues in pendingItems that is reachable with
+// realistic bundle data: BundleMCP/BundleHook.ContentPayload() encode only
+// strings/slices/maps and cannot fail via json.Marshal (see
+// BundleMCP.ComputeContentHash's own "Unreachable" comment), and the skill's
+// own ContentPayload() call is never reached once EffectiveManifest itself
+// has already failed. Those three got the identical warn-before-continue
+// treatment for consistency but have no failure this suite can force.
+func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
+	fx := newTrustFixture(t)
+	b := &bundles.Bundle{
+		Version: "1.0",
+		Path:    "seed/broken-skills.yaml", // gives FSDir() a real directory
+		Skills: map[string]bundles.BundleSkill{
+			"ghost": {}, // manifest-less: no Files, and no SKILL.md on the fs below
+		},
+	}
+
+	var buf strings.Builder
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	res, err := PendingReview(nil, PendingReviewRequest{
+		UserStore: fx.user, Root: fx.root,
+		Registry: newRegistry(t),
+		Loader:   reviewLoader(b),
+		FS:       afero.NewMemMapFs(), // empty: no SKILL.md anywhere
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, pendingRefs(res), "an unparseable skill must still be withheld from review")
+	assert.Contains(t, buf.String(), "ghost",
+		"an EffectiveManifest failure must be warned like classify's structurally identical case, not silently dropped")
 }

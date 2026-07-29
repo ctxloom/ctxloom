@@ -49,7 +49,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(ListProfilesResult{})},
 		{Type: reflect.TypeOf(ListRemotesResult{})},
 		{Type: reflect.TypeOf(LockDependenciesResult{})},
-		{Type: reflect.TypeOf(PullItemResult{})},
 		{Type: reflect.TypeOf(PushBundleResult{})},
 		{Type: reflect.TypeOf(ReadBundleResult{})},
 		{Type: reflect.TypeOf(RemoveHooksResult{})},

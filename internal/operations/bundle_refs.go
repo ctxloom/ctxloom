@@ -56,11 +56,6 @@ func withinBundleCache(appDir, p string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// localBundlePath is localItemPath for a bundle ref.
-func localBundlePath(appDir, canonicalRef string) string {
-	return localItemPath(appDir, remote.ItemTypeBundle, canonicalRef)
-}
-
 // RemovedItem identifies a local item to delete during cleanup.
 type RemovedItem struct {
 	Type remote.ItemType

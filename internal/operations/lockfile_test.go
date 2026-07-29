@@ -187,4 +187,3 @@ func testConfigWithSCMPath(path string) *config.Config {
 		AppPaths: []string{path},
 	})
 }
-

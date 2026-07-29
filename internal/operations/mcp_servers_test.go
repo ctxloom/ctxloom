@@ -328,8 +328,7 @@ func TestGetMCPServer_MultipleScopes(t *testing.T) {
 func TestListMCPServers_AllServers(t *testing.T) {
 	cfg := createTestMCPConfig()
 
-	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-	})
+	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, result.Count) // filesystem, github, custom-server
@@ -340,7 +339,7 @@ func TestListMCPServers_WithQuery(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		Query:      "github",
+		Query: "github",
 	})
 
 	require.NoError(t, err)
@@ -352,7 +351,7 @@ func TestListMCPServers_QueryByCommand(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		Query:      "python",
+		Query: "python",
 	})
 
 	require.NoError(t, err)
@@ -364,8 +363,8 @@ func TestListMCPServers_SortByName(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "name",
-		SortOrder:  "asc",
+		SortBy:    "name",
+		SortOrder: "asc",
 	})
 
 	require.NoError(t, err)
@@ -381,8 +380,8 @@ func TestListMCPServers_SortByCommand(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "command",
-		SortOrder:  "asc",
+		SortBy:    "command",
+		SortOrder: "asc",
 	})
 
 	require.NoError(t, err)
@@ -398,8 +397,8 @@ func TestListMCPServers_SortDescending(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "name",
-		SortOrder:  "desc",
+		SortBy:    "name",
+		SortOrder: "desc",
 	})
 
 	require.NoError(t, err)
@@ -415,8 +414,8 @@ func TestListMCPServers_SortByCommandDescending(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "command",
-		SortOrder:  "desc",
+		SortBy:    "command",
+		SortOrder: "desc",
 	})
 
 	require.NoError(t, err)
@@ -433,7 +432,7 @@ func TestListMCPServers_QueryBackendServerByName(t *testing.T) {
 
 	// Query for backend-specific server by name
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		Query:      "custom",
+		Query: "custom",
 	})
 
 	require.NoError(t, err)

@@ -63,7 +63,6 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 		WorkDir:      projectDir,
 		FS:           afero.NewOsFs(),
 		ConfigLoader: func() (*config.Config, error) { return cfg, nil },
-		ExecPath:     "ctxloom",
 	})
 	require.NoError(t, err)
 

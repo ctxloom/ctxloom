@@ -32,4 +32,3 @@ func CanonicalizeRemoteRef(cfg *config.Config, ref string, itemType remote.ItemT
 	}
 	return canonicalizeUserRef(ref, itemType, registry)
 }
-

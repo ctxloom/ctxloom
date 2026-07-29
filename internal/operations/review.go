@@ -478,4 +478,3 @@ func renderSkillSurface(manifest bundles.SkillManifest) string {
 	}
 	return b.String()
 }
-

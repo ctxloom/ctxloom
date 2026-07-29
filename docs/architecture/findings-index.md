@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **865** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **871** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 61 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 103 |
-| `open` | no commit names this ID | **1,209** |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 62 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 104 |
+| `open` | no commit names this ID | **1,201** |
 
-**Totals: 2268 findings across 162 units — 865 resolved, 1209 still open, 194 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 871 resolved, 1201 still open, 196 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave4/netneg-materialize` batch: all 18
 net-negative rows of the MATERIALIZE flow adjudicated (U029-F02/F04,
@@ -248,9 +248,9 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 350 | 7 | 10 | 6 | 3 |
-| MED | 999 | 214 | 694 | 11 | 18 | 62 |
-| LOW | 871 | 301 | 488 | 9 | 35 | 38 |
+| HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
+| MED | 999 | 219 | 688 | 11 | 19 | 62 |
+| LOW | 871 | 302 | 487 | 9 | 35 | 38 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -727,7 +727,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U111-F01 | **RESOLVED** `0eada046` | `harp.go` (absence) → `internal/paths/paths.go:182` | CORRECTNESS | **No harp validator exists anywhere in the repo**, and harps are used unvalidated as filesystem path segments — giving two user-reachable directory-traversal entries. Validation belongs in this pac... | U111.md |
 | U111-F02 | **RESOLVED** `e0dfd9b5` | `harp.go:185-193` | CORRECTNESS | `UniqueFrom` is documented as best-effort and *can return a duplicate*, and **neither of its two callers performs the check its own doc tells them to**. | U111.md |
 | U111-F03 | **RESOLVED** `e0dfd9b5` | `harp.go:174-176` | CORRECTNESS | The short-name identity space is **488,186** — small enough that task-id minting collides at percent-level rates across branches, and the verified downstream consequence is a task store where **eve... | U111.md |
-| U112-F01 | open | **`marker.go:45,60,73`** | DEAD | **The read half of this package has no production caller.** `Scan`, `Find`, and `findInValue` — 57 of the file's 101 lines, including all the nested-escaping machinery the package doc spends 8 line... | U112.md |
+| U112-F01 | **ESCALATED** `4dc64b44` | **`marker.go:45,60,73`** | DEAD | **The read half of this package has no production caller.** `Scan`, `Find`, and `findInValue` — 57 of the file's 101 lines, including all the nested-escaping machinery the package doc spends 8 line... | U112.md |
 | U113-F03 | **RESOLVED** `5fbf2be2` | `internal/shared/iox/errwriter.go:34-67` + `internal/cli/session_watch.go:156` | SILENTNOOP | `ErrWriter`'s void-returning write methods make an unchecked `Err()` invisible to `errcheck`, and `ctxloom session watch`'s primary text output takes exactly that path: a failed write silently drai... | U113.md |
 | U114-F01 | **RESOLVED** `9f18e71a` | **`pidalive_unix.go:19`, `pidalive_windows.go:11`** | CORRECTNESS | **`Alive` returns a total `bool`, so it cannot say "I could not tell" — and every probe failure collapses into a confident `false` ("dead"), the destructive direction for two of its three consumers... | U114.md |
 | U114-F02 | **RESOLVED** `9f18e71a` | **`pidalive_windows.go:7-13`** | CORRECTNESS | **The Windows implementation errs toward DEAD for any process the caller cannot open — and its own doc claims the exact opposite.** It also violates the consumer contract's stated rule that a proce... | U114.md |
@@ -1598,7 +1598,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U110-F02 | **RESOLVED** `9f84aa35` | `gitutil.go:15-17` | TRIVIAL | `GetOriginURL` is a one-expression pass-through, and its delegate `GetRemoteURL` has **zero production callers other than it**. The package exports two functions to serve one call site, and the gen... | U110.md |
 | U110-F03 | open | `gitutil.go:26-28` vs `gitutil.go:58-61` | ERRHANDLING | The two functions handle the *identical* precondition — "is `startPath` a file or a directory?" — with opposite error policies, 30 lines apart in a 79-line file. `FindRoot` returns `stat path: %w`.... | U110.md |
 | U110-F04 | open | `gitutil.go:30-32,66-68` vs `internal/git/exec.go:437` | COUPLING | ctxloom has two git layers that resolve "the repository" by **different, silently divergent rules**, and nothing documents the boundary. `internal/git` shells out with `cmd.Env = os.Environ()`, so ... | U110.md |
-| U111-F04 | open | `internal/sessions/index.go:772-783` | DUPLICATE | `sessions.generateUniqueHarp` is a line-for-line reimplementation of `harp.UniqueFrom`, including the same subtle unchecked-fallback contract. | U111.md |
+| U111-F04 | **RESOLVED** `c94914e5` | `internal/sessions/index.go:772-783` | DUPLICATE | `sessions.generateUniqueHarp` is a line-for-line reimplementation of `harp.UniqueFrom`, including the same subtle unchecked-fallback contract. | U111.md |
 | U111-F05 | open | `harp.go:42`, `:49`, `:79` | ERRHANDLING | Two panics fire from a package-level variable initializer, so any defect in the embedded word lists is an unconditional crash of **every** family binary before `main()` runs, with no degradation path. | U111.md |
 | U111-F06 | open | `harp.go:146-160` | CORRECTNESS | `normalize` silently rewrites user-supplied values instead of rejecting them, so a CLI user gets an answer to a question they did not ask. | U111.md |
 | U111-F07 | open | `harp.go:211-219` | CORRECTNESS | An unsatisfiable `MaxElementLength` makes every generated name a **constant**, silently — including through `UniqueFrom`, which then cannot possibly find a unique id. | U111.md |
@@ -1655,19 +1655,19 @@ Full evidence and the suggested action for any row live in its source review at 
 | U124-F07 | open | `:447-449` | COUPLING | `isTerminal` is a hand-maintained copy of the store's own unexported `statusIsDone`, and its doc says so — connascence of **algorithm** with no mechanism keeping them in step | U124.md |
 | U125-F02 | open | **`registry.go:217-224`** | ERRHANDLING | `Adopt`'s early-return path returns a **populated `Entry` alongside a possibly non-nil error** — the only return in the file that does not zero its value on failure | U125.md |
 | U125-F04 | **RESOLVED** `33a6de34` | **`registry.go:66`** | DEAD | `Manager.Path()` has **zero call sites anywhere in the repo, including tests** | U125.md |
-| U125-F05 | open | `resolve.go:9-32` | DEAD | `Resolution.Action` and all four `Action` constants are **read only by this package's own tests**. The entire outcome taxonomy exists to let its tests assert on it | U125.md |
+| U125-F05 | **REFUTED** `a68c3e52` | `resolve.go:9-32` | DEAD | `Resolution.Action` and all four `Action` constants are **read only by this package's own tests**. The entire outcome taxonomy exists to let its tests assert on it | U125.md |
 | U125-F06 | **RESOLVED** `33a6de34` | **`registry.go:36`, `:70`** | DEAD | `Registry` and `Manager.Load` are exported but have **no callers outside this package** — they leak the on-disk representation into the public API for no consumer | U125.md |
-| U125-F07 | open | **`registry.go:159-171`, `:203-215`, `:235-247`** | DUPLICATE | The three mutating methods each open with the **same 8-line lock-and-load preamble**, copy-pasted, and the ordering it encodes (`mu` → filelock → `loadLocked`) is connascence of *order* enforced by... | U125.md |
+| U125-F07 | **RESOLVED** `555e4588` | **`registry.go:159-171`, `:203-215`, `:235-247`** | DUPLICATE | The three mutating methods each open with the **same 8-line lock-and-load preamble**, copy-pasted, and the ordering it encodes (`mu` → filelock → `loadLocked`) is connascence of *order* enforced by... | U125.md |
 | U125-F08 | open | `resolve.go:109-118` | CORRECTNESS | `mintInto` is a **non-atomic two-step**: the registry entry is appended and persisted, then the marker is written. A failure between them leaves an id registered at a path whose tree does not know ... | U125.md |
 | U126-F01 | open | `tagschema.go:215-229` | CORRECTNESS | `Enum` returns an **empty-but-present** member list for a declaration containing no usable member, and cannot report the malformation. Both consumers then reject *every* value on that target — one ... | U126.md |
 | U126-F02 | **RESOLVED** `9e25a5a2` | `tagschema.go:189`, `:196`, `:206` | TRIVIAL | `PriorityFn`, `DecayFn`, and `Type` are three one-line aliases for `Get(<constant>, target)` that add no invariant, no validation, and no concept — and the one design that appears to justify them d... | U126.md |
 | U126-F04 | open | `tagschema.go:283-285` vs `:243-245` vs `:113` | COHESION | One package applies **three different policies to a malformed declaration**: `Parse`/`add` errors, `Range` errors, `Enum` silently returns an empty set (F01), and `HideFacts` silently skips. A conf... | U126.md |
 | U126-F06 | **RESOLVED** `b35a226d` | `formula.go:12-16` | DUPLICATE | `placeholderPattern` is the authoritative definition of the placeholder syntax, and it has been **copied verbatim into two other packages** rather than exported | U126.md |
 | U126-F07 | open | `tagschema.go:99-107` | SILENTNOOP | `Parse` on an empty declaration list returns a **valid `Schema` and a nil error**, producing an object that silently disables every schema-driven behaviour in the product — scalar collapse, enum/ra... | U126.md |
-| U127-F02 | open | **`package-wide`** | NOPAY | This package has **zero test files** while 127 call sites depend on it for correctness, and its failure mode is silent by construction | U127.md |
-| U127-F03 | open | `taskstest.go:26-40`, `:58-67` vs `testsupport.go:71-103` | DUPLICATE | `Isolate` and `ProjectDir` are **byte-duplicated bodies** in `testsupport`, even though this package's own docs twice assert the "one body, no duplicate" principle and implement it correctly for th... | U127.md |
+| U127-F02 | **RESOLVED** `ae01686f` `ebd33b7c` | **`package-wide`** | NOPAY | This package has **zero test files** while 127 call sites depend on it for correctness, and its failure mode is silent by construction | U127.md |
+| U127-F03 | **RESOLVED** `3a610586` | `taskstest.go:26-40`, `:58-67` vs `testsupport.go:71-103` | DUPLICATE | `Isolate` and `ProjectDir` are **byte-duplicated bodies** in `testsupport`, even though this package's own docs twice assert the "one body, no duplicate" principle and implement it correctly for th... | U127.md |
 | U127-F04 | open | `gitfixture.go:27-29` | CORRECTNESS | `t.Skip("git not on PATH")` means that in an environment without git, **all 16 call sites vanish and the suite still reports PASS** — and those 16 are the only coverage of the linked-worktree redir... | U127.md |
-| U127-F06 | open | `gitfixture.go:10-23` | DUPLICATE | `RealGitWorktreeFixture`'s doc declares itself canonical and sanctions **exactly one** frozen copy — but a **third** copy already exists, and the doc does not know | U127.md |
+| U127-F06 | **RESOLVED** `ebd33b7c` | `gitfixture.go:10-23` | DUPLICATE | `RealGitWorktreeFixture`'s doc declares itself canonical and sanctions **exactly one** frozen copy — but a **third** copy already exists, and the doc does not know | U127.md |
 | U128-F02 | open | **`parse.go:63-71`** | CORRECTNESS | `stripCodeFence` unconditionally drops the whole fence-opener **line**. When the model puts the array on that same line (```` ```json [{...}]\n``` ````), the array is destroyed, `extractJSONArray` ... | U128.md |
 | U128-F03 | open | **`parse.go:52-53`** | CORRECTNESS | `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array — a common model habit — producing a garbage span that fails to unmarshal and degrades the chunk. | U128.md |
 | U128-F04 | open | `verdict.go:58-79` | COHESION | `Verdict` fuses three fields with three different trust directions and lifetimes: the model↔caller contract, an internal round-1→round-2 control signal (`Queries`), and caller-stamped provenance (`... | U128.md |
@@ -2521,7 +2521,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U119-F07 | open | `strictness.go:342–343` | CORRECTNESS | `FailOnce`'s doc contradicts its implementation and its own tests: it claims "**per-process** dedup ... the finding records at most once", but `record` dedups **per checkpoint generation** and `Tes... | U119.md |
 | U119-F08 | open | `strictness.go:371` vs `clidiag.go:128` | DUPLICATE | **Negative result on the raised duplication** (see the dedicated cross-check below) — but the two dedup keys disagree on one dimension beyond the generation: strictness includes `class`, clidiag do... | U119.md |
 | U120-F08 | open | `log.go:321` | ERRHANDLING | `defer func() { _ = f.Close() }()` swallows the close error on the log's only write path. | U120.md |
-| U120-F09 | open | **`store.go:67-70, 77-80 vs log.go:360`** | DUPLICATE | `ValidateStatusTrigger` is called twice on every add — once in `Store.AddWithTrigger`/`AddWithTags`, again in `eventLog.addWithTags`. | U120.md |
+| U120-F09 | **RESOLVED** `80b0c3e4` | **`store.go:67-70, 77-80 vs log.go:360`** | DUPLICATE | `ValidateStatusTrigger` is called twice on every add — once in `Store.AddWithTrigger`/`AddWithTags`, again in `eventLog.addWithTags`. | U120.md |
 | U120-F10 | open | `log.go:554, 578, 598` | ERRHANDLING | The shared read lock is acquired with `if unlock, err := filelock.LockShared(…); err == nil { defer unlock() }` — a lock *failure* is silently downgraded to an unlocked read with no diagnostic at a... | U120.md |
 | U120-F11 | open | `log.go:574-576, log.go:59` | CORRECTNESS | Two comments describe behaviour the code no longer has. | U120.md |
 | U120-F15 | **RESOLVED** `86e22106` | `task.go:32, 64, 69` | NOPAY | `ValidateStatusTrigger`, `ErrTriggerRequired`, and `DefaultStatusOrder` are exported but have **no consumer outside this package**. | U120.md |

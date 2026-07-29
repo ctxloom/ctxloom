@@ -6,9 +6,9 @@ package engine
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Request is the engine-neutral view of a tool invocation to be checked. It is
@@ -165,22 +165,11 @@ func All() []Engine {
 	return engines()
 }
 
-// engineAliases maps accepted alternate spellings to canonical engine names.
-var engineAliases = map[string]string{
-	"claudecode":      "claude-code",
-	"claude":          "claude-code",
-	"agy":             "antigravity",
-	"antigravity-cli": "antigravity",
-}
-
 // Get returns the engine for a name: the canonical name or a declared alias,
 // case-insensitively. There is no prefix matching — a typo must error rather
 // than silently pick an engine.
 func Get(name string) (Engine, error) {
-	want := strings.ToLower(name)
-	if canonical, ok := engineAliases[want]; ok {
-		want = canonical
-	}
+	want := agent.CanonicalEngineName(name)
 	for _, e := range engines() {
 		if e.Name() == want {
 			return e, nil

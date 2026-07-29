@@ -21,9 +21,6 @@ func newClaudeLifecycle() *agent.BaseLifecycle {
 	return agent.NewBaseLifecycle("claude-code")
 }
 
-// TestClaudeCommands_RegisterFromContent covers the host-resolved export path:
-// the host maps bundle content to agent.CommandExport (enablement + metadata
-// already resolved) and the command writer just emits the command files.
 func TestClaudeContext_GetContextHash(t *testing.T) {
 	context := agent.NewBaseContextProvider()
 

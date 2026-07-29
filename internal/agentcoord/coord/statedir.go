@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -24,7 +25,9 @@ import (
 //	    interactions.jsonl audit journal (no projection)
 //	    endpoint.json      last-bound ports, re-bound on relaunch so
 //	                       adopted children re-Hello a stable endpoint
-const coordDirName = "coord"
+// Declared in discover, whose List globs this same directory to find live
+// coordinators: one constant, not two that agree by inspection.
+const coordDirName = discover.DirName
 
 // stateDirForProject resolves the coordinator state dir, keyed by project
 // (plan: durability first, keyed by project — a fresh `ctxloom run` adopts

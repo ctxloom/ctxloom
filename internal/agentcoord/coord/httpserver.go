@@ -17,6 +17,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -25,7 +26,11 @@ import (
 // dial target from the URL's host:port. The agent-facing HTTP-MCP handlers
 // were DELETED in B1.6 (deliverable 4): the gRPC RunChannel is the only
 // agent ingress now; the h2c listener stays for later frontends/watch APIs.
-const MCPPath = "/mcp"
+//
+// Declared in discover, which also reads it back out of endpoint.json: the
+// advertised path and the discovered path are the same constant, not two that
+// agree by inspection.
+const MCPPath = discover.MCPPath
 
 // coordServing is the coordinator's listener set: the loopback listener
 // (default) plus, only while a container runner is active, listeners on the
@@ -54,11 +59,13 @@ type coordServing struct {
 // read-only watch credential — 0600, host-local, re-minted every Serve()
 // (consumer.go's consumerCreds is never journaled, so this file IS its only
 // persistence).
-type endpointState struct {
-	LoopbackPort int    `json:"loopback_port,omitempty"`
-	WidePort     int    `json:"wide_port,omitempty"`
-	ConsumerCred string `json:"consumer_cred,omitempty"`
-}
+//
+// The layout is discover.State: the out-of-process reader cannot import this
+// package (it is upstream of coord through internal/operations), so the shape
+// lives with the reader and this writer compiles against it. A field renamed
+// here now breaks discovery at build time instead of at runtime, where a
+// mismatch is indistinguishable from "no coordinator is running".
+type endpointState = discover.State
 
 // Serve stands the listeners up: loopback by default; widening happens on
 // demand when a container child spawns.
@@ -97,7 +104,7 @@ func (c *Coordinator) Serve() error {
 		return fmt.Errorf("coord: bind loopback listener: %w", err)
 	}
 	s.loopback = ln
-	s.loopURL = fmt.Sprintf("http://127.0.0.1:%d%s", ln.Addr().(*net.TCPAddr).Port, MCPPath)
+	s.loopURL = discover.LoopbackURL(ln.Addr().(*net.TCPAddr).Port)
 	go func() { _ = s.httpSrv.Serve(ln) }()
 	// D1: mint the consumer-class watch credential fresh for this process
 	// and persist it into endpoint.json ALONGSIDE the ports it's saved
@@ -122,7 +129,9 @@ func bindPreferring(host string, port int) (net.Listener, error) {
 	return net.Listen("tcp", net.JoinHostPort(host, "0"))
 }
 
-func (s *coordServing) endpointPath() string { return filepath.Join(s.c.stateDir, "endpoint.json") }
+func (s *coordServing) endpointPath() string {
+	return filepath.Join(s.c.stateDir, discover.FileName)
+}
 
 func (s *coordServing) loadEndpoint() endpointState {
 	var ep endpointState

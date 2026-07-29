@@ -140,7 +140,12 @@ func (c *RepoCache) ensureCloneLocked(ctx context.Context, repoURL, repoDir stri
 	}
 
 	if err := c.clone(ctx, repoURL, repoDir, forgeType); err != nil {
-		_ = os.RemoveAll(repoDir)
+		if rmErr := os.RemoveAll(repoDir); rmErr != nil && !os.IsNotExist(rmErr) {
+			// U095-F05: a failed post-clone cleanup used to be discarded here,
+			// leaving exactly the corrupt/partial directory this function's
+			// doc promises to remove — every later call would then trust it.
+			return "", errors.Join(err, fmt.Errorf("additionally failed to clean up the partial clone at %s: %w", repoDir, rmErr))
+		}
 		return "", err
 	}
 	return repoDir, nil

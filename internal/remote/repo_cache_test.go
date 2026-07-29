@@ -380,3 +380,51 @@ func TestRepoCache_ConcurrentEnsureSameDir(t *testing.T) {
 	_, err = git.PlainOpen(repoDir)
 	require.NoError(t, err)
 }
+
+// failingGitBinary drops an executable "git" that, on `clone -- <url> <dir>`,
+// leaves an unremovable file behind in <dir> (chmod 000 on its parent) and
+// then fails — simulating a clone that dies mid-transfer, leaving debris the
+// post-failure cleanup then also cannot remove. Any other subcommand no-ops
+// successfully.
+func failingGitBinary(t *testing.T) string {
+	t.Helper()
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+if [ "$1" = "clone" ]; then
+    dir="$4"
+    mkdir -p "$dir/locked"
+    : > "$dir/locked/partial"
+    chmod 000 "$dir/locked"
+    exit 1
+fi
+exit 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0755))
+	return binDir
+}
+
+// TestRepoCache_EnsureRepo_CloneFailure_CleanupErrorNotSwallowed pins
+// U095-F05: when a clone fails AND the subsequent cleanup (os.RemoveAll of the
+// partial clone dir) also fails, the cleanup failure must be reported to the
+// caller, not silently discarded — a discarded cleanup failure leaves exactly
+// the corrupt-directory state ensureCloneLocked's own doc promises to remove.
+func TestRepoCache_EnsureRepo_CloneFailure_CleanupErrorNotSwallowed(t *testing.T) {
+	binDir := failingGitBinary(t)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cacheDir := t.TempDir()
+	cache := NewRepoCache(cacheDir, AuthConfig{})
+
+	repoDir, err := cache.EnsureRepo(context.Background(), "https://example.com/owner/repo", ForgeGitGeneric)
+	require.Error(t, err, "clone must fail")
+	assert.Empty(t, repoDir)
+
+	// Clean up the locked dir so t.TempDir()'s own removal doesn't fail.
+	lockedDir := filepath.Join(cacheDir, "example.com", "owner", "repo", "locked")
+	_ = os.Chmod(lockedDir, 0755)
+
+	assert.Contains(t, err.Error(), "git clone failed", "must still report the original clone failure")
+	assert.True(t,
+		strings.Contains(err.Error(), "clean up") || strings.Contains(err.Error(), "permission denied"),
+		"error = %q, want it to also name the cleanup failure instead of silently discarding it", err.Error())
+}

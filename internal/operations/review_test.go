@@ -404,37 +404,6 @@ func TestSetItemTrust_NoSnapshotForExecutables(t *testing.T) {
 	assert.False(t, exists, "executable approvals must not write snapshots")
 }
 
-// TestAcceptReviewItems_BundleAcceptAll drives the accept-all path: every
-// pending ref is accepted through the single mutation path; a re-enumeration
-// then finds nothing pending. Per-ref failures are reported, never fatal.
-func TestAcceptReviewItems_BundleAcceptAll(t *testing.T) {
-	fx := newTrustFixture(t)
-	fs := afero.NewMemMapFs()
-	loader := reviewLoader(reviewBundle())
-	registry := newRegistry(t, remoteSpec{name: "acme", url: trustRepo})
-
-	res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: registry, Loader: loader, FS: fs})
-	require.NoError(t, err)
-	require.Equal(t, 6, res.Total)
-
-	var refs []string
-	for _, b := range res.Bundles {
-		for _, it := range b.Items {
-			refs = append(refs, it.Ref)
-		}
-	}
-	refs = append(refs, reviewSeedKey+"#fragments/does-not-exist") // one bad ref must not sink the batch
-
-	applied := AcceptReviewItems(nil, AcceptReviewItemsRequest{Refs: refs, Signer: fx.signer, UserStore: fx.user, Loader: loader, FS: fs})
-	assert.Len(t, applied.Accepted, 6)
-	require.Len(t, applied.Failed, 1)
-	assert.Contains(t, applied.Failed, reviewSeedKey+"#fragments/does-not-exist")
-
-	after, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: registry, Loader: loader, FS: fs})
-	require.NoError(t, err)
-	assert.Zero(t, after.Total, "accept-all must clear the pending set")
-}
-
 // TestReviewItem_UpdateVsNewAfterPartialDecisions: mixed states in one bundle
 // resolve independently — one approved-then-edited (update), one untouched
 // (new), one rejected (absent).

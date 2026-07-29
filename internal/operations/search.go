@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -29,12 +28,6 @@ type SearchContentRequest struct {
 	SortBy    string   `json:"sort_by"`    // name, type, relevance
 	SortOrder string   `json:"sort_order"` // asc, desc
 	Limit     int      `json:"limit"`
-
-	// Scope flags for unified search. When neither is set, the search is
-	// LOCAL only — the historical default, and what the MCP search_content
-	// tool advertises (remote discovery is search_library's job).
-	SearchLocal  bool `json:"search_local"`  // Search local content (fragments, prompts, profiles, mcp_servers)
-	SearchRemote bool `json:"search_remote"` // Also search configured remotes' bundles/profiles (via SearchRemotes; clone-cache reads, no network)
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *bundles.Loader `json:"-"`
@@ -75,41 +68,36 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		loader = bundleLoader(cfg)
 	}
 
-	// Scope: local unless explicitly narrowed; remote is opt-in.
-	searchLocal := req.SearchLocal || !req.SearchRemote
-
+	// Search is LOCAL only (U086-F06: the remote-search branch, gated on
+	// SearchContentRequest.SearchRemote, was unreachable in production —
+	// remote discovery is search_library's job, and the CLI's own concurrent
+	// local+remote fan-out in cli/search.go never routed through here).
 	var results []SearchResult
-	if searchLocal {
-		// One searcher per content type; the requested-types set gates which run.
-		searchers := []struct {
-			typ string
-			run func() []SearchResult
-		}{
-			{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
-			{"command", func() []SearchResult { return searchCommands(loader, query) }},
-			{"skill", func() []SearchResult { return searchSkills(loader, query) }},
-			{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
-			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
-		}
-		for _, s := range searchers {
-			if !searchTypes.Has(s.typ) {
-				continue
-			}
-			// A tags-only search (empty query) is fragment-scoped: tags filter
-			// fragments only, and the prompt/profile/mcp_server matchers gate
-			// solely on strings.Contains(name/desc/command, query), which is
-			// unconditionally true for an empty query — so they would flood the
-			// results with every item. Skip them, mirroring the empty-query
-			// guard searchRemoteEntries already uses. searchFragments handles
-			// the tag-filtered set itself.
-			if query == "" && s.typ != "fragment" {
-				continue
-			}
-			results = append(results, s.run()...)
-		}
+	// One searcher per content type; the requested-types set gates which run.
+	searchers := []struct {
+		typ string
+		run func() []SearchResult
+	}{
+		{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
+		{"command", func() []SearchResult { return searchCommands(loader, query) }},
+		{"skill", func() []SearchResult { return searchSkills(loader, query) }},
+		{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
+		{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 	}
-	if req.SearchRemote {
-		results = append(results, searchRemoteEntries(ctx, cfg, req, searchTypes)...)
+	for _, s := range searchers {
+		if !searchTypes.Has(s.typ) {
+			continue
+		}
+		// A tags-only search (empty query) is fragment-scoped: tags filter
+		// fragments only, and the prompt/profile/mcp_server matchers gate
+		// solely on strings.Contains(name/desc/command, query), which is
+		// unconditionally true for an empty query — so they would flood the
+		// results with every item. searchFragments handles the tag-filtered
+		// set itself.
+		if query == "" && s.typ != "fragment" {
+			continue
+		}
+		results = append(results, s.run()...)
 	}
 
 	sortBy := req.SortBy
@@ -263,45 +251,6 @@ func searchProfiles(cfg *config.Config, query string) []SearchResult {
 		}
 	}
 	return results
-}
-
-// searchRemoteEntries maps remote bundle/profile matches (SearchRemotes over
-// the local clone caches) into SearchResults, honoring the requested-types
-// filter. A remote failure degrades to local-only results with a warning —
-// search must not break because one remote is unreachable.
-func searchRemoteEntries(ctx context.Context, cfg *config.Config, req SearchContentRequest, searchTypes collections.Set[string]) []SearchResult {
-	if req.Query == "" {
-		return nil // tags-only searches have no remote counterpart
-	}
-	// "fragment" maps to bundles, mirroring searchTypeList: fragments live
-	// inside bundles, so a fragment search surfaces the bundles to pull.
-	wantBundle := searchTypes.Has("bundle") || searchTypes.Has("fragment")
-	wantProfile := searchTypes.Has("profile")
-	itemType := ""
-	switch {
-	case wantBundle && !wantProfile:
-		itemType = "bundle"
-	case wantProfile && !wantBundle:
-		itemType = "profile"
-	case !wantBundle && !wantProfile:
-		return nil
-	}
-	res, err := SearchRemotes(ctx, cfg, SearchRemotesRequest{Query: req.Query, ItemType: itemType})
-	if err != nil {
-		clidiag.Warn("ctxloom", "remote search failed: %v", err)
-		return nil
-	}
-	out := make([]SearchResult, 0, len(res.Results))
-	for _, e := range res.Results {
-		out = append(out, SearchResult{
-			Type:   e.Type,
-			Name:   e.Name,
-			Tags:   e.Tags,
-			Source: e.Remote,
-			Match:  "name",
-		})
-	}
-	return out
 }
 
 // searchMCPServers returns configured MCP servers whose name or command matches

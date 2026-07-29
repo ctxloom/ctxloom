@@ -24,9 +24,11 @@ func readFixture(t *testing.T, name string) []byte {
 }
 
 // runnerReturning builds a fake opencode runner: `session list ...` yields
-// listBytes, `export <id>` yields exportBytes (or exportErr).
-func runnerReturning(listBytes, exportBytes []byte, exportErr error) func(args ...string) ([]byte, error) {
-	return func(args ...string) ([]byte, error) {
+// listBytes, `export <id>` yields exportBytes (or exportErr). dir is ignored
+// here (most tests don't care about it); TestExecCLI_PassesDirToTestSeam below
+// asserts it is actually threaded through for the one test that does.
+func runnerReturning(listBytes, exportBytes []byte, exportErr error) func(dir string, args ...string) ([]byte, error) {
+	return func(dir string, args ...string) ([]byte, error) {
 		if len(args) > 0 && args[0] == "export" {
 			if exportErr != nil {
 				return nil, exportErr
@@ -35,6 +37,22 @@ func runnerReturning(listBytes, exportBytes []byte, exportErr error) func(args .
 		}
 		return listBytes, nil
 	}
+}
+
+// TestExecCLI_PassesDirToTestSeam pins U080-F15: the test seam used to discard
+// `dir`, the one argument execCLI's own doc comment calls load-bearing ("run
+// elsewhere it silently lists a different project"), which left the
+// must-run-in-workDir invariant structurally untestable. Now the seam receives
+// dir and this asserts it matches what ListSessions was called with.
+func TestExecCLI_PassesDirToTestSeam(t *testing.T) {
+	var gotDir string
+	h := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(func(dir string, args ...string) ([]byte, error) {
+		gotDir = dir
+		return []byte("[]"), nil
+	}))
+	_, err := h.ListSessions("/proj/workdir")
+	require.NoError(t, err)
+	assert.Equal(t, "/proj/workdir", gotDir, "execCLI must thread dir through to the injected test seam")
 }
 
 // TestListSessions_FilterAndOrder proves per-project filtering (by the
@@ -118,7 +136,7 @@ func TestListSessions_Malformed(t *testing.T) {
 	require.Error(t, err)
 
 	// A failed invocation (binary missing / nonzero exit) also surfaces.
-	h2 := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(func(args ...string) ([]byte, error) {
+	h2 := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(func(dir string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("boom")
 	}))
 	_, err = h2.ListSessions("")

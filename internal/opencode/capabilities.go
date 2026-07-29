@@ -31,18 +31,22 @@ import (
 // with captured fixture bytes.
 type opencodeSessionHistory struct {
 	backend *Opencode
-	// run executes `opencode <args...>` and returns stdout. Nil in production
-	// (falls back to execCLI); set by WithOpencodeSessionRunner in tests.
-	run func(args ...string) ([]byte, error)
+	// run executes `opencode <args...>` in dir and returns stdout. Nil in
+	// production (falls back to execCLI); set by WithOpencodeSessionRunner in
+	// tests. dir is threaded through (U080-F15) so a test can assert the
+	// must-run-in-workDir invariant execCLI's own doc comment calls
+	// load-bearing, instead of that invariant being structurally untestable.
+	run func(dir string, args ...string) ([]byte, error)
 }
 
 // OpencodeSessionOption configures opencodeSessionHistory.
 type OpencodeSessionOption func(*opencodeSessionHistory)
 
 // WithOpencodeSessionRunner replaces the opencode-binary exec with a fake for
-// testing. The fake receives the CLI args (e.g. "session","list","--format",
-// "json" or "export",<id>) and returns the stdout the real command would.
-func WithOpencodeSessionRunner(run func(args ...string) ([]byte, error)) OpencodeSessionOption {
+// testing. The fake receives the working directory execCLI was called with,
+// plus the CLI args (e.g. "session","list","--format","json" or
+// "export",<id>), and returns the stdout the real command would.
+func WithOpencodeSessionRunner(run func(dir string, args ...string) ([]byte, error)) OpencodeSessionOption {
 	return func(h *opencodeSessionHistory) { h.run = run }
 }
 
@@ -65,7 +69,7 @@ func newOpencodeSessionHistory(b *Opencode, opts ...OpencodeSessionOption) *open
 // STDERR, so only stdout is returned; stderr is folded into the error on failure.
 func (h *opencodeSessionHistory) execCLI(dir string, args ...string) ([]byte, error) {
 	if h.run != nil {
-		return h.run(args...)
+		return h.run(dir, args...)
 	}
 	bin := "opencode"
 	if h.backend != nil && h.backend.BinaryPath != "" {

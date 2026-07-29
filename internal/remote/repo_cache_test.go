@@ -337,6 +337,11 @@ func TestNormalizeCloneURL(t *testing.T) {
 		{"https://github.com/owner/repo", "https://github.com/owner/repo"},
 		{"https://github.com/owner/repo.git", "https://github.com/owner/repo"},
 		{"owner/repo", "https://github.com/owner/repo"},
+		// U095-F13: the shorthand check used to run BEFORE the .git suffix
+		// was trimmed, so "owner/repo.git" (which contains a ".") never
+		// qualified as shorthand and was returned bare instead of expanded —
+		// `git clone -- owner/repo <dir>` then treats it as a local path.
+		{"owner/repo.git", "https://github.com/owner/repo"},
 	}
 
 	for _, tt := range tests {

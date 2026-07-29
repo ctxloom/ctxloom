@@ -351,15 +351,19 @@ func (c *RepoCache) safeRepoPath(parts ...string) (string, error) {
 
 // normalizeCloneURL ensures a URL is suitable for git clone.
 func normalizeCloneURL(repoURL string) string {
+	// Remove .git suffix for consistency, we'll let git handle it. This MUST
+	// happen before the shorthand check below (U095-F13): "owner/repo.git"
+	// contains a "." from the suffix alone, which used to make the shorthand
+	// test fail and return the bare relative path unexpanded — `git clone --
+	// owner/repo.git <dir>` then treats it as a local filesystem path.
+	repoURL = strings.TrimSuffix(repoURL, ".git")
+
 	// Handle shorthand (owner/repo → https://github.com/owner/repo)
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
 		if strings.Contains(repoURL, "/") && !strings.Contains(repoURL, ".") {
 			return "https://github.com/" + repoURL
 		}
 	}
-
-	// Remove .git suffix for consistency, we'll let git handle it
-	repoURL = strings.TrimSuffix(repoURL, ".git")
 
 	return repoURL
 }

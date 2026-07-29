@@ -337,7 +337,12 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Resume:      resume,
 			Ladder:      ladderToFact(plan.Ladder),
 			Permission:  plan.Perm.String(),
-			MCPServers:  mcpServerNames(plan.MCPServers),
+			// Names only, never command/args/env, any of which can carry a
+			// credential: an operator auditing a live delegation must see WHAT
+			// a child can reach without the journal becoming a place one could
+			// leak. Same projection as the session-init summary's "mcp" line,
+			// so a roster row and a session summary cannot disagree.
+			MCPServers: operations.MCPServerNames(plan.MCPServers),
 		})}, nil
 	}); err != nil {
 		return nil, "", err

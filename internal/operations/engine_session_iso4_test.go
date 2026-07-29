@@ -60,22 +60,22 @@ func TestNamesOrCount_BoundaryAtCap(t *testing.T) {
 
 // --- MCPServerNames: direct payload proofs -------------------------------
 
-// TestMcpServerNamesFor_EmptyIsNil proves the zero-servers case degrades to
+// TestMCPServerNames_EmptyIsNil proves the zero-servers case degrades to
 // nil (which namesOrCount then renders as "none"), not an empty-but-non-nil
 // slice — matching listSessionSkillNames'/buildSessionCommands' identical
 // nil-on-empty convention.
-func TestMcpServerNamesFor_EmptyIsNil(t *testing.T) {
+func TestMCPServerNames_EmptyIsNil(t *testing.T) {
 	got := MCPServerNames(nil)
 	assert.Nil(t, got)
 	got = MCPServerNames([]agent.ChatMCPServer{})
 	assert.Nil(t, got)
 }
 
-// TestMcpServerNamesFor_SortsRegardlessOfInputOrder proves the function
+// TestMCPServerNames_SortsRegardlessOfInputOrder proves the function
 // actually SORTS (not just projects .Name) — the init summary's mcp line
 // must be deterministic across sessions regardless of the order servers were
 // composed in (client-supplied first, then ctxloom's managed injection).
-func TestMcpServerNamesFor_SortsRegardlessOfInputOrder(t *testing.T) {
+func TestMCPServerNames_SortsRegardlessOfInputOrder(t *testing.T) {
 	got := MCPServerNames([]agent.ChatMCPServer{
 		{Name: "zeta-server"},
 		{Name: "alpha-server"},

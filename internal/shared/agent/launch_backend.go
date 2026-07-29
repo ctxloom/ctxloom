@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -310,7 +309,7 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 				// resolved.surfaces[0] be something else (MCP), and that surface's
 				// failure was misidentified as the context failure this fallback
 				// exists for.
-				if rs.kind == SurfaceContext && !b.delivery.RawContext && b.recoverContextViaHook(req) {
+				if rs.kind == SurfaceContext && !b.delivery.RawContext && b.recoverContextViaHook(req, err) {
 					continue
 				}
 				return fmt.Errorf("failed to deliver surface into shared cwd: %w", err)
@@ -349,10 +348,15 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 // legacy hook rather than losing it to a scratch-write hiccup. It appends ONLY the
 // injection hook (never re-runs MergeManaged, which would clobber the statusline
 // state). Reports whether the fallback took hold (the caller then skips the failed
-// context handle and continues delivering the remaining surfaces).
-func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest) bool {
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: context delivery failed; keeping the injection hook\n")
+// context handle and continues delivering the remaining surfaces). cause is the
+// error that triggered the fallback (U101-F23: it used to be discarded, and the
+// warning went straight to os.Stderr rather than this package's own Warn/clidiag
+// sink — the mechanism a session that owns the terminal uses to keep a warning
+// from corrupting a live TUI frame it is painting).
+func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest, cause error) bool {
+	Warn("context delivery failed (%v); keeping the injection hook", cause)
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
+		Warn("context-recovery fallback's own Provide failed: %v", err)
 		return false
 	}
 	hash := b.context.GetContextHash()
@@ -361,6 +365,7 @@ func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest) bool {
 	}
 	hooks, _, ok := b.mergedState()
 	if !ok || hooks == nil {
+		Warn("context-recovery fallback could not read the merged hooks state")
 		return false
 	}
 	hooks.Unified.SessionStart = append(hooks.Unified.SessionStart,

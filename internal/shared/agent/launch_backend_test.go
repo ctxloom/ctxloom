@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -477,6 +479,36 @@ func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
 		Managed:  &ManagedConfig{},
 	})
 	require.Error(t, err, "an MCP delivery failure on a backend with no context surface must not be swallowed by the context-recovery fallback")
+}
+
+// TestSetup_SharedCell_ContextFailureWarningNamesCause pins U101-F23: the
+// context-recovery warning used to go straight to os.Stderr with
+// fmt.Fprintf(os.Stderr, ...) — bypassing this package's own Warn/clidiag
+// sink (the seam every other warning in this package, and the mechanism a
+// session that owns the terminal uses to redirect warnings away from a
+// live TUI frame it is painting) — and named no cause at all, a fixed
+// string regardless of WHY the context delivery failed. clidiag.SetSink
+// redirects Warn's destination; if the warning still bypasses it, this
+// buffer stays empty.
+func TestSetup_SharedCell_ContextFailureWarningNamesCause(t *testing.T) {
+	var order []string
+	cause := errors.New("disk full")
+	set := &recordSet{order: &order, contextErr: cause}
+	b := newCellBackend(set, false, false)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   t.TempDir(),
+		Fragments: []*Fragment{{Content: "project rules"}},
+		CellKind:  CellKindShared,
+		Managed:   &ManagedConfig{},
+	}))
+
+	assert.Contains(t, buf.String(), "disk full",
+		"the recovery warning must route through the package's Warn sink and name the triggering error")
 }
 
 // TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty pins

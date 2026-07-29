@@ -163,6 +163,10 @@ func applyManaged(cfg map[string]json.RawMessage, m managedConfig) (mcpNames []s
 			_ = json.Unmarshal(existing, &perm)
 		}
 		for k, v := range readOnlyPermission {
+			// v is always one of readOnlyPermission's own string literals
+			// ("deny"), so json.Marshal of a plain string cannot fail; the
+			// error is discarded because there is genuinely nothing to check,
+			// not because this branch is being sloppy like its neighbors are not.
 			raw, _ := json.Marshal(v)
 			perm[k] = raw
 		}

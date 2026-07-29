@@ -133,6 +133,48 @@ func TestGenMarkdown(t *testing.T) {
 	}
 }
 
+// U051-F08: GenMan/GenMarkdown used to return MkdirAll's bare error, with no
+// indication of which operation or directory failed. Force MkdirAll to fail
+// (a path component that's a regular file, not a directory) and require the
+// wrapped error to name the operation and the directory.
+func TestGenMarkdown_MkdirFailureHasContext(t *testing.T) {
+	base := t.TempDir()
+	blocker := filepath.Join(base, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(blocker, "markdown")
+
+	p := fakeProduct()
+	p.PrepareTree()
+	err := GenMarkdown(p, dir)
+	if err == nil {
+		t.Fatal("expected an error creating markdown dir under a file")
+	}
+	if !strings.Contains(err.Error(), "markdown dir") || !strings.Contains(err.Error(), dir) {
+		t.Errorf("GenMarkdown error lacks operation/dir context: %v", err)
+	}
+}
+
+func TestGenMan_MkdirFailureHasContext(t *testing.T) {
+	base := t.TempDir()
+	blocker := filepath.Join(base, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(blocker, "man1")
+
+	p := fakeProduct()
+	p.PrepareTree()
+	err := GenMan(p, dir)
+	if err == nil {
+		t.Fatal("expected an error creating man dir under a file")
+	}
+	if !strings.Contains(err.Error(), "man dir") || !strings.Contains(err.Error(), dir) {
+		t.Errorf("GenMan error lacks operation/dir context: %v", err)
+	}
+}
+
 func TestGenMan(t *testing.T) {
 	dir := t.TempDir()
 	p := fakeProduct()

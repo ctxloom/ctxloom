@@ -44,7 +44,7 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 		return errors.New("docsgen: product " + p.Bin + " has no MCP server to document")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create MCP tools dir %s: %w", dir, err)
 	}
 
 	tools, resources, templates, err := enumerateMCPSurface(ctx, p.MCPServer)

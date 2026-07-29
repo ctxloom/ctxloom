@@ -96,10 +96,10 @@ func (p *Product) PrepareTree() {
 // only this product's own pages are swept.
 func GenMan(p *Product, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create man dir %s: %w", dir, err)
 	}
 	if err := removeGenerated(dir, p.Bin+"*.1"); err != nil {
-		return err
+		return fmt.Errorf("sweep stale man pages in %s: %w", dir, err)
 	}
 	header := &doc.GenManHeader{
 		Title:   p.ManTitle,
@@ -113,10 +113,10 @@ func GenMan(p *Product, dir string) error {
 // GenMarkdown writes the product's per-command Starlight pages into dir.
 func GenMarkdown(p *Product, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create markdown dir %s: %w", dir, err)
 	}
 	if err := removeGenerated(dir, p.Bin+"_*.md"); err != nil {
-		return err
+		return fmt.Errorf("sweep stale markdown pages in %s: %w", dir, err)
 	}
 	return doc.GenMarkdownTreeCustom(p.Root, dir, p.filePrepender, p.linkHandler)
 }

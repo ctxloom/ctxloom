@@ -21,16 +21,6 @@ type Fact struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
-// newFact marshals payload into a Fact. A marshal failure is a programming
-// error (payloads are our own structs) and panics rather than dropping state.
-func newFact(kind string, at time.Time, payload any) Fact {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		panic(fmt.Sprintf("coord: marshal %s fact: %v", kind, err))
-	}
-	return Fact{Kind: kind, At: at, Data: data}
-}
-
 // decode unmarshals a fact payload into out; folds use it and IGNORE unknown
 // kinds (forward compatibility: an older binary replaying a newer journal
 // keeps every fact it understands).

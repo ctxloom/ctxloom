@@ -2,6 +2,7 @@ package coord
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -197,6 +198,14 @@ type interaction struct {
 	Detail map[string]string `json:"detail,omitempty"`
 }
 
-// fact helpers with the command-time timestamp (the ONLY place time enters;
-// folds read Fact.At).
-func factAt(kind string, at time.Time, payload any) Fact { return newFact(kind, at, payload) }
+// factAt builds one journal fact with the command-time timestamp — the ONLY
+// place time enters a journal (folds read Fact.At and never call time.Now(),
+// so replay is deterministic). A marshal failure is a programming error
+// (payloads are our own structs) and panics rather than dropping state.
+func factAt(kind string, at time.Time, payload any) Fact {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(fmt.Sprintf("coord: marshal %s fact: %v", kind, err))
+	}
+	return Fact{Kind: kind, At: at, Data: data}
+}

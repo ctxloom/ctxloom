@@ -8,8 +8,10 @@ import (
 // ParsePrefixKey maps a config-syntax key name ("ctrl-]", "ctrl+t") to the
 // raw control byte the interceptor scans for. Only control keys are accepted:
 // a printable prefix would swallow ordinary typing. Keys the engine needs
-// verbatim to function at all — escape (ctrl-[), tab (ctrl-i), and the
-// newline/return pair (ctrl-j/ctrl-m) — are rejected with the reason.
+// verbatim to function at all — escape (ctrl-[), tab (ctrl-i), the
+// newline/return pair (ctrl-j/ctrl-m), interrupt/EOF (ctrl-c/ctrl-d),
+// suspend (ctrl-z), and flow control (ctrl-q/ctrl-s) — are rejected with the
+// reason (U141-F08).
 func ParsePrefixKey(s string) (byte, error) {
 	name := strings.ToLower(strings.TrimSpace(s))
 	rest, ok := strings.CutPrefix(name, "ctrl-")
@@ -35,10 +37,18 @@ func ParsePrefixKey(s string) (byte, error) {
 	switch b {
 	case 0:
 		return 0, fmt.Errorf("prefix key %q: NUL is not usable as a prefix", s)
+	case 3:
+		return 0, fmt.Errorf("prefix key %q: ctrl-c sends SIGINT — intercepting it would swallow every interrupt", s)
+	case 4:
+		return 0, fmt.Errorf("prefix key %q: ctrl-d is EOF — intercepting it would break input termination", s)
 	case 9:
 		return 0, fmt.Errorf("prefix key %q: ctrl-i is TAB — intercepting it would break completion", s)
 	case 10, 13:
 		return 0, fmt.Errorf("prefix key %q: ctrl-j/ctrl-m are newline/return — intercepting them would break typing", s)
+	case 17, 19:
+		return 0, fmt.Errorf("prefix key %q: ctrl-q/ctrl-s are terminal flow control (XON/XOFF) — intercepting them would break resume/pause", s)
+	case 26:
+		return 0, fmt.Errorf("prefix key %q: ctrl-z sends SIGTSTP — intercepting it would swallow every suspend", s)
 	case 27:
 		return 0, fmt.Errorf("prefix key %q: ESC prefixes every terminal escape sequence (and is deliberately not the viewer key)", s)
 	}

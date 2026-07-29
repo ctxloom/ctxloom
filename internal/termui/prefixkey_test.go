@@ -17,7 +17,6 @@ func TestParsePrefixKey_Accepted(t *testing.T) {
 		{"Ctrl-]", 0x1d},
 		{"ctrl-a", 1},
 		{"ctrl-t", 20},
-		{"ctrl-z", 26},
 		{"ctrl-\\", 28},
 		{"ctrl-^", 30},
 		{"ctrl-_", 31},
@@ -42,6 +41,14 @@ func TestParsePrefixKey_Rejected(t *testing.T) {
 		"ctrl-j",  // LF
 		"ctrl-m",  // CR
 		"ctrl-@",  // NUL
+		// U141-F08: keys the engine needs even more urgently than TAB — the
+		// old reject list let these through, so e.g. ui.prefix_key: "ctrl-c"
+		// passed validation and then swallowed every interrupt.
+		"ctrl-c", // SIGINT
+		"ctrl-d", // EOF
+		"ctrl-s", // XOFF flow control
+		"ctrl-q", // XON flow control
+		"ctrl-z", // SIGTSTP
 	} {
 		_, err := ParsePrefixKey(in)
 		assert.Error(t, err, "%q must be rejected", in)

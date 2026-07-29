@@ -132,11 +132,20 @@ func (h *opencodeSessionHistory) ListSessions(workDir string) ([]agent.SessionMe
 		if absWork, err = filepath.Abs(workDir); err != nil {
 			return nil, err
 		}
+		// U080-F12: resolve symlinks before comparing. filepath.Abs only
+		// cleans the path, it does not resolve symlinks, so a symlinked
+		// workDir (or a symlinked ancestor of it) never string-equalled
+		// opencode's own (already-resolved) `directory` value and yielded
+		// zero sessions with a nil error — indistinguishable from genuine
+		// absence. resolveSymlinksBestEffort falls back to the unresolved
+		// path when EvalSymlinks fails (e.g. a path that no longer exists),
+		// preserving the exact-match behavior for that case.
+		absWork = resolveSymlinksBestEffort(absWork)
 	}
 
 	var sessions []agent.SessionMeta
 	for _, e := range entries {
-		if absWork != "" && e.Directory != absWork {
+		if absWork != "" && resolveSymlinksBestEffort(e.Directory) != absWork {
 			continue
 		}
 		sessions = append(sessions, agent.SessionMeta{
@@ -321,6 +330,18 @@ func opencodeToolEntries(part opencodePart, ts time.Time) []agent.SessionEntry {
 		Timestamp:  ts,
 	})
 	return entries
+}
+
+// resolveSymlinksBestEffort resolves p's symlinks for a robust directory
+// comparison; if p cannot be resolved (does not exist, permission denied), it
+// returns p unchanged rather than erroring — the comparison degrades to the
+// old exact-match behavior for that one entry instead of failing the whole
+// listing.
+func resolveSymlinksBestEffort(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return p
 }
 
 // msToTime converts unix milliseconds to time.Time; 0 stays the zero time.

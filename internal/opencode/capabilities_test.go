@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -103,6 +104,29 @@ func TestListSessions_FilterAndOrder(t *testing.T) {
 		assert.False(t, m.EndTime.IsZero(), "updated time should be populated")
 	}
 	assert.Equal(t, wantIDs, gotIDs, "filtered to the target directory, most-recent-first")
+}
+
+// TestListSessions_ResolvesSymlinkedWorkDir pins U080-F12: ListSessions
+// compared filepath.Abs(workDir) to opencode's `directory` value by exact
+// string equality, with no symlink resolution — filepath.Abs only cleans a
+// path, it does not resolve symlinks — so a symlinked workDir matched zero
+// sessions and returned a nil error, indistinguishable from genuine absence.
+func TestListSessions_ResolvesSymlinkedWorkDir(t *testing.T) {
+	real := t.TempDir()
+	resolvedReal, err := filepath.EvalSymlinks(real)
+	require.NoError(t, err)
+	link := filepath.Join(t.TempDir(), "link-to-project")
+	require.NoError(t, os.Symlink(resolvedReal, link))
+
+	entries := []opencodeListEntry{{ID: "ses_1", Directory: resolvedReal, Created: 1, Updated: 2}}
+	raw, err := json.Marshal(entries)
+	require.NoError(t, err)
+
+	h := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(runnerReturning(raw, nil, nil)))
+	got, err := h.ListSessions(link)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "the symlinked workDir must resolve to the same project opencode recorded")
+	assert.Equal(t, "ses_1", got[0].ID)
 }
 
 // TestListSessions_NoSessions: an empty store and a directory with no sessions

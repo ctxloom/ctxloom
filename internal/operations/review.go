@@ -421,12 +421,24 @@ func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 	return ""
 }
 
+// emptySurfaceMarker replaces a render*Surface function's output when the
+// underlying item carries no executable content at all (U086-F24): a blank
+// field (or, for renderSkillSurface, "") reads to a reviewer as "nothing
+// changed here", not as "this item genuinely has nothing in it" — a subtle
+// but real difference when the reviewer is about to bless it. Display-only:
+// the countersignature still binds ContentPayload()'s real (possibly empty)
+// bytes regardless of what review shows.
+const emptySurfaceMarker = "(nothing to display — this item is empty)\n"
+
 // renderMCPSurface renders an MCP server as what it runs — command, args, env
 // (key-sorted), and the installation instructions sent to the agent. This is
 // the full executable surface the acceptance hash covers; notes are
 // human-only metadata and deliberately absent (they are not part of the
 // reviewed surface).
 func renderMCPSurface(srv bundles.BundleMCP) string {
+	if srv.Command == "" && len(srv.Args) == 0 && len(srv.Env) == 0 && srv.Installation == "" {
+		return emptySurfaceMarker
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "command: %s\n", srv.Command)
 	if len(srv.Args) > 0 {
@@ -466,6 +478,12 @@ func renderHookSurface(entry bundles.HookEntry) string {
 	if entry.Hook.Prompt != "" {
 		fmt.Fprintf(&b, "prompt:  %s\n", strings.TrimSpace(entry.Hook.Prompt))
 	}
+	if entry.Hook.Command == "" && entry.Hook.Prompt == "" {
+		// A hook with neither a command nor a prompt executes nothing — say
+		// so explicitly rather than letting the event/matcher/type header
+		// read as a complete, reviewed surface (U086-F24).
+		b.WriteString(emptySurfaceMarker)
+	}
 	return b.String()
 }
 
@@ -480,6 +498,9 @@ func renderHookSurface(entry bundles.HookEntry) string {
 // is displayed is exactly what the trust preimage covers, for a synced and an
 // unsynced skill alike.
 func renderSkillSurface(manifest bundles.SkillManifest) string {
+	if len(manifest) == 0 {
+		return emptySurfaceMarker
+	}
 	var b strings.Builder
 	for _, entry := range manifest {
 		fmt.Fprintf(&b, "%s  %s  mode:%s\n", entry.Path, entry.SHA256, entry.Mode)

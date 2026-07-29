@@ -505,3 +505,35 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 	assert.Contains(t, buf.String(), "ghost",
 		"an EffectiveManifest failure must be warned like classify's structurally identical case, not silently dropped")
 }
+
+// TestRenderMCPSurface_EmptyServerShowsMarker is a regression guard for
+// U086-F24: an MCP server with no command, args, env, or install text used
+// to render as just "command: \n" — a reviewer approving it saw nothing
+// wrong-looking rather than being told the surface is degenerate. The
+// countersignature still binds ContentPayload()'s real bytes regardless (this
+// is a display-only fix), but the human must be told they are looking at an
+// empty surface.
+func TestRenderMCPSurface_EmptyServerShowsMarker(t *testing.T) {
+	rendered := renderMCPSurface(bundles.BundleMCP{})
+	assert.Contains(t, rendered, "nothing to display",
+		"a fully empty MCP surface must say so explicitly, not just print a blank command line")
+}
+
+// TestRenderSkillSurface_EmptyManifestShowsMarker is a regression guard for
+// U086-F24: renderSkillSurface returned "" outright for a skill whose
+// (effective) manifest has zero file entries.
+func TestRenderSkillSurface_EmptyManifestShowsMarker(t *testing.T) {
+	rendered := renderSkillSurface(bundles.SkillManifest{})
+	assert.Contains(t, rendered, "nothing to display",
+		"an empty skill manifest must say so explicitly rather than rendering an empty string")
+}
+
+// TestRenderHookSurface_NoCommandOrPromptShowsMarker is a regression guard
+// for U086-F24: a hook with neither a command nor a prompt executes nothing,
+// but used to render only its event/matcher/type header with no signal that
+// nothing actually runs.
+func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
+	rendered := renderHookSurface(bundles.HookEntry{Event: "pre_tool", Hook: bundles.BundleHook{Matcher: "Bash"}})
+	assert.Contains(t, rendered, "nothing to display",
+		"a hook with no command and no prompt must say so explicitly")
+}

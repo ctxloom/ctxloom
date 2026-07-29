@@ -16,8 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-const planExt = ".plan.md"
-
 // Plan is one session plan document.
 type Plan struct {
 	// Path is the absolute path to the .plan.md file.
@@ -93,10 +91,10 @@ func List(root string) ([]Plan, error) {
 		if len(segs) < 2 {
 			return nil // a file directly under root, not inside any harp dir — never a plan
 		}
-		if !strings.HasSuffix(d.Name(), planExt) {
+		if !strings.HasSuffix(d.Name(), paths.PlanFileExt) {
 			return nil
 		}
-		name := strings.TrimSuffix(strings.Join(segs[1:], "/"), planExt)
+		name := strings.TrimSuffix(strings.Join(segs[1:], "/"), paths.PlanFileExt)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -133,7 +131,7 @@ func List(root string) ([]Plan, error) {
 // Show returns a plan file's content. The path must end in .plan.md and resolve
 // inside ~/.ctxloom/sessions, so a crafted path can't read arbitrary files.
 func Show(path string) (string, error) {
-	if !strings.HasSuffix(path, planExt) {
+	if !strings.HasSuffix(path, paths.PlanFileExt) {
 		return "", fmt.Errorf("not a plan file: %s", path)
 	}
 	root, err := paths.HomeSessionsDir()

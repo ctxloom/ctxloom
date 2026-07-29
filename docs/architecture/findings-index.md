@@ -1526,7 +1526,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U102-F11 | open | `settings_io.go:146` | CORRECTNESS | The temp path is a fixed suffix, so two ctxloom processes writing the same settings file race and can leave one process's rename delivering the other's bytes | U102.md |
 | U102-F14 | open | `symlink.go:10-92` + `internal/operations/hooks.go:32,64-65` | COUPLING | Production code calls a `…ForTesting` mutator, and the package global it mutates is unsynchronized | U102.md |
 | U102-F15 | **PARTIAL** `28b54eb6` | `symlink.go` (whole file)` | NOPAY | The entire file exists to warn about surfaces materialized *before* the `CtxloomCommand` self-exec fix — a backward-compat concern the project's own standing rule rejects | U102.md |
-| U102-F16 | open | `skillcommandshape.go:23` | DUPLICATE | Two YAML-frontmatter scalar quoters coexist **in the same package** with different algorithms and different correctness | U102.md |
+| U102-F16 | **RESOLVED** `f8d2a90a` | `skillcommandshape.go:23` | DUPLICATE | Two YAML-frontmatter scalar quoters coexist **in the same package** with different algorithms and different correctness | U102.md |
 | U103-F01 | **REFUTED** `4df72345` | `clidiag.go:25` | DEAD | `Line` is exported but has zero callers outside the package; its doc promises a use case that does not exist | U103.md |
 | U103-F02 | **REFUTED** `4df72345` | `clidiag.go:125` | DEAD | `FwarnOnce` is exported but has zero callers outside the package | U103.md |
 | U103-F03 | **RESOLVED** `4df72345` | `clidiag.go:148,152` | DEAD | The `Warner` type and its `Warn` method are entirely test-only | U103.md |

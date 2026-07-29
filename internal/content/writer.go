@@ -132,9 +132,15 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 		}
 		dirs[filepath.Dir(target)] = struct{}{}
 	}
-	// Prune directories the item owned, deepest first. Remove fails on a
-	// non-empty directory, which is exactly the wanted guard: a shared
-	// directory (a hook event directory with siblings left in it) survives.
+	// Prune directories the item owned, deepest first — but ONLY when they are
+	// genuinely empty, checked explicitly.
+	//
+	// Relying on Remove to refuse a non-empty directory does not hold across
+	// backends: the OS filesystem refuses, but afero's in-memory filesystem
+	// deletes the entry and orphans its children. Under that backend, deleting one
+	// hook would have silently taken every sibling hook in the same event
+	// directory with it — a data loss with no error, found by the test that asserts
+	// the siblings survive.
 	ordered := make([]string, 0, len(dirs))
 	for d := range dirs {
 		ordered = append(ordered, d)
@@ -142,7 +148,11 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
 	kindRoot := filepath.Join(ti.bundle.dir, filepath.FromSlash(ti.stype.Dir()))
 	for _, d := range ordered {
-		if d == kindRoot || !strings.HasPrefix(d, kindRoot) {
+		if d == kindRoot || !strings.HasPrefix(d, kindRoot+string(filepath.Separator)) {
+			continue
+		}
+		remaining, err := afero.ReadDir(s.fsys, d)
+		if err != nil || len(remaining) > 0 {
 			continue
 		}
 		_ = s.fsys.Remove(d)

@@ -201,7 +201,7 @@ func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
 	name, ok := discoveryMarkerName(socketKindHostRuntime, cellDir)
 	require.True(t, ok)
 	deadSocket := filepath.Join(t.TempDir(), "nobody-home.sock") // never bound by anyone
-	marker := runnerDiscoveryMarker{Socket: deadSocket, Pid: os.Getpid(), Harp: "unreachable-runner"}
+	marker := runnerDiscoveryMarker{Socket: deadSocket, Pid: os.Getpid()}
 	raw, err := json.Marshal(marker)
 	require.NoError(t, err)
 	markerPath := filepath.Join(markerDir, name)
@@ -244,7 +244,7 @@ func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 		require.True(t, ok)
 		markerPath := filepath.Join(markerDir, name)
 		deadSocket := filepath.Join(t.TempDir(), "long-gone.sock")
-		marker := runnerDiscoveryMarker{Socket: deadSocket, Pid: deadProcessPID(t), Harp: "crashed-runner"}
+		marker := runnerDiscoveryMarker{Socket: deadSocket, Pid: deadProcessPID(t)}
 		raw, err := json.Marshal(marker)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(markerPath, raw, 0o600))

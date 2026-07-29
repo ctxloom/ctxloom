@@ -44,7 +44,6 @@ import (
 type runnerDiscoveryMarker struct {
 	Socket string `json:"socket"`
 	Pid    int    `json:"pid"`
-	Harp   string `json:"harp,omitempty"`
 }
 
 // discoveryMarkerName returns the well-known marker filename for kind at

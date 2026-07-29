@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clifmt"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // TestGlobalNotice_CLIAndMCPComposeTheSameText pins the two list surfaces to

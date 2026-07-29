@@ -183,19 +183,14 @@ func GenerateShortName() string {
 
 // UniqueFrom returns the first id produced by gen that is not already a key of
 // used, trying up to 100 times. It is the shared "unique name from a set"
-// allocator behind both the project-id registry and the per-project task ids,
-// which differ only in which harp generator they pass (GenerateName vs
-// GenerateShortName). On exhaustion (100 collisions) it returns one final
-// unredeemed gen() — a tidy, rare best-effort fallback; callers that cannot
-// tolerate even a residual collision should check the result against used.
-// UniqueFrom draws names from gen until one isn't in used, retrying up to
-// 100 times. Callers that cannot tolerate even a residual collision must
-// check the returned error: on exhaustion (100 consecutive collisions,
-// astronomically rare for any reasonably-sized word group) it returns an
-// error rather than the prior best-effort behavior of silently handing
-// back one final, unchecked (and possibly still-colliding) name (U111-F02
-// — both of this function's own callers skipped the check its doc used to
-// tell them to perform, because there was no honest way to perform it).
+// allocator behind the session index, the project-id registry and the
+// per-project task ids, which differ only in which harp generator they pass
+// (GenerateName vs GenerateShortName).
+//
+// On exhaustion — 100 consecutive collisions, astronomically rare for any
+// reasonably-sized word group — it returns an error and an empty id. It never
+// hands back an unchecked name that may still collide, so a caller cannot
+// silently allocate a duplicate by ignoring the failure.
 func UniqueFrom(used map[string]struct{}, gen func() string) (string, error) {
 	for range 100 {
 		id := gen()

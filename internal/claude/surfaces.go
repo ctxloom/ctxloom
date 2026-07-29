@@ -108,24 +108,26 @@ type mcpSurface struct {
 	commandOverride string          // see SurfaceInputs.MCPCommandOverride
 }
 
-// Deliver writes .mcp.json into dir via the reused file-template MCP writer.
-func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
+// deliver is the ONE .mcp.json recipe both entry points run: build the reused
+// file-template writer against dir, thread the ctxloom-MCP command override
+// onto it (dire-five — settingsSurface has no analogous knob, since hooks +
+// statusline carry no stdio command), and write the merged config. Deliver and
+// DeliverIsolated differ only in where dir comes from and whether the resulting
+// path is recorded, which is all U033-F06 left of the two former bodies.
+func (s *mcpSurface) deliver(dir string) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
 	d.mcpCommandOverride = s.commandOverride
 	return d.DeliverMCP(s.mcp, s.bundle)
 }
 
+// Deliver writes .mcp.json into dir via the reused file-template MCP writer.
+func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) { return s.deliver(dir) }
+
 // DeliverIsolated writes the merged .mcp.json into the out-of-cwd placement and
-// records its path for --mcp-config. settingsSurface.DeliverIsolated below is
-// deliberately NOT threading an analogous override: MCPCommandOverride
-// (dire-five) replaces the ctxloom MCP stdio command, a concern the settings
-// surface (hooks + statusline) has none of.
-// reprise:accept-drift
+// records its path for --mcp-config.
 func (s *mcpSurface) DeliverIsolated() (agent.Delivered, error) {
 	dir := s.isolated.Dir()
-	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
-	d.mcpCommandOverride = s.commandOverride
-	handle, err := d.DeliverMCP(s.mcp, s.bundle)
+	handle, err := s.deliver(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -159,21 +161,25 @@ type settingsSurface struct {
 	path      string          // set by DeliverIsolated: the out-of-cwd settings.json
 }
 
-// Deliver writes .claude/settings.json into dir via the reused file-template
-// settings writer.
-func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
+// deliver is the ONE .claude/settings.json recipe both entry points run (see
+// mcpSurface.deliver for the shape): build the reused file-template writer
+// against dir, thread the resolved deny_tools union onto it, and write the
+// settings JSON including hooks and the statusline policy.
+func (s *settingsSurface) deliver(dir string) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
 	d.denyTools = s.denyTools
 	return d.DeliverSettings(s.hooks, s.manageStatusline)
 }
 
+// Deliver writes .claude/settings.json into dir via the reused file-template
+// settings writer.
+func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) { return s.deliver(dir) }
+
 // DeliverIsolated writes the settings JSON (incl. hooks) into the out-of-cwd
 // placement and records its path for --settings.
 func (s *settingsSurface) DeliverIsolated() (agent.Delivered, error) {
 	dir := s.isolated.Dir()
-	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
-	d.denyTools = s.denyTools
-	handle, err := d.DeliverSettings(s.hooks, s.manageStatusline)
+	handle, err := s.deliver(dir)
 	if err != nil {
 		return nil, err
 	}

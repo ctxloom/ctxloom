@@ -326,3 +326,25 @@ func TestResolveConstraint_ForcedVersionRejectsUnparseableExpr(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveConstraint_NameTagFirst_ListTagsErrorPropagates pins U095-F04: a
+// bare, prefix-less name of no inferable shape (e.g. "main") is classified by
+// asking the repo whether it names a tag (resolveNameTagFirst → isRepoTag). If
+// that ListTags call fails transiently, the failure must be reported, NOT
+// silently read as "not a tag" — which used to fall through to resolveBranch
+// and quietly convert what may have been an intended tag PIN into branch
+// TRACKING, persisted to lock.yaml as such.
+func TestResolveConstraint_NameTagFirst_ListTagsErrorPropagates(t *testing.T) {
+	sentinel := errors.New("listing tags: connection reset")
+	rv := &fakeRepoVersions{tagsErr: sentinel}
+	got, err := ResolveConstraint(context.Background(), "main", rv)
+	if err == nil {
+		t.Fatalf("ResolveConstraint(%q) = %+v, want an error: a failed tag listing must not silently become branch tracking", "main", got)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Errorf("error = %v, want wrapped %v", err, sentinel)
+	}
+	if len(rv.resolvedRefs) != 0 {
+		t.Errorf("resolved refs = %v, want none: must not fall through to resolveBranch after a listing failure", rv.resolvedRefs)
+	}
+}

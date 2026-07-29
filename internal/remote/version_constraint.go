@@ -285,7 +285,11 @@ func resolveBranch(ctx context.Context, name string, rv RepoVersions) (Resolutio
 // overrides this. A backend that can't list tags reports none, so the name
 // resolves as a branch — the safe fault-tolerant direction.
 func resolveNameTagFirst(ctx context.Context, name string, rv RepoVersions) (Resolution, error) {
-	if isRepoTag(ctx, rv, name) {
+	isTag, err := isRepoTag(ctx, rv, name)
+	if err != nil {
+		return Resolution{}, fmt.Errorf("determine whether %q is a tag: %w", name, err)
+	}
+	if isTag {
 		sha, err := resolveTagSHA(ctx, rv, name)
 		if err != nil {
 			return Resolution{}, fmt.Errorf("resolve tag %q: %w", name, err)
@@ -295,18 +299,22 @@ func resolveNameTagFirst(ctx context.Context, name string, rv RepoVersions) (Res
 	return resolveBranch(ctx, name, rv)
 }
 
-// isRepoTag reports whether name is exactly one of the repository's tags.
-func isRepoTag(ctx context.Context, rv RepoVersions, name string) bool {
+// isRepoTag reports whether name is exactly one of the repository's tags. A
+// failed tag listing is reported to the caller rather than silently read as
+// "not a tag" — U095-F04: swallowing it here used to let a transient listing
+// failure fall through to resolveBranch and silently convert what may have
+// been intended as a tag PIN into branch TRACKING.
+func isRepoTag(ctx context.Context, rv RepoVersions, name string) (bool, error) {
 	tags, err := rv.ListTags(ctx)
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, t := range tags {
 		if t == name {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // resolveSemver selects the highest tag satisfying expr and pins its commit.

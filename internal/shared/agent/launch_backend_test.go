@@ -252,15 +252,24 @@ func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
 	assert.Empty(t, b.delivered, "an empty surface set materializes no files")
 }
 
-// TestSetup_NilDelivery_NoOp proves a misconfigured backend (no CellDelivery)
-// no-ops rather than panicking.
-func TestSetup_NilDelivery_NoOp(t *testing.T) {
+// TestSetup_NilDelivery_ErrorsRatherThanPanicking pins U101-F29: Setup used
+// to return nil (full success) when b.delivery is nil, even though the doc
+// comment right above it calls that exact case "a misconfigured backend". Not
+// panicking is right (a nil delivery is recoverable), but reporting SUCCESS
+// while setting up nothing is the "exit 0, zero bytes delivered" failure
+// shape this codebase is watched for — every real backend supplies a
+// CellDelivery at InitLaunch (acp an empty-set one), so a nil delivery here
+// is never legitimate "nothing to do".
+func TestSetup_NilDelivery_ErrorsRatherThanPanicking(t *testing.T) {
 	b, rec := newLegacyBackend()
 	require.Nil(t, b.delivery)
-	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-		WorkDir: t.TempDir(),
-		Managed: &ManagedConfig{},
-	}))
+	require.NotPanics(t, func() {
+		err := b.Setup(context.Background(), &SetupRequest{
+			WorkDir: t.TempDir(),
+			Managed: &ManagedConfig{},
+		})
+		require.Error(t, err, "a nil delivery is a misconfigured backend and must fail Setup, not report success")
+	})
 	assert.False(t, rec.merged, "a nil delivery does nothing")
 	assert.Empty(t, b.delivered)
 }

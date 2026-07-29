@@ -179,11 +179,13 @@ func (b *LaunchBackend) contextFilePath() string {
 // supplies a CellDelivery at InitLaunch (a protocol-only backend like acp an empty
 // one), so Setup builds the backend's SurfaceSet from the merged state and
 // delivers it through the cell named by req.CellKind. A nil delivery is a
-// misconfigured backend — nothing to set up — so it no-ops rather than panics.
+// misconfigured backend (InitLaunch was called without one) — never a
+// legitimate "nothing to do" — so it fails loudly (U101-F29) rather than
+// reporting success while setting up nothing.
 func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
 	if b.delivery == nil {
-		return nil
+		return fmt.Errorf("%s: misconfigured backend: InitLaunch was called with a nil CellDelivery", b.Name())
 	}
 	return b.setupViaCells(req)
 }

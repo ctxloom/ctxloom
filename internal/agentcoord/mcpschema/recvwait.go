@@ -5,23 +5,18 @@ import (
 	"time"
 )
 
-// The agent_recv `wait` contract. It is advertised on two tool surfaces (the
-// runner's generated schema and the stdio server's typed input) and enforced by
-// two handlers, so it lives here — the package both surfaces already compile
-// against — rather than being restated at each site.
-//
-// The numbers and the prose that quotes them are ONE declaration on purpose: a
-// model reads the advertised maximum and plans around it, so a clamp that
-// disagrees with the text cuts a caller off at a boundary it was told it could
-// ask for, and reports it as a timeout.
+// The agent_recv `wait` contract, advertised on two tool surfaces (the runner's
+// generated schema, the stdio server's typed input) and enforced by two
+// handlers. The numbers and the prose quoting them are ONE declaration: a model
+// reads the advertised maximum and plans around it, so a clamp that disagrees
+// with the text cuts a caller off at a boundary it was told it could ask for.
 const (
-	// RecvWaitDefault is the park duration an absent, zero or negative wait
-	// resolves to. Never zero: a zero wait turns a park into a poll, and a child
-	// polling its mailbox burns its execution slot instead of yielding it.
+	// RecvWaitDefault is what an absent, zero or negative wait resolves to.
+	// Never zero: that turns a park into a poll, and a polling child burns its
+	// execution slot instead of yielding it.
 	RecvWaitDefault = 60 * time.Second
-	// RecvWaitMax caps how long one recv may park. A parked child holds a
-	// coordination open; past this the caller is expected to give up, write its
-	// report or deferral state, and finish.
+	// RecvWaitMax caps one recv's park. A parked child holds a coordination
+	// open; past this the caller is expected to give up and finish.
 	RecvWaitMax = 10 * time.Minute
 )
 

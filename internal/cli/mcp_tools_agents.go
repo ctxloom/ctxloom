@@ -129,11 +129,9 @@ type agentSendResult struct {
 }
 
 type agentRecvInput struct {
-	// A struct tag must be a literal, so this cannot reference
-	// mcpschema.RecvWaitDoc directly the way the runner surface's generated
-	// schema does. TestAgentRecvWait_StdioSchemaDescribesTheSameBounds asserts
-	// the two are the same text, and mcpschema.ClampRecvWait is what enforces
-	// the numbers quoted here.
+	// A struct tag must be a literal, so it cannot reference
+	// mcpschema.RecvWaitDoc the way the generated schema does;
+	// TestAgentRecvWait_StdioSchemaDescribesTheSameBounds pins them equal.
 	Wait int `json:"wait,omitempty" jsonschema:"Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish"`
 }
 

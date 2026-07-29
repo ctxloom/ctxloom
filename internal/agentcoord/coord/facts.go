@@ -199,9 +199,9 @@ type interaction struct {
 }
 
 // factAt builds one journal fact with the command-time timestamp — the ONLY
-// place time enters a journal (folds read Fact.At and never call time.Now(),
-// so replay is deterministic). A marshal failure is a programming error
-// (payloads are our own structs) and panics rather than dropping state.
+// place time enters a journal (folds read Fact.At, never time.Now(), so replay
+// is deterministic). A marshal failure is a programming error and panics rather
+// than dropping state.
 func factAt(kind string, at time.Time, payload any) Fact {
 	data, err := json.Marshal(payload)
 	if err != nil {

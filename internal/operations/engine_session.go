@@ -455,17 +455,14 @@ func listSessionSkillNames(ctx context.Context, cfg *config.Config) nameListing 
 
 // MCPServerNames extracts a SORTED name list from a resolved MCP server set —
 // names only, never command, args or env, any of which can carry a credential.
+// Two surfaces read it and need the same answer: the session-init summary's
+// "mcp" line (req.MCPServers plus acpSessionMCPServers) and the delegation
+// journal/roster. Sorted rather than composition order because the journaled
+// value must be stable across runs.
 //
-// Two surfaces read it and both need the same answer: the session-init
-// summary's "mcp" line (req.MCPServers plus ctxloom's own managed injection,
-// acpSessionMCPServers) and the delegation journal/roster, which records what a
-// child can reach so an operator can audit a live spawn. That is also why the
-// order is sorted rather than composition order: the journaled value must be
-// stable across runs.
-//
-// It is the CONFIGURED set only — what ctxloom is asking the engine to attach —
-// never live connection status: see buildSessionInitSummary's doc for why
-// connection status is not observable at the point this summary is built.
+// The CONFIGURED set only — what ctxloom asks the engine to attach — never live
+// connection status: see buildSessionInitSummary for why that is not observable
+// where this summary is built.
 func MCPServerNames(servers []agent.ChatMCPServer) []string {
 	if len(servers) == 0 {
 		return nil

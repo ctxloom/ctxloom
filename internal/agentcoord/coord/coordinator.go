@@ -384,23 +384,18 @@ func New(opts Options) (*Coordinator, error) {
 	return c, nil
 }
 
-// goTracked runs fn on a new goroutine tracked by c.tracked, so Close() can
-// join it (waitTracked) before tearing the journals and state dir down. EVERY
-// bare `go` in this package whose goroutine can outlive the call that spawned
-// it must ride its owner's equivalent — flaky-agentcoord (S1): an unjoined
-// launch/resume/channel-pump goroutine racing a closed journal or a t.TempDir
-// RemoveAll was the flake cluster's root cause, not any one test's own
-// synchronization. The dispatch/seal/bounded-join rules live in trackedGroup.
+// goTracked runs fn on a new goroutine Close() joins (waitTracked) before
+// tearing the journals and state dir down. EVERY bare `go` in this package whose
+// goroutine can outlive its spawning call must ride its owner's equivalent — see
+// trackedGroup.
 func (c *Coordinator) goTracked(fn func()) { c.tracked.dispatch(fn) }
 
-// closeJoinBudget bounds Close's wait for tracked goroutines: generous
-// headroom above the ctx-aware waits every tracked loop selects on (slot
-// acquisition, runner awaits, request round-trips all key off c.baseCtx,
-// already cancelled by the time waitTracked runs), short enough that one
-// genuinely wedged handler cannot hang shutdown forever — a leaked-goroutine
-// diagnostic is logged and Close proceeds rather than deadlocking. The most
-// generous of the package's four budgets, because the journals and an
-// ephemeral state dir's removal wait behind it.
+// closeJoinBudget bounds Close's wait for tracked goroutines: generous headroom
+// above the ctx-aware waits every tracked loop selects on (slot acquisition,
+// runner awaits, request round-trips all key off c.baseCtx, already cancelled by
+// the time waitTracked runs), short enough that one wedged handler cannot hang
+// shutdown forever. The most generous of the package's four, because the
+// journals and an ephemeral state dir's removal wait behind it.
 const closeJoinBudget = 5 * time.Second
 
 // waitTracked joins every c.goTracked goroutine, with a bounded escape.
@@ -670,11 +665,9 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 // purpose: a state described two ways is a state the two surfaces can come to
 // disagree about.
 //
-// mode is deliberately coarser than prose: StateQueued and a mid-turn
-// executing/parked child are both DeliveryQueued (both drain at a boundary the
-// caller does not control), while the prose distinguishes them because "has not
-// started yet" and "mid-turn" are different things to an agent deciding whether
-// to wait.
+// mode is deliberately coarser: StateQueued and a mid-turn executing/parked
+// child are both DeliveryQueued, while the prose separates them because "has
+// not started yet" and "mid-turn" mean different things to a waiting agent.
 func deliveryDisposition(state string) (mode, prose string) {
 	switch state {
 	case StateEnded:

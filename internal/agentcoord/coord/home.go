@@ -179,9 +179,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	return h, nil
 }
 
-// goTracked runs fn on a new goroutine tracked by h.tracked — see the field's
-// doc and trackedGroup for the dispatch/seal/bounded-join rules
-// (flaky-agentcoord S2).
+// goTracked runs fn on a new goroutine Close/crash join — see trackedGroup.
 func (h *Home) goTracked(fn func()) { h.tracked.dispatch(fn) }
 
 // homeCloseJoinBudget bounds Close/crash's wait for Home's tracked

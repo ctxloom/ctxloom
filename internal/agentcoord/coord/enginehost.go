@@ -91,20 +91,13 @@ func NewEngineHost(ctx context.Context, backend agent.StructuredChat, harness, r
 	}
 }
 
-// engineHostCloseJoinBudget bounds Close's wait for tracked goroutines — see
-// Coordinator's closeJoinBudget (coordinator.go) for the identical
-// reasoning: generous headroom above the ctx-aware waits every tracked
-// goroutine here selects on (all key off the run's own ctx, cancelled by
-// Close before waitTracked runs), short enough that one genuinely wedged
-// goroutine cannot hang shutdown forever.
+// engineHostCloseJoinBudget bounds Close's wait — see Coordinator's
+// closeJoinBudget for the identical reasoning (every tracked goroutine here
+// keys off the run's own ctx, cancelled by Close before waitTracked runs).
 const engineHostCloseJoinBudget = 3 * time.Second
 
-// goTracked runs fn on a new goroutine tracked by eh.tracked, so Close can join
-// it (waitTracked) before returning. EVERY bare `go` this type dispatches whose
-// goroutine can outlive the call that spawned it must ride this — mirrors
-// Coordinator.goTracked/Home.goTracked (flaky-agentcoord S1/S2, deaf-rut: the
-// enginehost/runnerlink tail of the same untracked-goroutine family). See
-// trackedGroup for the dispatch/seal/bounded-join rules.
+// goTracked runs fn on a new goroutine Close joins before returning — see
+// trackedGroup.
 func (eh *EngineHost) goTracked(fn func()) { eh.tracked.dispatch(fn) }
 
 // waitTracked joins every eh.goTracked goroutine, with a bounded escape.

@@ -26,10 +26,8 @@ import (
 // dial target from the URL's host:port. The agent-facing HTTP-MCP handlers
 // were DELETED in B1.6 (deliverable 4): the gRPC RunChannel is the only
 // agent ingress now; the h2c listener stays for later frontends/watch APIs.
-//
-// Declared in discover, which also reads it back out of endpoint.json: the
-// advertised path and the discovered path are the same constant, not two that
-// agree by inspection.
+// Declared in discover, which reads it back out of endpoint.json: advertised
+// path and discovered path are one constant.
 const MCPPath = discover.MCPPath
 
 // coordServing is the coordinator's listener set: the loopback listener
@@ -59,12 +57,10 @@ type coordServing struct {
 // read-only watch credential — 0600, host-local, re-minted every Serve()
 // (consumer.go's consumerCreds is never journaled, so this file IS its only
 // persistence).
-//
-// The layout is discover.State: the out-of-process reader cannot import this
-// package (it is upstream of coord through internal/operations), so the shape
-// lives with the reader and this writer compiles against it. A field renamed
-// here now breaks discovery at build time instead of at runtime, where a
-// mismatch is indistinguishable from "no coordinator is running".
+// The layout is discover.State: the reader cannot import this package (it is
+// upstream through internal/operations), so the shape lives with the reader and
+// a renamed field breaks the build rather than discovery, where a mismatch is
+// indistinguishable from "no coordinator is running".
 type endpointState = discover.State
 
 // Serve stands the listeners up: loopback by default; widening happens on

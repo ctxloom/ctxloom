@@ -7,35 +7,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// trackedGroup is this package's goroutine-ownership discipline: every long-
-// lived type here (Coordinator, Home, EngineHost, RunnerLink) owns background
-// goroutines that can outlive the call that spawned them, and each must be able
-// to prove none of them is still running before it tears down the state they
-// touch. flaky-agentcoord's root cause was exactly a fire-and-forget `go` with
-// no owner racing that teardown — a prior test's Close() cancelling while a
-// launch goroutine was still touching journals it had just closed — so this is
-// load-bearing, not hygiene.
+// trackedGroup is this package's goroutine-ownership discipline, shared by every
+// long-lived type here (Coordinator, Home, EngineHost, RunnerLink): each owns
+// background goroutines that outlive the call that spawned them, and must prove
+// none is still running before tearing down the state they touch —
+// flaky-agentcoord was a fire-and-forget `go` racing exactly that teardown.
 //
-// Three rules, and all three matter:
+// Three rules, all load-bearing:
 //
-//   - dispatch TRACKS. Every goroutine whose lifetime can exceed its spawning
-//     call rides it, or the join below proves nothing.
+//   - dispatch TRACKS. A goroutine that skips it makes the join prove nothing.
 //   - seal comes BEFORE the join. A still-live handler's deferred cleanup can
-//     dispatch new work after the transport it belonged to is already torn down,
-//     genuinely concurrently with the join — and wg.Add racing an in-progress
-//     wg.Wait is a sync.WaitGroup misuse, caught live by -race. Past the seal fn
-//     still RUNS, untracked and best-effort: the dispatchers are cleanups that
-//     cannot be told to stand down, and every tracked loop already respects its
-//     own context.
-//   - the join is BOUNDED. One wedged handler must not hang shutdown forever;
-//     the escape logs a leaked-goroutine diagnostic and proceeds.
+//     dispatch after its transport is torn down, concurrently with the join, and
+//     wg.Add racing an in-progress wg.Wait is a sync.WaitGroup misuse (caught by
+//     -race). Past the seal fn still RUNS, untracked: the dispatchers are
+//     cleanups that cannot be told to stand down, and every tracked loop already
+//     respects its own context.
+//   - the join is BOUNDED. One wedged handler must not hang shutdown forever.
 //
-// The group carries its own mutex rather than borrowing its owner's: the owner's
-// mu guards unrelated state, and nothing outside this file needs to observe the
-// sealed flag together with any of it. Budget and diagnostic wording stay with
-// the OWNER (passed to wait) because they are per-owner policy — the
-// coordinator's budget is deliberately the most generous, since a state-dir
-// teardown waits behind it.
+// Budget and diagnostic wording stay with the OWNER (passed to wait): they are
+// per-owner policy, the coordinator's being deliberately the most generous.
 type trackedGroup struct {
 	mu      sync.Mutex // guards closing, and serializes wg.Add against seal
 	wg      sync.WaitGroup

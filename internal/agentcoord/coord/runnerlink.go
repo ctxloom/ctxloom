@@ -101,11 +101,9 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 		return nil, fmt.Errorf("coord: dial coordinator %s: %w", target, err)
 	}
 	linkCtx, cancel := context.WithCancel(ctx)
-	// unwind is the single teardown for every failure past this point: the link
-	// context is cancelled and the connection closed before the error leaves.
-	// Nothing here may return a half-built link — the caller's redial loop only
-	// ever Shutdowns a link DialRunner handed it, so a conn left open on a
-	// failure path has no owner at all.
+	// unwind is the single teardown for every failure past this point. A conn
+	// left open on a failure path has no owner: the caller's redial loop only
+	// ever Shutdowns a link DialRunner actually handed back.
 	unwind := func(format string, a ...any) (*RunnerLink, error) {
 		cancel()
 		_ = conn.Close()
@@ -153,13 +151,9 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 // unblocks around the same point.
 const runnerLinkCloseJoinBudget = 3 * time.Second
 
-// goTracked runs fn on a new goroutine tracked by l.tracked, so Shutdown can
-// join it (waitTracked) before closing the underlying conn. EVERY bare `go` this
-// type dispatches whose goroutine can outlive the call that spawned it must ride
-// this — mirrors Coordinator.goTracked/Home.goTracked/EngineHost.goTracked
-// (flaky-agentcoord S1/S2, deaf-rut). receiveLoop can still dispatch a fresh
-// serveRequest for a RunnerRequest that arrived just as Shutdown began, which is
-// what the seal in trackedGroup is for.
+// goTracked runs fn on a new goroutine Shutdown joins before closing the conn —
+// see trackedGroup. receiveLoop can dispatch a serveRequest that arrives just as
+// Shutdown begins, which is what the seal is for.
 func (l *RunnerLink) goTracked(fn func()) { l.tracked.dispatch(fn) }
 
 // waitTracked joins every l.goTracked goroutine, with a bounded escape.

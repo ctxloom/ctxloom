@@ -310,3 +310,41 @@ func TestBuildFollowupPrompt_NoQueryResultsOmitsSection(t *testing.T) {
 	p := BuildFollowupPrompt(b)
 	assert.NotContains(t, p, "Query results requested")
 }
+
+// TestPrompts_ResponseContractIsIdenticalWhereItMustBe pins the response
+// contract both prompt builders emit. The two rounds legitimately differ in
+// one thing — whether needs-investigation (and its queries field) is on the
+// menu — and must be byte-identical in everything else, because a model that
+// gets two differently-worded contracts has two chances to answer in a shape
+// the parser rejects.
+func TestPrompts_ResponseContractIsIdenticalWhereItMustBe(t *testing.T) {
+	round1 := responseFormatSection(t, BuildPrompt(Batch{Tasks: []TaskInput{{HarpID: "aa-bb-cc"}}}))
+	round2 := responseFormatSection(t, BuildFollowupPrompt(FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "aa-bb-cc"}}}}))
+
+	const shared = "Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n"
+	assert.Contains(t, round1, shared)
+	assert.Contains(t, round2, shared)
+
+	assert.Contains(t, round1, `"outcome": "fired|not-fired|needs-investigation|cannot-determine"`)
+	assert.Contains(t, round1, `"queries"`)
+	assert.Contains(t, round2, `"outcome": "fired|not-fired|cannot-determine"`)
+	assert.NotContains(t, round2, `"queries"`)
+
+	// Everything outside the outcome vocabulary and the queries field must
+	// match, line for line.
+	assert.Equal(t,
+		"=== Response format ===\n\nRespond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n",
+		strings.Split(round2, "{")[0])
+	assert.Equal(t,
+		"=== Response format ===\n\nRespond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n",
+		strings.Split(round1, "{")[0])
+}
+
+func responseFormatSection(t *testing.T, prompt string) string {
+	t.Helper()
+	i := strings.Index(prompt, "=== Response format ===")
+	if i < 0 {
+		t.Fatalf("prompt carries no response-format section:\n%s", prompt)
+	}
+	return prompt[i:]
+}

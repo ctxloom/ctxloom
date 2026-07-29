@@ -56,7 +56,7 @@ func BuildPrompt(b Batch) string {
 		sb.WriteString("\n")
 	}
 
-	writeResponseContract(&sb)
+	writeResponseContract(&sb, true)
 
 	return sb.String()
 }
@@ -107,10 +107,7 @@ func BuildFollowupPrompt(b FollowupBatch) string {
 		writeQueryResults(&sb, t.Results)
 	}
 
-	sb.WriteString("=== Response format ===\n\n")
-	sb.WriteString("Respond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n")
-	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|cannot-determine", "evidence": ["..."], "reasoning": "one or two sentences"}` + "\n")
-	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
+	writeResponseContract(&sb, false)
 
 	return sb.String()
 }
@@ -207,10 +204,20 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 	sb.WriteString("\n")
 }
 
-func writeResponseContract(sb *strings.Builder) {
+// writeResponseContract emits the response contract both rounds share. Round 1
+// offers needs-investigation (and the queries field that goes with it); round 2
+// is the final look and does not. Everything else is one wording, because two
+// wordings is two chances for a model to answer in a shape the parser rejects.
+func writeResponseContract(sb *strings.Builder, allowInvestigation bool) {
+	outcomes := "fired|not-fired|cannot-determine"
+	queries := ""
+	if allowInvestigation {
+		outcomes = "fired|not-fired|needs-investigation|cannot-determine"
+		queries = `, "queries": [optional, needs-investigation only, see above]`
+	}
 	sb.WriteString("=== Response format ===\n\n")
-	sb.WriteString("Respond with ONLY a JSON array, one object per Deferred task listed above, no prose before or after, no markdown code fence. Each object:\n")
-	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|needs-investigation|cannot-determine", "evidence": ["..."], "reasoning": "one or two sentences", "queries": [optional, needs-investigation only, see above]}` + "\n")
+	sb.WriteString("Respond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n")
+	fmt.Fprintf(sb, `{"harp_id": "...", "outcome": %q, "evidence": ["..."], "reasoning": "one or two sentences"%s}`+"\n", outcomes, queries)
 	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
 }
 

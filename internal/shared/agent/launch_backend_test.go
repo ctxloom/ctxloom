@@ -563,24 +563,30 @@ func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	assert.Empty(t, b.delivered, "Cleanup clears the handle set")
 }
 
-// TestCleanup_AttemptsAllReturnsFirstError proves Cleanup keeps going after a
-// handle errors and reports the first failure.
-func TestCleanup_AttemptsAllReturnsFirstError(t *testing.T) {
+// TestCleanup_AttemptsAllJoinsEveryError pins U101-F35: Cleanup used to keep
+// ONLY the first teardown error, silently discarding every subsequent
+// failure even though every handle is still attempted. Both errors below
+// must be recoverable from the returned error (errors.Is), not just the
+// first one encountered in LIFO order.
+func TestCleanup_AttemptsAllJoinsEveryError(t *testing.T) {
 	boom := errors.New("boom")
+	undoneLast := errors.New("undone-last")
 	var ran int
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
 	// Cleanup undoes LIFO (last appended, first undone). The last-appended handle
-	// errors → it is the first error encountered; a later handle also errors but
-	// must not overwrite it, and the clean handle must still run.
+	// errors → it is the first error encountered; a later handle also errors and
+	// must NOT be discarded, and the clean handle must still run.
 	b.delivered = []Delivered{
-		deliveredFn(func() error { ran++; return errors.New("undone-last") }), // undone last
-		deliveredFn(func() error { ran++; return nil }),                       // undone second
-		deliveredFn(func() error { ran++; return boom }),                      // undone first → first error
+		deliveredFn(func() error { ran++; return undoneLast }), // undone last
+		deliveredFn(func() error { ran++; return nil }),        // undone second
+		deliveredFn(func() error { ran++; return boom }),       // undone first → first error
 	}
 
 	err := b.Cleanup(context.Background())
-	assert.Equal(t, boom, err, "Cleanup returns the FIRST error encountered in LIFO order")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, boom, "the first (LIFO) error must be present")
+	assert.ErrorIs(t, err, undoneLast, "a later handle's error must not be discarded")
 	assert.Equal(t, 3, ran, "Cleanup attempts every handle despite an error")
 }
 

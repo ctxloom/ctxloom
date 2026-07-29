@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -392,17 +393,20 @@ func (b *LaunchBackend) mergedState() (hooks *wire.HooksConfig, mcp *wire.MCPCon
 }
 
 // Cleanup reverses the surfaces Setup delivered through the seam, in LIFO order
-// (last delivered, first undone). It attempts every handle and returns the first
-// error, so one surface's failed teardown never strands the rest. A backend that
-// delivered nothing (the legacy lifecycle path, or a skip-setup run) holds no
-// handles, so this is a no-op there.
+// (last delivered, first undone). It attempts every handle regardless of
+// earlier failures, so one surface's failed teardown never strands the rest,
+// and joins every failure into the returned error (U101-F35: it used to keep
+// only the first, silently discarding the rest even though every handle was
+// still attempted) — errors.Is/As still find any individual cause. A backend
+// that delivered nothing (the legacy lifecycle path, or a skip-setup run)
+// holds no handles, so this is a no-op there.
 func (b *LaunchBackend) Cleanup(ctx context.Context) error {
-	var firstErr error
+	var errs []error
 	for i := len(b.delivered) - 1; i >= 0; i-- {
-		if err := b.delivered[i].Cleanup(); err != nil && firstErr == nil {
-			firstErr = err
+		if err := b.delivered[i].Cleanup(); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	b.delivered = nil
-	return firstErr
+	return errors.Join(errs...)
 }

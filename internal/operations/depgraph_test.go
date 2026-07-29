@@ -14,10 +14,18 @@ import (
 )
 
 // newTestWalker builds a depWalker whose remote reads are served by fetcher.
+// resolveHash is the identity resolver — a ref's already-concrete version
+// expression IS its hash for these unit tests, which construct refs with a
+// pre-pinned "@<hash>" suffix directly (U083-F21: production no longer
+// carries a nil-means-identity mode; this is the resolver that used to be
+// implicit).
 func newTestWalker(fetcher remote.Fetcher) *depWalker {
 	return &depWalker{
 		ctx:     context.Background(),
 		factory: func(string, remote.AuthConfig) (remote.Fetcher, error) { return fetcher, nil },
+		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
+			return ref.ContentVersion, "", "", true
+		},
 		pins:    map[string]PinnedRef{},
 		hashes:  map[string]map[string]struct{}{},
 		visited: map[string]struct{}{},

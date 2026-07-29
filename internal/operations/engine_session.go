@@ -146,13 +146,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		requestedAgent = resolveAgent
 		if resolveAgent != "" {
 			if rs, rerr := ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
-				// An EXPLICIT --agent that cannot be honored is FATAL
-				// (sandy-boxer). See agentBindingError for why a degrade here
-				// is worse than a hard break. An agent auto-bound from
-				// cfg.DefaultAgent still degrades: the editor never asked for
-				// it, so a project that merely SET default_agent must not
+				// An EXPLICIT --agent (flagAgent != "") that cannot be honored
+				// is FATAL (sandy-boxer). See agentBindingError for why a
+				// degrade here is worse than a hard break. An agent auto-bound
+				// from cfg.DefaultAgent still degrades: the editor never asked
+				// for it, so a project that merely SET default_agent must not
 				// hard-break every plain session.
-				if agentBindingIsExplicit(flagAgent) {
+				if flagAgent != "" {
 					return agentBindingError(cfg, resolveAgent, rerr)
 				}
 				clidiag.Warn("ctxloom", "acp agent: default agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
@@ -1054,11 +1054,6 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
-// agentBindingIsExplicit reports whether the agent being resolved was named by
-// the caller (--agent) rather than auto-bound from cfg.DefaultAgent. Only an
-// explicit ask is fatal when it cannot be honored — see agentBindingError.
-func agentBindingIsExplicit(flagAgent string) bool { return flagAgent != "" }
 
 // agentBindingError renders the fatal session-open error for an explicit
 // --agent that does not resolve.

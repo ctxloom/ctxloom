@@ -51,9 +51,4 @@ func TestExplicitAgentResolutionFailureIsFatal(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no agents are defined")
 	})
-
-	t.Run("explicit beats implicit: only flagAgent is fatal", func(t *testing.T) {
-		assert.True(t, agentBindingIsExplicit("codr"), "--agent was given: an unhonorable explicit ask must fail")
-		assert.False(t, agentBindingIsExplicit(""), "no --agent: the auto-bound default_agent may still degrade")
-	})
 }

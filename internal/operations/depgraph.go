@@ -60,7 +60,7 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 	} else {
 		roots, rootsUnexpanded = namedRoots(cfg, loader, profileNames)
 	}
-	pins, conflicts, unexpanded := FlattenProfileRoots(ctx, cfg, loader, roots)
+	pins, conflicts, unexpanded := flattenProfileRoots(ctx, cfg, loader, roots)
 	// U083-F02: merge root-build failures (a profile/directory-listing that
 	// couldn't be loaded, discovered BEFORE the walker even exists) into the
 	// same unexpanded-set contract the walker's own failures use, so every
@@ -160,11 +160,15 @@ func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
 	return &profiles.Profile{Name: "<config-defaults>", Parents: remoteDefaults}
 }
 
-// FlattenProfileRoots flattens the closure of the given in-memory root profiles.
-// Used by `update` to flatten the PROPOSED state (roots with refs re-pinned to
-// HEAD) without writing the proposed profiles to disk first. The third return
-// is the unexpanded-parent set (see FlattenDependencies).
-func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string) {
+// flattenProfileRoots flattens the closure of the given in-memory root
+// profiles, anchored to the active lockfile (a held or unchanged-constraint
+// entry is carried forward; a resolution failure falls back to its last
+// known SHA rather than dropping the item). The third return is the
+// unexpanded-parent set (see FlattenDependencies). Its own single caller is
+// FlattenDependencies — upgrade.go's re-resolve path calls flattenRootsWith
+// directly instead, since it needs reResolve=true rather than this
+// lock-mode resolver.
+func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string) {
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
 	auth := remote.LoadAuth(getBaseDir(cfg))
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
@@ -205,9 +209,11 @@ type depWalker struct {
 
 	// resolveHash resolves a remote ref's version constraint to a concrete
 	// commit (and the tag it chose, if any). ok=false means unresolvable — the
-	// ref is skipped, never pinned at an empty hash. Nil means "treat the ref's
-	// version expression as already concrete" (the pre-resolution passthrough used
-	// by closure/conflict unit tests that inject pre-pinned hashes directly).
+	// ref is skipped, never pinned at an empty hash. Both production
+	// constructors (FlattenProfileRoots, upgrade.go) always set this; unit
+	// tests that need "treat the ref's version expression as already
+	// concrete" pass an identity resolver explicitly rather than relying on a
+	// nil-means-identity production fallback (U083-F21).
 	resolveHash func(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool)
 
 	pins    map[string]PinnedRef           // identity -> first-seen pin
@@ -231,14 +237,9 @@ func (w *depWalker) markUnexpanded(identity string, cause error) {
 	clidiag.Warn("ctxloom", "could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)", identity, cause)
 }
 
-// resolvedHash resolves ref via the injected resolver, or — when none is set —
-// passes the ref's version expression through as the hash (the pre-resolution
-// contract the depgraph unit tests rely on).
+// resolvedHash resolves ref via the injected resolver.
 func (w *depWalker) resolvedHash(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool) {
-	if w.resolveHash != nil {
-		return w.resolveHash(ref)
-	}
-	return ref.ContentVersion, "", "", true
+	return w.resolveHash(ref)
 }
 
 // walkProfile resolves a profile's short refs against (sourceURL, sourceHash),
@@ -409,23 +410,15 @@ func ConflictError(conflicts []DependencyConflict) error {
 	var b strings.Builder
 	b.WriteString("dependency hash conflict — the same item is referenced at differing commits:\n")
 	for _, c := range conflicts {
+		shortened := make([]string, len(c.Hashes))
+		for i, h := range c.Hashes {
+			shortened[i] = shortSHA(h)
+		}
 		b.WriteString("  ")
 		b.WriteString(c.Item)
 		b.WriteString(" @ {")
-		b.WriteString(strings.Join(shortHashes(c.Hashes), ", "))
+		b.WriteString(strings.Join(shortened, ", "))
 		b.WriteString("}\n")
 	}
-	return &dependencyConflictError{msg: strings.TrimRight(b.String(), "\n")}
+	return errors.New(strings.TrimRight(b.String(), "\n"))
 }
-
-func shortHashes(hashes []string) []string {
-	out := make([]string, len(hashes))
-	for i, h := range hashes {
-		out[i] = shortSHA(h)
-	}
-	return out
-}
-
-type dependencyConflictError struct{ msg string }
-
-func (e *dependencyConflictError) Error() string { return e.msg }

@@ -585,24 +585,6 @@ func dirtyTreeFailError(agentName, workDir string, listed []string, more int) er
 	return errors.New(b.String())
 }
 
-// commitAcknowledged reports whether workDir's PROJECT config has explicitly
-// acknowledged (see config.Config.dirtyTreeCommitAck's doc for the full
-// reasoning) that dirty_tree_handler: "commit" may auto-commit on the user's
-// behalf. This reads ONLY the project config — never req/agent-supplied
-// data — by design: agent_run is normally invoked by a coordinator AGENT
-// over MCP, in a process with no TTY, often while the human is away. An
-// interactive prompt would either hang forever or be answered by an agent —
-// which is not the user's consent. A durable, human-edited config flag is
-// the only form of prior consent that survives headless operation.
-//
-// DO NOT add a per-call override for this. A per-call parameter would let a
-// delegating AGENT grant itself permission to commit on the user's behalf,
-// which defeats the entire point: this must be a human act, done once, in a
-// file a human edits.
-func commitAcknowledged(cfg *config.Config) bool {
-	return cfg.GetDirtyTreeCommitAck()
-}
-
 // commitDirtyTreeAckKey names the exact config key the "commit" handler's
 // ack-refusal message and warning point at — kept as a constant so the
 // refusal text and any future doc/init-interview wiring name the identical
@@ -612,8 +594,18 @@ const commitDirtyTreeAckKey = "dirty_tree_commit_ack"
 // commitDirtyTree implements dirty_tree_handler: "commit". It is gated
 // TWICE, in order: (1) a coherence guard against auto-committing inside a
 // detached-HEAD checkout (see the branch=="HEAD" case below), and (2) the
-// per-project human acknowledgement (commitAcknowledged). Only once both
-// pass does it warn (naming the branch and the bounded file list) and
+// per-project human acknowledgement (cfg.GetDirtyTreeCommitAck(), read ONLY
+// from the PROJECT config — never req/agent-supplied data — by design:
+// agent_run is normally invoked by a coordinator AGENT over MCP, in a
+// process with no TTY, often while the human is away. An interactive prompt
+// would either hang forever or be answered by an agent — which is not the
+// user's consent. A durable, human-edited config flag is the only form of
+// prior consent that survives headless operation. DO NOT add a per-call
+// override for this: a per-call parameter would let a delegating AGENT
+// grant itself permission to commit on the user's behalf, which defeats the
+// entire point — this must be a human act, done once, in a file a human
+// edits). Only once both pass does it warn (naming the branch and the
+// bounded file list) and
 // mutate. It never silently trusts a bare "commit succeeded": CommitAll's
 // own before/after diff must show real content, or this refuses (see the
 // len(changed)==0 case) — this codebase has a documented history of commits
@@ -633,7 +625,7 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 		return fmt.Errorf(`dirty_tree_handler "commit": %s is a detached-HEAD checkout (this looks like a delegated child's OWN isolated worktree, not a branch checkout — committing here would land on no branch and could be silently discarded when that worktree is later torn down) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir)
 	}
 
-	if !commitAcknowledged(cfg) {
+	if !cfg.GetDirtyTreeCommitAck() {
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this project has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
 		writeDirtyFileList(&b, listed, more)

@@ -2,6 +2,7 @@ package termui
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -373,6 +374,68 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 		return strings.Contains(h.tty.String(), "swift-elm-fox→executing")
 	})
 	h.c.Close()
+}
+
+// TestController_RosterFetchWarnsAfterConsecutiveFailures pins the safe half
+// of U141-F19: pollRoster discarded every FetchRoster error forever, with no
+// counter and no eventual warning, so a permanently broken coordinator
+// connection was indistinguishable from a stable roster. The last-good
+// snapshot must still stay displayed (unchanged, documented intent), but
+// enough consecutive failures must now surface exactly one warning, and a
+// later success must reset the streak. Exercises rosterFetch directly
+// (no goroutine/ticker) to stay fully deterministic — the goroutine-join
+// half of F19 is a separate, tracked concern (fussy-plow/rapid-grass) and is
+// deliberately untouched here.
+func TestController_RosterFetchWarnsAfterConsecutiveFailures(t *testing.T) {
+	boom := errors.New("coordinator unreachable")
+	fetchErr := true
+	var mu sync.Mutex
+	var warns []string
+	c := &Controller{
+		opts: Options{
+			FetchRoster: func() ([]RosterEntry, error) {
+				if fetchErr {
+					return nil, boom
+				}
+				return []RosterEntry{{Harp: "h", State: "executing"}}, nil
+			},
+			Warn: func(format string, args ...any) {
+				mu.Lock()
+				defer mu.Unlock()
+				warns = append(warns, fmt.Sprintf(format, args...))
+			},
+		},
+	}
+	var tty bytes.Buffer
+	c.sur = newTestSurround(&tty, BarInfo{Harp: "h"})
+
+	for i := 0; i < rosterFailWarnThreshold-1; i++ {
+		c.rosterFetch()
+	}
+	mu.Lock()
+	assert.Empty(t, warns, "must stay silent below the threshold")
+	mu.Unlock()
+
+	c.rosterFetch() // the Nth consecutive failure
+	mu.Lock()
+	require.Len(t, warns, 1, "must warn exactly at the threshold")
+	assert.Contains(t, warns[0], "coordinator unreachable")
+	mu.Unlock()
+
+	c.rosterFetch() // one more failure past the threshold
+	mu.Lock()
+	assert.Len(t, warns, 1, "must not spam a warning on every subsequent failure")
+	mu.Unlock()
+
+	fetchErr = false
+	c.rosterFetch() // a success resets the streak
+	fetchErr = true
+	for i := 0; i < rosterFailWarnThreshold-1; i++ {
+		c.rosterFetch()
+	}
+	mu.Lock()
+	assert.Len(t, warns, 1, "the reset streak must not yet be back at the threshold")
+	mu.Unlock()
 }
 
 func TestController_NoSizeYetRefusesEngage(t *testing.T) {

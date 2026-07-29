@@ -104,7 +104,18 @@ type Controller struct {
 	uiOff      atomic.Bool
 	closed     atomic.Bool
 	stopRoster chan struct{}
+
+	// rosterFails counts consecutive FetchRoster failures; touched only from
+	// pollRoster's own goroutine (U141-F19), never concurrently.
+	rosterFails int
 }
+
+// rosterFailWarnThreshold is how many consecutive FetchRoster failures
+// pollRoster tolerates silently before surfacing exactly one warning
+// (U141-F19): the last-good roster snapshot intentionally stays displayed
+// either way, but a permanently broken coordinator connection must not stay
+// indistinguishable from a stable one forever.
+const rosterFailWarnThreshold = 3
 
 // New builds the terminal layer. The caller guarantees Stdin/TTY are the real
 // terminal (never wrap a pipe) and that raw mode is already established.
@@ -339,18 +350,32 @@ func (c *Controller) abortLiteral() {
 func (c *Controller) pollRoster() {
 	tick := time.NewTicker(c.opts.RosterInterval)
 	defer tick.Stop()
-	fetch := func() {
-		if roster, err := c.opts.FetchRoster(); err == nil {
-			c.sur.SetRoster(roster)
-		}
-	}
-	fetch()
+	c.rosterFetch()
 	for {
 		select {
 		case <-c.stopRoster:
 			return
 		case <-tick.C:
-			fetch()
+			c.rosterFetch()
 		}
 	}
+}
+
+// rosterFetch performs one FetchRoster call. On success it feeds the bar and
+// resets the consecutive-failure streak. On failure it keeps the last-good
+// snapshot (documented intent, unchanged) but counts the streak and warns
+// exactly once when it reaches rosterFailWarnThreshold (U141-F19) — silence
+// beyond that point used to make a permanently broken coordinator connection
+// indistinguishable from a stable roster.
+func (c *Controller) rosterFetch() {
+	roster, err := c.opts.FetchRoster()
+	if err != nil {
+		c.rosterFails++
+		if c.rosterFails == rosterFailWarnThreshold {
+			c.warn("roster poll: %d consecutive failures, most recent: %v", c.rosterFails, err)
+		}
+		return
+	}
+	c.rosterFails = 0
+	c.sur.SetRoster(roster)
 }

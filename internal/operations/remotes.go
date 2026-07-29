@@ -838,11 +838,21 @@ func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Rem
 		return nil, err
 	}
 
-	// Try to fetch manifest first (faster)
+	// Try to fetch manifest first (faster). U086-F15: a manifest hit used to
+	// win UNCONDITIONALLY, so a stale/partial manifest (one that omits a
+	// bundle actually present on disk — e.g. added out-of-band since the
+	// manifest was last regenerated) permanently hid it: the directory
+	// fallback below could never run. The manifest is now authoritative only
+	// when it actually MATCHES something; zero manifest matches falls
+	// through to the directory listing rather than reporting a confident
+	// empty answer.
 	manifestPath := paths.RepoContentPrefix + "/manifest.yaml"
 	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err == nil {
-		return searchManifestContent(rem, manifestContent, itemType, query)
+		results, merr := searchManifestContent(rem, manifestContent, itemType, query)
+		if merr != nil || len(results) > 0 {
+			return results, merr
+		}
 	}
 
 	// Fall back to directory listing

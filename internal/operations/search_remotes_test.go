@@ -13,6 +13,43 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
+// TestSearchRemotes_ManifestFallsThroughOnNoMatches is a regression guard for
+// U086-F15: searchSingleRemote used to return the manifest search result
+// UNCONDITIONALLY whenever manifest.yaml fetched successfully, even when it
+// yielded zero matches — so a stale/partial manifest permanently hid bundles
+// actually present in the directory, since the directory fallback could then
+// never run. This repo ships a manifest.yaml that omits "widget" (as a real
+// publisher's manifest might, after an out-of-band bundle add) alongside an
+// actual content/bundles/widget.yaml file on disk.
+func TestSearchRemotes_ManifestFallsThroughOnNoMatches(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(baseDir, 0755))
+
+	src := filepath.Join(tmpDir, "source")
+	// The manifest lists only an unrelated bundle...
+	initLocalRepoWithFile(t, src, ".ctxloom/content/manifest.yaml",
+		"bundles:\n  - name: unrelated\n    description: something else\n")
+	// ...but the directory itself has "widget" on disk too.
+	addFileToLocalRepo(t, src, ".ctxloom/content/bundles/widget.yaml",
+		"version: 1.0.0\ndescription: a handy widget bundle\n")
+
+	url := "file://" + src
+	remotesContent := "remotes:\n  alice:\n    url: " + url + "\n"
+	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+
+	result, err := SearchRemotes(context.Background(), cfg, SearchRemotesRequest{
+		Query: "widget",
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Results,
+		"a manifest that omits a bundle must not permanently hide it from search — the directory listing must still be consulted when the manifest yields no matches; warnings=%v", result.Warnings)
+	assert.Equal(t, "widget", result.Results[0].Name)
+}
+
 // TestSearchRemotes_TagAwareDirectorySearch drives SearchRemotes end-to-end
 // against a real git repo served over a file:// URL, with NO manifest.yaml —
 // so the directory-listing path runs. It proves that path reads each file's

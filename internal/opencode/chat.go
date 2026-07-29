@@ -10,7 +10,21 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// warnRevertFailure emits a diagnostic when an unwind step (reverting the
+// opencode.json overlay, the context file, or the command/skill surfaces)
+// itself fails while Chat/launchInteractive are already handling an earlier
+// error. The earlier error is still what's returned — masking it with this
+// one would be worse — but silently discarding the revert failure (U080-F10)
+// left the user's project holding whatever partial overlay state (e.g. a plan
+// run's read-only permission block) with no warning at all.
+func warnRevertFailure(what string, err error) {
+	if err != nil {
+		clidiag.Warn("ctxloom", "opencode: reverting %s failed after an earlier error; it may still be left modified: %v", what, err)
+	}
+}
 
 // Compile-time assertion that Opencode offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*Opencode)(nil)
@@ -61,13 +75,13 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	mc := chatManaged(req, model, b.pendingContext, req.MCPServers)
 	removeContext, err := materializeContextSurface(fs, req.WorkDir, b.pendingContext)
 	if err != nil {
-		_ = restore()
+		warnRevertFailure("opencode.json (transient overlay)", restore())
 		close(out)
 		return err
 	}
 	if err := writeOpencodeConfig(fs, req.WorkDir, mc); err != nil {
-		_ = removeContext()
-		_ = restore()
+		warnRevertFailure(".opencode/ctxloom-context.md", removeContext())
+		warnRevertFailure("opencode.json (transient overlay)", restore())
 		close(out)
 		return err
 	}
@@ -81,8 +95,8 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	revertCmds := func() error { return nil }
 	if len(b.pendingCommands) > 0 {
 		if err := WriteCommandFiles(req.WorkDir, b.pendingCommands, agent.WithCommandFS(fs)); err != nil {
-			_ = removeContext()
-			_ = restore()
+			warnRevertFailure(".opencode/ctxloom-context.md", removeContext())
+			warnRevertFailure("opencode.json (transient overlay)", restore())
 			close(out)
 			return err
 		}
@@ -98,9 +112,9 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	revertSkills := func() error { return nil }
 	if len(b.pendingSkills) > 0 {
 		if err := reconcileSkillsSurface(fs, req.WorkDir, b.pendingSkills); err != nil {
-			_ = revertCmds()
-			_ = removeContext()
-			_ = restore()
+			warnRevertFailure(".opencode/command/", revertCmds())
+			warnRevertFailure(".opencode/ctxloom-context.md", removeContext())
+			warnRevertFailure("opencode.json (transient overlay)", restore())
 			close(out)
 			return err
 		}

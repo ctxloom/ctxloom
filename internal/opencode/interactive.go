@@ -67,14 +67,14 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	if len(mc.instructions) > 0 {
 		var cerr error
 		if removeContext, cerr = materializeContextSurface(fs, workDir, b.pendingContext); cerr != nil {
-			_ = restore()
+			warnRevertFailure("opencode.json (transient overlay)", restore())
 			return nil, cerr
 		}
 	}
 
 	if err := writeOpencodeConfig(fs, workDir, mc); err != nil {
-		_ = removeContext()
-		_ = restore()
+		warnRevertFailure(".opencode/ctxloom-context.md", removeContext())
+		warnRevertFailure("opencode.json (transient overlay)", restore())
 		return nil, err
 	}
 
@@ -84,8 +84,8 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	revertCmds := func() error { return nil }
 	if !req.SkipSetup && len(b.pendingCommands) > 0 {
 		if err := WriteCommandFiles(workDir, b.pendingCommands, agent.WithCommandFS(fs)); err != nil {
-			_ = removeContext()
-			_ = restore()
+			warnRevertFailure(".opencode/ctxloom-context.md", removeContext())
+			warnRevertFailure("opencode.json (transient overlay)", restore())
 			return nil, err
 		}
 		revertCmds = func() error { return WriteCommandFiles(workDir, nil, agent.WithCommandFS(fs)) }
@@ -97,9 +97,9 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	revertSkills := func() error { return nil }
 	if !req.SkipSetup && len(b.pendingSkills) > 0 {
 		if err := reconcileSkillsSurface(fs, workDir, b.pendingSkills); err != nil {
-			_ = revertCmds()
-			_ = removeContext()
-			_ = restore()
+			warnRevertFailure(".opencode/command/", revertCmds())
+			warnRevertFailure(".opencode/ctxloom-context.md", removeContext())
+			warnRevertFailure("opencode.json (transient overlay)", restore())
 			return nil, err
 		}
 		revertSkills = func() error { return reconcileSkillsSurface(fs, workDir, nil) }

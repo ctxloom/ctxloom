@@ -516,11 +516,10 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		order   int
 		command string
 	}{
-		{"pre_tool/guard", 10, "ltk guard"},
-		{"pre_tool/audit", 20, "audit-log record"},
+		{"pre_tool/guard", "ltk guard"},
+		{"pre_tool/audit", "audit-log record"},
 	} {
 		ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: tc.name}
 		item, err := bundle.Item(ctx, ref)
@@ -539,9 +538,6 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if hook.Event != event || hook.Name != name {
 			t.Errorf("%s: decoded as event=%q name=%q", tc.name, hook.Event, hook.Name)
 		}
-		if hook.Order != tc.order {
-			t.Errorf("%s: Order = %d, want %d (declared in the sidecar)", tc.name, hook.Order, tc.order)
-		}
 		if hook.Command != tc.command {
 			t.Errorf("%s: Command = %q, want %q", tc.name, hook.Command, tc.command)
 		}
@@ -552,10 +548,12 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Components(%s): %v", tc.name, err)
 		}
+		// A hook has NO metadata of its own, so it has exactly one component and
+		// no sidecar; and neither the name nor an ordinal may appear in it.
+		if len(components) != 1 {
+			t.Errorf("%s: components = %v, want exactly the content file", tc.name, componentPaths(components))
+		}
 		for _, c := range components {
-			if IsMetaPath(c.Path) {
-				continue
-			}
 			for _, forbidden := range []string{"name:", "order:", "event:", "index:"} {
 				if strings.Contains(string(c.Bytes), forbidden) {
 					t.Errorf("%s: content file carries %q:\n%s", tc.name, forbidden, c.Bytes)
@@ -600,9 +598,6 @@ func TestHook_SingleHookInAnEventResolvesIdentically(t *testing.T) {
 	}
 	if hook.Event != "session_start" || hook.Name != "greet" || !hook.PreToolFallback {
 		t.Errorf("decoded hook = %+v", hook)
-	}
-	if hook.Order != 0 {
-		t.Errorf("Order = %d, want 0 for a hook with no sidecar", hook.Order)
 	}
 }
 
@@ -837,11 +832,16 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	root := fixtureRoot + "/code-quality"
 	writeFile(t, store.fsys, root+"/fragments/.solid.meta.yaml", "tags:\n  - smuggled\n")
 	writeFile(t, store.fsys, root+"/profiles/.strict.meta.yaml", "owner: nobody\n")
+	writeFile(t, store.fsys, root+"/hooks/pre_tool/.guard.meta.yaml", "order: 10\n")
 
 	bundle, _ := store.Open(ctx, "code-quality")
 	for name, ref := range map[string]trust.Ref{
 		"fragment": {Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"},
 		"profile":  {Bundle: "code-quality", Kind: KindProfile, Name: "strict"},
+		// A hook has no metadata of its own. A leftover `order:` sidecar from the
+		// retired ordinal scheme must be REFUSED, not silently hashed-and-ignored:
+		// silently ignoring it is how a migration leaves data that looks honoured.
+		"hook": {Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"},
 	} {
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {

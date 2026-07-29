@@ -216,17 +216,31 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 // The old identity was the hook's INDEX within its event, which is connascence of
 // position: inserting a hook at the top of an event silently changed the identity
 // of every hook below it, invalidating approvals for items that had not changed.
-// Order therefore survives as DECLARED metadata in the sidecar, and enumeration
-// sorts by (order, name).
+//
+// # There is deliberately NO order field
+//
+// An earlier draft of this design kept the ordinal as "declared metadata". It is
+// gone, because VERIFIED against the merge path it would have been a field that
+// looks load-bearing and is silently ignored — this project's characteristic bug:
+//
+//   - The ONLY thing that ever read a per-hook ordinal was IDENTITY:
+//     HookEntry.ID() rendering "<event>/<index>" and EntryByID parsing it back
+//     (internal/bundles/bundles.go, consumed by operations/trust.go). Name
+//     identity removes both readers.
+//   - hookEventOrder orders EVENTS, not hooks within an event, and it stays.
+//   - Within an event, hooks are merged by pure APPEND across every source
+//     (wire.UnifiedHooks.Append, agent.MergeHooksConfig). Nothing sorts, and
+//     nothing consults a per-hook field. Sequence is a property of the order
+//     bundles and profiles are merged in, which a single hook's file cannot
+//     express and must not appear to.
+//
+// So hooks enumerate by NAME within an event, and a hook has no metadata of its
+// own — hence no sidecar.
 type Hook struct {
 	// Event is the lifecycle event, and the first path segment of the ref.
 	Event string
 	// Name is the hook's name within the event, and the second segment.
 	Name string
-	// Order is the declared position within the event. It is metadata, not
-	// identity: it lives in the sidecar and never appears in the ref or in the
-	// filename.
-	Order int
 
 	Matcher         string
 	Type            string
@@ -243,11 +257,12 @@ func (Hook) TrustKind() trust.ItemKind { return trust.KindHook }
 // Ref name is "<event>/<name>".
 func (h Hook) refName() string { return h.Event + "/" + h.Name }
 
-// hookContent is the hook's behavioural configuration. It deliberately carries
-// NEITHER name NOR order: keeping both out of the content file keeps them out of
-// any payload a later layer builds from it, which is what lets existing hook
-// approvals and content-rejections survive the identity change without a preimage
-// contract bump.
+// hookContent is the hook's behavioural configuration — the whole of a hook's
+// authored data. It deliberately carries NO name: the filename is the identity,
+// and keeping the name out of the content file keeps it out of any payload a later
+// layer builds from those bytes, which is what lets existing hook approvals and
+// content-rejections survive the identity change with no exec-preimage contract
+// bump.
 type hookContent struct {
 	Matcher         string `yaml:"matcher,omitempty"`
 	Type            string `yaml:"type,omitempty"`
@@ -256,11 +271,6 @@ type hookContent struct {
 	Timeout         int    `yaml:"timeout,omitempty"`
 	Async           bool   `yaml:"async,omitempty"`
 	PreToolFallback bool   `yaml:"pre_tool_fallback,omitempty"`
-}
-
-// hookMeta is the sidecar: declared order.
-type hookMeta struct {
-	Order int `yaml:"order,omitempty"`
 }
 
 type hookType struct{}
@@ -290,8 +300,7 @@ func (t hookType) RefFor(bundle string, src Source) (trust.Ref, error) {
 
 func (t hookType) Decode(src Source) (Surface, error) {
 	var content hookContent
-	var meta hookMeta
-	name, err := readExecItem(t.Dir(), src, 1, &content, &meta)
+	name, err := readExecItem(t.Dir(), src, 1, &content, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +308,6 @@ func (t hookType) Decode(src Source) (Surface, error) {
 	return Hook{
 		Event:           event,
 		Name:            hookName,
-		Order:           meta.Order,
 		Matcher:         content.Matcher,
 		Type:            content.Type,
 		Command:         content.Command,
@@ -331,5 +339,5 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 			Async:           h.Async,
 			PreToolFallback: h.PreToolFallback,
 		},
-		hookMeta{Order: h.Order})
+		nil)
 }

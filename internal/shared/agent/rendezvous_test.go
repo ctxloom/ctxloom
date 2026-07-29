@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -194,4 +196,29 @@ func TestAwaitTurn(t *testing.T) {
 		assert.FileExists(t, markerPath(dir, 2), "part 2 publishes its own marker")
 		assert.FileExists(t, lockPath(dir, 2), "part 2 holds its own lock")
 	})
+}
+
+// TestAwaitTurn_ConcurrentCallsDoNotRaceOnHeldLocks pins U101-F26:
+// heldRendezvousLocks is a package-level slice appended without
+// synchronization. A single hook process only ever calls AwaitTurn once
+// today, but the package itself provides no guarantee of that, and nothing
+// stops it running concurrently within one process (e.g. a future caller, or
+// parallel subtests sharing a binary). Each goroutine below uses its own
+// session (so no goroutine blocks waiting on another — every one is "part 1",
+// which returns immediately) and distinctly named locks, isolating the race
+// to the shared heldRendezvousLocks slice itself. Run under `go test -race`
+// (test-pkg's default): unsynchronized appends here are a detected data race
+// before the fix.
+func TestAwaitTurn_ConcurrentCallsDoNotRaceOnHeldLocks(t *testing.T) {
+	isolateTempDir(t)
+	const n = 16
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			AwaitTurn(fmt.Sprintf("race-sess-%d", i), 1, 2)
+		}(i)
+	}
+	wg.Wait()
 }

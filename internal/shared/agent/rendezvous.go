@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -30,8 +31,15 @@ const (
 // process so the GC can't finalize (and close) the underlying file early. The
 // locks are released by the OS when the hook process exits — which is exactly
 // the "I'm done" signal the next chunk hook waits for. We therefore never
-// Unlock our own lock.
-var heldRendezvousLocks []*flock.Flock
+// Unlock our own lock. heldRendezvousLocksMu guards it: the sole production
+// caller (cli/hook_inject_context.go) invokes AwaitTurn once per process, but
+// nothing in this package enforces that, so a concurrent call within one
+// process (e.g. parallel callers sharing a binary) must not race the append
+// (U101-F26).
+var (
+	heldRendezvousLocksMu sync.Mutex
+	heldRendezvousLocks   []*flock.Flock
+)
 
 // AwaitTurn blocks until it is part k's turn to emit its context chunk.
 //
@@ -70,7 +78,9 @@ func AwaitTurn(sessionID string, part, total int) {
 		// state from a crashed run; degrade rather than block.
 		return
 	}
+	heldRendezvousLocksMu.Lock()
 	heldRendezvousLocks = append(heldRendezvousLocks, own) // released on exit
+	heldRendezvousLocksMu.Unlock()
 	writeMarker(dir, part)
 
 	if part == 1 {

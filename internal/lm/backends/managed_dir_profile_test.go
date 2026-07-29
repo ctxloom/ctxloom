@@ -9,6 +9,7 @@
 package backends
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -173,6 +175,45 @@ func TestAssembleManagedMCP_DirProfileHonorsExcludeMCP(t *testing.T) {
 	mcp := AssembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "keep-srv")
 	assert.NotContains(t, mcp.Servers, "drop-srv", "exclude_mcp drops the directory profile's own declared server")
+}
+
+// U057-F20: a profile MCP server / hook the executable trust gate DENIES
+// must be diagnosable — a warning naming the withheld ref, not a silent drop.
+// SAFE fix per the brief: add a warning on denial; the gate's allow/deny
+// decision itself (keep-hash matches keep-srv only) is unchanged from
+// TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate.
+func TestAssembleManagedMCP_DeniedServerIsWarned(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
+	keepHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "keep-cmd"}))
+	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == keepHash
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	gated := AssembleManagedMCP(cfg, nil)
+	assert.NotContains(t, gated.Servers, "drop-srv", "the gate's deny decision is unchanged")
+	assert.Contains(t, buf.String(), "drop-srv",
+		"a denied MCP server must be warned by name, not silently dropped: got %q", buf.String())
+}
+
+func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
+	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
+	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == keepHash
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	gated := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
+	assert.NotContains(t, gated, "drop-hook", "the gate's deny decision is unchanged")
+	assert.Contains(t, buf.String(), "drop-hook",
+		"a denied hook must be warned by name, not silently dropped: got %q", buf.String())
 }
 
 // TestAssembleManagedDenyTools_DirProfile proves a directory profile's

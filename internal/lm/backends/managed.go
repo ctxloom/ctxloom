@@ -362,8 +362,14 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Content
 	if len(mcp.Servers) > 0 {
 		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
 		for name, srv := range mcp.Servers {
-			if gateProfileExec(gate, ref.Base+"#mcp/"+name, mcpExecPayload(srv), ref.Signer) {
+			itemRef := ref.Base + "#mcp/" + name
+			if gateProfileExec(gate, itemRef, mcpExecPayload(srv), ref.Signer) {
 				out.Servers[name] = srv
+			} else {
+				// U057-F20: fail-closed is right, fail-SILENT is not — the
+				// gate's decision is unchanged, this only makes the withhold
+				// diagnosable.
+				clidiag.Warn("ctxloom", "profile MCP server %q withheld by trust gate (%s); its executable is pending review", name, itemRef)
 			}
 		}
 	}
@@ -374,8 +380,11 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Content
 		for backend, servers := range mcp.Plugins {
 			gated := make(map[string]wire.MCPServer)
 			for name, srv := range servers {
-				if gateProfileExec(gate, ref.Base+"#mcp/"+backend+"/"+name, mcpExecPayload(srv), ref.Signer) {
+				itemRef := ref.Base + "#mcp/" + backend + "/" + name
+				if gateProfileExec(gate, itemRef, mcpExecPayload(srv), ref.Signer) {
 					gated[name] = srv
+				} else {
+					clidiag.Warn("ctxloom", "profile MCP server %q (backend %s) withheld by trust gate (%s); its executable is pending review", name, backend, itemRef)
 				}
 			}
 			if len(gated) > 0 {
@@ -401,6 +410,10 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Conte
 			hookRef := ref.Base + "#hooks/" + event + "/" + strconv.Itoa(i)
 			if gateProfileExec(gate, hookRef, hookExecPayload(hook), ref.Signer) {
 				out = append(out, hook)
+			} else {
+				// U057-F20: same fail-closed-but-diagnosable shape as
+				// gateProfileMCP's warn — the gate's decision is unchanged.
+				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Command, hookRef)
 			}
 		}
 		return out

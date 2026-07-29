@@ -55,3 +55,61 @@ func TestComposeGlobalNotice_JoinsFallbackAndLimitation(t *testing.T) {
 	assert.Equal(t, globalScopeGeneralLimitation, explicit,
 		"an explicit --global has nothing to explain, so the notice is the limitation alone")
 }
+
+// TestListPipeline_CLIAndMCPAgreeOnEveryDecision pins the two surfaces to one
+// pipeline. Everything except rendering is a shared decision — scope, store,
+// filter, limit, attribution, hidden counts — and the pair has drifted twice
+// before (--limit was silently ignored on one path; the tag-query hint on the
+// other), each time because the decisions were written out twice.
+func TestListPipeline_CLIAndMCPAgreeOnEveryDecision(t *testing.T) {
+	withProjectDir(t)
+
+	for _, text := range []string{"alpha task", "beta task", "gamma task"} {
+		_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: text})
+		require.NoError(t, err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		in   taskListInput
+	}{
+		{"unfiltered", taskListInput{}},
+		{"term filter", taskListInput{Term: "task"}},
+		{"limited", taskListInput{Limit: 2}},
+		{"term and limit", taskListInput{Term: "task", Limit: 1}},
+		{"compact", taskListInput{Compact: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, viaMCP, err := handleTaskList(context.Background(), nil, tc.in)
+			require.NoError(t, err)
+
+			viaCLI, err := listTasksScoped(mustTaskContext(t), listOptions{
+				Statuses:       tc.in.Statuses,
+				Term:           tc.in.Term,
+				TagQuery:       tc.in.TagQuery,
+				All:            tc.in.IncludeCompleted,
+				Global:         tc.in.Global,
+				Limit:          tc.in.Limit,
+				IncludeSummary: tc.in.IncludeSummary,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, viaCLI.Global, viaMCP.Global)
+			assert.Equal(t, viaCLI.ProjectID, viaMCP.ProjectID)
+			assert.Equal(t, viaCLI.OmittedByLimit, viaMCP.OmittedByLimit)
+			assert.Equal(t, viaCLI.HiddenCompleted, viaMCP.HiddenCompleted)
+			assert.Equal(t, viaCLI.HiddenDeferred, viaMCP.HiddenDeferred)
+
+			wire := viaMCP.Tasks
+			if tc.in.Compact {
+				assert.Len(t, viaMCP.CompactTasks, len(viaCLI.Rows))
+				return
+			}
+			require.Len(t, wire, len(viaCLI.Rows))
+			for i := range wire {
+				assert.Equal(t, viaCLI.Rows[i].HarpID, wire[i].HarpID)
+				assert.Equal(t, viaCLI.Rows[i].ProjectID, wire[i].ProjectID)
+			}
+		})
+	}
+}

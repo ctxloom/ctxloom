@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -180,6 +179,9 @@ func registerTaskTools(server *mcp.Server) {
 }
 
 func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
+	// Named for the field the caller sent. Each surface spells its own option
+	// (sort here, --sort on the CLI); listTasksScoped refuses an unknown value
+	// too, so neither can fall through to a silent unsorted listing.
 	if in.Sort != "" && in.Sort != sortPriority {
 		return nil, nil, fmt.Errorf("taskloom: unknown sort value %q (must be %q)", in.Sort, sortPriority)
 	}
@@ -193,67 +195,38 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	if err != nil {
 		return nil, nil, err
 	}
-	scope, err := resolveListScope(in.Global, tc.ProjectID, tc.WorkDir)
+	r, err := listTasksScoped(tc, listOptions{
+		Statuses:       in.Statuses,
+		Term:           in.Term,
+		TagQuery:       in.TagQuery,
+		All:            in.IncludeCompleted,
+		Global:         in.Global,
+		Sort:           in.Sort,
+		Compact:        in.Compact,
+		Limit:          in.Limit,
+		IncludeSummary: in.IncludeSummary,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if scope.Global {
-		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, in.Limit)
-		if err != nil {
-			return nil, nil, wrapTagQueryError(err)
-		}
-		out := &taskListResult{
-			Global:          true,
-			ProjectCount:    gres.ProjectCount,
-			Notice:          composeGlobalNotice(scope, tc.WorkDir),
-			HiddenCompleted: gres.HiddenCompleted,
-			HiddenDeferred:  gres.HiddenDeferred,
-			OmittedByLimit:  gres.OmittedByLimit,
-			PriorityWarning: gres.PriorityWarning,
-		}
-		if in.Compact {
-			out.CompactTasks = compactRows(gres.Rows)
-		} else {
-			out.Tasks = gres.Rows
-		}
-		return nil, out, nil
-	}
-
-	tc, err = resolveHoming(tc)
-	if err != nil {
-		return nil, nil, err
-	}
-	res, err := operations.ListTasksWithTagQuery(tc, in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary, in.Limit)
-	if err != nil {
-		return nil, nil, wrapTagQueryError(err)
-	}
-	warnTask(res.Warning)
-	var priorityWarning string
-	if in.Sort == sortPriority {
-		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())
-		if perr != nil {
-			return nil, nil, fmt.Errorf("compute priorities: %w", perr)
-		}
-		attachPriority(res.Tasks, results)
-		sortTasksByPriorityDesc(res.Tasks)
-		priorityWarning = priorityDiagnosticWarning(diag)
-	}
 	out := &taskListResult{
-		Path:            res.Path,
-		ProjectID:       res.ProjectID,
-		ProjectDir:      res.ProjectDir,
-		Summary:         res.Summary,
-		HiddenCompleted: res.HiddenCompleted,
-		HiddenDeferred:  res.HiddenDeferred,
-		OmittedByLimit:  res.OmittedByLimit,
-		PriorityWarning: priorityWarning,
+		Global:          r.Global,
+		ProjectCount:    r.ProjectCount,
+		Notice:          r.Notice,
+		Path:            r.Path,
+		ProjectID:       r.ProjectID,
+		ProjectDir:      r.ProjectDir,
+		Summary:         r.Summary,
+		HiddenCompleted: r.HiddenCompleted,
+		HiddenDeferred:  r.HiddenDeferred,
+		OmittedByLimit:  r.OmittedByLimit,
+		PriorityWarning: r.PriorityWarning,
 	}
-	rows := projectRows(res.Tasks, res.ProjectID, res.ProjectDir)
 	if in.Compact {
-		out.CompactTasks = compactRows(rows)
+		out.CompactTasks = compactRows(r.Rows)
 	} else {
-		out.Tasks = rows
+		out.Tasks = r.Rows
 	}
 	return nil, out, nil
 }

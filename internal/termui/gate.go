@@ -74,7 +74,11 @@ func (g *outputGate) Hold() {
 
 // Release reopens the gate: writes pre (the screen-restore sequence), replays
 // the held bytes, and appends a truncation notice when the ring overflowed —
-// all under the tty lock. A no-op when not held.
+// all under the tty lock. pre is written unconditionally, even when the gate
+// was never held (U141-F13): nothing guarantees a caller never hits that
+// path, and a failing-to-restore terminal with no diagnostic is a worse
+// outcome than one extra write. Only the ring replay is conditional on having
+// been held.
 //
 // Returns the first write failure encountered, if any (U141-F01): a failing
 // tty used to silently lose the entire replay — the ring is drained
@@ -85,11 +89,6 @@ func (g *outputGate) Hold() {
 func (g *outputGate) Release(pre []byte) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if !g.held {
-		return nil
-	}
-	g.held = false
-	data, dropped := g.ring.Drain()
 	var errs []error
 	if len(pre) > 0 {
 		// pre is the controller's own restore sequence — trusted, never filtered.
@@ -97,21 +96,33 @@ func (g *outputGate) Release(pre []byte) error {
 			errs = append(errs, fmt.Errorf("writing restore sequence: %w", err))
 		}
 	}
-	if g.guard != nil && len(data) > 0 {
-		// The replay is child bytes like any other: same clamping, same
-		// holdback, so a region clobber recorded while the viewer was open
-		// can't slip through on release.
-		data = g.guard.Filter(data)
-	}
-	if len(data) > 0 {
-		if _, err := g.dst.Write(data); err != nil {
-			errs = append(errs, fmt.Errorf("writing %d bytes of held engine output: %w", len(data), err))
+	if g.held {
+		g.held = false
+		data, dropped := g.ring.Drain()
+		if g.guard != nil && len(data) > 0 {
+			// The replay is child bytes like any other: same clamping, same
+			// holdback, so a region clobber recorded while the viewer was open
+			// can't slip through on release.
+			data = g.guard.Filter(data)
+		}
+		if len(data) > 0 {
+			if _, err := g.dst.Write(data); err != nil {
+				errs = append(errs, fmt.Errorf("writing %d bytes of held engine output: %w", len(data), err))
+			}
+		}
+		if dropped > 0 {
+			if _, err := fmt.Fprintf(g.dst, "\r\n\x1b[7m ctxloom: %d bytes of engine output dropped while the viewer was open \x1b[0m\r\n", dropped); err != nil {
+				errs = append(errs, fmt.Errorf("writing drop notice: %w", err))
+			}
 		}
 	}
-	if dropped > 0 {
-		if _, err := fmt.Fprintf(g.dst, "\r\n\x1b[7m ctxloom: %d bytes of engine output dropped while the viewer was open \x1b[0m\r\n", dropped); err != nil {
-			errs = append(errs, fmt.Errorf("writing drop notice: %w", err))
-		}
+	// U141-F02: run the bar-flush hook exactly as Write does, so a bar marked
+	// dirty by the replay itself (the guard's Filter above can call
+	// barDamaged) gets repainted on this same write cycle instead of staying
+	// blank until the engine's next write — which, for an idle engine, may be
+	// never.
+	if g.afterWrite != nil {
+		g.afterWrite()
 	}
 	g.lastWrite.Store(nowNanos())
 	return errors.Join(errs...)

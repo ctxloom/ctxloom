@@ -53,12 +53,27 @@ func TestOutputGate_ReleaseWithOverflowAppendsTruncationNotice(t *testing.T) {
 		"overflow surfaces as a visible truncation notice")
 }
 
-func TestOutputGate_ReleaseWhenOpenIsNoop(t *testing.T) {
+// TestOutputGate_ReleaseWhenOpenStillWritesPre pins U141-F13: Release used to
+// silently discard the caller's `pre` (the full screen-restore preamble:
+// panel clear, region re-assert, bar repaint, DECRC) whenever the gate was
+// not held. No production caller hits this today, but nothing prevented it,
+// and the failure mode was an un-restored terminal with no diagnostic. `pre`
+// must be written regardless of held state; only the ring replay is
+// conditional on having been held.
+func TestOutputGate_ReleaseWhenOpenStillWritesPre(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	g := newOutputGate(&mu, &tty, 64, nil, nil)
 	require.NoError(t, g.Release([]byte("<restore>")))
-	assert.Empty(t, tty.String(), "releasing an open gate writes nothing")
+	assert.Equal(t, "<restore>", tty.String(), "pre must be written even when the gate was never held")
+}
+
+func TestOutputGate_ReleaseWhenOpenWithNoPreWritesNothing(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, 64, nil, nil)
+	require.NoError(t, g.Release(nil))
+	assert.Empty(t, tty.String(), "releasing an open gate with no pre writes nothing")
 }
 
 // failWriter fails every Write after the first `okCount` succeed — enough to
@@ -120,6 +135,23 @@ func TestOutputGate_Release_PartialFailureStillAttemptsEveryWrite(t *testing.T) 
 	// calls after the failed "pre" write; failWriter fails all of them, so
 	// the aggregated error must report more than just the first.
 	assert.GreaterOrEqual(t, fw.calls, 3, "restore + replay + drop-notice must all still be attempted despite the first failing")
+}
+
+// TestOutputGate_Release_CallsAfterWrite pins U141-F02: Release never called
+// g.afterWrite, so a bar marked dirty by the replayed data itself (the guard
+// filtering the drained ring can call barDamaged, e.g. the engine emitted
+// ED 2 while the viewer was open) was never flushed — a blank bar on the
+// normal success path.
+func TestOutputGate_Release_CallsAfterWrite(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	calls := 0
+	g := newOutputGate(&mu, &tty, 64, nil, func() { calls++ })
+
+	g.Hold()
+	_, _ = g.Write([]byte("held"))
+	require.NoError(t, g.Release([]byte("<restore>")))
+	assert.Equal(t, 1, calls, "Release must run afterWrite exactly as Write does")
 }
 
 func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // Registry manages configured remote sources.
@@ -106,7 +107,13 @@ func (r *Registry) save() error {
 	var existingRaw map[string]interface{}
 	data, err := afero.ReadFile(r.fs, r.configPath)
 	if err == nil {
-		_ = yaml.Unmarshal(data, &existingRaw)
+		// U094-F12: an unparseable existing file must NOT be silently treated
+		// as empty — that discarded every key save() doesn't itself manage
+		// (a corrupt file or a concurrent partial write would otherwise lose
+		// unrelated config on the next save, with no error at all).
+		if uerr := yaml.Unmarshal(data, &existingRaw); uerr != nil {
+			return fmt.Errorf("failed to parse existing config %s (refusing to overwrite it): %w", r.configPath, uerr)
+		}
 	}
 	if existingRaw == nil {
 		existingRaw = make(map[string]interface{})
@@ -151,7 +158,12 @@ func (r *Registry) save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := afero.WriteFile(r.fs, r.configPath, out, 0644); err != nil {
+	// U094-F12: a plain afero.WriteFile truncates the file in place — a crash
+	// or a concurrent writer (GetOrCreateByURL auto-registers on every pull,
+	// and agent children run concurrently) can observe or leave a half-written
+	// remotes.yaml. LockfileManager.write already uses this same atomic
+	// temp-file-then-rename primitive for the same reason, same directory.
+	if err := iox.WriteFileAtomicFs(r.fs, r.configPath, out, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

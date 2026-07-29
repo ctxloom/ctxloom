@@ -280,6 +280,28 @@ func TestRegistry_GetOrCreateByURL(t *testing.T) {
 	})
 }
 
+// TestRegistry_Save_CorruptExistingFileIsNotSwallowed pins U094-F12:
+// Registry.save used to swallow the parse error of the file it merges into
+// (`_ = yaml.Unmarshal(...)`), silently replacing an unparseable existing file
+// with an empty base map and proceeding — discarding every key save() doesn't
+// itself manage with no error surfaced at all.
+func TestRegistry_Save_CorruptExistingFileIsNotSwallowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "remotes.yaml")
+
+	registry, err := NewRegistry(configPath)
+	require.NoError(t, err)
+
+	// Simulate the file going corrupt on disk between load and the next
+	// save (a concurrent writer, or a hand-edit) — the exposure this package's
+	// own concurrency notes call out (GetOrCreateByURL auto-registers on
+	// every pull, and agent children run concurrently).
+	require.NoError(t, os.WriteFile(configPath, []byte("not: [valid: yaml"), 0644))
+
+	err = registry.Add("test", "https://github.com/owner/repo")
+	require.Error(t, err, "save must not silently discard a corrupt existing file's content")
+}
+
 func TestRegistry_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "remotes.yaml")

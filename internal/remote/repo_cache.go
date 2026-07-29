@@ -104,7 +104,11 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 	}
 
 	if err := c.fetch(ctx, repoDir, repoURL, forgeType); err != nil {
-		return repoDir, fmt.Errorf("git fetch failed: %w", err)
+		// U095-F14: return ("", err) on failure, matching ensureClone's
+		// contract — a caller that used the returned path on error would
+		// otherwise silently keep working against a (possibly now stale)
+		// clone instead of treating the update as failed.
+		return "", fmt.Errorf("git fetch failed: %w", err)
 	}
 	return repoDir, nil
 }

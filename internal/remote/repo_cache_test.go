@@ -198,6 +198,32 @@ func TestRepoCache_UpdateRepo(t *testing.T) {
 	assert.Equal(t, repoDir, repoDir2)
 }
 
+// TestRepoCache_UpdateRepo_FetchFailure_ReturnsEmptyPath pins U095-F14:
+// UpdateRepo must return ("", err) on a fetch failure, matching ensureClone's
+// contract, not (repoDir, err) — a caller that (mistakenly) used the returned
+// path on error would otherwise silently keep working against a stale clone.
+func TestRepoCache_UpdateRepo_FetchFailure_ReturnsEmptyPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceRepo := createTestRepo(t, tmpDir)
+	repoURL := "file://" + sourceRepo
+
+	cacheDir := filepath.Join(tmpDir, "cache")
+	cache := NewRepoCache(cacheDir, AuthConfig{})
+
+	// Clone succeeds while the source exists.
+	_, err := cache.EnsureRepo(context.Background(), repoURL, ForgeGitHub)
+	require.NoError(t, err)
+
+	// Remove the source so the next fetch fails — the clone is already
+	// present (isGitRepo is true), so UpdateRepo takes the fetch path, not
+	// the clone path.
+	require.NoError(t, os.RemoveAll(sourceRepo))
+
+	repoDir, err := cache.UpdateRepo(context.Background(), repoURL, ForgeGitHub)
+	require.Error(t, err, "fetch against a removed source must fail")
+	assert.Empty(t, repoDir, "a failed fetch must return an empty path, matching ensureClone's (\"\", err) contract")
+}
+
 func TestRepoCache_UpdateRepo_NotYetCloned(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceRepo := createTestRepo(t, tmpDir)

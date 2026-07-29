@@ -57,6 +57,9 @@ type ListSkillsResult struct {
 func ListSkills(_ context.Context, cfg *config.Config, req ListSkillsRequest) (*ListSkillsResult, error) {
 	loader := req.Loader
 	if loader == nil {
+		if cfg == nil {
+			return nil, fmt.Errorf("no .ctxloom directory configured")
+		}
 		loader = bundleLoader(cfg)
 	}
 	infos, err := loader.ListAllSkills()
@@ -135,6 +138,9 @@ func GetSkill(_ context.Context, cfg *config.Config, req GetSkillRequest) (*GetS
 	}
 	loader := req.Loader
 	if loader == nil {
+		if cfg == nil {
+			return nil, fmt.Errorf("no .ctxloom directory configured")
+		}
 		loader = exposureLoader(cfg)
 	}
 	ls, err := loader.GetSkill(req.Name)
@@ -201,8 +207,14 @@ func skillTemplate(name, description string) string {
 	fm := bundles.SkillFrontmatter{Name: name, Description: description}
 	data, err := yaml.Marshal(fm)
 	if err != nil {
-		// Unreachable: SkillFrontmatter holds only strings/slices/maps.
-		data = []byte(fmt.Sprintf("name: %s\ndescription: %s\n", name, description))
+		// SkillFrontmatter holds only strings/slices/maps, so yaml.Marshal
+		// cannot fail on it — genuinely unreachable. A fallback here used to
+		// rebuild the frontmatter via naive fmt.Sprintf string interpolation
+		// (U087-F23): exactly the injection this function's own doc comment
+		// says yaml.Marshal exists to prevent, for zero benefit since the
+		// branch could never run. Panic loudly instead of silently
+		// reintroducing the bug it would be covering for.
+		panic(fmt.Sprintf("skillTemplate: yaml.Marshal of SkillFrontmatter failed unexpectedly: %v", err))
 	}
 	return "---\n" + string(data) + "---\n\n# " + name + "\n\nTODO: describe what this skill does and how to use it.\n"
 }
@@ -403,6 +415,14 @@ type ExportSkillRequest struct {
 	Sign   bool       `json:"sign,omitempty"`
 	Signer ssh.Signer `json:"-"`
 
+	// Force allows overwriting an existing file at the output path (the zip,
+	// and its .sig sibling when Sign is set). Without it, ExportSkill refuses
+	// to clobber a pre-existing file at OutPath (U087-F24): the default
+	// "<name>.zip" lands in the process cwd, so a second `ctxloom skill
+	// export foo` — or any unrelated file already named `foo.zip` — used to
+	// be silently destroyed.
+	Force bool `json:"force,omitempty"`
+
 	// FS, when non-nil, is the afero filesystem read/written; nil defaults to
 	// the OS filesystem.
 	FS afero.Fs `json:"-"`
@@ -425,6 +445,9 @@ type ExportSkillResult struct {
 func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) (*ExportSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	bundle, err := bundleLoader(cfg).Load(req.Bundle)
 	if err != nil {
@@ -451,6 +474,13 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("skill %q: %w", req.Name, err)
 	}
+	// U087-F24: a --sign request with no signer is a caller-configuration
+	// error, checked BEFORE any write — it used to run after the zip landed
+	// on disk, so a caller who fixed the missing signer and retried found a
+	// stale unsigned zip masquerading as a fresh export.
+	if req.Sign && req.Signer == nil {
+		return nil, fmt.Errorf("export %q: --sign requires a signer", req.Name)
+	}
 	zipBytes, err := bundles.ExportSkillZip(fs, dir, pkg)
 	if err != nil {
 		return nil, fmt.Errorf("export %q: %w", req.Name, err)
@@ -460,15 +490,21 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	if outPath == "" {
 		outPath = req.Name + ".zip"
 	}
+	// U087-F24: refuse to silently clobber a pre-existing file at outPath
+	// (the default "<name>.zip" lands in the process cwd, so a second export
+	// — or any unrelated file already using that name — used to be destroyed
+	// with no warning). --force opts into overwriting.
+	if !req.Force {
+		if exists, eerr := afero.Exists(fs, outPath); eerr == nil && exists {
+			return nil, fmt.Errorf("export %q: %s already exists (pass Force/--force to overwrite)", req.Name, outPath)
+		}
+	}
 	if err := afero.WriteFile(fs, outPath, zipBytes, 0o644); err != nil {
 		return nil, fmt.Errorf("write %s: %w", outPath, err)
 	}
 
 	result := &ExportSkillResult{Name: req.Name, ZipPath: outPath, Bytes: len(zipBytes)}
 	if req.Sign {
-		if req.Signer == nil {
-			return nil, fmt.Errorf("export %q: --sign requires a signer", req.Name)
-		}
 		// Sign the MANIFEST bytes, not the zip bytes: this is exactly what
 		// PublisherSkillSignatureVerifier verifies against on import (it
 		// recomputes the manifest from the extracted tree and checks the
@@ -476,10 +512,16 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 		// import without inventing a second preimage.
 		armored, err := signing.Sign(pkg.Manifest.Serialize(), req.Signer, signing.NamespacePublish)
 		if err != nil {
+			// U087-F24: a --sign failure used to leave the just-written zip
+			// on disk, unsigned, looking exactly like an export that never
+			// asked to be signed. Clean it up so a failed signed export
+			// leaves nothing behind to be mistaken for a successful one.
+			_ = fs.Remove(outPath)
 			return nil, fmt.Errorf("sign %q: %w", req.Name, err)
 		}
 		sigPath := outPath + bundles.SigSuffix
 		if err := afero.WriteFile(fs, sigPath, armored, 0o644); err != nil {
+			_ = fs.Remove(outPath)
 			return nil, fmt.Errorf("write %s: %w", sigPath, err)
 		}
 		result.SigPath = sigPath

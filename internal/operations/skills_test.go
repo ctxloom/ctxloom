@@ -6,14 +6,18 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -241,6 +245,75 @@ func TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher(t *te
 	assert.Contains(t, impRes2.SignatureState, "unverified", "a signature by an untrusted key must not be reported as verified")
 }
 
+// failingSigner is an ssh.Signer whose Sign always errors — a hermetic double
+// for a signing backend that rejects the request (revoked key, hardware token
+// unplugged, agent forwarding down), letting ExportSkill's --sign failure path
+// be exercised without a real cryptographic failure mode.
+type failingSigner struct{ pub ssh.PublicKey }
+
+func (f failingSigner) PublicKey() ssh.PublicKey { return f.pub }
+func (f failingSigner) Sign(io.Reader, []byte) (*ssh.Signature, error) {
+	return nil, fmt.Errorf("signing backend unavailable")
+}
+
+// TestExportSkill_RefusesToOverwriteWithoutForce pins U087-F24 (part 1):
+// ExportSkill used to silently clobber any existing file at the output path —
+// the default "<name>.zip" lands in the process cwd, so a second export (or
+// any unrelated file already using that name) was destroyed with no warning.
+func TestExportSkill_RefusesToOverwriteWithoutForce(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "src")
+	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+
+	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
+	require.NoError(t, os.WriteFile(zipPath, []byte("PRE-EXISTING, NOT A REAL ZIP"), 0o644))
+
+	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: zipPath})
+	require.Error(t, err, "must refuse to overwrite an existing file without Force")
+	assert.Contains(t, err.Error(), "already exists")
+
+	still, rerr := os.ReadFile(zipPath)
+	require.NoError(t, rerr)
+	assert.Equal(t, "PRE-EXISTING, NOT A REAL ZIP", string(still), "the existing file must survive a refused export")
+
+	// Force explicitly opts into the overwrite.
+	res, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: zipPath, Force: true})
+	require.NoError(t, err, "Force must allow the overwrite")
+	assert.Equal(t, zipPath, res.ZipPath)
+}
+
+// TestExportSkill_SignFailureLeavesNoPartialZip pins U087-F24 (part 2): a
+// --sign failure used to leave the just-written zip on disk, unsigned, with no
+// indication anything had gone wrong — a caller retrying (or just listing the
+// directory) would find a zip indistinguishable from a successful unsigned
+// export.
+func TestExportSkill_SignFailureLeavesNoPartialZip(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "src")
+	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	realSigner, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+
+	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
+	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{
+		Bundle: "src", Name: "reviewer", OutPath: zipPath, Sign: true,
+		Signer: failingSigner{pub: realSigner.PublicKey()},
+	})
+	require.Error(t, err)
+
+	_, statErr := os.Stat(zipPath)
+	assert.True(t, os.IsNotExist(statErr), "a failed --sign export must leave no zip behind, not an unsigned one")
+}
+
 // maliciousZipBytes builds a zip whose single entry escapes its own
 // directory via a path-traversal segment — the same zip-slip shape B1b's
 // HardenedExtract rejects (bundles/skill_archive_test.go covers the
@@ -329,4 +402,49 @@ func TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact(t *testing.T) 
 	entry, ok := loaded.Skills["reviewer"]
 	require.True(t, ok, "bundle.yaml must still reference the surviving skill")
 	assert.Contains(t, entry.Files, "SKILL.md")
+}
+
+// TestSkillReadPaths_NilConfigReturnsErrorNotPanic pins U087-F22: ListSkills,
+// GetSkill, and ExportSkill used to panic on a nil *config.Config (bundleLoader/
+// exposureLoader dereference it immediately), while every mutating sibling in
+// this file (CreateSkill, SyncSkill, ImportSkill — via loadBundleForUpdate) and
+// ResolveSetupPrompt already reject a nil cfg with a plain error. A read-only
+// caller with no project config configured must fail the same way, not crash
+// the process.
+func TestSkillReadPaths_NilConfigReturnsErrorNotPanic(t *testing.T) {
+	_, err := ListSkills(context.Background(), nil, ListSkillsRequest{})
+	require.Error(t, err, "ListSkills must reject a nil cfg with an error, not panic")
+	assert.Contains(t, err.Error(), "no .ctxloom directory configured")
+
+	_, err = GetSkill(context.Background(), nil, GetSkillRequest{Name: "whatever"})
+	require.Error(t, err, "GetSkill must reject a nil cfg with an error, not panic")
+	assert.Contains(t, err.Error(), "no .ctxloom directory configured")
+
+	_, err = ExportSkill(context.Background(), nil, ExportSkillRequest{Name: "whatever"})
+	require.Error(t, err, "ExportSkill must reject a nil cfg with an error, not panic")
+	assert.Contains(t, err.Error(), "no .ctxloom directory configured")
+}
+
+// TestSkillTemplate_MarshalFailureFallbackDeleted pins U087-F23: the
+// "unreachable" yaml.Marshal-failure fallback in skillTemplate built its SKILL.md
+// frontmatter via naive fmt.Sprintf string interpolation — exactly the injection
+// the function's own doc comment says yaml.Marshal exists to prevent. Since
+// SkillFrontmatter holds only strings/slices/maps, yaml.Marshal cannot fail here,
+// so the branch bought nothing and stood as a live contradiction of the file's
+// own invariant. This test proves the ordinary (marshal-succeeds) path still
+// safely handles a description containing the exact character sequence
+// (colon-space) that would break naive interpolation.
+func TestSkillTemplate_MarshalFailureFallbackDeleted(t *testing.T) {
+	out := skillTemplate("my-skill", "TODO: describe this, dangerously")
+	assert.Contains(t, out, `description: 'TODO: describe this, dangerously'`,
+		"yaml.Marshal must quote a colon-space-bearing description, never hand it to naive fmt interpolation")
+	// Round-trip: a real YAML parse of the frontmatter must recover the exact
+	// description — the naive fmt.Sprintf fallback this test guards against
+	// would have produced a colon that breaks the plain scalar and misparses.
+	fm := strings.SplitN(out, "---\n", 3)[1]
+	var parsed struct {
+		Description string `yaml:"description"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(fm), &parsed))
+	assert.Equal(t, "TODO: describe this, dangerously", parsed.Description)
 }

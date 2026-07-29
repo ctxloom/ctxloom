@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,16 +15,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-const lockfileName = paths.LockFileName + ".yaml"
-
 // LockfileManager handles reading and writing the active lockfile (lock.yaml —
 // what BundleReader reads against). It is pure dependency pinning; there is no
 // pending-review split (trust-simplify slice 3) — exposure of pulled content is
 // gated per item by the content-hash trust gate.
 type LockfileManager struct {
-	baseDir  string
-	fs       afero.Fs
-	filename string
+	baseDir string
+	fs      afero.Fs
 }
 
 // LockfileOption is a functional option for configuring a LockfileManager.
@@ -45,9 +41,8 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 		baseDir = paths.AppDirName
 	}
 	m := &LockfileManager{
-		baseDir:  baseDir,
-		fs:       afero.NewOsFs(),
-		filename: lockfileName,
+		baseDir: baseDir,
+		fs:      afero.NewOsFs(),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -56,8 +51,13 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 }
 
 // Path returns the path to the managed (active) lockfile.
+//
+// U090-F08: this used to assemble the name itself from a private
+// `lockfileName` const plus a `filename` field no option ever overrode, which
+// left paths.LockPath — the package that exists precisely to own this layout —
+// production-dead and free to drift. One construction, one place.
 func (m *LockfileManager) Path() string {
-	return filepath.Join(m.baseDir, m.filename)
+	return paths.LockPath(m.baseDir)
 }
 
 // Load reads the lockfile from disk.

@@ -114,6 +114,17 @@ type AddRemoteResult struct {
 	Warning string `json:"warning,omitempty"`
 }
 
+// rollbackAdd removes a just-registered remote as part of one of AddRemote's
+// failure paths. A failed rollback leaves a half-registered remote sitting in
+// remotes.yaml, and the caller's own error (about the ORIGINAL failure) gives
+// the user no way to learn that — so, unlike a normal best-effort discard,
+// this warns (U086-F10).
+func rollbackAdd(registry *remote.Registry, name string) {
+	if rerr := registry.Remove(name); rerr != nil {
+		clidiag.Warn("ctxloom", "remote %q: registration rollback failed, a stale entry may remain in remotes.yaml: %v", name, rerr)
+	}
+}
+
 // AddRemote registers a new remote source.
 func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*AddRemoteResult, error) {
 	if req.Name == "" {
@@ -140,7 +151,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	// adapter. An unknown label rolls the registration back.
 	if req.Forge != "" {
 		if err := registry.SetForge(req.Name, req.Forge); err != nil {
-			_ = registry.Remove(req.Name)
+			rollbackAdd(registry, req.Name)
 			return nil, err
 		}
 	}
@@ -151,14 +162,14 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		var err error
 		fetcher, err = GetCachedFetcher(cfg, req.URL)
 		if err != nil {
-			_ = registry.Remove(req.Name)
+			rollbackAdd(registry, req.Name)
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
 		}
 	}
 
 	owner, repo, err := remote.ParseRepoURL(req.URL)
 	if err != nil {
-		_ = registry.Remove(req.Name)
+		rollbackAdd(registry, req.Name)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
@@ -171,7 +182,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 
 	rem, err := registry.Get(req.Name)
 	if err != nil || rem == nil {
-		_ = registry.Remove(req.Name)
+		rollbackAdd(registry, req.Name)
 		return nil, fmt.Errorf("remote %q vanished after add: %w", req.Name, err)
 	}
 

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 func TestGetBaseDir_UsesConfigPath(t *testing.T) {
@@ -282,6 +284,57 @@ func TestAddRemote_UnknownForgeRollsBack(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown forge")
 
 	assert.False(t, registry.Has("corp"), "an unknown forge must roll the registration back")
+}
+
+// limitedWritesFs allows exactly writesAllowed create/write OpenFile calls
+// before failing every subsequent one — used to force a registry mutation
+// that happens AFTER an earlier one already landed (e.g. AddRemote's own
+// rollback Remove, which follows the initial Add) to fail.
+type limitedWritesFs struct {
+	afero.Fs
+	writesAllowed int
+}
+
+func (f *limitedWritesFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if flag&os.O_CREATE != 0 {
+		if f.writesAllowed <= 0 {
+			return nil, fmt.Errorf("simulated write failure")
+		}
+		f.writesAllowed--
+	}
+	return f.Fs.OpenFile(name, flag, perm)
+}
+
+// TestAddRemote_FailedRollbackIsWarned is a regression guard for U086-F10:
+// AddRemote's rollback paths all did `_ = registry.Remove(req.Name)`, so a
+// rollback that itself failed left a half-registered remote in remotes.yaml
+// with NO signal beyond the original (unrelated) error. This forces exactly
+// that: the initial Add's write succeeds (spending the one write the fake FS
+// allows), SetForge then rejects the unknown label before attempting any
+// write of its own, and AddRemote's rollback Remove — which itself must
+// write — fails because the write budget is exhausted.
+func TestAddRemote_FailedRollbackIsWarned(t *testing.T) {
+	fs := &limitedWritesFs{Fs: afero.NewMemMapFs(), writesAllowed: 1}
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
+
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	_, aerr := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "corp",
+		URL:      "https://git.example.com/corp/ctxloom",
+		Forge:    "nope",
+		Registry: registry,
+	})
+	require.Error(t, aerr)
+	assert.Contains(t, aerr.Error(), "unknown forge")
+
+	assert.Contains(t, buf.String(), "corp",
+		"a rollback that itself fails must be warned, not silently discarded")
 }
 
 func TestListRemotes_Empty(t *testing.T) {

@@ -21,7 +21,6 @@ import (
 type triggerCacheEntry struct {
 	Fingerprint string           `json:"fingerprint"`
 	Verdict     triggers.Verdict `json:"verdict"`
-	CachedAt    time.Time        `json:"cached_at"`
 }
 
 // triggerVerdictCache is the whole per-project cache file's shape.

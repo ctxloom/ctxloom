@@ -2,7 +2,6 @@ package operations
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"time"
@@ -223,24 +222,6 @@ func MarkSessionEnded(harp string, at time.Time) error {
 		return err
 	}
 	return mgr.MarkEnded(harp, at)
-}
-
-// AdoptRawSession mints a harp for a not-yet-indexed backend transcript and
-// binds the transcript's session id / path to it, so the resume path can treat
-// it like any other harp. The picker's adopt callback.
-func AdoptRawSession(projectDir, backend, sessionID, transcriptPath string) (string, error) {
-	mgr, err := openSessions()
-	if err != nil {
-		return "", err
-	}
-	entry, err := mgr.AssignHarp(projectDir, backend)
-	if err != nil {
-		return "", fmt.Errorf("assign harp: %w", err)
-	}
-	if err := mgr.BindSession(entry.HarpName, sessionID, transcriptPath); err != nil {
-		return "", fmt.Errorf("bind session: %w", err)
-	}
-	return entry.HarpName, nil
 }
 
 // SessionIndexUpgrade reports whether loading the index would apply an in-memory

@@ -282,7 +282,6 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// The outward verdict contract never carries a query request — that's
 		// an internal round-1↔round-2 signal, not something the caller (or a
 		// human reading the result) needs.
-		now := time.Now().UTC()
 		for i := range verdicts {
 			verdicts[i].Queries = nil
 			v := verdicts[i]
@@ -293,7 +292,6 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 				cache.Tasks[v.HarpID] = triggerCacheEntry{
 					Fingerprint: fingerprintTask(deferredByHarp[v.HarpID], batch.Repo),
 					Verdict:     stored,
-					CachedAt:    now,
 				}
 			}
 		}

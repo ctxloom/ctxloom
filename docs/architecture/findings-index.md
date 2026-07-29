@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **871** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **878** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 62 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 104 |
-| `open` | no commit names this ID | **1,201** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 105 |
+| `open` | no commit names this ID | **1,193** |
 
-**Totals: 2268 findings across 162 units — 871 resolved, 1201 still open, 196 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 878 resolved, 1193 still open, 197 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave4/netneg-materialize` batch: all 18
 net-negative rows of the MATERIALIZE flow adjudicated (U029-F02/F04,
@@ -249,8 +249,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 219 | 688 | 11 | 19 | 62 |
-| LOW | 871 | 302 | 487 | 9 | 35 | 38 |
+| MED | 999 | 223 | 683 | 11 | 19 | 63 |
+| LOW | 871 | 305 | 484 | 9 | 35 | 38 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -842,16 +842,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U006-F01 | open | **`main.go:105-106`** | ERRHANDLING / CORRECTNESS | `cwd, _ := os.Getwd()` and `home, _ := os.UserHomeDir()` discard their errors, and the zero value that results **silently re-roots the discovery probes** — in the one tool whose entire product is a... | U006.md |
 | U007-F03 | open | **`manage.go:137-145`** | ERRHANDLING | Uninstall reports `"removed MCP server from <engine>"` and rewrites the config even when the taskloom entry was never present — a success message for a no-op | U007.md |
 | U007-F04 | **RESOLVED** `bfd6abca` | **`manage.go:192-201`** | SILENTNOOP | `writeConfig` atomically writes whatever it is handed with no length check, so an upstream bug returning empty bytes would silently truncate a user's real backend config to 0 bytes — atomically | U007.md |
-| U007-F05 | open | `mcp_tools.go:211, 235` | CORRECTNESS / DUPLICATE | The MCP `task_list` does **not** apply `wrapTagQueryError`, so an agent that writes a malformed `tag_query` gets tagma's bare "stack underflow" while a CLI user gets the postfix-grammar hint. The e... | U007.md |
-| U007-F06 | open | **`commands.go:163-241 vs mcp_tools.go:182-271`** | DUPLICATE / COHESION | The list pipeline exists twice (~75 lines each): scope resolve → notice compose → global-vs-single → homing → priority → projection. It has already drifted twice (F01 shared, F05 divergent), which ... | U007.md |
+| U007-F05 | **RESOLVED** `44362497` | `mcp_tools.go:211, 235` | CORRECTNESS / DUPLICATE | The MCP `task_list` does **not** apply `wrapTagQueryError`, so an agent that writes a malformed `tag_query` gets tagma's bare "stack underflow" while a CLI user gets the postfix-grammar hint. The e... | U007.md |
+| U007-F06 | **RESOLVED** `01524e6b` | **`commands.go:163-241 vs mcp_tools.go:182-271`** | DUPLICATE / COHESION | The list pipeline exists twice (~75 lines each): scope resolve → notice compose → global-vs-single → homing → priority → projection. It has already drifted twice (F01 shared, F05 divergent), which ... | U007.md |
 | U007-F07 | open | `mcp_tools.go:203, root.go:92/128` | COUPLING | The MCP handlers reach into CLI global state — `rootCmd.PersistentFlags()` and the package vars `tasksProject`/`tasksHoming` — mixing a launch-time value into a per-call resolution. `taskloom --hom... | U007.md |
 | U007-F08 | open | `mcp_tools.go:283, 296, 309, 322` | CORRECTNESS | All four MCP write tools discard `res.Warning` (the project moved/forked notice) and the project attribution: `warnTask` sends it to **stderr**, which an MCP client's model never reads, and the res... | U007.md |
 | U007-F09 | open | **`format.go:11 vs loadout.go:43`** | COUPLING | Two `--format` flags with different, incompatible vocabularies live on one command tree: root's persistent `{json,yaml,toml,text,markdown}` default `text`, and `loadout`'s local `{yaml,json}` defau... | U007.md |
 | U007-F10 | open | **`commands.go:163, mcp_tools.go:182, scope.go:209, mcp_resources.go:107`** | COMPLEXITY | Four owned functions sit at or above the project's own enforcing gate (CCN 20 / 17 / 14 / 10 against `just complexity-check`, "fail if any function exceeds CCN 10 — used by the CI lint job", justfi... | U007.md |
 | U007-F11 | **RESOLVED** `eab90467` | `(absent from cmd/taskloom)` | DEAD / NOPAY | The fatal harp-collision error tells the user to "run `Store.Repair()`", but this CLI — the only place a user could run anything — exposes no `repair` command and no `task_repair` tool, so the name... | U007.md |
-| U007-F12 | open | `(absent from cmd/taskloom)` | DEAD / NOPAY | Task deletion is unreachable: no `taskloom remove` subcommand and no `task_remove` MCP tool exist, although `Store.Remove`, an `opRemove` fold branch and a tombstone rule are all implemented and ma... | U007.md |
+| U007-F12 | **ESCALATED** `PENDING` | `(absent from cmd/taskloom)` | DEAD / NOPAY | Task deletion is unreachable: no `taskloom remove` subcommand and no `task_remove` MCP tool exist, although `Store.Remove`, an `opRemove` fold branch and a tombstone rule are all implemented and ma... | U007.md |
 | U007-F14 | open | `loadout.yaml:70-72` | CORRECTNESS | This loadout ships `pre_tool_fallback: true` on `ctxloom hook session-bind` with a comment promising the bind lands on PreToolUse for Antigravity — but the flag has no proto field and is dropped on... | U007.md |
-| U008-F01 | open | **`watch.go:77-102`** | DUPLICATE | The entire watch loop is a **line-for-line copy** of `internal/cli/plan_watch.go:87-112` — same `var timer *time.Timer; var timerC <-chan time.Time`, same four-arm select in the same order, same `t... | U008.md |
+| U008-F01 | **RESOLVED** `1ca317d0` | **`watch.go:77-102`** | DUPLICATE | The entire watch loop is a **line-for-line copy** of `internal/cli/plan_watch.go:87-112` — same `var timer *time.Timer; var timerC <-chan time.Time`, same four-arm select in the same order, same `t... | U008.md |
 | U008-F02 | open | **`watch.go:41-103`** | CORRECTNESS | `taskloom watch` **silently ignores the `--format` flag** and always emits JSONL. `cmd/taskloom/format.go:11` registers `--format` as a *persistent* flag on `rootCmd`, so `taskloom watch --format y... | U008.md |
 | U008-F03 | open | **`watch.go:83-86`** | CORRECTNESS | A long-lived stream command **exits 0 with no diagnostic when its watcher dies**. `case _, ok := <-w.Events(): if !ok { return nil }` treats a closed events channel as a clean shutdown, but `intern... | U008.md |
 | U008-F04 | open | `show.go:34` | COUPLING | `operations.ListTasks(tc, nil, "", true, false, 0)` is six positional arguments including **two adjacent, unlabelled booleans** and a bare `0`. At the call site nothing indicates that `true` means ... | U008.md |
@@ -1724,7 +1724,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U138-F08 | open | `:169-179` | COUPLING | `DefaultTagSchema` hard-codes, inside two ~300-character formula strings, identifiers owned by three other packages — with nothing but prose linking them | U138.md |
 | U138-F10 | open | `:202-207` | CORRECTNESS | An **explicitly empty** `tag_schema: []` is indistinguishable from the key being unset, and silently gets the full `DefaultTagSchema` back — so there is no way to run taskloom with tag-schema enfor... | U138.md |
 | U139-F01 | **RESOLVED** `462ffed8` | `:33-41` | TRIVIAL | `engines()` and `All()` are the same function. `All` is a one-line pass-through, and `engines` has no caller outside this file | U139.md |
-| U139-F02 | open | `:34-63` vs `internal/ltk/engine/engine.go:119-147` | DUPLICATE | **This is the second engine registry in the repo, and the two are near-identical code** — two packages named `engine`, two `Get(name)` functions with the same body and the same comment, two `engine... | U139.md |
+| U139-F02 | **RESOLVED** `ffe68453` | `:34-63` vs `internal/ltk/engine/engine.go:119-147` | DUPLICATE | **This is the second engine registry in the repo, and the two are near-identical code** — two packages named `engine`, two `Get(name)` functions with the same body and the same comment, two `engine... | U139.md |
 | U139-F03 | open | `:34-36` | CORRECTNESS | The registry claims to be "the registry of known engines" but silently omits **opencode**, which the repo carries as a first-class backend — so an opencode user running `taskloom manage install` is... | U139.md |
 | U140-F03 | **RESOLVED** `e1635575` | `:36-40` | TRIVIAL | `Resolve` is a one-line pass-through that discards `found`, and it exists only so `cmd/taskloom/root.go` need not write `_`. The package exports two entry points for one chain | U140.md |
 | U140-F04 | open | `:93-109`, `:105-108` | CORRECTNESS | `fromEnv` collapses **"unset"** and **"set but unusable"** into the same `("", false)` return, so `ResolveBoundary`'s `found` bit cannot distinguish "no project boundary exists" from "the user told... | U140.md |
@@ -1854,10 +1854,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U007-F19 | **RESOLVED** `24e4e92e` | `scope.go:209` | TRIVIAL | `listAllProjects`' parameter `sortPriority bool` shadows the package constant `sortPriority = "priority"` (commands.go:30) inside a function whose callers pass `opts.Sort == sortPriority` | U007.md |
 | U007-F20 | **RESOLVED** `5fdf8767` | **`commands.go:128-136`** | TRIVIAL | `runListCmd`'s doc comment is attached to the wrong declaration: the comment block that begins "runListCmd is listCmd's RunE body…" runs straight into "listOptions bundles…" and lands on `type list... | U007.md |
 | U007-F21 | open | **`commands.go:659/675/677, lint.go:87, plan.go:66`** | COUPLING | The `--json` shorthand is registered on 5 commands and absent from 7 others, so the same shorthand works or fails depending on which subcommand you type | U007.md |
-| U007-F22 | open | **`commands.go:174-181 ≡ mcp_tools.go:202-208; scope.go:53, commands.go:247, mcp_tools.go:258-269`** | DUPLICATE | The global-notice composition is copy-pasted verbatim (8 lines, both branches identical), and the compact/full row projection is written three times: `compactRows`, `compactTasksOf`, and an inline ... | U007.md |
+| U007-F22 | **RESOLVED** `6821b9f4` | **`commands.go:174-181 ≡ mcp_tools.go:202-208; scope.go:53, commands.go:247, mcp_tools.go:258-269`** | DUPLICATE | The global-notice composition is copy-pasted verbatim (8 lines, both branches identical), and the compact/full row projection is written three times: `compactRows`, `compactTasksOf`, and an inline ... | U007.md |
 | U007-F23 | open | **`root.go:96 + scope.go:96`** | COUPLING | The working directory is resolved twice per list: `taskContext` calls `workdir.Resolve()`, then `resolveListScope` — which is *handed* the resolved `workDir` — calls `workdir.ResolveBoundary()` aga... | U007.md |
 | U007-F24 | open | **`root.go:64, commands.go:655, format.go:10, lint.go:86, plan.go:65, manage.go:203, mcp.go:54, run.go:78 (+3 in U008's files)`** | COHESION | Eleven `init()` functions across the package mutate one package-level `rootCmd`, making registration order a filename-ordering convention. `main.go:12-14` explicitly calls this fragility out for `n... | U007.md |
-| U008-F05 | open | `version.go:24` | DUPLICATE | The program name is a bare `"taskloom"` string literal, where both sibling binaries define a constant for it — `cmd/harp/root.go:16` and `cmd/ltk/paths.go:7` each declare `const progName`. Package-... | U008.md |
+| U008-F05 | **RESOLVED** `e7ef2c9d` | `version.go:24` | DUPLICATE | The program name is a bare `"taskloom"` string literal, where both sibling binaries define a constant for it — `cmd/harp/root.go:16` and `cmd/ltk/paths.go:7` each declare `const progName`. Package-... | U008.md |
 | U009-F04 | **RESOLVED** `e479306b` | **`main.go:30`** | COUPLING | The validated path is relative to the process CWD, so the gate is silently a no-op when run from anywhere but the repo root — including any future recipe that changes directory first. Nothing check... | U009.md |
 | U009-F05 | **RESOLVED** `e479306b` | **`main.go:43`** | ERRHANDLING | The one message that reports the tool did nothing goes to **stdout**, in the same channel and the same neutral tone as the success message. In CI it scrolls past as ordinary build output. | U009.md |
 | U011-F10 | open | `container_transport.go:285–290` | ERRHANDLING | `reachBackBridge.pipe` returns silently when `net.Dial("unix", sock)` fails, closing the accepted connection. The in-container MCP shim sees an unexplained connection reset and nothing is logged an... | U011.md |
@@ -2550,7 +2550,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U127-F07 | open | `taskstest.go:1-8`, `:17-19` | CORRECTNESS | The package doc and `EnvKeys`' doc both scope this package to "the task store", but 52 callers use `Isolate` as general-purpose test isolation — the narrow scope in the doc is what makes the narrow... | U127.md |
 | U128-F06 | **REFUTED** `8ca2a0bd` | `verdict.go:28, query.go:29` | DEAD | `Outcomes()` and `QueryTypes()` have **zero** production callers — both are test-only. | U128.md |
 | U128-F08 | **RESOLVED** `8ca2a0bd` | `verdict.go:42` | TRIVIAL | `(Outcome).String()` has zero explicit callers and adds nothing: `Outcome` is a string newtype, so `%s`/`%q` format identically with or without it. | U128.md |
-| U128-F09 | open | `prompt.go:110-113 vs prompt.go:210-214` | DUPLICATE | The round-2 response contract is written inline, duplicating `writeResponseContract`'s structure and repeating one line verbatim: `"Include every task listed above, using its exact harp_id. Do not ... | U128.md |
+| U128-F09 | **RESOLVED** `d5662fc9` | `prompt.go:110-113 vs prompt.go:210-214` | DUPLICATE | The round-2 response contract is written inline, duplicating `writeResponseContract`'s structure and repeating one line verbatim: `"Include every task listed above, using its exact harp_id. Do not ... | U128.md |
 | U128-F10 | **REFUTED** `8ca2a0bd` | `triggers.go:1-7` | NOPAY | The package doc justifies the purity constraint with "so taskloom can import it safely", but nothing under `cmd/taskloom` imports this package. | U128.md |
 | U128-F11 | open | `evidence.go:91-94` | CORRECTNESS | `FollowupBatch` carries no `RepoState` and no `OtherTasks`, so round 2 sees *less* global evidence than round 1 — the escalation round loses exactly the existence evidence `RepoState` exists to sup... | U128.md |
 | U128-F12 | open | `query.go:137-139` | ERRHANDLING | `SanitizeQueries` drops every invalid query silently — the caller cannot distinguish "the model asked for nothing" from "the model asked for four things and all four were rejected", and the two mea... | U128.md |

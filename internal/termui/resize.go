@@ -130,7 +130,11 @@ const nudgeWiggleSeparation = 50 * time.Millisecond
 // re-sends the engine size via a one-row wiggle — (rows−N−1) then (rows−N),
 // genuinely separated in time (see nudgeWiggleSeparation) so the two don't
 // coalesce into one delivery. The wiggle stays inside the engine's viewport
-// so nothing ever addresses the reserved rows.
+// so nothing ever addresses the reserved rows. At a minimal-height drawable
+// (eff.Rows<=1, U141-F17) there is no room to shrink into, so the wiggle
+// goes the other way — (rows−N+1) then (rows−N) — still a genuine
+// transition rather than the same-size send that used to raise no SIGWINCH
+// at all at this height.
 func (t *resizeTranslator) Nudge() {
 	t.mu.Lock()
 	rows, cols := t.rows, t.cols
@@ -139,11 +143,16 @@ func (t *resizeTranslator) Nudge() {
 		return
 	}
 	eff := t.Translate(&pb.WindowSize{Rows: rows, Cols: cols})
+	// U141-F17: a same-size TIOCSWINSZ raises no SIGWINCH, so the wiggle step
+	// must always differ from eff — shrink by one normally, but at a
+	// minimal-height drawable (eff.Rows<=1) there is no room to shrink into,
+	// so wiggle upward instead. Either way this is a genuine transition the
+	// child's handler will observe, unlike sending eff itself unchanged.
+	wiggleRows := eff.Rows - 1
 	if eff.Rows <= 1 {
-		t.send(eff)
-		return
+		wiggleRows = eff.Rows + 1
 	}
-	t.send(&pb.WindowSize{Rows: eff.Rows - 1, Cols: eff.Cols})
+	t.send(&pb.WindowSize{Rows: wiggleRows, Cols: eff.Cols})
 	// Off the caller's goroutine: Nudge runs inside Controller.release, under
 	// the controller's sessionMu (held for the whole overlay teardown), and
 	// a re-engage blocks on that same lock — a synchronous sleep here would

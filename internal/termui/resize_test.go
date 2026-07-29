@@ -185,6 +185,28 @@ func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 	close(src)
 }
 
+// TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight pins U141-F17: Nudge's
+// eff.Rows<=1 branch used to send the CURRENT size unchanged, which raises no
+// SIGWINCH (the kernel only signals on a real change) — exactly the failure
+// Nudge and nudgeWiggleSeparation exist to fix. On a minimal-height drawable
+// (eff.Rows==1) the post-overlay repaint never happened. Nudge must still
+// produce a genuine transition even here (wiggling upward instead).
+func TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight(t *testing.T) {
+	src := make(chan *pb.WindowSize, 1)
+	rt := newResizeTranslator(src, 5, nil)
+	src <- &pb.WindowSize{Rows: 6, Cols: 80}
+	first := recvSize(t, rt.Out())
+	require.Equal(t, uint32(1), first.Rows, "test setup: eff.Rows must be exactly 1")
+
+	rt.Nudge()
+	wiggle := recvSize(t, rt.Out())
+	restore := recvSize(t, rt.Out())
+	assert.NotEqual(t, wiggle.Rows, restore.Rows,
+		"the wiggle step must genuinely differ from the restore so the child's SIGWINCH handler observes a change")
+	assert.Equal(t, uint32(1), restore.Rows, "settles back on the true effective size")
+	close(src)
+}
+
 func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 	src := make(chan *pb.WindowSize)
 	rt := newResizeTranslator(src, 1, nil)

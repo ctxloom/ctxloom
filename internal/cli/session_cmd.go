@@ -15,6 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -585,6 +587,45 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		return nil, fmt.Errorf("distillation failed: %w", err)
 	}
 	return result, nil
+}
+
+// resolveSessionSource resolves the backend (defaulting when empty) and a
+// transcript source for it, returning the resolved backend name for display.
+// Shared by loadOrDistillSession's callers (mcp_tools_memory.go) — and,
+// before the deprecated `memory` command group was deleted (U039-F20), by
+// `memory list`/`memory show` too. The legacy leg (pb.SessionReader) reads
+// over gRPC to the agent server (self-situated, no workspace passed, works
+// for a remote agent); it is wrapped in CanonicalFallbackSource (tough-cloud
+// S4) so any harp with a captured canonical transcript is read from that
+// instead — workDir scopes the canonical side to this project. A
+// session-index open failure degrades to the legacy-only reader rather than
+// failing the caller outright.
+//
+// tough-cloud S5: a pb.RetiredScraperBackends entry (codex/kiro/antigravity/
+// claude-code — their scrapers were deleted, not demoted) never gets a legacy
+// leg at all: there is no plugin-side History() left to ask, so this never
+// even spawns the plugin for that purpose. Every other backend (opencode's
+// native reader included) keeps its legacy leg unchanged.
+func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.SessionSource, string, error) {
+	if backendName == "" {
+		backendName = cfg.GetDefaultLLM()
+	}
+	if !backends.Exists(backendName) {
+		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
+	}
+	var legacy pb.SessionSource
+	if !pb.RetiredScraperBackends[backendName] {
+		legacy = pb.NewSessionReader(backendName, 0)
+	}
+	store, err := sessions.Open("")
+	if err != nil {
+		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
+		if legacy != nil {
+			return legacy, backendName, nil
+		}
+		return nil, backendName, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backendName, err)
+	}
+	return pb.NewCanonicalFallbackSource(legacy, workDir, store), backendName, nil
 }
 
 // StartSessionInfo is the read-only pre-spawn summary `ctxloom run` prints

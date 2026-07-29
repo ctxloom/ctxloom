@@ -187,18 +187,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"plan watch":    {skip: "streaming: same shape as session watch"},
 	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
-	// --- skip: legacy aliases for `session *`, slated for removal (Decision 2) ---
-	// T19 audit (source-verified, not registry-trusted): runMemoryShow and
-	// runMemoryCompact are standalone functions (memory.go), NOT thin wrappers
-	// around session_cmd.go's emit()-wired sessionShowCmd/runSessionDistill —
-	// neither calls emit(); both are real format debt, not just deprecated-
-	// alias noise. runMemoryList is the one exception: it DOES call emit()
-	// (confirmed via find_referencing_symbols on cliemit.Emit), so `memory
-	// list` is fine and NOT formatDebt despite living in this group.
-	"memory list":    {skip: "deprecated alias for `session list`, being removed (plan Decision 2); not independently exercised"},
-	"memory show":    {skip: "deprecated alias for `session show`; runMemoryShow (memory.go) is its own implementation and never calls emit() — T19 debt", formatDebt: true},
-	"memory compact": {skip: "deprecated alias for `session distill`; runMemoryCompact (memory.go) is its own implementation and never calls emit() — T19 debt", formatDebt: true},
-
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
 	"sign":                {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
 	"bundle sign":         {skip: "deprecated-alias's real home (`ctxloom sign`); same ssh-agent/git identity requirement"},
@@ -536,12 +524,6 @@ var formatDebtAllowlist = map[string]string{
 	"session rename":  "session_cmd.go: the rename RunE (inline closure) must route through emit()",
 	"session forget":  "session_cmd.go: the forget RunE (inline closure) must route through emit()",
 	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
-
-	// --- memory deprecated-alias surface (memory.go) ---
-	// NOTE: unlike `memory list` (which shares session list's emit()-wired
-	// code and is NOT debt), show/compact are standalone implementations.
-	"memory show":    "memory.go: runMemoryShow is a standalone implementation (not a thin session-show wrapper) and must route through emit() independently",
-	"memory compact": "memory.go: runMemoryCompact is a standalone implementation (not a thin session-distill wrapper) and must route through emit() independently",
 }
 
 // TestFormatCoverage_DebtAllowlistTracksRegistry is T19's enforcing half: it

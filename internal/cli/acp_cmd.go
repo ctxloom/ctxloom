@@ -35,7 +35,7 @@ var (
 // entries too, exactly the commands the reorg wants MORE discoverable, not
 // less. Only leaf commands with no children (acpAgentsCmd, agentSetupCmd)
 // use the real field; a parent with a bare-invocation alias prints its own
-// notice instead (see memoryCmd's shape for the leaf-only pattern this
+// notice instead (see trustCmd's shape for the leaf-only pattern this
 // deviates from, and why).
 var acpCmd = &cobra.Command{
 	Use:   "acp",

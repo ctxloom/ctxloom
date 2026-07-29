@@ -304,14 +304,12 @@ func hasSiblingsOfType(count int, excludeName, prefix string) bool {
 }
 
 // firstLineTruncated returns the first line of s, trimmed and capped at 60
-// bytes (57 + ellipsis, never splitting a multibyte rune) for a compact
-// one-line summary.
+// bytes TOTAL (ellipsis included, never splitting a multibyte rune) for a
+// compact one-line summary. U129-F01: the 57 = 60-3 pre-compensation now
+// lives inside textutil.Ellipsize.
 func firstLineTruncated(s string) string {
 	line := strings.Split(strings.TrimSpace(s), "\n")[0]
-	if len(line) > 60 {
-		return textutil.TruncateBytes(line, 57) + "..."
-	}
-	return line
+	return textutil.Ellipsize(line, 60)
 }
 
 // appendSiblingFragments lists the bundle's fragments (excluding excludeName)

@@ -262,10 +262,8 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 	}
 	w.Println()
 
-	firstLine := strings.Split(strings.TrimSpace(frag.Content), "\n")[0]
-	if len(firstLine) > 70 {
-		firstLine = textutil.TruncateBytes(firstLine, 67) + "..."
-	}
+	// U129-F01: 70 bytes TOTAL, ellipsis reserved by Ellipsize.
+	firstLine := textutil.Ellipsize(strings.Split(strings.TrimSpace(frag.Content), "\n")[0], 70)
 	w.Printf("      %s\n", firstLine)
 }
 

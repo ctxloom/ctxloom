@@ -792,12 +792,11 @@ func (c *Compactor) sessionToText(session *agent.Session) string {
 }
 
 // truncateForSummary caps an argument/output string at 500 bytes with an
-// ellipsis, keeping summary text compact.
+// ellipsis, keeping summary text compact. U129-F01: this is one of the two
+// sites that forgot the -3 pre-compensation and so returned 503 bytes for a
+// documented 500-byte cap; Ellipsize makes the doc true.
 func truncateForSummary(s string) string {
-	if len(s) > 500 {
-		return textutil.TruncateBytes(s, 500) + "..."
-	}
-	return s
+	return textutil.Ellipsize(s, 500)
 }
 
 // appendEntryText renders one session entry as a markdown section.

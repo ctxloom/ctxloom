@@ -57,6 +57,20 @@ func TestSurround_TinyTerminalSkipsReservation(t *testing.T) {
 	assert.Equal(t, "\x1b[r", tty.String(), "shrink below threshold resets the scroll region")
 }
 
+// TestSurround_ZeroColsSkipsReservation pins U141-F11: fitWidth used to
+// return b[:start] when width<=0, discarding every byte appendBarContent had
+// just appended, so a cols==0 report (rows still >= minRowsForReserve) still
+// established the region and painted a structurally-valid but completely
+// empty bar row, with no warning. The reservation must be honestly OFF when
+// there is no column space to render into — the same skip a too-short
+// terminal already gets on rows.
+func TestSurround_ZeroColsSkipsReservation(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 0) // rows fine, cols==0
+	assert.Empty(t, tty.String(), "no region, no blank-bar paint when there are zero columns")
+}
+
 func TestSurround_ResizeReestablishes(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h"})

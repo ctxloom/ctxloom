@@ -18,6 +18,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// mockPuller implements the Puller interface for testing. Moved here from
+// lockfile_test.go when U085-F09 deleted InstallDependencies (mockPuller's
+// other consumer); PullItem below is this file's remaining live use.
+type mockPuller struct {
+	pullFunc func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error)
+}
+
+func (m *mockPuller) Pull(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
+	if m.pullFunc != nil {
+		return m.pullFunc(ctx, refStr, opts)
+	}
+	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/test/item.yaml"}, nil
+}
+
 // =============================================================================
 // Request/Result Structure Tests
 // =============================================================================

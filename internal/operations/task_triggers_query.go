@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -105,6 +106,13 @@ func safeRepoPath(repoDir, rel string) (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(joined)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			// A genuine resolution failure (e.g. EACCES, or a symlink loop —
+			// ELOOP) never answered the containment question at all, unlike a
+			// plain "doesn't exist yet". Papering over it as the unresolved
+			// path would let it through as if it had been checked (U088-F23).
+			return "", err
+		}
 		// The path (or a component of it) doesn't exist yet — not an escape,
 		// just nothing to resolve. Callers that need existence (path_exists)
 		// treat this as "does not exist"; grep simply finds nothing there.
@@ -231,6 +239,14 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	}
 
 	var matches []string
+	// visited counts every regular file the walk REACHES, scope match or
+	// not — the bound on WORK the budget promises (maxGrepFilesScanned's own
+	// doc: "a zero-match pattern over a huge tree still terminates
+	// promptly"). scanned counts only the subset that passed the scope
+	// filter and was actually read; a glob matching nothing let scanned sit
+	// at 0 forever, so bounding on scanned alone left the walk itself
+	// unbounded (U088-F14).
+	visited := 0
 	scanned := 0
 	truncated := false
 	stop := fmt.Errorf("grep: bound reached")
@@ -239,7 +255,12 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 			return nil // best-effort: an unreadable entry is skipped, not fatal
 		}
 		if d.IsDir() {
-			if skipGrepDir(d.Name()) {
+			// Never skip the WALK ROOT itself, even when its own name looks
+			// like tool/vendor state (e.g. a query explicitly scoped to
+			// ".github") — skipGrepDir exists to keep unrelated tool state
+			// encountered while DESCENDING out of the search, not to void a
+			// scope the caller named explicitly (U088-F02).
+			if path != root && skipGrepDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -251,10 +272,11 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		if scanned >= budget.maxFilesScanned || len(matches) >= budget.maxMatches {
+		if visited >= budget.maxFilesScanned || len(matches) >= budget.maxMatches {
 			truncated = true
 			return stop
 		}
+		visited++
 		rel, relErr := filepath.Rel(absRepo, path)
 		if relErr != nil {
 			return nil
@@ -284,20 +306,25 @@ func queryGrep(repoDir string, q triggers.Query, budget grepBudget) triggers.Que
 	if walkErr != nil && walkErr != stop {
 		return triggers.QueryResult{Query: q, Err: walkErr.Error()}
 	}
-	// A glob that selected no file at all did not search anything, so it must
-	// not report an empty (searched-and-found-nothing) result.
-	if scopeRe != nil && scanned == 0 {
-		return triggers.QueryResult{Query: q, Err: fmt.Sprintf("path_glob %q matched no files in the repository — nothing was searched", q.PathGlob)}
-	}
 
 	// THE safety rule. A scan that hit its bound did not finish, so it cannot
 	// speak to what it never looked at. Reporting "(no matches)" here would
 	// hand the model positive evidence of absence it has not got — and a
 	// confident false not-fired parks a live task forever. Zero matches from a
-	// truncated scan is INCONCLUSIVE, and says so.
+	// truncated scan is INCONCLUSIVE, and says so. Checked BEFORE the
+	// scope-matched-nothing case below: a truncated walk cannot prove the
+	// glob matched nothing either — it may never have reached a matching file
+	// (U088-F14).
 	if truncated && len(matches) == 0 {
 		return triggers.QueryResult{Query: q, Err: fmt.Sprintf(
-			"search was TRUNCATED after %d files without completing — this is INCONCLUSIVE, not evidence of absence. Narrow it with path_glob and try a more specific scope.", scanned)}
+			"search was TRUNCATED after %d files without completing — this is INCONCLUSIVE, not evidence of absence. Narrow it with path_glob and try a more specific scope.", visited)}
+	}
+
+	// A glob that selected no file at all, or an explicit (non-glob) scope
+	// the walk never actually entered, did not search anything, so it must
+	// not report an empty (searched-and-found-nothing) result (U088-F02).
+	if (scopeRe != nil || root != absRepo) && scanned == 0 {
+		return triggers.QueryResult{Query: q, Err: fmt.Sprintf("path_glob %q matched no files in the repository — nothing was searched", q.PathGlob)}
 	}
 
 	if len(matches) == 0 {
@@ -380,6 +407,14 @@ func queryGitLogPath(ctx context.Context, gitClient git.Git, repoDir string, q t
 		}
 	}
 	if len(lines) == 0 {
+		if len(entries) >= gitLogPathScanCap {
+			// The window was truncated before it could speak to the whole
+			// history — a zero-match result from a scan that did not finish
+			// is not evidence the path was never touched (U088-F07), the same
+			// hazard queryGrep guards against for its own file-count bound.
+			return triggers.QueryResult{Query: q, Err: fmt.Sprintf(
+				"scanned only the most recent %d commits without finding one touching %q — this is INCONCLUSIVE, not evidence the path was never touched.", gitLogPathScanCap, q.Path)}
+		}
 		return triggers.QueryResult{Query: q, Output: "(no commits found touching this path)"}
 	}
 	return triggers.QueryResult{Query: q, Output: strings.Join(lines, "\n")}

@@ -55,6 +55,25 @@ func TestExecuteQuery_PathExists_RejectsSymlinkEscape(t *testing.T) {
 	assert.NotEmpty(t, got.Err, "a symlink escaping the repo must be rejected, not followed")
 }
 
+// U088-F23: safeRepoPath treated EVERY EvalSymlinks error as "doesn't exist
+// yet" and returned the unresolved path unresolved-but-unrejected — including
+// a genuine resolution failure like a symlink loop (ELOOP), where the
+// containment question was never actually answered. A symlink loop is a
+// reliable way to trigger a non-ENOENT EvalSymlinks error without relying on
+// filesystem permissions (which root bypasses).
+func TestSafeRepoPath_SymlinkLoopIsRejectedNotTreatedAsMissing(t *testing.T) {
+	repo := t.TempDir()
+	a := filepath.Join(repo, "loop-a")
+	b := filepath.Join(repo, "loop-b")
+	require.NoError(t, os.Symlink(b, a))
+	if err := os.Symlink(a, b); err != nil {
+		t.Skipf("symlinks unsupported in this environment: %v", err)
+	}
+
+	_, err := safeRepoPath(repo, "loop-a")
+	assert.Error(t, err, "a symlink loop is a genuine resolution failure, not \"doesn't exist yet\" — it must not be waved through as an unresolved path")
+}
+
 func TestExecuteQuery_PathExists_NoRepoDirDegradesToError(t *testing.T) {
 	got := executeQuery(context.Background(), &git.Fake{}, "", nil, triggers.Query{Type: triggers.QueryPathExists, Path: "x"})
 	assert.NotEmpty(t, got.Err)
@@ -148,6 +167,42 @@ func TestQueryGrep_CompletedScanWithNoHitsIsARealNoMatch(t *testing.T) {
 	assert.Empty(t, got.Output)
 }
 
+// U088-F02: a literal (non-glob) path_glob naming a hidden directory (e.g.
+// ".github") must actually be searched. skipGrepDir exists to keep tool/
+// vendor state encountered while DESCENDING out of the search, but it used
+// to be applied to the walk ROOT too — so a scope naming a hidden directory
+// by name walked ZERO files and reported a plain empty "(no matches)",
+// which reads to the model as positive evidence of absence for a search
+// that never actually ran.
+func TestQueryGrep_LiteralScopeNamingAHiddenDirectoryIsSearched(t *testing.T) {
+	repo := t.TempDir()
+	writeRepoFile(t, repo, ".github/workflows/ci.yml", "SENTINEL_SETTING: true\n")
+
+	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "SENTINEL_SETTING", PathGlob: ".github"}, defaultGrepBudget())
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "ci.yml", "a literal path_glob naming a hidden directory must actually be searched, not silently voided")
+}
+
+// U088-F14: maxGrepFilesScanned is documented as a bound on WORK ("a
+// zero-match pattern over a huge tree still terminates promptly"), but the
+// old scanned counter only incremented AFTER the scope filter — so a glob
+// matching nothing walked every file in the tree before the budget check
+// ever fired. A tiny budget over a tree bigger than it proves the walk
+// itself now stops early (reported as truncated/inconclusive) instead of
+// silently completing a full unbounded walk.
+func TestQueryGrep_BudgetBoundsTheWalkNotJustMatchedFiles(t *testing.T) {
+	repo := t.TempDir()
+	for i := 0; i < 20; i++ {
+		writeRepoFile(t, repo, filepath.Join("pkg", fmt.Sprintf("f%02d.go", i)), "package pkg\n")
+	}
+
+	got := queryGrep(repo, triggers.Query{Type: triggers.QueryGrep, Pattern: "anything", PathGlob: "**/*.rs"},
+		grepBudget{maxFilesScanned: 5, maxMatches: 20, maxFileReadBytes: 1 << 20})
+	assert.Empty(t, got.Output)
+	assert.NotEmpty(t, got.Err, "a walk that hit its file-visited bound before finishing must be inconclusive")
+	assert.Contains(t, strings.ToLower(got.Err), "truncated", "the budget must bound files WALKED, not just files that passed the scope filter")
+}
+
 // Tool/vendor state is not "the codebase": .git, .claude (worktrees!), and
 // node_modules must be skipped, so they neither pollute results nor burn the
 // scan budget that the real source tree needs.
@@ -228,6 +283,24 @@ func TestExecuteQuery_GitLogPath_NoMatchesSaysSo(t *testing.T) {
 	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/signing"})
 	assert.Empty(t, got.Err)
 	assert.NotEmpty(t, got.Output)
+}
+
+// U088-F07: queryGitLogPath scans only the most recent gitLogPathScanCap
+// commits (via LogSince). A zero-match result from a window that hit that
+// cap did not finish looking, so it must not read as a confident "no commits
+// found touching this path" — the exact hazard queryGrep already guards
+// against for its own file-count bound.
+func TestExecuteQuery_GitLogPath_TruncatedWindowIsInconclusive(t *testing.T) {
+	repo := t.TempDir()
+	entries := make([]git.LogEntry, gitLogPathScanCap)
+	for i := range entries {
+		entries[i] = git.LogEntry{SHA: fmt.Sprintf("sha%d", i), Subject: "unrelated change", Files: []string{"unrelated.go"}}
+	}
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: entries}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/signing"})
+	assert.Empty(t, got.Output, "a truncated window must not present a completed, confident search")
+	assert.NotEmpty(t, got.Err, "a fully-truncated commit window with zero matches is inconclusive, not evidence of absence")
 }
 
 func TestExecuteQuery_TaskStatus_Found(t *testing.T) {

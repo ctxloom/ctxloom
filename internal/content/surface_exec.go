@@ -49,7 +49,14 @@ func detectSingleYAML(dir string, src Source, depth int) (string, bool) {
 	return name, true
 }
 
-// readExecItem decodes an executable surface's content file and optional sidecar.
+// readExecItem decodes a single-YAML surface's content file and, when the kind has
+// one, its metadata sidecar.
+//
+// A nil meta target means the kind has no sidecar, and a sidecar found anyway is
+// REFUSED rather than skipped. Skipping it would leave bytes that are grouped into
+// the item and hashed into the digest but that nothing in the decode path can
+// explain — exactly the shape in which unexplained content rides along under a
+// valid signature.
 func readExecItem(dir string, src Source, depth int, content, meta any) (string, error) {
 	name, ok := detectSingleYAML(dir, src, depth)
 	if !ok {
@@ -60,13 +67,16 @@ func readExecItem(dir string, src Source, depth int, content, meta any) (string,
 		return "", err
 	}
 	for _, p := range paths {
+		target := content
+		if IsMetaPath(p) {
+			if meta == nil {
+				return "", fmt.Errorf("content: %s carries the metadata sidecar %q, but %s items have no sidecar", name, p, dir)
+			}
+			target = meta
+		}
 		data, err := src.Open(p)
 		if err != nil {
 			return "", err
-		}
-		target := content
-		if IsMetaPath(p) {
-			target = meta
 		}
 		if err := unmarshalYAML(data, target); err != nil {
 			return "", fmt.Errorf("content: %s: %w", p, err)

@@ -60,7 +60,7 @@ func (t profileType) RefFor(bundle string, src Source) (trust.Ref, error) {
 
 func (t profileType) Decode(src Source) (Surface, error) {
 	var def profiles.Profile
-	name, err := readExecItem(t.Dir(), src, 0, &def, &struct{}{})
+	name, err := readExecItem(t.Dir(), src, 0, &def, nil)
 	if err != nil {
 		return nil, err
 	}

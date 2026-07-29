@@ -827,3 +827,28 @@ func TestNewTreeStore_RefusesAmbiguousProvenance(t *testing.T) {
 		}
 	}
 }
+
+// TestDecode_RefusesUnexplainedSidecars: a sidecar in a kind whose metadata does
+// NOT live in a sidecar is grouped into the item and hashed, so ignoring it would
+// mean bytes ride along under a valid signature that no decode path accounts for.
+func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
+	ctx := context.Background()
+	store := fixtureStore(t)
+	root := fixtureRoot + "/code-quality"
+	writeFile(t, store.fsys, root+"/fragments/.solid.meta.yaml", "tags:\n  - smuggled\n")
+	writeFile(t, store.fsys, root+"/profiles/.strict.meta.yaml", "owner: nobody\n")
+
+	bundle, _ := store.Open(ctx, "code-quality")
+	for name, ref := range map[string]trust.Ref{
+		"fragment": {Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"},
+		"profile":  {Bundle: "code-quality", Kind: KindProfile, Name: "strict"},
+	} {
+		item, err := bundle.Item(ctx, ref)
+		if err != nil {
+			t.Fatalf("%s: Item: %v", name, err)
+		}
+		if _, err := item.Surface(ctx); err == nil {
+			t.Errorf("%s: an unexplained sidecar was silently accepted", name)
+		}
+	}
+}

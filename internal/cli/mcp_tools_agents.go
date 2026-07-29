@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -30,10 +30,6 @@ import (
 //     stdio↔HTTP proxy onto the coordinator's MCP endpoint (mcp_forward.go),
 //     and identity derives from the credential per request, never from this
 //     process's env.
-const (
-	defaultRecvWait = 60 * time.Second
-	maxRecvWait     = 10 * time.Minute
-)
 
 // agentDelegation is the coordinator-host state behind the agent tools.
 type agentDelegation struct {
@@ -133,6 +129,11 @@ type agentSendResult struct {
 }
 
 type agentRecvInput struct {
+	// A struct tag must be a literal, so this cannot reference
+	// mcpschema.RecvWaitDoc directly the way the runner surface's generated
+	// schema does. TestAgentRecvWait_StdioSchemaDescribesTheSameBounds asserts
+	// the two are the same text, and mcpschema.ClampRecvWait is what enforces
+	// the numbers quoted here.
 	Wait int `json:"wait,omitempty" jsonschema:"Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish"`
 }
 
@@ -257,13 +258,7 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, nil, err
 	}
-	wait := time.Duration(in.Wait) * time.Second
-	if wait <= 0 {
-		wait = defaultRecvWait
-	}
-	if wait > maxRecvWait {
-		wait = maxRecvWait
-	}
+	wait := mcpschema.ClampRecvWait(in.Wait)
 	msgs, err := d.c.AgentRecv(ctx, d.self, wait)
 	if err != nil {
 		if errors.Is(err, coord.ErrRecvTimeout) {

@@ -102,7 +102,7 @@ func CoordinationBindings() []Binding {
 					"properties": map[string]any{
 						"wait": map[string]any{
 							"type":        "integer",
-							"description": "Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish",
+							"description": RecvWaitDoc,
 						},
 					},
 					"additionalProperties": false,

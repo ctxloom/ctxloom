@@ -512,13 +512,7 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 				return nil, fmt.Errorf("agent_recv: %w", err)
 			}
 		}
-		wait := time.Duration(in.Wait) * time.Second
-		if wait <= 0 {
-			wait = defaultRecvWait
-		}
-		if wait > maxRecvWait {
-			wait = maxRecvWait
-		}
+		wait := mcpschema.ClampRecvWait(in.Wait)
 		msgs, err := home.Recv(ctx, wait)
 		if err != nil {
 			if errors.Is(err, coord.ErrRecvTimeout) {

@@ -38,7 +38,19 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
-	active, err := remote.NewLockfileManager(baseDir).Load()
+	// U089-F10 (escalated from wave-1): both lockfile manager constructions in
+	// this function used to omit WithLockfileFS, so under an injected
+	// filesystem (tests, or any future FS-scoped caller) the closure walk
+	// would enumerate roots from cfg's FS while this function's own Load/Save
+	// silently fell back to the real OS filesystem — reading and writing a
+	// DIFFERENT lock.yaml than the one the rest of the resolution sees.
+	// Contained today only by ErrLockfileWouldErase (an empty write over a
+	// populated file refuses), but that guard should never be the only thing
+	// standing between an FS mismatch and a wiped lockfile. Match
+	// trust.go:499 and lockfile.go:74, the two call sites that already do
+	// this correctly.
+	lockFS := getFS(cfg.FS())
+	active, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Load()
 	if err != nil {
 		return 0, false, err
 	}
@@ -108,7 +120,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 		}
 	}
 
-	if serr := remote.NewLockfileManager(baseDir).Save(newActive); serr != nil {
+	if serr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Save(newActive); serr != nil {
 		return advanced, incomplete, serr
 	}
 	return advanced, incomplete, nil

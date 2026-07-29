@@ -13,6 +13,9 @@ func ApplyLocalCLIConfig(b *BaseBackend, binaryPath string, args []string, env m
 	if len(args) > 0 {
 		b.Args = args
 	}
+	if len(env) > 0 && b.Env == nil {
+		b.Env = make(map[string]string, len(env))
+	}
 	for k, v := range env {
 		b.Env[k] = v
 	}

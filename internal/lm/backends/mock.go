@@ -254,26 +254,50 @@ func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteReq
 		}
 	}
 
-	r := bufio.NewReader(req.Stdin)
-	for {
-		line, err := r.ReadString('\n')
-		line = strings.TrimRight(line, "\r\n")
-		if line == "quit" {
-			break
-		}
-		if line != "" {
-			drainResize()
-			_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
-			if sawWS {
-				_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", lastWS.Rows, lastWS.Cols)
+	// U057-F23: ReadString blocks until a line arrives, so a cancelled ctx
+	// checked only AFTER it returns can never interrupt a stdin that never
+	// produces a line (a pty rarely EOFs — see the doc above). Reading on a
+	// goroutine and selecting on ctx.Done() lets THIS function return
+	// promptly on cancellation; the goroutine itself may still leak until the
+	// peer writes or closes, which is the pre-existing, documented tradeoff
+	// (the "quit"/EOF sentinel), not something fixable from this side alone.
+	type readResult struct {
+		line string
+		err  error
+	}
+	lines := make(chan readResult)
+	go func() {
+		r := bufio.NewReader(req.Stdin)
+		for {
+			line, err := r.ReadString('\n')
+			lines <- readResult{line: line, err: err}
+			if err != nil {
+				return
 			}
 		}
-		if err != nil || ctx.Err() != nil {
-			break
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+		case res := <-lines:
+			line := strings.TrimRight(res.line, "\r\n")
+			if line == "quit" {
+				return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+			}
+			if line != "" {
+				drainResize()
+				_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
+				if sawWS {
+					_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", lastWS.Rows, lastWS.Cols)
+				}
+			}
+			if res.err != nil {
+				return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+			}
 		}
 	}
-
-	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
 // Cleanup releases resources after execution.

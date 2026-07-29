@@ -2,8 +2,10 @@ package backends
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,4 +46,41 @@ func TestMock_EchoDisabledByDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, out.String(), "mock echo:", "default mode never enters the interactive echo path")
 	assert.Contains(t, out.String(), "prompt=hi", "default prompt echo preserved")
+}
+
+// U057-F23: a cancelled context must interrupt executeInteractiveEcho even
+// while it is blocked waiting for input — before the fix, ctx.Err() was only
+// checked AFTER a ReadString call returned, so a stdin that never produces a
+// line (a pty that never EOFs, or here a pipe nobody writes to) left the
+// cancellation unobserved. Stdin is a pipe with no writer, so ReadString
+// blocks forever; only a prompt ctx-aware return proves the fix — the old
+// code would hang this test past its timeout.
+func TestMock_InteractiveEcho_CtxCancelInterruptsBlockedRead(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := &agent.ExecuteRequest{
+		Env:   map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"},
+		Stdin: pr,
+	}
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	done := make(chan struct{})
+	var out strings.Builder
+	go func() {
+		defer close(done)
+		_, _ = NewMock().Execute(ctx, req, &out, &out)
+	}()
+
+	select {
+	case <-done:
+		// Execute returned promptly once ctx was cancelled — the fix.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute did not return within 2s of context cancellation; ctx.Err() is not observed while blocked in ReadString")
+	}
 }

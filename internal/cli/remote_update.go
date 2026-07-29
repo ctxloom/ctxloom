@@ -560,38 +560,6 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 	}
 }
 
-// reportBundleIssues prints orphan/missing/invalid bundle findings plus any
-// non-fatal warnings. Silent when there is nothing to report.
-func reportBundleIssues(out io.Writer, analysis *operations.BundleAnalysis) {
-	for _, warn := range analysis.Warnings {
-		fmt.Fprintf(out, "Warning: %s\n", warn)
-	}
-	if len(analysis.Invalid) > 0 {
-		fmt.Fprintf(out, "\n--- Invalid bundle references ---\n")
-		fmt.Fprintln(out, "The following bundle references are malformed:")
-		for _, inv := range analysis.Invalid {
-			fmt.Fprintf(out, "  - %s\n", inv)
-		}
-	}
-	if len(analysis.Missing) > 0 {
-		fmt.Fprintf(out, "\n--- Missing bundles ---\n")
-		fmt.Fprintln(out, "The following bundles are referenced but not installed:")
-		for _, missing := range analysis.Missing {
-			fmt.Fprintf(out, "  - %s\n", missing)
-		}
-		fmt.Fprintln(out, "\nPull missing bundles with: ctxloom remote pull")
-	}
-	if len(analysis.Orphans) > 0 {
-		fmt.Fprintf(out, "\n--- Orphaned bundles ---\n")
-		fmt.Fprintln(out, "The following bundles are no longer referenced by any profile:")
-		for _, orphan := range analysis.Orphans {
-			fmt.Fprintf(out, "  - %s\n", orphan)
-		}
-		fmt.Fprintln(out, "\nOrphaned bundles are lockfile references (nothing is materialized on disk).")
-		fmt.Fprintln(out, "To remove one, delete its entry from .ctxloom/lock.yaml.")
-	}
-}
-
 // reportMissingDefaults warns about configured default profiles that don't
 // exist. Silent when there are none.
 func reportMissingDefaults(out io.Writer, missing []string) {

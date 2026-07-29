@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 func testSigner(t *testing.T) ssh.Signer {
@@ -185,6 +186,66 @@ func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
 	names, err := ListLocalBundleNames(&config.Config{}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, names)
+}
+
+// --- SignItem (the Signable seam) ------------------------------------------
+
+// TestSignItem_BundleRoundTripsThroughVerifyPublisher exercises the seam
+// directly (bypassing SignBundleFile): a bundleSignable's PublisherPreimage
+// is the bundle file's exact bytes, and SignItem must write a ".sig" sibling
+// at bundle.Path + ".sig" that VerifyPublisher accepts over those exact
+// bytes — the same red-line assertion TestSignBundleFile_... makes through
+// the higher-level entry point, pinned here at the seam itself.
+func TestSignItem_BundleRoundTripsThroughVerifyPublisher(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
+	require.NoError(t, err)
+
+	store := bundleStore(cfg, nil)
+	bundle, err := loadBundleForUpdate(store, cfg, "my-tools")
+	require.NoError(t, err)
+
+	fs := afero.NewOsFs()
+	item := &bundleSignable{bundle: bundle, fs: fs}
+	assert.Equal(t, trust.ItemKind("bundle"), item.Kind())
+	assert.Equal(t, bundle.Path+".sig", item.SigPath())
+
+	signer := testSigner(t)
+	require.NoError(t, SignItem(fs, item, signer))
+
+	bundleBytes, err := afero.ReadFile(fs, bundle.Path)
+	require.NoError(t, err)
+	sigBytes, err := afero.ReadFile(fs, item.SigPath())
+	require.NoError(t, err)
+	require.NotEmpty(t, sigBytes)
+
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"me@example.com"},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+	principal, verr := signing.VerifyPublisher(bundleBytes, sigBytes, root, time.Now())
+	require.NoError(t, verr)
+	assert.Equal(t, "me@example.com", principal)
+}
+
+func TestSignItem_NoSignerIsHardError(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
+	require.NoError(t, err)
+
+	store := bundleStore(cfg, nil)
+	bundle, err := loadBundleForUpdate(store, cfg, "my-tools")
+	require.NoError(t, err)
+
+	fs := afero.NewOsFs()
+	item := &bundleSignable{bundle: bundle, fs: fs}
+	err = SignItem(fs, item, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no signer")
+
+	_, statErr := fs.Stat(item.SigPath())
+	assert.Error(t, statErr, "a refused sign must not leave a signature behind")
 }
 
 // U087-F02: SignBundleFile read the bundle file and handed the bytes to

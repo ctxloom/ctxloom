@@ -22,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // SignTarget is a ref resolved down to the local bundle it names. Spec
@@ -141,25 +140,15 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	}
 
 	fs := getFS(req.FS)
-	data, err := afero.ReadFile(fs, bundle.Path)
-	if err != nil {
-		return nil, fmt.Errorf("sign %s: read bundle file %s: %w", req.Target.BundleName, bundle.Path, err)
-	}
-
-	armored, err := signing.Sign(data, req.Signer, signing.NamespacePublish)
-	if err != nil {
+	item := &bundleSignable{bundle: bundle, fs: fs}
+	if err := SignItem(fs, item, req.Signer); err != nil {
 		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
-	}
-
-	sigPath := bundle.Path + ".sig"
-	if err := afero.WriteFile(fs, sigPath, armored, 0o644); err != nil {
-		return nil, fmt.Errorf("sign %s: write %s: %w", req.Target.BundleName, sigPath, err)
 	}
 
 	return &SignBundleResult{
 		BundleName: req.Target.BundleName,
 		BundlePath: bundle.Path,
-		SigPath:    sigPath,
+		SigPath:    item.SigPath(),
 		ItemNote:   req.Target.ItemNote,
 	}, nil
 }

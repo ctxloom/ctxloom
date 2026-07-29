@@ -208,7 +208,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		}
 		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, in.Limit)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, wrapTagQueryError(err)
 		}
 		out := &taskListResult{
 			Global:          true,
@@ -233,7 +233,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	}
 	res, err := operations.ListTasksWithTagQuery(tc, in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary, in.Limit)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, wrapTagQueryError(err)
 	}
 	warnTask(res.Warning)
 	var priorityWarning string

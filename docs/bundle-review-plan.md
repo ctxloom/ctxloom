@@ -55,7 +55,7 @@ The codebase that received this work differed from the plan's mental model in tw
 
 1. **There is no per-bundle "extracted dir."** Bundles ship as single YAML files; `pull.Pull` previously copied them to `.ctxloom/cache/bundles/<remote>/<path>.yaml`. "Extraction" in Phase 1.2 was interpreted as removing that file copy. `operations.PurgeExtractedBundles` keys on `_source.SHA` presence so locally-authored bundles survive.
 
-2. **`BundleReader` is split.** `internal/remote/bundle_reader.go` owns the bytes-only fetch (no `bundles` import). `internal/operations/bundle_reader.go` provides `NewBundleReaderForConfig` and `NewBundleReaderForLockfile` (which `show_bundle_verbatim` uses against pending). The loader-seeding pipeline lives on `(*config.Config).SeededBundleLoader(...)` in `internal/config/config.go` so `internal/lm/backends` and `internal/config` callers can build seeded loaders without depending on `internal/operations` (cycle).
+2. **`BundleReader` is split.** `internal/remote/bundle_reader.go` owns the bytes-only fetch (no `bundles` import). `internal/operations/bundle_reader.go` provides `NewBundleReaderForConfig` against the active lockfile on disk (the `NewBundleReaderForLockfile` variant against a pending lockfile, for the now-retired `show_bundle_verbatim` tool, was removed as dead code). The loader-seeding pipeline lives on `(*config.Config).SeededBundleLoader(...)` in `internal/config/config.go` so `internal/lm/backends` and `internal/config` callers can build seeded loaders without depending on `internal/operations` (cycle).
 
 The plan referenced legacy line numbers in `cmd/mcp.go` (`handleInitialize`, `handleToolsCall`). Those locations are gone after the SDK migration. The SDK equivalents used:
 

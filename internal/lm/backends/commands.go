@@ -58,16 +58,23 @@ import (
 func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
 	prompts := builtinCommands()
 
+	// U057-F06: a nil cfg has nothing further to resolve — mirrors
+	// LoadSkillExports' guard (skillfiles.go). Without this, the uncurated
+	// branch's cfg.ResolveBundleCommands(...) below dereferences cfg unguarded
+	// and panics; the two earlier `if cfg != nil` guards never protected that
+	// call.
+	if cfg == nil {
+		return prompts
+	}
+
 	// Gate prompt command-file exports through the same per-item decision
 	// function as content: a prompt whose effective content the trust model
 	// denies must not be exported as a slash command either. The gate is the
 	// cfg-injected executable gate (nil on management paths = no gating); it
 	// keys on "<bundle>#prompts/<name>", identical to the content choke, so an
 	// accepted/exempt prompt is exported and a pending/rejected one is withheld.
-	if cfg != nil {
-		if gate := cfg.ExecutableTrustGate(); gate != nil {
-			opts = append(opts, bundles.WithTrustGate(gate))
-		}
+	if gate := cfg.ExecutableTrustGate(); gate != nil {
+		opts = append(opts, bundles.WithTrustGate(gate))
 	}
 
 	// Profile command curation (opt-in): a non-empty curated set exports EXACTLY
@@ -76,9 +83,7 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundl
 	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
 		loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
 		prompts = append(prompts, loadCuratedPrompts(loader, curated)...)
-		if cfg != nil {
-			prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
-		}
+		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
 		return prompts
 	}
 

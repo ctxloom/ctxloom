@@ -63,6 +63,18 @@ func TestForceExport_EnablesEveryEngine(t *testing.T) {
 	assert.True(t, c.LLM.Opencode.IsEnabled(), "forceExport must override opencode's opt-out, like every other engine")
 }
 
+// U057-F06: LoadCommandExports(nil, ...) must not panic. Before the fix, it
+// nil-checked cfg twice (once to skip the trust-gate wiring, once redundantly
+// before resolveProfilePromptRefs, which itself already returns nil for a nil
+// cfg) but then dereferenced cfg unguarded at the final
+// cfg.ResolveBundleCommands(...) call — contrast LoadSkillExports, its sibling,
+// which returns nil cleanly for a nil cfg.
+func TestLoadCommandExports_NilConfigDoesNotPanic(t *testing.T) {
+	require.NotPanics(t, func() {
+		LoadCommandExports(nil, nil)
+	})
+}
+
 // U057-F05: resolveProfilePromptRefs must diagnose a BROKEN inline profile
 // (circular parent inheritance) instead of silently retrying it as a
 // directory profile, whose own unrelated not-found error then masks the real

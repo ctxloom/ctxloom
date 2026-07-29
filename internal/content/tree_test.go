@@ -653,8 +653,28 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("As[Command]: %v", err)
 	}
-	if cmd.Description == "" || cmd.Installation == "" || cmd.Exports == nil {
-		t.Errorf("command = %+v (exports=%v)", cmd, cmd.Exports)
+	if cmd.Description == "" || cmd.Installation == "" {
+		t.Errorf("command = %+v", cmd)
+	}
+	// Per-engine keys are TYPED and readable, not an opaque passthrough.
+	cc, ok := cmd.Exports.For("claude-code")
+	if !ok {
+		t.Fatalf("claude-code exports missing: %+v", cmd.Exports)
+	}
+	if !cc.IsEnabled() || cc.Description != "Review the staged diff" || cc.ArgumentHint != "[path]" ||
+		!slices.Equal(cc.AllowedTools, []string{"Read", "Grep"}) || cc.Model != "sonnet" {
+		t.Errorf("claude-code export = %+v", cc)
+	}
+	if cmd.Exports.IsEnabledFor("codex") {
+		t.Error("codex export is explicitly disabled but read as enabled")
+	}
+	if cmd.Exports.IsEnabledFor("engine-with-no-settings") != true {
+		t.Error("an engine with no declared settings must be enabled (opt-out model)")
+	}
+	// An engine this build has never heard of is carried, not dropped: an older
+	// ctxloom must not silently discard a newer bundle's configuration.
+	if fut, ok := cmd.Exports.For("some-future-engine"); !ok || fut.Description == "" {
+		t.Errorf("unknown engine's settings were dropped: %+v", cmd.Exports)
 	}
 
 	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, signing.FormExec))
@@ -671,6 +691,9 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 	}
 	if len(skill.Files) != 3 || skill.Notes == "" {
 		t.Errorf("skill = %+v", skill)
+	}
+	if !skill.Exports.IsEnabledFor("claude-code") || skill.Exports.IsEnabledFor("kiro") {
+		t.Errorf("skill per-engine enablement = %+v", skill.Exports)
 	}
 	var execCount int
 	for _, f := range skill.Files {
@@ -849,6 +872,53 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 		}
 		if _, err := item.Surface(ctx); err == nil {
 			t.Errorf("%s: an unexplained sidecar was silently accepted", name)
+		}
+	}
+}
+
+// TestEngineExports_EncodeIsDeterministic pins the one library behaviour the map
+// fields depend on: yaml.v3 must emit map keys in a stable order. Determinism is a
+// hard requirement of the digest, and EngineExports (like MCP.Env) is a map, so a
+// dependency bump that made map emission order-dependent would silently break
+// every signature. This fails loudly if that ever changes.
+func TestEngineExports_EncodeIsDeterministic(t *testing.T) {
+	exports := EngineExports{
+		"opencode":    {Description: "o"},
+		"claude-code": {Description: "c"},
+		"kiro":        {Description: "k"},
+		"codex":       {Description: "x"},
+		"antigravity": {Description: "a"},
+	}
+	first, err := marshalYAML(skillMeta{Exports: exports})
+	if err != nil {
+		t.Fatalf("marshalYAML: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		again, err := marshalYAML(skillMeta{Exports: exports})
+		if err != nil {
+			t.Fatalf("marshalYAML: %v", err)
+		}
+		if !bytes.Equal(first, again) {
+			t.Fatalf("map encoding is not deterministic:\n%s\n---\n%s", first, again)
+		}
+	}
+}
+
+// TestMCPEnv_EncodeIsDeterministic is the same guard for the other map field.
+func TestMCPEnv_EncodeIsDeterministic(t *testing.T) {
+	env := map[string]string{"PGHOST": "h", "PGPORT": "5432", "PGDATABASE": "d", "PGUSER": "u"}
+	mt, _ := TypeForKind(trust.KindMCP)
+	first, err := mt.Encode(MCP{Name: "pg", Command: "c", Env: env})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		again, err := mt.Encode(MCP{Name: "pg", Command: "c", Env: env})
+		if err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		if !bytes.Equal(first[0].Bytes, again[0].Bytes) {
+			t.Fatalf("env encoding is not deterministic:\n%s\n---\n%s", first[0].Bytes, again[0].Bytes)
 		}
 	}
 }

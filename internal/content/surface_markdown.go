@@ -5,8 +5,6 @@ import (
 	"path"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -20,14 +18,14 @@ import (
 // authoring conventions follow that external standard; every other kind uses a
 // sidecar.
 type mdMeta struct {
-	Description  string     `yaml:"description,omitempty"`
-	Tags         []string   `yaml:"tags,omitempty"`
-	Notes        string     `yaml:"notes,omitempty"`
-	Installation string     `yaml:"installation,omitempty"`
-	ContentHash  string     `yaml:"content_hash,omitempty"`
-	NoDistill    bool       `yaml:"no_distill,omitempty"`
-	DistilledBy  string     `yaml:"distilled_by,omitempty"`
-	Exports      *yaml.Node `yaml:"exports,omitempty"`
+	Description  string        `yaml:"description,omitempty"`
+	Tags         []string      `yaml:"tags,omitempty"`
+	Notes        string        `yaml:"notes,omitempty"`
+	Installation string        `yaml:"installation,omitempty"`
+	ContentHash  string        `yaml:"content_hash,omitempty"`
+	NoDistill    bool          `yaml:"no_distill,omitempty"`
+	DistilledBy  string        `yaml:"distilled_by,omitempty"`
+	Exports      EngineExports `yaml:"exports,omitempty"`
 }
 
 // detectMarkdownItem is the shared recognition for the .md content kinds: every
@@ -271,14 +269,13 @@ type Command struct {
 	NoDistill   bool
 	Distilled   string
 	DistilledBy string
-	// Exports carries per-engine export settings VERBATIM as authored YAML.
+	// Exports is per-engine export settings, TYPED and readable — consumers need
+	// these keys, so they are not an opaque passthrough.
 	//
-	// It is a yaml.Node rather than a typed struct on purpose: the typed shape
-	// lives in internal/bundles, and importing that package here would point the
-	// dependency the wrong way — bundles is meant to become a CONSUMER of this
-	// package. A node round-trips losslessly and in source order, so the format
-	// stays deterministic without this package interpreting a single key.
-	Exports *yaml.Node
+	// The type is defined in THIS package (see exports.go), not imported from
+	// internal/bundles: importing bundles here would point the dependency the
+	// wrong way and become a cycle once bundles consumes this package.
+	Exports EngineExports
 }
 
 func (Command) Kind() trust.ItemKind      { return trust.KindPrompt }

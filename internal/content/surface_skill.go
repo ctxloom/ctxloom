@@ -27,6 +27,11 @@ type Skill struct {
 	Name  string
 	Tags  []string
 	Notes string
+	// Exports is per-engine enablement. A skill's name and description are
+	// SKILL.md front-matter — the single source of truth — and are never
+	// duplicated here, so in practice only EngineExport.Enabled is meaningful for
+	// a skill; the shared type carries the rest harmlessly.
+	Exports EngineExports
 	// Files is every file in the package, package-relative, sorted by path. No
 	// entry is privileged, SKILL.md included.
 	Files []SkillFile
@@ -48,8 +53,9 @@ func (Skill) TrustKind() trust.ItemKind { return trust.KindSkill }
 
 // skillMeta is the sidecar shape.
 type skillMeta struct {
-	Tags  []string `yaml:"tags,omitempty"`
-	Notes string   `yaml:"notes,omitempty"`
+	Tags    []string      `yaml:"tags,omitempty"`
+	Notes   string        `yaml:"notes,omitempty"`
+	Exports EngineExports `yaml:"exports,omitempty"`
 	// Executable lists the package-relative paths whose exec bit is
 	// load-bearing. This declaration is inside a hashed component, so
 	// executability is ATTESTED — which is exactly the property that silently
@@ -157,7 +163,7 @@ func (t skillType) Decode(src Source) (Surface, error) {
 		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return Skill{Name: name, Tags: meta.Tags, Notes: meta.Notes, Files: files}, nil
+	return Skill{Name: name, Tags: meta.Tags, Notes: meta.Notes, Exports: meta.Exports, Files: files}, nil
 }
 
 func (t skillType) Encode(s Surface) ([]Component, error) {
@@ -195,7 +201,7 @@ func (t skillType) Encode(s Surface) ([]Component, error) {
 		return nil, fmt.Errorf("%w: skill %q has no %s", ErrSurfaceType, sk.Name, skillDescriptorName)
 	}
 	sort.Strings(exec)
-	sidecar, err := marshalYAML(skillMeta{Tags: sk.Tags, Notes: sk.Notes, Executable: exec})
+	sidecar, err := marshalYAML(skillMeta{Tags: sk.Tags, Notes: sk.Notes, Exports: sk.Exports, Executable: exec})
 	if err != nil {
 		return nil, err
 	}

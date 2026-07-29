@@ -1,5 +1,10 @@
 tags:
   - review
 notes: Wraps the house review checklist.
+exports:
+  claude-code:
+    enabled: true
+  kiro:
+    enabled: false
 executable:
   - scripts/run.sh

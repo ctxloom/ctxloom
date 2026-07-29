@@ -812,10 +812,9 @@ func (m *Manager) saveLocked(idx *Index) error {
 	return nil
 }
 
-// generateUniqueHarp picks a fresh harp name that isn't in `used`, through the
-// shared allocator that also keys the project-id registry and per-project task
-// ids — so an unresolvable collision is a returned error here too, never a
-// name that may still collide.
+// generateUniqueHarp picks a fresh harp name not in `used`, through the shared
+// allocator that also keys the project-id registry and per-project task ids —
+// so an unresolvable collision errors here too, never a name that may collide.
 func generateUniqueHarp(used map[string]struct{}) (string, error) {
 	return harp.UniqueFrom(used, harp.GenerateName)
 }

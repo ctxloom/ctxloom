@@ -150,12 +150,10 @@ func (m *Manager) ResolveByID(id string) (*Entry, error) {
 	return &out, nil
 }
 
-// mutate runs fn against the registry under BOTH locks, in the one order that
-// is safe: the in-process mutex, then the cross-process file lock, then the
-// load. fn sees a registry read under that lock and may persist it with
-// saveLocked; every mutating method goes through here so a new one cannot
-// acquire them in a different order, or skip the file lock and corrupt the
-// registry only under concurrency.
+// mutate runs fn under both locks in the one safe order — in-process mutex,
+// then file lock, then load — and fn may persist with saveLocked. Every
+// mutating method goes through here, so a new one cannot reorder them or skip
+// the file lock and corrupt the registry only under concurrency.
 func (m *Manager) mutate(fn func(reg *registry) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

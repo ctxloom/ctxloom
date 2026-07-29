@@ -15,15 +15,12 @@ import (
 // exactly as written between the braces.
 var placeholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*}}`)
 
-// Placeholders returns the name of every {{...}} placeholder in src, in
-// source order, with duplicates kept. This package owns the placeholder
-// syntax because CompileFormula is what rewrites it; any other package that
-// needs to know which names a formula references must ask here, so that
-// changing the syntax cannot leave an inspector silently matching nothing.
-//
-// A name is returned exactly as written between the braces minus surrounding
-// whitespace, so a value-qualified tag reference arrives as "ns:key=value"
-// and the caller owns splitting it. Returns nil when src has none.
+// Placeholders returns every {{...}} placeholder name in src, in source order,
+// duplicates kept, each exactly as written between the braces minus surrounding
+// whitespace — so a value-qualified tag reference arrives as "ns:key=value" and
+// the caller splits it. Nil when src has none. This package owns the syntax
+// because CompileFormula rewrites it; every inspector asks here, so changing
+// the syntax cannot leave one silently matching nothing.
 func Placeholders(src string) []string {
 	ms := placeholderPattern.FindAllStringSubmatch(src, -1)
 	if ms == nil {

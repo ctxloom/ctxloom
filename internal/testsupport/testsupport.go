@@ -36,11 +36,9 @@ var EnvKeys = taskstest.EnvKeys
 // (which restores prior values on cleanup and rejects t.Parallel), the calling
 // test must not be parallel.
 //
-// The body lives in taskstest, for the same reason ChangeDir's does: the
-// shared tree must stay self-contained (it cannot import testsupport) while
-// testsupport may import shared, so the canonical body has to sit shared-side
-// — one body, no duplicate. Two bodies is how the two EnvKeys lists drifted
-// apart with nothing to catch it.
+// The body lives in taskstest for the same reason ChangeDir's does: the shared
+// tree cannot import testsupport, so the canonical body sits shared-side —
+// one body, no duplicate. Two bodies is how the EnvKeys lists drifted.
 func Isolate(t *testing.T) string {
 	t.Helper()
 	return taskstest.Isolate(t)

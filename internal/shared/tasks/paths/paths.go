@@ -108,13 +108,11 @@ func HomeTasksDir() (string, error) {
 	return filepath.Join(home, AppDirName, TasksDir), nil
 }
 
-// RepoTasksLogPath resolves the ModeRepo task log path:
-// <repoRoot>/RepoDirName/RepoTasksFileName (.taskloom/tasks.jsonl). No
-// project-id is validated or consulted — the repo path itself is the store's
-// identity in this mode. repoRoot must already be redirected through any
-// linked-worktree-to-primary-checkout boundary by the caller (see
-// projectroot.TaskStoreRoot); an empty one is a returned error, never a path
-// resolved relative to the process's working directory.
+// RepoTasksLogPath resolves <repoRoot>/RepoDirName/RepoTasksFileName
+// (.taskloom/tasks.jsonl). No project-id is consulted — the repo path is the
+// store's identity in this mode. repoRoot must already be redirected through
+// any linked-worktree boundary by the caller (see projectroot.TaskStoreRoot);
+// an empty one errors rather than resolving against the process's cwd.
 func RepoTasksLogPath(repoRoot string) (string, error) {
 	if repoRoot == "" {
 		return "", fmt.Errorf("repo-homed task store: no project root resolved")
@@ -122,12 +120,10 @@ func RepoTasksLogPath(repoRoot string) (string, error) {
 	return filepath.Join(repoRoot, RepoDirName, RepoTasksFileName), nil
 }
 
-// HomeTasksLogPath resolves the ModeHome task log path,
-// ~/.ctxloom/tasks/<project-id>.jsonl. The id is validated as a single clean
-// path segment first: it reaches here from an in-tree marker file, --project,
-// and CTXLOOM_PROJECT_ID, none of which are trusted to be traversal-free, and
-// this is the chokepoint where the id becomes a filesystem path (the lock
-// file is derived from it too).
+// HomeTasksLogPath resolves ~/.ctxloom/tasks/<project-id>.jsonl. The id is
+// validated as a single clean path segment first: it arrives from an in-tree
+// marker file, --project, or CTXLOOM_PROJECT_ID, none trusted to be
+// traversal-free, and this is where it becomes a filesystem path.
 func HomeTasksLogPath(projectID string) (string, error) {
 	if err := ValidateProjectID(projectID); err != nil {
 		return "", err

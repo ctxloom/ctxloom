@@ -21,11 +21,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
 )
 
-// progName is the one name this binary answers to: the cobra Use line, the
-// PATH lookup `manage` performs, the MCP server name, the loadout name, every
-// diagnostic prefix, and — the reason it must be named once rather than
-// spelled out per site — the `.name` field of `taskloom version --format json`,
-// which ctxloom's boot probe parses to identify the companion.
+// progName is the one name this binary answers to: the cobra Use line, the PATH
+// lookup `manage` performs, the MCP server name, the loadout name, every
+// diagnostic prefix, and the `.name` field of `taskloom version --format json`
+// that ctxloom's boot probe parses to identify the companion.
 const progName = "taskloom"
 
 var rootCmd = &cobra.Command{

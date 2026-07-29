@@ -151,8 +151,8 @@ type listOptions struct {
 	Limit int
 
 	// IncludeSummary asks the store for per-status counts alongside the rows.
-	// `taskloom list` never sets it — `taskloom summary` is its own command —
-	// but task_list's include_summary does, and both go through one pipeline.
+	// `taskloom list` never sets it (`summary` is its own command); task_list's
+	// include_summary does, and both go through one pipeline.
 	IncludeSummary bool
 
 	Format clifmt.Format
@@ -209,8 +209,7 @@ func renderGlobalListing(out io.Writer, r *scopedListResult, opts listOptions) e
 }
 
 // renderProjectListing writes a single-project listing. Its machine formats
-// emit unattributed tasks — the project is named once, not per row — which is
-// the one presentation difference from the aggregated view.
+// emit unattributed tasks — the project is named once, not per row.
 func renderProjectListing(out io.Writer, r *scopedListResult, opts listOptions) error {
 	if opts.Format != clifmt.FormatText {
 		if opts.Compact {

@@ -757,10 +757,9 @@ type projectIdentity struct {
 	Dir string // registered project root; empty when not registered
 }
 
-// taskResult is the one shape every single-task mutation returns: the store
-// it landed in, the task, the project-resolution notice, and the resolved
-// project identity. Every field is populated here so a new field cannot be
-// added to TaskResult and left unset on some of the mutation paths.
+// taskResult is the one shape every single-task mutation returns. Every field
+// is populated here, so a field added to TaskResult cannot be left unset on
+// some mutation paths and not others.
 func (p projectIdentity) taskResult(store *tasks.Store, task tasks.Task, warning string) *TaskResult {
 	return &TaskResult{
 		Path:       store.Path(),

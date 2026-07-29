@@ -59,10 +59,9 @@ func compactRows(rows []taskRow) []compactTaskRow {
 	return out
 }
 
-// composeGlobalNotice is the one disclosure a global listing carries: the
-// scope's own explanation of WHY the listing went global (empty for an
-// explicit --global, which needs none), followed by what --global structurally
-// cannot see. Both list surfaces render it, so neither can drop half of it.
+// composeGlobalNotice is the one disclosure a global listing carries: why the
+// listing went global (empty for an explicit --global), then what --global
+// structurally cannot see. Both surfaces render it, so neither drops a half.
 func composeGlobalNotice(scope listScope, workDir string) string {
 	limitation := globalScopeLimitationNote(workDir, rootCmd.PersistentFlags(), tasksHoming)
 	if scope.Notice == "" {
@@ -72,8 +71,7 @@ func composeGlobalNotice(scope listScope, workDir string) string {
 }
 
 // projectRows attributes list to one project, producing the row shape every
-// structured listing emits — global and single-project alike, so a consumer
-// sees the same keys either way.
+// structured listing emits, so a consumer sees the same keys either way.
 func projectRows(list []tasks.Task, projectID, projectDir string) []taskRow {
 	out := make([]taskRow, len(list))
 	for i, t := range list {
@@ -82,15 +80,11 @@ func projectRows(list []tasks.Task, projectID, projectDir string) []taskRow {
 	return out
 }
 
-// scopedListResult is everything a task listing DECIDED — scope, store,
-// filtering, priority, attribution — with no presentation choice made. Both
-// list surfaces read it: `taskloom list` renders it, task_list maps it onto the
-// wire. Neither re-decides any of it, which is what keeps the two from drifting
-// (they have twice, on --limit and on tag-query diagnostics).
+// scopedListResult is everything a task listing decided, with no presentation
+// choice made. Both list surfaces read it and neither re-decides any of it.
 type scopedListResult struct {
-	// Global reports which scope was resolved. Notice and ProjectCount are
-	// meaningful only when it is true; Path/ProjectID/ProjectDir/Summary only
-	// when it is false.
+	// Notice and ProjectCount are meaningful only when Global;
+	// Path/ProjectID/ProjectDir/Summary/Warning only when not.
 	Global       bool
 	Notice       string
 	ProjectCount int
@@ -99,14 +93,10 @@ type scopedListResult struct {
 	ProjectID  string
 	ProjectDir string
 	Summary    *tasks.Summary
+	Warning    string
 
-	// Warning is the project move/fork notice for a single-project listing.
-	Warning string
-
-	// Rows is every visible task attributed to the project it came from —
-	// populated for both scopes. Tasks is the same set unattributed, and is
-	// populated for a single-project listing only (a global listing's rows
-	// span projects, so an unattributed view of them would be misleading).
+	// Rows carries per-row project attribution and is populated for both
+	// scopes; Tasks is the unattributed view, single-project only.
 	Rows  []taskRow
 	Tasks []tasks.Task
 
@@ -115,19 +105,16 @@ type scopedListResult struct {
 	OmittedByLimit  int
 	PriorityWarning string
 
-	// Filtered reports whether a term or tag query narrowed the listing, which
-	// is what decides how the hidden-task counts should be phrased.
+	// Filtered decides how the hidden-task counts are phrased.
 	Filtered bool
 
-	// TC is the task context AFTER homing resolution — the one a renderer must
-	// use for tag-hiding config, not the caller's pre-homing copy.
+	// TC is the context AFTER homing resolution — what a renderer must use for
+	// tag-hiding config.
 	TC operations.TaskContext
 }
 
-// listTasksScoped resolves scope, opens the right store(s), applies every
-// filter, computes priority when asked, and attributes each row to its
-// project. It is the whole decision half of a task listing; everything left
-// over in either caller is presentation.
+// listTasksScoped is the whole decision half of a task listing: scope, store,
+// filters, priority, attribution. Everything left in either caller renders.
 func listTasksScoped(tc operations.TaskContext, opts listOptions) (*scopedListResult, error) {
 	if opts.Sort != "" && opts.Sort != sortPriority {
 		return nil, fmt.Errorf("taskloom: unknown sort value %q (must be %q)", opts.Sort, sortPriority)
@@ -143,8 +130,8 @@ func listTasksScoped(tc operations.TaskContext, opts listOptions) (*scopedListRe
 }
 
 // listEveryProjectScoped aggregates every privately-homed project's store.
-// ProjectID/ProjectDir stay empty: each row carries its own attribution,
-// because the rows span projects.
+// ProjectID/ProjectDir stay empty — the rows span projects, so each carries
+// its own attribution.
 func listEveryProjectScoped(tc operations.TaskContext, opts listOptions, scope listScope) (*scopedListResult, error) {
 	gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All,
 		opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, opts.Limit)

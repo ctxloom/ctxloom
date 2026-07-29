@@ -205,9 +205,9 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 }
 
 // writeResponseContract emits the response contract both rounds share. Round 1
-// offers needs-investigation (and the queries field that goes with it); round 2
-// is the final look and does not. Everything else is one wording, because two
-// wordings is two chances for a model to answer in a shape the parser rejects.
+// offers needs-investigation and its queries field; round 2, the final look,
+// does not. Everything else is one wording: two wordings is two chances for a
+// model to answer in a shape the parser rejects.
 func writeResponseContract(sb *strings.Builder, allowInvestigation bool) {
 	outcomes := "fired|not-fired|cannot-determine"
 	queries := ""

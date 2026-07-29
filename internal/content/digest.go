@@ -41,7 +41,8 @@ const DigestVersionMarker = "# ctxloom-content-digest/1"
 // not be covered" tier: a partial manifest would mean ADDING a file to a signed
 // tree does not break verification, which is a laundering channel.
 func Digest(components []Component) ([]byte, error) {
-	lines := make([]string, 0, len(components))
+	type entry struct{ path, hash string }
+	entries := make([]entry, 0, len(components))
 	seen := make(map[string]struct{}, len(components))
 	for _, c := range components {
 		if err := validateDigestPath(c.Path); err != nil {
@@ -52,18 +53,21 @@ func Digest(components []Component) ([]byte, error) {
 		}
 		seen[c.Path] = struct{}{}
 		sum := sha256.Sum256(c.Bytes)
-		lines = append(lines, hex.EncodeToString(sum[:])+"  "+c.Path)
+		entries = append(entries, entry{path: c.Path, hash: hex.EncodeToString(sum[:])})
 	}
-	// Sort the rendered lines rather than the components: the hash prefix is
-	// fixed-width, so line order is path order, and sorting the output is one
-	// less place for a comparator to disagree with the emitted bytes.
-	sort.Strings(lines)
+	// Sort on the PATH, not on the rendered line. Sorting rendered lines orders
+	// by the hash — the hash comes first and is fixed-width — which is stable but
+	// content-dependent: editing one file would reshuffle the whole manifest and
+	// make a diff of two digests unreadable. Paths are the stable axis.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
 
 	var buf bytes.Buffer
 	buf.WriteString(DigestVersionMarker)
 	buf.WriteByte('\n')
-	for _, line := range lines {
-		buf.WriteString(line)
+	for _, e := range entries {
+		buf.WriteString(e.hash)
+		buf.WriteString("  ")
+		buf.WriteString(e.path)
 		buf.WriteByte('\n')
 	}
 	return buf.Bytes(), nil

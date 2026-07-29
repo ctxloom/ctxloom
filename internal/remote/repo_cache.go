@@ -296,7 +296,10 @@ func (c *RepoCache) RepoDirForURL(repoURL string) (string, error) {
 		return c.safeRepoPath(sanitizePath(repoURL))
 	}
 
-	host := u.Hostname()
+	// U095-F12: lowercased to match cloneHost (used for the auth header) — a
+	// mixed-case host must key to the same clone directory as its lowercase
+	// form, not a second, distinct one.
+	host := strings.ToLower(u.Hostname())
 	path := strings.Trim(u.Path, "/")
 	path = strings.TrimSuffix(path, ".git")
 

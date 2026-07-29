@@ -287,6 +287,15 @@ func TestRepoCache_repoDirForURL(t *testing.T) {
 			url:  "https://github.com/owner/repo.git",
 			want: "/tmp/cache/github.com/owner/repo",
 		},
+		{
+			// U095-F12: the cache key must lowercase the host, matching
+			// cloneHost (used for the auth header) — otherwise a mixed-case
+			// host produces a SECOND clone directory for a repo already
+			// cached under its lowercase form.
+			name: "mixed-case host is lowercased",
+			url:  "https://GitHub.com/owner/repo",
+			want: "/tmp/cache/github.com/owner/repo",
+		},
 	}
 
 	for _, tt := range tests {

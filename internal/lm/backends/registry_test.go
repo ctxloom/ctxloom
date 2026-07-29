@@ -190,6 +190,20 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 	}
 }
 
+// U057-F25: registerDescriptor must not silently overwrite an existing
+// same-name entry — a duplicate registration is a programming error at
+// init time (a future backend accidentally reusing a name), and the losing
+// descriptor's writer/surfaces/exports would otherwise vanish with no signal.
+func TestRegisterDescriptor_DuplicateNamePanics(t *testing.T) {
+	const name = "u057-f25-dup-test"
+	t.Cleanup(func() { UnregisterForTesting(name) })
+
+	registerDescriptor(agentDescriptor{name: name})
+	assert.Panics(t, func() {
+		registerDescriptor(agentDescriptor{name: name})
+	}, "a second registerDescriptor call for the same name must panic, not silently win")
+}
+
 // TestConfiguredBackend builds a backend from a typed config and applies it.
 func TestConfiguredBackend(t *testing.T) {
 	b := ConfiguredBackend(&claude.ClaudeConfig{BinaryPath: "/custom/claude"})

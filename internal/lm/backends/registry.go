@@ -108,8 +108,16 @@ type agentDescriptor struct {
 // descriptors holds the per-agent descriptor table, keyed by backend name.
 var descriptors = make(map[string]*agentDescriptor)
 
-// registerDescriptor installs a backend's complete descriptor.
+// registerDescriptor installs a backend's complete descriptor. Panics on a
+// duplicate name (U057-F25): this only ever runs at init() time from the
+// literal calls below, so a collision is a programming error (a new backend
+// accidentally reusing an existing name) — silently letting the second
+// registration win would drop the first's writer/surfaces/exports with no
+// signal at all.
 func registerDescriptor(d agentDescriptor) {
+	if _, dup := descriptors[d.name]; dup {
+		panic("backends: duplicate descriptor registration for " + d.name)
+	}
 	descriptors[d.name] = &d
 }
 

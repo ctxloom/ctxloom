@@ -83,7 +83,13 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	contextStr := agent.AssembleContext(b.fragments)
 	promptContent := agent.GetPromptContent(req.Prompt)
 
-	recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, b.managed, contextStr, promptContent, len(b.fragments), stderr)
+	if err := recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, b.managed, contextStr, promptContent, len(b.fragments)); err != nil {
+		// U057-F22: a record-file write failure used to only warn to stderr
+		// and return nothing, so Execute reported success with no record
+		// file — a hermetic test asserting against it would then silently
+		// read a STALE file from a previous run instead of failing loudly.
+		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
+	}
 
 	customResponse := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
 	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments))
@@ -101,7 +107,9 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
 
 // recordMockInput writes the assembled request to recordFile when one is set
-// (via CTXLOOM_MOCK_RECORD_FILE), warning to stderr on failure.
+// (via CTXLOOM_MOCK_RECORD_FILE), returning the write error (if any) so the
+// caller can fail loudly instead of reporting success with no record file
+// (U057-F22).
 //
 // Records BOTH the process's actual cwd (os.Getwd) and req.WorkDir, plus
 // whichever config-home env vars are set, so a hermetic test can prove WHERE
@@ -122,9 +130,9 @@ var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
 // showed the SAME cwd as --workspace none). req.WorkDir is the actually
 // resolved isolation workspace and is what a hermetic test must read to
 // observe the workspace boundary; cwd is kept alongside it for diagnostics.
-func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agent.ManagedConfig, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
+func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agent.ManagedConfig, contextStr, promptContent string, fragmentCount int) error {
 	if recordFile == "" {
-		return
+		return nil
 	}
 	var input strings.Builder
 	input.WriteString("=== Arguments ===\n")
@@ -165,8 +173,9 @@ func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agen
 	input.WriteString("\n")
 
 	if err := os.WriteFile(recordFile, []byte(input.String()), 0644); err != nil {
-		_, _ = fmt.Fprintf(stderr, "warning: failed to write record file: %v\n", err)
+		return fmt.Errorf("failed to write mock record file %q: %w", recordFile, err)
 	}
+	return nil
 }
 
 // mockExitCode returns the exit code from CTXLOOM_MOCK_EXIT_CODE, or 0.

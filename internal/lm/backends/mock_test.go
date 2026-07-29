@@ -1,10 +1,10 @@
 package backends
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -59,9 +59,7 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 		},
 	}
 
-	var stderr bytes.Buffer
-	recordMockInput(recordFile, req, nil, "some context", "some prompt", 2, &stderr)
-	require.Empty(t, stderr.String())
+	require.NoError(t, recordMockInput(recordFile, req, nil, "some context", "some prompt", 2))
 
 	data, err := os.ReadFile(recordFile)
 	require.NoError(t, err)
@@ -94,9 +92,7 @@ func TestRecordMockInput_CapturesDenyToolsAndSkills(t *testing.T) {
 		Skills:    []agent.SkillExport{{Name: "release-checklist"}},
 	}
 
-	var stderr bytes.Buffer
-	recordMockInput(recordFile, req, managed, "some context", "some prompt", 0, &stderr)
-	require.Empty(t, stderr.String())
+	require.NoError(t, recordMockInput(recordFile, req, managed, "some context", "some prompt", 0))
 
 	data, err := os.ReadFile(recordFile)
 	require.NoError(t, err)
@@ -117,13 +113,27 @@ func TestRecordMockInput_NilManaged_RecordsEmptySections(t *testing.T) {
 
 	req := &agent.ExecuteRequest{Mode: agent.ModeOneshot}
 
-	var stderr bytes.Buffer
-	recordMockInput(recordFile, req, nil, "some context", "some prompt", 0, &stderr)
-	require.Empty(t, stderr.String())
+	require.NoError(t, recordMockInput(recordFile, req, nil, "some context", "some prompt", 0))
 
 	data, err := os.ReadFile(recordFile)
 	require.NoError(t, err)
 	content := string(data)
 
 	assert.Contains(t, content, "=== DenyTools ===\n=== Skills ===\n")
+}
+
+// U057-F22: recordMockInput's write failure must not be swallowed. Before the
+// fix it only warned to stderr and returned nothing, so Execute reported
+// success with no record file — a hermetic test asserting against the record
+// file would then silently read a STALE file from a previous run instead of
+// failing loudly. recordFile is a directory here, so os.WriteFile must fail.
+func TestMock_Execute_RecordFileWriteFailurePropagates(t *testing.T) {
+	req := &agent.ExecuteRequest{
+		Prompt: &agent.Fragment{Content: "hi"},
+		Env:    map[string]string{"CTXLOOM_MOCK_RECORD_FILE": t.TempDir()},
+	}
+	var out strings.Builder
+	res, err := NewMock().Execute(context.Background(), req, &out, &out)
+	require.Error(t, err, "a record-file write failure must not be swallowed as success")
+	assert.NotEqual(t, int32(0), res.ExitCode, "a record-file write failure must not report a zero (success) exit code")
 }

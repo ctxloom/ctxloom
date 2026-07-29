@@ -763,6 +763,64 @@ func TestSearchResult_RemoteSource(t *testing.T) {
 	assert.Equal(t, "personal", result.Source)
 }
 
+// TestSortResults_RelevanceTiesAreDeterministic is a regression guard for
+// U086-F22: sortResults used sort.Slice (unstable) and relevanceScore has
+// only 3 distinct values, so a set of results tied on relevance had NO
+// deterministic secondary order — whatever order the (randomized)
+// map-iteration producers (searchProfiles, searchMCPServers) happened to
+// hand it stuck, and a subsequent Limit truncation could then keep a
+// different arbitrary subset of an otherwise-identical answer on
+// consecutive runs of the same query. Two different input orderings of the
+// same tied-relevance set must sort to the SAME output order.
+func TestSortResults_RelevanceTiesAreDeterministic(t *testing.T) {
+	a := SearchResult{Type: "fragment", Name: "bravo", Match: "name"}
+	b := SearchResult{Type: "fragment", Name: "alpha", Match: "name"}
+	c := SearchResult{Type: "fragment", Name: "charlie", Match: "name"}
+
+	order1 := []SearchResult{a, b, c}
+	order2 := []SearchResult{c, a, b}
+
+	sortResults(order1, "relevance", false)
+	sortResults(order2, "relevance", false)
+
+	names := func(rs []SearchResult) []string {
+		out := make([]string, len(rs))
+		for i, r := range rs {
+			out[i] = r.Name
+		}
+		return out
+	}
+	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, names(order1))
+	assert.Equal(t, names(order1), names(order2),
+		"two different input orderings of the same tied-relevance set must sort identically")
+}
+
+// TestSortResults_TypeTiesAreDeterministic mirrors the relevance case for
+// the "type" sort, which — per the U086-F22 finding — ties even more often
+// (every same-type result ties).
+func TestSortResults_TypeTiesAreDeterministic(t *testing.T) {
+	a := SearchResult{Type: "fragment", Name: "bravo"}
+	b := SearchResult{Type: "fragment", Name: "alpha"}
+	c := SearchResult{Type: "fragment", Name: "charlie"}
+
+	order1 := []SearchResult{a, b, c}
+	order2 := []SearchResult{c, a, b}
+
+	sortResults(order1, "type", false)
+	sortResults(order2, "type", false)
+
+	names := func(rs []SearchResult) []string {
+		out := make([]string, len(rs))
+		for i, r := range rs {
+			out[i] = r.Name
+		}
+		return out
+	}
+	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, names(order1))
+	assert.Equal(t, names(order1), names(order2),
+		"two different input orderings of the same tied-type set must sort identically")
+}
+
 func TestSearchContent_NoScopeFlagsNeeded(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})

@@ -274,10 +274,25 @@ func searchMCPServers(cfg *config.Config, query string) []SearchResult {
 // sortResults orders results in place by sortBy ("name", "type", or
 // "relevance"); reverse flips the order. Relevance ranks name matches above
 // tag/description matches.
+//
+// U086-F22: "type" and "relevance" tie constantly (relevanceScore has only 3
+// distinct values; every same-type result ties under "type"), and some
+// producers (searchProfiles, searchMCPServers) range over a Go map — an
+// input order that is NOT stable across calls. sort.SliceStable alone only
+// preserves whatever that already-random input order was; a deterministic
+// tiebreak (name, then type) is what actually makes tied results — and the
+// arbitrary subset a subsequent Limit truncation keeps — the same on every
+// run of an identical query.
 func sortResults(results []SearchResult, sortBy string, reverse bool) {
+	byNameThenType := func(i, j int) bool {
+		if ni, nj := strings.ToLower(results[i].Name), strings.ToLower(results[j].Name); ni != nj {
+			return ni < nj
+		}
+		return results[i].Type < results[j].Type
+	}
 	switch sortBy {
 	case "name":
-		sort.Slice(results, func(i, j int) bool {
+		sort.SliceStable(results, func(i, j int) bool {
 			cmp := strings.Compare(strings.ToLower(results[i].Name), strings.ToLower(results[j].Name))
 			if reverse {
 				return cmp > 0
@@ -285,21 +300,27 @@ func sortResults(results []SearchResult, sortBy string, reverse bool) {
 			return cmp < 0
 		})
 	case "type":
-		sort.Slice(results, func(i, j int) bool {
+		sort.SliceStable(results, func(i, j int) bool {
 			cmp := strings.Compare(results[i].Type, results[j].Type)
-			if reverse {
-				return cmp > 0
+			if cmp != 0 {
+				if reverse {
+					return cmp > 0
+				}
+				return cmp < 0
 			}
-			return cmp < 0
+			return byNameThenType(i, j)
 		})
 	case "relevance":
-		sort.Slice(results, func(i, j int) bool {
+		sort.SliceStable(results, func(i, j int) bool {
 			scoreI := relevanceScore(results[i].Match)
 			scoreJ := relevanceScore(results[j].Match)
-			if reverse {
-				return scoreI < scoreJ
+			if scoreI != scoreJ {
+				if reverse {
+					return scoreI < scoreJ
+				}
+				return scoreI > scoreJ
 			}
-			return scoreI > scoreJ
+			return byNameThenType(i, j)
 		})
 	}
 }

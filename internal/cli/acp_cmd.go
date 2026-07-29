@@ -161,10 +161,9 @@ func validateACPWorkspaceRequiresAgent(cmd *cobra.Command, agent string) error {
 
 // registerACPServerFlags binds the ACP-server flag set to cmd. Shared by the
 // top-level `acp` (deprecated bare-serve alias) and `acp server` so both
-// surfaces accept the same options against the same package-level flag vars
-// — mirrors bindInitFlags' rationale (init.go): a cobra command has exactly
-// one parent, so the alias must be a distinct command sharing the flags/RunE,
-// not the same *cobra.Command.
+// surfaces accept the same options against the same package-level flag vars:
+// a cobra command has exactly one parent, so the alias must be a distinct
+// command sharing the flags/RunE, not the same *cobra.Command.
 func registerACPServerFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&acpProfile, "profile", "p", "", "profile to assemble context from (default: the configured defaults)")
 	cmd.Flags().StringVarP(&acpLLM, "llm", "l", "", "LLM config label to drive (default: the agent's/profile's llm, then the primary)")

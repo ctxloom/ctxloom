@@ -126,7 +126,7 @@ Output format (JSON to stdout):
 		// nudge (when this project has profiles but no agents). Both ride the
 		// systemMessage channel and can co-occur, so they are joined rather than
 		// one clobbering the other.
-		output.SystemMessage = composeSystemMessage(
+		output.SystemMessage = operations.JoinLeadBlocks(
 			clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
 			agentSetupNudge(workDir, part),
 		)
@@ -185,15 +185,6 @@ func agentSetupNudge(workDir string, part int) string {
 		return ""
 	}
 	return operations.AgentSetupNudge(cfg)
-}
-
-// composeSystemMessage joins the non-empty SessionStart system messages with a
-// blank line. Empty inputs drop out, so passing only empties yields "" (no
-// systemMessage emitted), and any combination of the clear-recovery and
-// agent-setup nudges renders cleanly. It is the same non-empty-join as the
-// resume lead-block joiner, shared via operations.JoinLeadBlocks.
-func composeSystemMessage(msgs ...string) string {
-	return operations.JoinLeadBlocks(msgs...)
 }
 
 // selectChunk resolves which slice of the assembled context this hook

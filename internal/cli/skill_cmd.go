@@ -56,6 +56,7 @@ Use --bundle to filter by a specific bundle.`,
 			return fmt.Errorf("failed to list skills: %w", err)
 		}
 		entries := res.Skills
+		totalCount := len(entries)
 		if skillListBundle != "" {
 			filtered := make([]operations.SkillEntry, 0, len(entries))
 			for _, e := range entries {
@@ -66,14 +67,24 @@ Use --bundle to filter by a specific bundle.`,
 			entries = filtered
 		}
 		return emit(cmd, entries, func() error {
-			return printSkillList(cmd, entries)
+			return printSkillList(cmd, entries, skillListBundle, totalCount)
 		})
 	},
 }
 
-func printSkillList(cmd *cobra.Command, entries []operations.SkillEntry) error {
+// printSkillList renders the skill listing. When --bundle filtered every
+// result out, bundleFilter/totalCount let it distinguish "no skills exist
+// anywhere" (the create-one hint applies) from "none matched --bundle X, but
+// skills do exist in other bundles" (U043-F19: the unqualified "No skills
+// found" message used to claim the former even when the latter was true).
+func printSkillList(cmd *cobra.Command, entries []operations.SkillEntry, bundleFilter string, totalCount int) error {
 	out := cmd.OutOrStdout()
 	if len(entries) == 0 {
+		if bundleFilter != "" && totalCount > 0 {
+			fmt.Fprintf(out, "No skills found in bundle %q.\n", bundleFilter)
+			fmt.Fprintln(out, "Skills exist in other bundles — run `ctxloom skill list` without --bundle to see them all.")
+			return nil
+		}
 		fmt.Fprintln(out, "No skills found.")
 		fmt.Fprintln(out, "Create one with: ctxloom skill create <bundle> <name>")
 		return nil

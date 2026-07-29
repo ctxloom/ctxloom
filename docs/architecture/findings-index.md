@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **858** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **861** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 61 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 103 |
-| `open` | no commit names this ID | **1,216** |
+| `open` | no commit names this ID | **1,213** |
 
-**Totals: 2268 findings across 162 units — 858 resolved, 1216 still open, 194 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 861 resolved, 1213 still open, 194 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave4/netneg-materialize` batch: all 18
 net-negative rows of the MATERIALIZE flow adjudicated (U029-F02/F04,
@@ -249,7 +249,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 7 | 10 | 6 | 3 |
-| MED | 999 | 210 | 698 | 11 | 18 | 62 |
+| MED | 999 | 213 | 695 | 11 | 18 | 62 |
 | LOW | 871 | 298 | 491 | 9 | 35 | 38 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1639,7 +1639,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U120-F12 | open | `task.go:157-311, type_comparator.go` | COHESION | `task.go` holds two unrelated concerns: the `Task` domain value type + status taxonomy, and a ~155-line tagma query-engine adapter (`ErrTagQuery`, `filterTasks`, `presenceNamespace`, `typeConfigIte... | U120.md |
 | U120-F17 | open | `log.go:180, task.go:194` | COMPLEXITY | Two owned functions exceed the CCN ≤ 10 gate that CI declares as blocking, with no `nolint` and no `continue-on-error`. | U120.md |
 | U121-F02 | open | `lint.go:197-211`, `lint.go:126-132` | CORRECTNESS | `groupByTarget` does not dedupe values, so two *different raw tag strings* that parse to the *same* (target, value) produce a **false scalar violation** reading `"triage:kind carries 2 distinct val... | U121.md |
-| U121-F04 | open | `lint.go:149` | DUPLICATE | `formulaPlaceholderPattern` is the **third** verbatim copy of one regexp. All three are `\{\{\s*([^{}]+?)\s*}}`, and two of the three carry comments explicitly justifying the copy | U121.md |
+| U121-F04 | **RESOLVED** `b35a226d` | `lint.go:149` | DUPLICATE | `formulaPlaceholderPattern` is the **third** verbatim copy of one regexp. All three are `\{\{\s*([^{}]+?)\s*}}`, and two of the three carry comments explicitly justifying the copy | U121.md |
 | U121-F05 | open | `lint.go:75-78`, `tagschema.go:215-229` | CORRECTNESS | An enum declaration whose value contains no non-empty member yields an **empty but present** member list, and `Lint` then flags *every* value on that target with the message "… is not one of the de... | U121.md |
 | U121-F06 | open | `lint.go:73-142` | COMPLEXITY | `Lint` is CCN 18 against a CI gate of 10, and its body is four unrelated checks plus a sort | U121.md |
 | U122-F03 | open | `:765` | ERRHANDLING | `cwdID, _ := projectid.ReadMarker(tc.WorkDir)` discards the error from the one function written specifically to reject a hostile marker — so the "you are acting on the wrong project" warning silent... | U122.md |
@@ -1650,7 +1650,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U123-F02 | **RESOLVED** `78751323` | **`paths.go:29` vs `internal/paths/paths.go:100`** | COUPLING | `IndexFileName` is *coincidental value equality, not a shared concept* — consolidating the two into one constant would create connascence of meaning between two unrelated files. | U123.md |
 | U123-F03 | open | **`paths.go:174`** | SILENTNOOP | `ProjectMarkerPath("")` silently returns the cwd-relative `.ctxloom/project-id` instead of failing — the exact hazard `TasksLogPath` explicitly guards against 48 lines earlier. | U123.md |
 | U124-F04 | open | `:107-113`, `:187`, `:192` | CORRECTNESS | `Diagnostics.ScoredTasks` is a **numerator with no denominator**, so the degenerate case it was built to detect cannot actually be detected from the returned value | U124.md |
-| U124-F05 | open | `:331` | DUPLICATE | `formulaTagPlaceholderPattern` is the **third** verbatim copy of one regexp, with a comment justifying the copy | U124.md |
+| U124-F05 | **RESOLVED** `b35a226d` | `:331` | DUPLICATE | `formulaTagPlaceholderPattern` is the **third** verbatim copy of one regexp, with a comment justifying the copy | U124.md |
 | U124-F06 | open | `:134-217` | SILENTNOOP | With `schema == nil` (or a schema declaring no `priority_fn`), `Compute` returns a fully-populated ranking in which **every task scores exactly `Max`** — the maximum plausible-looking output derive... | U124.md |
 | U124-F07 | open | `:447-449` | COUPLING | `isTerminal` is a hand-maintained copy of the store's own unexported `statusIsDone`, and its doc says so — connascence of **algorithm** with no mechanism keeping them in step | U124.md |
 | U125-F02 | open | **`registry.go:217-224`** | ERRHANDLING | `Adopt`'s early-return path returns a **populated `Entry` alongside a possibly non-nil error** — the only return in the file that does not zero its value on failure | U125.md |
@@ -1662,7 +1662,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U126-F01 | open | `tagschema.go:215-229` | CORRECTNESS | `Enum` returns an **empty-but-present** member list for a declaration containing no usable member, and cannot report the malformation. Both consumers then reject *every* value on that target — one ... | U126.md |
 | U126-F02 | **RESOLVED** `9e25a5a2` | `tagschema.go:189`, `:196`, `:206` | TRIVIAL | `PriorityFn`, `DecayFn`, and `Type` are three one-line aliases for `Get(<constant>, target)` that add no invariant, no validation, and no concept — and the one design that appears to justify them d... | U126.md |
 | U126-F04 | open | `tagschema.go:283-285` vs `:243-245` vs `:113` | COHESION | One package applies **three different policies to a malformed declaration**: `Parse`/`add` errors, `Range` errors, `Enum` silently returns an empty set (F01), and `HideFacts` silently skips. A conf... | U126.md |
-| U126-F06 | open | `formula.go:12-16` | DUPLICATE | `placeholderPattern` is the authoritative definition of the placeholder syntax, and it has been **copied verbatim into two other packages** rather than exported | U126.md |
+| U126-F06 | **RESOLVED** `b35a226d` | `formula.go:12-16` | DUPLICATE | `placeholderPattern` is the authoritative definition of the placeholder syntax, and it has been **copied verbatim into two other packages** rather than exported | U126.md |
 | U126-F07 | open | `tagschema.go:99-107` | SILENTNOOP | `Parse` on an empty declaration list returns a **valid `Schema` and a nil error**, producing an object that silently disables every schema-driven behaviour in the product — scalar collapse, enum/ra... | U126.md |
 | U127-F02 | open | **`package-wide`** | NOPAY | This package has **zero test files** while 127 call sites depend on it for correctness, and its failure mode is silent by construction | U127.md |
 | U127-F03 | open | `taskstest.go:26-40`, `:58-67` vs `testsupport.go:71-103` | DUPLICATE | `Isolate` and `ProjectDir` are **byte-duplicated bodies** in `testsupport`, even though this package's own docs twice assert the "one body, no duplicate" principle and implement it correctly for th... | U127.md |

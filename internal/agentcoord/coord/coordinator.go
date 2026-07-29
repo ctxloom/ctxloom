@@ -701,15 +701,32 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	if delivered {
 		return msgID, true, "completed the child's waiting agent_recv", nil
 	}
-	switch c.driveQueued(to) {
+	_, prose := deliveryDisposition(c.driveQueued(to))
+	return msgID, false, prose, nil
+}
+
+// deliveryDisposition classifies ONE §6a delivery-by-state outcome — the state
+// the delivery observed (driveQueued's return) — into the two vocabularies the
+// coordinator answers in: the typed mode Inject reports to the TUI, and the
+// prose peerSend hands the sending agent. They are ONE classification on
+// purpose: a state described two ways is a state the two surfaces can come to
+// disagree about.
+//
+// mode is deliberately coarser than prose: StateQueued and a mid-turn
+// executing/parked child are both DeliveryQueued (both drain at a boundary the
+// caller does not control), while the prose distinguishes them because "has not
+// started yet" and "mid-turn" are different things to an agent deciding whether
+// to wait.
+func deliveryDisposition(state string) (mode, prose string) {
+	switch state {
 	case StateEnded:
-		return msgID, false, "child session had ended — resuming it with the message as its next turn", nil
+		return DeliveryResumed, "child session had ended — resuming it with the message as its next turn"
 	case StateIdle:
-		return msgID, false, "delivering as a new turn", nil
+		return DeliveryNewTurn, "delivering as a new turn"
 	case StateQueued:
-		return msgID, false, "queued: the child has not started yet; it will drain its mailbox after its first turn", nil
+		return DeliveryQueued, "queued: the child has not started yet; it will drain its mailbox after its first turn"
 	default: // executing / parked race
-		return msgID, false, "queued mid-turn: delivered at the child's next turn boundary", nil
+		return DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"
 	}
 }
 
@@ -782,14 +799,8 @@ func (c *Coordinator) Inject(harp, text string) (string, error) {
 	if completed {
 		return DeliveryCompletedRecv, nil
 	}
-	switch c.driveQueued(harp) {
-	case StateEnded:
-		return DeliveryResumed, nil
-	case StateIdle:
-		return DeliveryNewTurn, nil
-	default:
-		return DeliveryQueued, nil
-	}
+	mode, _ := deliveryDisposition(c.driveQueued(harp))
+	return mode, nil
 }
 
 // injectDigestRunes bounds the mirror notice body: enough for the parent to

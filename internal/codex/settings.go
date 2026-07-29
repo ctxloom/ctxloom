@@ -278,61 +278,109 @@ func isManagedServer(server map[string]any) bool {
 
 // --- hook removal / addition ----------------------------------------------
 
-// removeManagedHooks drops ctxloom-managed entries from every [hooks.EVENT]
-// group, descending Codex's array-of-tables shape (event -> groups -> hooks[]).
-// A hook entry is ctxloom-managed when its command's executable token is
-// ctxloom. Groups left empty are dropped; events left empty are removed.
-func removeManagedHooks(cfg map[string]any) {
+// eachHookGroup is the ONE place codex's [hooks.EVENT] array-of-tables descent
+// (event -> groups -> hooks[]) is written. It hands prune each group's hook-entry
+// slice; prune returns the entries to keep plus whether it changed anything.
+//
+// A group prune leaves UNCHANGED is passed through byte-for-byte, so a read-only
+// caller (one that always reports false) walks without touching cfg at all —
+// and, just as importantly, a user-authored group that happens to hold no
+// entries is never collected as collateral. Only where prune reports a change
+// is the surrounding structure reconciled: a group emptied by prune is dropped,
+// an event left with no groups is removed, and an emptied hooks table goes with
+// it, which is the shape codex's TOML expects.
+//
+// U045-F13: the pruning walk and the boolean query each carried their own copy
+// of this descent, and they disagreed — the pruning one deleted ctxloom-free
+// empty groups the query never counted (see
+// TestManagedHooks_QueryAgreesWithRemoval).
+func eachHookGroup(cfg map[string]any, prune func(entries []any) (kept []any, changed bool)) {
 	hooks := asMap(cfg["hooks"])
 	if hooks == nil {
 		return
 	}
+	touched := false
 	for event, groupsRaw := range hooks {
-		var keptGroups []any
-		for _, g := range asSlice(groupsRaw) {
-			gm := asMap(g)
-			if gm == nil {
-				keptGroups = append(keptGroups, g)
-				continue
-			}
-			var keptEntries []any
-			for _, e := range asSlice(gm["hooks"]) {
-				em := asMap(e)
-				cmd, _ := em["command"].(string)
-				if agent.IsManaged(cmd, "ctxloom") {
-					continue // ctxloom-managed — drop
-				}
-				keptEntries = append(keptEntries, e)
-			}
-			if len(keptEntries) > 0 {
-				gm["hooks"] = keptEntries
-				keptGroups = append(keptGroups, gm)
-			}
+		groups, changed := pruneHookGroups(asSlice(groupsRaw), prune)
+		if !changed {
+			continue
 		}
-		if len(keptGroups) > 0 {
-			hooks[event] = keptGroups
+		touched = true
+		if len(groups) > 0 {
+			hooks[event] = groups
 		} else {
 			delete(hooks, event)
 		}
 	}
-	if len(hooks) == 0 {
+	if touched && len(hooks) == 0 {
 		delete(cfg, "hooks")
 	}
 }
 
-// hasManagedHook reports whether any configured hook is ctxloom-managed.
-func hasManagedHook(cfg map[string]any) bool {
-	for _, groupsRaw := range asMap(cfg["hooks"]) {
-		for _, g := range asSlice(groupsRaw) {
-			for _, e := range asSlice(asMap(g)["hooks"]) {
-				cmd, _ := asMap(e)["command"].(string)
-				if agent.IsManaged(cmd, "ctxloom") {
-					return true
-				}
-			}
+// pruneHookGroups applies prune to one event's groups, returning the surviving
+// groups and whether any of them changed. A group that is not a table is passed
+// through untouched — codex owns that shape, not ctxloom.
+func pruneHookGroups(groups []any, prune func([]any) ([]any, bool)) ([]any, bool) {
+	var kept []any
+	changed := false
+	for _, g := range groups {
+		gm := asMap(g)
+		if gm == nil {
+			kept = append(kept, g)
+			continue
+		}
+		entries, groupChanged := prune(asSlice(gm["hooks"]))
+		if !groupChanged {
+			kept = append(kept, g)
+			continue
+		}
+		changed = true
+		if len(entries) > 0 {
+			gm["hooks"] = entries
+			kept = append(kept, gm)
 		}
 	}
-	return false
+	return kept, changed
+}
+
+// isManagedHookCommand reports whether one hook entry was installed by ctxloom,
+// recognized by its command's executable token — the hook-entry counterpart of
+// isManagedServer.
+func isManagedHookCommand(entry any) bool {
+	cmd, _ := asMap(entry)["command"].(string)
+	return agent.IsManaged(cmd, "ctxloom")
+}
+
+// removeManagedHooks drops ctxloom-managed entries from every [hooks.EVENT]
+// group. Entries ctxloom did not write are preserved, and so is any group or
+// event ctxloom had nothing in.
+func removeManagedHooks(cfg map[string]any) {
+	eachHookGroup(cfg, func(entries []any) ([]any, bool) {
+		var kept []any
+		for _, e := range entries {
+			if isManagedHookCommand(e) {
+				continue
+			}
+			kept = append(kept, e)
+		}
+		return kept, len(kept) != len(entries)
+	})
+}
+
+// hasManagedHook reports whether any configured hook is ctxloom-managed. It
+// rides the same descent as the removal and reports no change, so it is a pure
+// read.
+func hasManagedHook(cfg map[string]any) bool {
+	found := false
+	eachHookGroup(cfg, func(entries []any) ([]any, bool) {
+		for _, e := range entries {
+			if isManagedHookCommand(e) {
+				found = true
+			}
+		}
+		return entries, false
+	})
+	return found
 }
 
 // addUnifiedHooks translates unified hooks to Codex event names and adds them.

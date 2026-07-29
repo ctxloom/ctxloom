@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -38,4 +39,24 @@ func TestBuiltinCommands_LoadFailureIsWarned(t *testing.T) {
 func TestBuiltinCommands_RealResourcesLoad(t *testing.T) {
 	prompts := builtinCommands()
 	require.NotEmpty(t, prompts, "the real embedded builtin commands must still load")
+}
+
+// U057-F04: forceExport must force-enable a curated command for EVERY engine
+// with a per-prompt opt-out flag, not just claude/antigravity/codex. Before
+// the fix, a bundle that set `kiro: {enabled: false}` (or opencode) on a
+// prompt a profile explicitly curates via `commands:` still exported nothing
+// for that engine — contradicting forceExport's own doc ("the per-prompt
+// opt-out flag is overridden"). forceExportSkill (skillfiles.go) already does
+// this correctly for all five engines; forceExport is its command-side twin
+// and must match.
+func TestForceExport_EnablesEveryEngine(t *testing.T) {
+	off := false
+	c := &bundles.LoadedContent{Name: "x", Content: "body"}
+	c.LLM.Kiro.Enabled = &off
+	c.LLM.Opencode.Enabled = &off
+
+	forceExport(c)
+
+	assert.True(t, c.LLM.Kiro.IsEnabled(), "forceExport must override kiro's opt-out, like every other engine")
+	assert.True(t, c.LLM.Opencode.IsEnabled(), "forceExport must override opencode's opt-out, like every other engine")
 }

@@ -189,12 +189,23 @@ func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.Loaded
 // forceExport marks a loaded prompt enabled for every backend's slash-command
 // export. A profile that curates a prompt is an explicit request to export it,
 // so the per-prompt opt-out flag is overridden; all other export metadata
-// (description, hints, model, …) is reused as-is.
+// (description, hints, model, …) is reused as-is. Mirrors forceExportSkill
+// (skillfiles.go), which force-enables all five engines — U057-F04: this used
+// to cover only claude/antigravity/codex, so a profile-curated command whose
+// bundle set `kiro: {enabled: false}` or `opencode: {enabled: false}` silently
+// exported nothing for those two engines despite the explicit curation.
+// Deliberately parallel with forceExportSkill (skillfiles.go): same shape by
+// design (force-enable every engine), different item types (LoadedContent vs
+// LoadedSkill) with no shared supertype to factor through without a
+// cross-file generics refactor outside this fix's scope.
+// reprise:ignore
 func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 	on := true
 	c.LLM.ClaudeCode.Enabled = &on
 	c.LLM.Antigravity.Enabled = &on
 	c.LLM.Codex.Enabled = &on
+	c.LLM.Kiro.Enabled = &on
+	c.LLM.Opencode.Enabled = &on
 	return c
 }
 

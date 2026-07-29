@@ -113,7 +113,10 @@ func loadCuratedSkills(loader *bundles.Loader, refs []string) []*bundles.LoadedS
 // forceExportSkill marks a loaded skill enabled for every engine's export. A
 // profile that curates a skill is an explicit request to export it, so the
 // per-skill per-engine opt-out flag is overridden — the skill mirror of
-// forceExport (commands.go).
+// forceExport (commands.go). Deliberately parallel with it (U057-F04): same
+// shape by design, different item types with no shared supertype to factor
+// through without a cross-file generics refactor.
+// reprise:ignore
 func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
 	on := true
 	ls.LLM.ClaudeCode.Enabled = &on

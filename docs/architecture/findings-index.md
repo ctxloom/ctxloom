@@ -2436,7 +2436,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U101-F28 | **RESOLVED** `731881bd` | `mcpfile.go:54` | NOPAY | `MCPFileServer` is exported but has no users outside `mcpfile.go` | U101.md |
 | U101-F34 | **RESOLVED** `8bb4db07` | `mcp_bytes.go:27-31` | CORRECTNESS | `InstallMCPServerJSON` silently replaces a non-object `mcpServers` value with a fresh empty map, destroying whatever the user had there | U101.md |
 | U101-F35 | **RESOLVED** `2bac30c5` | `launch_backend.go:386-390` | ERRHANDLING | `Cleanup` keeps only the first teardown error; every subsequent failure is discarded with no record | U101.md |
-| U102-F05 | open | **`settings.go:69`** | DEAD | `SettingsStatus.Wired()` is test-only | U102.md |
+| U102-F05 | **REFUTED** `73ce930a` | **`settings.go:69`** | DEAD | `SettingsStatus.Wired()` is test-only | U102.md |
 | U102-F06 | open | `settings_io.go:69,84` | COHESION | `StatusLineDisabled` is a claude-only policy flag sitting in the options struct of a package 26 packages import | U102.md |
 | U102-F07 | **ESCALATED** `c3314e2e` | `skillexport.go:22` | NOPAY | `SkillExport.Description` is write-only — set by the loader, read by no engine | U102.md |
 | U102-F12 | **RESOLVED** `695cf375` | `thinking.go:45-83` | DUPLICATE | The four spellings `off/low/medium/high` are written out three times in one 84-line file | U102.md |

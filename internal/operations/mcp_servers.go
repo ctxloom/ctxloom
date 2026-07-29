@@ -26,10 +26,6 @@ type ListMCPServersRequest struct {
 	Query     string `json:"query"`
 	SortBy    string `json:"sort_by"`    // name, command
 	SortOrder string `json:"sort_order"` // asc, desc
-
-	// TestConfig is an optional pre-loaded config (for testing).
-	// When set, skips config.Load() and uses this config instead.
-	TestConfig *config.Config `json:"-"`
 }
 
 // ListMCPServersResult contains the list of MCP servers.
@@ -41,8 +37,7 @@ type ListMCPServersResult struct {
 
 // ListMCPServers returns all configured MCP servers.
 func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersRequest) (*ListMCPServersResult, error) {
-	// Use injected config for testing, otherwise reload for freshness.
-	freshCfg, err := resolveListConfig(req.TestConfig)
+	freshCfg, err := resolveListConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -58,10 +53,11 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 	}, nil
 }
 
-// resolveListConfig returns the injected test config, or loads a fresh one.
-func resolveListConfig(testConfig *config.Config) (*config.Config, error) {
-	if testConfig != nil {
-		return testConfig, nil
+// resolveListConfig returns cfg when the caller already has one loaded, or
+// loads a fresh one when cfg is nil.
+func resolveListConfig(cfg *config.Config) (*config.Config, error) {
+	if cfg != nil {
+		return cfg, nil
 	}
 	freshCfg, err := config.Load()
 	if err != nil {
@@ -136,10 +132,6 @@ func sortMCPServers(servers []MCPServerEntry, sortBy, sortOrder string) {
 // GetMCPServerRequest identifies the server to look up by exact name.
 type GetMCPServerRequest struct {
 	Name string `json:"name"`
-
-	// TestConfig is an optional pre-loaded config (for testing); when set,
-	// skips config.Load().
-	TestConfig *config.Config `json:"-"`
 }
 
 // GetMCPServerResult holds every scope the named server is configured in — the
@@ -157,7 +149,7 @@ type GetMCPServerResult struct {
 // single-name counterpart to ListMCPServers and reuses the same MCPServerEntry
 // shape, so a frontend reads identical structure from both.
 func GetMCPServer(ctx context.Context, cfg *config.Config, req GetMCPServerRequest) (*GetMCPServerResult, error) {
-	freshCfg, err := resolveListConfig(req.TestConfig)
+	freshCfg, err := resolveListConfig(cfg)
 	if err != nil {
 		return nil, err
 	}

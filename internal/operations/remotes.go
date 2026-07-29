@@ -381,7 +381,11 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 			Stars:       r.Stars,
 			URL:         r.URL,
 			Forge:       string(r.Forge),
-			AddCommand:  fmt.Sprintf("ctxloom remote add %s %s/%s", r.Owner, r.Owner, r.Name),
+			// U086-F13: the alias is the repo NAME, not the owner — two repos
+			// discovered from the same owner used to render identical
+			// AddCommand strings, so following the second suggestion silently
+			// collided with (overwrote) the first remote's registry entry.
+			AddCommand: fmt.Sprintf("ctxloom remote add %s %s/%s", r.Name, r.Owner, r.Name),
 		})
 	}
 

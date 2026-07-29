@@ -670,7 +670,31 @@ func TestDiscoverRemotes_AddCommandFormat(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Repositories, 1)
-	assert.Equal(t, "ctxloom remote add alice alice/ctxloom", result.Repositories[0].AddCommand)
+	assert.Equal(t, "ctxloom remote add ctxloom alice/ctxloom", result.Repositories[0].AddCommand)
+}
+
+// TestDiscoverRemotes_AddCommandUsesRepoNameNotOwner is a regression guard for
+// U086-F13: AddCommand used to alias every suggested `remote add` on the repo
+// OWNER, so two repos discovered from the same owner rendered IDENTICAL add
+// commands — the second one silently collides with (overwrites) the first
+// remote a user who followed the suggestion registered.
+func TestDiscoverRemotes_AddCommandUsesRepoNameNotOwner(t *testing.T) {
+	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
+		{Owner: "alice", Name: "ctxloom-core", Stars: 10, URL: "https://github.com/alice/ctxloom-core", Forge: remote.ForgeGitHub},
+		{Owner: "alice", Name: "ctxloom-tools", Stars: 5, URL: "https://github.com/alice/ctxloom-tools", Forge: remote.ForgeGitHub},
+	})
+
+	result, err := DiscoverRemotes(context.Background(), nil, DiscoverRemotesRequest{
+		Source:        "github",
+		GitHubFetcher: fetcher,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Repositories, 2)
+	assert.Equal(t, "ctxloom remote add ctxloom-core alice/ctxloom-core", result.Repositories[0].AddCommand)
+	assert.Equal(t, "ctxloom remote add ctxloom-tools alice/ctxloom-tools", result.Repositories[1].AddCommand)
+	assert.NotEqual(t, result.Repositories[0].AddCommand, result.Repositories[1].AddCommand,
+		"two repos from the same owner must not collide on the suggested alias")
 }
 
 func TestBrowseRemote_Bundles(t *testing.T) {

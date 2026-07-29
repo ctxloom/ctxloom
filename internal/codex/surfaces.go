@@ -126,7 +126,7 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	fs := s.fs
 	path := filepath.Join(dir, agent.SCMContextSubdir, hash+".md")
-	return deliveredFunc(func() error { return fs.Remove(path) }), nil
+	return agent.DeliveredFunc(func() error { return fs.Remove(path) }), nil
 }
 
 // UnsafeInfo returns codex's context identity for the DeliverShared fallback's
@@ -230,7 +230,7 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.WriteSettingsWithTrust(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.RemoveSettings(target) }), nil
+	return agent.DeliveredFunc(func() error { return w.RemoveSettings(target) }), nil
 }
 
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
@@ -254,13 +254,6 @@ func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings 
 // to codex's WriteSkillFiles (skillfiles.go), targeting the SAME cell-scoped
 // $CODEX_HOME (cellScopedSkillsDir) as commands — codex skills are global
 // ($CODEX_HOME/skills), exactly like its prompts.
-
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 // Surfaces is codex's set of delivery surfaces for one run. codex has five
 // surface objects — context (the raw context file, for the SessionStart hook),
@@ -420,7 +413,6 @@ var (
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*agentsMDSurface)(nil)
 	_ agent.KindedDelivery = (*configSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

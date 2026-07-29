@@ -68,7 +68,7 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.WriteSettings(nil, s.mcp, s.bundleMCP, dir); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.removeMCP(dir) }), nil
+	return agent.DeliveredFunc(func() error { return w.removeMCP(dir) }), nil
 }
 
 // UnsafeInfo returns opencode's config identity for the DeliverShared fallback's warning.
@@ -77,13 +77,6 @@ func (s *configSurface) UnsafeInfo() string { return "opencode/config" }
 // Kind reports opencode's config surface as the settings surface — it folds
 // opencode.json's `mcp` key in, so selecting either Settings or MCP gets it.
 func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
-
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can return
-// its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 // opencode's commands surface — the custom-command .md files under
 // .opencode/command/ — is the shared agent.ManagedCommandsDelivery bound to
@@ -188,6 +181,5 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 var (
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*configSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	_ agent.SurfaceSet     = Surfaces{}
 )

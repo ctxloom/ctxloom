@@ -90,7 +90,7 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
+	return agent.DeliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
 
 // UnsafeInfo returns agy's MCP identity for the DeliverShared fallback's
@@ -136,7 +136,7 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.saveHooksFile(hooksPath, hf); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error {
+	return agent.DeliveredFunc(func() error {
 		hf, err := w.loadHooksFile(hooksPath)
 		if err != nil {
 			return err
@@ -171,13 +171,6 @@ func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 // NewSurfaces below via agent.NewSkillShapedCommandsAndSkills) resolves it
 // skill-wins, exactly like kiro's identical collision
 // (internal/kiro/surfaces.go).
-
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 // Surfaces is agy's set of delivery surfaces for one run — five surface objects:
 // context (AGENTS.md), MCP (mcp_config.json), hooks (hooks.json), commands
@@ -293,7 +286,6 @@ var (
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*mcpSurface)(nil)
 	_ agent.KindedDelivery = (*hooksSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

@@ -51,7 +51,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	framed := agent.FrameProjectContext(context)
 	if framed == "" {
 		d.path = ""
-		return deliveredFunc(func() error { return nil }), nil
+		return agent.DeliveredFunc(func() error { return nil }), nil
 	}
 
 	dir := d.place.Dir()
@@ -70,17 +70,9 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	d.path = path
 
 	fs := d.fs
-	return deliveredFunc(func() error { return fs.Remove(path) }), nil
+	return agent.DeliveredFunc(func() error { return fs.Remove(path) }), nil
 }
-
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a strategy can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 var (
 	_ agent.ContextDelivery = (*appendFlagDelivery)(nil)
-	_ agent.Delivered       = deliveredFunc(nil)
 )

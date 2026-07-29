@@ -93,7 +93,7 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
+	return agent.DeliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
 
 // UnsafeInfo returns kiro's MCP identity for the DeliverShared fallback's
@@ -136,7 +136,7 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	fs := s.fs
 	path := w.agentPath(dir)
-	return deliveredFunc(func() error {
+	return agent.DeliveredFunc(func() error {
 		if exists, _ := afero.Exists(fs, path); !exists {
 			return nil
 		}
@@ -177,13 +177,6 @@ func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSetting
 // delete the other's live file. Only skills ENABLED for kiro claim a name —
 // a skill disabled for this engine writes nothing here, so it must not shadow
 // the command with the same name.
-
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 // Surfaces is kiro's set of delivery surfaces for one run — five surface
 // objects: context (steering), MCP (settings/mcp.json), settings (agent JSON +
@@ -307,7 +300,6 @@ var (
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*mcpSurface)(nil)
 	_ agent.KindedDelivery = (*settingsSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

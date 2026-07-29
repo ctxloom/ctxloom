@@ -8,17 +8,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDeliveredFuncParity is the U029-F04/U055-F09 parity gate. Six packages
-// carried a private `deliveredFunc func() error` retype of the exported
-// agent.DeliveredFunc; this package carried BOTH at once (managed_commands.go's
-// unexported copy alongside managedcontext.go's exported one), which is the only
-// pair a compiler-checked parity test can reach — the other five copies are
-// unexported in packages that already import this one.
+// TestDeliveredFuncParity is the U029-F04/U055-F09 contract gate. Six packages
+// used to carry a private `deliveredFunc func() error` retype of the exported
+// agent.DeliveredFunc (claude ×2, codex, kiro, antigravity, opencode, and this
+// package's own managed_commands.go copy). They were collapsed onto the single
+// exported type; this test is what the collapse rests on.
 //
-// It pins the behaviour the collapse onto agent.DeliveredFunc must preserve:
-// Cleanup invokes the wrapped closure exactly once and returns its error
-// verbatim (including nil). Written BEFORE the collapse, against both types, so
-// "they were identical" is a measured fact rather than an assumption.
+// It was written BEFORE the collapse and asserted BOTH types side by side — the
+// only pair a compiler-checked parity assertion could reach, since the other
+// five copies were unexported in packages that already import this one. It
+// passed, so "the copies had not diverged" is a measured fact. The local half
+// was dropped with the type it covered; every one of the ~14 former call sites
+// now depends on exactly this behaviour: Cleanup invokes the wrapped closure
+// exactly once and returns its error verbatim (including nil).
 func TestDeliveredFuncParity(t *testing.T) {
 	sentinel := errors.New("teardown failed")
 
@@ -38,19 +40,10 @@ func TestDeliveredFuncParity(t *testing.T) {
 				return tc.err
 			})
 
-			localCalls := 0
-			var local Delivered = deliveredFunc(func() error {
-				localCalls++
-				return tc.err
-			})
-
 			gotExported := exported.Cleanup()
-			gotLocal := local.Cleanup()
 
 			require.Equal(t, 1, exportedCalls, "DeliveredFunc.Cleanup must invoke the closure exactly once")
-			require.Equal(t, 1, localCalls, "deliveredFunc.Cleanup must invoke the closure exactly once")
 			assert.Equal(t, tc.err, gotExported, "DeliveredFunc.Cleanup must return the closure's error verbatim")
-			assert.Equal(t, gotExported, gotLocal, "the two retypes must be behaviourally identical — divergence here is the defect")
 		})
 	}
 }

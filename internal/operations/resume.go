@@ -7,6 +7,7 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // RecordedSessionEntries resolves a harp to its recorded transcript entries
@@ -57,15 +58,36 @@ func RenderResumedTranscript(harp string, entries []agent.SessionEntry) string {
 		}
 	}
 	if len(parts) == 0 {
+		// U086-F17: a resolved, error-free harp whose recorded transcript
+		// has no substantive entries used to prime the resumed engine with
+		// ZERO bytes of history and give no signal beyond a plain "". Warn
+		// here — once — so all three consumers (engine_session.go's ACP
+		// resume, coord/spawner.go's ResumeContext, cli/run.go's
+		// resumeFullContext) get it automatically instead of each needing
+		// its own rendered=="" check.
+		clidiag.Warn("ctxloom", "resumed session %s: recorded transcript has no user/assistant/tool-use entries to prime; resuming with no prior history", harp)
 		return ""
 	}
 
-	start, total := len(parts), 0
-	for i := len(parts) - 1; i >= 0; i-- {
-		total += len(parts[i]) + 2
-		if total > resumeTranscriptBudget {
+	// The tail always includes at least the LAST entry (U086-F18): start
+	// used to be initialized to len(parts) and only advanced INSIDE the
+	// budget-tested loop, so a single trailing entry alone bigger than the
+	// budget broke on its first iteration before start ever moved — the
+	// body was empty while the header still announced "history follows". If
+	// even that last entry overruns the budget by itself, its own text is
+	// truncated rather than the whole entry being dropped.
+	last := parts[len(parts)-1]
+	if len(last) > resumeTranscriptBudget {
+		last = last[:resumeTranscriptBudget] + "\n… (entry truncated)"
+		parts[len(parts)-1] = last
+	}
+
+	start, total := len(parts)-1, len(last)+2
+	for i := start - 1; i >= 0; i-- {
+		if total+len(parts[i])+2 > resumeTranscriptBudget {
 			break
 		}
+		total += len(parts[i]) + 2
 		start = i
 	}
 

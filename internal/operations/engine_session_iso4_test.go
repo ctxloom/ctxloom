@@ -18,7 +18,7 @@ import (
 // This file rounds out ISO4's coverage per the release-backlog verification
 // pass: direct, payload-asserting unit tests for the three helper functions
 // buildSessionInitSummary leans on (namesOrCount, listSessionSkillNames,
-// mcpServerNamesFor) — none of which had a dedicated test before, only
+// MCPServerNames) — none of which had a dedicated test before, only
 // indirect exercise through buildSessionInitSummary/OpenEngineSession — plus
 // a real end-to-end proof that the fragments/commands lines in the summary
 // are the WIRING's own resolved values (OpenEngineSession's fragmentsLoaded/
@@ -58,16 +58,16 @@ func TestNamesOrCount_BoundaryAtCap(t *testing.T) {
 	}
 }
 
-// --- mcpServerNamesFor: direct payload proofs -------------------------------
+// --- MCPServerNames: direct payload proofs -------------------------------
 
 // TestMcpServerNamesFor_EmptyIsNil proves the zero-servers case degrades to
 // nil (which namesOrCount then renders as "none"), not an empty-but-non-nil
 // slice — matching listSessionSkillNames'/buildSessionCommands' identical
 // nil-on-empty convention.
 func TestMcpServerNamesFor_EmptyIsNil(t *testing.T) {
-	got := mcpServerNamesFor(nil)
+	got := MCPServerNames(nil)
 	assert.Nil(t, got)
-	got = mcpServerNamesFor([]agent.ChatMCPServer{})
+	got = MCPServerNames([]agent.ChatMCPServer{})
 	assert.Nil(t, got)
 }
 
@@ -76,7 +76,7 @@ func TestMcpServerNamesFor_EmptyIsNil(t *testing.T) {
 // must be deterministic across sessions regardless of the order servers were
 // composed in (client-supplied first, then ctxloom's managed injection).
 func TestMcpServerNamesFor_SortsRegardlessOfInputOrder(t *testing.T) {
-	got := mcpServerNamesFor([]agent.ChatMCPServer{
+	got := MCPServerNames([]agent.ChatMCPServer{
 		{Name: "zeta-server"},
 		{Name: "alpha-server"},
 		{Name: "mid-server"},
@@ -123,7 +123,7 @@ func TestListSessionSkillNames_RealCatalog(t *testing.T) {
 // TestListSessionSkillNames_EmptyCatalogYieldsEmpty proves a project with no
 // installed skills degrades to an empty name list (namesOrCount then renders
 // "none"), the same fault-tolerant empty-set convention as
-// mcpServerNamesFor's zero-servers case.
+// MCPServerNames's zero-servers case.
 //
 // The function's OTHER branch — ListSkills returning a non-nil error — is
 // NOT exercised here: ListSkills' only error source is loader.ListAllSkills,

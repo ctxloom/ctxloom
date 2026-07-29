@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/spf13/afero"
@@ -227,17 +228,29 @@ func GetDefaultBinary(name string) string {
 	return ""
 }
 
+// AvailabilityOf resolves the named backend's default binary and reports
+// where it was found on PATH (or the login-shell PATH fallback), or the
+// reason it could not be — U057-F26: IsAvailable's plain bool collapsed
+// "unregistered backend", "backend has no default binary", and "binary not
+// resolvable on PATH" into the same false, leaving a caller like
+// `ctxloom init` (which uses IsAvailable to decide which engines to offer)
+// with no way to explain why one is missing.
+func AvailabilityOf(name string) (string, error) {
+	binary := GetDefaultBinary(name)
+	if binary == "" {
+		return "", fmt.Errorf("backend %q has no default binary to resolve", name)
+	}
+	return shellenv.Resolve(binary)
+}
+
 // IsAvailable returns true if the backend's default binary is installed and
 // resolvable — via the process's own inherited PATH, or (shellenv.Resolve's
 // fallback) the user's login-shell PATH, so a GUI-launched ctxloom (minimal
 // inherited PATH) reports the same availability a terminal-launched one
-// would.
+// would. A thin boolean convenience over AvailabilityOf; use that directly
+// when the reason for unavailability matters.
 func IsAvailable(name string) bool {
-	binary := GetDefaultBinary(name)
-	if binary == "" {
-		return false
-	}
-	_, err := shellenv.Resolve(binary)
+	_, err := AvailabilityOf(name)
 	return err == nil
 }
 

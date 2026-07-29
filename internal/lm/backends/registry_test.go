@@ -106,6 +106,29 @@ func TestIsAvailable(t *testing.T) {
 	})
 }
 
+// U057-F26: IsAvailable collapses shellenv.Resolve's error to a bool, so
+// "unregistered backend", "no default binary", and "binary not resolvable on
+// PATH" were indistinguishable to any caller. AvailabilityOf is the new,
+// diagnosable form IsAvailable is now a thin wrapper over — no existing
+// exported signature changes.
+func TestAvailabilityOf(t *testing.T) {
+	t.Run("unregistered backend reports a reason", func(t *testing.T) {
+		_, err := AvailabilityOf("nonexistent-backend")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent-backend")
+	})
+
+	t.Run("registered backend with no default binary reports a reason", func(t *testing.T) {
+		_, err := AvailabilityOf("mock")
+		require.Error(t, err)
+	})
+
+	t.Run("IsAvailable agrees with AvailabilityOf", func(t *testing.T) {
+		_, err := AvailabilityOf("mock")
+		assert.Equal(t, err == nil, IsAvailable("mock"))
+	})
+}
+
 // TestDecodeLLMConfig verifies the backend config registry decodes a raw body
 // into the backend's own typed struct, keyed solely by the type discriminator.
 func TestDecodeLLMConfig(t *testing.T) {

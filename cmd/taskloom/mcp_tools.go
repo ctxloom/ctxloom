@@ -199,13 +199,6 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	}
 
 	if scope.Global {
-		notice := scope.Notice
-		limitation := globalScopeLimitationNote(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
-		if notice != "" {
-			notice += "; " + limitation
-		} else {
-			notice = limitation
-		}
 		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, in.Limit)
 		if err != nil {
 			return nil, nil, wrapTagQueryError(err)
@@ -213,7 +206,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		out := &taskListResult{
 			Global:          true,
 			ProjectCount:    gres.ProjectCount,
-			Notice:          notice,
+			Notice:          composeGlobalNotice(scope, tc.WorkDir),
 			HiddenCompleted: gres.HiddenCompleted,
 			HiddenDeferred:  gres.HiddenDeferred,
 			OmittedByLimit:  gres.OmittedByLimit,
@@ -256,16 +249,10 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		OmittedByLimit:  res.OmittedByLimit,
 		PriorityWarning: priorityWarning,
 	}
+	rows := projectRows(res.Tasks, res.ProjectID, res.ProjectDir)
 	if in.Compact {
-		out.CompactTasks = make([]compactTaskRow, len(res.Tasks))
-		for i, t := range res.Tasks {
-			out.CompactTasks[i] = compactTaskRow{CompactTask: t.Compact(), ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}
-		}
+		out.CompactTasks = compactRows(rows)
 	} else {
-		rows := make([]taskRow, len(res.Tasks))
-		for i, t := range res.Tasks {
-			rows[i] = taskRow{Task: t, ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}
-		}
 		out.Tasks = rows
 	}
 	return nil, out, nil

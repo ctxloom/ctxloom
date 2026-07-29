@@ -58,6 +58,29 @@ func compactRows(rows []taskRow) []compactTaskRow {
 	return out
 }
 
+// composeGlobalNotice is the one disclosure a global listing carries: the
+// scope's own explanation of WHY the listing went global (empty for an
+// explicit --global, which needs none), followed by what --global structurally
+// cannot see. Both list surfaces render it, so neither can drop half of it.
+func composeGlobalNotice(scope listScope, workDir string) string {
+	limitation := globalScopeLimitationNote(workDir, rootCmd.PersistentFlags(), tasksHoming)
+	if scope.Notice == "" {
+		return limitation
+	}
+	return scope.Notice + "; " + limitation
+}
+
+// projectRows attributes list to one project, producing the row shape every
+// structured listing emits — global and single-project alike, so a consumer
+// sees the same keys either way.
+func projectRows(list []tasks.Task, projectID, projectDir string) []taskRow {
+	out := make([]taskRow, len(list))
+	for i, t := range list {
+		out[i] = taskRow{Task: t, ProjectID: projectID, ProjectDir: projectDir}
+	}
+	return out
+}
+
 // listScope is the resolved scope for a task-listing read: either the one
 // project taskContext() would resolve (the default) or every project
 // (--global/all_projects, or the no-project fallback). Notice is non-empty

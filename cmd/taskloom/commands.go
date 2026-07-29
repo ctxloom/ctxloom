@@ -171,14 +171,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	filtered := opts.Term != "" || opts.TagQuery != ""
 
 	if scope.Global {
-		notice := scope.Notice
-		limitation := globalScopeLimitationNote(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
-		if notice != "" {
-			notice += "; " + limitation
-		} else {
-			notice = limitation
-		}
-		clidiag.Fwarn(errw, "taskloom", "%s", notice)
+		clidiag.Fwarn(errw, "taskloom", "%s", composeGlobalNotice(scope, tc.WorkDir))
 		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, opts.Limit)
 		if err != nil {
 			return wrapTagQueryError(err)

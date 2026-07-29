@@ -686,3 +686,45 @@ func TestAppendLine_LeavesFileUnchangedOnWriteFailure(t *testing.T) {
 		t.Fatalf("file changed after a failed append: got %q, want unchanged %q", got, existing)
 	}
 }
+
+// TestLogRemove_HarpIsNeverReissued characterizes the half of the tombstone
+// rule nothing else pins: a removed task's harp stays in the issued set, so a
+// later add can never mint it again and a stale reference can never resolve to
+// a different task. The fold branch that enforces this is reachable only from
+// tests today (no CLI subcommand and no MCP tool expose removal), which is
+// exactly why the rule needs writing down before anyone decides its fate.
+func TestLogRemove_HarpIsNeverReissued(t *testing.T) {
+	s := newLog(t, "")
+	gone, _ := s.AddWithTrigger("temp", "", "")
+	if _, err := s.Remove(gone.HarpID); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	// A removed harp is not merely absent from reads — it must never come back
+	// as a NEW task's id.
+	for range 200 {
+		fresh, err := s.AddWithTrigger("another", "", "")
+		if err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		if fresh.HarpID == gone.HarpID {
+			t.Fatalf("harp %s was reissued after removal", gone.HarpID)
+		}
+	}
+
+	// And the tombstone survives a reload: the rule lives in the fold, not in
+	// in-memory state.
+	reopened, err := OpenLog(s.Path(), "swift-amber-falcon")
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	all, err := reopened.List(nil, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, task := range all {
+		if task.HarpID == gone.HarpID {
+			t.Fatalf("removed task %s came back after reload", gone.HarpID)
+		}
+	}
+}

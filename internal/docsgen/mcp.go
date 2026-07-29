@@ -318,6 +318,11 @@ This page is generated from %[3]s's registered MCP tools and resources, as serve
 // mdCell makes a string safe for a single Markdown table cell: escape pipes and
 // collapse newlines to spaces.
 func mdCell(s string) string {
+	// U051-F15: a CRLF-authored description left a stray \r in the cell after
+	// \n collapsed to a space; strip \r first so "line one\r\nline two"
+	// collapses to one space, not "line one\r line two".
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "|", "\\|")
 	return strings.TrimSpace(s)

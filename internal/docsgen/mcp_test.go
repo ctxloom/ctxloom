@@ -123,6 +123,18 @@ func TestGenMCPToolsRequiresServer(t *testing.T) {
 	}
 }
 
+// U051-F15: mdCell collapses \n but not \r, so a CRLF-authored description
+// leaves a stray carriage return inside a markdown table cell.
+func TestMdCell_CollapsesCarriageReturns(t *testing.T) {
+	got := mdCell("line one\r\nline two")
+	if strings.ContainsRune(got, '\r') {
+		t.Errorf("mdCell(...) = %q, still contains a stray \\r", got)
+	}
+	if !strings.Contains(got, "line one line two") {
+		t.Errorf("mdCell(...) = %q, want the CRLF collapsed to a single space", got)
+	}
+}
+
 // U051-F11: propertyDescription surfaces p.Enum but never p.Items.Enum, so an
 // array parameter whose ITEMS are enum-constrained documents no allowed
 // values at all.

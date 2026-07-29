@@ -117,7 +117,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// Collect all remote bundle references from profiles. Bundle profiles used
 	// as parents contribute their underlying bundle; top-level remote profiles
 	// were retired, so there is no separate profile-ref set.
-	bundleRefs, err := collectRemoteReferences(cfg, req.Profiles, fs)
+	bundleRefs, err := collectRemoteReferences(cfg, req.Profiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect references: %w", err)
 	}
@@ -129,7 +129,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		}, nil
 	}
 
-	_, puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
+	puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		// Re-collect: the pulls above may have made previously-unresolvable
 		// profiles loadable. A collect failure here is not fatal — keep the
 		// items already synced (CLAUDE.md fault tolerance).
-		next, err := collectRemoteReferences(cfg, req.Profiles, fs)
+		next, err := collectRemoteReferences(cfg, req.Profiles)
 		if err != nil {
 			clidiag.Warn("ctxloom", "failed to re-collect references after sync pass: %v", err)
 			break
@@ -229,13 +229,13 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 // and the post-sync lock rebuilds the active lockfile from the pinned closure.
 // Whether pulled content ever reaches the agent is decided per item at exposure
 // by the content-hash trust gate, so sync itself needs no review ceremony.
-func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (*remote.Registry, Puller, error) {
+func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (Puller, error) {
 	registry := req.Registry
 	if registry == nil {
 		var err error
 		registry, err = getRegistry(cfg, remote.WithRegistryFS(fs))
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to initialize registry: %w", err)
+			return nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}
 	}
 
@@ -247,7 +247,7 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			remote.WithLockfileManager(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))),
 		)
 	}
-	return registry, puller, nil
+	return puller, nil
 }
 
 // syncRefs syncs each ref of one item type into result, checking for context
@@ -332,7 +332,7 @@ func syncRefURLs(refs []string) []string {
 // collectRemoteReferences collects all remote bundle and profile references from config.
 // This recursively follows local parent profiles to find remote dependencies anywhere
 // in the inheritance chain.
-func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero.Fs) (bundleRefs []string, err error) {
+func collectRemoteReferences(cfg *config.Config, profileNames []string) (bundleRefs []string, err error) {
 	bundleSet := collections.NewSet[string]()
 
 	// Get profiles to process
@@ -523,7 +523,6 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
 	// warnings) must never land there.
 	opts := remote.PullOptions{
-		LocalDir: baseDir,
 		Force:    true,
 		ItemType: itemType,
 		Stdout:   os.Stderr,
@@ -773,18 +772,6 @@ func isInstalled(ctx context.Context, ref string, bundles remote.BundleByteSourc
 	return rerr == nil
 }
 
-// AutoSyncConfig holds configuration for auto-sync behavior.
-type AutoSyncConfig struct {
-	// Enabled controls whether auto-sync runs on startup.
-	Enabled bool `mapstructure:"enabled" yaml:"enabled,omitempty"`
-
-	// Lock controls whether to update lockfile after sync.
-	Lock bool `mapstructure:"lock" yaml:"lock,omitempty"`
-
-	// ApplyHooks controls whether to apply hooks after sync.
-	ApplyHooks bool `mapstructure:"apply_hooks" yaml:"apply_hooks,omitempty"`
-}
-
 // startupCloneRefresh is the seam over the pre-probe clone refresh (test
 // injection point; production = refreshReferencedClones).
 var startupCloneRefresh = refreshReferencedClones
@@ -795,7 +782,7 @@ var startupCloneRefresh = refreshReferencedClones
 // failure leaves the cache as-is; the probe and sync paths surface any real
 // problem.
 func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
-	bundleRefs, err := collectRemoteReferences(cfg, nil, getFS(nil))
+	bundleRefs, err := collectRemoteReferences(cfg, nil)
 	if err != nil {
 		return
 	}

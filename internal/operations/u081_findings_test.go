@@ -453,3 +453,11 @@ func TestRemoveLocalItems_DoesNotRemoveOutsideCache(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// refLockfile builds a minimal lockfile from a bundle-ref map. Moved here from
+// the now-deleted bundle_refs_test.go (U081-F03 deleted AnalyzeBundleReferences
+// and its test file, but this helper is still needed by
+// TestRemoveLocalItems_DoesNotRemoveOutsideCache above).
+func refLockfile(bundles map[string]remote.LockEntry) *remote.Lockfile {
+	return &remote.Lockfile{Bundles: bundles}
+}

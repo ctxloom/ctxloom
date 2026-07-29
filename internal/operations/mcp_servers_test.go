@@ -16,9 +16,10 @@
 //
 // # Test Injection Patterns
 //
-// Read-only operations (List/Get) take a *config.Config directly, with an
-// optional TestConfig request field for hermetic unit tests. Write
-// operations (Add/Remove/SetMCPAutoRegister) take a *config.Manager instead:
+// Read-only operations (List/Get) take a *config.Config directly (U085-F12
+// deleted the redundant TestConfig request field — cfg IS the injection
+// seam). Write operations (Add/Remove/SetMCPAutoRegister) take a
+// *config.Manager instead:
 // they perform a real Manager.Update transaction, so their tests build a
 // Manager over an in-memory filesystem (mcpTestManager) and verify the
 // result by reloading the config from that same filesystem — a stub that
@@ -243,9 +244,9 @@ func TestMCPBackendValues(t *testing.T) {
 // Integration tests with injected config
 // ==========================================================================
 //
-// The following tests exercise the full operation logic using TestConfig
-// injection. This allows testing sorting, filtering, and CRUD operations
-// without filesystem access.
+// The following tests exercise the full operation logic by passing an
+// in-memory *config.Config as the cfg parameter directly. This allows
+// testing sorting, filtering, and CRUD operations without filesystem access.
 
 // createTestMCPConfig creates a config with servers in both unified and
 // backend-specific locations for testing queries and sorting.
@@ -277,7 +278,7 @@ func createTestMCPConfig() *config.Config {
 
 func TestGetMCPServer_UnifiedScope(t *testing.T) {
 	cfg := createTestMCPConfig()
-	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "github", TestConfig: cfg})
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "github"})
 	require.NoError(t, err)
 	assert.True(t, result.Found)
 	require.Len(t, result.Entries, 1)
@@ -288,7 +289,7 @@ func TestGetMCPServer_UnifiedScope(t *testing.T) {
 
 func TestGetMCPServer_BackendScope(t *testing.T) {
 	cfg := createTestMCPConfig()
-	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "custom-server", TestConfig: cfg})
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "custom-server"})
 	require.NoError(t, err)
 	assert.True(t, result.Found)
 	require.Len(t, result.Entries, 1)
@@ -297,7 +298,7 @@ func TestGetMCPServer_BackendScope(t *testing.T) {
 
 func TestGetMCPServer_NotFound(t *testing.T) {
 	cfg := createTestMCPConfig()
-	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "absent", TestConfig: cfg})
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "absent"})
 	require.NoError(t, err)
 	assert.False(t, result.Found)
 	assert.Empty(t, result.Entries, "not-found yields an empty (non-nil) entry list")
@@ -315,7 +316,7 @@ func TestGetMCPServer_MultipleScopes(t *testing.T) {
 			},
 		},
 	})
-	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "shared", TestConfig: cfg})
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "shared"})
 	require.NoError(t, err)
 	assert.True(t, result.Found)
 	require.Len(t, result.Entries, 2, "configured in both the unified and a backend scope")
@@ -327,9 +328,7 @@ func TestGetMCPServer_MultipleScopes(t *testing.T) {
 func TestListMCPServers_AllServers(t *testing.T) {
 	cfg := createTestMCPConfig()
 
-	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		TestConfig: cfg,
-	})
+	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, result.Count) // filesystem, github, custom-server
@@ -340,8 +339,7 @@ func TestListMCPServers_WithQuery(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		Query:      "github",
-		TestConfig: cfg,
+		Query: "github",
 	})
 
 	require.NoError(t, err)
@@ -353,8 +351,7 @@ func TestListMCPServers_QueryByCommand(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		Query:      "python",
-		TestConfig: cfg,
+		Query: "python",
 	})
 
 	require.NoError(t, err)
@@ -366,9 +363,8 @@ func TestListMCPServers_SortByName(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "name",
-		SortOrder:  "asc",
-		TestConfig: cfg,
+		SortBy:    "name",
+		SortOrder: "asc",
 	})
 
 	require.NoError(t, err)
@@ -384,9 +380,8 @@ func TestListMCPServers_SortByCommand(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "command",
-		SortOrder:  "asc",
-		TestConfig: cfg,
+		SortBy:    "command",
+		SortOrder: "asc",
 	})
 
 	require.NoError(t, err)
@@ -402,9 +397,8 @@ func TestListMCPServers_SortDescending(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "name",
-		SortOrder:  "desc",
-		TestConfig: cfg,
+		SortBy:    "name",
+		SortOrder: "desc",
 	})
 
 	require.NoError(t, err)
@@ -420,9 +414,8 @@ func TestListMCPServers_SortByCommandDescending(t *testing.T) {
 	cfg := createTestMCPConfig()
 
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		SortBy:     "command",
-		SortOrder:  "desc",
-		TestConfig: cfg,
+		SortBy:    "command",
+		SortOrder: "desc",
 	})
 
 	require.NoError(t, err)
@@ -439,8 +432,7 @@ func TestListMCPServers_QueryBackendServerByName(t *testing.T) {
 
 	// Query for backend-specific server by name
 	result, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{
-		Query:      "custom",
-		TestConfig: cfg,
+		Query: "custom",
 	})
 
 	require.NoError(t, err)

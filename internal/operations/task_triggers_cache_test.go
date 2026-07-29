@@ -81,7 +81,6 @@ func TestTriggerCache_SaveLoadRoundTrip(t *testing.T) {
 		"swift-amber-falcon": {
 			Fingerprint: "abc123",
 			Verdict:     triggers.Verdict{HarpID: "swift-amber-falcon", Outcome: triggers.Fired, Reasoning: "it shipped"},
-			CachedAt:    time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
 		},
 	}}
 	saveTriggerCache("proj-1", c)

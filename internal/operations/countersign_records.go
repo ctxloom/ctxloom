@@ -33,8 +33,6 @@ type countersignRecords struct {
 	user    *countersign.Store
 	project *countersign.Store
 	root    signing.TrustRoot
-	// now is a seam for tests to pin time; nil means time.Now.
-	now func() time.Time
 }
 
 // bothStores is a small ordered-iteration helper; the order is irrelevant to
@@ -62,13 +60,6 @@ func (c countersignRecords) readable() error {
 	return nil
 }
 
-func (c countersignRecords) timeNow() time.Time {
-	if c.now != nil {
-		return c.now()
-	}
-	return time.Now()
-}
-
 // Rejected reports a rejection covering ref OR exactly these bytes, from
 // EITHER store. It must be evaluated for every item, including unsigned ones
 // — a rejection is of bytes, not of provenance (mirrors the interface's own
@@ -86,7 +77,7 @@ func (c countersignRecords) timeNow() time.Time {
 func (c countersignRecords) Rejected(ref trust.Ref, payload []byte) bool {
 	kind := signingKindOf(ref.Kind)
 	refStr := countersignRef(ref)
-	now := c.timeNow()
+	now := time.Now()
 
 	for _, st := range c.bothStores() {
 		if _, ok := st.VerifiedRefReject(kind, refStr, c.root, now); ok {
@@ -133,7 +124,7 @@ func (c countersignRecords) Approved(ref trust.Ref, payload []byte, form string)
 	}
 	kind := signingKindOf(ref.Kind)
 	refStr := countersignRef(ref)
-	now := c.timeNow()
+	now := time.Now()
 
 	for _, st := range c.bothStores() {
 		if _, ok := st.VerifiedApprove(kind, refStr, signing.Form(form), payload, c.root, now); ok {

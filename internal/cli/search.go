@@ -248,12 +248,10 @@ func runSearches(ctx context.Context, cfg *config.Config, p searchParams) (local
 // MCP servers, and reports how many additional matches searchLocalLimit hid.
 func searchLocalContent(ctx context.Context, cfg *config.Config, query string, tags, types []string) ([]operations.SearchResult, int, error) {
 	result, err := operations.SearchContent(ctx, cfg, operations.SearchContentRequest{
-		Query:        query,
-		Types:        types,
-		Tags:         tags,
-		SearchLocal:  true,
-		SearchRemote: false,
-		Limit:        searchLocalLimit,
+		Query: query,
+		Types: types,
+		Tags:  tags,
+		Limit: searchLocalLimit,
 	})
 	if err != nil {
 		return nil, 0, err

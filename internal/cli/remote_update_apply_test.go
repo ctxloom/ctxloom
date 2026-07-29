@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -152,30 +151,6 @@ func TestPrintAvailableUpdates_OmitsEmptySection(t *testing.T) {
 	printAvailableUpdates(&out, nil)
 	if got := out.String(); strings.Contains(got, "Bundles:") {
 		t.Errorf("should not print Bundles header when empty:\n%s", got)
-	}
-}
-
-func TestReportBundleIssues(t *testing.T) {
-	var out bytes.Buffer
-	reportBundleIssues(&out, &operations.BundleAnalysis{
-		Warnings: []string{"could not read x"},
-		Invalid:  []string{"bad-ref"},
-		Missing:  []string{"acme/missing"},
-		Orphans:  []string{"acme/orphan"},
-	})
-	got := out.String()
-	for _, want := range []string{"Warning: could not read x", "bad-ref", "acme/missing", "acme/orphan"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("output missing %q:\n%s", want, got)
-		}
-	}
-}
-
-func TestReportBundleIssues_EmptyIsSilent(t *testing.T) {
-	var out bytes.Buffer
-	reportBundleIssues(&out, &operations.BundleAnalysis{})
-	if out.Len() != 0 {
-		t.Errorf("expected no output, got %q", out.String())
 	}
 }
 

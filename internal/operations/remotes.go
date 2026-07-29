@@ -267,15 +267,6 @@ type DefaultRemoteResult struct {
 	Name   string `json:"name,omitempty"`
 }
 
-// GetDefaultRemote returns the configured default remote (empty when none).
-func GetDefaultRemote(_ context.Context, cfg *config.Config, req DefaultRemoteRequest) (*DefaultRemoteResult, error) {
-	registry, err := defaultRemoteRegistry(cfg, req)
-	if err != nil {
-		return nil, err
-	}
-	return &DefaultRemoteResult{Status: "ok", Name: registry.GetDefault()}, nil
-}
-
 // SetDefaultRemote sets the default remote, or clears it when Name is empty.
 func SetDefaultRemote(_ context.Context, cfg *config.Config, req DefaultRemoteRequest) (*DefaultRemoteResult, error) {
 	registry, err := defaultRemoteRegistry(cfg, req)
@@ -307,89 +298,6 @@ func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remot
 // URL publishes reaches the agent unreviewed" — was hash-blind and is gone.
 // Trusting a publisher is now `ctxloom signer add <principal> --key …`, which
 // trusts a KEY and verifies the bytes. There is no parallel dormant path.
-
-// UpdateRemoteRequest contains parameters for updating cached remote repos.
-type UpdateRemoteRequest struct {
-	// Name is an optional remote name. If empty, all remotes are updated.
-	Name string `json:"name,omitempty"`
-
-	// Registry is an optional pre-configured registry (for testing).
-	Registry *remote.Registry `json:"-"`
-}
-
-// UpdateRemoteResult contains the result of updating remote repos.
-type UpdateRemoteResult struct {
-	Status  string              `json:"status"`
-	Updated []UpdateRemoteEntry `json:"updated,omitempty"`
-	Errors  []string            `json:"errors,omitempty"`
-}
-
-// UpdateRemoteEntry represents a single updated remote.
-type UpdateRemoteEntry struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
-}
-
-// UpdateRemote fetches the latest changes for cached remote repos.
-// If name is specified, only that remote is updated. Otherwise all remotes are updated.
-func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteRequest) (*UpdateRemoteResult, error) {
-	registry := req.Registry
-	if registry == nil {
-		var err error
-		registry, err = getRegistry(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load registry: %w", err)
-		}
-	}
-
-	cache := NewRepoCache(cfg)
-
-	var remotes []*remote.Remote
-	if req.Name != "" {
-		rem, err := registry.Get(req.Name)
-		if err != nil {
-			return nil, err
-		}
-		remotes = []*remote.Remote{rem}
-	} else {
-		remotes = registry.List()
-	}
-
-	if len(remotes) == 0 {
-		return &UpdateRemoteResult{
-			Status: "empty",
-		}, nil
-	}
-
-	result := &UpdateRemoteResult{
-		Status: "completed",
-	}
-
-	for _, rem := range remotes {
-		forgeType, _, err := remote.DetectForge(rem.URL)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", rem.Name, err))
-			continue
-		}
-
-		_, err = cache.UpdateRepo(ctx, rem.URL, forgeType)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", rem.Name, err))
-			continue
-		}
-
-		result.Updated = append(result.Updated, UpdateRemoteEntry{
-			Name: rem.Name,
-			URL:  rem.URL,
-		})
-	}
-
-	if len(result.Errors) > 0 {
-		result.Status = "completed_with_errors"
-	}
-
-	return result, nil
-}
 
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {
@@ -534,7 +442,12 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 
 	var items []BrowseItemEntry
 	var warnings []string
-	for _, itemType := range browseTypeList(req.ItemType) {
+	// Only bundles are distributed at the top level now (top-level profile
+	// distribution was retired; profiles ship inside bundles), so the loop
+	// below always covers exactly one item type regardless of req.ItemType
+	// (U086-F05: browseTypeList used to wrap this and silently ignore its
+	// parameter).
+	for _, itemType := range []remote.ItemType{remote.ItemTypeBundle} {
 		typeItems, warning := browseTypeItems(ctx, fetcher, owner, repo, rem.URL, itemType, req)
 		items = append(items, typeItems...)
 		if warning != "" {
@@ -567,13 +480,6 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 		return nil, "", "", fmt.Errorf("invalid remote URL: %w", err)
 	}
 	return fetcher, owner, repo, nil
-}
-
-// browseTypeList maps the request item_type filter to the item types to browse.
-// Only bundles are distributed at the top level now (top-level profile
-// distribution was retired; profiles ship inside bundles).
-func browseTypeList(itemType string) []remote.ItemType {
-	return []remote.ItemType{remote.ItemTypeBundle}
 }
 
 // browseTypeItems lists one item type's entries. A genuine "not found" (the
@@ -792,7 +698,12 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 		}, nil
 	}
 
-	types := searchTypeList(req.ItemType)
+	// Only bundles are distributed at the top level now (top-level profile
+	// distribution was retired; "fragment" also searches bundles, since
+	// fragments live inside bundles), so this always covers exactly one item
+	// type regardless of req.ItemType (U086-F05: searchTypeList used to wrap
+	// this and silently ignore its parameter).
+	types := []remote.ItemType{remote.ItemTypeBundle}
 	query := remote.ParseSearchQuery(req.Query)
 
 	prewarmRemoteClones(ctx, cfg, remotes)
@@ -805,14 +716,6 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 		Query:    req.Query,
 		Warnings: warnings,
 	}, nil
-}
-
-// searchTypeList maps the request item_type filter to the item types to search.
-// Only bundles are distributed at the top level now (top-level profile
-// distribution was retired); "fragment" also searches bundles (fragments live
-// inside bundles).
-func searchTypeList(itemType string) []remote.ItemType {
-	return []remote.ItemType{remote.ItemTypeBundle}
 }
 
 // prewarmRemoteClones ensures each remote's clone exists BEFORE the parallel

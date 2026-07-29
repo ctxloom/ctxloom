@@ -117,7 +117,6 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: loader,
 		WorkDir:      tmpDir,
 	})

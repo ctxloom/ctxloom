@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -132,7 +131,7 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 		return nil, fmt.Errorf("list bundles: %w", err)
 	}
 
-	e := &reviewEnumerator{cfg: cfg, records: records, registry: registry, fs: req.FS}
+	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS}
 	result := &PendingReviewResult{}
 	for _, info := range infos {
 		if info.Deleted {
@@ -166,10 +165,9 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 
 // reviewEnumerator resolves items against the shared records/registry.
 type reviewEnumerator struct {
-	cfg      *config.Config
-	records  countersignRecords
-	registry *remote.Registry
-	fs       afero.Fs
+	cfg     *config.Config
+	records countersignRecords
+	fs      afero.Fs
 }
 
 // pendingItems walks one bundle's items in stable display order — fragments,
@@ -314,7 +312,13 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", ref, err)
 		return ReviewItem{}, false
 	}
-	res, err := EffectiveTrust(e.cfg, EffectiveTrustRequest{
+	// EffectiveTrust's error return is currently vestigial — every one of its
+	// return statements pairs a non-nil result with a nil error (verified
+	// across all 7 returns in EffectiveTrust's body) — so this checks only
+	// the State() outcome (U086-F20 dropped the unreachable err!=nil/res==nil
+	// disjuncts). If EffectiveTrust's contract ever changes to return a real
+	// error, this must change with it.
+	res, _ := EffectiveTrust(e.cfg, EffectiveTrustRequest{
 		Ref:     tRef,
 		Payload: payload,
 		Form:    form,
@@ -322,7 +326,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 		Records: e.records,
 		FS:      e.fs,
 	})
-	if err != nil || res == nil || res.State() != trust.StatePending {
+	if res.State() != trust.StatePending {
 		return ReviewItem{}, false
 	}
 
@@ -473,50 +477,4 @@ func renderSkillSurface(manifest bundles.SkillManifest) string {
 		fmt.Fprintf(&b, "%s  %s  mode:%s\n", entry.Path, entry.SHA256, entry.Mode)
 	}
 	return b.String()
-}
-
-// --- bundle-accept-all ---------------------------------------------------------
-
-// AcceptReviewItemsRequest names the item refs to accept, plus test injection.
-type AcceptReviewItemsRequest struct {
-	Refs []string
-
-	Project bool
-	Signer  ssh.Signer `json:"-"`
-
-	UserStore    *countersign.Store `json:"-"`
-	ProjectStore *countersign.Store `json:"-"`
-	Loader       *bundles.Loader    `json:"-"`
-	FS           afero.Fs           `json:"-"`
-}
-
-// AcceptReviewItemsResult reports what was recorded. Failures are per-ref and
-// never abort the batch (partial success is success — CLAUDE.md).
-type AcceptReviewItemsResult struct {
-	Accepted []string          `json:"accepted"`
-	Failed   map[string]string `json:"failed,omitempty"` // ref -> error
-}
-
-// AcceptReviewItems records an approval for each ref through the single
-// mutation path (SetItemTrust: countersignature + snapshots), continuing past
-// per-item failures. It backs the porcelain's "accept all remaining in
-// bundle" action.
-func AcceptReviewItems(cfg *config.Config, req AcceptReviewItemsRequest) *AcceptReviewItemsResult {
-	res := &AcceptReviewItemsResult{}
-	for _, ref := range req.Refs {
-		_, err := SetItemTrust(cfg, SetItemTrustRequest{
-			Ref: ref, Project: req.Project, Signer: req.Signer,
-			UserStore: req.UserStore, ProjectStore: req.ProjectStore,
-			Loader: req.Loader, FS: req.FS,
-		})
-		if err != nil {
-			if res.Failed == nil {
-				res.Failed = make(map[string]string)
-			}
-			res.Failed[ref] = err.Error()
-			continue
-		}
-		res.Accepted = append(res.Accepted, ref)
-	}
-	return res
 }

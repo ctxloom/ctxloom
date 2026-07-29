@@ -712,34 +712,22 @@ func TestSearchContent_ProfileByDescription(t *testing.T) {
 }
 
 // =============================================================================
-// Unified Search Tests (Local + Remote)
+// Local Search Tests
 // =============================================================================
-// Unified search combines local content (fragments, prompts, profiles, mcp_servers)
-// with remote content (bundles, profiles from configured remotes).
+// SearchContent searches local content (fragments, prompts, profiles,
+// mcp_servers) only — remote discovery is search_library's job (U086-F06
+// deleted the unreachable SearchRemote branch and its SearchLocal/SearchRemote
+// scope-flag fields; the CLI's own concurrent local+remote fan-out in
+// cli/search.go never routed through them anyway).
 
-func TestSearchContentRequest_ScopeFlags(t *testing.T) {
-	// New scope flags for unified search
-	req := SearchContentRequest{
-		Query:        "test",
-		SearchLocal:  true,
-		SearchRemote: true,
-	}
-
-	assert.True(t, req.SearchLocal)
-	assert.True(t, req.SearchRemote)
-}
-
-func TestSearchContent_LocalOnlyScope(t *testing.T) {
+func TestSearchContent_LocalScope(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
-	// SearchLocal=true, SearchRemote=false should only search local
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
-		Query:        "security",
-		Types:        []string{"fragment"},
-		SearchLocal:  true,
-		SearchRemote: false,
-		Loader:       loader,
+		Query:  "security",
+		Types:  []string{"fragment"},
+		Loader: loader,
 	})
 
 	require.NoError(t, err)
@@ -775,20 +763,16 @@ func TestSearchResult_RemoteSource(t *testing.T) {
 	assert.Equal(t, "personal", result.Source)
 }
 
-func TestSearchContent_DefaultScopeBothLocalAndRemote(t *testing.T) {
-	// When neither SearchLocal nor SearchRemote is set, should default to both
+func TestSearchContent_NoScopeFlagsNeeded(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
-	// Empty scope flags should search both local and remote
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "test",
-		Types:  []string{"fragment"}, // Local only type, so only local results
+		Types:  []string{"fragment"},
 		Loader: loader,
-		// SearchLocal and SearchRemote both false = search both
 	})
 
 	require.NoError(t, err)
-	// Should still work for local types
 	assert.NotNil(t, result)
 }

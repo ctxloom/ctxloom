@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -171,4 +173,48 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	advanced, _, err = UpgradeDependencies(context.Background(), testConfigWithSCMPath(baseDir))
 	require.NoError(t, err)
 	assert.Equal(t, 0, advanced)
+}
+
+// TestUpgrade_HonoursInjectedLockfileFS pins U089-F10 (escalated from wave-1):
+// UpgradeDependencies must read AND write the lockfile through cfg.FS() when
+// one is injected, not silently fall back to the real OS filesystem for one
+// half of the read-modify-write. Before the fix, both NewLockfileManager
+// constructions here omitted WithLockfileFS, so an injected FS's lock.yaml was
+// invisible to Load/Save even though profileLoader/closure resolution (via
+// cfg) is FS-scoped elsewhere — the exact mismatch the reviewer called the
+// most plausible trigger of a HIGH lockfile-erasure finding.
+func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
+	baseDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(baseDir, 0o755))
+
+	// Seed a REAL, populated lock.yaml directly on the OS filesystem — the
+	// wrong place for this call to touch once an FS is injected.
+	osLock := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{
+		"https://github.com/o/r@bundles/demo": {SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", URL: "https://github.com/o/r"},
+	}}
+	require.NoError(t, remote.NewLockfileManager(baseDir).Save(osLock))
+
+	// cfg has no profiles, so the closure is empty and the proposed set is
+	// empty — this isolates the FS-threading question from closure
+	// resolution. cfg.FS() points at an isolated in-memory filesystem with NO
+	// lock.yaml on it at all.
+	cfg := testConfigWithSCMPath(baseDir)
+	memFS := afero.NewMemMapFs()
+	cfg.SetFS(memFS)
+
+	_, _, err := UpgradeDependencies(context.Background(), cfg)
+	require.NoError(t, err)
+
+	// The OS-disk lockfile must be untouched: still 1 entry, same SHA.
+	onDisk, err := remote.NewLockfileManager(baseDir).Load()
+	require.NoError(t, err)
+	entry, ok := onDisk.GetEntry(remote.ItemTypeBundle, "https://github.com/o/r@bundles/demo")
+	require.True(t, ok, "UpgradeDependencies must not touch the real OS lockfile when an FS is injected")
+	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", entry.SHA)
+
+	// The injected in-memory FS must now hold ITS OWN (empty) lock.yaml — the
+	// write actually landed where cfg said it should.
+	exists, err := afero.Exists(memFS, paths.LockPath(baseDir))
+	require.NoError(t, err)
+	assert.True(t, exists, "UpgradeDependencies must write the lockfile through the injected FS, not the OS filesystem")
 }

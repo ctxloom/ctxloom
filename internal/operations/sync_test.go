@@ -157,7 +157,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 	// Create the profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil, fs)
+	bundles, err := collectRemoteReferences(cfg, nil)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences failed: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil, fs)
+	bundles, err := collectRemoteReferences(cfg, nil)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences failed: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 
 	// An explicit profile filter scopes the sync to those profiles only —
 	// config defaults must not leak into a targeted sync.
-	bundles, err = collectRemoteReferences(cfg, []string{"go-dev"}, fs)
+	bundles, err = collectRemoteReferences(cfg, []string{"go-dev"})
 	if err != nil {
 		t.Fatalf("collectRemoteReferences (filtered) failed: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil, fs)
+	bundles, err := collectRemoteReferences(cfg, nil)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences failed: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil, fs)
+	bundles, err := collectRemoteReferences(cfg, nil)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences failed: %v", err)
 	}

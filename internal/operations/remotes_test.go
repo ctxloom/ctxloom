@@ -202,24 +202,26 @@ func setupTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	return registry, fs
 }
 
-func TestSetAndGetDefaultRemote(t *testing.T) {
+// TestSetDefaultRemote_SetAndClear reads the default back via
+// registry.GetDefault() directly and via ListRemotes' Default field — the two
+// real production paths — rather than the now-deleted GetDefaultRemote
+// operation (U086-F03: it had zero production callers; the CLI reads the
+// default off ListRemotesResult.Default).
+func TestSetDefaultRemote_SetAndClear(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	_, err := SetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Name: "alice", Registry: registry})
 	require.NoError(t, err)
-
-	got, err := GetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Registry: registry})
+	assert.Equal(t, "alice", registry.GetDefault())
+	listed, err := ListRemotes(context.Background(), nil, ListRemotesRequest{Registry: registry})
 	require.NoError(t, err)
-	assert.Equal(t, "alice", got.Name)
+	assert.Equal(t, "alice", listed.Default)
 
 	res, err := SetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Name: "", Registry: registry})
 	require.NoError(t, err)
 	assert.Equal(t, "cleared", res.Status)
-
-	got, err = GetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Registry: registry})
-	require.NoError(t, err)
-	assert.Empty(t, got.Name, "cleared default reads back empty")
+	assert.Empty(t, registry.GetDefault(), "cleared default reads back empty")
 }
 
 // Source trust (`ctxloom remote trust`, the RemoteEntry.Trusted flag) is

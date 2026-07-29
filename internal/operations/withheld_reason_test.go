@@ -153,13 +153,18 @@ fragments:
 		"the real (non-test-injected) assembly path must name WHY the rejected fragment was withheld, not just that it was")
 }
 
-// TestAssembleContext_WarnWithheld_InjectedLoaderDegrades pins the documented
-// degrade path: when the caller injects its own *bundles.Loader (a test seam
-// — see gatedAcmeLoader — every real production call site always builds
-// through exposureLoaderGated instead), warnWithheld has no *contentGate to
-// consult for per-item reasons and falls back to the OLD reasonless tally
-// rather than losing the advisory outright. Never silent, just less specific.
-func TestAssembleContext_WarnWithheld_InjectedLoaderDegrades(t *testing.T) {
+// TestAssembleContext_WarnWithheld_InjectedLoaderIsSilentAboutWhy pins the
+// current (U089-F14-simplified) behavior: when the caller injects its own
+// *bundles.Loader (a test seam — see gatedAcmeLoader — every real production
+// call site always builds through exposureLoaderGated instead), warnWithheld
+// has no *contentGate to consult and now emits NO advisory at all — it used
+// to fall back to a reasonless "N item(s) awaiting review" tally, but that
+// fallback (warnPendingTally) was itself dead in two of its three branches
+// and was deleted along with it. This is not a production regression: rg
+// confirms every real call site (context.go, hooks.go, tooling.go) always
+// builds its loader through exposureLoaderGated, so gate is never nil outside
+// a test that deliberately injects its own loader, as this one does.
+func TestAssembleContext_WarnWithheld_InjectedLoaderIsSilentAboutWhy(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fx := newTrustFixture(t)
 	fx.rejectFragment("tooling", "evil", "evil body")
@@ -173,5 +178,5 @@ func TestAssembleContext_WarnWithheld_InjectedLoaderDegrades(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	assert.Contains(t, stderr, "item(s)")
+	assert.Empty(t, stderr, "an injected-loader caller (test-only in production) gets no gate to report from")
 }

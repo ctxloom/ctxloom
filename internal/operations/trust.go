@@ -554,12 +554,6 @@ func (l *lockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
 
 // --- Mutations (the plumbing under `ctxloom trust` / `ctxloom blacklist`) -----
 
-// nowRFC3339 stamps the sidecar index's untrusted reviewed_at provenance; a
-// package var so tests can pin it, mirroring the deleted ledger's own clock
-// seam. SSH signatures themselves carry no trusted timestamp (spec §10.3) —
-// this is display-only metadata, never a decision input.
-var nowRFC3339 = func() string { return time.Now().UTC().Format(time.RFC3339) }
-
 // resolveCountersignStore picks the physical countersignature store a
 // mutation writes to: the committable PROJECT store when project is true,
 // else the personal USER store (spec §9.2). Injected stores (test seams) win
@@ -717,7 +711,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		// vs NEW and pick a diff base — never an input to any trust decision.
 		_ = store.AppendIndex(countersign.IndexEntry{
 			Ref: refStr, Kind: string(kind), Form: string(form), Assertion: string(signing.AssertionApprove),
-			Principal: principal, Unsigned: unsigned, PayloadHash: bundles.HashPayload(payload), ReviewedAt: nowRFC3339(),
+			Principal: principal, Unsigned: unsigned, PayloadHash: bundles.HashPayload(payload), ReviewedAt: time.Now().UTC().Format(time.RFC3339),
 		})
 		return nil
 	}

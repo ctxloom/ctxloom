@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -245,7 +246,7 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // AddTaskWithTags is AddTask with an initial tag set stamped on the same
@@ -276,7 +277,7 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // TagTask adds and/or removes tags on an existing task in one call,
@@ -350,7 +351,7 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 			return nil, fmt.Errorf("remove tags: %w", err)
 		}
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // scalarCollapse enforces schema's arity=scalar declarations over incoming
@@ -543,7 +544,7 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 	}
 	target := tagschema.Target(parsed)
 	value := *parsed.Value
-	if enum, ok := schema.Enum(target); ok && !containsString(enum, value) {
+	if enum, ok := schema.Enum(target); ok && !slices.Contains(enum, value) {
 		return fmt.Errorf("tag %q's value %q is not one of %s's declared enum values %v", tag, value, target, enum)
 	}
 	if min, max, ok, rerr := schema.Range(target); ok {
@@ -574,16 +575,6 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 	return nil
 }
 
-// containsString reports whether v is a member of list.
-func containsString(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
 // SetTaskStatus moves a task to a different status, attributing the change to
 // the acting session. A non-empty trigger (re)sets the revive condition;
 // moving to Deferred requires one (supplied here or already on the task).
@@ -596,7 +587,7 @@ func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult,
 	if err != nil {
 		return nil, fmt.Errorf("set status: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // EditTask replaces a task's text in place, keyed by harp ID, attributing the
@@ -611,7 +602,7 @@ func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("edit task: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // TagCount reports one tag's usage across the project's tasks. Active counts
@@ -764,6 +755,20 @@ func RepairStore(tc TaskContext) error {
 type projectIdentity struct {
 	ID  string
 	Dir string // registered project root; empty when not registered
+}
+
+// taskResult is the one shape every single-task mutation returns: the store
+// it landed in, the task, the project-resolution notice, and the resolved
+// project identity. Every field is populated here so a new field cannot be
+// added to TaskResult and left unset on some of the mutation paths.
+func (p projectIdentity) taskResult(store *tasks.Store, task tasks.Task, warning string) *TaskResult {
+	return &TaskResult{
+		Path:       store.Path(),
+		Task:       task,
+		Warning:    warning,
+		ProjectID:  p.ID,
+		ProjectDir: p.Dir,
+	}
 }
 
 // resolveTaskStore opens the project's task log for tc: in ModeRepo, the

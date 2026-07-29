@@ -35,35 +35,23 @@ var EnvKeys = taskstest.EnvKeys
 // the duration of the test, returning the temp home. Because it uses t.Setenv
 // (which restores prior values on cleanup and rejects t.Parallel), the calling
 // test must not be parallel.
+//
+// The body lives in taskstest, for the same reason ChangeDir's does: the
+// shared tree must stay self-contained (it cannot import testsupport) while
+// testsupport may import shared, so the canonical body has to sit shared-side
+// — one body, no duplicate. Two bodies is how the two EnvKeys lists drifted
+// apart with nothing to catch it.
 func Isolate(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home) // Windows home, for os.UserHomeDir parity
-	for _, k := range EnvKeys {
-		t.Setenv(k, "")
-	}
-	// taskstest.ResetProcessOverrides clears confload's process-wide env/CLI
-	// override capture (internal/config.SetOverrides wraps it;
-	// internal/cli/root.go's PersistentPreRun installs it once per real
-	// invocation) — state that outlives any single t.Setenv-scoped var and is
-	// shared across every test in this binary. Delegated to taskstest (not
-	// called via internal/config.ResetOverrides) so internal/config's own
-	// in-package test files — which import this package — don't form an
-	// import cycle; see taskstest.ResetProcessOverrides' doc.
-	taskstest.ResetProcessOverrides(t)
-	return home
+	return taskstest.Isolate(t)
 }
 
 // ProjectDir isolates the environment (see Isolate) and switches the working
 // directory to a fresh temp dir, restoring the original cwd on cleanup. It
-// returns the project directory.
+// returns the project directory. Delegated for the reason given on Isolate.
 func ProjectDir(t *testing.T) string {
 	t.Helper()
-	Isolate(t)
-	dir := t.TempDir()
-	ChangeDir(t, dir)
-	return dir
+	return taskstest.ProjectDir(t)
 }
 
 // ChangeDir switches the working directory to dir for the duration of the

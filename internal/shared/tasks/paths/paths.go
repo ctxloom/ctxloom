@@ -108,41 +108,46 @@ func HomeTasksDir() (string, error) {
 	return filepath.Join(home, AppDirName, TasksDir), nil
 }
 
-// TasksLogPath resolves a project's task log path for the given homing mode.
-//
-// ModeRepo needs repoRoot (the project root, already redirected through any
-// linked-worktree-to-primary-checkout boundary by the caller — see
-// projectroot.TaskStoreRoot) and ignores projectID entirely: the repo path
-// itself is the store's identity in this mode, so no id is validated or
-// consulted. The result is
-// <repoRoot>/RepoDirName/RepoTasksFileName (.taskloom/tasks.jsonl).
-//
-// ModeHome — also the default for "", so every pre-homing caller keeps its
-// exact prior behavior unchanged — needs projectID and ignores repoRoot,
-// resolving ~/.ctxloom/tasks/<project-id>.jsonl exactly as before. The id is
-// validated as a single clean path segment first: it reaches here from an
-// in-tree marker file, --project, and CTXLOOM_PROJECT_ID, none of which are
-// trusted to be traversal-free, and this is the chokepoint where the id
-// becomes a filesystem path (the lock file is derived from it too).
 func TasksLogPath(mode Mode, repoRoot, projectID string) (string, error) {
 	switch mode {
 	case ModeRepo:
-		if repoRoot == "" {
-			return "", fmt.Errorf("repo-homed task store: no project root resolved")
-		}
-		return filepath.Join(repoRoot, RepoDirName, RepoTasksFileName), nil
+		return RepoTasksLogPath(repoRoot)
 	case ModeHome, "":
-		if err := ValidateProjectID(projectID); err != nil {
-			return "", err
-		}
-		root, err := HomeTasksDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(root, projectID+TasksLogExt), nil
+		return HomeTasksLogPath(projectID)
 	default:
 		return "", fmt.Errorf("task store: unknown homing mode %q", mode)
 	}
+}
+
+// RepoTasksLogPath resolves the ModeRepo task log path:
+// <repoRoot>/RepoDirName/RepoTasksFileName (.taskloom/tasks.jsonl). No
+// project-id is validated or consulted — the repo path itself is the store's
+// identity in this mode. repoRoot must already be redirected through any
+// linked-worktree-to-primary-checkout boundary by the caller (see
+// projectroot.TaskStoreRoot); an empty one is a returned error, never a path
+// resolved relative to the process's working directory.
+func RepoTasksLogPath(repoRoot string) (string, error) {
+	if repoRoot == "" {
+		return "", fmt.Errorf("repo-homed task store: no project root resolved")
+	}
+	return filepath.Join(repoRoot, RepoDirName, RepoTasksFileName), nil
+}
+
+// HomeTasksLogPath resolves the ModeHome task log path,
+// ~/.ctxloom/tasks/<project-id>.jsonl. The id is validated as a single clean
+// path segment first: it reaches here from an in-tree marker file, --project,
+// and CTXLOOM_PROJECT_ID, none of which are trusted to be traversal-free, and
+// this is the chokepoint where the id becomes a filesystem path (the lock
+// file is derived from it too).
+func HomeTasksLogPath(projectID string) (string, error) {
+	if err := ValidateProjectID(projectID); err != nil {
+		return "", err
+	}
+	root, err := HomeTasksDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, projectID+TasksLogExt), nil
 }
 
 // ValidateProjectID reports whether id is safe to use as the single-segment

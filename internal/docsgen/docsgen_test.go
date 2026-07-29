@@ -133,6 +133,30 @@ func TestGenMarkdown(t *testing.T) {
 	}
 }
 
+// U051-F16: the man-page sweep pattern <bin>*.1 is a prefix glob, not a word
+// match, so it can delete an unrelated binary's pages whose name happens to
+// start with this product's Bin (e.g. "widget" sweeping "widgets-make.1",
+// a different product's page).
+func TestGenManSweepIsPrefixSafe(t *testing.T) {
+	dir := t.TempDir()
+	// A different product ("widgets", not "widget") whose man page name
+	// happens to start with this product's Bin.
+	otherProduct := filepath.Join(dir, "widgets-make.1")
+	if err := os.WriteFile(otherProduct, []byte("another product"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := fakeProduct()
+	p.PrepareTree()
+	if err := GenMan(p, dir); err != nil {
+		t.Fatalf("GenMan: %v", err)
+	}
+
+	if _, err := os.Stat(otherProduct); err != nil {
+		t.Errorf("a same-prefix product's man page was wrongly swept: %v", err)
+	}
+}
+
 // U051-F08: GenMan/GenMarkdown used to return MkdirAll's bare error, with no
 // indication of which operation or directory failed. Force MkdirAll to fail
 // (a path component that's a regular file, not a directory) and require the

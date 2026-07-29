@@ -98,7 +98,16 @@ func GenMan(p *Product, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create man dir %s: %w", dir, err)
 	}
-	if err := removeGenerated(dir, p.Bin+"*.1"); err != nil {
+	// U051-F16: a single p.Bin+"*.1" prefix glob would also match another
+	// product's pages whose name happens to start with this Bin (e.g.
+	// "widget" matching "widgets-make.1"). cobra's GenManTree joins
+	// CommandPath() segments with "-", so this product's own pages are
+	// exactly <bin>.1 (the root) and <bin>-<rest>.1 (every subcommand) --
+	// sweep those two patterns instead of one open-ended prefix.
+	if err := removeGenerated(dir, p.Bin+".1"); err != nil {
+		return fmt.Errorf("sweep stale man pages in %s: %w", dir, err)
+	}
+	if err := removeGenerated(dir, p.Bin+"-*.1"); err != nil {
 		return fmt.Errorf("sweep stale man pages in %s: %w", dir, err)
 	}
 	header := &doc.GenManHeader{

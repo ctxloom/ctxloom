@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -15,9 +16,11 @@ import (
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
@@ -437,6 +440,46 @@ func TestWatchSessionFeed_LiveNotHoldingHarpFallsBack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 	assert.Equal(t, "stored question", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
+}
+
+// TestWatchSessionFeed_AutoWarnsOnLiveTapFailure pins U087-F11: auto mode used
+// to fall back to the store tail with the live-tap error discarded entirely —
+// a coordinator up but rejecting the bearer credential (a real D1 auth
+// problem) was indistinguishable from one simply not holding the harp. The
+// fallback itself is correct behavior; the silence was the bug.
+func TestWatchSessionFeed_AutoWarnsOnLiveTapFailure(t *testing.T) {
+	home := testsupport.Isolate(t)
+	harp := seedFeedHarp(t, home, true)
+	f := newFakeConsumerServer()
+	f.setRuns(runInfoFor("some-other-child", "run-1")) // live, but for a different harp
+	startFakeCoordinator(t, home, "proj", f)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed, err := WatchSessionFeed(ctx, SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	require.NoError(t, err)
+	assert.Equal(t, "store", feed.Source)
+
+	assert.Contains(t, buf.String(), "live tap unavailable",
+		"auto-mode fallback must warn about the discarded live-tap error, not stay silent")
+}
+
+// TestWatchConsumerFeed_EmptyHostNeverWrapsNilErr pins U087-F15: when a
+// coordinator endpoint URL parses cleanly but has no host, the error path used
+// to hand %w a nil err (the u.Host == "" branch shared the same
+// fmt.Errorf(..., err) call as the parse-failure branch), producing a
+// "...%!w(<nil>)" string in user-facing output.
+func TestWatchConsumerFeed_EmptyHostNeverWrapsNilErr(t *testing.T) {
+	_, err := watchConsumerFeed(context.Background(),
+		discover.Endpoint{URL: "no-host-path"},
+		&sessions.Entry{HarpName: "h"}, "claude-code")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "%!w", "must never hand %%w a nil error")
+	assert.Contains(t, err.Error(), "no host")
 }
 
 // TestWatchFeed_DiscoveryAcrossMultipleCoordinators: with two candidate

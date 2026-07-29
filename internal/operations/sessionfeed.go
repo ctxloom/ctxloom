@@ -122,6 +122,12 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 		if source == FeedSourceLive {
 			return nil, fmt.Errorf("no live tap for %q (only children an orchestrator currently holds are tappable): %w", req.Harp, lerr)
 		}
+		// U087-F11: auto mode used to discard lerr entirely here — a
+		// coordinator that is up but rejecting the bearer credential (a real
+		// D1 auth problem) was indistinguishable from one that simply isn't
+		// holding the harp. Warn before falling back so the failure has SOME
+		// visible signal; the fallback itself is still the right behavior.
+		clidiag.Warn("ctxloom", "watch %s: live tap unavailable, using store tail: %v", req.Harp, lerr)
 	}
 	return watchStoreFeed(ctx, entry, backend)
 }
@@ -179,8 +185,11 @@ func (bearerToken) RequireTransportSecurity() bool { return false }
 // when this candidate does not hold the harp, so the caller moves on.
 func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	u, err := url.Parse(ep.URL)
-	if err != nil || u.Host == "" {
+	if err != nil {
 		return nil, fmt.Errorf("watch: parse coordinator endpoint %q: %w", ep.URL, err)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("watch: coordinator endpoint %q has no host", ep.URL)
 	}
 	conn, err := grpc.NewClient(u.Host,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -426,6 +435,13 @@ func boundaryFeedEvent(from, to int) SessionFeedEvent {
 	}}}}
 }
 
+// historyForBackend resolves a backend's session history reader for
+// feedScrollback's by-location locator. A package-private indirection over
+// HistoryForBackend (never exported) so an in-package test can substitute a
+// fake agent.SessionHistory without a new public test-only API — see
+// TestFeedScrollback_NilSessionNoErrorWarns.
+var historyForBackend = HistoryForBackend
+
 // feedScrollback reads the harp's recorded transcript once, for the live
 // feed's scrollback prefix. Best-effort by design: a failed read degrades the
 // view to live-only with a warning, never kills the feed.
@@ -444,7 +460,7 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 		sess, err = pb.NewSessionReader(backend, 0).GetSession(ctx, entry.SessionID)
 	case entry.TranscriptPath != "":
 		var hist agent.SessionHistory
-		if hist, err = HistoryForBackend(backend); err == nil {
+		if hist, err = historyForBackend(backend); err == nil {
 			sess, err = hist.GetSessionByPath(entry.TranscriptPath)
 		}
 	default:
@@ -455,6 +471,12 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 		return nil
 	}
 	if sess == nil {
+		// U087-F16: a nil session with no error produces the exact same
+		// user-visible outcome as the warned-error branch above (no
+		// scrollback) but used to say nothing at all — the one case that
+		// looked like a bug (or a genuinely empty transcript) was the one
+		// left unexplained.
+		clidiag.Warn("ctxloom", "watch %s: scrollback unavailable (empty session), starting live-only", entry.HarpName)
 		return nil
 	}
 	return sess.Entries

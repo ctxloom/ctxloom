@@ -166,6 +166,23 @@ func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]str
 }
 
 // AssembleContext combines fragments into a single context string.
+//
+// This is the SECOND assembler of "the assembled context". The other,
+// assembleDedupedContext (contextfile.go), is
+// what WriteContextFile — the full-setup path — actually delivers, and its doc
+// states the invariant outright: its output is what "the raw context file must
+// NOT diverge from". They diverge. This one does no content-hash dedup and
+// emits no oversize warning, so a fragment set that reaches the same content
+// through two bundles produces DIFFERENT BYTES here than on the full-setup
+// path, and an oversize context goes out silently.
+//
+// It is left alone because its two production callers are the SkipSetup
+// fan-out path (lm/grpc/server.go) and lm/backends/mock.go: collapsing it onto
+// the deduping assembler changes what reaches a live session, which is the
+// human's decision to make. The divergence is measured and
+// pinned by TestAssembleContext_DivergesFromTheDelivered, and the invariant
+// the docs claim is stated as a t.Skip'd test right beside it — un-skip it
+// with the fix.
 func AssembleContext(fragments []*Fragment) string {
 	if len(fragments) == 0 {
 		return ""

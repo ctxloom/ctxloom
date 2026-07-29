@@ -49,19 +49,12 @@ func (s *ManagedCommandsDelivery) Deliver(dir string) (Delivered, error) {
 	if err := s.write(dir, s.commands); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return s.write(dir, nil) }), nil
+	return DeliveredFunc(func() error { return s.write(dir, nil) }), nil
 }
-
-// deliveredFunc adapts a cleanup closure to Delivered so a shared delivery can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 // Compile-time contract.
 var (
 	_ Delivery       = (*ManagedCommandsDelivery)(nil)
 	_ KindedDelivery = (*ManagedCommandsDelivery)(nil)
-	_ Delivered      = deliveredFunc(nil)
+	_ Delivered      = DeliveredFunc(nil)
 )

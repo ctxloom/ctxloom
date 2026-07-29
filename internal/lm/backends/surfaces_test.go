@@ -20,7 +20,9 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 	for _, name := range []string{"acp", "mock", "does-not-exist"} {
 		t.Run(name, func(t *testing.T) {
 			set := BuildSurfaces(name, agent.SurfaceInputs{}, afero.NewMemMapFs())
-			assert.Empty(t, set.Deliveries(), "opt-out backend materializes no surfaces")
+			resolved, err := agent.Select(set).WithEverything().Build()
+			require.NoError(t, err)
+			assert.Empty(t, resolved.Deliveries(), "opt-out backend materializes no surfaces")
 		})
 	}
 }
@@ -29,7 +31,9 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 // claude.NewSurfaces: a full set of native surfaces is returned.
 func TestBuildSurfaces_Claude(t *testing.T) {
 	set := BuildSurfaces("claude-code", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
-	assert.Len(t, set.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
+	resolved, err := agent.Select(set).WithEverything().Build()
+	require.NoError(t, err)
+	assert.Len(t, resolved.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
 }
 
 // TestBuildSurfaces_Kiro proves the kiro descriptor closure routes through
@@ -38,7 +42,9 @@ func TestBuildSurfaces_Claude(t *testing.T) {
 // and skills share one native directory, reconciled inside kiro.NewSurfaces.
 func TestBuildSurfaces_Kiro(t *testing.T) {
 	set := BuildSurfaces("kiro", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
-	assert.Len(t, set.Deliveries(), 5, "kiro has context + MCP + settings + commands + skills surfaces")
+	resolved, err := agent.Select(set).WithEverything().Build()
+	require.NoError(t, err)
+	assert.Len(t, resolved.Deliveries(), 5, "kiro has context + MCP + settings + commands + skills surfaces")
 }
 
 // TestBuildSurfaces_CodexNoNativeContextFile pins the codex opt-out invariant

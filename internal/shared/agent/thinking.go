@@ -41,18 +41,34 @@ const (
 	ThinkingHigh
 )
 
-// String renders the canonical wire/config spelling.
+// thinkingSpellings is the SINGLE source of the four canonical config
+// spellings, listed in the order flag help and docs present them
+// (cheapest-first) — deliberately NOT iota order, which starts at medium so an
+// un-configured field defaults safely. String, ParseThinkingLevel and
+// ThinkingLevelNames all read this table, so a fifth tier is one line and
+// cannot land in some of the three and not the others: spelled out per site,
+// the four names appear three times in this one file, and a tier added to the
+// parser but not to the names list would parse, print, and never appear in flag
+// help. Held by TestThinkingLevel_NamesCoverEveryDeclaredLevel.
+var thinkingSpellings = []struct {
+	level ThinkingLevel
+	name  string
+}{
+	{ThinkingOff, "off"},
+	{ThinkingLow, "low"},
+	{ThinkingMedium, "medium"},
+	{ThinkingHigh, "high"},
+}
+
+// String renders the canonical wire/config spelling. A value outside the
+// declared tiers renders as the documented medium default.
 func (l ThinkingLevel) String() string {
-	switch l {
-	case ThinkingOff:
-		return "off"
-	case ThinkingLow:
-		return "low"
-	case ThinkingHigh:
-		return "high"
-	default:
-		return "medium"
+	for _, s := range thinkingSpellings {
+		if s.level == l {
+			return s.name
+		}
 	}
+	return "medium"
 }
 
 // ParseThinkingLevel maps a config string to a ThinkingLevel. Lenient on
@@ -61,23 +77,23 @@ func (l ThinkingLevel) String() string {
 // default) apart from "explicit but unrecognized" (warn, then still apply
 // the default) — mirroring ParsePermissionMode's ok-bool contract.
 func ParseThinkingLevel(s string) (ThinkingLevel, bool) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "":
-		return ThinkingMedium, false
-	case "off":
-		return ThinkingOff, true
-	case "low":
-		return ThinkingLow, true
-	case "medium":
-		return ThinkingMedium, true
-	case "high":
-		return ThinkingHigh, true
-	default:
+	want := strings.ToLower(strings.TrimSpace(s))
+	if want == "" {
 		return ThinkingMedium, false
 	}
+	for _, sp := range thinkingSpellings {
+		if sp.name == want {
+			return sp.level, true
+		}
+	}
+	return ThinkingMedium, false
 }
 
 // ThinkingLevelNames lists the accepted config values, for flag help/docs.
 func ThinkingLevelNames() []string {
-	return []string{"off", "low", "medium", "high"}
+	names := make([]string, 0, len(thinkingSpellings))
+	for _, s := range thinkingSpellings {
+		names = append(names, s.name)
+	}
+	return names
 }

@@ -47,7 +47,7 @@ func (s *ManagedSkillPackagesDelivery) Deliver(dir string) (Delivered, error) {
 	if err := s.write(dir, s.skills); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return s.write(dir, nil) }), nil
+	return DeliveredFunc(func() error { return s.write(dir, nil) }), nil
 }
 
 // Compile-time contract.

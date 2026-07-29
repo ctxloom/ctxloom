@@ -69,9 +69,6 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "kiro/context" }
 
-// Kind reports kiro's context surface (.kiro/steering/ctxloom-context.md).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
@@ -93,15 +90,12 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
+	return agent.DeliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
 
 // UnsafeInfo returns kiro's MCP identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *mcpSurface) UnsafeInfo() string { return "kiro/mcp" }
-
-// Kind reports kiro's MCP surface (.kiro/settings/mcp.json).
-func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // settingsSurface is kiro's folded settings + hooks surface: the ctxloom-owned
 // custom-agent config .kiro/agents/<name>.json, written via the reused mapHooks +
@@ -136,7 +130,7 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	fs := s.fs
 	path := w.agentPath(dir)
-	return deliveredFunc(func() error {
+	return agent.DeliveredFunc(func() error {
 		if exists, _ := afero.Exists(fs, path); !exists {
 			return nil
 		}
@@ -147,9 +141,6 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns kiro's settings identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *settingsSurface) UnsafeInfo() string { return "kiro/settings" }
-
-// Kind reports kiro's settings surface (.kiro/agents/<name>.json — hooks folded in).
-func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // kiro's commands surface — the agentskills SKILL.md files under .kiro/skills/ —
 // is the shared agent.ManagedCommandsDelivery bound to kiro's manifest-scoped
@@ -178,13 +169,6 @@ func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSetting
 // a skill disabled for this engine writes nothing here, so it must not shadow
 // the command with the same name.
 
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
-
 // Surfaces is kiro's set of delivery surfaces for one run — five surface
 // objects: context (steering), MCP (settings/mcp.json), settings (agent JSON +
 // hooks), commands, and skills (both of the latter two share .kiro/skills/,
@@ -192,6 +176,12 @@ func (f deliveredFunc) Cleanup() error { return f() }
 // agent.FilterCommandsClaimedBySkills, see the collision-resolution doc
 // comment above NewSurfaces).
 type Surfaces struct {
+	// TableDispatch carries kiro's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	MCP      *mcpSurface
 	Settings *settingsSurface
@@ -232,11 +222,12 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		},
 	)
 	return Surfaces{
-		Context:  context,
-		MCP:      mcp,
-		Settings: settings,
-		Commands: commands,
-		Skills:   skills,
+		TableDispatch: agent.TableDispatch{Table: kiroApproaches},
+		Context:       context,
+		MCP:           mcp,
+		Settings:      settings,
+		Commands:      commands,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceMCP:      mcp,
@@ -245,20 +236,6 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 			agent.SurfaceSkills:   skills,
 		},
 	}
-}
-
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target),
-// where a well-known write into a private dir is safe. This is the ONLY way
-// kiro's surfaces reach a cell directly: none has a SharedRealization, so a
-// SHARED-cwd delivery falls back to the loud well-known write (see
-// Surfaces.SharedRealization below). (The `--agent` name lever isolates
-// CONCURRENT agents at launch, orthogonally to this seam.) Commands is
-// delivered BEFORE Skills, but the order is not what makes collisions safe —
-// agent.FilterCommandsClaimedBySkills already removed any claimed name from Commands, so
-// Skills never overwrites a file Commands just wrote.
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Commands, s.Skills}
 }
 
 // kiroApproaches is kiro's DECLARED per-surface approach table (vital-tiger v2
@@ -272,17 +249,6 @@ var kiroApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports kiro's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return kiroApproaches.Supported(kind)
-}
-
-// DefaultApproach reports kiro's default (first-declared: the native file)
-// approach for kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return kiroApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, UnsafeFile) to the concrete kiro surface via
@@ -304,10 +270,6 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts. Every kiro surface is a KindedDelivery.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*mcpSurface)(nil)
-	_ agent.KindedDelivery = (*settingsSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

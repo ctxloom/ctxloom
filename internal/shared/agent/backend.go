@@ -37,14 +37,24 @@ const (
 // is the unit of context an agent injects into the model (via SetupRequest.
 // Fragments); it has nothing to do with slash commands, which travel
 // separately as ManagedConfig.Commands ([]CommandExport).
+//
+// Only Content is ever read (base.go, contextfile.go, and codex/surfaces.go's
+// WriteContextFile). Name/Version/Tags/IsDistilled/DistilledBy are write-only
+// across the whole system and stay anyway: each is carried by llm.proto's
+// Fragment message (fields 1,2,3,5,6), so removing one is a schema edit, not an
+// implementer's call. The honest alternative is to add the consumer that
+// justifies them (a per-fragment provenance header in the assembled context);
+// that is a product decision, not a cleanup.
+//
+// A field with NO proto backing is a different case: it cannot have crossed the
+// wire even in principle, so dropping it is a pure Go-side change.
 type Fragment struct {
-	Name         string
-	Version      string
-	Tags         []string
-	Content      string
-	Installation string // Setup/installation instructions for tooling
-	IsDistilled  bool
-	DistilledBy  string
+	Name        string
+	Version     string
+	Tags        []string
+	Content     string
+	IsDistilled bool
+	DistilledBy string
 }
 
 // ModelInfo contains information about the model used for the response.

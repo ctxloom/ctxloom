@@ -66,9 +66,6 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "antigravity/context" }
 
-// Kind reports agy's context surface (.agents/AGENTS.md).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // mcpSurface is agy's MCP surface: .agents/mcp_config.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
@@ -90,15 +87,12 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
+	return agent.DeliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
 
 // UnsafeInfo returns agy's MCP identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *mcpSurface) UnsafeInfo() string { return "antigravity/mcp" }
-
-// Kind reports agy's MCP surface (.agents/mcp_config.json).
-func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // hooksSurface is agy's hooks surface: the ctxloom-managed entries of
 // .agents/hooks.json. It reuses the SAME writer helpers WriteSettings composes
@@ -136,7 +130,7 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.saveHooksFile(hooksPath, hf); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error {
+	return agent.DeliveredFunc(func() error {
 		hf, err := w.loadHooksFile(hooksPath)
 		if err != nil {
 			return err
@@ -149,10 +143,6 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns agy's hooks identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
-
-// Kind reports agy's hooks surface (.agents/hooks.json) as the settings surface —
-// agy's hooks file IS its settings, so a caller selecting Settings gets it.
-func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // agy's commands surface — Agent Skill directories under .agents/skills/
 // (`<name>/SKILL.md`, generated frontmatter, capabilities.go
@@ -172,18 +162,17 @@ func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 // skill-wins, exactly like kiro's identical collision
 // (internal/kiro/surfaces.go).
 
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
-
 // Surfaces is agy's set of delivery surfaces for one run — five surface objects:
 // context (AGENTS.md), MCP (mcp_config.json), hooks (hooks.json), commands
 // (skills/<name>/SKILL.md), and skills (skills/<name>/SKILL.md, same parent —
 // see the collision-resolution doc above NewSurfaces).
 type Surfaces struct {
+	// TableDispatch carries agy's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	MCP      *mcpSurface
 	Hooks    *hooksSurface
@@ -225,11 +214,12 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		},
 	)
 	return Surfaces{
-		Context:  context,
-		MCP:      mcp,
-		Hooks:    hooks,
-		Commands: commands,
-		Skills:   skills,
+		TableDispatch: agent.TableDispatch{Table: agyApproaches},
+		Context:       context,
+		MCP:           mcp,
+		Hooks:         hooks,
+		Commands:      commands,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceMCP:      mcp,
@@ -238,16 +228,6 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 			agent.SurfaceSkills:   skills,
 		},
 	}
-}
-
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target),
-// where a well-known write into a private dir is safe. This is the ONLY way agy's
-// surfaces reach a cell directly: none has a SharedRealization, so a SHARED-cwd
-// delivery falls back to the loud well-known write (see Surfaces.SharedRealization
-// below).
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.MCP, s.Hooks, s.Commands, s.Skills}
 }
 
 // agyApproaches is agy's DECLARED per-surface approach table (vital-tiger v2
@@ -260,17 +240,6 @@ var agyApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports agy's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return agyApproaches.Supported(kind)
-}
-
-// DefaultApproach reports agy's default (first-declared: the native file)
-// approach for kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return agyApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, UnsafeFile) to the concrete agy surface via
@@ -290,10 +259,6 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts. Every agy surface is a KindedDelivery.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*mcpSurface)(nil)
-	_ agent.KindedDelivery = (*hooksSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

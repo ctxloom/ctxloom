@@ -126,15 +126,12 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	fs := s.fs
 	path := filepath.Join(dir, agent.SCMContextSubdir, hash+".md")
-	return deliveredFunc(func() error { return fs.Remove(path) }), nil
+	return agent.DeliveredFunc(func() error { return fs.Remove(path) }), nil
 }
 
 // UnsafeInfo returns codex's context identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
-
-// Kind reports codex's context surface (the raw context cache file).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // agentsMDSurface is codex's OTHER, native context route (taskloom
 // lanky-plop/tiny-ooze): codex reads a workspace-fixed AGENTS.md NATIVELY at
@@ -170,17 +167,6 @@ func (s *agentsMDSurface) Deliver(dir string) (agent.Delivered, error) {
 // fallback's warning (ResolvedSelection.deliverOneShared's unsafeNamed check,
 // cells.go).
 func (s *agentsMDSurface) UnsafeInfo() string { return "codex/agents-md" }
-
-// Kind reports codex's native context surface as the same cross-backend
-// SurfaceContext kind as contextSurface — the two are alternate ROUTES for one
-// surface kind, not two kinds. SurfaceFor resolves EXACTLY one Delivery per
-// (kind, approach) — cells.go's SurfaceSelection.Build calls SurfaceFor once
-// per selected kind — so codex's two context routes are composed into a
-// single agent.ComposedDelivery value (built in NewSurfaces, see the routes
-// field) for that path (the one `profile materialize` and the live run/launch
-// path both use, via agent.Select(set).WithEverything()); a bare s.Context
-// alone would silently drop the AGENTS.md route from both.
-func (s *agentsMDSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // configSurface is codex's folded settings + hooks + MCP surface: the single
 // .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
@@ -230,17 +216,12 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.WriteSettingsWithTrust(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.RemoveSettings(target) }), nil
+	return agent.DeliveredFunc(func() error { return w.RemoveSettings(target) }), nil
 }
 
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *configSurface) UnsafeInfo() string { return "codex/config" }
-
-// Kind reports codex's config surface as the settings surface — it folds codex's
-// [hooks] AND [mcp_servers] tables into one config.toml, so a caller selecting
-// either Settings or MCP gets the whole file.
-func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // codex's prompts surface is the shared agent.ManagedCommandsDelivery bound to
 // codex's writer (built in NewSurfaces). codex prompts are GLOBAL
@@ -255,19 +236,18 @@ func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings 
 // $CODEX_HOME (cellScopedSkillsDir) as commands — codex skills are global
 // ($CODEX_HOME/skills), exactly like its prompts.
 
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
-// return its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
-
 // Surfaces is codex's set of delivery surfaces for one run. codex has five
 // surface objects — context (the raw context file, for the SessionStart hook),
 // agentsMD (the native AGENTS.md managed section — the other context route),
 // config (config.toml's folded hooks + MCP), commands (cell-scoped prompts),
 // and skills (cell-scoped Agent Skills packages).
 type Surfaces struct {
+	// TableDispatch carries codex's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	AgentsMD *agentsMDSurface
 	Config   *configSurface
@@ -333,12 +313,13 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 		SurfaceKind: agent.SurfaceContext,
 	}
 	return Surfaces{
-		Context:  ctxSurf,
-		AgentsMD: mdSurf,
-		Config:   config,
-		Commands: commands,
-		Skills:   skills,
-		routes:   routes,
+		TableDispatch: agent.TableDispatch{Table: codexApproaches},
+		Context:       ctxSurf,
+		AgentsMD:      mdSurf,
+		Config:        config,
+		Commands:      commands,
+		Skills:        skills,
+		routes:        routes,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  routes,
 			agent.SurfaceSettings: config,
@@ -346,18 +327,6 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 			agent.SurfaceSkills:   skills,
 		},
 	}
-}
-
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target),
-// where a well-known write into a private dir is safe. This is the ONLY way
-// codex's surfaces reach a cell directly: none has a SharedRealization, so a
-// SHARED-cwd delivery falls back to the loud well-known write (see
-// Surfaces.SharedRealization below). The composed routes entry delivers BOTH
-// context routes (contextSurface + agentsMDSurface) as one surface, matching
-// what SurfaceFor resolves for the same kind.
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.routes, s.Config, s.Commands, s.Skills}
 }
 
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
@@ -386,18 +355,6 @@ var codexApproaches = agent.ApproachTable{
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
-// SupportedApproaches reports codex's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return codexApproaches.Supported(kind)
-}
-
-// DefaultApproach reports codex's default (first-declared) approach for kind:
-// Hook for context (its only approach — the existing cache-file write), the
-// native file for settings/commands, absent for the folded MCP kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return codexApproaches.Default(kind)
-}
-
 // SurfaceFor resolves one (kind, approach) to the concrete codex surface via
 // the shared table lookup against s.dispatch (built once in NewSurfaces, not
 // reallocated per call). context via Hook resolves to s.routes, the composed
@@ -417,10 +374,6 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts. Every codex surface is a KindedDelivery.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*agentsMDSurface)(nil)
-	_ agent.KindedDelivery = (*configSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

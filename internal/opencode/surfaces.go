@@ -49,9 +49,6 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns opencode's context identity for the DeliverShared fallback's warning.
 func (s *contextSurface) UnsafeInfo() string { return "opencode/context" }
 
-// Kind reports opencode's context surface (instructions -> .opencode/ctxloom-context.md).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // configSurface is opencode's folded settings + MCP surface: opencode.json's `mcp`
 // key, written via the reused OpencodeWriter.WriteSettings.
 type configSurface struct {
@@ -68,22 +65,11 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	if err := w.WriteSettings(nil, s.mcp, s.bundleMCP, dir); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.removeMCP(dir) }), nil
+	return agent.DeliveredFunc(func() error { return w.removeMCP(dir) }), nil
 }
 
 // UnsafeInfo returns opencode's config identity for the DeliverShared fallback's warning.
 func (s *configSurface) UnsafeInfo() string { return "opencode/config" }
-
-// Kind reports opencode's config surface as the settings surface — it folds
-// opencode.json's `mcp` key in, so selecting either Settings or MCP gets it.
-func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
-
-// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can return
-// its teardown inline without a bespoke handle type.
-type deliveredFunc func() error
-
-// Cleanup runs the wrapped cleanup closure.
-func (f deliveredFunc) Cleanup() error { return f() }
 
 // opencode's commands surface — the custom-command .md files under
 // .opencode/command/ — is the shared agent.ManagedCommandsDelivery bound to
@@ -106,6 +92,12 @@ func (f deliveredFunc) Cleanup() error { return f() }
 // commands/skills surfaces serve the persistent `profile materialize` path; a
 // live run delivers both transiently in Chat.
 type Surfaces struct {
+	// TableDispatch carries opencode's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	Config   *configSurface
 	Commands *agent.ManagedCommandsDelivery
@@ -130,10 +122,11 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		return reconcileSkillsSurface(fs, dir, skills)
 	})
 	return Surfaces{
-		Context:  ctx,
-		Config:   config,
-		Commands: commands,
-		Skills:   skills,
+		TableDispatch: agent.TableDispatch{Table: opencodeApproaches},
+		Context:       ctx,
+		Config:        config,
+		Commands:      commands,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  ctx,
 			agent.SurfaceSettings: config,
@@ -141,12 +134,6 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 			agent.SurfaceSkills:   skills,
 		},
 	}
-}
-
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target).
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.Config, s.Commands, s.Skills}
 }
 
 // opencodeApproaches is opencode's DECLARED per-surface approach table: context,
@@ -158,17 +145,6 @@ var opencodeApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports opencode's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return opencodeApproaches.Supported(kind)
-}
-
-// DefaultApproach reports opencode's default (first-declared: the native file)
-// approach for kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return opencodeApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, approach) to the concrete opencode surface via the
@@ -186,8 +162,5 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*configSurface)(nil)
-	_ agent.Delivered      = deliveredFunc(nil)
-	_ agent.SurfaceSet     = Surfaces{}
+	_ agent.SurfaceSet = Surfaces{}
 )

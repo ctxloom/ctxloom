@@ -21,9 +21,6 @@ func newClaudeLifecycle() *agent.BaseLifecycle {
 	return agent.NewBaseLifecycle("claude-code")
 }
 
-// TestClaudeCommands_RegisterFromContent covers the host-resolved export path:
-// the host maps bundle content to agent.CommandExport (enablement + metadata
-// already resolved) and the command writer just emits the command files.
 func TestClaudeContext_GetContextHash(t *testing.T) {
 	context := agent.NewBaseContextProvider()
 
@@ -154,7 +151,7 @@ func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
 	deliverSettings := func(t *testing.T, manage bool) string {
 		t.Helper()
 		fs := afero.NewMemMapFs()
-		surfaces := NewSurfaces(SurfaceInputs{Hooks: &wire.HooksConfig{}, ManageStatusline: manage}, dirPlacement{}, fs)
+		surfaces := NewSurfaces(agent.SurfaceInputs{Hooks: &wire.HooksConfig{}, ManageStatusline: manage}, dirPlacement{}, fs)
 		_, err := surfaces.Settings.Deliver("/proj")
 		require.NoError(t, err)
 		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))

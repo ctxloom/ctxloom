@@ -257,7 +257,13 @@ func TestDirectoryIsolatedCell_AcceptsAllAntigravitySurfaces(t *testing.T) {
 	dir := "/worktree"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	ds := s.Deliveries()
+	// The surfaces reach a cell through the approach-resolved selection — the
+	// same path the launch path drives. There is deliberately no raw,
+	// unresolved SurfaceSet.Deliveries() to call instead: it materializes the
+	// identical tree and has no production caller.
+	resolved, err := agent.Select(s).WithEverything().Build()
+	require.NoError(t, err)
+	ds := resolved.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, hooks, commands, skills")
 
 	cell := agent.NewIsolatedCell(dir)

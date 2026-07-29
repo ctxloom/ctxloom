@@ -69,7 +69,7 @@ func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string
 	if err := w.writeMCPConfig(dir, mcp, bundle); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil
+	return agent.DeliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil
 }
 
 // DeliverCommands materializes the commands surface by delegating to
@@ -108,7 +108,7 @@ func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (
 	if err := WriteCommandFiles(dir, commands, opts...); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error {
+	return agent.DeliveredFunc(func() error {
 		return WriteCommandFiles(dir, nil, opts...)
 	}), nil
 }
@@ -131,7 +131,7 @@ func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageSt
 	if err := w.writeSettingsFile(hooks, d.denyTools, dir); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil
+	return agent.DeliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil
 }
 
 var (

@@ -38,8 +38,8 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 // sampleInputs is a representative, fully-populated SurfaceInputs.
-func sampleInputs() SurfaceInputs {
-	return SurfaceInputs{
+func sampleInputs() agent.SurfaceInputs {
+	return agent.SurfaceInputs{
 		Context: "# Rules\nthe secret color is vermilion",
 		MCP: &wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -382,7 +382,13 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	dir := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
-	ds := s.Deliveries()
+	// The surfaces reach a cell through the approach-resolved selection — the
+	// same path the launch path drives. There is deliberately no raw,
+	// unresolved SurfaceSet.Deliveries() to call instead: it materializes the
+	// identical tree and has no production caller.
+	resolved, err := agent.Select(s).WithEverything().Build()
+	require.NoError(t, err)
+	ds := resolved.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
 	cell := agent.NewIsolatedCell(dir)

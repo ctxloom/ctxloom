@@ -467,9 +467,8 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			continue
 		}
 		backendFrags = append(backendFrags, &agent.Fragment{
-			Name:         content.Name,
-			Content:      substituteVariables(content.Content, profileVars, warnSubstitutionFor(content.Name)),
-			Installation: content.Installation,
+			Name:    content.Name,
+			Content: substituteVariables(content.Content, profileVars, warnSubstitutionFor(content.Name)),
 		})
 	}
 
@@ -484,9 +483,8 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// (loader.Gate()) so a rejected builtin fragment is withheld here too.
 	for _, bf := range cfg.ResolveBuiltinBundleFragments(loader.Gate()) {
 		backendFrags = append(backendFrags, &agent.Fragment{
-			Name:         bf.Name,
-			Content:      bf.Content,
-			Installation: bf.Installation,
+			Name:    bf.Name,
+			Content: bf.Content,
 		})
 	}
 

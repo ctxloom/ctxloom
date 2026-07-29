@@ -98,16 +98,19 @@ type KindedDelivery interface {
 
 // SurfaceSet is the per-backend set of delivery surfaces for one run, exposed so
 // the SurfaceSelection builder can drive delivery without importing the concrete
-// backend. Every backend's `Surfaces` value satisfies it. Deliveries feeds an
-// ISOLATED cell (worktree/container/materialize) where a well-known write into a
-// private dir is safe; the four approach-dispatch methods below are the
-// per-provider dispatch (vital-tiger v2) the opt-in SurfaceSelection builder
-// resolves a caller's named approach through — descriptor-keyed, never a
-// cross-backend type switch.
+// backend. Every backend's `Surfaces` value satisfies it. The four
+// approach-dispatch methods below are the per-provider dispatch (vital-tiger v2)
+// the opt-in SurfaceSelection builder resolves a caller's named approach through
+// — descriptor-keyed, never a cross-backend type switch.
+//
+// There is deliberately NO Deliveries() here. Iterating a set's surfaces is what
+// Select(set).WithEverything().Build().Deliveries() does, approach-resolved and
+// with the kind attached. A raw, unresolved Deliveries() on this interface would
+// be a SECOND iteration path — one five backends hand-maintain as a slice
+// literal and no production caller reads — for a materialized tree measured to
+// be identical (see TestDeliveries_ResolvedSelectionMaterializesEverySurface in
+// internal/lm/backends).
 type SurfaceSet interface {
-	// Deliveries returns every surface as a plain Delivery for an isolated cell.
-	Deliveries() []Delivery
-
 	// SupportedApproaches reports the delivery approaches this backend offers for
 	// kind. An EMPTY result means the backend has no distinct surface of that kind
 	// (codex folds MCP into its config/settings surface) — selecting the kind is
@@ -235,9 +238,6 @@ func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) f
 // materializing no files. It lets acp share the one cell-based Setup path without
 // inventing well-known files no ACP agent reads.
 type EmptySurfaceSet struct{}
-
-// Deliveries returns no surfaces (nothing to write into an isolated cell).
-func (EmptySurfaceSet) Deliveries() []Delivery { return nil }
 
 // SupportedApproaches reports no approaches for any kind: a protocol-only backend
 // has no file surfaces, so a WithEverything selection resolves to nothing.

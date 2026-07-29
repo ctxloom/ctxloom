@@ -107,14 +107,8 @@ type PublishOptions struct {
 	// Message is the commit body / PR description body.
 	Message string
 
-	// Force overwrites existing content without confirmation.
-	Force bool
-
 	// ItemType specifies what type of item to publish.
 	ItemType ItemType
-
-	// FS is the filesystem to use (defaults to OS filesystem if nil).
-	FS afero.Fs
 
 	// SignPayload, when non-nil, is called with the EXACT bytes about to be
 	// written to remotePath — the local file's bytes, verbatim, which are also
@@ -184,13 +178,13 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 
 // loadPublishContent reads the local file's bytes. It does not transform them
 // in any way, and must not: the bytes it returns are the bytes that get signed
-// and the bytes that land in the remote (spec §3.0, §3.1).
-func (pm *PublishManager) loadPublishContent(localPath string, opts PublishOptions) ([]byte, error) {
-	fs := opts.FS
-	if fs == nil {
-		fs = pm.fs
-	}
-	content, err := afero.ReadFile(fs, localPath)
+// and the bytes that land in the remote (spec §3.0, §3.1). The filesystem is
+// the manager-level seam (WithPublishFS) — PublishOptions used to carry a
+// SECOND, always-empty FS field with a silent precedence rule over this one;
+// it was deleted (U094-F01) since nothing, in production or in tests, ever set
+// it.
+func (pm *PublishManager) loadPublishContent(localPath string) ([]byte, error) {
+	content, err := afero.ReadFile(pm.fs, localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
@@ -228,7 +222,7 @@ func (pm *PublishManager) resolvePublishBranch(ctx context.Context, repoURL, own
 // content (the local file's bytes, verbatim), and commit subject/body shared by
 // both push strategies.
 func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (*publishPrep, error) {
-	content, err := pm.loadPublishContent(localPath, opts)
+	content, err := pm.loadPublishContent(localPath)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +270,15 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	}
 
 	// Existing file (if any) decides created vs updated and the default title.
-	existingSHA, _ := publisher.GetFileSHA(ctx, owner, repo, remotePath, branch)
+	// GetFileSHA's contract (see the Publisher interface doc) is "empty string
+	// means the file doesn't exist" — that is NOT the same as "the forge could
+	// not be asked". A transient failure here must not be silently read as
+	// "absent" (U094-F11): that flips a genuine update into an "Add …" commit
+	// subject / PR title, misrepresenting the change.
+	existingSHA, err := publisher.GetFileSHA(ctx, owner, repo, remotePath, branch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for an existing file at %s: %w", remotePath, err)
+	}
 	created := existingSHA == ""
 
 	title, body := resolvePublishTitleAndBody(opts, itemName, created)

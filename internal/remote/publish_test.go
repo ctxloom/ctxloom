@@ -22,6 +22,7 @@ type mockPublisher struct {
 	createFileErr   error
 	createBranchErr error
 	createPRErr     error
+	getFileSHAErr   error
 }
 
 type mockPR struct {
@@ -67,6 +68,9 @@ func (m *mockPublisher) CreateBranch(ctx context.Context, owner, repo, branchNam
 }
 
 func (m *mockPublisher) GetFileSHA(ctx context.Context, owner, repo, path, ref string) (string, error) {
+	if m.getFileSHAErr != nil {
+		return "", m.getFileSHAErr
+	}
 	if sha, ok := m.files[path]; ok {
 		return sha, nil
 	}
@@ -238,6 +242,36 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		require.Error(t, err, "publishing a 0-byte file must be refused, not overwrite the remote with nothing")
 		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
+	})
+
+	// U094-F11: preparePublish swallowed the error from GetFileSHA, silently
+	// reinterpreting "the forge failed to answer" as "the file doesn't exist"
+	// — flipping a genuine update into an "Add …" commit subject/PR title.
+	t.Run("a GetFileSHA failure aborts the publish instead of being read as absent", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll("/local", 0755))
+		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+		mp := newMockPublisher()
+		mp.getFileSHAErr = fmt.Errorf("forge unavailable")
+		mf := newMockFetcher()
+
+		pm := NewPublishManager(registry, AuthConfig{},
+			WithPublishFS(fs),
+			WithPublisherFactory(mockPublisherFactory(mp)),
+			WithPublishFetcherFactory(mockFetcherFactory(mf)),
+		)
+
+		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+			ItemType: ItemTypeBundle,
+			Branch:   "main",
+		})
+
+		require.Error(t, err, "a GetFileSHA failure must not be silently treated as \"file doesn't exist\"")
+		assert.Empty(t, mp.createdFiles, "nothing must reach the remote when the existing-file check fails")
 	})
 
 	t.Run("detects update vs create", func(t *testing.T) {

@@ -37,11 +37,11 @@ const ellipsis = "..."
 // appending "..." when it had to cut. It guarantees len(result) <= maxBytes —
 // the suffix is reserved from the budget, not added on top of it.
 //
-// U129-F01: nine call sites used to hand-roll the second half of this as
-// TruncateBytes(s, w-3) + "...", so the result exceeded the requested cap by
-// the suffix length and every caller had to pre-subtract 3 from its real
-// column width (17, 15, 32, 16, 57, 67 — none a round width). Nothing enforced
-// that relationship; a caller who forgot overflowed its column silently.
+// Callers must not hand-roll the second half of this as
+// TruncateBytes(s, w-3) + "...": the result then exceeds the requested cap by
+// the suffix length, and every caller has to pre-subtract 3 from its real
+// column width. Nothing enforces that relationship, so a caller who forgets
+// overflows its column silently.
 //
 // A maxBytes <= 0 yields the empty string. When maxBytes is too small to hold
 // the marker at all, content wins over the marker: the result is a plain

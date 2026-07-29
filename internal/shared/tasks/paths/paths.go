@@ -20,13 +20,12 @@ import (
 
 const (
 	// AppDirName is the name of the ctxloom directory; the task store shares
-	// it rather than minting a parallel dot-dir. U092-F11: it is an ALIAS of
-	// internal/paths.AppDirName, not a second declaration of ".ctxloom" — the
-	// two used to be independent literals in two packages with no relationship,
-	// so a drift in either would have silently stopped TaskStoreRoot's
-	// documented opt-out from matching the directory `ctxloom init` creates,
-	// with no error at either end. Both packages are import leaves apart from
-	// this edge, so there is no cycle to break.
+	// it rather than minting a parallel dot-dir. It is an ALIAS of
+	// internal/paths.AppDirName, not a second declaration of ".ctxloom":
+	// independent literals in two packages let a drift in either silently stop
+	// TaskStoreRoot's documented opt-out from matching the directory
+	// `ctxloom init` creates, with no error at either end. Both packages are
+	// import leaves apart from this edge, so there is no cycle to break.
 	AppDirName = paths.AppDirName
 
 	// projectsDir is the home-rooted subdirectory holding the project-identity

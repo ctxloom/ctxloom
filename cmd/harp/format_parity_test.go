@@ -11,12 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
-// U004-F03 parity: harp's --format reader must agree with the family-wide
-// cliemit.Resolve on every input. It did NOT before the collapse — harp's own
-// resolveFormat parsed "" as an unsupported format, so `harp --format ""`
-// failed where every other binary in the family renders text. This test is the
-// red-before-green proof of that divergence; it stays as the pin that harp
-// never re-grows a private copy.
+// harp's --format reader must agree with the family-wide cliemit.Resolve on
+// every input. A private copy drifts silently: an empty --format has to render
+// text, as it does for every other binary in the family, not fail as an
+// unsupported format. This is the pin that harp never re-grows one.
 func TestResolveFormat_MatchesSharedResolver(t *testing.T) {
 	cases := []struct {
 		name string

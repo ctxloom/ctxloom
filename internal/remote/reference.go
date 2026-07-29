@@ -552,9 +552,9 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	// which left forward slashes on Windows).
 	remoteName := r.LocalRemoteName()
 	file := r.Path + ".yaml"
-	// U090-F13: built from paths.CacheBundlesPath rather than re-assembling
-	// cache/ + bundles/ from their parts — a layout change in internal/paths
-	// used to silently miss this call site.
+	// Built from paths.CacheBundlesPath rather than re-assembling cache/ +
+	// bundles/ from their parts, so a layout change in internal/paths cannot
+	// silently miss this call site.
 	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, file)
 }
 

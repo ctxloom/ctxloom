@@ -164,15 +164,13 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 		}
 	}
 
-	// U113-F06: the temp+rename used to be hand-rolled here with a FIXED temp
-	// name (path + ".ctxloom.tmp") — exactly the concurrent-clobber hazard
-	// iox.WriteFileAtomicFs's unique name exists to prevent — with no fsync,
-	// and with a rename failure falling back to a DIRECT non-atomic overwrite
-	// of the live file that then returned nil. That fallback was justified as
-	// "cross-device", which cannot occur: the temp lives in the destination
-	// directory. It is deleted, not ported: a failed rename here is a real
-	// fault and must be reported, never papered over by a write a reader can
-	// observe half-finished.
+	// Route through iox: a fixed temp name (path + ".ctxloom.tmp") is exactly
+	// the concurrent-clobber hazard iox.WriteFileAtomicFs's unique name exists
+	// to prevent, and it fsyncs before the rename. A failed rename here is a
+	// real fault and must be reported, never papered over by a DIRECT
+	// non-atomic overwrite of the live file that a reader can observe
+	// half-finished. Such a fallback would only be justified cross-device,
+	// which cannot occur: the temp lives in the destination directory.
 	if err := iox.WriteFileAtomicFs(fs, path, data, perm); err != nil {
 		return fmt.Errorf("failed to write %s: %w", desc, err)
 	}

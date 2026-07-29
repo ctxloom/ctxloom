@@ -55,10 +55,10 @@ func (c *Coordinator) writeItemsSnapshot() {
 		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: marshal: %v", err)
 		return
 	}
-	// U113-F06: this was a hand-rolled temp+rename with a FIXED temp name
-	// (path + ".tmp") and no fsync — two coordinators checkpointing the same
-	// stateDir shared one temp path, and a power loss could persist the rename
-	// ahead of the data. iox.WriteFileAtomic owns that invariant.
+	// Route through iox: a fixed temp name (path + ".tmp") gives two
+	// coordinators checkpointing the same stateDir one shared temp path, and
+	// without an fsync a power loss can persist the rename ahead of the data.
+	// iox.WriteFileAtomic owns that invariant.
 	if err := iox.WriteFileAtomic(itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
 		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: write: %v", err)
 	}

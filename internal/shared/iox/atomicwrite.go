@@ -15,12 +15,12 @@ import (
 // ahead of the data. The parent directory must already exist. perm is applied
 // to the final file.
 //
-// U113-F01: this used to be a second, hand-copied transcription of
-// WriteFileAtomicFs's 34-line algorithm — same steps, same cleanup, no shared
-// code and no compiler-enforced link, so the two were free to drift apart
-// silently. There is now ONE algorithm; this is its OS-filesystem entry point.
-// atomicwrite_parity_test.go drives both entry points through one table and
-// fails on any divergence in bytes, mode, error behaviour, or temp cleanup.
+// There is ONE algorithm; this is its OS-filesystem entry point. A second,
+// hand-copied transcription of WriteFileAtomicFs's steps would share no code
+// and have no compiler-enforced link, leaving the two free to drift apart
+// silently. atomicwrite_parity_test.go drives both entry points through one
+// table and fails on any divergence in bytes, mode, error behaviour, or temp
+// cleanup.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm)
 }

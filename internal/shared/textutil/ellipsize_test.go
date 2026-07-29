@@ -7,12 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// legacyEllipsize reproduces the hand-rolled idiom verbatim as two of the nine
-// call sites actually wrote it — internal/memory/compactor.go's
-// truncateForSummary ("caps at 500 bytes", returned 503) and
-// internal/compression/json.go's compressString (MaxValueLength, returned
-// MaxValueLength+3). Both omitted the magic -3 pre-compensation the other
-// seven sites carried, so both overflowed the cap they documented.
+// legacyEllipsize reproduces the hand-rolled idiom Ellipsize replaces:
+// TruncateBytes to the cap, then append "..." on top of it. Omitting the
+// pre-compensation that would keep the result inside the cap makes it overflow
+// by the suffix length — a documented 500-byte cap returns 503.
 func legacyEllipsize(s string, maxBytes int) string {
 	if len(s) > maxBytes {
 		return TruncateBytes(s, maxBytes) + "..."
@@ -20,10 +18,10 @@ func legacyEllipsize(s string, maxBytes int) string {
 	return s
 }
 
-// U129-F01 parity: "ellipsize to fit N bytes" is the concept every caller
-// wants, and all nine hand-rolled the second half of it. The two
-// implementations must agree that the RESULT fits the cap. The legacy one does
-// not — that divergence is the defect.
+// "Ellipsize to fit N bytes" is the concept every caller wants, and the legacy
+// idiom hand-rolls only the second half of it. The two implementations must
+// agree that the RESULT fits the cap. The legacy one does not — that divergence
+// is the defect.
 func TestEllipsize_ParityWithLegacyIdiom(t *testing.T) {
 	inputs := []string{"", "a", "short", "0123456789", "0123456789abcdefghij", "héllo wörld ünicode ✓ tail"}
 	widths := []int{1, 3, 4, 5, 10, 20, 35}

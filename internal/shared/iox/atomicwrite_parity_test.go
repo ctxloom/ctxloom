@@ -11,13 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U113-F01 parity: WriteFileAtomic and WriteFileAtomicFs were the same 34-line
-// algorithm written twice, with no shared code and no compiler-enforced link —
+// WriteFileAtomic and WriteFileAtomicFs must stay ONE algorithm: writing the
+// same steps twice, with no shared code and no compiler-enforced link, is
 // connascence of algorithm across two files. This exercises BOTH through one
 // table against a real OS directory (afero.NewOsFs() for the fs variant) so
 // any divergence in outcome, bytes, mode, error behaviour, or temp-file
-// cleanup shows up as a failure. It is the pin that keeps them one algorithm
-// now that WriteFileAtomic delegates.
+// cleanup shows up as a failure.
 func TestAtomicWriters_Parity(t *testing.T) {
 	writers := map[string]func(dir, path string, data []byte, perm os.FileMode) error{
 		"WriteFileAtomic": func(_, path string, data []byte, perm os.FileMode) error {

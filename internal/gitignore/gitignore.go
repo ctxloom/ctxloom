@@ -214,7 +214,7 @@ func Ensure(projectDir, comment string, patterns ...string) error {
 		// and sessions/ into the repo. Retirement and its replacement are one
 		// migration.
 		// A caller list that already carries one of the private-state patterns
-		// is fine: missingPatterns emits each pattern at most once (U054-F14).
+		// is fine: missingPatterns emits each pattern at most once.
 		patterns = append(append([]string{}, PrivateStatePatterns...), patterns...)
 		clidiag.WarnOnce("ctxloom",
 			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/ and was hiding that content from git — replaced it with the granular private-state rules; review and commit the .gitignore change")
@@ -247,13 +247,12 @@ func EnsureFile(path, comment string, patterns ...string) error {
 // missingPatterns returns the patterns not already present in content, matched
 // by exact trimmed-line equality, each emitted at most ONCE.
 //
-// U054-F14: the within-set dedup used to live in a separate `dedupe` helper —
-// a second map-based filter over the same []string, called only because this
-// function deduped against the FILE and not against the requested set, so a
-// caller list carrying a repeated pattern (the private-state replacement
-// prepended to a caller list that already contains it, see Ensure) would write
-// the same line twice. Seeding `present` and marking each emitted pattern
-// makes one filter answer both questions.
+// Deduping against the FILE alone is not enough: a caller list carrying a
+// repeated pattern (the private-state replacement prepended to a caller list
+// that already contains it, see Ensure) would write the same line twice, and
+// compensating for that needs a second map-based filter over the same
+// []string. Seeding `present` and marking each emitted pattern makes one
+// filter answer both questions.
 func missingPatterns(content []byte, patterns []string) []string {
 	present := make(map[string]bool)
 	for line := range strings.SplitSeq(string(content), "\n") {

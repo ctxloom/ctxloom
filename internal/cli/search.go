@@ -336,8 +336,8 @@ func printRemoteResults(results []operations.SearchRemoteEntry) {
 	fmt.Printf("  ─────────┼──────────────┼──────────────────────┼────────────\n")
 
 	for _, r := range results {
-		// U129-F01: honest column widths (20, 18), ellipsis reserved by
-		// Ellipsize rather than pre-subtracted here.
+		// Honest column widths (20, 18): the ellipsis is reserved by Ellipsize
+		// rather than pre-subtracted here.
 		tags := textutil.Ellipsize(strings.Join(r.Tags, ", "), 20)
 		name := textutil.Ellipsize(r.Name, 18)
 

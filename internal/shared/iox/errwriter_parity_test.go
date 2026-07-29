@@ -22,10 +22,10 @@ func (f *failAfter) Write(p []byte) (int, error) {
 	return f.buf.Write(p)
 }
 
-// U113-F04 parity: WriteRaw used to carry its own copy of Write's body, so the
-// short-circuit guard on e.err existed in two places on the same field. They
-// must be observationally identical — same bytes delivered, same first error
-// retained, same silence after a prior failure.
+// WriteRaw must not carry its own copy of Write's body — that puts the
+// short-circuit guard on e.err in two places on the same field. The two must be
+// observationally identical: same bytes delivered, same first error retained,
+// same silence after a prior failure.
 func TestErrWriter_WriteRawMatchesWrite(t *testing.T) {
 	boom := errors.New("boom")
 

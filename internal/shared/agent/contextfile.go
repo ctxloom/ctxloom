@@ -18,9 +18,9 @@ import (
 
 const (
 	// SCMContextSubdir is the workdir-relative subdirectory for context files
-	// (in cache). U090-F13: composed from the internal/paths constants rather
-	// than hardcoding the ".ctxloom/cache" prefix a third time — the segments
-	// are forward-slash by construction here (every consumer feeds this to
+	// (in cache). Composed from the internal/paths constants rather than
+	// hardcoding the ".ctxloom/cache" prefix again — the segments are
+	// forward-slash by construction here (every consumer feeds this to
 	// filepath.Join, which cleans them to the OS separator), so const
 	// concatenation is exact and keeps this a compile-time constant.
 	SCMContextSubdir = paths.AppDirName + "/" + paths.CacheDir + "/" + contextCacheDirName

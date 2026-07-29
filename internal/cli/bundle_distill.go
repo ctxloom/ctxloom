@@ -305,8 +305,8 @@ func hasSiblingsOfType(count int, excludeName, prefix string) bool {
 
 // firstLineTruncated returns the first line of s, trimmed and capped at 60
 // bytes TOTAL (ellipsis included, never splitting a multibyte rune) for a
-// compact one-line summary. U129-F01: the 57 = 60-3 pre-compensation now
-// lives inside textutil.Ellipsize.
+// compact one-line summary. Ellipsize reserves the ellipsis from the budget,
+// so 60 is the real cap and the call site carries no pre-compensation.
 func firstLineTruncated(s string) string {
 	line := strings.Split(strings.TrimSpace(s), "\n")[0]
 	return textutil.Ellipsize(line, 60)

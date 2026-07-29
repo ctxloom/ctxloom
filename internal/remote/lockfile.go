@@ -52,10 +52,9 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 
 // Path returns the path to the managed (active) lockfile.
 //
-// U090-F08: this used to assemble the name itself from a private
-// `lockfileName` const plus a `filename` field no option ever overrode, which
-// left paths.LockPath — the package that exists precisely to own this layout —
-// production-dead and free to drift. One construction, one place.
+// The layout comes from paths.LockPath, the package that exists precisely to
+// own it. Assembling the name here from a private const would leave that
+// helper production-dead and free to drift. One construction, one place.
 func (m *LockfileManager) Path() string {
 	return paths.LockPath(m.baseDir)
 }

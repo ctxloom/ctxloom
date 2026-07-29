@@ -8,11 +8,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// U090-F08 parity: internal/remote used to assemble the lockfile path itself
-// (a private `lockfileName` const + a `filename` field no option ever
-// overrode), which left paths.LockPath — the package that owns this layout —
-// with zero production callers and free to drift from it. This pins the two to
-// one answer, including the default-baseDir branch.
+// The lockfile path must come from paths.LockPath, the package that owns this
+// layout, not from a private const assembled in internal/remote — a second
+// construction leaves paths.LockPath with zero production callers and free to
+// drift. This pins the two to one answer, including the default-baseDir branch.
 func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 	for _, base := range []string{"/proj/.ctxloom", ".ctxloom", "/tmp/x/.ctxloom"} {
 		assert.Equal(t, paths.LockPath(base), NewLockfileManager(base).Path(),
@@ -22,10 +21,10 @@ func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 	assert.Equal(t, paths.LockPath(paths.AppDirName), NewLockfileManager("").Path())
 }
 
-// U090-F13 parity: Reference.LocalPath used to re-assemble the cache bundles
-// root from paths.CacheDir + paths.BundlesDir instead of calling
-// paths.CacheBundlesPath, so a layout change in internal/paths would have
-// silently missed it. Pins the two to one answer.
+// Reference.LocalPath must root at paths.CacheBundlesPath rather than
+// re-assemble the cache bundles root from paths.CacheDir + paths.BundlesDir,
+// so a layout change in internal/paths cannot silently miss it. Pins the two to
+// one answer.
 func TestReferenceLocalPath_RootedAtCacheBundlesPath(t *testing.T) {
 	r := &Reference{URL: "https://github.com/acme/repo", Path: "lang/go"}
 	got := r.LocalPath("/proj/.ctxloom", ItemTypeBundle)

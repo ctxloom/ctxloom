@@ -61,9 +61,9 @@ func (e *ErrWriter) Print(args ...any) {
 // marshaled YAML) without going through fmt.
 //
 // It earns its keep as an errcheck shim — a bare w.Write(data) at a call site
-// would be flagged — but that is one line of delegation, not a copy. U113-F04:
-// it used to re-implement Write's body, putting the short-circuit guard on
-// e.err in two places on the same field.
+// would be flagged — but that is one line of delegation, not a copy:
+// re-implementing Write's body here would put the short-circuit guard on e.err
+// in two places on the same field.
 func (e *ErrWriter) WriteRaw(p []byte) {
 	_, _ = e.Write(p)
 }

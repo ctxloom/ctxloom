@@ -149,9 +149,9 @@ func (c *JSONCompressor) compressString(s string) string {
 	}
 
 	// Truncate long strings on a rune boundary so multibyte runes aren't split.
-	// U129-F01: this returned MaxValueLength+3 bytes — over the maximum the
-	// field documents — because the ellipsis was appended on top of the cap
-	// rather than reserved from it.
+	// Ellipsize reserves the ellipsis from MaxValueLength rather than
+	// appending it on top, so the result honours the maximum the field
+	// documents instead of exceeding it by three bytes.
 	return textutil.Ellipsize(s, c.MaxValueLength)
 }
 

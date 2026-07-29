@@ -13,9 +13,10 @@ import (
 )
 
 // recordingFs wraps an afero.Fs, recording every path opened for creation and
-// optionally failing every Rename — the two behaviours U113-F06's claim turns
-// on (a FIXED temp name, and a rename failure silently degrading to a direct
-// non-atomic overwrite that still returns nil).
+// optionally failing every Rename — the two behaviours the atomicity claim
+// turns on (a unique rather than fixed temp name, and a rename failure
+// surfacing as an error rather than silently degrading to a direct non-atomic
+// overwrite that still returns nil).
 type recordingFs struct {
 	afero.Fs
 	mu         sync.Mutex
@@ -54,11 +55,11 @@ func (r *recordingFs) createdNames() []string {
 	return append([]string{}, r.created...)
 }
 
-// U113-F06: AtomicWriteFile hand-rolled its own temp+rename with a FIXED temp
-// name, `path + ".ctxloom.tmp"` — precisely the concurrent-clobber hazard
+// AtomicWriteFile must not use a FIXED temp name such as
+// `path + ".ctxloom.tmp"` — precisely the concurrent-clobber hazard
 // iox.WriteFileAtomic's unique name exists to prevent. Two writers to the same
-// settings file would share one temp path, so one could truncate the other's
-// in-flight bytes before either rename.
+// settings file sharing one temp path lets one truncate the other's in-flight
+// bytes before either rename.
 func TestAtomicWriteFile_TempNameIsUniqueNotFixed(t *testing.T) {
 	fs := &recordingFs{Fs: afero.NewMemMapFs()}
 	path := "/proj/.claude/settings.json"
@@ -83,11 +84,11 @@ func TestAtomicWriteFile_TempNameIsUniqueNotFixed(t *testing.T) {
 	}
 }
 
-// U113-F06: a failed rename used to fall back to a DIRECT, non-atomic overwrite
-// of the live settings file and then return nil — a reader could observe a
-// half-written settings.json on a path the caller was told had succeeded. The
-// doc justified it as "cross-device", which cannot happen: the temp lives in
-// the destination directory. Fail loud instead.
+// A failed rename must be an error, never a fall-back to a DIRECT, non-atomic
+// overwrite of the live settings file that returns nil — a reader could then
+// observe a half-written settings.json on a path the caller was told had
+// succeeded. A cross-device rename, the only thing that would justify such a
+// fallback, cannot happen here: the temp lives in the destination directory.
 func TestAtomicWriteFile_RenameFailureIsAnError(t *testing.T) {
 	fs := &recordingFs{Fs: afero.NewMemMapFs(), failRename: errors.New("rename refused")}
 	path := "/proj/.claude/settings.json"
@@ -103,9 +104,9 @@ func TestAtomicWriteFile_RenameFailureIsAnError(t *testing.T) {
 	assert.Equal(t, `{"old":true}`, string(got))
 }
 
-// The surrounding contract AtomicWriteFile owns must survive the rewiring:
-// mode preservation, the 0600 default for new files, the .ctxloom.bak backup,
-// and the zero-byte refusal guard (U102-F08).
+// The surrounding contract AtomicWriteFile owns: mode preservation, the 0600
+// default for new files, the .ctxloom.bak backup, and the zero-byte refusal
+// guard.
 func TestAtomicWriteFile_ContractPreserved(t *testing.T) {
 	t.Run("new file defaults to 0600", func(t *testing.T) {
 		fs := afero.NewMemMapFs()

@@ -62,8 +62,8 @@ func runPlanWatch(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	// U115-F07: the extension comes from paths.PlanFileExt, the constant that
-	// defines it, not a fourth hardcoded ".plan.md" literal.
+	// The extension comes from paths.PlanFileExt, the constant that defines
+	// it, not a hardcoded ".plan.md" literal.
 	w, err := watch.New(root, true, func(p string) bool {
 		return strings.HasSuffix(p, paths.PlanFileExt)
 	})

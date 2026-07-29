@@ -11,11 +11,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// U115-F06: this package used to re-declare the plan-file vocabulary
-// internal/paths already owns — an unexported `planExt = ".plan.md"` next to
-// paths.PlanFileExt, with nothing linking the two. Recognition now comes from
-// the shared constant; this pins that a file named by paths.PlanFileExt is the
-// thing List finds and Show accepts, so a change to the constant moves both.
+// Plan-file recognition comes from paths.PlanFileExt, the constant that owns
+// the vocabulary, not from a private `planExt = ".plan.md"` re-declared beside
+// it with nothing linking the two. This pins that a file named by
+// paths.PlanFileExt is the thing List finds and Show accepts, so a change to
+// the constant moves both.
 func TestPlanRecognition_UsesPathsPlanFileExt(t *testing.T) {
 	root := t.TempDir()
 	harpDir := filepath.Join(root, "vital-deaf-stunt")

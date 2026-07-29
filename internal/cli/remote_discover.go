@@ -101,9 +101,8 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 	fmt.Printf("────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
 
 	for i, r := range result.Repositories {
-		// U129-F01: honest column widths (35, 19) — Ellipsize reserves the
-		// ellipsis from the budget, so the magic -3 the call site used to
-		// carry is gone.
+		// Honest column widths (35, 19): Ellipsize reserves the ellipsis from
+		// the budget, so the call site carries no magic -3.
 		desc := textutil.Ellipsize(r.Description, 35)
 		repoName := textutil.Ellipsize(fmt.Sprintf("%s/%s", r.Owner, r.Name), 19)
 

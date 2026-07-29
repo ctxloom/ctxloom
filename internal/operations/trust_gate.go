@@ -110,24 +110,6 @@ func (g *contentGate) withheldRefs() []string {
 	return out
 }
 
-// withheldTally counts the withheld refs by disposition: pending (awaiting
-// review) vs rejected (a human already declined them). Retained for its
-// existing callers/tests; withheldItems below is the richer, per-ref-reasoned
-// accessor the withheld advisories (warnWithheld, ExecutableTrustGate.
-// WarnWithheld) actually print from.
-func (g *contentGate) withheldTally() (pending, rejected int) {
-	g.withheldMu.Lock()
-	defer g.withheldMu.Unlock()
-	for _, res := range g.withheld {
-		if res.Source == trust.SourceRejected {
-			rejected++
-		} else {
-			pending++
-		}
-	}
-	return pending, rejected
-}
-
 // withheldItem pairs a withheld ref with the full trust decision that
 // withheld it — enough for a caller to print a content-free line naming both
 // the item and WHY (via Result.Reason()).
@@ -248,23 +230,6 @@ func cfgFS(cfg *config.Config) afero.Fs {
 	return cfg.FS()
 }
 
-// warnPendingTally emits the single content-free withheld advisory: N items
-// awaiting review (plus a rejected count when a human already declined some),
-// pointing at the one review destination, `ctxloom review`. A no-op when
-// nothing was withheld.
-func warnPendingTally(pending, rejected int, what string) {
-	switch {
-	case pending > 0 && rejected > 0:
-		clidiag.Warn("ctxloom",
-			"%d %s awaiting review (+%d rejected) — run 'ctxloom review'",
-			pending, what, rejected)
-	case pending > 0:
-		clidiag.Warn("ctxloom", "%d %s awaiting review — run 'ctxloom review'", pending, what)
-	case rejected > 0:
-		clidiag.Warn("ctxloom", "%d rejected %s withheld", rejected, what)
-	}
-}
-
 // warnWithheldItems emits one content-free advisory line PER withheld item —
 // naming the item and WHY it was withheld (rejected, retracted by the
 // publisher, or pending review), via EffectiveTrustResult.Reason() — so a
@@ -285,28 +250,20 @@ func warnWithheldItems(items []withheldItem) {
 // no-op when nothing was withheld.
 //
 // gate is the *contentGate the loader's trust gate was actually built from
-// (see exposureLoaderGated); when the caller built the loader that way, gate's
-// own withheld set is used directly — it is a SUPERSET of loader.Withheld()
-// (it also captures builtin-fragment gate calls, which bypass the loader's
-// own content choke and so never reach loader.Withheld() at all — see
+// (see exposureLoaderGated) — it is a SUPERSET of loader.Withheld() (it also
+// captures builtin-fragment gate calls, which bypass the loader's own content
+// choke and so never reach loader.Withheld() at all — see
 // config.ResolveBuiltinBundleFragments), so this also fixes a prior gap where
-// a withheld builtin fragment surfaced no advisory whatsoever.
-//
-// gate is nil when loader came from an injected *bundles.Loader (a test seam,
-// or — in principle — a future caller with no *contentGate to introspect):
-// the loader's own ref-only Withheld() set is still surfaced, degraded to the
-// old reasonless tally rather than losing the advisory outright. Every real
+// a withheld builtin fragment surfaced no advisory whatsoever. Every real
 // production call site (context.go, hooks.go, tooling.go) always builds
-// through exposureLoaderGated, so this degrade path is test-only in practice.
-func warnWithheld(loader *bundles.Loader, gate *contentGate) {
-	if gate != nil {
-		warnWithheldItems(gate.withheldItems())
+// through exposureLoaderGated, so gate is never nil in practice (U089-F14
+// deleted the nil-gate/raw-loader degrade path along with warnPendingTally,
+// its sole caller: that path only ever ran under a test-injected loader, and
+// two of its three advisory branches — pending>0&&rejected>0, rejected-only —
+// were unreachable even there, since the degrade always passed rejected=0).
+func warnWithheld(gate *contentGate) {
+	if gate == nil {
 		return
 	}
-	if loader == nil {
-		return
-	}
-	if w := loader.Withheld(); len(w) > 0 {
-		warnPendingTally(len(w), 0, "item(s)")
-	}
+	warnWithheldItems(gate.withheldItems())
 }

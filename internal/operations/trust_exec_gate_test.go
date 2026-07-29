@@ -241,7 +241,7 @@ func TestExecGate_FailClosed(t *testing.T) {
 	assert.False(t, e.Gate()(gatePostgresRef, postgresPayload(), "raw", ""))
 	assert.False(t, e.Gate()(gateHookRef, toolingHookPayload(), "raw", ""))
 	assert.Len(t, g.withheldRefs(), 2, "fail-closed: both executables recorded as withheld")
-	pending, rejected := g.withheldTally()
+	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 2, pending, "fail-closed withholds tally as pending")
 	assert.Equal(t, 0, rejected)
 
@@ -267,9 +267,24 @@ func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
 
 	assert.False(t, g.allow(gatePostgresRef, postgresPayload(), "raw", ""), "pending item withheld")
 	assert.False(t, g.allow(gateHookRef, toolingHookPayload(), "raw", ""), "rejected item withheld")
-	pending, rejected := g.withheldTally()
+	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 1, pending)
 	assert.Equal(t, 1, rejected)
+}
+
+// withheldStateTally counts g's withheld items by disposition, via the
+// richer withheldItems() accessor (U089-F13 deleted the now test-only
+// withheldTally method — this reproduces its exact pending/rejected split
+// for these two tests without carrying the dead method in production code).
+func withheldStateTally(g *contentGate) (pending, rejected int) {
+	for _, item := range g.withheldItems() {
+		if item.Result.State() == trust.StateRejected {
+			rejected++
+		} else {
+			pending++
+		}
+	}
+	return pending, rejected
 }
 
 // TestExecGate_CLIHookTrustThenBlacklist ties the interactive/CLI hook-trust

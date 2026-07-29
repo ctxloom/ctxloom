@@ -195,7 +195,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	// Surface (content-free) any items the trust gate withheld during this
 	// assembly so the user knows content was hidden, WHY, and how to review it.
-	warnWithheld(loader, gate)
+	warnWithheld(gate)
 	// ...and name any SELECTED profile the gate emptied out completely: the
 	// per-item advisory above says WHICH items were withheld, never which
 	// profile they cost (legal-olive).

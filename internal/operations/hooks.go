@@ -481,7 +481,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	// Surface (content-free) any items the trust gate withheld while regenerating
 	// the SessionStart context, mirroring AssembleContext.
-	warnWithheld(loader, gate)
+	warnWithheld(gate)
 
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file

@@ -75,7 +75,7 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 		}
 		out = append(out, ToolingDeclaration{Source: ref, Content: content.Content})
 	}
-	warnWithheld(loader, gate)
+	warnWithheld(gate)
 	return out
 }
 

@@ -523,7 +523,6 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
 	// warnings) must never land there.
 	opts := remote.PullOptions{
-		LocalDir: baseDir,
 		Force:    true,
 		ItemType: itemType,
 		Stdout:   os.Stderr,

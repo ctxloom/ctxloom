@@ -394,6 +394,96 @@ func TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot(t *testing.T) {
 	assert.False(t, after.Trusted, "after `signer remove` suppresses the embedded principal, TrustRoot() must no longer trust its key")
 }
 
+// TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive pins U087-F17(a):
+// a principal that is BOTH an on-disk allowed_signers line AND an embedded
+// entry used to get only the on-disk line deleted (the `if removed > 0
+// {return}` early return skipped the embedded check entirely), leaving the
+// embedded key still trusted after `signer remove` reported success. Both
+// effects must now land from a single call: the on-disk line is deleted
+// AND the embedded principal is locally suppressed, so TrustRoot() no
+// longer trusts EITHER key (the on-disk one, deleted outright; the
+// embedded one, suppressed) for publish.
+func TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	// Add an ON-DISK entry using the SAME principal as ctxloom's real
+	// embedded key, but a DIFFERENT (freshly generated) key — so this
+	// principal is now trusted via two independent paths at once.
+	_, line := testKeyLine(t)
+	onDiskKey, err := ResolveSignerKey(line, fs, nil)
+	require.NoError(t, err)
+	_, err = AddSigner(cfg, AddSignerRequest{Principal: testEmbeddedPrincipal, Key: onDiskKey, Project: true, FS: fs})
+	require.NoError(t, err)
+
+	embeddedKey := embeddedTestPublicKey(t)
+	now := time.Now()
+	require.True(t, cfg.TrustRoot().TrustedForNamespace(onDiskKey.PublicKey, signing.NamespacePublish, now).Trusted,
+		"sanity: the on-disk key starts out trusted")
+	require.True(t, cfg.TrustRoot().TrustedForNamespace(embeddedKey, signing.NamespacePublish, now).Trusted,
+		"sanity: the embedded key starts out trusted")
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Removed, "the on-disk line must still be deleted")
+	assert.True(t, res.EmbeddedSuppressed, "the embedded principal must ALSO be suppressed, not skipped because Removed>0")
+
+	assert.False(t, cfg.TrustRoot().TrustedForNamespace(onDiskKey.PublicKey, signing.NamespacePublish, now).Trusted,
+		"the deleted on-disk key must no longer be trusted")
+	assert.False(t, cfg.TrustRoot().TrustedForNamespace(embeddedKey, signing.NamespacePublish, now).Trusted,
+		"the suppressed embedded key must no longer be trusted — this is the effect F17(a)'s early return used to skip")
+}
+
+// TestSuppressEmbeddedPrincipal_RecordsEntrysLiteralPrincipals pins
+// U087-F17(b): the WRITE side (suppressEmbeddedPrincipal) decides what
+// entry matched by GLOB (Entry.MatchesPrincipal, ssh_config PATTERNS), but
+// the READ side (config's filterSuppressedPrincipals, via
+// Entry.MatchesAnyPrincipal) subtracts by LITERAL membership of the
+// matched entry's OWN Principals strings — never a glob match. Recording
+// the identity the user typed (which may only match the entry via glob
+// expansion, e.g. typing "bob@example.com" against an entry whose
+// Principals is "*@example.com") would write a suppression line the read
+// side's literal check can never find among that entry's actual Principals,
+// so `signer remove` would report success while trust is never revoked.
+//
+// ctxloom's real embedded store carries only a literal principal today (see
+// testEmbeddedPrincipal), so this exercises the fixed function directly with
+// a SYNTHETIC glob entry — config.EmbeddedSigners() has no test seam to
+// inject a glob principal into the production compiled-in store (see this
+// package's report for why that path is code-only, not end-to-end tested).
+func TestSuppressEmbeddedPrincipal_RecordsEntrysLiteralPrincipals(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	fs := afero.NewMemMapFs()
+
+	globEntry := allowedsigners.Entry{Principals: []string{"*@example.com"}}
+	typedIdentity := "bob@example.com" // matches globEntry only via glob expansion
+
+	path, err := suppressEmbeddedPrincipal(fs, cfg, globEntry, true)
+	require.NoError(t, err)
+
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	recorded := strings.TrimSpace(string(data))
+
+	assert.Equal(t, "*@example.com", recorded,
+		"must record the entry's own literal Principals string, not the user-typed identity that matched it via glob")
+	assert.NotContains(t, recorded, typedIdentity,
+		"the typed identity must never be what gets written — the read side would never find it there")
+
+	// Prove this is what the read side actually needs: Entry.MatchesAnyPrincipal
+	// (the primitive config.filterSuppressedPrincipals subtracts with) finds the
+	// entry when given what we recorded, but would NOT have found it given the
+	// buggy old behavior of recording the typed identity instead.
+	suppressedCorrect := map[string]bool{recorded: true}
+	assert.True(t, globEntry.MatchesAnyPrincipal(suppressedCorrect),
+		"the read side's literal check must find the entry using what suppressEmbeddedPrincipal now records")
+
+	suppressedBuggy := map[string]bool{typedIdentity: true}
+	assert.False(t, globEntry.MatchesAnyPrincipal(suppressedBuggy),
+		"sanity: the OLD behavior (recording the typed identity) would never have been found by the read side's literal check")
+}
+
 // embeddedTestPublicKey parses ctxloom's real embedded public key straight out
 // of the compiled-in trust root, for a test that needs the actual key object
 // (not just its principal string) to query TrustRoot() directly.

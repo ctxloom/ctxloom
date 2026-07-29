@@ -362,15 +362,20 @@ type RemoveSignerRequest struct {
 type RemoveSignerResult struct {
 	Path    string
 	Removed int
-	// EmbeddedSuppressed is true when Principal matched ctxloom's EMBEDDED
-	// trust root (spec §7, location 1) and this call persisted a local
-	// suppression record instead (oozy-plod (b)): distinct from Removed,
-	// which counts on-disk allowed_signers lines actually deleted. The
-	// embedded key's compiled-in bytes are never touched — only a new binary
-	// changes those — but the suppression is REAL: config.TrustRoot()
-	// subtracts the matching embedded entry from the trust root on every
-	// subsequent decision, so content signed only by that key is withheld
-	// from here on (this machine, or this project with --project).
+	// EmbeddedSuppressed is true when Principal ALSO matched ctxloom's
+	// EMBEDDED trust root (spec §7, location 1), in which case this call
+	// additionally persisted a local suppression record (oozy-plod (b)):
+	// ADDITIVE with Removed, which counts on-disk allowed_signers lines
+	// actually deleted — a principal can be both an on-disk entry and an
+	// embedded one, and both effects must land (U087-F17(a): an early
+	// return on Removed>0 used to skip the embedded check entirely,
+	// leaving the embedded key trusted after the on-disk line was
+	// deleted). The embedded key's compiled-in bytes are never touched —
+	// only a new binary changes those — but the suppression is REAL:
+	// config.TrustRoot() subtracts the matching embedded entry from the
+	// trust root on every subsequent decision, so content signed only by
+	// that key is withheld from here on (this machine, or this project
+	// with --project).
 	EmbeddedSuppressed bool
 	// SuppressionPath is the distrusted_signers file EmbeddedSuppressed was
 	// recorded in, when applicable ("" otherwise).
@@ -384,13 +389,17 @@ type RemoveSignerResult struct {
 // drop more trust than asked). Entries in the OTHER of user/project are
 // untouched: removing a signer only ever narrows the store it was written to.
 //
-// The embedded trust root is a separate case: this command can never delete
-// its compiled-in bytes, but when Principal names an embedded entry and
-// nothing on-disk matched, RemoveSigner persists a LOCAL distrust record
-// instead (oozy-plod (b) — see EmbeddedSuppressed/suppressEmbeddedPrincipal).
-// That is the practical equivalent of removal for a root nothing can
-// literally edit, and it is a REAL effect, not a message: TrustRoot() (spec
-// §7, §9.2) honors it on every subsequent decision.
+// The embedded trust root is a separate, ADDITIVE case: this command can
+// never delete its compiled-in bytes, but whenever Principal ALSO names an
+// embedded entry, RemoveSigner ALSO persists a LOCAL distrust record (oozy-
+// plod (b) — see EmbeddedSuppressed/suppressEmbeddedPrincipal) — regardless
+// of whether an on-disk line was removed. A principal can be BOTH an
+// on-disk allowed_signers line and an embedded entry at once; U087-F17(a)
+// used to return as soon as the on-disk removal counted anything, silently
+// skipping the embedded check and leaving the embedded key trusted after the
+// on-disk line was gone. This is the practical equivalent of removal for a
+// root nothing can literally edit, and it is a REAL effect, not a message:
+// TrustRoot() (spec §7, §9.2) honors it on every subsequent decision.
 func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerResult, error) {
 	if req.Principal == "" {
 		return nil, fmt.Errorf("a principal is required")
@@ -405,19 +414,18 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 	if err != nil {
 		return nil, err
 	}
-	if removed > 0 {
-		return &RemoveSignerResult{Path: path, Removed: removed}, nil
-	}
+	result := &RemoveSignerResult{Path: path, Removed: removed}
 
-	if matchesEmbeddedPrincipal(req.Principal) {
-		suppressionPath, serr := suppressEmbeddedPrincipal(fs, cfg, req.Principal, req.Project)
+	if entry := matchingEmbeddedEntry(req.Principal); entry != nil {
+		suppressionPath, serr := suppressEmbeddedPrincipal(fs, cfg, *entry, req.Project)
 		if serr != nil {
 			return nil, serr
 		}
-		return &RemoveSignerResult{Path: path, Removed: 0, EmbeddedSuppressed: true, SuppressionPath: suppressionPath}, nil
+		result.EmbeddedSuppressed = true
+		result.SuppressionPath = suppressionPath
 	}
 
-	return &RemoveSignerResult{Path: path, Removed: 0}, nil
+	return result, nil
 }
 
 // removeFromAllowedSignersFile deletes every line in path whose principals
@@ -491,15 +499,21 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	return removed, nil
 }
 
-// matchesEmbeddedPrincipal reports whether principal names an entry in
-// ctxloom's compiled-in trust root (config.EmbeddedSigners()).
-func matchesEmbeddedPrincipal(principal string) bool {
+// matchingEmbeddedEntry returns the first entry in ctxloom's compiled-in
+// trust root (config.EmbeddedSigners()) whose Principals pattern-list
+// matches principal (Entry.MatchesPrincipal — ssh_config PATTERNS, may be a
+// glob), or nil if none does. Callers need the matched ENTRY, not just a
+// bool: suppressEmbeddedPrincipal must record what the entry's own
+// Principals actually say, not the (possibly glob-expanded) identity the
+// user typed — see its doc for why (U087-F17(b)).
+func matchingEmbeddedEntry(principal string) *allowedsigners.Entry {
 	for _, e := range config.EmbeddedSigners().Entries() {
 		if e.MatchesPrincipal(principal) {
-			return true
+			entry := e
+			return &entry
 		}
 	}
-	return false
+	return nil
 }
 
 // distrustedSignersStorePath resolves which distrusted_signers file A2's
@@ -517,23 +531,37 @@ func distrustedSignersStorePath(cfg *config.Config, project bool) (string, error
 	return paths.HomeDistrustedSignersPath()
 }
 
-// suppressEmbeddedPrincipal persists a LOCAL record that principal's embedded
-// entry is no longer trusted — the subtraction config.TrustRoot() (via
-// filterSuppressedPrincipals) honors on every future decision. Idempotent: a
-// principal already recorded is left as-is, never duplicated.
-func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, principal string, project bool) (string, error) {
+// suppressEmbeddedPrincipal persists a LOCAL record that entry — an embedded
+// entry matchingEmbeddedEntry matched by GLOB (Entry.MatchesPrincipal,
+// ssh_config PATTERNS) against the principal the user typed — is no longer
+// trusted. The subtraction config.TrustRoot() (via filterSuppressedPrincipals
+// -> Entry.MatchesAnyPrincipal) honors on every future decision is a LITERAL
+// membership check against the embedded entry's OWN Principals strings, not
+// a glob match. Recording the user-typed identity instead of entry's actual
+// Principals (U087-F17(b)) would report success here while never actually
+// suppressing anything for a glob-principal embedded entry: the read side's
+// literal check would never find the typed identity among the entry's own
+// (glob) Principals. Recording every one of entry's own Principals strings
+// closes that gap and is what the read side's literal check needs to see.
+// Idempotent: a principal already recorded is left as-is, never duplicated.
+func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, entry allowedsigners.Entry, project bool) (string, error) {
 	path, err := distrustedSignersStorePath(cfg, project)
 	if err != nil {
 		return "", err
 	}
 	existing, _ := afero.ReadFile(fs, path) // absent is fine: existing stays nil
+	already := map[string]bool{}
 	for _, line := range strings.Split(string(existing), "\n") {
-		if strings.TrimSpace(line) == principal {
-			return path, nil // already suppressed
-		}
+		already[strings.TrimSpace(line)] = true
 	}
-	if err := appendAllowedSignersLine(fs, path, principal); err != nil {
-		return "", err
+	for _, principal := range entry.Principals {
+		if already[principal] {
+			continue // already suppressed
+		}
+		if err := appendAllowedSignersLine(fs, path, principal); err != nil {
+			return "", err
+		}
+		already[principal] = true
 	}
 	return path, nil
 }

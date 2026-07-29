@@ -126,6 +126,21 @@ func TestTransientArtifactPatterns_IgnoreCodexCredential(t *testing.T) {
 		"a per-agent worktree fan-out member must also keep the credential out of merge-back")
 }
 
+// TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins U080-F09:
+// WorktreeArtifactPatterns is documented as "the FULL written set across all
+// engines", but opencode's own written artifacts (.opencode/ command+skill+
+// context files, opencode.json, and the .ctxloom-opencode-managed sidecar
+// ledger) were absent, so a per-agent worktree run using the opencode backend
+// left untracked ctxloom files the exclude block did not hide.
+func TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts(t *testing.T) {
+	assert.Contains(t, WorktreeArtifactPatterns, ".opencode/",
+		"opencode's command/skill/context files under .opencode/ must be kept out of merge-back")
+	assert.Contains(t, WorktreeArtifactPatterns, "opencode.json",
+		"opencode's project-local managed config must be kept out of merge-back")
+	assert.Contains(t, WorktreeArtifactPatterns, ".ctxloom-opencode-managed",
+		"opencode's managed-MCP sidecar ledger must be kept out of merge-back")
+}
+
 // TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState mirrors the call
 // init.go makes (gitignore.Ensure(projectDir, gitignore.Comment,
 // gitignore.PrivateStatePatterns...)) and asserts the resulting .gitignore

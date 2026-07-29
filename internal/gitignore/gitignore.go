@@ -85,6 +85,14 @@ var WorktreeArtifactPatterns = []string{
 	".ctxloom/cache/",
 	"CLAUDE.md",
 	"AGENTS.md",
+	// U080-F09: opencode's own written artifacts (command/skill/context files
+	// under .opencode/, its project-local opencode.json, and the managed-MCP
+	// sidecar ledger) were missing from this set despite the doc comment above
+	// calling it "the FULL written set across all engines" — an opencode-backed
+	// per-agent worktree run left these untracked and unhidden.
+	".opencode/",
+	"opencode.json",
+	".ctxloom-opencode-managed",
 }
 
 // SupersededPatterns are ignore rules written by older ctxloom versions that a

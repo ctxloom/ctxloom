@@ -21,7 +21,7 @@ var versionCmd = &cobra.Command{
 		// version): text prints the bare version line; json/yaml/toml/markdown
 		// serialize cliversion.Info. json stays {name,version} — the shape
 		// ctxloom's boot probe parses from `taskloom version --format json`.
-		return cliemit.Emit(cmd, cliversion.Info{Name: "taskloom", Version: version}, func() error {
+		return cliemit.Emit(cmd, cliversion.Info{Name: progName, Version: version}, func() error {
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 			return err
 		})

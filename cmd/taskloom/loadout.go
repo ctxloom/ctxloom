@@ -40,5 +40,5 @@ var loadoutSig = companionloadout.ReadEmbeddedSig(loadoutSigFiles)
 // wired via this file's own init() convention) so registration has no
 // hidden ordering dependency; main.go adds it explicitly.
 func newLoadoutCmd() *cobra.Command {
-	return companionloadout.NewCommand("taskloom", loadoutYAML, loadoutSig)
+	return companionloadout.NewCommand(progName, loadoutYAML, loadoutSig)
 }

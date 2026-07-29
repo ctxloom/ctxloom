@@ -177,10 +177,10 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		return err
 	}
 	if r.Notice != "" {
-		clidiag.Fwarn(errw, "taskloom", "%s", r.Notice)
+		clidiag.Fwarn(errw, progName, "%s", r.Notice)
 	}
 	if r.PriorityWarning != "" {
-		clidiag.Fwarn(errw, "taskloom", "%s", r.PriorityWarning)
+		clidiag.Fwarn(errw, progName, "%s", r.PriorityWarning)
 	}
 	noteHidden(errw, r.HiddenCompleted, r.HiddenDeferred, r.Filtered)
 	noteOmittedByLimit(errw, r.OmittedByLimit)

@@ -43,7 +43,7 @@ session it was launched for.`,
 // runs and no task log is touched, so it is safe to build for docs.
 func newMCPServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "taskloom",
+		Name:    progName,
 		Version: version,
 	}, &mcp.ServerOptions{Instructions: mcpServerInstructions})
 	registerTaskTools(server)

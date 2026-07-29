@@ -21,8 +21,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
 )
 
+// progName is the one name this binary answers to: the cobra Use line, the
+// PATH lookup `manage` performs, the MCP server name, the loadout name, every
+// diagnostic prefix, and — the reason it must be named once rather than
+// spelled out per site — the `.name` field of `taskloom version --format json`,
+// which ctxloom's boot probe parses to identify the companion.
+const progName = "taskloom"
+
 var rootCmd = &cobra.Command{
-	Use:   "taskloom",
+	Use:   progName,
 	Short: "Manage the per-project task store",
 	Long: `Read and modify the per-project task store. Tasks are keyed by harp IDs
 (e.g. "swift-amber-falcon") and persisted as an append-only log at
@@ -98,7 +105,7 @@ func taskContext() (operations.TaskContext, error) {
 		if projectID == "" {
 			return operations.TaskContext{}, err
 		}
-		clidiag.Warn("taskloom", "working directory resolution failed: %v", err)
+		clidiag.Warn(progName, "working directory resolution failed: %v", err)
 		workDir = ""
 	}
 	return operations.TaskContext{
@@ -203,7 +210,7 @@ func formatProjectLabel(dir, id string) string {
 // operations task call.
 func warnTask(warning string) {
 	if warning != "" {
-		clidiag.Warn("taskloom", "%s", warning)
+		clidiag.Warn(progName, "%s", warning)
 	}
 }
 

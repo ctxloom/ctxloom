@@ -76,7 +76,9 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 		return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
 	}
 
-	c.dropManaged(mf)
+	if err := c.dropManaged(mf); err != nil {
+		return err
+	}
 
 	var managed []string
 	add := func(name string, s mcpFileServer) {
@@ -115,7 +117,9 @@ func (c MCPFileConfig) RemoveServers() error {
 		if err != nil {
 			return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
 		}
-		c.dropManaged(mf)
+		if err := c.dropManaged(mf); err != nil {
+			return err
+		}
 		if err := c.save(mf); err != nil {
 			return err
 		}
@@ -137,7 +141,11 @@ func (c MCPFileConfig) ManagedPresent() (bool, error) {
 	if _, ok := mf.Servers[MCPServerName]; ok {
 		return true, nil
 	}
-	for _, name := range c.readLedger() {
+	names, err := c.readLedger()
+	if err != nil {
+		return false, fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
+	}
+	for _, name := range names {
 		if _, ok := mf.Servers[name]; ok {
 			return true, nil
 		}
@@ -146,12 +154,21 @@ func (c MCPFileConfig) ManagedPresent() (bool, error) {
 }
 
 // dropManaged removes every previously managed entry: the ledger names, plus
-// the well-known ctxloom server name for pre-ledger files.
-func (c MCPFileConfig) dropManaged(mf *mcpFile) {
+// the well-known ctxloom server name for pre-ledger files. U101-F09: a ledger
+// read failure that is NOT simply "the ledger doesn't exist yet" (permissions,
+// I/O) is returned rather than silently treated as an empty ledger — the
+// exact failure the ledger exists to prevent (an orphaned managed stdio
+// server the next reconcile can no longer find to drop).
+func (c MCPFileConfig) dropManaged(mf *mcpFile) error {
 	delete(mf.Servers, MCPServerName)
-	for _, name := range c.readLedger() {
+	names, err := c.readLedger()
+	if err != nil {
+		return fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
+	}
+	for _, name := range names {
 		delete(mf.Servers, name)
 	}
+	return nil
 }
 
 // setServer marshals a typed stdio server entry into the raw server map.
@@ -247,11 +264,22 @@ func (c MCPFileConfig) save(mf *mcpFile) error {
 	return AtomicWriteFile(c.FS, c.Path, data, c.Label)
 }
 
-// readLedger returns the managed server names from the ledger, if any.
-func (c MCPFileConfig) readLedger() []string {
+// readLedger returns the managed server names from the ledger, if any. A
+// missing ledger (os.IsNotExist) is the legitimate "nothing managed yet"
+// case and returns (nil, nil); any OTHER read error (permissions, I/O) is
+// returned rather than silently treated the same way (U101-F09).
+// internal/opencode/settings.go's OpencodeWriter.readLedger is a similarly-
+// shaped but independently owned sidecar-ledger reader for a different
+// engine's reconciler (a different reviewed unit); this fix is scoped to
+// U101 (internal/shared/agent) and does not touch it.
+// reprise:accept-drift
+func (c MCPFileConfig) readLedger() ([]string, error) {
 	data, err := afero.ReadFile(c.FS, c.LedgerPath)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var names []string
 	for _, line := range strings.Split(string(data), "\n") {
@@ -259,7 +287,7 @@ func (c MCPFileConfig) readLedger() []string {
 			names = append(names, line)
 		}
 	}
-	return names
+	return names, nil
 }
 
 // writeLedger persists the managed names, removing the ledger when empty.

@@ -1,12 +1,29 @@
 package agent
 
 import (
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// failOpenFs fails Open for exactly one path with a non-NotExist error
+// (os.ErrPermission), passing everything else through to the wrapped Fs — the
+// seam U101-F09's regression test uses to distinguish "the ledger doesn't
+// exist" from "the ledger could not be read".
+type failOpenFs struct {
+	afero.Fs
+	path string
+}
+
+func (f failOpenFs) Open(name string) (afero.File, error) {
+	if name == f.path {
+		return nil, &os.PathError{Op: "open", Path: name, Err: os.ErrPermission}
+	}
+	return f.Fs.Open(name)
+}
 
 // TestMCPFileConfig_WriteServers_CommandOverride pins dire-five's fix at the
 // shared MCP-registry reconciler kiro and antigravity both bind (mcpFile()):
@@ -57,4 +74,20 @@ func TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry(t *testing.T) {
 	data, readErr := afero.ReadFile(fs, "/proj/mcp.json")
 	require.NoError(t, readErr)
 	assert.Equal(t, original, data, "the unparsable file must survive untouched")
+}
+
+// TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces pins U101-F09:
+// readLedger mapped ANY read error (not just "does not exist") to nil, so a
+// permission/IO failure silently defeated the ledger — dropManaged then
+// believed there was nothing previously managed to drop, the exact failure
+// the ledger's own doc comment says it exists to prevent.
+func TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, "/proj/mcp.json", []byte(`{"mcpServers":{}}`), 0644))
+	require.NoError(t, afero.WriteFile(base, "/proj/.mcp-ledger", []byte("stale-server\n"), 0644))
+	fs := failOpenFs{Fs: base, path: "/proj/.mcp-ledger"}
+
+	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerPath: "/proj/.mcp-ledger", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
+	err := c.WriteServers(nil, nil)
+	require.Error(t, err, "a ledger read failure (not simply missing) must surface, not be silently treated as an empty ledger")
 }

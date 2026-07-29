@@ -64,8 +64,10 @@ func GenConfig(p *Product, schemaPath, dir string) error {
 
 	c.b.WriteString(overrideChainSection(props, p.envPrefix()))
 
-	// Top-level fields (root has description on the schema itself; suppress it
-	// here since the intro above already covers it).
+	// Top-level fields. Note the root schema's own "description" (if any) is
+	// NOT suppressed here: renderNode renders whatever describe(root) returns
+	// under this "Top-Level Fields" heading same as any other node, so it can
+	// duplicate the intro prose above. See U051-F09.
 	c.renderNode(2, "Top-Level Fields", "", root)
 
 	// Shared definitions ($defs), referenced by $ref from the fields above.

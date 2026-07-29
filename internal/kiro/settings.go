@@ -192,25 +192,23 @@ func (w *KiroWriter) mapHooks(u wire.UnifiedHooks, plugins wire.BackendHooks) (c
 
 // WriteSettings implements SettingsWriter for Kiro CLI.
 //
-// U055-F05 (ESCALATED, not applied): this method has no PRODUCTION call site —
-// kiro's live settings write rides the surfaces x cells seam
-// (settingsSurface.Deliver in surfaces.go), and only tests reach this one. The
-// row's proposed remedy — drop WriteSettings from agent.SettingsWriter, then
-// delete this implementation — was checked and does NOT hold:
+// This method has no PRODUCTION call site — kiro's live settings write rides
+// the surfaces x cells seam (settingsSurface.Deliver in surfaces.go), and only
+// tests reach this one. The obvious remedy — drop WriteSettings from
+// agent.SettingsWriter, then delete this implementation — does NOT hold:
 //
 //   - opencode's configSurface.Deliver (opencode/surfaces.go) calls its OWN
 //     concrete WriteSettings on every delivery, so the method is live
 //     repo-wide. Pinned by TestConfigSurface_IsTheOneProductionWriteSettingsCaller.
 //   - internal/lm/conformance drives WriteSettings through the INTERFACE for
 //     claude/antigravity/codex; removing it from agent.SettingsWriter deletes
-//     five conformance assertions, which this campaign treats as an escalation
-//     rather than a deletion.
+//     five conformance assertions, which is a wider change than a deletion.
 //   - kiro must satisfy agent.SettingsWriter regardless: uninstall.go reaches it
 //     via GetSettingsWriter for RemoveSettings and Status, both live.
 //
 // So the honest scope is "kiro's body is only test-exercised", not "the method
-// is dead" — and shrinking it needs the interface split (write vs
-// remove/status) that only the human should decide. The cascade the row names
+// is dead" — and shrinking it needs an interface split (write vs
+// remove/status) that only the human should decide. The cascade behind it
 // (reconcileSteering's hash-reading arm, mapHooks' contextHash return) is
 // unreachable in production for the same reason and is left in place with it.
 func (w *KiroWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {

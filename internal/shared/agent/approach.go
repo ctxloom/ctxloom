@@ -168,10 +168,10 @@ func (t ApproachTable) Default(kind SurfaceKind) (Approach, bool) {
 
 // TableDispatch is the embeddable carrier for the two PURELY mechanical halves
 // of SurfaceSet's per-provider dispatch. Every backend's SupportedApproaches and
-// DefaultApproach were the same one-liner over that backend's own ApproachTable,
-// so the pair was written out ten times (five backends x two methods) with
-// nothing but a table variable name distinguishing them — ten bodies that could
-// drift from the contract cells.go states for them (U033-F07).
+// DefaultApproach are the same one-liner over that backend's own ApproachTable,
+// so writing the pair per backend gives ten bodies (five backends x two
+// methods) with nothing but a table variable name distinguishing them — ten
+// bodies free to drift from the contract cells.go states for them.
 //
 // A backend embeds it in its Surfaces value and sets Table to its own literal;
 // the two interface methods then come for free, and only the TABLE is per

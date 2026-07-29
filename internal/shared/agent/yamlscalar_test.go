@@ -8,27 +8,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestYAMLQuoters_AgreeWhenBothQuote is the U102-F16 parity gate, and it is RED
-// before the fix.
-//
-// This package carries TWO YAML-frontmatter scalar quoters with different
-// algorithms and different correctness:
+// TestYAMLQuoters_AgreeWhenBothQuote is the parity gate between this package's
+// two YAML-frontmatter scalar quoters:
 //
 //	yamlDoubleQuoted  (skillcommandshape.go) — ALWAYS quotes, escaping via
 //	                   json.Marshal, so quotes, backslashes AND control
 //	                   characters are all handled. Serves kiro/antigravity's
 //	                   SKILL.md frontmatter.
-//	EscapeYAMLString  (commandfiles.go)      — quotes CONDITIONALLY, and when it
-//	                   does, escapes only \ and " with hand-written rules.
+//	EscapeYAMLString  (commandfiles.go)      — quotes CONDITIONALLY, and
+//	                   delegates the escaping itself to yamlDoubleQuoted.
 //	                   Serves claude/codex/opencode command frontmatter.
 //
 // The conditional-quoting policy is deliberate and is NOT what this pins. What
 // it pins is the escaping: whenever EscapeYAMLString decides to quote, the
-// bytes inside the quotes must be the ones json.Marshal would produce. They are
-// not — a description containing a newline triggers the quote (Contains "\n")
-// and then emits a LITERAL newline inside the double-quoted scalar, which YAML
-// line-folds back to a space on read. Silent corruption of a delivered
-// description, exit 0.
+// bytes inside the quotes must be the ones json.Marshal would produce. Under
+// hand-written rules that escape only \ and " they are not — a description
+// containing a newline triggers the quote (Contains "\n") and then emits a
+// LITERAL newline inside the double-quoted scalar, which YAML line-folds back
+// to a space on read. Silent corruption of a delivered description, exit 0.
 //
 // Every case is also parsed back with a real YAML parser, so the assertion is
 // "the value survives", not "the bytes look plausible".

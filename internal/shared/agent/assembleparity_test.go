@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This file is the U100-F13 evidence: two assemblers both produce "the
-// assembled context", contextfile.go documents that they must not diverge, and
-// they DO.
+// Two assemblers both produce "the assembled context", contextfile.go documents
+// that they must not diverge, and they DO. This file is the evidence.
 //
 //	AssembleContext        (base.go)        — plain join. No dedup, no warning.
 //	                        Production callers: lm/grpc/server.go's SkipSetup
@@ -27,8 +26,8 @@ import (
 // The first test below CHARACTERIZES the divergence as it stands today, so the
 // exact behaviour is pinned and green. The second states the documented
 // invariant and is deliberately t.Skip'd: collapsing the two CHANGES the bytes
-// the SkipSetup path delivers into a session, which is an escalation in this
-// campaign, not an implementer's call. Un-skip it with the fix.
+// the SkipSetup path delivers into a session, which is the human's call, not an
+// implementer's. Un-skip it with the fix.
 
 // dupFragments is a fragment set that reaches identical content twice — the
 // "same fragment through two bundles" case the dedup exists for.

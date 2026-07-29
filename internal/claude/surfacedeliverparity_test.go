@@ -11,21 +11,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestDeliverAndDeliverIsolated_WriteIdenticalBytes is the U033-F06 parity gate.
+// TestDeliverAndDeliverIsolated_WriteIdenticalBytes is the parity gate between
+// a surface's two delivery entry points.
 //
-// mcpSurface and settingsSurface each carried TWO near-identical delivery
-// bodies: Deliver(dir) and DeliverIsolated(). Four bodies whose only real
-// differences are where `dir` comes from and whether the resulting path is
-// recorded — so the delivery recipe (which writer, which receiver fields get
-// threaded onto it, which arguments) had to be edited twice per surface, and
-// nothing held the two halves to each other. MCPCommandOverride is the exact
-// shape of the hazard: it is threaded onto the writer in BOTH mcpSurface bodies
-// and, per DeliverIsolated's own comment, deliberately in NEITHER settings body.
+// Without a shared recipe, mcpSurface and settingsSurface each carry TWO
+// near-identical delivery bodies: Deliver(dir) and DeliverIsolated(). Four
+// bodies whose only real differences are where `dir` comes from and whether the
+// resulting path is recorded — so the delivery recipe (which writer, which
+// receiver fields get threaded onto it, which arguments) has to be edited twice
+// per surface, with nothing holding the two halves to each other.
+// MCPCommandOverride is the exact shape of the hazard: it is threaded onto the
+// writer in BOTH mcpSurface bodies and, per DeliverIsolated's own comment,
+// deliberately in NEITHER settings body.
 //
-// This pins the invariant the collapse must preserve: for a given surface, the
+// This pins the invariant the shared recipe preserves: for a given surface, the
 // well-known write and the isolated write produce the SAME bytes, and only the
-// isolated one records a Path. Written before the extraction of the shared
-// helper.
+// isolated one records a Path.
 func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	const (
 		wellKnownDir = "/well-known"

@@ -42,13 +42,14 @@ func deepCopy(v any) any {
 	}
 }
 
-// TestManagedHooks_QueryAgreesWithRemoval is the U045-F13 parity gate.
+// TestManagedHooks_QueryAgreesWithRemoval is the parity gate between the two
+// managed-hook operations.
 //
-// hasManagedHook and removeManagedHooks each carried their OWN copy of codex's
+// Giving hasManagedHook and removeManagedHooks each their OWN copy of codex's
 // three-level descent (event -> groups -> hooks[] -> entry["command"] ->
-// agent.IsManaged). Two hand-maintained walks over one shape, kept in sync by
-// nobody — and the pruning one already sat at the project's CCN-10 ceiling, so
-// any change to the shape had to be made twice AND squeezed under the gate.
+// agent.IsManaged) means two hand-maintained walks over one shape, kept in sync
+// by nobody — and the pruning one sits at the project's CCN-10 ceiling, so any
+// change to the shape has to be made twice AND squeezed under the gate.
 //
 // The two are definitionally linked: hasManagedHook is true exactly when
 // removeManagedHooks has work to do. This states that link as a test across a

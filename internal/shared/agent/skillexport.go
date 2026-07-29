@@ -20,8 +20,7 @@ type SkillExport struct {
 	// directory), but the field travels so a later engine doesn't need a
 	// different export type.
 	//
-	// U102-F07 (ESCALATED, not applied): that engine never arrived, and this
-	// field is WRITE-ONLY. It is set once, by
+	// No such engine exists yet, so this field is WRITE-ONLY. It is set once, by
 	// lm/backends/skillfiles.go's buildSkillExports, and read by no engine —
 	// claude/opencode/antigravity's skill writers take Enabled, Name and Files
 	// only; the sole read anywhere is one assertion in skillfiles_test.go.
@@ -29,8 +28,8 @@ type SkillExport struct {
 	// travels verbatim inside the authored SKILL.md, which is one of Files
 	// (pinned by TestSkillExports_DescriptionReachesTheEngineInSKILLmd).
 	//
-	// It is NOT deleted here because it is WIRE-BACKED, which this campaign
-	// escalates rather than decides: llm.proto's `SkillExport.description = 2`
+	// It is NOT deleted because it is WIRE-BACKED, which is not a Go-side call:
+	// llm.proto's `SkillExport.description = 2`
 	// carries it host->plugin, with converters at lm/grpc/managed.go:109 and
 	// :128. Removing the Go field alone leaves a proto field nothing populates
 	// — which the wire-parity gate (lm/grpc/arch_test.go) exists to reject —

@@ -103,13 +103,13 @@ type KindedDelivery interface {
 // the opt-in SurfaceSelection builder resolves a caller's named approach through
 // — descriptor-keyed, never a cross-backend type switch.
 //
-// There is deliberately NO Deliveries() here (U033-F05 removed it). Iterating a
-// set's surfaces is what Select(set).WithEverything().Build().Deliveries() does,
-// approach-resolved and with the kind attached; the interface used to ALSO
-// mandate a raw, unresolved Deliveries() that five backends hand-maintained as a
-// slice literal and no production caller ever read. The two were proved to
-// materialize identical trees before the raw one went (see
-// TestDeliveries_SurfaceSetMatchesResolvedSelection in internal/lm/backends).
+// There is deliberately NO Deliveries() here. Iterating a set's surfaces is what
+// Select(set).WithEverything().Build().Deliveries() does, approach-resolved and
+// with the kind attached. A raw, unresolved Deliveries() on this interface would
+// be a SECOND iteration path — one five backends hand-maintain as a slice
+// literal and no production caller reads — for a materialized tree measured to
+// be identical (see TestDeliveries_ResolvedSelectionMaterializesEverySurface in
+// internal/lm/backends).
 type SurfaceSet interface {
 	// SupportedApproaches reports the delivery approaches this backend offers for
 	// kind. An EMPTY result means the backend has no distinct surface of that kind

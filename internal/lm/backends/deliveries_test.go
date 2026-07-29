@@ -14,15 +14,13 @@ import (
 )
 
 // TestDeliveries_ResolvedSelectionMaterializesEverySurface guards the ONE
-// surviving iteration path over a backend's surfaces (U033-F05).
+// iteration path over a backend's surfaces.
 //
-// There used to be two. agent.SurfaceSet mandated a raw, unresolved
-// Deliveries(), which five backends hand-maintained as a slice literal and no
-// production code ever called; the launch path drives
-// agent.Select(set).WithEverything().Build().Deliveries() instead. The raw one
-// was deleted only after an earlier form of this test (4ead44ff) delivered BOTH
-// into two roots of one in-memory filesystem across all five backends and
-// proved the materialized trees byte-identical.
+// agent.SurfaceSet deliberately mandates no raw, unresolved Deliveries(): that
+// is a second path, hand-maintained as a slice literal by five backends and
+// called by no production code, for a materialized tree measured to be
+// byte-identical to the one the launch path produces through
+// agent.Select(set).WithEverything().Build().Deliveries().
 //
 // What survives here is the half that still has a subject: every native-surface
 // backend must resolve WithEverything into one delivery per ADVERTISED kind,

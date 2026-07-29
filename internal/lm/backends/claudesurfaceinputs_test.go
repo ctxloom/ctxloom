@@ -13,17 +13,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestBuildSurfaces_Claude_CarriesMCPCommandOverride is the U033-F01 parity
-// gate, and it is RED before the fix.
+// TestBuildSurfaces_Claude_CarriesMCPCommandOverride is the parity gate on
+// claude's SurfaceInputs.
 //
-// claude was the only backend with a LOCAL SurfaceInputs — agent.SurfaceInputs
-// minus Fragments — which forced two hand-maintained field-by-field mappers
-// (claudecode.go's buildSurfaces and this package's registry.go closure). They
-// had already drifted: registry.go's mapper copied ten fields and silently
-// dropped MCPCommandOverride, so a surface built through the name→SurfaceSet
-// seam stamped the HOST's self-exec path into .mcp.json instead of the
-// in-container path the override names (the dire-five defect, reintroduced on
-// one of the two paths).
+// A LOCAL SurfaceInputs for claude — agent.SurfaceInputs minus Fragments —
+// forces two hand-maintained field-by-field mappers (claudecode.go's
+// buildSurfaces and this package's registry.go closure), and those drift: one
+// mapper copied ten fields and silently dropped MCPCommandOverride, so a
+// surface built through the name→SurfaceSet seam stamps the HOST's self-exec
+// path into .mcp.json instead of the in-container path the override names.
 //
 // The assertion is on the delivered BYTES, not on the struct: a dropped field
 // has no compile error and no runtime error — it produces a .mcp.json that

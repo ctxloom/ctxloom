@@ -123,11 +123,10 @@ func TestGetFS(t *testing.T) {
 	assert.NotNil(t, GetFS(nil), "falls back to the OS fs when nil")
 }
 
-// TestSettingsStatus_Wired pins SettingsStatus.Wired's definition — U102-F05
-// (REFUTED, see the method's own doc): the row calls it DEAD because all nine
-// call sites are in _test.go, but the most important of them is
-// internal/lm/conformance, this repo's cross-agent contract check, and nothing
-// anywhere pinned what Wired actually MEANS.
+// TestSettingsStatus_Wired pins SettingsStatus.Wired's definition (see the
+// method's own doc). All nine of its call sites are in _test.go, but the most
+// important of them is internal/lm/conformance, this repo's cross-agent
+// contract check, and nothing else pins what Wired actually MEANS.
 //
 // The load-bearing part is the omission: SettingsExists is NOT one of the
 // disjuncts. A settings file ctxloom merely found is not a file ctxloom wired,

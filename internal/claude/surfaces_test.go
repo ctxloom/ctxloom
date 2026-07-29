@@ -383,9 +383,9 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
 	// The surfaces reach a cell through the approach-resolved selection — the
-	// same path the launch path drives. (U033-F05 deleted the raw, unresolved
-	// SurfaceSet.Deliveries() this used to call; it materialized the identical
-	// tree and had no production caller.)
+	// same path the launch path drives. There is deliberately no raw,
+	// unresolved SurfaceSet.Deliveries() to call instead: it materializes the
+	// identical tree and has no production caller.
 	resolved, err := agent.Select(s).WithEverything().Build()
 	require.NoError(t, err)
 	ds := resolved.Deliveries()

@@ -46,10 +46,10 @@ const (
 // (cheapest-first) — deliberately NOT iota order, which starts at medium so an
 // un-configured field defaults safely. String, ParseThinkingLevel and
 // ThinkingLevelNames all read this table, so a fifth tier is one line and
-// cannot land in some of the three and not the others (U102-F12: the four
-// spellings used to be written out three times in this one file, and a tier
-// added to the parser but not to the names list would parse, print, and never
-// appear in flag help). Held by TestThinkingLevel_NamesCoverEveryDeclaredLevel.
+// cannot land in some of the three and not the others: spelled out per site,
+// the four names appear three times in this one file, and a tier added to the
+// parser but not to the names list would parse, print, and never appear in flag
+// help. Held by TestThinkingLevel_NamesCoverEveryDeclaredLevel.
 var thinkingSpellings = []struct {
 	level ThinkingLevel
 	name  string

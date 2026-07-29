@@ -54,10 +54,10 @@ func TestThinkingLevelNames(t *testing.T) {
 	assert.Equal(t, []string{"off", "low", "medium", "high"}, ThinkingLevelNames())
 }
 
-// TestThinkingLevel_NamesCoverEveryDeclaredLevel is the U102-F12 drift gate —
-// the leg the two round-trip tests above leave open.
+// TestThinkingLevel_NamesCoverEveryDeclaredLevel is the drift gate — the leg the
+// two round-trip tests above leave open.
 //
-// The four spellings were written out THREE times in one 84-line file:
+// Spelled out per site, the four names appear THREE times in one file:
 // String()'s switch, ParseThinkingLevel's switch, and ThinkingLevelNames'
 // literal. String<->Parse round-tripping catches drift between the first two,
 // and the literal-equality test above catches an edit to the third — but

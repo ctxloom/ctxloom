@@ -38,24 +38,16 @@ const (
 // Fragments); it has nothing to do with slash commands, which travel
 // separately as ManagedConfig.Commands ([]CommandExport).
 //
-// U100-F08 (PARTIAL): six of the seven fields this struct used to declare are
-// write-only across the whole system — only Content is ever read (base.go,
-// contextfile.go, and codex/surfaces.go's WriteContextFile).
+// Only Content is ever read (base.go, contextfile.go, and codex/surfaces.go's
+// WriteContextFile). Name/Version/Tags/IsDistilled/DistilledBy are write-only
+// across the whole system and stay anyway: each is carried by llm.proto's
+// Fragment message (fields 1,2,3,5,6), so removing one is a schema edit, not an
+// implementer's call. The honest alternative is to add the consumer that
+// justifies them (a per-fragment provenance header in the assembled context);
+// that is a product decision, not a cleanup.
 //
-// `Installation` is deleted here. It had two writers (operations/hooks.go's
-// regenerateContext, for loader-resolved and builtin fragments alike) and zero
-// readers, and unlike its five siblings it had NO proto field at all — so it
-// could never have crossed the wire even in principle, which makes removing it
-// a pure Go-side change. (The review recorded it as "never even populated":
-// true of the grpc path, which structurally cannot set it, but the in-process
-// assembler path did.)
-//
-// Name/Version/Tags/IsDistilled/DistilledBy stay, ESCALATED rather than
-// applied: each is carried by llm.proto's Fragment message (fields 1,2,3,5,6),
-// so removing them is a schema edit — this campaign's escalation trigger — not
-// an implementer's call. The honest alternative the review names is to add the
-// consumer that justifies them (a per-fragment provenance header in the
-// assembled context); that is a product decision, not a cleanup.
+// A field with NO proto backing is a different case: it cannot have crossed the
+// wire even in principle, so dropping it is a pure Go-side change.
 type Fragment struct {
 	Name        string
 	Version     string

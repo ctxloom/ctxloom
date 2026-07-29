@@ -17,15 +17,14 @@ import (
 // production call site of a concrete SettingsWriter.WriteSettings in the whole
 // repo: opencode's configSurface.Deliver (surfaces.go).
 //
-// The U055-F05 census row proposes dropping WriteSettings from
-// agent.SettingsWriter because "kiro's has no production call site". Kiro's
-// indeed has none — but the METHOD is not dead: this surface calls opencode's
-// concrete one on every delivery, and the conformance suite drives three more
-// writers through the interface. Removing the interface method would take this
-// path with it, and nothing named this call site before now.
+// Dropping WriteSettings from agent.SettingsWriter because "kiro's has no
+// production call site" does not follow. Kiro's indeed has none — but the
+// METHOD is not dead: this surface calls opencode's concrete one on every
+// delivery, and the conformance suite drives three more writers through the
+// interface. Removing the interface method would take this path with it, and
+// nothing else names this call site.
 //
-// The row is escalated rather than applied; this is the guard that makes the
-// escalation safe to sit on.
+// This is the guard that makes leaving the interface method in place safe.
 func TestConfigSurface_IsTheOneProductionWriteSettingsCaller(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"

@@ -330,9 +330,9 @@ func init() {
 			return decodeBody(body, &claude.ClaudeConfig{})
 		},
 		newWriter: claude.NewWriter,
-		// claude takes the shared agent.SurfaceInputs directly (U033-F01 deleted
-		// its local copy — the two hand-maintained field-by-field mappers had
-		// already drifted apart on MCPCommandOverride). It binds an out-of-cwd
+		// claude takes the shared agent.SurfaceInputs directly rather than a
+		// local copy: two hand-maintained field-by-field mappers drift apart, as
+		// they did on MCPCommandOverride. It binds an out-of-cwd
 		// placement for the race-safe variants; this path never delivers one, so
 		// a wellKnownPlacement is fine.
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {

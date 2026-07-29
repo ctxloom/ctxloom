@@ -221,9 +221,9 @@ func hasControlChar(s string) bool {
 // indicator character. A value needing no quotes is emitted bare, which is the
 // deliberate difference from the always-quoting yamlDoubleQuoted — but once the
 // decision to quote is made, the ESCAPING is yamlDoubleQuoted's, so this
-// package has one escaping algorithm rather than two (U102-F16: the bespoke
-// backslash/quote rules here escaped neither \n nor \r, so a description
-// carrying either was silently folded or made the frontmatter unparseable).
+// package has one escaping algorithm rather than two: bespoke backslash/quote
+// rules here escape neither \n nor \r, so a description carrying either is
+// silently folded or makes the frontmatter unparseable.
 func EscapeYAMLString(s string) string {
 	needsQuotes := strings.ContainsAny(s, ":#{}[]&*!|>'\"%@`") ||
 		strings.HasPrefix(s, " ") ||

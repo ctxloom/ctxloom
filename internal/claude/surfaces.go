@@ -113,7 +113,7 @@ type mcpSurface struct {
 // onto it (dire-five — settingsSurface has no analogous knob, since hooks +
 // statusline carry no stdio command), and write the merged config. Deliver and
 // DeliverIsolated differ only in where dir comes from and whether the resulting
-// path is recorded, which is all U033-F06 left of the two former bodies.
+// path is recorded; that is the whole of what either entry point adds.
 func (s *mcpSurface) deliver(dir string) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
 	d.mcpCommandOverride = s.commandOverride
@@ -265,11 +265,10 @@ type Surfaces struct {
 // target dir at call time, so only the race-safe variants bind isolated here.
 //
 // It takes the SHARED agent.SurfaceInputs, exactly as antigravity/kiro/opencode
-// do. claude used to declare a local copy of it (agent.SurfaceInputs minus
-// Fragments), which forced two hand-maintained field-by-field mappers —
-// claudecode.go's buildSurfaces and lm/backends/registry.go's newSurfaces
-// closure — and they had already drifted: registry.go's copied ten of the
-// eleven fields and silently dropped MCPCommandOverride (U033-F01). Reading the
+// do. A local copy of it (agent.SurfaceInputs minus Fragments) would force two
+// hand-maintained field-by-field mappers — claudecode.go's buildSurfaces and
+// lm/backends/registry.go's newSurfaces closure — and those drift: one copied
+// ten of the eleven fields and silently dropped MCPCommandOverride. Reading the
 // shared struct directly makes that class of drop impossible; claude simply
 // ignores the fields it has no use for (Fragments, AgentName).
 func NewSurfaces(in agent.SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfaces {

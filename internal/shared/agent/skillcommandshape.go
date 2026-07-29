@@ -24,8 +24,8 @@ import (
 // the JSON encoder supplies the escaping — quotes, backslashes AND control
 // characters — without a bespoke quoter. It is the ONE escaping algorithm this
 // package has; EscapeYAMLString (commandfiles.go) applies its own
-// quote-or-not policy and then delegates here (U102-F16 retired that
-// function's hand-written rules, which escaped neither \n nor \r).
+// quote-or-not policy and then delegates here rather than keeping hand-written
+// rules of its own, which escaped neither \n nor \r.
 //
 // HTML escaping is turned OFF deliberately: json.Marshal's default would emit
 // < / > / & for <, > and &, which are ordinary characters in

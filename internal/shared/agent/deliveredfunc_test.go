@@ -8,19 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDeliveredFuncParity is the U029-F04/U055-F09 contract gate. Six packages
-// used to carry a private `deliveredFunc func() error` retype of the exported
-// agent.DeliveredFunc (claude ×2, codex, kiro, antigravity, opencode, and this
-// package's own managed_commands.go copy). They were collapsed onto the single
-// exported type; this test is what the collapse rests on.
+// TestDeliveredFuncParity is the contract gate for agent.DeliveredFunc, the one
+// exported type that six packages would otherwise each retype privately as
+// `deliveredFunc func() error` (claude ×2, codex, kiro, antigravity, opencode,
+// and this package's own managed_commands.go). Those copies are unexported in
+// packages that already import this one, so no compiler-checked parity
+// assertion can reach them — a private retype is a divergence nothing catches.
 //
-// It was written BEFORE the collapse and asserted BOTH types side by side — the
-// only pair a compiler-checked parity assertion could reach, since the other
-// five copies were unexported in packages that already import this one. It
-// passed, so "the copies had not diverged" is a measured fact. The local half
-// was dropped with the type it covered; every one of the ~14 former call sites
-// now depends on exactly this behaviour: Cleanup invokes the wrapped closure
-// exactly once and returns its error verbatim (including nil).
+// Every call site depends on exactly this behaviour: Cleanup invokes the
+// wrapped closure exactly once and returns its error verbatim (including nil).
 func TestDeliveredFuncParity(t *testing.T) {
 	sentinel := errors.New("teardown failed")
 

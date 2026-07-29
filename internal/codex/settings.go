@@ -290,9 +290,9 @@ func isManagedServer(server map[string]any) bool {
 // an event left with no groups is removed, and an emptied hooks table goes with
 // it, which is the shape codex's TOML expects.
 //
-// U045-F13: the pruning walk and the boolean query each carried their own copy
-// of this descent, and they disagreed — the pruning one deleted ctxloom-free
-// empty groups the query never counted (see
+// The pruning walk and the boolean query share this descent rather than each
+// carrying a copy: separate copies disagree — the pruning one deletes
+// ctxloom-free empty groups the query never counts (see
 // TestManagedHooks_QueryAgreesWithRemoval).
 func eachHookGroup(cfg map[string]any, prune func(entries []any) (kept []any, changed bool)) {
 	hooks := asMap(cfg["hooks"])

@@ -9,8 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
-// TestSkillExports_DescriptionReachesTheEngineInSKILLmd is the coverage taken
-// BEFORE U102-F07 deletes agent.SkillExport.Description.
+// TestSkillExports_DescriptionReachesTheEngineInSKILLmd is the coverage that
+// makes agent.SkillExport.Description safe to delete.
 //
 // That field is write-only: buildSkillExports sets it from the skill's
 // frontmatter and no engine reads it — claude/opencode/antigravity's skill

@@ -33,7 +33,7 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 		t.Fatalf("origin = %q, want the session harp", add.Task.OriginSession)
 	}
 
-	logPath, err := paths.TasksLogPath(paths.ModeHome, "", "test-project")
+	logPath, err := paths.HomeTasksLogPath("test-project")
 	if err != nil {
 		t.Fatalf("log path: %v", err)
 	}
@@ -585,9 +585,9 @@ func TestHoming_HomeHomedWritesUnderHome(t *testing.T) {
 	if res.ProjectID == "" {
 		t.Fatal("ProjectID empty, want a minted/registered id")
 	}
-	wantPath, err := paths.TasksLogPath(paths.ModeHome, "", res.ProjectID)
+	wantPath, err := paths.HomeTasksLogPath(res.ProjectID)
 	if err != nil {
-		t.Fatalf("TasksLogPath: %v", err)
+		t.Fatalf("HomeTasksLogPath: %v", err)
 	}
 	if res.Path != wantPath {
 		t.Fatalf("Path = %q, want %q", res.Path, wantPath)
@@ -1338,7 +1338,7 @@ func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
 	}
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
 
-	logPath, err := paths.TasksLogPath(paths.ModeHome, "", "p")
+	logPath, err := paths.HomeTasksLogPath("p")
 	if err != nil {
 		t.Fatalf("log path: %v", err)
 	}

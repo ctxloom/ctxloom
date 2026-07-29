@@ -21,7 +21,7 @@ type Store struct {
 }
 
 // OpenLog returns a Store backed by the append-only per-project task log at
-// path (see paths.TasksLogPath). sessionHarp is stamped as the origin on
+// path (see paths.HomeTasksLogPath and paths.RepoTasksLogPath). sessionHarp is stamped as the origin on
 // created tasks and the actor on status/remove events; it may be empty (e.g. a
 // bare CLI invocation outside a session).
 func OpenLog(path, sessionHarp string) (*Store, error) {

@@ -132,11 +132,11 @@ func ResolveProjectIdentity(workDir string) (projectID, warning string, err erro
 // the path convention stays owned here rather than reconstructed by a frontend.
 //
 // In ModeRepo, projectID is always returned empty: the repo IS the identity
-// in that mode (see paths.TasksLogPath and internal/taskloom/config's doc),
+// in that mode (see paths.RepoTasksLogPath and internal/taskloom/config's doc),
 // so there is no id to mint or resolve.
 func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 	if tc.HomingMode == paths.ModeRepo {
-		logPath, err = paths.TasksLogPath(paths.ModeRepo, tc.WorkDir, "")
+		logPath, err = paths.RepoTasksLogPath(tc.WorkDir)
 		if err != nil {
 			return "", "", fmt.Errorf("task log path: %w", err)
 		}
@@ -154,7 +154,7 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 		}
 		projectID = res.ProjectID
 	}
-	logPath, err = paths.TasksLogPath(paths.ModeHome, "", projectID)
+	logPath, err = paths.HomeTasksLogPath(projectID)
 	if err != nil {
 		return projectID, "", fmt.Errorf("task log path: %w", err)
 	}
@@ -822,7 +822,7 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 			}
 		}
 	}
-	logPath, err := paths.TasksLogPath(paths.ModeHome, "", proj.ID)
+	logPath, err := paths.HomeTasksLogPath(proj.ID)
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}
@@ -875,7 +875,7 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 		if e.ProjectID == resolvedID {
 			continue
 		}
-		siblingPath, perr := paths.TasksLogPath(paths.ModeHome, "", e.ProjectID)
+		siblingPath, perr := paths.HomeTasksLogPath(e.ProjectID)
 		if perr != nil {
 			continue
 		}
@@ -891,7 +891,7 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 // checked into the project tree at tc.WorkDir/paths.RepoDirName/
 // paths.RepoTasksFileName (.taskloom/tasks.jsonl), alongside
 // .taskloom/config.yaml. The repo IS the identity in this mode — no
-// project-id is minted or consulted (see paths.TasksLogPath's doc and
+// project-id is minted or consulted (see paths.RepoTasksLogPath's doc and
 // internal/taskloom/config's package doc for the full justification).
 // tc.WorkDir is expected to already be redirected through the
 // worktree-to-primary-checkout boundary by the caller (workdir.
@@ -899,14 +899,11 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 // on the SAME log a primary-checkout invocation would — exactly like
 // ModeHome's project-id resolution already does today.
 func resolveRepoHomedStore(tc TaskContext) (store *tasks.Store, proj projectIdentity, warning string, err error) {
-	if tc.WorkDir == "" {
-		return nil, proj, "", fmt.Errorf("repo-homed task store: no project root resolved (working directory unavailable)")
-	}
 	proj.Dir = tc.WorkDir
 	if tc.ProjectID != "" {
 		warning = fmt.Sprintf("--project %s is ignored in repo-homed mode; %s is the store's identity", tc.ProjectID, tc.WorkDir)
 	}
-	logPath, err := paths.TasksLogPath(paths.ModeRepo, tc.WorkDir, "")
+	logPath, err := paths.RepoTasksLogPath(tc.WorkDir)
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}

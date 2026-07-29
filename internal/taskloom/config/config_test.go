@@ -172,7 +172,7 @@ func TestConfig_ConfigSetOverridesEnv(t *testing.T) {
 // TestHoming_RepoHomedWritesInsideRepo pins the repo-homed on-disk location:
 // .taskloom/tasks.jsonl inside the project.
 func TestHoming_RepoHomedWritesInsideRepo(t *testing.T) {
-	got, err := paths.TasksLogPath(paths.ModeRepo, "/proj", "")
+	got, err := paths.RepoTasksLogPath("/proj")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/proj", ".taskloom", "tasks.jsonl"), got)
 }
@@ -181,7 +181,7 @@ func TestHoming_RepoHomedWritesInsideRepo(t *testing.T) {
 // location unchanged.
 func TestHoming_HomeHomedWritesUnderHome(t *testing.T) {
 	home := taskstest.Isolate(t)
-	got, err := paths.TasksLogPath(paths.ModeHome, "", "swift-amber-falcon")
+	got, err := paths.HomeTasksLogPath("swift-amber-falcon")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ".ctxloom", "tasks", "swift-amber-falcon.jsonl"), got)
 }
@@ -407,4 +407,23 @@ func TestTagSchema_MalformedDeclarationFailsLoud(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cfg.ParsedTagSchema()
 	require.Error(t, err)
+}
+
+// TestResolveMode_RejectsUnknownValue pins the one place an unrecognized
+// homing value is refused. Everything downstream branches on ModeRepo and
+// treats anything else as ModeHome, so a value that slipped through here
+// would silently relocate a project's task store rather than error.
+func TestResolveMode_RejectsUnknownValue(t *testing.T) {
+	project := t.TempDir()
+	writeConfig(t, project, "homing: bogus\n")
+
+	_, err := ResolveMode(project, nil, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `one of "home", "repo"`)
+
+	clean := t.TempDir()
+	writeConfig(t, clean, "homing: home\n")
+	_, err = ResolveMode(clean, nil, "alsobogus")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "alsobogus")
 }

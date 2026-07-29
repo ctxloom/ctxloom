@@ -3,7 +3,7 @@
 // task logs (ModeHome), the project registry, and the project marker all live
 // where ctxloom put them, under ~/.ctxloom and <projectDir>/.ctxloom. A
 // ModeRepo (repo-homed) task log is the one exception — see Mode and
-// TasksLogPath — living instead at <projectDir>/.taskloom/tasks.jsonl, a
+// RepoTasksLogPath — living instead at <projectDir>/.taskloom/tasks.jsonl, a
 // deliberately separate dot-dir from .ctxloom because it (and its
 // config.yaml, see internal/taskloom/config) is meant to be COMMITTED, unlike
 // anything under .ctxloom/* (private working state, gitignored).
@@ -106,17 +106,6 @@ func HomeTasksDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, AppDirName, TasksDir), nil
-}
-
-func TasksLogPath(mode Mode, repoRoot, projectID string) (string, error) {
-	switch mode {
-	case ModeRepo:
-		return RepoTasksLogPath(repoRoot)
-	case ModeHome, "":
-		return HomeTasksLogPath(projectID)
-	default:
-		return "", fmt.Errorf("task store: unknown homing mode %q", mode)
-	}
 }
 
 // RepoTasksLogPath resolves the ModeRepo task log path:

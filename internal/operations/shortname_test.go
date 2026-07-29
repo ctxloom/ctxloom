@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 const shortNamePersonalURL = "https://github.com/ben/ctxloom-personal"
@@ -81,4 +83,44 @@ func TestCreateProfile_CanonicalizesShortRefs(t *testing.T) {
 	assert.Equal(t, []string{
 		shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder", // alias parent → canonical
 	}, saved.Parents)
+}
+
+// TestRegistryAliasToURL_UnknownAliasWarns pins U087-F08: an alias-shaped ref
+// ("<alias>/<path>") whose alias the registry does not know used to resolve to
+// "" (ref kept as authored) with no signal anywhere. The fallback behavior is
+// unchanged — resolution still fails safe and the on-disk format is untouched
+// — but the failure must now be visible, since this is exactly the case a
+// typo'd or unregistered alias silently persists a machine-local spelling.
+func TestRegistryAliasToURL_UnknownAliasWarns(t *testing.T) {
+	root := t.TempDir()
+	reg, err := remote.NewRegistry(paths.RemotesPath(root))
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	resolve := registryAliasToURL(reg)
+	require.NotNil(t, resolve)
+	got := resolve("nope")
+
+	assert.Equal(t, "", got, "an unknown alias still resolves to \"\" — fault-tolerant, format unchanged")
+	assert.Contains(t, buf.String(), "nope", "the unknown alias must be named in the warning")
+}
+
+// TestRegistryAliasToURL_KnownAliasNeverWarns is the healthy-path regression
+// net for the fix above: resolving a REGISTERED alias must stay silent.
+func TestRegistryAliasToURL_KnownAliasNeverWarns(t *testing.T) {
+	root := t.TempDir()
+	registerPersonalRemote(t, root)
+	reg, err := remote.NewRegistry(paths.RemotesPath(root))
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	got := registryAliasToURL(reg)("personal")
+	assert.Equal(t, shortNamePersonalURL, got)
+	assert.Empty(t, buf.String(), "resolving a known alias must never warn")
 }

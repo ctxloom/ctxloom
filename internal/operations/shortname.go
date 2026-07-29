@@ -6,19 +6,37 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // registryAliasToURL adapts a remotes registry to the alias→URL resolver the
 // short-name canonicalizer (remote.CanonicalizeShortRef) needs. Returns nil when
 // no registry is available, which disables remote resolution (refs stay as
 // authored — fault tolerant).
+//
+// This is only ever invoked for a ref already shaped "<alias>/<path>" with no
+// local file at that name (remote.CanonicalizeShortRef's own gate) — so a
+// failure here is never "an ordinary local bundle name", it is specifically
+// "this alias is not one the registry knows". U087-F08: that failure used to
+// return "" (leave the ref as authored) with NO signal, at all three call
+// sites — including the canonicalize-ON-STORE sites (CreateProfile/
+// UpdateProfile/SetAgent), where a typo'd or unregistered alias was then
+// persisted into profile.yaml/agents verbatim and only surfaced much later, at
+// load, in a different process. The on-disk format is unchanged (still "" ->
+// caller keeps the ref as authored, fault tolerant) — only the silence is
+// fixed.
 func registryAliasToURL(registry *remote.Registry) func(string) string {
 	if registry == nil {
 		return nil
 	}
 	return func(alias string) string {
 		rem, err := registry.Get(alias)
-		if err != nil || rem == nil || rem.URL == "" {
+		if err != nil {
+			clidiag.Warn("ctxloom", "%q looks like a remote alias but is not a registered remote: %v (keeping the ref as authored)", alias, err)
+			return ""
+		}
+		if rem == nil || rem.URL == "" {
+			clidiag.Warn("ctxloom", "%q resolved to a remote with no URL configured (keeping the ref as authored)", alias)
 			return ""
 		}
 		return rem.URL

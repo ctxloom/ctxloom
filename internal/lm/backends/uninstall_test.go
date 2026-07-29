@@ -111,8 +111,25 @@ func TestRemoveSettings_FailureNamesBackend(t *testing.T) {
 		"a settings-writer failure must name the backend it came from: got %q", err.Error())
 }
 
-func TestBackendStatus_UnsupportedBackendIsUnwired(t *testing.T) {
-	status, err := BackendStatus("unknown-backend", "/project")
+// U057-F27: BackendStatus must be able to tell "typo'd/unregistered name"
+// apart from "registered backend that genuinely has no settings support"
+// (acp, mock) — both used to return a zero SettingsStatus and a nil error,
+// so a caller passing a typo got a clean, empty, successful-looking read.
+// An UNREGISTERED name now errors; a registered-but-no-writer backend still
+// reports an empty status with a nil error (that IS a legitimate "nothing to
+// report" — the case TestBackendStatus_UnsupportedBackendIsUnwired covers is
+// renamed to reflect this).
+func TestBackendStatus_UnregisteredBackendErrors(t *testing.T) {
+	_, err := BackendStatus("unknown-backend", "/project")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown-backend")
+}
+
+func TestBackendStatus_RegisteredNoWriterBackendIsUnwiredNoError(t *testing.T) {
+	// "acp" is a REGISTERED backend that deliberately has no settings writer
+	// (no native config format to materialize) — this must stay a clean,
+	// error-free empty read, unlike an unregistered name.
+	status, err := BackendStatus("acp", "/project")
 	require.NoError(t, err)
 	assert.False(t, status.Wired())
 	assert.False(t, status.SettingsExists)

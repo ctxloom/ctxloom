@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -18,15 +19,29 @@ import (
 // were byte-for-byte the same shape modulo the engine name/skills-dir
 // display string).
 
-// JSONScalar renders s as a double-quoted scalar safe for YAML front-matter. A
-// JSON string literal is a valid YAML flow scalar, so json.Marshal handles the
-// escaping (quotes, backslashes, control chars) without a bespoke quoter.
-func JSONScalar(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
+// yamlDoubleQuoted renders s as a double-quoted scalar safe for YAML
+// front-matter. A JSON string literal is a valid YAML double-quoted scalar, so
+// the JSON encoder supplies the escaping — quotes, backslashes AND control
+// characters — without a bespoke quoter. It is the ONE escaping algorithm this
+// package has; EscapeYAMLString (commandfiles.go) applies its own
+// quote-or-not policy and then delegates here (U102-F16 retired that
+// function's hand-written rules, which escaped neither \n nor \r).
+//
+// HTML escaping is turned OFF deliberately: json.Marshal's default would emit
+// < / > / & for <, > and &, which are ordinary characters in
+// YAML. Leaving them escaped made the two quoters disagree and put unreadable
+// sequences into every generated SKILL.md carrying an angle bracket.
+//
+// It is unexported: no package outside this one has ever called it.
+func yamlDoubleQuoted(s string) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
 		return `""`
 	}
-	return string(b)
+	// Encode appends a trailing newline; the scalar is everything before it.
+	return strings.TrimRight(buf.String(), "\n")
 }
 
 // RenderCommandAsSkillFile renders one command export as an agentskills
@@ -54,8 +69,8 @@ func RenderCommandAsSkillFile(c CommandExport) (string, []byte, error) {
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.WriteString("name: " + JSONScalar(name) + "\n")
-	b.WriteString("description: " + JSONScalar(desc) + "\n")
+	b.WriteString("name: " + yamlDoubleQuoted(name) + "\n")
+	b.WriteString("description: " + yamlDoubleQuoted(desc) + "\n")
 	b.WriteString("---\n\n")
 	b.WriteString(c.Content)
 	if !strings.HasSuffix(c.Content, "\n") {

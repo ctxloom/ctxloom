@@ -14,7 +14,7 @@ import (
 // This package carries TWO YAML-frontmatter scalar quoters with different
 // algorithms and different correctness:
 //
-//	JSONScalar        (skillcommandshape.go) — ALWAYS quotes, escaping via
+//	yamlDoubleQuoted  (skillcommandshape.go) — ALWAYS quotes, escaping via
 //	                   json.Marshal, so quotes, backslashes AND control
 //	                   characters are all handled. Serves kiro/antigravity's
 //	                   SKILL.md frontmatter.
@@ -67,7 +67,7 @@ func TestYAMLQuoters_AgreeWhenBothQuote(t *testing.T) {
 			// And when it DOES quote, the escaping must be the json.Marshal
 			// escaping the sibling quoter uses — one algorithm, not two.
 			if strings.HasPrefix(escaped, `"`) {
-				assert.Equal(t, JSONScalar(tc.in), escaped,
+				assert.Equal(t, yamlDoubleQuoted(tc.in), escaped,
 					"two quoters in one package must escape identically once both have decided to quote")
 			}
 		})

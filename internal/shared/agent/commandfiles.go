@@ -207,28 +207,34 @@ func isYAMLTypeAmbiguous(s string) bool {
 	return yamlNumberRe.MatchString(s)
 }
 
+// hasControlChar reports whether s carries a character that cannot appear
+// literally in a YAML scalar. A newline line-FOLDS to a space inside a
+// double-quoted scalar (silently changing the value), and a bare carriage
+// return breaks the parse outright — both must be escaped, not merely quoted.
+func hasControlChar(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
+}
+
 // EscapeYAMLString quotes a string for safe inclusion in YAML frontmatter when
-// it contains special characters, when it would otherwise be typed as a
-// non-string scalar (bool/null/number), or when it begins with a YAML indicator
-// character. When quoting, backslash is escaped before the double quote: in a
-// YAML double-quoted scalar backslash is the escape introducer, so an unescaped
-// backslash would either corrupt the value (e.g. \b -> backspace) or hard-fail
-// the parse (e.g. \p -> invalid escape).
+// it contains special or control characters, when it would otherwise be typed
+// as a non-string scalar (bool/null/number), or when it begins with a YAML
+// indicator character. A value needing no quotes is emitted bare, which is the
+// deliberate difference from the always-quoting yamlDoubleQuoted — but once the
+// decision to quote is made, the ESCAPING is yamlDoubleQuoted's, so this
+// package has one escaping algorithm rather than two (U102-F16: the bespoke
+// backslash/quote rules here escaped neither \n nor \r, so a description
+// carrying either was silently folded or made the frontmatter unparseable).
 func EscapeYAMLString(s string) string {
 	needsQuotes := strings.ContainsAny(s, ":#{}[]&*!|>'\"%@`") ||
 		strings.HasPrefix(s, " ") ||
 		strings.HasSuffix(s, " ") ||
-		strings.Contains(s, "\n") ||
+		hasControlChar(s) ||
 		strings.HasPrefix(s, "- ") ||
 		strings.HasPrefix(s, "? ") ||
 		s == "-" || s == "?" ||
 		isYAMLTypeAmbiguous(s)
 	if needsQuotes {
-		// Backslash first, so the escaping backslashes we insert are not then
-		// re-doubled by the quote replacement.
-		s = strings.ReplaceAll(s, `\`, `\\`)
-		s = strings.ReplaceAll(s, `"`, `\"`)
-		return `"` + s + `"`
+		return yamlDoubleQuoted(s)
 	}
 	return s
 }

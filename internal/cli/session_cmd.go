@@ -92,11 +92,11 @@ var sessionListCmd = &cobra.Command{
 	},
 }
 
-// SessionEssence is the structured result of `session show`. In json mode a
+// sessionEssence is the structured result of `session show`. In json mode a
 // session that isn't distilled yet returns distilled:false with an empty essence
 // (not an error), so a frontend can show a "not distilled yet" hint on hover
 // without branching on an exit code.
-type SessionEssence struct {
+type sessionEssence struct {
 	Harp      string `json:"harp"`
 	Distilled bool   `json:"distilled"`
 	Essence   string `json:"essence"`
@@ -127,7 +127,7 @@ var sessionShowCmd = &cobra.Command{
 			}
 			essencePath, _ = sessionEssenceInfo(args[0], entry, appDir)
 		}
-		return emit(cmd, SessionEssence{Harp: args[0], Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
+		return emit(cmd, sessionEssence{Harp: args[0], Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
 			if !distilled {
 				if entry.SessionID == "" {
 					return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", args[0])

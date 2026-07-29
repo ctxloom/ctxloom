@@ -42,12 +42,11 @@ type RunOneshotRequest struct {
 // RunOneshotResult is the captured output of one oneshot agent run, plus the
 // resolved transport metadata.
 type RunOneshotResult struct {
-	Profile  string `json:"profile,omitempty"`
-	Output   string `json:"output"`
-	Label    string `json:"label"`
-	Backend  string `json:"backend"`
-	Model    string `json:"model,omitempty"`
-	ExitCode int32  `json:"exit_code"`
+	Profile string `json:"profile,omitempty"`
+	Output  string `json:"output"`
+	Label   string `json:"label"`
+	Backend string `json:"backend"`
+	Model   string `json:"model,omitempty"`
 }
 
 // RunOneshot assembles the profile's context, resolves the LLM (override → the
@@ -480,6 +479,9 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	if err != nil {
 		return nil, fmt.Errorf("agent run: %w", err)
 	}
+	// Every non-zero exit returns an error above, so RunOneshotResult is only
+	// ever constructed for exitCode==0 — it used to carry that (always-0)
+	// value as an ExitCode field nothing read (U085-F21); deleted.
 	if exitCode != 0 {
 		return nil, fmt.Errorf("agent exited with code %d: %s", exitCode, strings.TrimSpace(stderr.String()))
 	}
@@ -517,11 +519,10 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 
 	return &RunOneshotResult{
-		Output:   out,
-		Label:    req.Label,
-		Backend:  req.Backend,
-		Model:    req.Model,
-		ExitCode: exitCode,
+		Output:  out,
+		Label:   req.Label,
+		Backend: req.Backend,
+		Model:   req.Model,
 	}, nil
 }
 

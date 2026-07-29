@@ -20,13 +20,34 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **835** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 27 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 60 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 98 |
-| `open` | no commit names this ID | **1,248** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **848** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 28 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 61 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 101 |
+| `open` | no commit names this ID | **1,230** |
 
-**Totals: 2268 findings across 162 units — 835 resolved, 1248 still open, 185 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
+**Totals: 2268 findings across 162 units — 848 resolved, 1230 still open, 190 adjudicated without a fix.**
+
+Updated again 2026-07-29 by the `wave4/netneg-materialize` batch: all 18
+net-negative rows of the MATERIALIZE flow adjudicated (U029-F02/F04,
+U032-F07, U033-F01/F03/F05/F06/F07, U045-F13, U055-F04/F05/F09,
+U100-F08/F13, U102-F05/F07/F12/F16). 13 RESOLVED, 1 PARTIAL (U100-F08 —
+Fragment.Installation deleted, the five wire-backed siblings escalated),
+1 REFUTED (U102-F05 — SettingsStatus.Wired is a conformance-suite contract
+predicate, not dead code, and deleting it is net-POSITIVE LOC), 3 ESCALATED
+(U055-F05 and U102-F07 are wire/interface-backed; U100-F13's two assemblers
+cannot be collapsed without changing the bytes the SkipSetup path delivers
+into a live session). 3 of the 13 RESOLVED (U029-F02, U032-F07, U055-F04)
+were ALREADY FIXED at `758c200e`, which deleted the whole ContentCommands
+wiring but never named their IDs in a subject — verified in code, not from
+the commit message. Three rows turned out to hide LIVE defects the census had
+filed as mere duplication: registry.go's claude mapper silently dropped
+MCPCommandOverride (a container's .mcp.json named a host binary),
+codex's removeManagedHooks deleted user-authored ctxloom-free empty hook
+groups, and EscapeYAMLString escaped neither \n (silently line-folded) nor
+\r (frontmatter stopped parsing). Recounted by the gate, not by hand:
+RESOLVED 835->848, PARTIAL 27->28, REFUTED 60->61, ESCALATED 98->101,
+open 1248->1230. (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -210,8 +231,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 7 | 10 | 6 | 3 |
-| MED | 999 | 197 | 717 | 8 | 18 | 59 |
-| LOW | 871 | 288 | 504 | 9 | 34 | 36 |
+| MED | 999 | 205 | 706 | 9 | 18 | 61 |
+| LOW | 871 | 293 | 497 | 9 | 35 | 37 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8

@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -11,6 +12,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
+
+// failOpenFs fails Open for exactly one path with a non-NotExist error
+// (os.ErrPermission), passing everything else through to the wrapped Fs —
+// mirrors internal/shared/agent/mcpfile_test.go's seam for the identical
+// U101-F09 shape, here pinning U080-F17.
+type failOpenFs struct {
+	afero.Fs
+	path string
+}
+
+func (f failOpenFs) Open(name string) (afero.File, error) {
+	if name == f.path {
+		return nil, &os.PathError{Op: "open", Path: name, Err: os.ErrPermission}
+	}
+	return f.Fs.Open(name)
+}
 
 // mcpObject decodes the `mcp` key of a written opencode.json into a name->entry map.
 func mcpObject(t *testing.T, got map[string]any) map[string]any {
@@ -241,7 +258,8 @@ func TestRemoveMCP_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.JSONEq(t, existing, string(after), "malformed mcp left untouched, not silently accepted")
 
-	ledger := w.readLedger("/proj")
+	ledger, ledgerErr := w.readLedger("/proj")
+	require.NoError(t, ledgerErr)
 	assert.ElementsMatch(t, []string{"ctxloom", "proj-tool"}, ledger,
 		"ledger must NOT be cleared when the strip did not actually happen")
 }
@@ -260,9 +278,25 @@ func TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) 
 	err := w.RemoveSettings("/proj")
 	require.Error(t, err, "malformed mcp must fail loudly")
 
-	ledger := w.readLedger("/proj")
+	ledger, ledgerErr := w.readLedger("/proj")
+	require.NoError(t, ledgerErr)
 	assert.ElementsMatch(t, []string{"ctxloom"}, ledger,
 		"ledger must NOT be cleared when the strip did not actually happen")
+}
+
+// TestReadLedger_ReadErrorSurfaces pins U080-F17: readLedger mapped ANY read
+// error (not just "does not exist") to nil, so a permission-denied or
+// truncated ledger was indistinguishable from an absent one — the caller then
+// stripped nothing and reported success.
+func TestReadLedger_ReadErrorSurfaces(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, base.MkdirAll("/proj", 0o755))
+	require.NoError(t, afero.WriteFile(base, "/proj/"+opencodeManagedLedger, []byte("ctxloom\n"), 0o644))
+	fs := failOpenFs{Fs: base, path: "/proj/" + opencodeManagedLedger}
+	w := &OpencodeWriter{FS: fs}
+
+	_, err := w.readLedger("/proj")
+	require.Error(t, err, "a ledger read failure (not simply missing) must surface, not be silently treated as an empty ledger")
 }
 
 // TestWriteContext_InstructionsAndFile proves context is delivered via the

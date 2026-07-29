@@ -517,7 +517,11 @@ func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCon
 	if err != nil {
 		return err
 	}
-	if err := stripManagedMCP(cfg, w.readLedger(projectDir)); err != nil {
+	ledger, err := w.readLedger(projectDir)
+	if err != nil {
+		return err
+	}
+	if err := stripManagedMCP(cfg, ledger); err != nil {
 		return err
 	}
 	servers := composeManagedServers(mcp, bundleMCP)
@@ -597,7 +601,11 @@ func (w *OpencodeWriter) removeMCP(projectDir string) error {
 		if err != nil {
 			return err
 		}
-		if err := stripManagedMCP(cfg, w.readLedger(projectDir)); err != nil {
+		ledger, err := w.readLedger(projectDir)
+		if err != nil {
+			return err
+		}
+		if err := stripManagedMCP(cfg, ledger); err != nil {
 			return err
 		}
 		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
@@ -619,7 +627,11 @@ func (w *OpencodeWriter) RemoveSettings(projectDir string) error {
 		if err != nil {
 			return err
 		}
-		if err := stripManagedMCP(cfg, w.readLedger(projectDir)); err != nil {
+		ledger, err := w.readLedger(projectDir)
+		if err != nil {
+			return err
+		}
+		if err := stripManagedMCP(cfg, ledger); err != nil {
 			return err
 		}
 		stripManagedInstructions(cfg)
@@ -655,7 +667,11 @@ func (w *OpencodeWriter) Status(projectDir string) (agent.SettingsStatus, error)
 			if _, ok := servers[agent.MCPServerName]; ok {
 				status.MCPPresent = true
 			}
-			for _, n := range w.readLedger(projectDir) {
+			ledger, err := w.readLedger(projectDir)
+			if err != nil {
+				return status, err
+			}
+			for _, n := range ledger {
 				if _, ok := servers[n]; ok {
 					status.MCPPresent = true
 				}
@@ -671,11 +687,24 @@ func (w *OpencodeWriter) Status(projectDir string) (agent.SettingsStatus, error)
 	return status, nil
 }
 
-// readLedger returns the managed MCP server names from the sidecar ledger, if any.
-func (w *OpencodeWriter) readLedger(projectDir string) []string {
-	data, err := afero.ReadFile(w.getFS(), w.ledgerPath(projectDir))
+// readLedger returns the managed MCP server names from the sidecar ledger. An
+// absent ledger is honest absence: (nil, nil). Any OTHER read error
+// (permission-denied, truncated file, ...) is now returned rather than mapped
+// to the same nil (U080-F17) — a caller that could not tell "no ledger" from
+// "unreadable ledger" apart went on to strip nothing and report success.
+func (w *OpencodeWriter) readLedger(projectDir string) ([]string, error) {
+	fs := w.getFS()
+	path := w.ledgerPath(projectDir)
+	exists, err := afero.Exists(fs, path)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("check %s: %w", path, err)
+	}
+	if !exists {
+		return nil, nil
+	}
+	data, err := afero.ReadFile(fs, path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var names []string
 	for _, line := range strings.Split(string(data), "\n") {
@@ -683,7 +712,7 @@ func (w *OpencodeWriter) readLedger(projectDir string) []string {
 			names = append(names, line)
 		}
 	}
-	return names
+	return names, nil
 }
 
 // writeLedger persists the managed names (sorted, atomic), removing the ledger

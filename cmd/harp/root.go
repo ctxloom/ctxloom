@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -114,11 +115,14 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 }
 
 // resolveFormat reads the --format flag (a persistent flag, so it resolves
-// through cobra's inherited-flag machinery on subcommands too) and parses
-// it via clifmt. An unrecognized value is an error wrapping
-// clifmt.ErrUnsupportedFormat — clifmt's contract is an unsupported format
-// is an error, never a silent text fallback.
+// through cobra's inherited-flag machinery on subcommands too) via the
+// family-wide resolver.
+//
+// U004-F03: this used to be a private re-implementation (GetString +
+// clifmt.ParseFormat) that had already drifted — it rejected an empty
+// --format as unsupported, so `harp --format ""` failed where every other
+// binary in the family renders text. One reader, one behavior; the parity
+// test in format_parity_test.go pins it.
 func resolveFormat(cmd *cobra.Command) (clifmt.Format, error) {
-	raw, _ := cmd.Flags().GetString("format")
-	return clifmt.ParseFormat(raw)
+	return cliemit.Resolve(cmd)
 }

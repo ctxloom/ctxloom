@@ -53,3 +53,38 @@ func TestThinkingLevel_ZeroValueIsMedium(t *testing.T) {
 func TestThinkingLevelNames(t *testing.T) {
 	assert.Equal(t, []string{"off", "low", "medium", "high"}, ThinkingLevelNames())
 }
+
+// TestThinkingLevel_NamesCoverEveryDeclaredLevel is the U102-F12 drift gate —
+// the leg the two round-trip tests above leave open.
+//
+// The four spellings were written out THREE times in one 84-line file:
+// String()'s switch, ParseThinkingLevel's switch, and ThinkingLevelNames'
+// literal. String<->Parse round-tripping catches drift between the first two,
+// and the literal-equality test above catches an edit to the third — but
+// nothing catches a tier added to Parse and String while ThinkingLevelNames is
+// left alone: `--thinking xhigh` would then parse, print as itself, and never
+// appear in flag help.
+//
+// This closes it in both directions: every advertised name parses to a distinct
+// level that prints back as itself, and every declared level is advertised.
+func TestThinkingLevel_NamesCoverEveryDeclaredLevel(t *testing.T) {
+	names := ThinkingLevelNames()
+
+	byLevel := map[ThinkingLevel]string{}
+	for _, name := range names {
+		level, ok := ParseThinkingLevel(name)
+		assert.True(t, ok, "ThinkingLevelNames advertises %q but ParseThinkingLevel rejects it", name)
+		assert.Equal(t, name, level.String(), "%q must round-trip through Parse -> String", name)
+		if prev, dup := byLevel[level]; dup {
+			t.Errorf("%q and %q both map to the same level", prev, name)
+		}
+		byLevel[level] = name
+	}
+
+	for _, level := range []ThinkingLevel{ThinkingOff, ThinkingLow, ThinkingMedium, ThinkingHigh} {
+		assert.Contains(t, names, level.String(),
+			"level prints as %q, which flag help never advertises", level.String())
+		assert.Contains(t, byLevel, level,
+			"level %q is declared but no advertised name parses to it", level.String())
+	}
+}

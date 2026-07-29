@@ -452,11 +452,9 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	// (U086-F05: browseTypeList used to wrap this and silently ignore its
 	// parameter).
 	for _, itemType := range []remote.ItemType{remote.ItemTypeBundle} {
-		typeItems, warning := browseTypeItems(ctx, fetcher, owner, repo, rem.URL, itemType, req)
+		typeItems, typeWarnings := browseTypeItems(ctx, fetcher, owner, repo, rem.URL, itemType, req)
 		items = append(items, typeItems...)
-		if warning != "" {
-			warnings = append(warnings, warning)
-		}
+		warnings = append(warnings, typeWarnings...)
 	}
 
 	return &BrowseRemoteResult{
@@ -487,30 +485,31 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 }
 
 // browseTypeItems lists one item type's entries. A genuine "not found" (the
-// type's directory doesn't exist) yields no items and no warning; any other
-// error yields a warning string (also echoed to stderr).
-func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, string) {
+// type's directory doesn't exist) yields no items and no warnings; any other
+// top-level error, or any subdirectory that failed mid-recursion (U086-F08),
+// yields warning strings (also echoed to stderr).
+func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, []string) {
 	basePath := path.Join(paths.RepoContentPrefix, itemType.DirName())
 	if req.Path != "" {
 		basePath = path.Join(basePath, req.Path)
 	}
 
-	entries, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
+	entries, subWarnings, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
 	if err != nil {
 		// Sentinel, not error text: a missing directory is not a warning.
 		if errors.Is(err, errs.ErrRemoteContentNotFound) {
-			return nil, ""
+			return nil, nil
 		}
 		warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
 		clidiag.Warn("ctxloom", "%s", warning)
-		return nil, warning
+		return nil, []string{warning}
 	}
 
 	items := make([]BrowseItemEntry, 0, len(entries))
 	for _, e := range entries {
 		items = append(items, browseEntry(e, itemType, repoURL, req))
 	}
-	return items, ""
+	return items, subWarnings
 }
 
 // browseEntry builds a BrowseItemEntry from a directory entry, stripping the
@@ -538,28 +537,40 @@ func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, re
 	}
 }
 
-// browseDir lists directory contents, optionally recursively.
-func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, dir, ref string, recursive bool) ([]remote.DirEntry, error) {
+// browseDir lists directory contents, optionally recursively. warnings
+// collects human-readable messages for subdirectories that failed to list
+// mid-recursion (U086-F08): a subtree failure no longer vanishes silently —
+// the caller folds these into BrowseRemoteResult.Warnings exactly like a
+// top-level failure. A subtree's own genuinely-missing-directory case
+// (errs.ErrRemoteContentNotFound) is not itself an error here since ListDir
+// only reaches this recursive call for entries the parent listing already
+// reported as present; any error surfacing from it is unexpected.
+func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, dir, ref string, recursive bool) ([]remote.DirEntry, []string, error) {
 	entries, err := fetcher.ListDir(ctx, owner, repo, dir, ref)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if !recursive {
-		return entries, nil
+		return entries, nil, nil
 	}
 
 	var results []remote.DirEntry
+	var warnings []string
 	for _, entry := range entries {
 		if entry.IsDir {
 			// dir is a logical, forward-slash repo path consumed by go-git
 			// ListDir — build with path.Join, not filepath.Join (which would
 			// emit backslashes on Windows and break tree navigation).
 			fullPath := path.Join(dir, entry.Name)
-			subEntries, err := browseDir(ctx, fetcher, owner, repo, fullPath, ref, true)
+			subEntries, subWarnings, err := browseDir(ctx, fetcher, owner, repo, fullPath, ref, true)
 			if err != nil {
-				continue // Continue on error for subdirectories
+				warning := fmt.Sprintf("failed to browse %s: %v", fullPath, err)
+				clidiag.Warn("ctxloom", "%s", warning)
+				warnings = append(warnings, warning)
+				continue
 			}
+			warnings = append(warnings, subWarnings...)
 			// Prefix subentries with directory name
 			for _, sub := range subEntries {
 				sub.Name = entry.Name + "/" + sub.Name
@@ -570,7 +581,7 @@ func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, dir, re
 		}
 	}
 
-	return results, nil
+	return results, warnings, nil
 }
 
 // EnsureRemoteClonesResult reports the outcome of cloning every configured

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -880,6 +881,60 @@ func TestBrowseRemote_BrowseDirNotFound(t *testing.T) {
 	// Should return empty items with NO warning for 404s
 	assert.Len(t, result.Items, 0)
 	assert.Len(t, result.Warnings, 0)
+}
+
+// pathErrFetcher wraps a MockFetcher and fails ListDir for specific paths
+// with an arbitrary (non-not-found) error, so a subtree-only failure can be
+// exercised independently of a top-level one. MockFetcher.ListDirErr, by
+// contrast, fires unconditionally for every ListDir call and can't isolate a
+// single subdirectory.
+type pathErrFetcher struct {
+	*remote.MockFetcher
+	errPaths map[string]error
+}
+
+func (f *pathErrFetcher) ListDir(ctx context.Context, owner, repo, path, ref string) ([]remote.DirEntry, error) {
+	if err, ok := f.errPaths[path]; ok {
+		return nil, err
+	}
+	return f.MockFetcher.ListDir(ctx, owner, repo, path, ref)
+}
+
+// TestBrowseRemote_RecursiveSubdirErrorIsWarned is a regression guard for
+// U086-F08: browseDir's recursive branch used to `continue` past a
+// subdirectory listing failure with no warning and no count, so a partial
+// tree was reported as though it were complete. browseTypeItems already
+// surfaces a TOP-LEVEL failure via BrowseRemoteResult.Warnings — a
+// subdirectory failure, mid-recursion, must reach the same channel.
+func TestBrowseRemote_RecursiveSubdirErrorIsWarned(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	fetcher := &pathErrFetcher{
+		MockFetcher: remote.NewMockFetcher().WithDir(".ctxloom/content/bundles", []remote.DirEntry{
+			{Name: "good.yaml", IsDir: false},
+			{Name: "broken", IsDir: true},
+		}),
+		errPaths: map[string]error{
+			".ctxloom/content/bundles/broken": fmt.Errorf("connection reset"),
+		},
+	}
+
+	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
+		Remote:    "alice",
+		ItemType:  "bundle",
+		Recursive: true,
+		Registry:  registry,
+		Fetcher:   fetcher,
+	})
+
+	require.NoError(t, err)
+	// The good top-level file still lists...
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "good", result.Items[0].Name)
+	// ...but the subtree failure must not vanish silently.
+	require.NotEmpty(t, result.Warnings, "a subdirectory listing failure must surface as a warning")
+	assert.Contains(t, strings.Join(result.Warnings, "; "), "broken")
 }
 
 func TestSearchRemotes_NoQuery(t *testing.T) {

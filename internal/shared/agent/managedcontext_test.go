@@ -3,7 +3,9 @@ package agent
 import (
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestStripManagedSection_UnterminatedBeginTrimsBlankPrefix pins the
@@ -31,4 +33,25 @@ func TestStripManagedSection_UnterminatedBeginPreservesRealPrefix(t *testing.T) 
 	got := StripManagedSection(content)
 
 	assert.Equal(t, "real user content\n", got)
+}
+
+// TestWriteManagedContext_PreservesPositionOfTrailingUserContent pins
+// U101-F06: WriteManagedContext documents "content OUTSIDE [the markers] is
+// the user's and is preserved byte-for-byte", but content that came AFTER
+// the end marker used to be hoisted ABOVE the (re-appended) managed section
+// on every rewrite, because the merge always appended the new section at the
+// very end regardless of where the old one had been.
+func TestWriteManagedContext_PreservesPositionOfTrailingUserContent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/proj/CLAUDE.md"
+	existing := "A\n" + ManagedContextBegin + "\nold\n" + ManagedContextEnd + "\nB\n"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(existing), 0644))
+
+	_, err := WriteManagedContext(fs, path, "CLAUDE.md", "new", "CLAUDE.md")
+	require.NoError(t, err)
+
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	want := "A\n" + ManagedContextBegin + "\nnew\n" + ManagedContextEnd + "\nB\n"
+	assert.Equal(t, want, string(data), "user content after the end marker must stay after the managed section, not get hoisted above it")
 }

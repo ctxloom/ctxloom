@@ -40,20 +40,27 @@ func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (ContextR
 		return ContextReport{}, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
-	userContent := StripManagedSection(string(existing))
+	// U101-F06: reinsert the new section at the SAME position the old one
+	// occupied (between before and after) instead of always appending at the
+	// end — the prior implementation stripped to before+after and then always
+	// appended, so any user content that came AFTER the end marker was
+	// hoisted ABOVE the re-appended section on every rewrite, violating the
+	// "preserved byte-for-byte" doc comment's implied ordering.
+	before, after, _ := splitManagedSection(string(existing))
 
 	var section string
 	if content != "" {
 		section = ManagedContextBegin + "\n" + content + "\n" + ManagedContextEnd + "\n"
 	}
 
-	merged := userContent
+	merged := before
 	if section != "" {
 		if merged != "" && !strings.HasSuffix(merged, "\n") {
 			merged += "\n"
 		}
 		merged += section
 	}
+	merged += after
 
 	if strings.TrimSpace(merged) == "" {
 		// Nothing left: remove the file if it exists, never create it.
@@ -78,9 +85,26 @@ func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (ContextR
 // removed. Content outside the markers is untouched; an unterminated begin
 // marker drops through to the end of the file (the section is ours to own).
 func StripManagedSection(content string) string {
+	before, after, _ := splitManagedSection(content)
+	if before == "" {
+		return after
+	}
+	return before + after
+}
+
+// splitManagedSection splits content around the ctxloom-managed marker
+// section, returning the prefix (before the begin marker) and suffix (after
+// the end marker) SEPARATELY — unlike StripManagedSection, which
+// concatenates them — so WriteManagedContext can reinsert a new section at
+// the same position rather than always at the end (U101-F06). found reports
+// whether a properly terminated section was present; when it wasn't (no
+// begin marker, or an unterminated one — the section is ours to own and
+// drops through to EOF), before is the whole non-owned prefix and after is
+// empty, matching StripManagedSection's existing unterminated-begin handling.
+func splitManagedSection(content string) (before, after string, found bool) {
 	begin := strings.Index(content, ManagedContextBegin)
 	if begin < 0 {
-		return content
+		return content, "", false
 	}
 	rest := content[begin+len(ManagedContextBegin):]
 	end := strings.Index(rest, ManagedContextEnd)
@@ -91,16 +115,13 @@ func StripManagedSection(content string) string {
 		// (ifNonEmptySuffix) tested content[:begin] untrimmed, so it appended
 		// "\n" even when the trimmed result was "".
 		if prefix := strings.TrimRight(content[:begin], "\n"); prefix != "" {
-			return prefix + "\n"
+			return prefix + "\n", "", false
 		}
-		return ""
+		return "", "", false
 	}
-	after := strings.TrimLeft(rest[end+len(ManagedContextEnd):], "\n")
-	before := content[:begin]
-	if before == "" {
-		return after
-	}
-	return before + after
+	after = strings.TrimLeft(rest[end+len(ManagedContextEnd):], "\n")
+	before = content[:begin]
+	return before, after, true
 }
 
 // DeliveredFunc adapts a cleanup closure to Delivered, for a Delivery whose

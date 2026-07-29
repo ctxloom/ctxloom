@@ -299,7 +299,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})

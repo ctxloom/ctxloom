@@ -25,7 +25,6 @@ type ApplyHooksRequest struct {
 	Backend           string           `json:"backend"`            // claude-code, antigravity, or all
 	RegenerateContext bool             `json:"regenerate_context"` // Also regenerate context file
 	FS                afero.Fs         `json:"-"`                  // Optional filesystem for testing
-	ExecPath          string           `json:"-"`                  // Optional executable path for testing
 	ConfigLoader      ConfigLoaderFunc `json:"-"`                  // Optional config loader for testing (defaults to config.Load)
 	WorkDir           string           `json:"-"`                  // Optional work directory for testing (defaults to git root)
 	BundleLoaderFS    afero.Fs         `json:"-"`                  // Optional FS for bundle loader (for testing regenerateContext)
@@ -55,11 +54,6 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	fs := getFS(req.FS)
 	contextOpts := []agent.ContextFileOption{agent.WithContextFS(fs)}
-
-	// Set executable path for testing if provided
-	if req.ExecPath != "" {
-		agent.SetExecutablePathForTesting(req.ExecPath)
-	}
 
 	freshCfg, err := resolveHookConfig(req)
 	if err != nil {

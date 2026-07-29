@@ -93,7 +93,6 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockLoader,
 		WorkDir:           tmpDir,
 	})

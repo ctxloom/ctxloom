@@ -10,7 +10,6 @@
 //  2. Writes backend-specific settings files with hooks
 //  3. Writes .mcp.json with MCP server configs
 //  4. Optionally regenerates context file from active profiles
-//  5. Sets executable path for hook and MCP commands
 //
 // # Test Injection Patterns
 //
@@ -132,12 +131,10 @@ func TestApplyHooksRequest_BackendValues(t *testing.T) {
 func TestApplyHooksRequest_FSField(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	req := ApplyHooksRequest{
-		FS:       fs,
-		ExecPath: "/usr/bin/ctxloom",
+		FS: fs,
 	}
 
 	assert.NotNil(t, req.FS)
-	assert.Equal(t, "/usr/bin/ctxloom", req.ExecPath)
 }
 
 // ==========================================================================
@@ -345,13 +342,9 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 		}), nil
 	}
 
-	// Set executable path for testing
-	execPath := "/usr/bin/ctxloom"
-
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     execPath,
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
 	})
@@ -392,7 +385,6 @@ func TestApplyHooks_AntigravityOnly(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "antigravity",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
 	})
@@ -428,7 +420,6 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "all",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
 	})
@@ -478,7 +469,6 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "", // empty should default to "all"
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
 	})
@@ -498,7 +488,6 @@ func TestApplyHooks_ConfigLoadError(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      "/project",
 	})
@@ -528,7 +517,6 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
 	})
@@ -576,7 +564,6 @@ func TestApplyHooks_RefusesHomeCollision(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      home, // == the resolved Claude Code GLOBAL settings scope
 	})
@@ -602,7 +589,6 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 			Backend:      "claude-code",
 			FS:           fs,
-			ExecPath:     "/usr/bin/ctxloom",
 			ConfigLoader: mockConfigLoader,
 			WorkDir:      home,
 			Force:        true,
@@ -631,7 +617,6 @@ func TestApplyHooks_RefusesCodexHomeCollision(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "codex",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      home,
 	})
@@ -656,7 +641,6 @@ func TestApplyHooks_ForceOverridesCodexHomeCollision(t *testing.T) {
 		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 			Backend:      "codex",
 			FS:           fs,
-			ExecPath:     "/usr/bin/ctxloom",
 			ConfigLoader: mockConfigLoader,
 			WorkDir:      home,
 			Force:        true,
@@ -692,7 +676,6 @@ func TestApplyHooks_RefusesKiroHomeCollision(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "kiro",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      home,
 	})
@@ -717,7 +700,6 @@ func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
 		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 			Backend:      "kiro",
 			FS:           fs,
-			ExecPath:     "/usr/bin/ctxloom",
 			ConfigLoader: mockConfigLoader,
 			WorkDir:      home,
 			Force:        true,
@@ -769,7 +751,6 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      fakeBackend,
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      home,
 	})
@@ -793,7 +774,6 @@ func TestApplyHooks_SubdirOfHomeIsNotACollision(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      projectDir,
 	})
@@ -821,7 +801,6 @@ func TestApplyHooks_WarnsWhenNotInAGitRepository(t *testing.T) {
 		_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 			Backend:      "claude-code",
 			FS:           fs,
-			ExecPath:     "/usr/bin/ctxloom",
 			ConfigLoader: mockConfigLoader,
 		})
 		require.NoError(t, err)
@@ -852,7 +831,6 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -908,7 +886,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -941,7 +918,6 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -972,7 +948,6 @@ func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "codex",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		WorkDir:      tmpDir,
 	})
@@ -1062,7 +1037,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "antigravity",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1134,7 +1108,6 @@ fragments:
 	result1, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "antigravity",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1156,7 +1129,6 @@ fragments:
 	result2, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "antigravity",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1204,7 +1176,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1267,7 +1238,6 @@ fragments:
 		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
-			ExecPath:          "/usr/bin/ctxloom",
 			ConfigLoader:      mockConfigLoader,
 			WorkDir:           tmpDir,
 		})
@@ -1327,7 +1297,6 @@ fragments:
 		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
-			ExecPath:          "/usr/bin/ctxloom",
 			ConfigLoader:      mockConfigLoader,
 			WorkDir:           tmpDir,
 		})
@@ -1378,7 +1347,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1433,7 +1401,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1492,7 +1459,6 @@ fragments:
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
 	})
@@ -1515,7 +1481,6 @@ func TestApplyHooks_NoWorkDir(t *testing.T) {
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
-		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
 		// WorkDir not set - will use "." or git root
 	})
@@ -1547,7 +1512,6 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
-		ExecPath:          "/usr/bin/ctxloom",
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           "/project",
 		BundleLoaderFS:    fs,

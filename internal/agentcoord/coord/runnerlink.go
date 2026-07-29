@@ -104,11 +104,19 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 		return nil, fmt.Errorf("coord: dial coordinator %s: %w", target, err)
 	}
 	linkCtx, cancel := context.WithCancel(ctx)
-	stream, err := agentcoordpb.NewCoordinatorServiceClient(conn).RunnerChannel(linkCtx)
-	if err != nil {
+	// unwind is the single teardown for every failure past this point: the link
+	// context is cancelled and the connection closed before the error leaves.
+	// Nothing here may return a half-built link — the caller's redial loop only
+	// ever Shutdowns a link DialRunner handed it, so a conn left open on a
+	// failure path has no owner at all.
+	unwind := func(format string, a ...any) (*RunnerLink, error) {
 		cancel()
 		_ = conn.Close()
-		return nil, fmt.Errorf("coord: open RunnerChannel: %w", err)
+		return nil, fmt.Errorf(format, a...)
+	}
+	stream, err := agentcoordpb.NewCoordinatorServiceClient(conn).RunnerChannel(linkCtx)
+	if err != nil {
+		return unwind("coord: open RunnerChannel: %w", err)
 	}
 	// A session-owner runner (empty runID) hosts no spawned run: advertise
 	// no active runs rather than an empty id the ownership check rejects.
@@ -124,20 +132,14 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 			ActiveRunIds:      active,
 		},
 	}}); err != nil {
-		cancel()
-		_ = conn.Close()
-		return nil, fmt.Errorf("coord: RunnerHello: %w", err)
+		return unwind("coord: RunnerHello: %w", err)
 	}
 	ack, err := stream.Recv()
 	if err != nil {
-		cancel()
-		_ = conn.Close()
-		return nil, fmt.Errorf("coord: RunnerHelloAck: %w", err)
+		return unwind("coord: RunnerHelloAck: %w", err)
 	}
 	if ha := ack.GetHelloAck(); ha == nil || !ha.GetAccepted() {
-		cancel()
-		_ = conn.Close()
-		return nil, fmt.Errorf("coord: RunnerHello rejected")
+		return unwind("coord: RunnerHello rejected")
 	}
 
 	l := &RunnerLink{runID: runID, conn: conn, stream: stream, cancel: cancel, done: make(chan struct{}), handler: handler}

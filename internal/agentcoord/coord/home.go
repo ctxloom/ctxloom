@@ -72,22 +72,17 @@ type Home struct {
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
 
-	// wg tracks Home's own background loops (runnerChannelLoop,
-	// runChannelLoop, and one turnPump per hosted engine) — see goTracked.
-	// Close/crash join it (waitTracked, bounded) so a runner-side teardown
-	// leaves no goroutine still touching h's state (flaky-agentcoord S2: the
-	// coordinator-side S1 fix alone does not cover Home, which dispatches its
-	// own untracked `go`s independent of Coordinator.wg — fakeSpawner.
-	// StartEngine's in-process Home/EngineHost pair in the coord test suite
-	// is exactly this shape, and unblocked kill/crash is what the
-	// crash-redelivery test's determinism depends on).
-	wg sync.WaitGroup
-	// closing mirrors Coordinator.closing — see goTracked's doc there for
-	// why an Add() that races an in-progress Wait() is a genuine
-	// sync.WaitGroup misuse (caught live by -race), not just a theoretical
-	// concern: SetTurnSink can dispatch a fresh turnPump concurrently with
-	// crash()/Close() joining h.wg.
-	closing bool
+	// tracked owns Home's own background loops (runnerChannelLoop,
+	// runChannelLoop, and one turnPump per hosted engine). Close/crash join it
+	// so a runner-side teardown leaves no goroutine still touching h's state
+	// (flaky-agentcoord S2: the coordinator-side S1 fix alone does not cover
+	// Home, which dispatches independently of the Coordinator's own group —
+	// fakeSpawner.StartEngine's in-process Home/EngineHost pair in the coord
+	// test suite is exactly this shape, and unblocked kill/crash is what the
+	// crash-redelivery test's determinism depends on). SetTurnSink can dispatch
+	// a fresh turnPump concurrently with crash()/Close(), which is why the seal
+	// in trackedGroup is not theoretical here.
+	tracked trackedGroup
 }
 
 // HomeConfig carries the spawn-injected coordinator trio plus the runner's
@@ -184,24 +179,10 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	return h, nil
 }
 
-// goTracked runs fn on a new goroutine tracked by h.wg — see the wg field's
-// doc and waitTracked (flaky-agentcoord S2). Refuses to Add() once h.closing
-// is set (mirrors Coordinator.goTracked — see its doc for why this matters,
-// not just defensive).
-func (h *Home) goTracked(fn func()) {
-	h.mu.Lock()
-	if h.closing {
-		h.mu.Unlock()
-		go fn()
-		return
-	}
-	h.wg.Add(1)
-	h.mu.Unlock()
-	go func() {
-		defer h.wg.Done()
-		fn()
-	}()
-}
+// goTracked runs fn on a new goroutine tracked by h.tracked — see the field's
+// doc and trackedGroup for the dispatch/seal/bounded-join rules
+// (flaky-agentcoord S2).
+func (h *Home) goTracked(fn func()) { h.tracked.dispatch(fn) }
 
 // homeCloseJoinBudget bounds Close/crash's wait for Home's tracked
 // goroutines — see Coordinator's closeJoinBudget for the identical reasoning
@@ -211,16 +192,7 @@ const homeCloseJoinBudget = 3 * time.Second
 
 // waitTracked joins every h.goTracked goroutine, with a bounded escape.
 func (h *Home) waitTracked() {
-	done := make(chan struct{})
-	go func() {
-		h.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(homeCloseJoinBudget):
-		clidiag.Warn("ctxloom", "runner home close: tracked goroutines did not finish within %s; proceeding", homeCloseJoinBudget)
-	}
+	h.tracked.wait(homeCloseJoinBudget, "runner home close", "")
 }
 
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
@@ -759,9 +731,7 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 // dispatched, before it proceeds (Coordinator.Close's attachment loop calls
 // closeFn synchronously for exactly this reason).
 func (h *Home) crash() {
-	h.mu.Lock()
-	h.closing = true
-	h.mu.Unlock()
+	h.tracked.seal()
 	h.cancel()
 	_ = h.conn.Close()
 	h.waitTracked()
@@ -774,8 +744,8 @@ func (h *Home) crash() {
 // returning, mirroring crash() (flaky-agentcoord S2).
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
+	h.tracked.seal()
 	h.mu.Lock()
-	h.closing = true
 	link := h.link
 	h.link = nil
 	h.mu.Unlock()

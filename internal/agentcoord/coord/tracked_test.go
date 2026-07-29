@@ -1,12 +1,15 @@
 package coord
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Four long-lived types in this package own background goroutines under the
@@ -105,22 +108,51 @@ func sealTracking(t *testing.T, owner trackedOwner) {
 	t.Helper()
 	switch o := owner.(type) {
 	case *Coordinator:
-		o.mu.Lock()
-		o.closing = true
-		o.mu.Unlock()
+		o.tracked.seal()
 	case *Home:
-		o.mu.Lock()
-		o.closing = true
-		o.mu.Unlock()
+		o.tracked.seal()
 	case *EngineHost:
-		o.mu.Lock()
-		o.closing = true
-		o.mu.Unlock()
+		o.tracked.seal()
 	case *RunnerLink:
-		o.mu.Lock()
-		o.closing = true
-		o.mu.Unlock()
+		o.tracked.seal()
 	default:
 		require.Fail(t, "unknown tracked owner", "%T", owner)
 	}
+}
+
+// TestTrackedGroup_BoundedJoinGivesUpAndSaysSo pins the escape the four owners'
+// budgets feed: a goroutine that never finishes must not hang the teardown, and
+// going quiet about it is what let a wedged handler look like a slow one.
+func TestTrackedGroup_BoundedJoinGivesUpAndSaysSo(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	var g trackedGroup
+	block := make(chan struct{})
+	defer close(block)
+	g.dispatch(func() { <-block })
+
+	start := time.Now()
+	g.wait(50*time.Millisecond, "test teardown", "a leaked goroutine may still touch test state")
+	assert.Less(t, time.Since(start), 2*time.Second, "the join must give up on its budget, not block on the goroutine")
+	assert.Contains(t, buf.String(), "test teardown")
+	assert.Contains(t, buf.String(), "a leaked goroutine may still touch test state")
+}
+
+// TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause: three of the four owners
+// pass no risk clause, and the diagnostic must not sprout an empty parenthetical.
+func TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	var g trackedGroup
+	block := make(chan struct{})
+	defer close(block)
+	g.dispatch(func() { <-block })
+	g.wait(50*time.Millisecond, "test teardown", "")
+
+	assert.Contains(t, buf.String(), "test teardown")
+	assert.NotContains(t, buf.String(), "()")
 }

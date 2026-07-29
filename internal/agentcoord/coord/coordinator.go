@@ -203,23 +203,13 @@ type Coordinator struct {
 	// REPORTS ONLY: nothing it produces terminates, cancels, or reaps a run.
 	liveness *livenesspkg.Monitor
 
-	// wg tracks every goroutine this coordinator dispatches beyond its
+	// tracked owns every goroutine this coordinator dispatches beyond its
 	// spawning call's own return (delegation launches/resumes, the runner
 	// watchdog, adopt's runner-loss grace timers, and the RunChannel/
-	// RunnerChannel pumps) — see goTracked. Close() joins it (waitTracked,
-	// bounded) BEFORE closing the journals and removing an ephemeral state
-	// dir: flaky-agentcoord's root cause was exactly a fire-and-forget `go`
-	// with no owner racing that teardown (a prior test's t.Cleanup(c.Close)
-	// firing c.cancel() while its launch goroutine was still touching the
-	// state dir/journals it had just closed).
-	wg sync.WaitGroup
-	// closing, once true (set by Close() before its own wg.Wait()), makes
-	// goTracked stop calling wg.Add — see goTracked's doc: a still-live
-	// RunnerChannel/RunChannel handler's deferred cleanup can dispatch new
-	// work even after srv.close() has torn the transport down, and an Add()
-	// racing an in-progress Wait() is a sync.WaitGroup misuse (caught live
-	// by -race). Guarded by mu, same as wg.Add's call site.
-	closing bool
+	// RunnerChannel pumps). Close() joins it BEFORE closing the journals and
+	// removing an ephemeral state dir — see trackedGroup for why an unjoined
+	// goroutine racing that teardown is this package's worst flake class.
+	tracked trackedGroup
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
@@ -394,58 +384,28 @@ func New(opts Options) (*Coordinator, error) {
 	return c, nil
 }
 
-// goTracked runs fn on a new goroutine tracked by c.wg, so Close() can join
-// it (waitTracked) before tearing the journals and state dir down. EVERY
-// bare `go` in this package whose goroutine can outlive the call that
-// spawned it must ride this — flaky-agentcoord (S1): an unjoined launch/
-// resume/channel-pump goroutine racing a closed journal or a t.TempDir
+// goTracked runs fn on a new goroutine tracked by c.tracked, so Close() can
+// join it (waitTracked) before tearing the journals and state dir down. EVERY
+// bare `go` in this package whose goroutine can outlive the call that spawned
+// it must ride its owner's equivalent — flaky-agentcoord (S1): an unjoined
+// launch/resume/channel-pump goroutine racing a closed journal or a t.TempDir
 // RemoveAll was the flake cluster's root cause, not any one test's own
-// synchronization.
-//
-// Refuses to Add() once c.closing is set (Close() flips it before its own
-// wg.Wait() begins): a still-live RunnerChannel/RunChannel handler's
-// deferred cleanup (runnerLost → terminateRun → a leftover-mail resume
-// re-dispatch) can fire even after srv.close() has torn the gRPC transport
-// down, genuinely concurrently with Close()'s own wg.Wait() — an Add()
-// racing an in-progress Wait() is a sync.WaitGroup misuse (caught live by
-// -race: flaky-agentcoord). Past that point fn still runs (untracked,
-// best-effort) — every tracked loop already respects c.baseCtx.Done() on its
-// own, so it is not left to run wild, just no longer joined.
-func (c *Coordinator) goTracked(fn func()) {
-	c.mu.Lock()
-	if c.closing {
-		c.mu.Unlock()
-		go fn()
-		return
-	}
-	c.wg.Add(1)
-	c.mu.Unlock()
-	go func() {
-		defer c.wg.Done()
-		fn()
-	}()
-}
+// synchronization. The dispatch/seal/bounded-join rules live in trackedGroup.
+func (c *Coordinator) goTracked(fn func()) { c.tracked.dispatch(fn) }
 
 // closeJoinBudget bounds Close's wait for tracked goroutines: generous
 // headroom above the ctx-aware waits every tracked loop selects on (slot
 // acquisition, runner awaits, request round-trips all key off c.baseCtx,
 // already cancelled by the time waitTracked runs), short enough that one
 // genuinely wedged handler cannot hang shutdown forever — a leaked-goroutine
-// diagnostic is logged and Close proceeds rather than deadlocking.
+// diagnostic is logged and Close proceeds rather than deadlocking. The most
+// generous of the package's four budgets, because the journals and an
+// ephemeral state dir's removal wait behind it.
 const closeJoinBudget = 5 * time.Second
 
 // waitTracked joins every c.goTracked goroutine, with a bounded escape.
 func (c *Coordinator) waitTracked() {
-	done := make(chan struct{})
-	go func() {
-		c.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(closeJoinBudget):
-		clidiag.Warn("ctxloom", "coordinator close: tracked goroutines did not finish within %s; proceeding (a leaked goroutine may still touch the state dir)", closeJoinBudget)
-	}
+	c.tracked.wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
 }
 
 // adopt reconciles state read from disk with the fresh process (acceptance
@@ -499,8 +459,8 @@ func (c *Coordinator) adopt() {
 // children are killed via their launch close (the run process is their
 // lifetime).
 //
-// Order (flaky-agentcoord S1): mark closing (goTracked stops Add()ing, so
-// nothing can race the wg.Wait() below) → cancel baseCtx (every ctx-aware
+// Order (flaky-agentcoord S1): seal the tracked group (goTracked stops
+// Add()ing, so nothing can race the join below) → cancel baseCtx (every ctx-aware
 // tracked goroutine starts unwinding) → kill live attachments (best-effort;
 // a goroutine still mid-launch may not have published rt.close yet — that is
 // exactly what the wg join below catches) → srv.close (Stop the gRPC server
@@ -511,9 +471,7 @@ func (c *Coordinator) adopt() {
 // Close() returns (barring the logged bounded-escape case).
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
-		c.mu.Lock()
-		c.closing = true
-		c.mu.Unlock()
+		c.tracked.seal()
 		c.cancel()
 		c.mu.Lock()
 		attachments := make([]*childRt, 0, len(c.attach))

@@ -40,17 +40,14 @@ type RunnerLink struct {
 	done    chan struct{}
 	handler RunnerRequestHandler
 
-	// wg tracks every goroutine DialRunner/receiveLoop dispatches beyond its
+	// tracked owns every goroutine DialRunner/receiveLoop dispatches beyond its
 	// spawning call's own return (heartbeatLoop, receiveLoop itself, and one
-	// serveRequest per coordinator-initiated RunnerRequest) — see
-	// goTracked. Shutdown joins it (waitTracked, bounded) before closing the
-	// underlying conn — mirrors Coordinator.wg/Home.wg/EngineHost.wg
-	// (flaky-agentcoord S1/S2, deaf-rut): an unjoined serveRequest racing
-	// Shutdown's conn.Close could still be mid-Send on a torn-down
-	// transport.
-	mu      sync.Mutex
-	wg      sync.WaitGroup
-	closing bool
+	// serveRequest per coordinator-initiated RunnerRequest). Shutdown joins it
+	// before closing the underlying conn — mirrors the Coordinator's, Home's and
+	// EngineHost's groups (flaky-agentcoord S1/S2, deaf-rut): an unjoined
+	// serveRequest racing Shutdown's conn.Close could still be mid-Send on a
+	// torn-down transport.
+	tracked trackedGroup
 }
 
 // send writes one frame under the single-writer mutex.
@@ -156,44 +153,18 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 // unblocks around the same point.
 const runnerLinkCloseJoinBudget = 3 * time.Second
 
-// goTracked runs fn on a new goroutine tracked by l.wg, so Shutdown can join
-// it (waitTracked) before closing the underlying conn. EVERY bare `go` this
-// type dispatches whose goroutine can outlive the call that spawned it must
-// ride this — mirrors Coordinator.goTracked/Home.goTracked/
-// EngineHost.goTracked (flaky-agentcoord S1/S2, deaf-rut).
-//
-// Refuses to Add() once l.closing is set (Shutdown flips it before its own
-// wg.Wait()): receiveLoop can still dispatch a fresh serveRequest for a
-// RunnerRequest that arrived just as Shutdown began, which would otherwise
-// Add() concurrently with an in-progress Wait() — a genuine sync.WaitGroup
-// misuse. Past that point fn still runs (untracked, best-effort).
-func (l *RunnerLink) goTracked(fn func()) {
-	l.mu.Lock()
-	if l.closing {
-		l.mu.Unlock()
-		go fn()
-		return
-	}
-	l.wg.Add(1)
-	l.mu.Unlock()
-	go func() {
-		defer l.wg.Done()
-		fn()
-	}()
-}
+// goTracked runs fn on a new goroutine tracked by l.tracked, so Shutdown can
+// join it (waitTracked) before closing the underlying conn. EVERY bare `go` this
+// type dispatches whose goroutine can outlive the call that spawned it must ride
+// this — mirrors Coordinator.goTracked/Home.goTracked/EngineHost.goTracked
+// (flaky-agentcoord S1/S2, deaf-rut). receiveLoop can still dispatch a fresh
+// serveRequest for a RunnerRequest that arrived just as Shutdown began, which is
+// what the seal in trackedGroup is for.
+func (l *RunnerLink) goTracked(fn func()) { l.tracked.dispatch(fn) }
 
 // waitTracked joins every l.goTracked goroutine, with a bounded escape.
 func (l *RunnerLink) waitTracked() {
-	done := make(chan struct{})
-	go func() {
-		l.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(runnerLinkCloseJoinBudget):
-		clidiag.Warn("ctxloom", "runner link shutdown: tracked goroutines did not finish within %s; proceeding", runnerLinkCloseJoinBudget)
-	}
+	l.tracked.wait(runnerLinkCloseJoinBudget, "runner link shutdown", "")
 }
 
 func (l *RunnerLink) heartbeatLoop(ctx context.Context) {
@@ -275,9 +246,7 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 			},
 		}})
 	}
-	l.mu.Lock()
-	l.closing = true
-	l.mu.Unlock()
+	l.tracked.seal()
 	_ = l.stream.CloseSend()
 	l.cancel()
 	<-l.done

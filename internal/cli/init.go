@@ -147,8 +147,7 @@ func stdoutIsTerminal() bool {
 
 // initPrompts handles interactive user prompts during init.
 type initPrompts struct {
-	reader   *bufio.Reader
-	oldState *term.State
+	reader *bufio.Reader
 }
 
 func newInitPrompts() *initPrompts {
@@ -165,7 +164,6 @@ func newInitPromptsFrom(r io.Reader) *initPrompts {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		oldState, err := term.GetState(int(os.Stdin.Fd()))
 		if err == nil {
-			p.oldState = oldState
 			// Restore to cooked mode by making raw then restoring
 			// This is a workaround since there's no "MakeCooked" function
 			_, _ = term.MakeRaw(int(os.Stdin.Fd()))

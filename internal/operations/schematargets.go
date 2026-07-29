@@ -73,7 +73,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(UpdateProfileResult{})},
 		{Type: reflect.TypeOf(UpdateRemoteResult{})},
 		{Type: reflect.TypeOf(WeaveResult{})},
-		{Type: reflect.TypeOf(MapProfilesResult{})},
 		{Type: reflect.TypeOf(Part{})},
 	}
 }

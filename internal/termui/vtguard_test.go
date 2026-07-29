@@ -240,6 +240,34 @@ func TestVTGuard_ChildDECSCClearedBySoftResetEvenWhenBarInactive(t *testing.T) {
 	assert.True(t, g.SafeForPaint(), "DECSTR must clear childSaved even when bottom==0")
 }
 
+// TestVTGuard_Flush pins the vtGuard half of U141-F07: bytes held back
+// inside the guard (a pending incomplete escape/CSI, or a split UTF-8 rune
+// tail) must be returned by Flush and cleared from the guard's held state so
+// SafeForPaint reads as a clean boundary again.
+func TestVTGuard_Flush(t *testing.T) {
+	t.Run("pending escape", func(t *testing.T) {
+		g, _ := newTestGuard(23)
+		_ = filterAll(g, "x\x1b")
+		assert.Equal(t, "\x1b", string(g.Flush()), "the held ESC must be returned")
+		assert.Equal(t, "", string(g.Flush()), "a second Flush has nothing left to return")
+	})
+	t.Run("pending CSI", func(t *testing.T) {
+		g, _ := newTestGuard(23)
+		_ = filterAll(g, "\x1b[38;2;1")
+		assert.Equal(t, "\x1b[38;2;1", string(g.Flush()), "the held partial CSI must be returned verbatim")
+	})
+	t.Run("pending rune tail", func(t *testing.T) {
+		g, _ := newTestGuard(23)
+		_ = filterAll(g, "box \xe2\x94")
+		assert.Equal(t, "\xe2\x94", string(g.Flush()), "the held UTF-8 tail must be returned")
+	})
+	t.Run("nothing pending", func(t *testing.T) {
+		g, _ := newTestGuard(23)
+		_ = filterAll(g, "plain")
+		assert.Equal(t, "", string(g.Flush()))
+	})
+}
+
 func TestVTGuard_AbortedStringReprocessesEscape(t *testing.T) {
 	g, _ := newTestGuard(23)
 	// An ESC inside an OSC that is NOT an ST aborts the string and starts a

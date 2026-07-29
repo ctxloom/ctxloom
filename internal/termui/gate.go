@@ -131,3 +131,25 @@ func (g *outputGate) Release(pre []byte) error {
 // LastWriteNanos reports when the last passthrough write hit the tty — the
 // surround's engine-idle heuristic.
 func (g *outputGate) LastWriteNanos() int64 { return g.lastWrite.Load() }
+
+// FlushGuard writes any bytes still held back inside the guard (a pending
+// incomplete escape/CSI sequence or a split UTF-8 rune tail) straight to dst,
+// under the tty lock. This is a TEARDOWN-ONLY operation (U141-F07): call it
+// only from Controller.Close, after the final Release, when the engine is
+// not going to write again. Calling it from an ordinary engagement release
+// (the engine keeps running afterward) would tear a sequence the engine's
+// own next write was going to complete — Release deliberately leaves that
+// state alone for exactly that reason.
+func (g *outputGate) FlushGuard() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.guard == nil {
+		return nil
+	}
+	flushed := g.guard.Flush()
+	if len(flushed) == 0 {
+		return nil
+	}
+	_, err := g.dst.Write(flushed)
+	return err
+}

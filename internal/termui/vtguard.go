@@ -387,6 +387,28 @@ func (g *vtGuard) insertReassert() {
 	g.out = append(g.out, g.reassert()...)
 }
 
+// Flush returns any bytes currently held back inside the guard — a pending
+// incomplete escape/CSI sequence (g.seq) and/or a held UTF-8 rune tail
+// (g.tail) — and clears that held state (U141-F07). Unlike Filter, this
+// commits those bytes even though nothing will complete them: appropriate
+// only at final teardown (the caller is not going to write again), never
+// mid-session, where the next engine write would otherwise complete the
+// sequence Filter is deliberately holding open. Not goroutine-safe — same
+// tty-lock discipline as Filter.
+func (g *vtGuard) Flush() []byte {
+	g.out = g.out[:0]
+	if len(g.tail) > 0 {
+		g.out = append(g.out, g.tail...)
+		g.tail = g.tail[:0]
+	}
+	if len(g.seq) > 0 {
+		g.out = append(g.out, g.seq...)
+		g.seq = g.seq[:0]
+	}
+	g.torn = false
+	return g.out
+}
+
 // holdRuneTail moves a trailing incomplete UTF-8 rune from out to tail so a
 // bar repaint after this chunk can never split a glyph.
 func (g *vtGuard) holdRuneTail() {

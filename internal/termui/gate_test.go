@@ -154,6 +154,45 @@ func TestOutputGate_Release_CallsAfterWrite(t *testing.T) {
 	assert.Equal(t, 1, calls, "Release must run afterWrite exactly as Write does")
 }
 
+// TestOutputGate_FlushGuard_WritesPendingBytes pins U141-F07: bytes the guard
+// holds back (a pending incomplete escape/CSI sequence, or a split UTF-8
+// rune tail) had no flush path at all — Close called gate.Release(nil),
+// which never asked the guard to flush, so a session ending mid-sequence
+// silently dropped those bytes. FlushGuard is the teardown-only path that
+// commits them: it must NOT be folded into ordinary Release, since a
+// mid-engagement release (the engine keeps running afterward) would tear a
+// sequence the engine's own next write was going to complete.
+func TestOutputGate_FlushGuard_WritesPendingBytes(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	guard := newVTGuard(nil, nil, nil)
+	g := newOutputGate(&mu, &tty, 64, guard, nil)
+
+	_, _ = g.Write([]byte("x\x1b")) // trailing incomplete escape: held inside the guard
+	assert.Equal(t, "x", tty.String(), "an incomplete escape must not reach the tty yet")
+
+	require.NoError(t, g.FlushGuard())
+	assert.Equal(t, "x\x1b", tty.String(), "teardown must flush the pending escape byte rather than drop it")
+}
+
+func TestOutputGate_FlushGuard_NoopWithoutGuard(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, 64, nil, nil)
+	require.NoError(t, g.FlushGuard())
+	assert.Empty(t, tty.String())
+}
+
+func TestOutputGate_FlushGuard_NoopWhenNothingPending(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	guard := newVTGuard(nil, nil, nil)
+	g := newOutputGate(&mu, &tty, 64, guard, nil)
+	_, _ = g.Write([]byte("plain text"))
+	require.NoError(t, g.FlushGuard())
+	assert.Equal(t, "plain text", tty.String())
+}
+
 func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer

@@ -179,6 +179,13 @@ func (c *Controller) Close() {
 		// second time here.
 		c.warn("output gate release: %v", err)
 	}
+	if err := c.gate.FlushGuard(); err != nil {
+		// U141-F07: bytes the guard held back (a pending incomplete
+		// escape/CSI sequence or split UTF-8 rune tail) have no other flush
+		// path; the session is ending, so nothing else will ever complete
+		// them. Teardown-only — see FlushGuard's doc comment.
+		c.warn("output gate flush: %v", err)
+	}
 	c.sur.Restore()
 }
 

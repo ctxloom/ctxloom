@@ -97,6 +97,23 @@ func TestScaffoldContainerBase_AlreadyConfiguredIsNoOp(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "no default-path file is written when a base is already configured")
 }
 
+// TestScaffoldContainerBase_RejectsPathTraversal: U088-F26. relPath rides in
+// as a bare `--path` CLI flag with no containment check, so `--path
+// ../../evil` joined onto GetAppRoot() escaped the project entirely. The
+// call must error and nothing may land outside the project root.
+func TestScaffoldContainerBase_RejectsPathTraversal(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	projectRoot := cfg.GetAppRoot()
+	outsideMarker := filepath.Join(filepath.Dir(filepath.Dir(projectRoot)), "evil-base.Containerfile")
+	_ = os.Remove(outsideMarker)
+
+	_, err := ScaffoldContainerBase(managerFor(appDir), cfg, "../../evil-base.Containerfile", false)
+	require.Error(t, err, "a relPath that escapes the project root must be rejected")
+
+	_, statErr := os.Stat(outsideMarker)
+	assert.True(t, os.IsNotExist(statErr), "nothing must be written outside the project root")
+}
+
 // TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing:
 // U088-F04. isolation_base_containerfile can point at a path that was never
 // actually created (deleted, a typo, checked out from a branch that doesn't

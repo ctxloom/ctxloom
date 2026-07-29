@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -111,8 +113,9 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 	if mgr == nil {
 		return "", fmt.Errorf("manager is required")
 	}
+	fs := getFS(cfg.FS())
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
-		if _, err := os.Stat(existing); err == nil {
+		if _, err := fs.Stat(existing); err == nil {
 			return existing, nil
 		} else if !os.IsNotExist(err) {
 			return "", fmt.Errorf("stat configured base Containerfile: %w", err)
@@ -120,10 +123,10 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		// Configured but not actually on disk (deleted, never created, a typo'd
 		// path) — materialize it at the CONFIGURED location instead of
 		// silently reporting success with nothing written (U088-F04).
-		if merr := os.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
+		if merr := fs.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
-		if werr := os.WriteFile(existing, container.Base, 0o644); werr != nil {
+		if werr := afero.WriteFile(fs, existing, container.Base, 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}
 		return existing, nil
@@ -135,18 +138,29 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(cfg.GetAppRoot(), relPath)
 	}
+	// U088-F26: relPath is documented as project-root-relative, and the CLI
+	// exposes it as a bare --path flag — untrusted user input. A "../"-laden
+	// relPath (or, via the IsAbs branch above, an absolute relPath naming
+	// anywhere on disk) must not be allowed to write outside the project.
+	// Contain it the same way safeRepoPath contains escalation-query paths:
+	// join/clean, reject if the result escapes the root, and re-check after
+	// symlink resolution for the case where the target already exists.
+	abs, err := containedPath(cfg.GetAppRoot(), abs)
+	if err != nil {
+		return "", fmt.Errorf("base Containerfile path: %w", err)
+	}
 
 	exists := false
-	if _, err := os.Stat(abs); err == nil {
+	if _, err := fs.Stat(abs); err == nil {
 		exists = true
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("stat base Containerfile: %w", err)
 	}
 	if !exists || force {
-		if merr := os.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
+		if merr := fs.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
-		if werr := os.WriteFile(abs, container.Base, 0o644); werr != nil {
+		if werr := afero.WriteFile(fs, abs, container.Base, 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}
 	}
@@ -158,4 +172,45 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}
 	return abs, nil
+}
+
+// containedPath validates that target is contained within root, rejecting a
+// syntactic escape ("../../x") that survives filepath.Clean and, separately,
+// an already-absolute target that simply names a path outside root. Mirrors
+// safeRepoPath's (task_triggers_query.go) symlink-aware re-check: a
+// not-yet-created target is fine — callers are about to create it — but a
+// symlink already planted inside root that points outside it is still
+// rejected. Returns the resolved absolute path on success.
+func containedPath(root, target string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if !withinDir(absRoot, absTarget) {
+		return "", fmt.Errorf("path %q escapes the project root %q", target, absRoot)
+	}
+	resolved, err := filepath.EvalSymlinks(absTarget)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			// A genuine resolution failure (permissions, a symlink loop) never
+			// answered the containment question — do not let it through as if
+			// it had been checked.
+			return "", err
+		}
+		// Doesn't exist yet — not an escape, just nothing to resolve; the
+		// syntactic Join+Clean check above already covers this case.
+		return absTarget, nil
+	}
+	resolvedAbs, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !withinDir(absRoot, resolvedAbs) {
+		return "", fmt.Errorf("path %q escapes the project root %q via a symlink", target, absRoot)
+	}
+	return resolvedAbs, nil
 }

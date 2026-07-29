@@ -284,7 +284,6 @@ var excludedLeaves = map[string]string{
 	"ctxloom memory show":           "reads external backend session history; not reproducible hermetically",
 	"ctxloom memory compact":        "@live + external backend session history",
 	"ctxloom bundle push":           "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom fragment push":         "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom command push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom profile push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom container build":       "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",

@@ -251,8 +251,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"remote remove":   {skip: "needs a configured remote fixture", formatDebt: true},
 	"remote update":   {skip: "network: updates pinned bundle content from a real remote", formatDebt: true},
 	"remote upgrade":  {skip: "network: upgrades pinned bundle content from a real remote", formatDebt: true},
-	"bundle push":     {skip: "network: publishes to a real remote repository (shares pushBundleCfg with fragment/command push, covered by push_sign_test.go)"},
-	"fragment push":   {skip: "network: same pushBundleCfg path as bundle push"},
+	"bundle push":     {skip: "network: publishes to a real remote repository (shares pushBundleCfg with command push, covered by push_sign_test.go)"},
 	"command push":    {skip: "network: same pushBundleCfg path as bundle push"},
 
 	// --- skip: docker / container runtime required ---
@@ -315,7 +314,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"fragment delete":  {skip: "not wired to emit() yet", formatDebt: true},
 	"fragment edit":    {skip: "not wired to emit() yet", formatDebt: true},
 	"fragment distill": {skip: "not wired to emit() yet", formatDebt: true},
-	"fragment search":  {skip: "not wired to emit() yet", formatDebt: true},
 	"command show":     {skip: "not wired to emit() yet", formatDebt: true},
 	"command create":   {skip: "not wired to emit() yet", formatDebt: true},
 	"command delete":   {skip: "not wired to emit() yet", formatDebt: true},
@@ -513,7 +511,6 @@ var formatDebtAllowlist = map[string]string{
 	"fragment delete":  "fragment.go: the delete RunE must route through emit()",
 	"fragment edit":    "fragment.go: the edit RunE must route through emit()",
 	"fragment distill": "fragment.go: the distill RunE must route through emit()",
-	"fragment search":  "fragment.go: the search RunE must route through emit()",
 	"command show":     "command_cmd.go: the show RunE must route through emit()",
 	"command create":   "command_cmd.go: the create RunE must route through emit()",
 	"command delete":   "command_cmd.go: the delete RunE must route through emit()",

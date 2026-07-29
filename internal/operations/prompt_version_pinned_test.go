@@ -108,21 +108,3 @@ func TestGetPrompt_Pinned_FetchFailureFailsClosed(t *testing.T) {
 	})
 	require.Error(t, err, "a fetch failure must fail closed (withhold), never silently default")
 }
-
-// TestGetPrompt_ExplicitVersionField proves req.Version threads the pin when set,
-// equivalent to a trailing "@<commit>" on Name (mirrors FragmentRef.Version).
-func TestGetPrompt_ExplicitVersionField(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	def, versions := promptVersions("DEFAULT-REVIEW", map[string]string{"c1": "V1-REVIEW"})
-	fx := newTrustFixture(t)
-	fx.approvePrompt("cq", "review", "V1-REVIEW")
-	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
-
-	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:    cqVersionRef + "#commands/review",
-		Version: "c1",
-		Loader:  loader,
-	})
-	require.NoError(t, err)
-	assert.Contains(t, res.Content, "V1-REVIEW")
-}

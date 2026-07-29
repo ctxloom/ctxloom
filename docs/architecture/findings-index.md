@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **835** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 27 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **845** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 29 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 60 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 98 |
-| `open` | no commit names this ID | **1,248** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 100 |
+| `open` | no commit names this ID | **1,234** |
 
-**Totals: 2268 findings across 162 units — 835 resolved, 1248 still open, 185 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
+**Totals: 2268 findings across 162 units — 845 resolved, 1234 still open, 189 adjudicated without a fix.** (Recounted mechanically from this file on 2026-07-26 during the `chore/findings-sweep-high-8` batch. These totals had drifted three times — understated by 37 once and by one twice — so batch 8 stopped recounting them by hand and made the recount a TEST: `tests/docs/arch_test.go` recomputes every header number from the rows and fails on a mismatch. It is one of the `TestArch_` class gates, so it carries `//go:build arch` and the tag is required to select it: update rows, run `just test-pkg ./tests/docs/ -tags arch` (or `just test-arch` for the whole group), and paste in the numbers it reports. Updated again 2026-07-27 during the `dead-brunt` audit: 8 rows the flow-batch cross-cuts had landed but never re-marked — U003-F01/F02, U077-F06, U093-F09, U031-F08, U074-F01 RESOLVED; U014-F15, U020-F12 REFUTED — verified individually against the commit each names, not taken from any task's self-report. Updated again 2026-07-27 during the `clean-pony` capture-flow batch: 24 HIGH rows across U039/U042/U078/U099/U145-U149 adjudicated by walking the capture flow tip-to-tail — 19 RESOLVED, 4 PARTIAL (U078-F03, U145-F01, U146-F03, U147-F02 — real ambiguity or an architecturally-correct-but-differently-shaped fix, not a mechanical patch), 1 REFUTED (U099-F03, superseded by U087-F04 before this batch even started). Updated again 2026-07-28 during the `flow/guardrail-wave1` guardrail-flow batch: 19 of the batch's 24 HIGH rows across U005/U066-U069/U070-U073/U076 RESOLVED (U005-F01/F04, U066-F01/F02, U067-F01, U068-F01/F02/F03, U069-F01/F02/F10, U070-F01, U071-F01, U072-F01/F06, U073-F01/F04/F10, U076-F01), 1 ESCALATED (U066-F03 — a Claude Code hook-contract limitation verified against the vendor's own documented contract, not an ltk defect; see DECISIONS.md). The remaining 4 of 24 (U005-F02, U073-F03, U074-F01, U077-F01) were already RESOLVED before this batch started. Updated again 2026-07-28 during the `flow/isolation-wave1` isolation-flow batch: all 10 of the batch's 10 HIGH rows across U062/U063/U064/U065/U152 RESOLVED at `a6d9bd95` (U062-F01/F03, U063-F01/F02, U064-F01/F02, U065-F01/F02/F03, U152-F01) — extraction cross-checked against the task's stated 10-HIGH count and matched exactly (method: grepped each of the 8 assigned units' per-unit review .md Severity columns, both plain and bolded `HIGH`, and cross-referenced against this file's `open` rows). Recounted: RESOLVED 416->426, open 1831->1821, HIGH resolved 269->279.
 Updated again 2026-07-27 during the `known-bleep` launch-flow batch: 24 HIGH
 rows across U040/U041/U059/U060/U061/U083/U084/U098/U114/U116/U117/U118/U133
 adjudicated by walking the launch flow (argv -> proto wire -> engine
@@ -200,6 +200,24 @@ batch's assigned units and this call site belongs to the launch/delegation
 flow's territory, not the ACP flow's. Recounted (`just test-arch`):
 RESOLVED 446->460, PARTIAL 7->8, open 1800->1785, HIGH resolved 298->312.
 
+Updated again 2026-07-29 during the `wave4/netneg-foundation` batch: the 14
+net-negative (DUPLICATE/NOPAY) rows of the foundation flow adjudicated —
+U002-F03, U004-F03, U054-F14, U090-F08, U090-F13, U092-F09, U092-F11,
+U109-F06, U113-F01, U113-F04, U113-F06, U115-F06, U115-F07, U129-F01. 10
+RESOLVED, 2 PARTIAL (U090-F13 and U115-F06: in each case part of the row was
+already closed by earlier work and only the residue was fixable), 2 ESCALATED
+(U002-F03 and U109-F06 — both are third-party dependency decisions, a
+library change that is the human's call, not an agent's). One of the 10 was
+ALREADY FIXED before the batch and merely re-marked, not redone: U092-F09 at
+`2976b043`, whose suggested action (WorkDirWithBoundary) had landed under
+U140-F01's ID. No row was refuted. Every DUPLICATE row was collapsed behind a
+parity test written first; four of those tests were measured genuinely RED
+before the collapse (U004-F03 empty --format, U054-F14 within-set dedup,
+U113-F06 fixed temp name + silent success on rename failure, U129-F01 cap
+overflow) and four were green-before, recorded as such rather than claimed as
+red. Recounted (`just test-arch`): RESOLVED 835->845, PARTIAL 27->29,
+ESCALATED 98->100, open 1248->1234.
+
 Every column below is a status count, and `open` means the status — a row no
 commit names — exactly as it does in the status table above. It previously meant
 count-minus-resolved here and the status elsewhere, with the difference carried
@@ -210,8 +228,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 7 | 10 | 6 | 3 |
-| MED | 999 | 197 | 717 | 8 | 18 | 59 |
-| LOW | 871 | 288 | 504 | 9 | 34 | 36 |
+| MED | 999 | 202 | 709 | 10 | 18 | 60 |
+| LOW | 871 | 293 | 498 | 9 | 34 | 37 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -786,7 +804,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U001-F01 | open | **`engine.go:108-116`** | CORRECTNESS | `closeOnce` can panic with "send on closed channel": it `close(events)` while the `runHarnessEngine` goroutine may be blocked in `emit`'s `select { case events <- ev: case <-ctx.Done(): }`. `cancel... | U001.md |
 | U001-F03 | open | **`engine.go:150-257`** | COMPLEXITY / DUPLICATE | `runTurn` is CCN 34 (repo maximum) and two of its six branches are structural clones. `SentinelCancelMe` (152-169) and `SentinelRaceComplete` (170-195) differ only in one content string and the fin... | U001.md |
 | U002-F01 | open | **`main.go:38`, `main.go:42`** | ERRHANDLING | Both logger constructors have their error discarded into `_`, and both return `(nil, err)` on failure. A nil `logger` then flows into `zap.ReplaceGlobals(nil)` (line 44) — which installs a nil glob... | U002.md |
-| U002-F03 | open | **`main.go:36-45`** | DUPLICATE | ctxloom carries **two** diagnostics systems, and this 10-line block is the entire reason the zap dependency exists in the shipped binary. Measured: `zap.L()`/`zap.S()` appears at **16** call sites ... | U002.md |
+| U002-F03 | **ESCALATED** `6c89e42f` | **`main.go:36-45`** | DUPLICATE | ctxloom carries **two** diagnostics systems, and this 10-line block is the entire reason the zap dependency exists in the shipped binary. Measured: `zap.L()`/`zap.S()` appears at **16** call sites ... | U002.md |
 | U003-F02 | **RESOLVED** `9a61c77e` | **`main.go:3-7` vs `main.go:19-23`** | CORRECTNESS | The package doc comment asserts a safety net that **does not exist**, and contradicts a comment 15 lines below it. It says: "The schemas are checked in and a CI step (`just gen-schemas-check`) rege... | U003.md |
 | U003-F03 | **ESCALATED** `18a8c154` | **`main.go:23` (whole unit)`** | NOPAY | **Nothing reads the generated schemas.** 70 files / 284 KB are generated on every container build and CI run and embedded into the shipped binary, and I can find no consumer. `resources.GetSchema` ... | U003.md |
 | U003-F04 | open | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
@@ -1634,7 +1652,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U128-F04 | open | `verdict.go:58-79` | COHESION | `Verdict` fuses three fields with three different trust directions and lifetimes: the model↔caller contract, an internal round-1→round-2 control signal (`Queries`), and caller-stamped provenance (`... | U128.md |
 | U128-F05 | open | `prompt.go:112, prompt.go:213` | COUPLING | The response contracts hardcode the outcome vocabulary as pipe-separated string literals (`"fired\ | U128.md |
 | U128-F07 | open | `prompt.go:18, prompt.go:86` | SILENTNOOP | Given an empty `Batch`, `BuildPrompt` succeeds and returns a full prompt whose `=== Deferred tasks ===` header has nothing beneath it — asking a model to judge zero tasks. Zero payload, no error. `... | U128.md |
-| U129-F01 | open | `textutil.go:10` + 9 call sites` | DUPLICATE | **The concept every caller actually wants is "ellipsize to fit N bytes", and all nine of them hand-roll the second half of it.** Worse, the result *exceeds* the requested cap by the suffix length, ... | U129.md |
+| U129-F01 | **RESOLVED** `6c89e42f` | `textutil.go:10` + 9 call sites` | DUPLICATE | **The concept every caller actually wants is "ellipsize to fit N bytes", and all nine of them hand-roll the second half of it.** Worse, the result *exceeds* the requested cap by the suffix length, ... | U129.md |
 | U129-F02 | open | `textutil.go:11-13`, realised at `internal/compression/json.go:203,221` | SILENTNOOP | `TruncateBytes(s, 0)` silently returns `""`. At the one call site whose `maxBytes` is configuration rather than a literal, a zero value would turn **every** long string value in the compressed JSON... | U129.md |
 | U129-F03 | open | **`internal/memory/compactor.go:774,793`** | COUPLING | Two call sites use `len(textutil.TruncateBytes(s, n))` purely to compute an **integer rune-boundary offset**, discarding the string. That allocates and copies up to `n` bytes to answer a question t... | U129.md |
 | U129-F04 | open | `internal/cli/search.go:315,320`, `remote_discover.go:83,88`, `bundle_list.go:267`, `bundle_distill.go:299` | CORRECTNESS | Six call sites use a **byte** cap to size a **terminal column**. For CJK, emoji, or accented text the two diverge by 2-4x in one direction and 0.5x in the other, so tables misalign for non-ASCII co... | U129.md |
@@ -2460,7 +2478,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U108-F11 | open | `process.go:23-43` | COUPLING | The mutex protects the struct header only; `ProcessOverrides()` hands out the live maps, so the synchronization is partial in a way the code does not say. | U108.md |
 | U108-F13 | open | `confload.go:155-165` | ERRHANDLING | The `EnvPrefix` invariant the package doc spends 11 lines on ("must carry a `_CONFIG_` segment or bootstrap vars leak into the config chain") is checkable in one line, and the doc explicitly declin... | U108.md |
 | U109-F05 | open | `filelock.go:43`; `filelock_unix.go:13,18,28`; `filelock_windows.go:25,30,41` | ERRHANDLING | Every error out of this package is returned bare, with no wrapping. The caller receives `mkdir /home/u/.ctxloom: read-only file system` or `bad file descriptor` with nothing identifying it as a *lo... | U109.md |
-| U109-F06 | open | `filelock_windows.go:11-20,52-88` | DUPLICATE | The `LazyDLL`/`LazyProc` binding to `LockFileEx`/`UnlockFileEx` re-implements what `golang.org/x/sys/windows` already exports as typed functions, and the module already depends on `golang.org/x/sys... | U109.md |
+| U109-F06 | **ESCALATED** `6c89e42f` | `filelock_windows.go:11-20,52-88` | DUPLICATE | The `LazyDLL`/`LazyProc` binding to `LockFileEx`/`UnlockFileEx` re-implements what `golang.org/x/sys/windows` already exports as typed functions, and the module already depends on `golang.org/x/sys... | U109.md |
 | U110-F05 | open | `gitutil.go:1` | COUPLING | The package doc is "Package gitutil provides git repository utilities." — a name restatement. It does not say which of the two git layers a reader should reach for, that it is deliberately environm... | U110.md |
 | U111-F08 | open | `harp.go:225-227` | ERRHANDLING | `randIndex(n)` returns `0` for `n <= 0`, converting a caller bug into a plausible value. | U111.md |
 | U111-F09 | open | `harp.go:108-114` | CORRECTNESS | `Groups()` returns names in Go map-iteration order, i.e. randomized per process. | U111.md |

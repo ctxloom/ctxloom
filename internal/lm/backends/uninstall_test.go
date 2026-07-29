@@ -95,6 +95,22 @@ func TestAntigravityRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	assert.Contains(t, mustMarshal(t, mcp), "user-server")
 }
 
+// U057-F16: a settings-writer failure surfaced through RemoveSettings must
+// name the backend it came from — a caller looping over multiple backends
+// (operations.RemoveHooks) cannot otherwise attribute the failure.
+func TestRemoveSettings_FailureNamesBackend(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const dir = "/project"
+	require.NoError(t, fs.MkdirAll(dir+"/.claude", 0755))
+	// Malformed settings.json: the writer's loadSettings must fail.
+	require.NoError(t, afero.WriteFile(fs, dir+"/.claude/settings.json", []byte("{not valid json"), 0644))
+
+	err := RemoveSettings("claude-code", dir, WithSettingsFS(fs))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "claude-code",
+		"a settings-writer failure must name the backend it came from: got %q", err.Error())
+}
+
 func TestBackendStatus_UnsupportedBackendIsUnwired(t *testing.T) {
 	status, err := BackendStatus("unknown-backend", "/project")
 	require.NoError(t, err)

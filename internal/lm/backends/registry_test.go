@@ -142,6 +142,19 @@ func TestDecodeLLMConfig(t *testing.T) {
 	})
 }
 
+// U057-F16: a decode failure from a backend's own decoder must name the
+// backend, so a multi-backend config load can attribute a mapstructure
+// failure to the right entry instead of surfacing a bare, unattributed
+// mapstructure error.
+func TestDecodeLLMConfig_DecodeFailureNamesBackend(t *testing.T) {
+	_, err := DecodeLLMConfig("claude-code", map[string]interface{}{
+		"binary_path": map[string]interface{}{"nested": "not a string"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "claude-code",
+		"decode failure must name the backend it came from: got %q", err.Error())
+}
+
 // TestDescriptorTable_Invariants pins the descriptor registry's shape: every
 // built-in agent is registered as ONE complete descriptor (backend ctor +
 // config decoder + settings writer + surface builder + command-export mapper),

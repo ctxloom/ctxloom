@@ -19,7 +19,14 @@ func DecodeLLMConfig(backendType string, body map[string]interface{}) (agent.Bac
 	if !ok || d.decodeConfig == nil {
 		return nil, fmt.Errorf("unknown LLM backend type %q", backendType)
 	}
-	return d.decodeConfig(body)
+	cfg, err := d.decodeConfig(body)
+	if err != nil {
+		// U057-F16: decodeBody's mapstructure error names no backend, so a
+		// multi-backend config load could not attribute a decode failure to
+		// its source entry.
+		return nil, fmt.Errorf("backend %q: %w", backendType, err)
+	}
+	return cfg, nil
 }
 
 // decodeBody is the shared mapstructure pass each backend's decoder uses to

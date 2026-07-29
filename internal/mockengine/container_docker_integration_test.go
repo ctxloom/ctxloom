@@ -91,13 +91,16 @@ func buildMockEngineImage(t *testing.T) string {
 func materializeClaudeContext(t *testing.T, workspace, context string) string {
 	t.Helper()
 	set := backends.BuildSurfaces("claude-code", agent.SurfaceInputs{Context: context}, nil)
+	resolved, err := agent.Select(set).WithEverything().Build()
+	if err != nil {
+		t.Fatalf("resolve surfaces: %v", err)
+	}
 	var delivered bool
-	for _, d := range set.Deliveries() {
-		kd, ok := d.(agent.KindedDelivery)
-		if !ok || kd.Kind() != agent.SurfaceContext {
+	for _, kd := range resolved.Deliveries() {
+		if kd.Kind() != agent.SurfaceContext {
 			continue
 		}
-		if _, err := d.Deliver(workspace); err != nil {
+		if _, err := kd.Deliver(workspace); err != nil {
 			t.Fatalf("materialize context: %v", err)
 		}
 		delivered = true
@@ -250,13 +253,16 @@ func recordForRel(t *testing.T, rep mockengine.Report, kind, scope, rel string) 
 func materializeCodexContext(t *testing.T, workspace, context string) string {
 	t.Helper()
 	set := backends.BuildSurfaces("codex", agent.SurfaceInputs{Context: context}, nil)
+	resolved, err := agent.Select(set).WithEverything().Build()
+	if err != nil {
+		t.Fatalf("resolve surfaces: %v", err)
+	}
 	var delivered bool
-	for _, d := range set.Deliveries() {
-		kd, ok := d.(agent.KindedDelivery)
-		if !ok || kd.Kind() != agent.SurfaceContext {
+	for _, kd := range resolved.Deliveries() {
+		if kd.Kind() != agent.SurfaceContext {
 			continue
 		}
-		if _, err := d.Deliver(workspace); err != nil {
+		if _, err := kd.Deliver(workspace); err != nil {
 			t.Fatalf("materialize codex context: %v", err)
 		}
 		delivered = true

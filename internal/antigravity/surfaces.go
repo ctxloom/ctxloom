@@ -66,9 +66,6 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "antigravity/context" }
 
-// Kind reports agy's context surface (.agents/AGENTS.md).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // mcpSurface is agy's MCP surface: .agents/mcp_config.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
@@ -96,9 +93,6 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns agy's MCP identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *mcpSurface) UnsafeInfo() string { return "antigravity/mcp" }
-
-// Kind reports agy's MCP surface (.agents/mcp_config.json).
-func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // hooksSurface is agy's hooks surface: the ctxloom-managed entries of
 // .agents/hooks.json. It reuses the SAME writer helpers WriteSettings composes
@@ -149,10 +143,6 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns agy's hooks identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
-
-// Kind reports agy's hooks surface (.agents/hooks.json) as the settings surface —
-// agy's hooks file IS its settings, so a caller selecting Settings gets it.
-func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // agy's commands surface — Agent Skill directories under .agents/skills/
 // (`<name>/SKILL.md`, generated frontmatter, capabilities.go
@@ -240,16 +230,6 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	}
 }
 
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target),
-// where a well-known write into a private dir is safe. This is the ONLY way agy's
-// surfaces reach a cell directly: none has a SharedRealization, so a SHARED-cwd
-// delivery falls back to the loud well-known write (see Surfaces.SharedRealization
-// below).
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.MCP, s.Hooks, s.Commands, s.Skills}
-}
-
 // agyApproaches is agy's DECLARED per-surface approach table (vital-tiger v2
 // per-provider dispatch): every surface is a single native file — agy has no
 // out-of-cwd flag and no SessionStart hook (it reads .agents/AGENTS.md directly).
@@ -279,9 +259,6 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts. Every agy surface is a KindedDelivery.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*mcpSurface)(nil)
-	_ agent.KindedDelivery = (*hooksSurface)(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

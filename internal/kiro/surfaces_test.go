@@ -412,7 +412,13 @@ func TestDirectoryIsolatedCell_AcceptsAllKiroSurfaces(t *testing.T) {
 	in.Skills = []agent.SkillExport{sampleSkill("humanize", "skill body")}
 	s := NewSurfaces(in, fs)
 
-	ds := s.Deliveries()
+	// The surfaces reach a cell through the approach-resolved selection — the
+	// same path the launch path drives. (U033-F05 deleted the raw, unresolved
+	// SurfaceSet.Deliveries() this used to call; it materialized the identical
+	// tree and had no production caller.)
+	resolved, err := agent.Select(s).WithEverything().Build()
+	require.NoError(t, err)
+	ds := resolved.Deliveries()
 	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
 	cell := agent.NewIsolatedCell(dir)

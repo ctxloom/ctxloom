@@ -49,9 +49,6 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns opencode's context identity for the DeliverShared fallback's warning.
 func (s *contextSurface) UnsafeInfo() string { return "opencode/context" }
 
-// Kind reports opencode's context surface (instructions -> .opencode/ctxloom-context.md).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // configSurface is opencode's folded settings + MCP surface: opencode.json's `mcp`
 // key, written via the reused OpencodeWriter.WriteSettings.
 type configSurface struct {
@@ -73,10 +70,6 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns opencode's config identity for the DeliverShared fallback's warning.
 func (s *configSurface) UnsafeInfo() string { return "opencode/config" }
-
-// Kind reports opencode's config surface as the settings surface — it folds
-// opencode.json's `mcp` key in, so selecting either Settings or MCP gets it.
-func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // opencode's commands surface — the custom-command .md files under
 // .opencode/command/ — is the shared agent.ManagedCommandsDelivery bound to
@@ -143,12 +136,6 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	}
 }
 
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target).
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.Config, s.Commands, s.Skills}
-}
-
 // opencodeApproaches is opencode's DECLARED per-surface approach table: context,
 // settings, and commands are each a single native file (opencode.json, plus the
 // context file the instructions key points at, plus the .opencode/command/ dir).
@@ -175,7 +162,5 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*configSurface)(nil)
-	_ agent.SurfaceSet     = Surfaces{}
+	_ agent.SurfaceSet = Surfaces{}
 )

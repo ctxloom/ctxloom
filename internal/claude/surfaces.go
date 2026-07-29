@@ -92,9 +92,6 @@ func (s *contextSurface) DeliverIsolated() (agent.Delivered, error) {
 // --append-system-prompt-file), or "" before delivery / for empty context.
 func (s *contextSurface) Path() string { return s.appendD.Path() }
 
-// Kind reports claude's context surface (CLAUDE.md).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // mcpSurface is claude's MCP surface.
 //
 // Delivery (well-known) writes .mcp.json into the target dir via the reused
@@ -139,9 +136,6 @@ func (s *mcpSurface) DeliverIsolated() (agent.Delivered, error) {
 // Path returns the out-of-cwd .mcp.json written by DeliverIsolated (for
 // --mcp-config <file>), or "" before delivery.
 func (s *mcpSurface) Path() string { return s.path }
-
-// Kind reports claude's MCP surface (.mcp.json).
-func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // settingsSurface is claude's settings surface (hooks + statusline; claude keeps
 // them in a single .claude/settings.json).
@@ -191,9 +185,6 @@ func (s *settingsSurface) DeliverIsolated() (agent.Delivered, error) {
 // --settings <file>), or "" before delivery.
 func (s *settingsSurface) Path() string { return s.path }
 
-// Kind reports claude's settings surface (.claude/settings.json — hooks + statusline).
-func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
-
 // commandsSurface is claude's commands surface: the slash-command exports under
 // .claude/commands/. claude has no out-of-cwd flag for slash-commands and no
 // SharedRealization (see Surfaces.SharedRealization below), so a SHARED-cwd
@@ -221,9 +212,6 @@ func (s *commandsSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns claude's commands identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
-
-// Kind reports claude's commands surface (.claude/commands/).
-func (s *commandsSurface) Kind() agent.SurfaceKind { return agent.SurfaceCommands }
 
 // newSkillsSurface builds claude's skills surface: an
 // agent.ManagedSkillPackagesDelivery bound to WriteSkillFiles (skillfiles.go),
@@ -323,13 +311,6 @@ func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfac
 	}
 }
 
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target),
-// where a well-known write into a private dir is safe.
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Commands, s.Skills}
-}
-
 // noopContextDelivery is claude's Hook-approach context delivery (vital-tiger
 // v2): a documented no-op. claude's apply-context rides the settings-carried
 // SessionStart inject hook + the regenerated cache file, so there is nothing
@@ -340,9 +321,6 @@ type noopContextDelivery struct{}
 // convention (see contextSurface.Kind's siblings) treats this exactly like any
 // other no-op delivery.
 func (noopContextDelivery) Deliver(string) (agent.Delivered, error) { return nil, nil }
-
-// Kind reports the context surface (Hook is one of context's approaches).
-func (noopContextDelivery) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // claudeApproaches is claude's DECLARED per-surface approach table (vital-tiger
 // v2 per-provider dispatch): context supports all three — the native file
@@ -397,19 +375,13 @@ func (s Surfaces) SharedRealization(kind agent.SurfaceKind) (func() (agent.Deliv
 // by SharedRealization above) — commands has none, so a SHARED-cwd delivery of it
 // always falls back to the loud well-known write (proved in surfaces_test.go).
 var (
-	_ agent.Delivery       = (*contextSurface)(nil)
-	_ agent.Delivery       = (*mcpSurface)(nil)
-	_ agent.Delivery       = (*settingsSurface)(nil)
-	_ agent.Delivery       = (*commandsSurface)(nil)
-	_ agent.Delivery       = (*agent.ManagedSkillPackagesDelivery)(nil)
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*mcpSurface)(nil)
-	_ agent.KindedDelivery = (*settingsSurface)(nil)
-	_ agent.KindedDelivery = (*commandsSurface)(nil)
-	_ agent.KindedDelivery = (*agent.ManagedSkillPackagesDelivery)(nil)
-	_ agent.Delivery       = noopContextDelivery{}
-	_ agent.KindedDelivery = noopContextDelivery{}
-	_ agent.Placement      = dirPlacement{}
+	_ agent.Delivery  = (*contextSurface)(nil)
+	_ agent.Delivery  = (*mcpSurface)(nil)
+	_ agent.Delivery  = (*settingsSurface)(nil)
+	_ agent.Delivery  = (*commandsSurface)(nil)
+	_ agent.Delivery  = (*agent.ManagedSkillPackagesDelivery)(nil)
+	_ agent.Delivery  = noopContextDelivery{}
+	_ agent.Placement = dirPlacement{}
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

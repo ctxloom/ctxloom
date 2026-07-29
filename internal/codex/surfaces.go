@@ -133,9 +133,6 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
 
-// Kind reports codex's context surface (the raw context cache file).
-func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
-
 // agentsMDSurface is codex's OTHER, native context route (taskloom
 // lanky-plop/tiny-ooze): codex reads a workspace-fixed AGENTS.md NATIVELY at
 // session start — no hook required — and CodexHookWriter now implements
@@ -170,17 +167,6 @@ func (s *agentsMDSurface) Deliver(dir string) (agent.Delivered, error) {
 // fallback's warning (ResolvedSelection.deliverOneShared's unsafeNamed check,
 // cells.go).
 func (s *agentsMDSurface) UnsafeInfo() string { return "codex/agents-md" }
-
-// Kind reports codex's native context surface as the same cross-backend
-// SurfaceContext kind as contextSurface — the two are alternate ROUTES for one
-// surface kind, not two kinds. SurfaceFor resolves EXACTLY one Delivery per
-// (kind, approach) — cells.go's SurfaceSelection.Build calls SurfaceFor once
-// per selected kind — so codex's two context routes are composed into a
-// single agent.ComposedDelivery value (built in NewSurfaces, see the routes
-// field) for that path (the one `profile materialize` and the live run/launch
-// path both use, via agent.Select(set).WithEverything()); a bare s.Context
-// alone would silently drop the AGENTS.md route from both.
-func (s *agentsMDSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // configSurface is codex's folded settings + hooks + MCP surface: the single
 // .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
@@ -236,11 +222,6 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
 // warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *configSurface) UnsafeInfo() string { return "codex/config" }
-
-// Kind reports codex's config surface as the settings surface — it folds codex's
-// [hooks] AND [mcp_servers] tables into one config.toml, so a caller selecting
-// either Settings or MCP gets the whole file.
-func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // codex's prompts surface is the shared agent.ManagedCommandsDelivery bound to
 // codex's writer (built in NewSurfaces). codex prompts are GLOBAL
@@ -348,18 +329,6 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 	}
 }
 
-// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
-// for iteration by an isolated cell (worktree / container / materialize target),
-// where a well-known write into a private dir is safe. This is the ONLY way
-// codex's surfaces reach a cell directly: none has a SharedRealization, so a
-// SHARED-cwd delivery falls back to the loud well-known write (see
-// Surfaces.SharedRealization below). The composed routes entry delivers BOTH
-// context routes (contextSurface + agentsMDSurface) as one surface, matching
-// what SurfaceFor resolves for the same kind.
-func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.routes, s.Config, s.Commands, s.Skills}
-}
-
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
 // per-provider dispatch). context remains declared Hook-ONLY: the SessionStart
 // inject-context hook's raw cache file is the only SEPARATELY-SELECTABLE
@@ -405,9 +374,6 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 
 // Compile-time capability contracts. Every codex surface is a KindedDelivery.
 var (
-	_ agent.KindedDelivery = (*contextSurface)(nil)
-	_ agent.KindedDelivery = (*agentsMDSurface)(nil)
-	_ agent.KindedDelivery = (*configSurface)(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
 	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
 	// SharedRealization), so it satisfies agent.SurfaceSet.

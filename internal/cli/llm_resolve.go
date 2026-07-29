@@ -13,6 +13,21 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
+// mockBackendName is backends.List()'s one entry that must never surface in a
+// user-facing engine list: the "mock" backend is a test/development double
+// registered into the production descriptor table (registry.go), reachable
+// at runtime as `--llm mock`, but not something a real user should ever be
+// offered as a choice. Every user-facing enumeration over backends.List()
+// filters it out through this one name — U057-F14 found two independent
+// hand-written `== "mock"` skips (here and in init.go) before this constant
+// existed; consolidating the literal to one place is the minimal fix that
+// keeps working without reaching into the backends package's registration
+// table (which is outside this package).
+const mockBackendName = "mock"
+
+// isMockBackend reports whether name is the test-only mock backend.
+func isMockBackend(name string) bool { return name == mockBackendName }
+
 // decodeBackendConfig decodes the labeled LLM entry into its backend's typed
 // config via the backend registry. The label is looked up verbatim; the
 // backend is chosen solely by the entry's type. Returns nil on a missing label

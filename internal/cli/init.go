@@ -233,7 +233,7 @@ func getAvailableEngines() (primary, secondary []string) {
 
 	// Get secondary engines (all others except mock)
 	for _, name := range backends.List() {
-		if name == "mock" || primarySet[name] {
+		if isMockBackend(name) || primarySet[name] {
 			continue
 		}
 		if backends.IsAvailable(name) {

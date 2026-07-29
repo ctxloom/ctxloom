@@ -100,6 +100,7 @@ type syncMockRetractionPuller struct {
 	reason    string
 	checkedAt time.Time // echoed back by CheckRetraction; defaults to time.Now() below when zero
 	checkErr  error
+	recordErr error // returned by RecordRetraction, e.g. to drive U088-F11
 
 	checkCalls []string
 	recorded   []recordedRetraction
@@ -119,7 +120,7 @@ func (m *syncMockRetractionPuller) CheckRetraction(_ context.Context, refStr str
 
 func (m *syncMockRetractionPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error {
 	m.recorded = append(m.recorded, recordedRetraction{itemType: itemType, ref: refStr, retracted: retracted, reason: reason, checkedAt: checkedAt})
-	return nil
+	return m.recordErr
 }
 
 // ==========================================================================
@@ -638,6 +639,54 @@ remotes:
 	assert.True(t, puller.recorded[0].retracted)
 	assert.True(t, puller.recorded[0].checkedAt.Equal(fallbackCheckedAt),
 		"the fallback's own (past) checkedAt must be persisted verbatim, never bumped to now")
+}
+
+// U088-F11: checkInstalledRetraction used to discard RecordRetraction's own
+// error (`_ = rc.RecordRetraction(...)`) — a failure to PERSIST a genuine
+// retraction verdict is a different failure than "couldn't reach the remote
+// to check" (which this function is deliberately fault-tolerant about); it
+// silently drops a security improvement (or a live retraction) with zero
+// diagnostic. The sync itself must still succeed (best-effort, never blocks),
+// but the failure must be visible.
+func TestSyncDependencies_RecordRetractionSaveFailureIsWarnedNotSwallowed(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := config.NewFixture(config.Fixture{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"}},
+		}},
+		AppPaths: []string{testBaseDir},
+	})
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+    version: v1
+`), 0644)
+
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+
+	puller := &syncMockRetractionPuller{retracted: false, recordErr: fmt.Errorf("lockfile save: disk full")}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	_, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+		Force:        false,
+	})
+	require.NoError(t, err, "a lockfile-save failure for the retraction re-check must never fail the sync itself")
+
+	require.Len(t, puller.recorded, 1, "RecordRetraction must still be called")
+	assert.Contains(t, warnings.String(), "disk full",
+		"a failure to PERSIST the retraction verdict must be surfaced, not silently swallowed")
 }
 
 // TestSyncDependencies_SkipCanonicalizesRef pins ref canonicalization in the
@@ -1281,6 +1330,25 @@ func TestAddSyncItem_FailedStatus(t *testing.T) {
 	if len(result.Failed) != 1 {
 		t.Errorf("expected 1 failed item, got %d", len(result.Failed))
 	}
+}
+
+// U088-F27: addSyncItem's switch had no default arm, so an item with an
+// unrecognized Status silently vanished from every result bucket and
+// counter — result.Total (bumped by the caller for every item) and the sum
+// of the buckets would then disagree with no diagnostic at all.
+func TestAddSyncItem_UnknownStatusIsNotSilentlyDropped(t *testing.T) {
+	result := &SyncDependenciesResult{}
+	item := SyncItem{
+		Reference: "test-bundle",
+		Type:      "bundle",
+		Status:    "not-a-real-status",
+	}
+
+	addSyncItem(result, item)
+
+	total := len(result.Synced) + len(result.Skipped) + len(result.Retracted) + len(result.Failed)
+	assert.Equal(t, 1, total, "an item with an unrecognized status must land in exactly one bucket, not vanish from all of them")
+	assert.Equal(t, 1, result.Errors)
 }
 
 func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {

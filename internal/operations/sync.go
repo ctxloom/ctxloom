@@ -343,9 +343,16 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string) (bundleR
 			profilesToProcess = append(profilesToProcess, name)
 		}
 
-		// Also get directory-based profiles
+		// Also get directory-based profiles. A List failure must actually
+		// reach this function's own (previously always-nil) err return
+		// (U088-F06) rather than being discarded (U088-F10) — every call site
+		// already handles a non-nil err from collectRemoteReferences
+		// correctly (abort, or warn-and-continue on a re-collect pass).
 		loader := cfg.GetProfileLoader()
-		dirProfiles, _ := loader.List()
+		dirProfiles, lerr := loader.List()
+		if lerr != nil {
+			return nil, fmt.Errorf("list directory profiles: %w", lerr)
+		}
 		for _, p := range dirProfiles {
 			profilesToProcess = append(profilesToProcess, p.Name)
 		}
@@ -591,7 +598,15 @@ func checkInstalledRetraction(ctx context.Context, puller Puller, ref string, it
 	if err != nil {
 		return false, ""
 	}
-	_ = rc.RecordRetraction(itemType, ref, retracted, reason, checkedAt)
+	// A failure to PERSIST the verdict (distinct from a failure to check it)
+	// is not the "tolerate an unreachable remote" case this function's
+	// contract carves out — it silently drops a security improvement (or,
+	// worse, a genuine retraction) on the floor with no diagnostic at all
+	// (U088-F11). Still best-effort (never blocks or fails sync), just no
+	// longer silent.
+	if rerr := rc.RecordRetraction(itemType, ref, retracted, reason, checkedAt); rerr != nil {
+		clidiag.Warn("ctxloom", "record retraction verdict for %s: %v", ref, rerr)
+	}
 	return retracted, reason
 }
 
@@ -609,6 +624,14 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 	case "retracted":
 		result.Retracted = append(result.Retracted, item)
 	case "failed":
+		result.Failed = append(result.Failed, item)
+		result.Errors++
+	default:
+		// An unrecognized Status must never just vanish from every bucket and
+		// counter (U088-F27) — file it as failed and say why, rather than
+		// silently disagreeing with result.Total.
+		clidiag.Warn("ctxloom", "sync: item %q has unrecognized status %q; recording as failed", item.Reference, item.Status)
+		item.Error = fmt.Sprintf("unrecognized sync status %q", item.Status)
 		result.Failed = append(result.Failed, item)
 		result.Errors++
 	}
@@ -697,7 +720,13 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 		names = append(names, name)
 	}
 	loader := cfg.GetProfileLoader()
-	dirProfiles, _ := loader.List()
+	dirProfiles, err := loader.List()
+	if err != nil {
+		// U088-F10: this used to discard the error outright, so an unreadable
+		// profiles directory silently shrank the probed set with no
+		// diagnostic at all.
+		clidiag.Warn("ctxloom", "list directory profiles: %v", err)
+	}
 	for _, p := range dirProfiles {
 		names = append(names, p.Name)
 	}

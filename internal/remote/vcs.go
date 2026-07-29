@@ -83,9 +83,30 @@ func readItemAt(ctx context.Context, vcs VCS, path, version string) ([]byte, err
 	}
 	v, ok := vcs.(Versioned)
 	if !ok {
+		// U095-F17: some backends degrade to a Versioned-less VCS for a
+		// specific, known reason (e.g. LocalGitVCSFactory falling back to
+		// fsVCS when the enclosing directory isn't a usable git repo).
+		// Surface that cause when available instead of only the generic
+		// "does not support revisions" message.
+		if dc, ok := vcs.(degradationCause); ok {
+			if cause := dc.DegradationCause(); cause != nil {
+				return nil, fmt.Errorf("source does not support revisions (limited to current/HEAD): cannot read %s@%s: %w", path, version, cause)
+			}
+		}
 		return nil, fmt.Errorf("source does not support revisions (limited to current/HEAD): cannot read %s@%s", path, version)
 	}
 	return v.ReadFileAt(ctx, path, version)
+}
+
+// degradationCause is the OPTIONAL capability a VCS may implement to explain
+// WHY it fell back to a lesser capability set (e.g. current-only instead of
+// Versioned), so readItemAt's "no history" error can name the real cause
+// instead of only a generic message. Probed by type assertion, mirroring
+// Versioned/itemHistorySource/DeletedItemLister elsewhere in this file.
+type degradationCause interface {
+	// DegradationCause returns the error that caused the degradation, or nil
+	// if the backend was never degraded.
+	DegradationCause() error
 }
 
 // VCSFactory opens a VCS handle for the source located at loc — a repository
@@ -351,16 +372,33 @@ func LocalGitVCSFactory(fs afero.Fs) VCSFactory {
 		repo, err := git.PlainOpenWithOptions(loc, &git.PlainOpenOptions{DetectDotGit: true})
 		if err != nil {
 			// Not under version control (or unreadable .git): degrade to
-			// current-only. A pinned read then fails closed via readItemAt.
-			return &base, nil
+			// current-only. A pinned read then fails closed via readItemAt,
+			// which now (U095-F17) surfaces this cause instead of discarding
+			// it.
+			return &degradedFsVCS{fsVCS: base, cause: fmt.Errorf("open enclosing git repository: %w", err)}, nil
 		}
 		wt, err := repo.Worktree()
 		if err != nil {
-			return &base, nil
+			return &degradedFsVCS{fsVCS: base, cause: fmt.Errorf("get worktree of enclosing git repository: %w", err)}, nil
 		}
 		return &localGitVCS{fsVCS: base, repo: repo, repoRoot: wt.Filesystem.Root()}, nil
 	}
 }
+
+// degradedFsVCS is a current-only fsVCS that remembers WHY it lost the
+// Versioned capability it would otherwise have had (LocalGitVCSFactory could
+// not open the enclosing git repo, or could not get its worktree). It
+// satisfies degradationCause so readItemAt's error names the real cause
+// instead of a generic "does not support revisions" message (U095-F17).
+type degradedFsVCS struct {
+	fsVCS
+	cause error
+}
+
+// DegradationCause returns the error that caused the fallback to current-only.
+func (v *degradedFsVCS) DegradationCause() error { return v.cause }
+
+var _ degradationCause = (*degradedFsVCS)(nil)
 
 // ClonedRepoVCSFactory opens a VCS over the repository's EXISTING local clone in
 // the cache, reading through go-git with zero network. Unlike the cached

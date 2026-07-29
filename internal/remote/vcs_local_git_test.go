@@ -130,3 +130,24 @@ func TestLocalGitVCS_FetchItem_NonGitProjectFailsClosedOnPin(t *testing.T) {
 	_, err = f.FetchItem(context.Background(), ref, "abc123")
 	require.Error(t, err, "a non-git project cannot serve a pinned version → withheld")
 }
+
+// TestLocalGitVCS_FetchItem_NonGitProjectErrorNamesCause pins U095-F17:
+// LocalGitVCSFactory used to discard the git.PlainOpenWithOptions error when
+// degrading to the current-only fsVCS, so a later pinned read's error named
+// only the generic "does not support revisions" message — never the actual
+// cause (e.g. no .git found at all, an unreadable .git, or a bare/worktree-less
+// repo). The degradation cause must be carried through and surfaced.
+func TestLocalGitVCS_FetchItem_NonGitProjectErrorNamesCause(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "loose", ".ctxloom", "local")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "bundles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bundles", "go-tools.yaml"),
+		[]byte("fragments:\n  fmt:\n    content: LOOSE\n"), 0o644))
+
+	f := NewLocalRefFetcher(LocalGitVCSFactory(afero.NewOsFs()), root)
+	ref, _ := ParseReference("ctxloom:local@bundles/go-tools")
+
+	_, err := f.FetchItem(context.Background(), ref, "abc123")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repository does not exist",
+		"the degradation's real cause (git.PlainOpenWithOptions' error) must be named, not just the generic 'does not support revisions' message")
+}

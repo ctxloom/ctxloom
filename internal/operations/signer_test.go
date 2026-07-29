@@ -260,6 +260,35 @@ func TestRemoveSigner_UnknownPrincipalIsNoopNotError(t *testing.T) {
 	assert.Equal(t, 0, res.Removed)
 }
 
+// TestSignerWrites_LeaveNoLeftoverTempFile: U087-F10. Both write sites
+// (appendAllowedSignersLine via AddSigner, removeFromAllowedSignersFile via
+// RemoveSigner) now go through iox.WriteFileAtomicFs (temp file + rename)
+// instead of a direct afero.WriteFile, so the trust root is never observed
+// half-written. A leftover `*.tmp` sibling in the store's directory would
+// mean the rename never completed.
+func TestSignerWrites_LeaveNoLeftoverTempFile(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+	k1, line1 := testKeyLine(t)
+	_ = k1
+	key1, err := ResolveSignerKey(line1, fs, nil)
+	require.NoError(t, err)
+
+	res, err := AddSigner(cfg, AddSignerRequest{Principal: "atomic@example.com", Key: key1, Project: true, FS: fs})
+	require.NoError(t, err)
+
+	_, err = RemoveSigner(cfg, RemoveSignerRequest{Principal: "atomic@example.com", Project: true, FS: fs})
+	require.NoError(t, err)
+
+	dir := filepath.Dir(res.Path)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.False(t, strings.HasSuffix(e.Name(), ".tmp"), "leftover temp file %s: rename did not complete", e.Name())
+	}
+}
+
 func mustAllowedSignersProjectPath(t *testing.T, cfg *config.Config) string {
 	t.Helper()
 	path, err := signerStorePath(cfg, true)

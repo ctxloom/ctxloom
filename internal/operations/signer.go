@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
@@ -213,7 +214,10 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 	b.WriteString(line)
 	b.WriteString("\n")
 
-	if err := afero.WriteFile(fs, path, []byte(b.String()), 0o600); err != nil {
+	// U087-F10: this is the trust root — a crash or concurrent read mid-write
+	// must never observe a truncated/partial allowed_signers file. Atomic
+	// write via a same-dir temp file + rename (dir already created above).
+	if err := iox.WriteFileAtomicFs(fs, path, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -479,7 +483,9 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	if len(kept) > 0 {
 		out += "\n"
 	}
-	if err := afero.WriteFile(fs, path, []byte(out), 0o600); err != nil {
+	// U087-F10: same atomic-write requirement as appendAllowedSignersLine —
+	// the trust root must never be observed half-rewritten.
+	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600); err != nil {
 		return 0, fmt.Errorf("write %s: %w", path, err)
 	}
 	return removed, nil

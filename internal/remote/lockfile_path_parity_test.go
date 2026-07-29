@@ -21,3 +21,16 @@ func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 	// An empty baseDir defaults to the bare .ctxloom dir name.
 	assert.Equal(t, paths.LockPath(paths.AppDirName), NewLockfileManager("").Path())
 }
+
+// U090-F13 parity: Reference.LocalPath used to re-assemble the cache bundles
+// root from paths.CacheDir + paths.BundlesDir instead of calling
+// paths.CacheBundlesPath, so a layout change in internal/paths would have
+// silently missed it. Pins the two to one answer.
+func TestReferenceLocalPath_RootedAtCacheBundlesPath(t *testing.T) {
+	r := &Reference{URL: "https://github.com/acme/repo", Path: "lang/go"}
+	got := r.LocalPath("/proj/.ctxloom", ItemTypeBundle)
+	assert.True(t, len(got) > 0)
+	assert.Equal(t,
+		paths.CacheBundlesPath("/proj/.ctxloom")+"/"+r.LocalRemoteName()+"/lang/go.yaml",
+		got)
+}

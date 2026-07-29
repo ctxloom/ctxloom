@@ -12,12 +12,22 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 const (
-	// SCMContextSubdir is the subdirectory for context files (in cache)
-	SCMContextSubdir = ".ctxloom/cache/context"
+	// SCMContextSubdir is the workdir-relative subdirectory for context files
+	// (in cache). U090-F13: composed from the internal/paths constants rather
+	// than hardcoding the ".ctxloom/cache" prefix a third time — the segments
+	// are forward-slash by construction here (every consumer feeds this to
+	// filepath.Join, which cleans them to the OS separator), so const
+	// concatenation is exact and keeps this a compile-time constant.
+	SCMContextSubdir = paths.AppDirName + "/" + paths.CacheDir + "/" + contextCacheDirName
+	// contextCacheDirName is the cache/ subdirectory holding assembled context
+	// files. internal/paths exposes no ContextPath helper any more (it was
+	// deleted as dead), so this leaf name is owned here.
+	contextCacheDirName = "context"
 	// SCMContextFileEnv is the environment variable containing the context file path
 	SCMContextFileEnv = "CTXLOOM_CONTEXT_FILE"
 	// SCMFramedContextSuffix names the framed (system-prompt-ready) sibling of the

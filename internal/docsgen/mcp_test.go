@@ -156,8 +156,9 @@ func TestPropertyDescription_SurfacesItemsEnum(t *testing.T) {
 }
 
 // U051-F10: mcpFrontmatter interpolates p.MCPSource/p.MCPCommand unguarded,
-// so an unset field used to render a banner like "as served by ``" instead of
-// signalling the misconfiguration. Require both non-empty before generating.
+// so an unset field used to render an empty code span in the "as served by
+// ..." banner instead of signalling the misconfiguration. Require both
+// non-empty before generating.
 func TestGenMCPTools_RequiresSourceAndCommand(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

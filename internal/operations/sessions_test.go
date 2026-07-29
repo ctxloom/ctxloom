@@ -1,12 +1,14 @@
 package operations
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -160,4 +162,31 @@ func TestListSessions_KeepsSessionWithOnlyACanonicalTranscript(t *testing.T) {
 		onDisk = append(onDisk, s.HarpName)
 	}
 	assert.Contains(t, onDisk, e.HarpName, "the index on disk must still hold the entry")
+}
+
+// TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently pins
+// U087-F29: BindSession used to discard mgr.Find's error entirely, so a
+// transient index-read failure (a malformed on-disk index.yaml, here standing
+// in for any read/parse fault) was indistinguishable from "no entry for this
+// harp" — both took the same silent no-op. First-bind-wins never retries, so
+// a harp that misses its bind this way never gets a session id again. The
+// SessionStart hook must still never fail the host backend (CLAUDE.md fault
+// tolerance), so the fix is a warning, not a returned error.
+func TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently(t *testing.T) {
+	home := testsupport.Isolate(t)
+
+	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
+	// Malformed YAML (unterminated quote) makes loadLocked's yaml.Unmarshal
+	// fail, so mgr.Find returns a genuine parse error, not "absent".
+	require.NoError(t, os.WriteFile(indexPath, []byte(`sessions: ["unterminated`), 0o644))
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	err := BindSession("some-harp", "sess-1", "/tmp/transcript.jsonl")
+	require.NoError(t, err, "the SessionStart hook must never fail the host backend")
+	assert.Contains(t, buf.String(), "some-harp", "the failure must be warned, naming the harp")
+	assert.Contains(t, buf.String(), "session index", "the warning must say what failed")
 }

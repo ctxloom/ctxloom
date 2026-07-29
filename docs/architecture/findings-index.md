@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **861** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **865** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 61 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 103 |
-| `open` | no commit names this ID | **1,213** |
+| `open` | no commit names this ID | **1,209** |
 
-**Totals: 2268 findings across 162 units — 861 resolved, 1213 still open, 194 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 865 resolved, 1209 still open, 194 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave4/netneg-materialize` batch: all 18
 net-negative rows of the MATERIALIZE flow adjudicated (U029-F02/F04,
@@ -249,8 +249,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 7 | 10 | 6 | 3 |
-| MED | 999 | 213 | 695 | 11 | 18 | 62 |
-| LOW | 871 | 298 | 491 | 9 | 35 | 38 |
+| MED | 999 | 214 | 694 | 11 | 18 | 62 |
+| LOW | 871 | 301 | 488 | 9 | 35 | 38 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1646,7 +1646,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U122-F04 | open | `:737-809` | COMPLEXITY | `resolveTaskStore` is CCN 22 (CI gate: 10), 73 lines, and does six separable things | U122.md |
 | U122-F05 | open | `:386-401` | CORRECTNESS | Scalar collapse decides "same value, leave it alone" by comparing **raw strings**, though it decides target identity by **parsing**. Two spellings of one value therefore produce a spurious untag+ta... | U122.md |
 | U122-F11 | open | `whole file` | COHESION | The package is two packages: store/project resolution (~200 lines, 6 functions, 1 type) and task operations (~500 lines, 15 functions, 5 types). The only edge between them is `resolveTaskStore`'s r... | U122.md |
-| U123-F01 | open | **`paths.go:22`, `paths.go:29`** | DUPLICATE | **The `internal/paths` split is NOT forced — it is drift.** Neither a Go import cycle nor the taskloom binary split prevents this package from importing `internal/paths`. This answers the cross-che... | U123.md |
+| U123-F01 | **RESOLVED** `7f6ce1dc` | **`paths.go:22`, `paths.go:29`** | DUPLICATE | **The `internal/paths` split is NOT forced — it is drift.** Neither a Go import cycle nor the taskloom binary split prevents this package from importing `internal/paths`. This answers the cross-che... | U123.md |
 | U123-F02 | **RESOLVED** `78751323` | **`paths.go:29` vs `internal/paths/paths.go:100`** | COUPLING | `IndexFileName` is *coincidental value equality, not a shared concept* — consolidating the two into one constant would create connascence of meaning between two unrelated files. | U123.md |
 | U123-F03 | open | **`paths.go:174`** | SILENTNOOP | `ProjectMarkerPath("")` silently returns the cwd-relative `.ctxloom/project-id` instead of failing — the exact hazard `TasksLogPath` explicitly guards against 48 lines earlier. | U123.md |
 | U124-F04 | open | `:107-113`, `:187`, `:192` | CORRECTNESS | `Diagnostics.ScoredTasks` is a **numerator with no denominator**, so the degenerate case it was built to detect cannot actually be detected from the returned value | U124.md |
@@ -2532,10 +2532,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U121-F07 | open | `lint.go:92-133` | CORRECTNESS | `Lint` can emit exactly-duplicate `Violation` rows, and the final sort does not dedupe them | U121.md |
 | U122-F06 | open | `:828-830`, `:836-838` | ERRHANDLING | `missingLogSiblingNote` swallows two errors into `return ""` / `continue`, so a registry read failure produces the same silence as "nothing to report" | U122.md |
 | U122-F07 | open | `:330-335` | SILENTNOOP | The `if len(addTags) > 0` guard leaves a path where `TagTask` returns `TaskResult{Task: tasks.Task{}}` with a **nil error** — success carrying an empty task | U122.md |
-| U122-F08 | open | `:560-567` | DUPLICATE | `containsString` reimplements `slices.Contains` and duplicates `lint.contains` | U122.md |
+| U122-F08 | **RESOLVED** `cac52a3e` `d4ea1e4e` | `:560-567` | DUPLICATE | `containsString` reimplements `slices.Contains` and duplicates `lint.contains` | U122.md |
 | U122-F09 | open | `:115-125` | ERRHANDLING | `ResolveProjectIdentity` is the only function in the file that returns errors unwrapped, so its two failure modes are indistinguishable to its four callers | U122.md |
-| U122-F10 | open | `:247`, `:278`, `:343`, `:581`, `:596`, `:654` | DUPLICATE | The same six-field result literal is written out six times | U122.md |
-| U123-F04 | open | **`paths.go:121` + `operations.go:136,144`** | DUPLICATE | The `Mode` switch inside `TasksLogPath` re-decides a branch the caller has already taken; and `operations.go:859` re-implements `TasksLogPath`'s own empty-root guard with a near-duplicate message. | U123.md |
+| U122-F10 | **RESOLVED** `d4ea1e4e` | `:247`, `:278`, `:343`, `:581`, `:596`, `:654` | DUPLICATE | The same six-field result literal is written out six times | U122.md |
+| U123-F04 | **RESOLVED** `56d16c7a` | **`paths.go:121` + `operations.go:136,144`** | DUPLICATE | The `Mode` switch inside `TasksLogPath` re-decides a branch the caller has already taken; and `operations.go:859` re-implements `TasksLogPath`'s own empty-root guard with a near-duplicate message. | U123.md |
 | U123-F05 | **REFUTED** `78751323` | **`paths.go:127`** | DEAD | The `""` arm of `case ModeHome, "":` is unreachable from production; it is exercised only by a test. | U123.md |
 | U123-F06 | **RESOLVED** `78751323` | **`paths.go:26`, `paths.go:38`, `paths.go:76`** | NOPAY | Three exported symbols have no consumer outside this file: `ProjectsDir`, `ProjectMarkerFileName`, and `HomeProjectsDir`. Exporting them widens the package's API surface for nothing. | U123.md |
 | U123-F07 | open | **`paths.go:163`** | COMPLEXITY | `ValidateProjectID` is CCN 15 (brief's baseline; the brief states the CI gate fails above 10), and two of those branches are provably subsumed by later checks. | U123.md |

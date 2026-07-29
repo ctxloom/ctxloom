@@ -2439,7 +2439,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U102-F05 | open | **`settings.go:69`** | DEAD | `SettingsStatus.Wired()` is test-only | U102.md |
 | U102-F06 | open | `settings_io.go:69,84` | COHESION | `StatusLineDisabled` is a claude-only policy flag sitting in the options struct of a package 26 packages import | U102.md |
 | U102-F07 | open | `skillexport.go:22` | NOPAY | `SkillExport.Description` is write-only — set by the loader, read by no engine | U102.md |
-| U102-F12 | open | `thinking.go:45-83` | DUPLICATE | The four spellings `off/low/medium/high` are written out three times in one 84-line file | U102.md |
+| U102-F12 | **RESOLVED** `695cf375` | `thinking.go:45-83` | DUPLICATE | The four spellings `off/low/medium/high` are written out three times in one 84-line file | U102.md |
 | U102-F17 | **RESOLVED** `8b987554` | `sessionstore.go:35` | TRIVIAL | The package has two independent "default to the OS filesystem" mechanisms | U102.md |
 | U102-F18 | open | `sessionstore.go:67` | ERRHANDLING | `"no sessions found"` is a bare formatted string with no sentinel, so no caller can distinguish "this project has no history" from a real failure | U102.md |
 | U103-F05 | open | `clidiag.go:26` | CORRECTNESS | `Line` splices `prog` into the format string while `fwarn`:68 passes it as a `%s` argument — the two functions that are supposed to render identical text handle `prog` differently | U103.md |

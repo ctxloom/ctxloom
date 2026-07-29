@@ -4,43 +4,39 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
-// placeholderCorpus is the shared input set every placeholder-extracting
-// implementation must agree on: bare builtins, qualified tags, value
-// qualifiers, whitespace padding, adjacency, and the malformed shapes that
-// decide whether a formula's references are seen at all.
-var placeholderCorpus = []string{
-	"",
-	"{{age_days}}",
-	"{{ age_days }}",
-	"{{triage:impact}}",
-	"{{triage:impact=capability}}",
-	"{{a}}{{b}}",
-	"{{a}} * (1 + {{b:c}}) / {{d:e=f}}",
-	"{{}}",
-	"{{ }}",
-	"{{a",
-	"a}}",
-	"{{{a}}}",
-	"{{a{b}}",
-	"{{a\nb}}",
-	"no placeholders at all",
-	"{{ns:key=*}}",
+// TestFormulaEnumRefViolations_SeesPlaceholders pins that this package still
+// resolves a formula's placeholder references through tagschema, the owner of
+// the syntax. If the extraction stops matching, formulaEnumRefViolations
+// silently reports no violations for every schema — a passing lint that
+// checked nothing.
+func TestFormulaEnumRefViolations_SeesPlaceholders(t *testing.T) {
+	schema, err := tagschema.Parse([]string{
+		`tagma.priority_fn:"triage:score"="{{triage:impact=nope}} + {{ age_days }}"`,
+	})
+	require.NoError(t, err)
+
+	enums := map[string][]string{"triage:impact": {"capability", "polish"}}
+	got := formulaEnumRefViolations(schema, enums)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, SchemaViolationHarpID, got[0].HarpID)
+	assert.Contains(t, got[0].Reason, "triage:impact=nope")
 }
 
-// TestPlaceholderExtractionParity pins this package's placeholder extraction
-// to tagschema's, which owns the syntax because CompileFormula rewrites with
-// it. Any divergence means a formula tagschema compiles carries references
-// lint cannot see.
-func TestPlaceholderExtractionParity(t *testing.T) {
-	for _, src := range placeholderCorpus {
-		var mine []string
-		for _, m := range formulaPlaceholderPattern.FindAllStringSubmatch(src, -1) {
-			mine = append(mine, m[1])
-		}
-		assert.Equal(t, tagschema.Placeholders(src), mine, "src=%q", src)
-	}
+// TestFormulaEnumRefViolations_AcceptsDeclaredMemberAndReservedStar covers the
+// two references that must NOT be flagged: an enum member, and the reserved
+// "=*" presence test which can never be a real task value.
+func TestFormulaEnumRefViolations_AcceptsDeclaredMemberAndReservedStar(t *testing.T) {
+	schema, err := tagschema.Parse([]string{
+		`tagma.priority_fn:"triage:score"="{{triage:impact=capability}} + {{triage:impact=*}}"`,
+	})
+	require.NoError(t, err)
+
+	enums := map[string][]string{"triage:impact": {"capability", "polish"}}
+	assert.Empty(t, formulaEnumRefViolations(schema, enums))
 }

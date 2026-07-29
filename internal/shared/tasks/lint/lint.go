@@ -11,7 +11,6 @@ package lint
 import (
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -179,13 +178,6 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 	return Result{Violations: out, CheckedTargets: len(checkedTargets)}, nil
 }
 
-// formulaPlaceholderPattern mirrors tagschema.CompileFormula's own "{{...}}"
-// placeholder syntax awareness, duplicated here (a lint-only, CONFIG
-// validation concern — checking a value-qualified tag placeholder like
-// "{{triage:impact=foo}}" against the target's own declared enum) rather
-// than exported from tagschema.
-var formulaPlaceholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*}}`)
-
 // formulaEnumRefViolations scans every declared priority_fn/decay_fn formula
 // (across every target — see tagschema.Schema.Targets) for a value-qualified
 // tag placeholder ("{{ns:key=value}}") and flags one whose value is not a
@@ -201,8 +193,7 @@ func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]strin
 			if !ok {
 				continue
 			}
-			for _, m := range formulaPlaceholderPattern.FindAllStringSubmatch(raw, -1) {
-				name := m[1]
+			for _, name := range tagschema.Placeholders(raw) {
 				eq := strings.Index(name, "=")
 				if eq < 0 || !strings.Contains(name[:eq], ":") {
 					continue // a builtin, or a bare (non-value-qualified) tag reference

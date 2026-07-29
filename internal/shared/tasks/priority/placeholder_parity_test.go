@@ -4,43 +4,32 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
-// placeholderCorpus is the shared input set every placeholder-extracting
-// implementation must agree on: bare builtins, qualified tags, value
-// qualifiers, whitespace padding, adjacency, and the malformed shapes that
-// decide whether a formula's references are seen at all.
-var placeholderCorpus = []string{
-	"",
-	"{{age_days}}",
-	"{{ age_days }}",
-	"{{triage:impact}}",
-	"{{triage:impact=capability}}",
-	"{{a}}{{b}}",
-	"{{a}} * (1 + {{b:c}}) / {{d:e=f}}",
-	"{{}}",
-	"{{ }}",
-	"{{a",
-	"a}}",
-	"{{{a}}}",
-	"{{a{b}}",
-	"{{a\nb}}",
-	"no placeholders at all",
-	"{{ns:key=*}}",
+// TestReferencedTagTargets_SeesPlaceholders pins that this package still
+// resolves a formula's placeholder references through tagschema, the owner of
+// the syntax. A value qualifier is stripped; a builtin is not a tag.
+func TestReferencedTagTargets_SeesPlaceholders(t *testing.T) {
+	f, err := tagschema.CompileFormula("{{triage:impact=capability}} + {{b:c}} + {{age_days}}")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]bool{"triage:impact": true, "b:c": true}, referencedTagTargets(f, nil))
 }
 
-// TestPlaceholderExtractionParity pins this package's placeholder extraction
-// to tagschema's, which owns the syntax because CompileFormula rewrites with
-// it. Divergence makes checkKnownBuiltins blind to a builtin reference
-// tagschema compiled, which is the failure it exists to prevent.
-func TestPlaceholderExtractionParity(t *testing.T) {
-	for _, src := range placeholderCorpus {
-		var mine []string
-		for _, m := range formulaTagPlaceholderPattern.FindAllStringSubmatch(src, -1) {
-			mine = append(mine, m[1])
-		}
-		assert.Equal(t, tagschema.Placeholders(src), mine, "src=%q", src)
-	}
+// TestCheckKnownBuiltins_SeesPlaceholders pins the same dependency on the
+// diagnostic that fails loud: if the extraction stops matching, every
+// made-up builtin name passes.
+func TestCheckKnownBuiltins_SeesPlaceholders(t *testing.T) {
+	bad, err := tagschema.CompileFormula("{{not_a_builtin}}")
+	require.NoError(t, err)
+	err = checkKnownBuiltins(bad, tagschema.PriorityFnFacet, "triage:score")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not_a_builtin")
+
+	good, err := tagschema.CompileFormula("{{age_days}} + {{triage:impact}}")
+	require.NoError(t, err)
+	assert.NoError(t, checkKnownBuiltins(good, tagschema.PriorityFnFacet, "triage:score"))
 }

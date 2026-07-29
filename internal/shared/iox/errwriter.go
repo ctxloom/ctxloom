@@ -59,11 +59,13 @@ func (e *ErrWriter) Print(args ...any) {
 // WriteRaw writes p verbatim to the wrapped writer, short-circuited once
 // a prior write has failed. For emitting already-formatted bytes (e.g.
 // marshaled YAML) without going through fmt.
+//
+// It earns its keep as an errcheck shim — a bare w.Write(data) at a call site
+// would be flagged — but that is one line of delegation, not a copy. U113-F04:
+// it used to re-implement Write's body, putting the short-circuit guard on
+// e.err in two places on the same field.
 func (e *ErrWriter) WriteRaw(p []byte) {
-	if e.err != nil {
-		return
-	}
-	_, e.err = e.w.Write(p)
+	_, _ = e.Write(p)
 }
 
 // Write implements io.Writer, short-circuited once a prior write has failed, so

@@ -2,7 +2,8 @@ package iox
 
 import (
 	"os"
-	"path/filepath"
+
+	"github.com/spf13/afero"
 )
 
 // WriteFileAtomic writes data to path by creating a UNIQUE temp file in the same
@@ -13,37 +14,13 @@ import (
 // file is fsynced before the rename so a power loss cannot persist the rename
 // ahead of the data. The parent directory must already exist. perm is applied
 // to the final file.
+//
+// U113-F01: this used to be a second, hand-copied transcription of
+// WriteFileAtomicFs's 34-line algorithm — same steps, same cleanup, no shared
+// code and no compiler-enforced link, so the two were free to drift apart
+// silently. There is now ONE algorithm; this is its OS-filesystem entry point.
+// atomicwrite_parity_test.go drives both entry points through one table and
+// fails on any divergence in bytes, mode, error behaviour, or temp cleanup.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	// Flush the data to stable storage before the rename: without it, a power
-	// loss can persist the rename ahead of the data, leaving an empty or
-	// garbage file at path.
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm)
 }

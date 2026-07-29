@@ -9,6 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// U051-F12: describe formats const/default with %v, so a non-scalar value
+// (an object or array default) renders in Go syntax (map[a:1]) instead of
+// the JSON a reader would actually type into config.yaml.
+func TestDescribe_NonScalarDefaultRendersAsJSON(t *testing.T) {
+	node := map[string]any{
+		"default": map[string]any{"a": float64(1)},
+	}
+	got := describe(node)
+	assert.Contains(t, got, `{"a":1}`)
+	assert.NotContains(t, got, "map[a:1]")
+}
+
+func TestDescribe_NonScalarConstRendersAsJSON(t *testing.T) {
+	node := map[string]any{
+		"const": []any{"x", "y"},
+	}
+	got := describe(node)
+	assert.Contains(t, got, `["x","y"]`)
+	assert.NotContains(t, got, "[x y]")
+}
+
 // TestGenConfig_DocumentsOverrideMechanism proves the generated config
 // reference page tells a reader HOW to override a value from the environment
 // or a CLI flag -- the precedence chain (home < project < env < CLI) and the

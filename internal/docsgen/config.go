@@ -216,7 +216,7 @@ func describe(n map[string]any) string {
 		parts = append(parts, d)
 	}
 	if cv, ok := n["const"]; ok {
-		parts = append(parts, fmt.Sprintf("Must be `%v`.", cv))
+		parts = append(parts, fmt.Sprintf("Must be `%s`.", scalarOrJSON(cv)))
 	}
 	if enum := toSlice(n["enum"]); len(enum) > 0 {
 		parts = append(parts, "Allowed values: "+backticked(enum)+".")
@@ -225,9 +225,24 @@ func describe(n map[string]any) string {
 		parts = append(parts, "Examples: "+backticked(ex)+".")
 	}
 	if def, ok := n["default"]; ok {
-		parts = append(parts, fmt.Sprintf("Default: `%v`.", def))
+		parts = append(parts, fmt.Sprintf("Default: `%s`.", scalarOrJSON(def)))
 	}
 	return strings.Join(parts, " ")
+}
+
+// scalarOrJSON renders a JSON-decoded value the way a reader would actually
+// type it into config.yaml: a scalar via %v (string/bool/number, unquoted),
+// but a non-scalar (a map or array default/const) as compact JSON rather
+// than Go's %v syntax (map[a:1], [x y]), which nobody writes in a config
+// file. U051-F12.
+func scalarOrJSON(v any) string {
+	switch v.(type) {
+	case map[string]any, []any:
+		if b, err := json.Marshal(v); err == nil {
+			return string(b)
+		}
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // expandableChild decides whether a property warrants its own recursive section

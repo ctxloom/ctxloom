@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +9,24 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// failChmodFs fails Chmod for exactly one path, passing everything else
+// through to the wrapped Fs — the seam U101-F27's regression test uses to
+// force the exec-bit re-assert to fail.
+type failChmodFs struct {
+	afero.Fs
+	path string
+}
+
+func (f failChmodFs) Chmod(name string, mode os.FileMode) error {
+	if name == f.path {
+		return &os.PathError{Op: "chmod", Path: name, Err: os.ErrPermission}
+	}
+	return f.Fs.Chmod(name, mode)
+}
 
 // fakeSkillItem is the minimal test double WriteManagedPackageFiles is driven
 // through directly (independent of agent.SkillExport, which lives one layer up
@@ -155,6 +173,33 @@ func TestWriteManagedPackageFiles_UnsafeItemPathSkipsWholeItem(t *testing.T) {
 	assert.False(t, exists, "a package with any unsafe file path writes NONE of its files")
 	exists, _ = afero.Exists(fs, filepath.Join(dir, "..", "escape.md"))
 	assert.False(t, exists)
+}
+
+// TestWriteManagedPackageFiles_ChmodFailureWarns pins U101-F27: the
+// exec-bit re-assert chmod's own comment argues it is needed for correctness
+// ("would silently let the exec bit drift out of sync"), then ignored its own
+// error — so a chmod failure was invisible even though the writer knows
+// exactly why it matters.
+func TestWriteManagedPackageFiles_ChmodFailureWarns(t *testing.T) {
+	base := afero.NewMemMapFs()
+	dir := "/work/.claude/skills"
+	scriptPath := filepath.Join(dir, "humanize", "scripts", "run.sh")
+	fs := failChmodFs{Fs: base, path: scriptPath}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	items := []fakeSkillItem{{
+		name:    "humanize",
+		enabled: true,
+		files: []PackageFile{
+			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
+		},
+	}}
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
+
+	assert.NotEmpty(t, buf.String(), "a chmod failure on the exec-bit re-assert must be warned about, not silently ignored")
 }
 
 // TestWriteManagedPackageFiles_DisabledItemNotWritten proves a disabled item

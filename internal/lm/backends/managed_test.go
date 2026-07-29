@@ -1,12 +1,14 @@
 package backends
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,6 +158,77 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 	mcp := AssembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "config-mcp")
 	assert.Contains(t, mcp.Servers, "profile-mcp")
+}
+
+// U057-F05: a BROKEN inline profile (circular parent inheritance) must be
+// diagnosed as such — not silently mistaken for "not an inline profile" and
+// retried against the directory loader, whose own (unrelated) not-found error
+// then masks the real cause. Before the fix, all three managed.go resolvers
+// (`if resolved, err := config.ResolveProfile(...); err == nil`) discarded
+// ANY non-nil error the same way, inline or not.
+func TestAssembleManagedMCP_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		MCP:          wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
+		Profiles: config.ProfilesConfig{
+			Definitions: map[string]config.Profile{
+				"loopy": {Parents: []string{"loopy"}},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	AssembleManagedMCP(cfg, nil)
+
+	assert.Contains(t, buf.String(), "inheritance",
+		"the real cause (inheritance) must reach the warning, not the directory loader's unrelated not-found error: got %q", buf.String())
+}
+
+func TestAssembleManagedHooks_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
+		Profiles: config.ProfilesConfig{
+			Definitions: map[string]config.Profile{
+				"loopy": {Parents: []string{"loopy"}},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	AssembleManagedHooks(cfg, "/tmp", "", nil)
+
+	assert.Contains(t, buf.String(), "inheritance",
+		"the real cause (inheritance) must reach the warning: got %q", buf.String())
+}
+
+func TestAssembleManagedDenyTools_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
+		Profiles: config.ProfilesConfig{
+			Definitions: map[string]config.Profile{
+				"loopy": {Parents: []string{"loopy"}},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	AssembleManagedDenyTools(cfg, nil)
+
+	assert.Contains(t, buf.String(), "inheritance",
+		"the real cause (inheritance) must reach the warning: got %q", buf.String())
 }
 
 // TestCommandExportsFor resolves each backend's per-prompt enablement + metadata

@@ -1,12 +1,16 @@
 package backends
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // loadedSkill builds a bundles.LoadedSkill fixture with one SKILL.md file and
@@ -120,6 +124,31 @@ func TestKiroSkillExports_DisabledSkillReportsDisabled(t *testing.T) {
 	ex := kiroSkillExports(skills)
 	require.Len(t, ex, 1)
 	assert.False(t, ex[0].Enabled)
+}
+
+// U057-F05: resolveProfileSkillRefs must diagnose a BROKEN inline profile
+// (circular parent inheritance) instead of silently retrying it as a
+// directory profile. Mirrors the commands.go/managed.go regression tests for
+// the same defect.
+func TestResolveProfileSkillRefs_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"loopy"}}},
+		Profiles: config.ProfilesConfig{
+			Definitions: map[string]config.Profile{
+				"loopy": {Parents: []string{"loopy"}},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	resolveProfileSkillRefs(cfg, nil)
+
+	assert.Contains(t, buf.String(), "inheritance",
+		"the real cause (inheritance) must reach the warning, not the directory loader's unrelated not-found error: got %q", buf.String())
 }
 
 // TestSkillExportsFor_Kiro proves the registry dispatch (SkillExportsFor)

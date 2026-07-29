@@ -1,10 +1,12 @@
 package backends
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -121,9 +123,20 @@ func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 	gate := cfg.ExecutableTrustGate()
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		// Inline profile (config.yaml) wins, trusted-local (ungated).
-		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
-			wire.MergeMCPConfig(mcp, &resolved.MCP)
+		// Inline profile (config.yaml) wins, trusted-local (ungated). A non-nil
+		// inlineErr is either "not an inline profile" (errs.ErrProfileNotFound —
+		// fall through to the directory loader below, same as before) or a REAL
+		// inline-profile defect (circular inheritance, depth exceeded) the
+		// directory fallback cannot explain: U057-F05, this used to treat both
+		// cases identically, so a broken inline profile's actual cause was
+		// discarded in favor of the directory loader's unrelated not-found error.
+		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
+		if inlineErr == nil {
+			wire.MergeMCPConfig(mcp, &inlineResolved.MCP)
+			continue
+		}
+		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
+			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its MCP servers omitted: %v", profileName, inlineErr)
 			continue
 		}
 		// Directory profile fallback: drop servers its exclude_mcp removes (parity
@@ -171,9 +184,15 @@ func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml) wins, trusted-local (ungated) — see the
-		// same-shaped loop in AssembleManagedMCP.
-		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
-			add(resolved.DenyTools)
+		// same-shaped loop in AssembleManagedMCP, including the U057-F05 real-vs-
+		// not-found error distinction.
+		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
+		if inlineErr == nil {
+			add(inlineResolved.DenyTools)
+			continue
+		}
+		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
+			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its deny_tools omitted: %v", profileName, inlineErr)
 			continue
 		}
 		// Directory profile fallback.
@@ -234,8 +253,16 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	profiles := scopedProfiles(cfg, profileNames)
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range profiles {
-		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
-			agent.MergeHooksConfig(hooks, &resolved.Hooks)
+		// Same real-vs-not-found error distinction as AssembleManagedMCP's loop
+		// (U057-F05): a broken inline profile must not be silently retried as a
+		// directory profile.
+		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
+		if inlineErr == nil {
+			agent.MergeHooksConfig(hooks, &inlineResolved.Hooks)
+			continue
+		}
+		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
+			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its hooks omitted: %v", profileName, inlineErr)
 			continue
 		}
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)

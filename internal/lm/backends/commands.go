@@ -1,10 +1,12 @@
 package backends
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -140,9 +142,20 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml profiles: map) wins, matching
-		// operations.resolveProfile's inline-first ordering.
-		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
-			add(resolved.Commands)
+		// operations.resolveProfile's inline-first ordering. A non-nil inlineErr
+		// is either "not an inline profile" (errs.ErrProfileNotFound — fall
+		// through to the directory loader) or a REAL inline-profile defect
+		// (circular inheritance, depth exceeded) the directory fallback cannot
+		// explain — U057-F05: this used to treat both the same, so a broken
+		// inline profile's real cause was discarded for the directory loader's
+		// unrelated not-found error.
+		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
+		if inlineErr == nil {
+			add(inlineResolved.Commands)
+			continue
+		}
+		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
+			clidiag.Warn("ctxloom", "profile %q: inline resolution failed; its curated prompts omitted: %v", profileName, inlineErr)
 			continue
 		}
 		// Directory profile fallback (.ctxloom/profiles/<name>.yaml): its

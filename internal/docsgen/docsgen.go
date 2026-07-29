@@ -112,6 +112,12 @@ func GenMan(p *Product, dir string) error {
 
 // GenMarkdown writes the product's per-command Starlight pages into dir.
 func GenMarkdown(p *Product, dir string) error {
+	// U051-F10: filePrepender interpolates CLISource unguarded; an unset field
+	// used to render "generated from `` --help" instead of signalling the
+	// misconfiguration.
+	if p.CLISource == "" {
+		return fmt.Errorf("docsgen: product %s needs CLISource set to generate markdown pages", p.Bin)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create markdown dir %s: %w", dir, err)
 	}

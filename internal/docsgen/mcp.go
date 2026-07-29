@@ -43,6 +43,12 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 	if p.MCPServer == nil {
 		return errors.New("docsgen: product " + p.Bin + " has no MCP server to document")
 	}
+	// U051-F10: mcpFrontmatter interpolates MCPSource/MCPCommand unguarded; an
+	// unset field used to render a banner reading "as served by ``" instead of
+	// signalling the misconfiguration, exactly like the nil-server case above.
+	if p.MCPSource == "" || p.MCPCommand == "" {
+		return fmt.Errorf("docsgen: product %s needs both MCPSource and MCPCommand set to document its MCP surface", p.Bin)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create MCP tools dir %s: %w", dir, err)
 	}

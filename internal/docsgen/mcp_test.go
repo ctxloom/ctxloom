@@ -93,6 +93,8 @@ func TestGenMCPTools_PaginatesBeyondOnePage(t *testing.T) {
 
 	p := fakeProduct()
 	p.MCPServer = s
+	p.MCPSource = "cmd/widget/mcp_tools.go"
+	p.MCPCommand = "widget mcp"
 
 	dir := t.TempDir()
 	if err := GenMCPTools(context.Background(), p, dir); err != nil {
@@ -118,6 +120,31 @@ func TestGenMCPToolsRequiresServer(t *testing.T) {
 	p := fakeProduct()
 	if err := GenMCPTools(context.Background(), p, t.TempDir()); err == nil {
 		t.Fatal("expected an error generating an MCP page for a product with no MCP server")
+	}
+}
+
+// U051-F10: mcpFrontmatter interpolates p.MCPSource/p.MCPCommand unguarded,
+// so an unset field used to render a banner like "as served by ``" instead of
+// signalling the misconfiguration. Require both non-empty before generating.
+func TestGenMCPTools_RequiresSourceAndCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mcpSource  string
+		mcpCommand string
+	}{
+		{"missing MCPSource", "", "widget mcp"},
+		{"missing MCPCommand", "cmd/widget/mcp_tools.go", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := fakeProduct()
+			p.MCPServer = docServer(t)
+			p.MCPSource = tc.mcpSource
+			p.MCPCommand = tc.mcpCommand
+
+			if err := GenMCPTools(context.Background(), p, t.TempDir()); err == nil {
+				t.Fatal("expected an error generating an MCP page with an empty MCPSource/MCPCommand")
+			}
+		})
 	}
 }
 

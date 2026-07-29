@@ -175,6 +175,19 @@ func TestGenMan_MkdirFailureHasContext(t *testing.T) {
 	}
 }
 
+// U051-F10: filePrepender interpolates p.CLISource unguarded, so an unset
+// field used to render "generated from `` --help" instead of signalling the
+// misconfiguration. Require CLISource non-empty before generating markdown.
+func TestGenMarkdown_RequiresCLISource(t *testing.T) {
+	p := fakeProduct()
+	p.PrepareTree()
+	p.CLISource = ""
+
+	if err := GenMarkdown(p, t.TempDir()); err == nil {
+		t.Fatal("expected an error generating markdown pages with an empty CLISource")
+	}
+}
+
 func TestGenMan(t *testing.T) {
 	dir := t.TempDir()
 	p := fakeProduct()

@@ -492,8 +492,6 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 	}
 }
 
-// generateConfig creates a config.yaml with the selected engine and options.
-
 // discoverySessionPrompt returns the ONE prompt the init discovery session
 // receives: ctxloom's built-in five-phase setup body (ctxloomInitPrompt, see
 // agent.go) — orient+scan, companions, profiles+content, agents, close — so

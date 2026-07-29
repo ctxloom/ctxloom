@@ -1,0 +1,48 @@
+package cli
+
+import (
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
+)
+
+func discoverTestConfig() (*config.Config, error) {
+	return config.NewFixture(config.Fixture{}), nil
+}
+
+// TestRunRemoteDiscover_TotalSearchFailureIsAnErrorNotEmptyClaim is U040-F01's
+// missing regression test. discoverCmd's inline RunE used to print the exact
+// same "No ctxloom repositories found." on a total search failure (every
+// configured source erroring — today that is the sole GitHub fetcher) as it
+// did on a genuinely empty, successful search, and returned nil either way.
+// The fix (already landed) distinguishes the two; this pins it against a
+// live caller instead of leaving the fix unguarded. Extracted into
+// runRemoteDiscover (U040-F01 escalation, mirroring runRemoteUpgrade's
+// injected-loadConfig shape) specifically so this is expressible without a
+// real cobra dispatch or network access.
+func TestRunRemoteDiscover_TotalSearchFailureIsAnErrorNotEmptyClaim(t *testing.T) {
+	fetcher := remote.NewMockFetcher()
+	fetcher.SearchReposErr = assert.AnError
+
+	cmd := &cobra.Command{}
+	err := runRemoteDiscover(cmd, nil, discoverTestConfig, fetcher)
+	require.Error(t, err, "a total search failure must surface as an error, not a silent 'no repositories found' success")
+	assert.Contains(t, err.Error(), "search failed")
+}
+
+// TestRunRemoteDiscover_GenuinelyEmptySearchSucceeds is the discriminator:
+// zero results with NO fetcher error is a legitimately empty, successful
+// search and must not be confused with the failure case above.
+func TestRunRemoteDiscover_GenuinelyEmptySearchSucceeds(t *testing.T) {
+	fetcher := remote.NewMockFetcher()
+	fetcher.Repos = nil // zero results, no error
+
+	cmd := &cobra.Command{}
+	err := runRemoteDiscover(cmd, nil, discoverTestConfig, fetcher)
+	assert.NoError(t, err, "a genuinely empty search is a success, not a failure")
+}

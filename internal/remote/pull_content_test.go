@@ -51,6 +51,36 @@ func TestInstallPulledItem_SyntheticNoDiskWrite(t *testing.T) {
 	})
 }
 
+// TestInstallPulledItem_OverwrittenReflectsExistingEntry pins U094-F07:
+// PullResult.Overwritten used to be hard-coded false, making
+// operations/sync.go's "updated" status unreachable — a re-pull of an
+// already-installed item was always reported as "installed". Overwritten must
+// be true exactly when localName already had a lockfile entry before this
+// write.
+func TestInstallPulledItem_OverwrittenReflectsExistingEntry(t *testing.T) {
+	const baseDir = "/proj/.ctxloom"
+	ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "mybundle"}
+	rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(baseDir, 0755))
+	lm := NewLockfileManager(baseDir, WithLockfileFS(fs))
+	p := &Puller{lockfileManager: lm, now: func() time.Time { return time.Now().UTC() }}
+	opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}}
+
+	first, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
+		rem: rem, localName: "alice/mybundle", sha: "abc123", content: []byte("x"),
+	})
+	require.NoError(t, err)
+	assert.False(t, first.Overwritten, "the first pull of a new item is not an overwrite")
+
+	second, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
+		rem: rem, localName: "alice/mybundle", sha: "def456", content: []byte("y"),
+	})
+	require.NoError(t, err)
+	assert.True(t, second.Overwritten, "re-pulling an already-installed item must report Overwritten so sync can report status \"updated\"")
+}
+
 // TestConfirmRetraction covers the retraction gate: a clean version passes
 // silently, while a retracted version warns and (unless forced or confirmed)
 // cancels the install.

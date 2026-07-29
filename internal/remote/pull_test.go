@@ -231,6 +231,40 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	require.Error(t, err, "a pull whose only persistent record failed to write must not report success")
 }
 
+// TestPuller_Pull_RejectsEmptyContent pins U094-F15: a zero-byte remote file
+// must not be pulled and pinned as a successful install with no warning — that
+// silently reports "installed" for a bundle with nothing in it.
+func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mf := newMockFetcher()
+	mf.files[".ctxloom/content/bundles/security.yaml"] = []byte{} // zero bytes
+	mf.refs["main"] = "abc123"
+
+	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+	puller := NewPuller(registry, AuthConfig{},
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithLockfileManager(lm),
+	)
+
+	var stdout bytes.Buffer
+	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
+		ItemType: ItemTypeBundle,
+		Stdout:   &stdout,
+		Stdin:    strings.NewReader(""),
+	})
+
+	require.Error(t, err, "a zero-byte remote file must not pull successfully")
+
+	// Nothing must have been pinned either.
+	lock, lerr := lm.Load()
+	require.NoError(t, lerr)
+	_, ok := lock.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
+	assert.False(t, ok, "an empty fetch must not write a lockfile pin")
+}
+
 func TestPuller_Pull_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
@@ -339,9 +373,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{})
+		hadExisting, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{})
 
 		require.NoError(t, err)
+		assert.False(t, hadExisting, "a brand new entry is not an overwrite")
 
 		// Verify lockfile was updated
 		loaded, err := lm.Load()
@@ -369,10 +404,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{})
+		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{})
 		require.NoError(t, err)
 
-		err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{})
+		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{})
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
@@ -448,6 +483,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 // fails the test on error (helper for the hold-preservation cases above).
 func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
 	t.Helper()
-	err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{})
+	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{})
 	require.NoError(t, err)
 }

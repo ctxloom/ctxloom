@@ -290,6 +290,13 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
+	// A zero-byte remote file must never be pinned as a successful install
+	// (U094-F15): the lockfile entry installPulledItem is about to write would
+	// otherwise report a real SHA and "installed" status for content that is
+	// empty — a silent no-op indistinguishable from a genuine pull.
+	if len(content) == 0 {
+		return nil, fmt.Errorf("refusing to pull %s: remote file %s is empty at %s", ref.String(), filePath, sha)
+	}
 
 	return &fetchedItem{
 		rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion,
@@ -457,7 +464,6 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// writePulledContent method whose only real parameters were localName and
 	// sha).
 	localPath := fmt.Sprintf("<remote>:%s@%s", item.localName, item.sha)
-	const overwritten = false
 
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via
@@ -475,14 +481,20 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt); err != nil {
+	// hadExisting reports whether localName already had a lockfile entry
+	// BEFORE this write — i.e. this pull replaced an existing pin rather than
+	// creating a new one. It is the real signal for "updated" vs "installed"
+	// (U094-F07: PullResult.Overwritten used to be hard-coded false, making
+	// operations/sync.go's "updated" status unreachable).
+	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt)
+	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
 
 	return &PullResult{
 		LocalPath:       localPath,
 		SHA:             item.sha,
-		Overwritten:     overwritten,
+		Overwritten:     hadExisting,
 		Content:         content,
 		Retracted:       item.retracted,
 		RetractedReason: item.retractedReason,
@@ -518,12 +530,16 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // resolveRetraction) — persisted here so operations.EffectiveTrust can
 // withhold exposure later without a network call of its own (see
 // operations.RetractionRecords).
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time) error {
+//
+// hadExisting reports whether localName already had a lockfile entry before
+// this write — the caller (installPulledItem) surfaces it as
+// PullResult.Overwritten (U094-F07).
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager
 	lockfile, err := target.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load lockfile: %w", err)
+		return false, fmt.Errorf("failed to load lockfile: %w", err)
 	}
 
 	existing, hadExisting := lockfile.GetEntry(itemType, localName)
@@ -558,8 +574,8 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 	lockfile.AddEntry(itemType, localName, entry)
 
 	if err := target.Save(lockfile); err != nil {
-		return fmt.Errorf("failed to save lockfile: %w", err)
+		return hadExisting, fmt.Errorf("failed to save lockfile: %w", err)
 	}
 
-	return nil
+	return hadExisting, nil
 }

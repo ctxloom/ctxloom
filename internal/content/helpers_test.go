@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -82,4 +83,54 @@ func componentPaths(cs []Component) []string {
 		out = append(out, c.Path)
 	}
 	return out
+}
+
+// newMemFsWithRoot returns an empty in-memory filesystem with the store root
+// created.
+func newMemFsWithRoot(t *testing.T) afero.Fs {
+	t.Helper()
+	fsys := afero.NewMemMapFs()
+	if err := fsys.MkdirAll(fixtureRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	return fsys
+}
+
+// reverseOrderFixtureStore populates a store with the same fixture contents but
+// writes the files in reverse path order, so a digest that depended on creation
+// or directory-read order would disagree with fixtureStore's.
+func reverseOrderFixtureStore(t *testing.T) *TreeStore {
+	t.Helper()
+	src := filepath.Join("testdata", "tree")
+	var paths []string
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			paths = append(paths, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking fixture: %v", err)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
+	fsys := afero.NewMemMapFs()
+	for _, p := range paths {
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			t.Fatalf("Rel: %v", err)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		writeFile(t, fsys, filepath.Join(fixtureRoot, rel), string(data))
+	}
+	store, err := NewTreeStore(fsys, fixtureRoot, Provenance{IsLocal: true})
+	if err != nil {
+		t.Fatalf("NewTreeStore: %v", err)
+	}
+	return store
 }

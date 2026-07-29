@@ -166,6 +166,35 @@ func (t ApproachTable) Default(kind SurfaceKind) (Approach, bool) {
 	return 0, false
 }
 
+// TableDispatch is the embeddable carrier for the two PURELY mechanical halves
+// of SurfaceSet's per-provider dispatch. Every backend's SupportedApproaches and
+// DefaultApproach were the same one-liner over that backend's own ApproachTable,
+// so the pair was written out ten times (five backends x two methods) with
+// nothing but a table variable name distinguishing them — ten bodies that could
+// drift from the contract cells.go states for them (U033-F07).
+//
+// A backend embeds it in its Surfaces value and sets Table to its own literal;
+// the two interface methods then come for free, and only the TABLE is per
+// backend — which is what ApproachTable's doc already claims. SurfaceFor stays
+// per backend: claude's context arm is not purely kind-keyed, so it cannot be
+// carried here.
+//
+// Behaviour is gated by TestApproachDispatch_* in internal/lm/backends, which
+// holds every registered backend to the contract through the interface.
+type TableDispatch struct{ Table ApproachTable }
+
+// SupportedApproaches reports the backend's declared approaches for kind,
+// implementing SurfaceSet.SupportedApproaches.
+func (d TableDispatch) SupportedApproaches(kind SurfaceKind) []Approach {
+	return d.Table.Supported(kind)
+}
+
+// DefaultApproach reports the backend's first-declared (default) approach for
+// kind, implementing SurfaceSet.DefaultApproach.
+func (d TableDispatch) DefaultApproach(kind SurfaceKind) (Approach, bool) {
+	return d.Table.Default(kind)
+}
+
 // SurfaceFor resolves one (kind, a) against the table and the backend's
 // kind→surface map, implementing the common skeleton of SurfaceSet.SurfaceFor:
 // the approach is validated against the declared support, then the concrete

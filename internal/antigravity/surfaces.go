@@ -177,6 +177,12 @@ func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 // (skills/<name>/SKILL.md), and skills (skills/<name>/SKILL.md, same parent —
 // see the collision-resolution doc above NewSurfaces).
 type Surfaces struct {
+	// TableDispatch carries agy's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	MCP      *mcpSurface
 	Hooks    *hooksSurface
@@ -218,11 +224,12 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		},
 	)
 	return Surfaces{
-		Context:  context,
-		MCP:      mcp,
-		Hooks:    hooks,
-		Commands: commands,
-		Skills:   skills,
+		TableDispatch: agent.TableDispatch{Table: agyApproaches},
+		Context:       context,
+		MCP:           mcp,
+		Hooks:         hooks,
+		Commands:      commands,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceMCP:      mcp,
@@ -253,17 +260,6 @@ var agyApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports agy's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return agyApproaches.Supported(kind)
-}
-
-// DefaultApproach reports agy's default (first-declared: the native file)
-// approach for kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return agyApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, UnsafeFile) to the concrete agy surface via

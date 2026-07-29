@@ -276,6 +276,12 @@ type SurfaceInputs struct {
 // surface and hand it to a cell. claude has five surface objects — context,
 // MCP, settings (which carries hooks), commands, and skills.
 type Surfaces struct {
+	// TableDispatch carries claude's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	MCP      *mcpSurface
 	Settings *settingsSurface
@@ -301,11 +307,12 @@ func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfac
 	commands := &commandsSurface{commands: in.Commands, fs: fs, selfContainedCommands: in.SelfContainedCommands}
 	skills := newSkillsSurface(in.Skills, fs)
 	return Surfaces{
-		Context:  context,
-		MCP:      mcp,
-		Settings: settings,
-		Commands: commands,
-		Skills:   skills,
+		TableDispatch: agent.TableDispatch{Table: claudeApproaches},
+		Context:       context,
+		MCP:           mcp,
+		Settings:      settings,
+		Commands:      commands,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceMCP:      mcp,
@@ -351,17 +358,6 @@ var claudeApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports claude's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return claudeApproaches.Supported(kind)
-}
-
-// DefaultApproach reports claude's default (first-declared: the native file)
-// approach for kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return claudeApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, approach) to claude's concrete surface. context

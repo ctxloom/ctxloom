@@ -261,6 +261,12 @@ func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings 
 // config (config.toml's folded hooks + MCP), commands (cell-scoped prompts),
 // and skills (cell-scoped Agent Skills packages).
 type Surfaces struct {
+	// TableDispatch carries codex's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	AgentsMD *agentsMDSurface
 	Config   *configSurface
@@ -326,12 +332,13 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 		SurfaceKind: agent.SurfaceContext,
 	}
 	return Surfaces{
-		Context:  ctxSurf,
-		AgentsMD: mdSurf,
-		Config:   config,
-		Commands: commands,
-		Skills:   skills,
-		routes:   routes,
+		TableDispatch: agent.TableDispatch{Table: codexApproaches},
+		Context:       ctxSurf,
+		AgentsMD:      mdSurf,
+		Config:        config,
+		Commands:      commands,
+		Skills:        skills,
+		routes:        routes,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  routes,
 			agent.SurfaceSettings: config,
@@ -377,18 +384,6 @@ var codexApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports codex's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return codexApproaches.Supported(kind)
-}
-
-// DefaultApproach reports codex's default (first-declared) approach for kind:
-// Hook for context (its only approach — the existing cache-file write), the
-// native file for settings/commands, absent for the folded MCP kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return codexApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, approach) to the concrete codex surface via

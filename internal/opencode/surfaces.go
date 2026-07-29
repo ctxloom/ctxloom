@@ -99,6 +99,12 @@ func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings 
 // commands/skills surfaces serve the persistent `profile materialize` path; a
 // live run delivers both transiently in Chat.
 type Surfaces struct {
+	// TableDispatch carries opencode's declared approach table and the two
+	// mechanical dispatch methods (SupportedApproaches / DefaultApproach) it
+	// answers — see agent.TableDispatch. SurfaceFor stays below: it resolves a
+	// concrete surface, which is this backend's own business.
+	agent.TableDispatch
+
 	Context  *contextSurface
 	Config   *configSurface
 	Commands *agent.ManagedCommandsDelivery
@@ -123,10 +129,11 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		return reconcileSkillsSurface(fs, dir, skills)
 	})
 	return Surfaces{
-		Context:  ctx,
-		Config:   config,
-		Commands: commands,
-		Skills:   skills,
+		TableDispatch: agent.TableDispatch{Table: opencodeApproaches},
+		Context:       ctx,
+		Config:        config,
+		Commands:      commands,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  ctx,
 			agent.SurfaceSettings: config,
@@ -151,17 +158,6 @@ var opencodeApproaches = agent.ApproachTable{
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
-}
-
-// SupportedApproaches reports opencode's declared approach table for kind.
-func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
-	return opencodeApproaches.Supported(kind)
-}
-
-// DefaultApproach reports opencode's default (first-declared: the native file)
-// approach for kind.
-func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
-	return opencodeApproaches.Default(kind)
 }
 
 // SurfaceFor resolves one (kind, approach) to the concrete opencode surface via the

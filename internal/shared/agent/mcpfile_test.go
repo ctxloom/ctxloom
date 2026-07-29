@@ -2,11 +2,14 @@ package agent
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // failOpenFs fails Open for exactly one path with a non-NotExist error
@@ -108,4 +111,28 @@ func TestMCPFileConfig_RemoveServers_RemovesHuskFile(t *testing.T) {
 	exists, err := afero.Exists(fs, "/proj/mcp.json")
 	require.NoError(t, err)
 	assert.False(t, exists, "an mcp.json left with nothing to write must be removed, not left as a {} husk")
+}
+
+// TestMCPFileConfig_WriteServers_DedupesManagedNames pins U101-F25: a server
+// name that shadows an earlier one — here, the same name present in both
+// bundleMCP and mcp.Servers — used to be appended to `managed` on EVERY add,
+// so the ledger persisted duplicate lines for one server.
+func TestMCPFileConfig_WriteServers_DedupesManagedNames(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerPath: "/proj/.mcp-ledger", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
+
+	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"dup": {Command: "second"}}}
+	bundleMCP := map[string]wire.MCPServer{"dup": {Command: "first"}}
+	require.NoError(t, c.WriteServers(mcp, bundleMCP))
+
+	ledger, err := afero.ReadFile(fs, "/proj/.mcp-ledger")
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(ledger)), "\n")
+	count := 0
+	for _, l := range lines {
+		if l == "dup" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "a name shadowed by a later source must appear exactly once in the ledger, not once per source")
 }

@@ -80,10 +80,18 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 		return err
 	}
 
+	// U101-F25: a later source (config, plugin) can shadow an earlier one
+	// (bundle) under the same name — including MCPServerName itself. seen
+	// dedupes `managed` so the ledger records each name once, not once per
+	// source that wrote it.
 	var managed []string
+	seen := make(map[string]bool)
 	add := func(name string, s mcpFileServer) {
 		c.setServer(mf, name, s)
-		managed = append(managed, name)
+		if !seen[name] {
+			seen[name] = true
+			managed = append(managed, name)
+		}
 	}
 
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {

@@ -9,28 +9,9 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
-
-// LocalProfileNameFromPath returns the profile name (as used by the profile
-// loader) for a profile file path under cfg's base ctxloom directory.
-// Returns ("", false) if the path is not within the profiles directory.
-func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, bool) {
-	profilesDir := paths.ProfilesPath(getBaseDir(cfg))
-	rel, err := filepath.Rel(profilesDir, localPath)
-	if err != nil || rel == "." || isOutsideRel(rel) {
-		return "", false
-	}
-	rel = filepath.ToSlash(rel)
-	rel = strings.TrimSuffix(rel, ".yaml")
-	rel = strings.TrimSuffix(rel, ".yml")
-	if rel == "" {
-		return "", false
-	}
-	return rel, true
-}
 
 // ProfileEntry represents a profile in operation results.
 type ProfileEntry struct {

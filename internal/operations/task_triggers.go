@@ -265,7 +265,9 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// same way) keeps the round-2 prompt from hitting the identical
 		// failure mode on a backlog with many ambiguous triggers.
 		var escOmitted int
-		verdicts, escOmitted = escalateNeedsInvestigation(ctx, escalationParams{
+		var escDegraded bool
+		var escWarning string
+		verdicts, escOmitted, escDegraded, escWarning = escalateNeedsInvestigation(ctx, escalationParams{
 			factory:        factory,
 			backendName:    backendName,
 			label:          label,
@@ -278,6 +280,14 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 			chunkSize:      chunkSize,
 		}, verdicts)
 		result.Omitted = omitted + escOmitted
+		if escDegraded {
+			result.Degraded = true
+			if result.Warning != "" {
+				result.Warning += "; " + escWarning
+			} else {
+				result.Warning = escWarning
+			}
+		}
 
 		// The outward verdict contract never carries a query request — that's
 		// an internal round-1↔round-2 signal, not something the caller (or a
@@ -538,8 +548,25 @@ func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, fact
 			warning:  warning,
 		}
 	}
-	seen := make(map[string]bool, len(parsed))
+	// Keep only verdicts for harp ids this chunk actually asked about — the
+	// model can hallucinate or cross-contaminate an id from another chunk's
+	// evidence, and triggers.ParseVerdicts only checks that harp_id is
+	// non-empty, never membership in the request. An out-of-chunk verdict
+	// must never reach cacheable/the verdict cache (U088-F09); the task it
+	// claims to answer for gets its normal cannot-determine fallback below,
+	// same as any other omission.
+	inChunk := make(map[string]bool, len(c.tasks))
+	for _, t := range c.tasks {
+		inChunk[t.HarpID] = true
+	}
+	kept := make([]triggers.Verdict, 0, len(parsed))
 	for _, v := range parsed {
+		if inChunk[v.HarpID] {
+			kept = append(kept, v)
+		}
+	}
+	seen := make(map[string]bool, len(kept))
+	for _, v := range kept {
 		seen[v.HarpID] = true
 	}
 	omitted := 0
@@ -549,8 +576,8 @@ func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, fact
 		}
 	}
 	return chunkResult{
-		parsed:   parsed,
-		verdicts: fillMissingVerdicts(c.tasks, parsed, "model response omitted this task"),
+		parsed:   kept,
+		verdicts: fillMissingVerdicts(c.tasks, kept, "model response omitted this task"),
 		omitted:  omitted,
 	}
 }
@@ -607,10 +634,13 @@ type escalationParams struct {
 // the round-2 model CALL is chunked (mirroring round 1) once every
 // followup's evidence has been gathered.
 //
-// Returns the updated verdicts plus how many were forced to cannot-determine
+// Returns the updated verdicts, how many were forced to cannot-determine
 // specifically because a chunk's otherwise-valid round-2 response omitted
-// them — the same omission-visibility contract as round 1.
-func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdicts []triggers.Verdict) ([]triggers.Verdict, int) {
+// them (the same omission-visibility contract as round 1), and whether/why
+// at least one round-2 chunk's LLM call or parse failed outright — the
+// escalation-round counterpart of chunkResult.degraded/warning, folded by
+// the caller into EvaluateTriggersResult.Degraded/Warning (U088-F08).
+func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdicts []triggers.Verdict) (result []triggers.Verdict, omitted int, degraded bool, warning string) {
 	budget := maxQueriesPerBatch
 	var followups []triggers.FollowupTask
 	escalated := map[string]bool{}
@@ -632,11 +662,13 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 		escalated[v.HarpID] = true
 	}
 	if len(followups) == 0 {
-		return verdicts, 0
+		return verdicts, 0, false, ""
 	}
 
-	finalByHarp, degradedByHarp, omitted := runFollowupChunks(ctx, followups, p.chunkSize, p.factory, p.backendName, p.label, p.model)
+	finalByHarp, degradedByHarp, omittedCount := runFollowupChunks(ctx, followups, p.chunkSize, p.factory, p.backendName, p.label, p.model)
 
+	var warnings []string
+	seenReasons := map[string]bool{}
 	for i, v := range verdicts {
 		if !escalated[v.HarpID] {
 			continue
@@ -647,6 +679,19 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 				Outcome:   triggers.CannotDetermine,
 				Reasoning: reason,
 			}
+			// A call/parse failure is a transient degradation, not a genuine
+			// answer — it must never freeze the task's verdict in the cache
+			// until the evidence changes (U088-F03). Round 1 may already have
+			// marked this harp id cacheable (a needs-investigation with valid
+			// queries IS a genuine round-1 answer); round 2 failing to settle
+			// it must retract that.
+			if p.cacheable != nil {
+				delete(p.cacheable, v.HarpID)
+			}
+			if !seenReasons[reason] {
+				seenReasons[reason] = true
+				warnings = append(warnings, reason)
+			}
 			continue
 		}
 		fv, ok := finalByHarp[v.HarpID]
@@ -655,6 +700,12 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 				HarpID:    v.HarpID,
 				Outcome:   triggers.CannotDetermine,
 				Reasoning: "round 2 response omitted this task",
+			}
+			// Same reasoning as the degraded branch above: an omission is the
+			// model silently dropping this task from an otherwise-valid
+			// response, not a genuine answer for it (U088-F03).
+			if p.cacheable != nil {
+				delete(p.cacheable, v.HarpID)
 			}
 			continue
 		}
@@ -667,7 +718,7 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 			p.cacheable[v.HarpID] = true
 		}
 	}
-	return verdicts, omitted
+	return verdicts, omittedCount, len(warnings) > 0, strings.Join(warnings, "; ")
 }
 
 // followupChunkResult is one round-2 chunk's outcome: genuine verdicts keyed
@@ -776,7 +827,11 @@ func fillMissingVerdicts(deferred []tasks.Task, got []triggers.Verdict, reason s
 	for _, v := range got {
 		seen[v.HarpID] = true
 	}
-	out := got
+	// Copy rather than alias got's backing array (U088-F22): appending onto
+	// `got` directly would let a later in-place rewrite through the returned
+	// slice (e.g. escalateNeedsInvestigation's verdicts[i] = ...) silently
+	// mutate the caller's own parsed/got slice too.
+	out := append([]triggers.Verdict(nil), got...)
 	for _, t := range deferred {
 		if !seen[t.HarpID] {
 			out = append(out, triggers.Verdict{

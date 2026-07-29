@@ -465,26 +465,13 @@ func TestEvaluateTriggers_ChunkOmissionIsCountedSeparatelyFromDegrade(t *testing
 // of round 1: if the escalation chunk containing a needs-investigation task
 // fails, that task must land on cannot-determine (never fired/not-fired),
 // without disturbing round 1's own Degraded/Warning bookkeeping.
-// TestEvaluateTriggers_DegradedEscalationChunkDoesNotSetTopLevelDegraded
-// inverts U088-F08: EvaluateTriggersResult.Degraded is documented as "true
-// when at least one CHUNK's LLM call/parse failed even after its one
-// retry" (task_triggers.go:108-115), but a round-2 (escalation) chunk's
-// failure never reaches it — only round-1 failures do. The caller sees only
-// a CannotDetermine verdict whose Reasoning string happens to start with
-// "escalation round degraded:", with no structured signal at all. This test
-// used to assert `res.Degraded == false` here as the INTENDED outcome,
-// which is exactly the doc/code disagreement U088-F08 names; it now asserts
-// the documented contract instead.
-//
-// Production is NOT fixed yet (escalateNeedsInvestigation discards its own
-// degradedByHarp map instead of folding it into result.Degraded/Warning) —
-// this is the RED half of the inversion, kept skipped so `just test` stays
-// green until U088-F08's fix lands (findings-index.md). Un-skip once a
-// round-2 chunk failure sets Degraded/Warning the same way a round-1
-// failure does.
-func TestEvaluateTriggers_DegradedEscalationChunkDoesNotSetTopLevelDegraded(t *testing.T) {
-	t.Skip("pins the documented contract for U088-F08 (findings-index.md); production still drops round-2 degradation on the floor — un-skip once EvaluateTriggers folds it into Degraded/Warning")
-
+// TestEvaluateTriggers_DegradedEscalationChunkSetsTopLevelDegraded fixes
+// U088-F08: EvaluateTriggersResult.Degraded is documented as "true when at
+// least one CHUNK's LLM call/parse failed even after its one retry"
+// (task_triggers.go:106-116), and a round-2 (escalation) chunk's failure is
+// not less real than a round-1 one — escalateNeedsInvestigation now folds
+// its own degradation into result.Degraded/Warning instead of discarding it.
+func TestEvaluateTriggers_DegradedEscalationChunkSetsTopLevelDegraded(t *testing.T) {
 	tc := newTaskContext(t, "proj-chunk-4")
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when internal/foo exists")
 	require.NoError(t, err)
@@ -645,6 +632,82 @@ func TestEvaluateTriggers_DegradedEscalationRoundBecomesCannotDetermine(t *testi
 	assert.Equal(t, int32(3), calls.Load(), "round 1 once, plus the escalation round's own one retry")
 	require.Len(t, res.Verdicts, 1)
 	assert.Equal(t, triggers.CannotDetermine, res.Verdicts[0].Outcome)
+}
+
+// U088-F03: a round-2 (escalation) chunk failure marks that task
+// cannot-determine, but round 1 had already marked its harp id cacheable (a
+// needs-investigation with valid queries IS a genuine round-1 answer) — and
+// nothing cleared that mark on the round-2 failure path, so the transient
+// fallback got persisted to the verdict cache, contradicting
+// EvaluateTriggersResult.Degraded's own doc ("Degraded/cannot-determine
+// fallback verdicts are never written to the cache"). A fresh client/factory
+// for the second call proves whether the second EvaluateTriggers call
+// actually re-ran both rounds (uncached) or served a poisoned cache entry.
+func TestEvaluateTriggers_DegradedEscalationRoundIsNeverCached(t *testing.T) {
+	tc := newTaskContext(t, "proj-esc-6")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when internal/foo exists")
+	require.NoError(t, err)
+
+	repo := t.TempDir()
+	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
+		`"queries":[{"type":"path_exists","path":"internal/foo"}]}]`
+	client1 := &fullFakeClient{outs: []string{round1, "garbage", "still garbage"}}
+	factory1, calls1 := countingClientFactory(client1)
+
+	res1, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		RepoDir:     repo,
+		Factory:     factory1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), calls1.Load())
+	require.Len(t, res1.Verdicts, 1)
+	assert.Equal(t, triggers.CannotDetermine, res1.Verdicts[0].Outcome)
+
+	// A DIFFERENT client/factory for the second call: if the first call's
+	// degraded-escalation fallback was (incorrectly) cached, this one is
+	// never even consulted and the second result would still read
+	// cannot-determine with zero new calls.
+	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["path_exists confirmed"],"reasoning":"now it resolves"}]`
+	client2 := &fullFakeClient{outs: []string{round1, round2}}
+	factory2, calls2 := countingClientFactory(client2)
+
+	res2, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		RepoDir:     repo,
+		Factory:     factory2,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), calls2.Load(), "the degraded-escalation verdict was never cached, so both rounds ran again")
+	require.Len(t, res2.Verdicts, 1)
+	assert.Equal(t, triggers.Fired, res2.Verdicts[0].Outcome)
+	assert.False(t, res2.Verdicts[0].Cached)
+}
+
+// U088-F09: triggers.ParseVerdicts only checks that harp_id is non-empty,
+// never that it belongs to the chunk that was actually asked about — a
+// hallucinated (or cross-chunk) harp id must be dropped before it can ever
+// reach the verdict cache, where it would sit forever (nothing prunes
+// entries for harp ids outside the current Deferred set).
+func TestEvaluateTriggers_HallucinatedHarpIDIsNotCached(t *testing.T) {
+	tc := newTaskContext(t, "proj-hallucinate-1")
+	deferred, err := tasksops.AddTask(tc, "wire the signing CLI", "Deferred", "when the signing CLI ships")
+	require.NoError(t, err)
+
+	client := &fullFakeClient{out: `[` +
+		`{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it shipped"},` +
+		`{"harp_id":"ghost-not-in-request","outcome":"not-fired","evidence":[],"reasoning":"hallucinated"}]`}
+	factory, calls := countingClientFactory(client)
+
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), calls.Load())
+	require.Len(t, res.Verdicts, 1, "only the actually-requested task's verdict must be surfaced")
+	assert.Equal(t, deferred.Task.HarpID, res.Verdicts[0].HarpID)
+
+	cache := loadTriggerCache(tc.ProjectID)
+	_, hallucinated := cache.Tasks["ghost-not-in-request"]
+	assert.False(t, hallucinated, "a verdict for a harp id never in the request must not be persisted to the cache")
 }
 
 // ---------------------------------------------------------------------------
@@ -886,4 +949,26 @@ func TestEvaluateTriggers_MixedCacheHitAndMissOnlyCallsModelForTheMiss(t *testin
 	require.Len(t, client.gotReqs, 2)
 	assert.NotContains(t, client.gotReqs[1].Prompt.Content, d1.Task.HarpID)
 	assert.Contains(t, client.gotReqs[1].Prompt.Content, d2.Task.HarpID)
+}
+
+// ---------------------------------------------------------------------------
+// fillMissingVerdicts
+// ---------------------------------------------------------------------------
+
+// U088-F22: fillMissingVerdicts used to do `out := got` and append onto it —
+// when got carries spare capacity, append reuses its backing array, so a
+// later in-place rewrite through the returned slice (e.g.
+// escalateNeedsInvestigation's verdicts[i] = ...) silently mutates the
+// caller's own slice too. fillMissingVerdicts must return an independent
+// copy.
+func TestFillMissingVerdicts_DoesNotAliasCallersBackingArray(t *testing.T) {
+	got := make([]triggers.Verdict, 1, 4) // spare capacity so append would reuse the backing array
+	got[0] = triggers.Verdict{HarpID: "a", Outcome: triggers.Fired}
+	deferred := []tasks.Task{{HarpID: "a"}, {HarpID: "b"}}
+
+	out := fillMissingVerdicts(deferred, got, "reason")
+	require.Len(t, out, 2)
+
+	out[0].Outcome = triggers.NotFired
+	assert.Equal(t, triggers.Fired, got[0].Outcome, "fillMissingVerdicts must not alias the caller's backing array")
 }

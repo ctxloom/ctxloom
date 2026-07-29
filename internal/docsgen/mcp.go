@@ -116,24 +116,52 @@ func enumerateMCPSurface(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, 
 	}
 	defer cs.Close()
 
-	toolsRes, err := cs.ListTools(ctx, nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("list tools: %w", err)
-	}
-	resRes, err := cs.ListResources(ctx, nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("list resources: %w", err)
-	}
-	tmplRes, err := cs.ListResourceTemplates(ctx, nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("list resource templates: %w", err)
+	// U051-F04: a listing this small (~13 registered ctxloom tools against the
+	// SDK's 1000-item default page size) never actually paginates today, but
+	// reading only the first page and ignoring NextCursor would silently
+	// under-document any surface that grows past the page limit. Follow each
+	// cursor to exhaustion instead of trusting a single call.
+	var tools []*mcp.Tool
+	for cursor := ""; ; {
+		res, err := cs.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("list tools: %w", err)
+		}
+		tools = append(tools, res.Tools...)
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
 	}
 
-	tools := toolsRes.Tools
+	var resources []*mcp.Resource
+	for cursor := ""; ; {
+		res, err := cs.ListResources(ctx, &mcp.ListResourcesParams{Cursor: cursor})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("list resources: %w", err)
+		}
+		resources = append(resources, res.Resources...)
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+
+	var templates []*mcp.ResourceTemplate
+	for cursor := ""; ; {
+		res, err := cs.ListResourceTemplates(ctx, &mcp.ListResourceTemplatesParams{Cursor: cursor})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("list resource templates: %w", err)
+		}
+		templates = append(templates, res.ResourceTemplates...)
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
-	resources := resRes.Resources
 	sort.Slice(resources, func(i, j int) bool { return resources[i].URI < resources[j].URI })
-	templates := tmplRes.ResourceTemplates
 	sort.Slice(templates, func(i, j int) bool { return templates[i].URITemplate < templates[j].URITemplate })
 
 	return tools, resources, templates, nil

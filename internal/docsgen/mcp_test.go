@@ -74,6 +74,44 @@ func TestGenMCPTools(t *testing.T) {
 	}
 }
 
+// U051-F04: enumerateMCPSurface must not silently truncate a surface larger
+// than one listing page. Force a two-tool server to paginate with PageSize:1
+// (well below the SDK's default of 1000) and confirm both tools reach the
+// generated page, not just the first page's worth.
+func TestGenMCPTools_PaginatesBeyondOnePage(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "widget"}, &mcp.ServerOptions{PageSize: 1})
+	mcp.AddTool(s,
+		&mcp.Tool{Name: "gadget_alpha", Description: "First gadget."},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ gadgetInput) (*mcp.CallToolResult, any, error) {
+			return nil, nil, nil
+		})
+	mcp.AddTool(s,
+		&mcp.Tool{Name: "gadget_zeta", Description: "Second gadget."},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ gadgetInput) (*mcp.CallToolResult, any, error) {
+			return nil, nil, nil
+		})
+
+	p := fakeProduct()
+	p.MCPServer = s
+
+	dir := t.TempDir()
+	if err := GenMCPTools(context.Background(), p, dir); err != nil {
+		t.Fatalf("GenMCPTools: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "mcp-tools.md"))
+	if err != nil {
+		t.Fatalf("expected mcp-tools.md: %v", err)
+	}
+	page := string(data)
+
+	for _, want := range []string{"### gadget_alpha", "### gadget_zeta"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("mcp-tools.md missing %q (page size 1 must not truncate the tool listing):\n%s", want, page)
+		}
+	}
+}
+
 // TestGenMCPToolsRequiresServer: asking for an MCP page from a product that has
 // no MCP surface (ltk) is a generator misconfiguration, not a silent no-op.
 func TestGenMCPToolsRequiresServer(t *testing.T) {

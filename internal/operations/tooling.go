@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ToolingCommandName is the well-known command name a bundle ships to declare
@@ -57,6 +58,7 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 	}
 	infos, err := loader.ListAllCommands()
 	if err != nil {
+		clidiag.Warn("ctxloom", "tooling: list commands: %v", err)
 		return nil
 	}
 	var out []ToolingDeclaration
@@ -110,6 +112,20 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		return "", fmt.Errorf("manager is required")
 	}
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
+		if _, err := os.Stat(existing); err == nil {
+			return existing, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat configured base Containerfile: %w", err)
+		}
+		// Configured but not actually on disk (deleted, never created, a typo'd
+		// path) — materialize it at the CONFIGURED location instead of
+		// silently reporting success with nothing written (U088-F04).
+		if merr := os.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
+			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
+		}
+		if werr := os.WriteFile(existing, container.Base, 0o644); werr != nil {
+			return "", fmt.Errorf("write base Containerfile: %w", werr)
+		}
 		return existing, nil
 	}
 	if relPath == "" {
@@ -120,7 +136,16 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		abs = filepath.Join(cfg.GetAppRoot(), relPath)
 	}
 
-	if _, err := os.Stat(abs); os.IsNotExist(err) || force {
+	exists := false
+	if _, err := os.Stat(abs); err == nil {
+		exists = true
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat base Containerfile: %w", err)
+	}
+	if !exists || force {
+		if merr := os.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
+			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
+		}
 		if werr := os.WriteFile(abs, container.Base, 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}

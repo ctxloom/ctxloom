@@ -96,3 +96,25 @@ func TestScaffoldContainerBase_AlreadyConfiguredIsNoOp(t *testing.T) {
 	_, statErr := os.Stat(filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath))
 	assert.True(t, os.IsNotExist(statErr), "no default-path file is written when a base is already configured")
 }
+
+// TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing:
+// U088-F04. isolation_base_containerfile can point at a path that was never
+// actually created (deleted, a typo, checked out from a branch that doesn't
+// ship it) — ScaffoldContainerBase used to return that path as "already
+// configured" without ever checking it exists, so the CLI printed
+// "Base Containerfile: <path>. Edit it..." for a file with zero bytes on
+// disk. The configured location must actually be materialized.
+func TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\nisolation_base_containerfile: custom/base.Containerfile\n")
+	target := filepath.Join(cfg.GetAppRoot(), "custom/base.Containerfile")
+	_, statErr := os.Stat(target)
+	require.True(t, os.IsNotExist(statErr), "precondition: the configured file does not exist yet")
+
+	path, err := ScaffoldContainerBase(managerFor(appDir), cfg, "", false)
+	require.NoError(t, err)
+	assert.Equal(t, target, path)
+
+	b, err := os.ReadFile(target)
+	require.NoError(t, err, "the configured base Containerfile must actually be written, not just reported as present")
+	assert.Equal(t, string(container.Base), string(b))
+}

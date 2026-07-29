@@ -123,6 +123,26 @@ func TestGenMCPToolsRequiresServer(t *testing.T) {
 	}
 }
 
+// U051-F11: propertyDescription surfaces p.Enum but never p.Items.Enum, so an
+// array parameter whose ITEMS are enum-constrained documents no allowed
+// values at all.
+func TestPropertyDescription_SurfacesItemsEnum(t *testing.T) {
+	p := mcpToolProperty{
+		Type:        []any{"array"},
+		Description: "Levels to poke at.",
+		Items: &mcpToolProperty{
+			Type: "string",
+			Enum: []any{"low", "medium", "high"},
+		},
+	}
+	got := propertyDescription(p)
+	for _, want := range []string{"low", "medium", "high"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("propertyDescription(%+v) = %q, missing items enum value %q", p, got, want)
+		}
+	}
+}
+
 // U051-F10: mcpFrontmatter interpolates p.MCPSource/p.MCPCommand unguarded,
 // so an unset field used to render a banner like "as served by ``" instead of
 // signalling the misconfiguration. Require both non-empty before generating.

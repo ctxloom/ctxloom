@@ -275,12 +275,22 @@ func schemaTypeName(t any) string {
 // the allowed values surface in the table.
 func propertyDescription(p mcpToolProperty) string {
 	desc := p.Description
-	if len(p.Enum) > 0 {
-		vals := make([]string, len(p.Enum))
-		for i, v := range p.Enum {
+	// U051-F11: an array parameter's own Enum is virtually always empty --
+	// the constraint lives on Items instead -- so fall through to
+	// Items.Enum when present rather than silently documenting no allowed
+	// values for a constrained array.
+	enum := p.Enum
+	label := "One of"
+	if len(enum) == 0 && p.Items != nil && len(p.Items.Enum) > 0 {
+		enum = p.Items.Enum
+		label = "Each one of"
+	}
+	if len(enum) > 0 {
+		vals := make([]string, len(enum))
+		for i, v := range enum {
 			vals[i] = fmt.Sprintf("`%v`", v)
 		}
-		enumStr := "One of: " + strings.Join(vals, ", ")
+		enumStr := label + ": " + strings.Join(vals, ", ")
 		if desc == "" {
 			desc = enumStr
 		} else {

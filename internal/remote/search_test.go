@@ -319,3 +319,17 @@ func TestMatchTags_CaseInsensitive(t *testing.T) {
 		})
 	}
 }
+
+// TestMatchTags_UnknownOperatorFailsClosed pins U095-F16: a TagQuery with a
+// zero-value (or otherwise unrecognized) Operator must NOT fail open. The
+// default arm used to return true unconditionally, so such a query matched
+// every entry regardless of its tags — a fail-open default in a filter.
+// ParseSearchQuery always sets AND, so this only bites a hand-constructed
+// query, but the type itself must not silently mean "match everything".
+func TestMatchTags_UnknownOperatorFailsClosed(t *testing.T) {
+	entryTags := []string{"security", "golang"}
+	query := TagQuery{Tags: []string{"unrelated-tag"}, Operator: TagOperator("")}
+	if got := matchTags(entryTags, query); got {
+		t.Errorf("matchTags() with an unrecognized operator = true, want false (fail closed, not fail open)")
+	}
+}

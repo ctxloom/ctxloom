@@ -174,7 +174,10 @@ func matchTags(entryTags []string, query TagQuery) bool {
 		return false
 
 	default:
-		return true
+		// U095-F16: an unrecognized Operator must fail closed, not match
+		// every entry regardless of its tags. ParseSearchQuery always sets
+		// TagOperatorAND, so this only guards a hand-constructed query.
+		return false
 	}
 }
 

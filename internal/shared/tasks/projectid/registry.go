@@ -150,89 +150,13 @@ func (m *Manager) ResolveByID(id string) (*Entry, error) {
 	return &out, nil
 }
 
-// Mint generates a fresh project-id (collision-checked against the registry),
-// appends an entry pointing at projectDir, and persists.
-func (m *Manager) Mint(projectDir string) (Entry, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	unlock, err := filelock.Lock(m.path + ".lock")
-	if err != nil {
-		return Entry{}, fmt.Errorf("lock: %w", err)
-	}
-	defer unlock()
-
-	reg, err := m.loadLocked()
-	if err != nil {
-		return Entry{}, err
-	}
-	// Re-check under the filelock that no entry already maps this exact tree:
-	// Resolve decides "mint" with the registry unlocked, so two processes
-	// first-launching the same brand-new tree can both reach here. The first to
-	// win the lock appends; the second must return that identity rather than
-	// append a second, competing entry — one tree keeps one identity.
-	want := cleanPath(projectDir)
-	used := make(map[string]struct{}, len(reg.Projects))
-	for _, p := range reg.Projects {
-		used[p.ProjectID] = struct{}{}
-		if cleanPath(p.Path) == want {
-			return p, nil
-		}
-	}
-	id, err := generateUniqueID(used)
-	if err != nil {
-		return Entry{}, fmt.Errorf("mint project id: %w", err)
-	}
-	now := time.Now().UTC()
-	e := Entry{
-		ProjectID:  id,
-		Path:       cleanPath(projectDir),
-		CreatedAt:  now,
-		LastSeenAt: now,
-	}
-	reg.Projects = append(reg.Projects, e)
-	if err := m.saveLocked(reg); err != nil {
-		return Entry{}, err
-	}
-	return e, nil
-}
-
-// Adopt records an existing project-id at projectDir without minting — used
-// when a marker references an id the local registry has not seen (a fresh
-// machine, or a lost registry). Idempotent on the id.
-func (m *Manager) Adopt(id, projectDir string) (Entry, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	unlock, err := filelock.Lock(m.path + ".lock")
-	if err != nil {
-		return Entry{}, fmt.Errorf("lock: %w", err)
-	}
-	defer unlock()
-
-	reg, err := m.loadLocked()
-	if err != nil {
-		return Entry{}, err
-	}
-	now := time.Now().UTC()
-	for i := range reg.Projects {
-		if reg.Projects[i].ProjectID == id {
-			reg.Projects[i].Path = cleanPath(projectDir)
-			reg.Projects[i].LastSeenAt = now
-			out := reg.Projects[i]
-			return out, m.saveLocked(reg)
-		}
-	}
-	e := Entry{ProjectID: id, Path: cleanPath(projectDir), CreatedAt: now, LastSeenAt: now}
-	reg.Projects = append(reg.Projects, e)
-	if err := m.saveLocked(reg); err != nil {
-		return Entry{}, err
-	}
-	return e, nil
-}
-
-// Repoint updates the registered path for an existing project-id.
-func (m *Manager) Repoint(id, newPath string) error {
+// mutate runs fn against the registry under BOTH locks, in the one order that
+// is safe: the in-process mutex, then the cross-process file lock, then the
+// load. fn sees a registry read under that lock and may persist it with
+// saveLocked; every mutating method goes through here so a new one cannot
+// acquire them in a different order, or skip the file lock and corrupt the
+// registry only under concurrency.
+func (m *Manager) mutate(fn func(reg *registry) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -246,14 +170,94 @@ func (m *Manager) Repoint(id, newPath string) error {
 	if err != nil {
 		return err
 	}
-	for i := range reg.Projects {
-		if reg.Projects[i].ProjectID == id {
-			reg.Projects[i].Path = cleanPath(newPath)
-			reg.Projects[i].LastSeenAt = time.Now().UTC()
-			return m.saveLocked(reg)
+	return fn(reg)
+}
+
+// Mint generates a fresh project-id (collision-checked against the registry),
+// appends an entry pointing at projectDir, and persists.
+func (m *Manager) Mint(projectDir string) (Entry, error) {
+	var out Entry
+	err := m.mutate(func(reg *registry) error {
+		// Re-check under the filelock that no entry already maps this exact
+		// tree: Resolve decides "mint" with the registry unlocked, so two
+		// processes first-launching the same brand-new tree can both reach
+		// here. The first to win the lock appends; the second must return that
+		// identity rather than append a second, competing entry — one tree
+		// keeps one identity.
+		want := cleanPath(projectDir)
+		used := make(map[string]struct{}, len(reg.Projects))
+		for _, p := range reg.Projects {
+			used[p.ProjectID] = struct{}{}
+			if cleanPath(p.Path) == want {
+				out = p
+				return nil
+			}
 		}
+		id, err := generateUniqueID(used)
+		if err != nil {
+			return fmt.Errorf("mint project id: %w", err)
+		}
+		now := time.Now().UTC()
+		e := Entry{
+			ProjectID:  id,
+			Path:       cleanPath(projectDir),
+			CreatedAt:  now,
+			LastSeenAt: now,
+		}
+		reg.Projects = append(reg.Projects, e)
+		if err := m.saveLocked(reg); err != nil {
+			return err
+		}
+		out = e
+		return nil
+	})
+	if err != nil {
+		return Entry{}, err
 	}
-	return fmt.Errorf("project-id not found: %q", id)
+	return out, nil
+}
+
+// Adopt records an existing project-id at projectDir without minting — used
+// when a marker references an id the local registry has not seen (a fresh
+// machine, or a lost registry). Idempotent on the id.
+func (m *Manager) Adopt(id, projectDir string) (Entry, error) {
+	var out Entry
+	err := m.mutate(func(reg *registry) error {
+		now := time.Now().UTC()
+		for i := range reg.Projects {
+			if reg.Projects[i].ProjectID == id {
+				reg.Projects[i].Path = cleanPath(projectDir)
+				reg.Projects[i].LastSeenAt = now
+				out = reg.Projects[i]
+				return m.saveLocked(reg)
+			}
+		}
+		e := Entry{ProjectID: id, Path: cleanPath(projectDir), CreatedAt: now, LastSeenAt: now}
+		reg.Projects = append(reg.Projects, e)
+		if err := m.saveLocked(reg); err != nil {
+			return err
+		}
+		out = e
+		return nil
+	})
+	if err != nil {
+		return Entry{}, err
+	}
+	return out, nil
+}
+
+// Repoint updates the registered path for an existing project-id.
+func (m *Manager) Repoint(id, newPath string) error {
+	return m.mutate(func(reg *registry) error {
+		for i := range reg.Projects {
+			if reg.Projects[i].ProjectID == id {
+				reg.Projects[i].Path = cleanPath(newPath)
+				reg.Projects[i].LastSeenAt = time.Now().UTC()
+				return m.saveLocked(reg)
+			}
+		}
+		return fmt.Errorf("project-id not found: %q", id)
+	})
 }
 
 // cleanPath canonicalizes p for identity comparison: symlinks are resolved so

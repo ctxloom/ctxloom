@@ -366,10 +366,15 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 	}
 
 	var allRepos []remote.RepoInfo
-	var errs []string
+	// U086-F11: named "searchErrs", not "errs" — this file also imports the
+	// package "github.com/ctxloom/ctxloom/internal/errs" (used at
+	// browseTypeItems' errors.Is(err, errs.ErrRemoteContentNotFound)); a
+	// local `errs` here shadowed it silently, and only compiled because this
+	// function never itself referenced the package.
+	var searchErrs []string
 	repos, err := fetcher.SearchRepos(ctx, req.Query, req.Limit)
 	if err != nil {
-		errs = append(errs, fmt.Sprintf("%s: %v", remote.ForgeGitHub, err))
+		searchErrs = append(searchErrs, fmt.Sprintf("%s: %v", remote.ForgeGitHub, err))
 	} else {
 		for _, r := range repos {
 			if r.Stars >= req.MinStars {
@@ -381,7 +386,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 	result := &DiscoverRemotesResult{
 		Repositories: make([]RepoEntry, 0, len(allRepos)),
 		Count:        len(allRepos),
-		Errors:       errs,
+		Errors:       searchErrs,
 	}
 
 	for _, r := range allRepos {

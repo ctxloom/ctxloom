@@ -65,7 +65,20 @@ type SettingsStatus struct {
 	MCPPresent     bool // at least one managed MCP server is configured
 }
 
-// Wired reports whether any managed artifact is present.
+// Wired reports whether any managed artifact is present. SettingsExists is
+// deliberately NOT a disjunct: a settings file ctxloom merely found is not a
+// file ctxloom wired, so a removal that leaves the user's own settings.json in
+// place still reports false.
+//
+// U102-F05 (REFUTED): the census calls this DEAD because all nine of its call
+// sites are in _test.go. It is not dead, it is a derived predicate whose
+// consumer is a TEST SUITE — and the most important consumer is
+// internal/lm/conformance, this repo's cross-agent contract check, whose
+// post-removal assertion is precisely "nothing managed remains". Inlining the
+// three-term OR into nine call sites would cost more lines than it saves, would
+// restate the SettingsExists omission nowhere, and would have to be edited at
+// all nine sites the day a fifth managed artifact is added — the exact drift
+// class this campaign keeps finding. Pinned by TestSettingsStatus_Wired.
 func (s SettingsStatus) Wired() bool {
 	return s.HooksPresent || s.StatusLine || s.MCPPresent
 }

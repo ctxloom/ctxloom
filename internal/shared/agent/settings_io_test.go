@@ -122,3 +122,37 @@ func TestGetFS(t *testing.T) {
 	assert.Equal(t, memFs, GetFS(memFs), "returns the provided fs")
 	assert.NotNil(t, GetFS(nil), "falls back to the OS fs when nil")
 }
+
+// TestSettingsStatus_Wired pins SettingsStatus.Wired's definition — U102-F05
+// (REFUTED, see the method's own doc): the row calls it DEAD because all nine
+// call sites are in _test.go, but the most important of them is
+// internal/lm/conformance, this repo's cross-agent contract check, and nothing
+// anywhere pinned what Wired actually MEANS.
+//
+// The load-bearing part is the omission: SettingsExists is NOT one of the
+// disjuncts. A settings file ctxloom merely found is not a file ctxloom wired,
+// so `manage hooks remove` leaving a user's own settings.json behind must still
+// report Wired() == false. That is exactly what the conformance suite's
+// post-removal assertion depends on, and inlining the OR into nine test call
+// sites would have left the omission unstated in all nine.
+func TestSettingsStatus_Wired(t *testing.T) {
+	cases := []struct {
+		name   string
+		status SettingsStatus
+		want   bool
+	}{
+		{"nothing at all", SettingsStatus{}, false},
+		{"a settings file we did not write is NOT wired",
+			SettingsStatus{SettingsExists: true}, false},
+		{"a managed hook is wired", SettingsStatus{HooksPresent: true}, true},
+		{"a managed statusline is wired", SettingsStatus{StatusLine: true}, true},
+		{"a managed MCP server is wired", SettingsStatus{MCPPresent: true}, true},
+		{"all managed artifacts", SettingsStatus{
+			SettingsExists: true, HooksPresent: true, StatusLine: true, MCPPresent: true}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.status.Wired())
+		})
+	}
+}

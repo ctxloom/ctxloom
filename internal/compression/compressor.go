@@ -13,9 +13,8 @@ type Compressor interface {
 	// Compress reduces content size while preserving important information.
 	// contentType is the router's already-resolved type (extension-derived);
 	// compressors must honor it rather than re-sniffing — a wrong re-sniff
-	// parses content under the wrong grammar and silently loses it. The ratio
-	// parameter (0.0-1.0) suggests target size as fraction of original.
-	Compress(ctx context.Context, contentType ContentType, content string, ratio float64) (Result, error)
+	// parses content under the wrong grammar and silently loses it.
+	Compress(ctx context.Context, contentType ContentType, content string) (Result, error)
 
 	// CanHandle returns true if this compressor can process the given content type.
 	CanHandle(contentType ContentType) bool
@@ -34,7 +33,6 @@ const (
 	ContentTypeJSON       ContentType = "json"
 	ContentTypeYAML       ContentType = "yaml"
 	ContentTypeMarkdown   ContentType = "markdown"
-	ContentTypeText       ContentType = "text"
 	ContentTypeUnknown    ContentType = "unknown"
 )
 

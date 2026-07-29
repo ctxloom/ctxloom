@@ -41,7 +41,7 @@ func (c *JSONCompressor) CanHandle(ct ContentType) bool {
 }
 
 // Compress reduces JSON size while preserving structure.
-func (c *JSONCompressor) Compress(ctx context.Context, _ ContentType, content string, ratio float64) (Result, error) {
+func (c *JSONCompressor) Compress(ctx context.Context, _ ContentType, content string) (Result, error) {
 	// Parse JSON with UseNumber so integers beyond float64's 2^53 mantissa
 	// (snowflake IDs, hashes-as-ints) round-trip verbatim instead of being
 	// re-marshaled in scientific notation — numbers are always preserved, for

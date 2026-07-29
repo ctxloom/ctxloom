@@ -161,7 +161,7 @@ export default internal;
 		t.Run(tc.name, func(t *testing.T) {
 			// Zero panics is itself part of the assertion: a slice-bounds panic
 			// in any extractor would crash the test rather than fail it.
-			result, err := c.Compress(ctx, tc.ct, tc.source, 0.5)
+			result, err := c.Compress(ctx, tc.ct, tc.source)
 			require.NoError(t, err)
 			require.NotEmpty(t, result.Content)
 
@@ -195,7 +195,7 @@ type Reader interface {
 `
 
 	require.NotPanics(t, func() {
-		result, err := c.Compress(ctx, ContentTypeGo, source, 0.5)
+		result, err := c.Compress(ctx, ContentTypeGo, source)
 		require.NoError(t, err)
 		assert.Contains(t, result.Content, "Reader")
 	})
@@ -219,7 +219,7 @@ func TestCodeCompressor_JavaNoBodyMethod(t *testing.T) {
 `
 
 	require.NotPanics(t, func() {
-		result, err := c.Compress(ctx, ContentTypeJava, source, 0.5)
+		result, err := c.Compress(ctx, ContentTypeJava, source)
 		require.NoError(t, err)
 		assert.Contains(t, result.Content, "findById")
 	})
@@ -243,7 +243,7 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 		// cleanly (no panic, no error) per the fault-tolerance rule.
 		for _, junk := range []string{"", "}{)(", "\x00\x01\x02 not code", strings.Repeat("???", 100)} {
 			require.NotPanics(t, func() {
-				_, err := c.Compress(ctx, ContentTypeGo, junk, 0.5)
+				_, err := c.Compress(ctx, ContentTypeGo, junk)
 				require.NoError(t, err)
 			})
 		}
@@ -251,7 +251,7 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 
 	t.Run("invalid JSON degrades to verbatim Ratio 1.0", func(t *testing.T) {
 		jc := NewJSONCompressor()
-		result, err := jc.Compress(context.Background(), ContentTypeJSON, "{not valid json", 0.5)
+		result, err := jc.Compress(context.Background(), ContentTypeJSON, "{not valid json")
 		require.NoError(t, err)
 		assert.Equal(t, 1.0, result.Ratio)
 		assert.Equal(t, "{not valid json", result.Content)

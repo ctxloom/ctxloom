@@ -17,7 +17,7 @@ func TestCodeCompressor_HonorsRoutedContentType(t *testing.T) {
 	c := NewCodeCompressor()
 	source := "fn main() {\n    let body_token = 1;\n    println!(\"{}\", body_token);\n}\n"
 
-	result, err := c.Compress(context.Background(), ContentTypeRust, source, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeRust, source)
 	require.NoError(t, err)
 	assert.Equal(t, "ast:rust", result.ModelID, "the routed type, not a re-sniff, must pick the grammar")
 	assert.Contains(t, result.Content, "fn main", "the signature must survive")
@@ -29,7 +29,7 @@ func TestCodeCompressor_UnknownContentDegradesVerbatim(t *testing.T) {
 	c := NewCodeCompressor()
 	source := "just some plain prose, no code here at all\n"
 
-	result, err := c.Compress(context.Background(), ContentTypeUnknown, source, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeUnknown, source)
 	require.NoError(t, err)
 	assert.Equal(t, source, result.Content, "unparseable content must pass through verbatim")
 	assert.Equal(t, 1.0, result.Ratio)

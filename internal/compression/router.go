@@ -22,10 +22,10 @@ func NewRouter() *Router {
 }
 
 // CompressWithType compresses content with an explicit content type.
-func (r *Router) CompressWithType(ctx context.Context, contentType ContentType, content string, ratio float64) (Result, error) {
+func (r *Router) CompressWithType(ctx context.Context, contentType ContentType, content string) (Result, error) {
 	for _, c := range r.compressors {
 		if c.CanHandle(contentType) {
-			return c.Compress(ctx, contentType, content, ratio)
+			return c.Compress(ctx, contentType, content)
 		}
 	}
 

@@ -130,7 +130,6 @@ func TestContentTypeConstants(t *testing.T) {
 		ContentTypeJSON,
 		ContentTypeYAML,
 		ContentTypeMarkdown,
-		ContentTypeText,
 		ContentTypeUnknown,
 	}
 

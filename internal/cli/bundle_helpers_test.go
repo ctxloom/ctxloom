@@ -111,7 +111,6 @@ func TestIsStructuredContent(t *testing.T) {
 	unstructured := []compression.ContentType{
 		compression.ContentTypeYAML,
 		compression.ContentTypeMarkdown,
-		compression.ContentTypeText,
 		compression.ContentTypeUnknown,
 	}
 	for _, ct := range unstructured {

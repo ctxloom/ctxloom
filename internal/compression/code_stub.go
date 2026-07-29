@@ -21,7 +21,7 @@ func (c *CodeCompressor) CanHandle(ct ContentType) bool {
 }
 
 // Compress returns the original content unchanged.
-func (c *CodeCompressor) Compress(ctx context.Context, _ ContentType, content string, ratio float64) (Result, error) {
+func (c *CodeCompressor) Compress(ctx context.Context, _ ContentType, content string) (Result, error) {
 	return Result{
 		Content: content,
 		Ratio:   1.0,

@@ -13,7 +13,7 @@ func TestJSONCompressor_InvalidJSONDegradesToVerbatim(t *testing.T) {
 	c := NewJSONCompressor()
 	input := `{not valid json,,,`
 
-	result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeJSON, input)
 	require.NoError(t, err, "invalid JSON must degrade, not error")
 	assert.Equal(t, input, result.Content, "content should pass through verbatim")
 	assert.Equal(t, 1.0, result.Ratio)
@@ -32,7 +32,7 @@ func TestJSONCompressor_TrailingDataDegradesToVerbatim(t *testing.T) {
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
-			result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+			result, err := c.Compress(context.Background(), ContentTypeJSON, input)
 			require.NoError(t, err)
 			assert.Equal(t, input, result.Content, "multi-value/trailing-data input must pass through verbatim, not be truncated")
 			assert.Equal(t, 1.0, result.Ratio)
@@ -45,7 +45,7 @@ func TestJSONCompressor_TrailingDataDegradesToVerbatim(t *testing.T) {
 func TestJSONCompressor_TrailingWhitespaceStillCompresses(t *testing.T) {
 	c := NewJSONCompressor()
 	input := "{\"a\":1}\n\n  "
-	result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeJSON, input)
 	require.NoError(t, err)
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(result.Content), &parsed))
@@ -64,7 +64,7 @@ func TestJSONCompressor_Basic(t *testing.T) {
   "created_at": "2024-01-15T10:30:00Z"
 }`
 
-	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input)
 	require.NoError(t, err)
 
 	// Should be valid JSON
@@ -111,7 +111,7 @@ func TestJSONCompressor_Array(t *testing.T) {
   ]
 }`
 
-	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input)
 	require.NoError(t, err)
 
 	var parsed map[string]any
@@ -157,7 +157,7 @@ func TestJSONCompressor_NestedObjects(t *testing.T) {
   }
 }`
 
-	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input)
 	require.NoError(t, err)
 
 	var parsed map[string]any
@@ -199,7 +199,7 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := `{"value": "` + tt.value + `"}`
-			result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
+			result, err := c.Compress(ctx, ContentTypeJSON, input)
 			require.NoError(t, err)
 
 			var parsed map[string]any
@@ -242,7 +242,7 @@ func TestJSONCompressor_PreservesStructure(t *testing.T) {
   "meta": null
 }`
 
-	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input)
 	require.NoError(t, err)
 
 	var parsed map[string]any
@@ -299,7 +299,7 @@ func TestJSONCompressor_PreservesBigIntegers(t *testing.T) {
 	c := NewJSONCompressor()
 	input := `{"id": 9223372036854775807}`
 
-	result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeJSON, input)
 	require.NoError(t, err)
 	assert.Contains(t, result.Content, "9223372036854775807",
 		"big integer IDs must round-trip verbatim, not as float64 scientific notation")

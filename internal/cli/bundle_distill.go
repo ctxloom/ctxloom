@@ -361,7 +361,7 @@ func distillWithModel(ctx context.Context, llmName, llmLabel, model string, env 
 
 	// For code and JSON, try fast local compression
 	if isStructuredContent(contentType) {
-		result, err := compressionRouter.CompressWithType(ctx, contentType, content, 0.5)
+		result, err := compressionRouter.CompressWithType(ctx, contentType, content)
 		if err == nil && result.Ratio < 0.7 {
 			// Good compression achieved with AST/JSON - use it
 			return result.Content, result.ModelID, nil

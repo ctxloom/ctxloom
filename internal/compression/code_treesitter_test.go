@@ -25,7 +25,7 @@ func TestCodeCompressor_ConcurrentCompress(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := c.Compress(context.Background(), ContentTypeGo, input, 0.5)
+			result, err := c.Compress(context.Background(), ContentTypeGo, input)
 			assert.NoError(t, err)
 			assert.Contains(t, result.Content, "func Foo")
 		}()
@@ -79,7 +79,7 @@ func generateID() int {
 }
 `
 
-	result, err := c.Compress(ctx, ContentTypeGo, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeGo, input)
 	require.NoError(t, err)
 
 	// Should preserve package
@@ -124,7 +124,7 @@ func TestCodeCompressor_Go_EmptyExtractionFallsBackToVerbatim(t *testing.T) {
 	c := NewCodeCompressor()
 	input := "packages are great\n\nAlways pin your dependencies for reproducible builds.\n"
 
-	result, err := c.Compress(context.Background(), ContentTypeGo, input, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeGo, input)
 	require.NoError(t, err)
 	assert.Equal(t, input, result.Content, "zero recognized nodes must fall back to the original content verbatim")
 	assert.Equal(t, 1.0, result.Ratio, "a verbatim fallback reports Ratio 1.0, never 0.0 (which read as a successful compression)")
@@ -184,7 +184,7 @@ def main():
     print(user)
 `
 
-	result, err := c.Compress(ctx, ContentTypePython, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypePython, input)
 	require.NoError(t, err)
 
 	// Should preserve imports
@@ -262,7 +262,7 @@ export function createApp() {
 }
 `
 
-	result, err := c.Compress(ctx, ContentTypeJavaScript, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input)
 	require.NoError(t, err)
 
 	// Should preserve imports
@@ -294,7 +294,7 @@ export function createApp() {
 }
 `
 
-	result, err := c.Compress(ctx, ContentTypeJavaScript, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input)
 	require.NoError(t, err)
 
 	// The binding name must survive in some form.
@@ -331,7 +331,7 @@ def sync_only():
     return 1
 `
 
-	result, err := c.Compress(ctx, ContentTypePython, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypePython, input)
 	require.NoError(t, err)
 
 	// Module-level assignments preserved.
@@ -399,7 +399,7 @@ fn generate_id() -> u64 {
 }
 `
 
-	result, err := c.Compress(ctx, ContentTypeRust, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeRust, input)
 	require.NoError(t, err)
 
 	// Should preserve use statements
@@ -452,7 +452,7 @@ public class User {
 }
 `
 
-	result, err := c.Compress(ctx, ContentTypeJava, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJava, input)
 	require.NoError(t, err)
 
 	// Should preserve package
@@ -510,7 +510,7 @@ type Reader interface {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := c.Compress(ctx, ContentTypeGo, tt.input, 0.5)
+			result, err := c.Compress(ctx, ContentTypeGo, tt.input)
 			require.NoError(t, err)
 
 			for _, exp := range tt.expected {

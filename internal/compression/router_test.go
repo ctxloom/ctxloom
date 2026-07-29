@@ -30,7 +30,7 @@ func TestRouter_CompressWithType_NoHandler(t *testing.T) {
 	router := NewRouter()
 
 	ctx := context.Background()
-	result, err := router.CompressWithType(ctx, ContentTypeMarkdown, "Some markdown", 0.5)
+	result, err := router.CompressWithType(ctx, ContentTypeMarkdown, "Some markdown")
 
 	require.NoError(t, err)
 	assert.Equal(t, "Some markdown", result.Content)
@@ -42,7 +42,7 @@ func TestRouter_CompressWithType_Code(t *testing.T) {
 	router := NewRouter()
 
 	ctx := context.Background()
-	result, err := router.CompressWithType(ctx, ContentTypeGo, "package main\nfunc main() {}", 0.5)
+	result, err := router.CompressWithType(ctx, ContentTypeGo, "package main\nfunc main() {}")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Content)
@@ -53,7 +53,7 @@ func TestRouter_CompressWithType_JSON(t *testing.T) {
 	router := NewRouter()
 
 	ctx := context.Background()
-	result, err := router.CompressWithType(ctx, ContentTypeJSON, `{"key": "value"}`, 0.5)
+	result, err := router.CompressWithType(ctx, ContentTypeJSON, `{"key": "value"}`)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Content)

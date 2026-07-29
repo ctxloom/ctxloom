@@ -106,7 +106,8 @@ type markdownParts struct {
 // mistake or content smuggled past the decoder. It is grouped into the item (and
 // therefore into the digest) by the walker, so silently ignoring it would mean
 // bytes are attested that nothing can explain.
-func readMarkdownItem(dir string, src Source) (markdownParts, error) {
+func readMarkdownItem(t SurfaceType, src Source) (markdownParts, error) {
+	dir := t.Dir()
 	var out markdownParts
 	stem, ok := detectMarkdownItem(dir, src)
 	if !ok {
@@ -119,7 +120,9 @@ func readMarkdownItem(dir string, src Source) (markdownParts, error) {
 	}
 	for _, p := range paths {
 		if IsMetaPath(p) {
-			return out, fmt.Errorf("content: %s carries the metadata sidecar %q, but %s items keep their metadata in front-matter", stem, p, dir)
+			if err := refuseUnexplainedMeta(t, stem, p); err != nil {
+				return out, err
+			}
 		}
 		data, err := src.Open(p)
 		if err != nil {
@@ -199,6 +202,9 @@ type fragmentType struct{}
 func (fragmentType) Name() string { return trust.KindFragment.Dir() }
 func (fragmentType) Dir() string  { return trust.KindFragment.Dir() }
 
+// Meta: front-matter. Fragments are .md, so they follow the SKILL.md convention.
+func (fragmentType) Meta() MetaStore { return InlineMeta{} }
+
 func (t fragmentType) Detect(src Source) bool {
 	_, ok := detectMarkdownItem(t.Dir(), src)
 	return ok
@@ -217,7 +223,7 @@ func (t fragmentType) RefFor(bundle string, src Source) (trust.Ref, error) {
 }
 
 func (t fragmentType) Decode(src Source) (Surface, error) {
-	parts, err := readMarkdownItem(t.Dir(), src)
+	parts, err := readMarkdownItem(t, src)
 	if err != nil {
 		return nil, err
 	}
@@ -286,6 +292,9 @@ type commandType struct{}
 func (commandType) Name() string { return trust.KindPrompt.Dir() }
 func (commandType) Dir() string  { return trust.KindPrompt.Dir() }
 
+// Meta: front-matter, as for fragments.
+func (commandType) Meta() MetaStore { return InlineMeta{} }
+
 func (t commandType) Detect(src Source) bool {
 	_, ok := detectMarkdownItem(t.Dir(), src)
 	return ok
@@ -304,7 +313,7 @@ func (t commandType) RefFor(bundle string, src Source) (trust.Ref, error) {
 }
 
 func (t commandType) Decode(src Source) (Surface, error) {
-	parts, err := readMarkdownItem(t.Dir(), src)
+	parts, err := readMarkdownItem(t, src)
 	if err != nil {
 		return nil, err
 	}

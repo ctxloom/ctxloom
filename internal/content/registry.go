@@ -68,6 +68,10 @@ type SurfaceType interface {
 	// is the base form — the one that unsuffixed component filenames belong
 	// to. See formOf for the layout convention this establishes.
 	Forms(src Source) ([]signing.Form, error)
+	// Meta declares where this type keeps its ctxloom metadata — a sidecar, or
+	// inside the content file, or nowhere. See MetaStore for why residency is a
+	// per-type decision while RECOGNISING a metadata-shaped path is not.
+	Meta() MetaStore
 	// RefFor translates a candidate group's paths into a ref. Path-to-ref
 	// translation lives here because it is kind-specific: a hook's name is
 	// "<event>/<name>", two path segments, where every other kind's is one.

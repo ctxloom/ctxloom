@@ -57,7 +57,8 @@ func detectSingleYAML(dir string, src Source, depth int) (string, bool) {
 // the item and hashed into the digest but that nothing in the decode path can
 // explain — exactly the shape in which unexplained content rides along under a
 // valid signature.
-func readExecItem(dir string, src Source, depth int, content, meta any) (string, error) {
+func readExecItem(t SurfaceType, src Source, depth int, content, meta any) (string, error) {
+	dir := t.Dir()
 	name, ok := detectSingleYAML(dir, src, depth)
 	if !ok {
 		return "", fmt.Errorf("%w: not a %s item", ErrUnrecognized, dir)
@@ -69,8 +70,11 @@ func readExecItem(dir string, src Source, depth int, content, meta any) (string,
 	for _, p := range paths {
 		target := content
 		if IsMetaPath(p) {
+			if err := refuseUnexplainedMeta(t, name, p); err != nil {
+				return "", err
+			}
 			if meta == nil {
-				return "", fmt.Errorf("content: %s carries the metadata sidecar %q, but %s items have no sidecar", name, p, dir)
+				return "", fmt.Errorf("content: %s declares a metadata file but supplied no decode target for %q", dir, p)
 			}
 			target = meta
 		}
@@ -95,10 +99,11 @@ func readExecItem(dir string, src Source, depth int, content, meta any) (string,
 // by the tool that owns its schema. Our keys go in the sidecar, which is a
 // component of the item and therefore hashed: changing metadata changes Content
 // and invalidates the signature, exactly as changing the content file does.
-func encodeExecItem(dir, name string, content, meta any) ([]Component, error) {
+func encodeExecItem(t SurfaceType, name string, content, meta any) ([]Component, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: surface has no name", ErrSurfaceType)
 	}
+	dir := t.Dir()
 	contentPath := itemPath(dir, name, ".yaml")
 	if err := validateDigestPath(contentPath); err != nil {
 		return nil, err
@@ -111,12 +116,19 @@ func encodeExecItem(dir, name string, content, meta any) ([]Component, error) {
 		body = []byte("{}\n")
 	}
 	out := []Component{{Path: contentPath, Mode: ModeRegular, Bytes: body}}
+	if meta == nil {
+		return out, nil
+	}
+	metaPath, hasMeta := t.Meta().PathFor(dir, name)
+	if !hasMeta {
+		return nil, fmt.Errorf("%w: %s supplied metadata but its MetaStore declares no metadata file", ErrSurfaceType, dir)
+	}
 	sidecar, err := marshalYAML(meta)
 	if err != nil {
 		return nil, err
 	}
 	if len(sidecar) > 0 {
-		out = append(out, Component{Path: MetaPath(contentPath), Mode: ModeRegular, Bytes: sidecar})
+		out = append(out, Component{Path: metaPath, Mode: ModeRegular, Bytes: sidecar})
 	}
 	return out, nil
 }
@@ -160,6 +172,10 @@ type mcpType struct{}
 func (mcpType) Name() string { return trust.KindMCP.Dir() }
 func (mcpType) Dir() string  { return trust.KindMCP.Dir() }
 
+// Meta: a sidecar, so mcp/<name>.yaml stays pure MCP-client config with none of
+// our keys in it.
+func (mcpType) Meta() MetaStore { return SidecarMeta{} }
+
 func (t mcpType) Detect(src Source) bool {
 	_, ok := detectSingleYAML(t.Dir(), src, 0)
 	return ok
@@ -183,7 +199,7 @@ func (t mcpType) RefFor(bundle string, src Source) (trust.Ref, error) {
 func (t mcpType) Decode(src Source) (Surface, error) {
 	var content mcpContent
 	var meta mcpMeta
-	name, err := readExecItem(t.Dir(), src, 0, &content, &meta)
+	name, err := readExecItem(t, src, 0, &content, &meta)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +219,7 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %T is not an MCP", ErrSurfaceType, s)
 	}
-	return encodeExecItem(t.Dir(), m.Name,
+	return encodeExecItem(t, m.Name,
 		mcpContent{Command: m.Command, Args: m.Args, Env: m.Env},
 		mcpMeta{Notes: m.Notes, Installation: m.Installation, ContentHash: m.ContentHash})
 }
@@ -278,6 +294,10 @@ type hookType struct{}
 func (hookType) Name() string { return trust.KindHook.Dir() }
 func (hookType) Dir() string  { return trust.KindHook.Dir() }
 
+// Meta: none. A hook's whole authored data is its behavioural config, and it has
+// no ctxloom metadata now that order is gone — so a stray sidecar is an error.
+func (hookType) Meta() MetaStore { return InlineMeta{} }
+
 func (t hookType) Detect(src Source) bool {
 	_, ok := detectSingleYAML(t.Dir(), src, 1)
 	return ok
@@ -300,7 +320,7 @@ func (t hookType) RefFor(bundle string, src Source) (trust.Ref, error) {
 
 func (t hookType) Decode(src Source) (Surface, error) {
 	var content hookContent
-	name, err := readExecItem(t.Dir(), src, 1, &content, nil)
+	name, err := readExecItem(t, src, 1, &content, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +349,7 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 	if strings.ContainsAny(h.Event, `/\`) || strings.ContainsAny(h.Name, `/\`) {
 		return nil, fmt.Errorf("%w: hook event %q and name %q must each be a single path segment", ErrBadPath, h.Event, h.Name)
 	}
-	return encodeExecItem(t.Dir(), h.refName(),
+	return encodeExecItem(t, h.refName(),
 		hookContent{
 			Matcher:         h.Matcher,
 			Type:            h.Type,

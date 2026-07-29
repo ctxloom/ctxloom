@@ -68,6 +68,10 @@ type skillType struct{}
 func (skillType) Name() string { return trust.KindSkill.Dir() }
 func (skillType) Dir() string  { return trust.KindSkill.Dir() }
 
+// Meta: a sidecar, placed BESIDE the package directory rather than inside it, so
+// skills/<name>/ stays a pure Agent Skill tree with nothing of ours in it.
+func (skillType) Meta() MetaStore { return SidecarMeta{} }
+
 // detectSkill recognises a skill candidate: every non-sidecar component sits
 // under one common package directory, and that directory holds a SKILL.md.
 //
@@ -206,11 +210,11 @@ func (t skillType) Encode(s Surface) ([]Component, error) {
 		return nil, err
 	}
 	if len(sidecar) > 0 {
-		out = append(out, Component{
-			Path:  MetaPathForName(t.Dir(), sk.Name),
-			Mode:  ModeRegular,
-			Bytes: sidecar,
-		})
+		metaPath, hasMeta := t.Meta().PathFor(t.Dir(), sk.Name)
+		if !hasMeta {
+			return nil, fmt.Errorf("%w: skills declare no metadata file", ErrSurfaceType)
+		}
+		out = append(out, Component{Path: metaPath, Mode: ModeRegular, Bytes: sidecar})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil

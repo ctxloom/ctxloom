@@ -35,6 +35,9 @@ type profileType struct{}
 func (profileType) Name() string { return KindProfile.Dir() }
 func (profileType) Dir() string  { return KindProfile.Dir() }
 
+// Meta: none. A profile document carries its own fields natively.
+func (profileType) Meta() MetaStore { return InlineMeta{} }
+
 func (t profileType) Detect(src Source) bool {
 	_, ok := detectSingleYAML(t.Dir(), src, 0)
 	return ok
@@ -60,7 +63,7 @@ func (t profileType) RefFor(bundle string, src Source) (trust.Ref, error) {
 
 func (t profileType) Decode(src Source) (Surface, error) {
 	var def profiles.Profile
-	name, err := readExecItem(t.Dir(), src, 0, &def, nil)
+	name, err := readExecItem(t, src, 0, &def, nil)
 	if err != nil {
 		return nil, err
 	}

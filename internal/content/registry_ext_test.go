@@ -45,6 +45,11 @@ type widgetType struct{}
 func (widgetType) Name() string { return "widgets" }
 func (widgetType) Dir() string  { return widgetKind.Dir() }
 
+// Meta: this third-party kind chooses a sidecar. That choice is the type's own —
+// nothing in the content package imposes it — which is the point of the
+// SurfaceType.Meta surface.
+func (widgetType) Meta() content.MetaStore { return content.SidecarMeta{} }
+
 // widgetName recovers the item name from a candidate group's paths, using only
 // content.IsMetaPath and the standard library.
 func widgetName(src content.Source) (string, bool) {
@@ -130,8 +135,12 @@ func (t widgetType) Encode(s content.Surface) ([]content.Component, error) {
 	contentPath := "widgets/" + w.Name + ".widget"
 	out := []content.Component{{Path: contentPath, Mode: content.ModeRegular, Bytes: []byte(w.Spec)}}
 	if w.Owner != "" {
+		metaPath, ok := t.Meta().PathFor(t.Dir(), w.Name)
+		if !ok {
+			return nil, fmt.Errorf("widgets declare no metadata file")
+		}
 		out = append(out, content.Component{
-			Path:  content.MetaPath(contentPath),
+			Path:  metaPath,
 			Mode:  content.ModeRegular,
 			Bytes: []byte("owner: " + w.Owner + "\n"),
 		})

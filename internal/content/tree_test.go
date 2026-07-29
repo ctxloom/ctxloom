@@ -922,3 +922,37 @@ func TestMCPEnv_EncodeIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestSurfaceType_MetaResidencyIsPerType pins what each shipped type DECLARES,
+// so a residency change is a visible diff rather than a surprise in a digest.
+func TestSurfaceType_MetaResidencyIsPerType(t *testing.T) {
+	for _, tc := range []struct {
+		kind        trust.ItemKind
+		wantSidecar bool
+		wantPath    string
+	}{
+		{trust.KindFragment, false, ""},
+		{trust.KindPrompt, false, ""},
+		{trust.KindHook, false, ""},
+		{KindProfile, false, ""},
+		{trust.KindMCP, true, "mcp/.postgres.meta.yaml"},
+		{trust.KindSkill, true, "skills/.postgres.meta.yaml"},
+	} {
+		ty, ok := TypeForKind(tc.kind)
+		if !ok {
+			t.Fatalf("no type for %q", tc.kind)
+		}
+		got, hasMeta := ty.Meta().PathFor(ty.Dir(), "postgres")
+		if hasMeta != tc.wantSidecar {
+			t.Errorf("%s: PathFor ok = %v, want %v", tc.kind, hasMeta, tc.wantSidecar)
+		}
+		if got != tc.wantPath {
+			t.Errorf("%s: PathFor = %q, want %q", tc.kind, got, tc.wantPath)
+		}
+		// Accepts must agree with PathFor: a type that stores no metadata file
+		// must not accept one, which is what makes a stray sidecar loud.
+		if accepts := ty.Meta().Accepts(ty.Dir(), MetaPathForName(ty.Dir(), "postgres")); accepts != tc.wantSidecar {
+			t.Errorf("%s: Accepts = %v, want %v", tc.kind, accepts, tc.wantSidecar)
+		}
+	}
+}

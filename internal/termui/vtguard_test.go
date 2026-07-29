@@ -69,15 +69,20 @@ func TestVTGuard_ReassertsAfterClobbers(t *testing.T) {
 }
 
 func TestVTGuard_MarksBarDamagedOnScreenClears(t *testing.T) {
-	for _, in := range []string{"\x1b[2J", "\x1b[3J", "\x1b[?1049h"} {
+	// U141-F03: ED 0 (bare "\x1b[J", the default) and explicit "\x1b[0J" erase
+	// from the cursor to the END of the display — which reaches the reserved
+	// bar row exactly like ED 2/3 do, since ED ignores scroll margins. Only
+	// ED 1 (erase to cursor) is confined above the child's own viewport and is
+	// genuinely safe.
+	for _, in := range []string{"\x1b[2J", "\x1b[3J", "\x1b[?1049h", "\x1b[J", "\x1b[0J"} {
 		g, damaged := newTestGuard(23)
 		out := filterAll(g, in)
 		assert.Equal(t, in, out, "damage sequences pass through unmodified")
 		assert.Equal(t, 1, *damaged, "%q must mark the bar dirty", in)
 	}
 	g, damaged := newTestGuard(23)
-	_ = filterAll(g, "\x1b[J\x1b[0J\x1b[1J")
-	assert.Zero(t, *damaged, "partial erases never touch the bar row")
+	_ = filterAll(g, "\x1b[1J")
+	assert.Zero(t, *damaged, "ED 1 (erase to cursor) never touches the bar row")
 }
 
 func TestVTGuard_HoldsBackSplitSequencesAndRunes(t *testing.T) {
@@ -191,6 +196,48 @@ func TestVTGuard_ChildDECSCClearedBySoftResetAndAltLeave(t *testing.T) {
 		assert.True(t, g.SafeForPaint(),
 			"alt-screen leave consumes the saved slot; childSaved must clear")
 	})
+}
+
+// TestVTGuard_ChildSavedTracksANSISysSpelling pins U141-F05: the ANSI.SYS
+// save/restore spelling (CSI s / CSI u) writes into the SAME single
+// saved-cursor slot as DECSC/DECRC (ESC 7/8) — a child using this spelling
+// must block bar paints exactly like ESC 7 does, or the bar's own DECSC
+// overwrites the child's saved cell and the child's later CSI u restores to
+// the wrong position.
+func TestVTGuard_ChildSavedTracksANSISysSpelling(t *testing.T) {
+	g, _ := newTestGuard(23)
+	assert.True(t, g.SafeForPaint())
+	assert.Equal(t, "\x1b[s", filterAll(g, "\x1b[s"))
+	assert.False(t, g.SafeForPaint(), "CSI s occupies the saved-cursor slot like ESC 7")
+	assert.Equal(t, "\x1b[u", filterAll(g, "\x1b[u"))
+	assert.True(t, g.SafeForPaint(), "CSI u releases the slot like ESC 8")
+}
+
+// TestVTGuard_StepEscIntermediatesBounded pins U141-F06: stepEsc appended
+// escape intermediates (0x20-0x2f) to g.seq with no length bound, unlike
+// stepCSI's vtCSIMax escape valve — a stray ESC followed by a long run of
+// intermediate bytes (e.g. spaces) buffered unboundedly and withheld
+// everything from the tty until a final byte arrived.
+func TestVTGuard_StepEscIntermediatesBounded(t *testing.T) {
+	g, _ := newTestGuard(23)
+	long := "\x1b" + strings.Repeat(" ", vtCSIMax+10)
+	out := filterAll(g, long)
+	assert.True(t, len(out) > 0, "an oversized escape-intermediate run must flush rather than buffer unboundedly")
+	out += filterAll(g, "q")
+	assert.Equal(t, long+"q", out, "bytes still arrive verbatim once ridden out")
+}
+
+// TestVTGuard_ChildDECSCClearedBySoftResetEvenWhenBarInactive pins U141-F12:
+// the DECSTR arm was gated on bottom>0, so when the bar is inactive (short
+// terminal, surround off) a soft reset did not clear childSaved even though
+// DECSTR resets the terminal's saved-cursor slot — if the reservation later
+// becomes active, the stale flag starves every bar paint.
+func TestVTGuard_ChildDECSCClearedBySoftResetEvenWhenBarInactive(t *testing.T) {
+	g, _ := newTestGuard(0) // bar inactive: bottom==0
+	filterAll(g, "\x1b7")
+	assert.False(t, g.SafeForPaint(), "open child DECSC blocks paints")
+	filterAll(g, "\x1b[!p") // DECSTR while the bar is inactive
+	assert.True(t, g.SafeForPaint(), "DECSTR must clear childSaved even when bottom==0")
 }
 
 func TestVTGuard_AbortedStringReprocessesEscape(t *testing.T) {

@@ -166,6 +166,13 @@ func (g *vtGuard) stepEsc(b byte) {
 		g.torn = true
 	case b >= 0x20 && b <= 0x2f:
 		g.seq = append(g.seq, b) // intermediate (e.g. ESC # 8); final follows
+		if len(g.seq) > vtCSIMax {
+			// Same escape valve as stepCSI (U141-F06): a stray ESC ridden by
+			// a long run of intermediates must not buffer unboundedly.
+			g.out = append(g.out, g.seq...)
+			g.seq = g.seq[:0]
+			g.state = vtGarbage
+		}
 	case b == 0x18 || b == 0x1a:
 		// CAN/SUB abort the sequence; the terminal re-aborts identically.
 		g.emitSeq(b)
@@ -288,14 +295,29 @@ func (g *vtGuard) finishCSI() {
 		g.rewriteDECSTBM(body, bottom)
 		g.seq = g.seq[:0]
 		return
-	case final == 'p' && intermediate == '!' && bottom > 0:
+	case final == 'p' && intermediate == '!':
 		// DECSTR soft reset: margins reset to full screen, active cursor
 		// untouched — but the saved-cursor slot is reset, so a child DECSC left
 		// open no longer holds its cell. Clear childSaved (as RIS does) so it
-		// can't starve paints.
+		// can't starve paints. This must NOT be gated on bottom>0 (U141-F12):
+		// the slot reset happens regardless of whether the bar is currently
+		// active, and a stale true would starve paints once it becomes active.
 		g.emitPending()
 		g.childSaved = false
-		g.insertReassert()
+		if bottom > 0 {
+			g.insertReassert()
+		}
+		return
+	case (final == 's' || final == 'u') && !private && intermediate == 0:
+		// ANSI.SYS save/restore (U141-F05): xterm honours these into the SAME
+		// single saved-cursor slot as DECSC/DECRC (ESC 7/8), so a child using
+		// this spelling must occupy/release childSaved identically or the
+		// bar's own DECSC clobbers the child's saved cell. NOTE: CSI s is
+		// also DECSLRM (left/right margin set) when DECLRMM (private mode 69)
+		// is enabled; this guard does not track that mode and treats CSI s as
+		// save unconditionally — a documented, accepted gap.
+		g.emitPending()
+		g.childSaved = final == 's'
 		return
 	case (final == 'l' || final == 'h') && private && csiParamsContainAltScreen(body[1:]):
 		g.emitPending()
@@ -317,8 +339,11 @@ func (g *vtGuard) finishCSI() {
 			g.barDamaged()
 		}
 		return
-	case final == 'J' && !private && intermediate == 0 && csiFirstParam(body, 0) >= 2:
-		// ED 2/3 erase the full screen, bar row included, margins untouched.
+	case final == 'J' && !private && intermediate == 0 && csiFirstParam(body, 0) != 1:
+		// ED 0 (default/no param), ED 2, and ED 3 all erase down to (or past)
+		// the end of the display, bar row included, margins untouched — ED
+		// ignores scroll margins entirely (U141-F03). Only ED 1 (erase to
+		// cursor) is confined to the child's own viewport and is safe.
 		g.emitPending()
 		if g.barDamaged != nil {
 			g.barDamaged()

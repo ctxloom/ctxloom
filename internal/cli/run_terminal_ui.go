@@ -142,7 +142,7 @@ func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, erro
 	held := sessionCoord.Roster()
 	rows := make([]termui.RosterEntry, len(held))
 	for i, b := range held {
-		rows[i] = termui.RosterEntry{Harp: b.Harp, Agent: b.Agent, State: b.State, LastActivityUnix: b.LastActivityUnix}
+		rows[i] = termui.RosterEntry{Harp: b.Harp, State: b.State, LastActivityUnix: b.LastActivityUnix}
 	}
 	return rows, nil
 }

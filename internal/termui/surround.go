@@ -44,7 +44,6 @@ type BarInfo struct {
 // dependency-light and hermetically testable.
 type RosterEntry struct {
 	Harp             string
-	Agent            string
 	State            string // queued | executing | parked | idle | ended
 	LastActivityUnix int64
 }

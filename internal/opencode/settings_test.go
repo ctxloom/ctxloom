@@ -219,6 +219,52 @@ func TestWriteSettings_MCPAndRemoveOnlyOurs(t *testing.T) {
 	assert.Equal(t, "gruvbox", got["theme"], "foreign key survives removal")
 }
 
+// TestRemoveMCP_MalformedMCPFailsLoudlyAndPreservesLedger pins U080-F04: a
+// non-object `mcp` value used to make stripManagedMCP silently strip nothing
+// (bare `return` on the unmarshal error), after which removeMCP/RemoveSettings
+// cleared the ledger anyway — permanently orphaning the ctxloom-registered MCP
+// server names with no way to remove them, while reporting success. Both the
+// malformed mcp key and the ledger must survive an errored removal attempt.
+func TestRemoveMCP_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &OpencodeWriter{FS: fs}
+	require.NoError(t, fs.MkdirAll("/proj", 0o755))
+	// mcp is a JSON array, not an object: malformed for opencode's schema.
+	existing := `{"mcp": ["not", "an", "object"]}`
+	require.NoError(t, afero.WriteFile(fs, "/proj/opencode.json", []byte(existing), 0o644))
+	require.NoError(t, w.writeLedger("/proj", []string{"ctxloom", "proj-tool"}))
+
+	err := w.removeMCP("/proj")
+	require.Error(t, err, "malformed mcp must fail loudly, matching applyManaged's refusal")
+
+	after, readErr := afero.ReadFile(fs, "/proj/opencode.json")
+	require.NoError(t, readErr)
+	assert.JSONEq(t, existing, string(after), "malformed mcp left untouched, not silently accepted")
+
+	ledger := w.readLedger("/proj")
+	assert.ElementsMatch(t, []string{"ctxloom", "proj-tool"}, ledger,
+		"ledger must NOT be cleared when the strip did not actually happen")
+}
+
+// TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger is the
+// RemoveSettings counterpart of the removeMCP case above (U080-F04): the same
+// bug is reachable through the full-removal path too.
+func TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &OpencodeWriter{FS: fs}
+	require.NoError(t, fs.MkdirAll("/proj", 0o755))
+	existing := `{"mcp": ["not", "an", "object"]}`
+	require.NoError(t, afero.WriteFile(fs, "/proj/opencode.json", []byte(existing), 0o644))
+	require.NoError(t, w.writeLedger("/proj", []string{"ctxloom"}))
+
+	err := w.RemoveSettings("/proj")
+	require.Error(t, err, "malformed mcp must fail loudly")
+
+	ledger := w.readLedger("/proj")
+	assert.ElementsMatch(t, []string{"ctxloom"}, ledger,
+		"ledger must NOT be cleared when the strip did not actually happen")
+}
+
 // TestWriteContext_InstructionsAndFile proves context is delivered via the
 // instructions key + a ctxloom-owned file, and cleanly removed, without touching a
 // managed MCP entry in the same opencode.json.

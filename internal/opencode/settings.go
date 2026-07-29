@@ -299,14 +299,19 @@ func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 // stripManagedMCP removes the previously-managed servers (ledger names, plus the
 // well-known ctxloom name for pre-ledger files) from cfg's `mcp` object,
 // preserving user-authored servers. An emptied `mcp` object is dropped entirely.
-func stripManagedMCP(cfg map[string]json.RawMessage, ledger []string) {
+// A non-object `mcp` value FAILS LOUDLY (U080-F04) rather than silently
+// stripping nothing: applyManaged already refuses to overwrite the identical
+// condition, and a caller that swallowed this error went on to clear the
+// managed-server ledger unconditionally, permanently orphaning those servers
+// with no way left to remove them.
+func stripManagedMCP(cfg map[string]json.RawMessage, ledger []string) error {
 	raw, ok := cfg["mcp"]
 	if !ok {
-		return
+		return nil
 	}
 	servers := map[string]json.RawMessage{}
-	if json.Unmarshal(raw, &servers) != nil {
-		return
+	if err := json.Unmarshal(raw, &servers); err != nil {
+		return fmt.Errorf("existing opencode.json mcp is malformed (refusing to modify): %w", err)
 	}
 	delete(servers, agent.MCPServerName)
 	for _, n := range ledger {
@@ -314,11 +319,12 @@ func stripManagedMCP(cfg map[string]json.RawMessage, ledger []string) {
 	}
 	if len(servers) == 0 {
 		delete(cfg, "mcp")
-		return
+		return nil
 	}
 	if b, err := json.Marshal(servers); err == nil {
 		cfg["mcp"] = b
 	}
+	return nil
 }
 
 // stripManagedInstructions removes ctxloom's context-file entry from cfg's
@@ -507,7 +513,9 @@ func (w *OpencodeWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCon
 	if err != nil {
 		return err
 	}
-	stripManagedMCP(cfg, w.readLedger(projectDir))
+	if err := stripManagedMCP(cfg, w.readLedger(projectDir)); err != nil {
+		return err
+	}
 	servers := composeManagedServers(mcp, bundleMCP)
 	names, err := applyManaged(cfg, managedConfig{mcpServers: servers})
 	if err != nil {
@@ -585,7 +593,9 @@ func (w *OpencodeWriter) removeMCP(projectDir string) error {
 		if err != nil {
 			return err
 		}
-		stripManagedMCP(cfg, w.readLedger(projectDir))
+		if err := stripManagedMCP(cfg, w.readLedger(projectDir)); err != nil {
+			return err
+		}
 		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
 			return err
 		}
@@ -605,7 +615,9 @@ func (w *OpencodeWriter) RemoveSettings(projectDir string) error {
 		if err != nil {
 			return err
 		}
-		stripManagedMCP(cfg, w.readLedger(projectDir))
+		if err := stripManagedMCP(cfg, w.readLedger(projectDir)); err != nil {
+			return err
+		}
 		stripManagedInstructions(cfg)
 		stripManagedSkillPath(cfg, opencodeSkillDir)
 		if err := saveOpencodeConfig(fs, path, cfg); err != nil {

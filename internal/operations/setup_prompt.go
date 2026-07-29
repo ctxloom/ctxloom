@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // SetupPromptCommandName is the well-known command name a bundle ships to
@@ -38,6 +39,12 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	}
 	infos, err := loader.ListAllCommands()
 	if err != nil {
+		// U087-F07: this used to fall back to the built-in with the error
+		// discarded — an installed bundle's setup guidance silently vanishing
+		// looked identical to nobody having shipped any. The fallback is
+		// still correct (setup must never be blocked by a listing failure);
+		// only the silence was the bug.
+		clidiag.Warn("ctxloom", "agent-setup: list installed commands: %v (using the built-in prompt alone)", err)
 		return builtin
 	}
 	// Multiple installed bundles/loadouts can each ship an "agent-setup" command
@@ -56,7 +63,15 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 
 	parts := []string{builtin}
 	for _, ref := range refs {
-		if content, gerr := loader.GetCommand(ref); gerr == nil && strings.TrimSpace(content.Content) != "" {
+		content, gerr := loader.GetCommand(ref)
+		if gerr != nil {
+			// U087-F07: a per-ref GetCommand failure (e.g. the bundle vanished
+			// or became unreadable between the listing above and this read)
+			// used to drop that bundle's contribution with no signal at all.
+			clidiag.Warn("ctxloom", "agent-setup: read %s: %v (skipping this contribution)", ref, gerr)
+			continue
+		}
+		if strings.TrimSpace(content.Content) != "" {
 			parts = append(parts, content.Content)
 		}
 	}

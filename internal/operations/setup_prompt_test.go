@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -119,4 +121,27 @@ func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T)
 	assert.Contains(t, got, "BUILTIN", "the built-in guidance must still be present")
 	assert.Contains(t, got, "COMPANION-SHIPPED-SETUP-PROMPT",
 		"an installed companion's agent-setup command must be composed in exactly like a repo bundle's")
+}
+
+// TestResolveSetupPrompt_HealthyPathNeverWarns pins U087-F07's fix: the two
+// newly-added clidiag.Warn calls (listing-failure, per-ref read-failure) fire
+// only on their respective error paths, never on an ordinary successful
+// composition. Regression net against a future edit relaxing that condition.
+func TestResolveSetupPrompt_HealthyPathNeverWarns(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir, _ := regenTestApp(t)
+	writeRegenBundle(t, appDir, "onboarding", `version: "1.0"
+commands:
+  agent-setup:
+    content: "BUNDLE-SHIPPED-SETUP-PROMPT"
+`)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	got := ResolveSetupPrompt(cfg, "BUILTIN")
+	assert.Contains(t, got, "BUNDLE-SHIPPED-SETUP-PROMPT")
+	assert.Empty(t, buf.String(), "a healthy composition must never warn")
 }

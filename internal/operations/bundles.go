@@ -930,15 +930,6 @@ func isOutsideRel(rel string) bool {
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// RequireSafeBundlePath is the exported guard for callers outside this package
-// (the CLI `bundle edit` path, which mutates a loaded bundle in place and saves
-// it directly rather than through UpdateBundle). It rejects a bundle path that
-// escapes the given bundle dirs via a symlinked component, the same check
-// CreateBundle/UpdateBundle/DeleteBundle apply internally.
-func RequireSafeBundlePath(dirs []string, target string) error {
-	return requireSafeBundlePath(dirs, target)
-}
-
 // requireSafeBundlePath verifies that target lives under one of the given
 // bundle dirs AND that no directory component between the containing dir
 // and target (inclusive of target itself when it exists) is a symlink.

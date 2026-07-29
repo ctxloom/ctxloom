@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
@@ -105,12 +106,12 @@ func writeDiscoveryMarker(dir string, kind socketKind, cwd string, marker runner
 	if err != nil {
 		return func() {}, fmt.Errorf("encode discovery marker: %w", err)
 	}
-	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return func() {}, fmt.Errorf("write discovery marker %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	// U113-F06: the temp+rename was hand-rolled here with a pid-suffixed temp
+	// name and no fsync. A pid is unique across processes but NOT across two
+	// runners in one process, and the missing fsync lets a power loss persist
+	// the rename ahead of the marker's bytes — a shim would then read a
+	// zero-length marker as a malformed one. iox.WriteFileAtomic owns both.
+	if err := iox.WriteFileAtomic(path, raw, 0o600); err != nil {
 		return func() {}, fmt.Errorf("publish discovery marker %s: %w", path, err)
 	}
 	return func() { _ = os.Remove(path) }, nil

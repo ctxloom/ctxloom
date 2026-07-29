@@ -7,6 +7,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // D4 — CHECKPOINT compaction (pre-made semantics, Wave D playbook): a
@@ -54,15 +55,12 @@ func (c *Coordinator) writeItemsSnapshot() {
 		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: marshal: %v", err)
 		return
 	}
-	path := itemsSnapshotPath(c.stateDir)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	// U113-F06: this was a hand-rolled temp+rename with a FIXED temp name
+	// (path + ".tmp") and no fsync — two coordinators checkpointing the same
+	// stateDir shared one temp path, and a power loss could persist the rename
+	// ahead of the data. iox.WriteFileAtomic owns that invariant.
+	if err := iox.WriteFileAtomic(itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
 		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: write: %v", err)
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: rename: %v", err)
-		_ = os.Remove(tmp)
 	}
 }
 

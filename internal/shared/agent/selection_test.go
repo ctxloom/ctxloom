@@ -91,7 +91,7 @@ func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
 // terminal rejects it).
 func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	claudeSet := claude.NewSurfaces(claude.SurfaceInputs{Context: "hello"}, fixedPlacement{dir: "/isolated"}, fs)
+	claudeSet := claude.NewSurfaces(agent.SurfaceInputs{Context: "hello"}, fixedPlacement{dir: "/isolated"}, fs)
 
 	r, err := agent.Select(claudeSet).WithContext(agent.ContextWriteSystemPrompt).Build()
 	require.NoError(t, err, "SystemPrompt is a valid claude approach — Build succeeds")
@@ -112,7 +112,7 @@ func TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook(t *testing.
 	fs := afero.NewMemMapFs()
 	isolated := "/isolated-scratch"
 	sharedCwd := "/live/project"
-	set := claude.NewSurfaces(claude.SurfaceInputs{Context: "project rules"}, fixedPlacement{dir: isolated}, fs)
+	set := claude.NewSurfaces(agent.SurfaceInputs{Context: "project rules"}, fixedPlacement{dir: isolated}, fs)
 
 	r, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)

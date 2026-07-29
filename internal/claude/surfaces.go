@@ -229,36 +229,6 @@ func newSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSki
 	})
 }
 
-// SurfaceInputs carries the per-run data claude's surfaces write. It mirrors what
-// the launch path already assembles — the context text, the merged MCP config +
-// profile/builtin bundle servers, the hook set + statusline policy, and the
-// command exports. It is filled in production from the launch path
-// (agent.LaunchBackend's Setup, via backends.BuildSurfaces) as well as tests.
-type SurfaceInputs struct {
-	Context          string
-	MCP              *wire.MCPConfig
-	BundleMCP        map[string]wire.MCPServer
-	Hooks            *wire.HooksConfig
-	ManageStatusline bool
-	Commands         []agent.CommandExport
-	// SelfContainedCommands mirrors agent.SurfaceInputs.SelfContainedCommands:
-	// when true, DeliverCommands skips deduping against the delivering
-	// machine's ~/.claude/commands, so a portable `profile materialize
-	// --target` tree keeps every command. Every caller but materialize leaves
-	// this false.
-	SelfContainedCommands bool
-	// Skills carries the Agent Skill package exports for .claude/skills/.
-	Skills []agent.SkillExport
-	// MCPCommandOverride mirrors agent.SurfaceInputs.MCPCommandOverride: when
-	// non-empty, the MCP surface stamps this as the ctxloom-managed .mcp.json
-	// entry's command instead of agent.CtxloomCommand() (dire-five's fix; set
-	// only for an isolated-container cell).
-	MCPCommandOverride string
-	// DenyTools mirrors agent.SurfaceInputs.DenyTools: per-tool identifiers
-	// this run's settings surface denies via permissions.deny.
-	DenyTools []string
-}
-
 // Surfaces is claude's set of delivery surfaces for one run, exposed so the
 // SurfaceSelection builder can resolve each selected (kind, approach) to a
 // surface and hand it to a cell. claude has five surface objects — context,
@@ -287,7 +257,16 @@ type Surfaces struct {
 // append-flag file, the --mcp-config file, the --settings file); a nil fs
 // defaults to the OS filesystem. Every surface's well-known Delivery takes its
 // target dir at call time, so only the race-safe variants bind isolated here.
-func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfaces {
+//
+// It takes the SHARED agent.SurfaceInputs, exactly as antigravity/kiro/opencode
+// do. claude used to declare a local copy of it (agent.SurfaceInputs minus
+// Fragments), which forced two hand-maintained field-by-field mappers —
+// claudecode.go's buildSurfaces and lm/backends/registry.go's newSurfaces
+// closure — and they had already drifted: registry.go's copied ten of the
+// eleven fields and silently dropped MCPCommandOverride (U033-F01). Reading the
+// shared struct directly makes that class of drop impossible; claude simply
+// ignores the fields it has no use for (Fragments, AgentName).
+func NewSurfaces(in agent.SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := newContextSurface(in.Context, isolated, fs)
 	mcp := &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated, commandOverride: in.MCPCommandOverride}

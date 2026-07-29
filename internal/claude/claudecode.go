@@ -80,18 +80,7 @@ func NewClaudeCode() *ClaudeCode {
 // race-safe files, and stashes the concrete Surfaces on the backend so buildArgs
 // can read Context/MCP/Settings.Path() after a SharedCell delivery.
 func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) agent.SurfaceSet {
-	b.surfaces = NewSurfaces(SurfaceInputs{
-		Context:               in.Context,
-		MCP:                   in.MCP,
-		BundleMCP:             in.BundleMCP,
-		Hooks:                 in.Hooks,
-		ManageStatusline:      in.ManageStatusline,
-		Commands:              in.Commands,
-		SelfContainedCommands: in.SelfContainedCommands,
-		Skills:                in.Skills,
-		MCPCommandOverride:    in.MCPCommandOverride,
-		DenyTools:             in.DenyTools,
-	}, dirPlacement{dir: isolatedDir}, nil)
+	b.surfaces = NewSurfaces(in, dirPlacement{dir: isolatedDir}, nil)
 	return b.surfaces
 }
 

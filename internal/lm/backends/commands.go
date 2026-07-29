@@ -168,7 +168,7 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 		// mirror of config.Profile.Commands.
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
-			clidiag.Warn("ctxloom", "default profile %q unresolved; its curated prompts omitted: %v", profileName, err)
+			clidiag.Warn("ctxloom", "profile %q unresolved; its curated prompts omitted: %v", profileName, err)
 			continue
 		}
 		add(resolved.Commands)

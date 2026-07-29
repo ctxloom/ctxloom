@@ -75,6 +75,22 @@ func TestLoadCommandExports_NilConfigDoesNotPanic(t *testing.T) {
 	})
 }
 
+// U057-F08: an explicitly-selected (non-default) profile that fails to
+// resolve must not be warned as a "default profile" — mirrors the managed.go
+// regression tests for the same wording bug.
+func TestResolveProfilePromptRefs_ExplicitProfileWarningOmitsDefault(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	resolveProfilePromptRefs(cfg, []string{"explicitly-selected-and-missing"})
+
+	assert.NotContains(t, buf.String(), "default profile",
+		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
+}
+
 // U057-F05: resolveProfilePromptRefs must diagnose a BROKEN inline profile
 // (circular parent inheritance) instead of silently retrying it as a
 // directory profile, whose own unrelated not-found error then masks the real

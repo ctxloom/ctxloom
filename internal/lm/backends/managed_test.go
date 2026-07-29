@@ -231,6 +231,40 @@ func TestAssembleManagedDenyTools_CircularInlineProfileIsWarnedNotMasked(t *test
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
 }
 
+// U057-F08: the "default profile %q unresolved" warning must not say
+// "default" when the caller passed an EXPLICIT --profile/-p selection — only
+// a name pulled from the config's own defaults (scopedProfiles' fallback
+// branch, no profileNames given) is a "default profile". AssembleManagedHooks
+// already gets this right ("profile %q unresolved"); AssembleManagedMCP and
+// AssembleManagedDenyTools did not.
+func TestAssembleManagedMCP_ExplicitProfileWarningOmitsDefault(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+	})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	AssembleManagedMCP(cfg, []string{"explicitly-selected-and-missing"})
+
+	assert.NotContains(t, buf.String(), "default profile",
+		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
+}
+
+func TestAssembleManagedDenyTools_ExplicitProfileWarningOmitsDefault(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	AssembleManagedDenyTools(cfg, []string{"explicitly-selected-and-missing"})
+
+	assert.NotContains(t, buf.String(), "default profile",
+		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
+}
+
 // TestCommandExportsFor resolves each backend's per-prompt enablement + metadata
 // from the same bundle content, and returns nil for an unknown backend.
 func TestCommandExportsFor(t *testing.T) {

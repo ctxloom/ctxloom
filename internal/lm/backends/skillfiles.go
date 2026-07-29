@@ -93,7 +93,7 @@ func resolveProfileSkillRefs(cfg *config.Config, profileNames []string) []string
 		}
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
-			clidiag.Warn("ctxloom", "default profile %q unresolved; its curated skills omitted: %v", profileName, err)
+			clidiag.Warn("ctxloom", "profile %q unresolved; its curated skills omitted: %v", profileName, err)
 			continue
 		}
 		add(resolved.Skills)

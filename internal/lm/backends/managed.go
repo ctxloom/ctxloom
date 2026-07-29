@@ -144,7 +144,7 @@ func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 		// servers before merging.
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
-			clidiag.Warn("ctxloom", "default profile %q unresolved; its MCP servers omitted: %v", profileName, err)
+			clidiag.Warn("ctxloom", "profile %q unresolved; its MCP servers omitted: %v", profileName, err)
 			continue
 		}
 		gated := gateProfileMCP(profileGateRefFor(resolved, profileName), excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
@@ -198,7 +198,7 @@ func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 		// Directory profile fallback.
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
-			clidiag.Warn("ctxloom", "default profile %q unresolved; its deny_tools omitted: %v", profileName, err)
+			clidiag.Warn("ctxloom", "profile %q unresolved; its deny_tools omitted: %v", profileName, err)
 			continue
 		}
 		add(resolved.DenyTools)

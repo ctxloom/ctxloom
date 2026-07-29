@@ -126,6 +126,22 @@ func TestKiroSkillExports_DisabledSkillReportsDisabled(t *testing.T) {
 	assert.False(t, ex[0].Enabled)
 }
 
+// U057-F08: an explicitly-selected (non-default) profile that fails to
+// resolve must not be warned as a "default profile" — mirrors the
+// commands.go/managed.go regression tests for the same wording bug.
+func TestResolveProfileSkillRefs_ExplicitProfileWarningOmitsDefault(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{})
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	resolveProfileSkillRefs(cfg, []string{"explicitly-selected-and-missing"})
+
+	assert.NotContains(t, buf.String(), "default profile",
+		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
+}
+
 // U057-F05: resolveProfileSkillRefs must diagnose a BROKEN inline profile
 // (circular parent inheritance) instead of silently retrying it as a
 // directory profile. Mirrors the commands.go/managed.go regression tests for

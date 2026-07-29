@@ -86,6 +86,26 @@ func ParseReference(ref string) (*Reference, error) {
 		"— the short \"repo/path\" form is no longer accepted", ref)
 }
 
+// isSelfContainedRef reports whether ref carries its own scheme/source token
+// (a canonical URL or an explicit ctxloom:local/ctxloom:companion ref) rather
+// than being a short same-repo reference meant for expansion against a
+// container's source. It mirrors ParseReference's own dispatch prefixes, so
+// ResolveRef can tell "this is scheme-qualified but malformed" (a real parse
+// error) apart from "this has no scheme at all" (a candidate short ref).
+func isSelfContainedRef(ref string) bool {
+	switch {
+	case strings.HasPrefix(ref, LocalSource+"@"),
+		strings.HasPrefix(ref, CompanionSource+"@"),
+		strings.HasPrefix(ref, "https://"),
+		strings.HasPrefix(ref, "http://"),
+		strings.HasPrefix(ref, "git@"),
+		strings.HasPrefix(ref, "file://"):
+		return true
+	default:
+		return false
+	}
+}
+
 // ResolveRef resolves a reference that may be written in short same-repo form
 // against the source it is read from. It is the one place short ↔ canonical
 // expansion happens, used wherever refs are consumed (cascade, sync collection,
@@ -104,6 +124,15 @@ func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
 	// Already self-contained (canonical URL or ctxloom:local) → as-is.
 	if parsed, err := ParseReference(ref); err == nil {
 		return parsed, nil
+	} else if isSelfContainedRef(ref) {
+		// ref carries its OWN scheme/source token (https://, git@, file://,
+		// ctxloom:local@, ctxloom:companion@) — it was never a short same-repo
+		// ref to expand in the first place, so a ParseReference failure here is
+		// the real, final error. Falling through to short-ref expansion below
+		// used to swallow it and re-expand the malformed ref's own text against
+		// sourceURL, producing a nonsense-but-valid-looking Reference with no
+		// error at all (U094-F17).
+		return nil, err
 	}
 
 	if ref == "" {
@@ -211,12 +240,27 @@ func parseCompanionReference(ref string) (*Reference, error) {
 //
 // Format: <repo_url>@<type>/<path>@<content_version>
 func parseHTTPSReference(ref string) (*Reference, error) {
-	// Split at @ to separate the repo URL from the item path
-	// Format: https://github.com/owner/repo@type/path[@contentVersion]
-	repoURL, remainder, found := strings.Cut(ref, "@") // remainder: type/path[@contentVersion]
-	if !found {
+	// Split at the @ that introduces the item path, NOT the first @ in the
+	// whole string: a URL carrying userinfo
+	// (https://user@host/owner/repo@bundles/name) has an earlier @ that is
+	// part of the authority, not the item-path separator (U094-F21). The
+	// authority section ends at the first "/" after the scheme, so any @
+	// before that "/" is userinfo and must be skipped.
+	prefixLen := len("https://")
+	if strings.HasPrefix(ref, "http://") {
+		prefixLen = len("http://")
+	}
+	slashIdx := strings.IndexByte(ref[prefixLen:], '/')
+	if slashIdx == -1 {
 		return nil, fmt.Errorf("URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
+	pathStart := prefixLen + slashIdx
+	atIdx := strings.IndexByte(ref[pathStart:], '@')
+	if atIdx == -1 {
+		return nil, fmt.Errorf("URL reference missing item path: %s (expected @<type>/<path>)", ref)
+	}
+	repoURL := ref[:pathStart+atIdx]
+	remainder := ref[pathStart+atIdx+1:] // type/path[@contentVersion]
 
 	// Parse the remainder: type/path[@contentVersion]
 	itemType, itemPath, contentVersion, err := parseTypePathVersion(remainder)
@@ -283,6 +327,16 @@ func parseFileReference(ref string) (*Reference, error) {
 	u, err := url.Parse(ref)
 	if err != nil {
 		return nil, fmt.Errorf("invalid file URL: %w", err)
+	}
+
+	// A non-empty host names a REMOTE machine in the file:// URI scheme
+	// (RFC 8089) — u.Path below silently dropped it, so
+	// "file://host/path@bundles/x" used to resolve to "file:///path" (a
+	// DIFFERENT, local repository) instead of erroring (U094-F21). This
+	// package's file:// support is local-repository-only; reject rather than
+	// silently discard.
+	if u.Host != "" {
+		return nil, fmt.Errorf("file URL reference %s: a host (%q) is not supported here — use file:///path for a local repository", ref, u.Host)
 	}
 
 	// The path will contain repo@type/name[@contentVersion]

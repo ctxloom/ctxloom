@@ -1,6 +1,9 @@
 package remote
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolveRef_CanonicalPassthrough(t *testing.T) {
 	// A scheme-qualified ref is self-contained and ignores the source.
@@ -60,6 +63,21 @@ func TestResolveRef_ShortAgainstLocalSource(t *testing.T) {
 	}
 	if !got.IsLocal || got.Path != "demo" || got.ItemType != ItemTypeBundle {
 		t.Fatalf("short ref against LocalSource not local: %+v", got)
+	}
+}
+
+// TestResolveRef_MalformedCanonicalNotReclassified pins U094-F17: ResolveRef
+// used to reclassify ANY ParseReference failure as "this must be a short
+// same-repo ref" and silently re-expand it against sourceURL — so a malformed
+// scheme-qualified ref never surfaced its real error, it just produced a
+// nonsense Reference instead.
+func TestResolveRef_MalformedCanonicalNotReclassified(t *testing.T) {
+	_, err := ResolveRef("https://github.com/o/r@fragments/x", "https://src", ItemTypeBundle)
+	if err == nil {
+		t.Fatal("expected the real parse error for a malformed canonical ref, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown item type") {
+		t.Fatalf("expected ParseReference's real error to surface, got: %v", err)
 	}
 }
 

@@ -1,6 +1,8 @@
 package backends
 
 import (
+	"sort"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/acp"
@@ -134,7 +136,11 @@ func Get(name string) agent.Backend {
 	return nil
 }
 
-// List returns all registered backend names.
+// List returns all registered backend names, sorted — U057-F07: map
+// iteration order is randomized per Go's spec, so every caller (shell
+// completion, help output) previously had to sort defensively or accept
+// nondeterministic output; several already did (llm_list.go, operations/llm.go,
+// init.go), which this makes redundant.
 func List() []string {
 	names := make([]string, 0, len(descriptors))
 	for name, d := range descriptors {
@@ -142,6 +148,7 @@ func List() []string {
 			names = append(names, name)
 		}
 	}
+	sort.Strings(names)
 	return names
 }
 

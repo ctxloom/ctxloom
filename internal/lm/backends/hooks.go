@@ -1,6 +1,8 @@
 package backends
 
 import (
+	"sort"
+
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/spf13/afero"
 )
@@ -30,7 +32,8 @@ func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
 	return nil
 }
 
-// BackendsWithSettings returns the names of all backends that support settings.
+// BackendsWithSettings returns the names of all backends that support
+// settings, sorted (U057-F07 — List()'s settings-scoped twin).
 func BackendsWithSettings() []string {
 	names := make([]string, 0, len(descriptors))
 	for name, d := range descriptors {
@@ -38,6 +41,7 @@ func BackendsWithSettings() []string {
 			names = append(names, name)
 		}
 	}
+	sort.Strings(names)
 	return names
 }
 

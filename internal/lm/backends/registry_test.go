@@ -59,6 +59,27 @@ func TestRegistry_List(t *testing.T) {
 	assert.Contains(t, names, "mock")
 }
 
+// U057-F07: List() must return a deterministic (sorted) order on its own —
+// callers must not have to defensively sort a randomised Go map-iteration
+// order themselves (e.g. shell-completion filtering, internal/cli/completion.go,
+// does not sort today). Run repeatedly since a single run cannot distinguish
+// "sorted" from "map iteration happened to come out sorted."
+func TestRegistry_List_IsSorted(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		names := List()
+		require.True(t, sort.StringsAreSorted(names), "List() must return a sorted order; got %v", names)
+	}
+}
+
+// U057-F07: BackendsWithSettings() is List()'s settings-scoped twin and must
+// be equally deterministic.
+func TestBackendsWithSettings_IsSorted(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		names := BackendsWithSettings()
+		require.True(t, sort.StringsAreSorted(names), "BackendsWithSettings() must return a sorted order; got %v", names)
+	}
+}
+
 func TestGetDefaultBinary(t *testing.T) {
 	t.Run("returns binary for registered backend", func(t *testing.T) {
 		// Mock backend returns empty string since it has no real binary

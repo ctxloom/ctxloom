@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // PermissionMode is the generalized launch-time permission posture ctxloom hands
 // a backend. It mirrors claude's --permission-mode vocabulary so one vocabulary
@@ -35,6 +38,8 @@ const (
 // String renders the canonical wire/config spelling (claude-aligned).
 func (m PermissionMode) String() string {
 	switch m {
+	case PermissionDefault:
+		return "default"
 	case PermissionAcceptEdits:
 		return "acceptEdits"
 	case PermissionPlan:
@@ -42,7 +47,10 @@ func (m PermissionMode) String() string {
 	case PermissionBypass:
 		return "bypass"
 	default:
-		return "default"
+		// U101-F20: an out-of-range value used to fall through to "default" —
+		// indistinguishable from the real, intentional PermissionDefault. A
+		// corrupted wire value must be visibly bad, not silently safe.
+		return fmt.Sprintf("permissionMode(%d)", int(m))
 	}
 }
 

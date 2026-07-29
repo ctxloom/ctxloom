@@ -54,6 +54,20 @@ func TestPermissionMode_Predicates(t *testing.T) {
 	assert.False(t, PermissionAcceptEdits.SafeHeadless())
 }
 
+// TestPermissionMode_StringOutOfRangeIsVisible pins U101-F20: String()'s
+// default arm rendered ANY out-of-range value (a corrupted wire int, e.g. from
+// a future enum member this build doesn't know about) as the string "default"
+// — indistinguishable from an intentional PermissionDefault posture. A bad
+// value must be visibly bad, not silently read as the safe default.
+func TestPermissionMode_StringOutOfRangeIsVisible(t *testing.T) {
+	assert.Equal(t, "default", PermissionDefault.String(), "the real default still spells \"default\"")
+
+	bogus := PermissionMode(99)
+	got := bogus.String()
+	assert.NotEqual(t, "default", got, "an out-of-range value must not render as the legitimate default")
+	assert.Contains(t, got, "99", "the bad value should name itself for diagnosis")
+}
+
 func TestPermissionModeNames(t *testing.T) {
 	assert.Equal(t, []string{"default", "acceptEdits", "plan", "bypass"}, PermissionModeNames())
 }

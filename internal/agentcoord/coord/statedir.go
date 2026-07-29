@@ -25,6 +25,7 @@ import (
 //	    interactions.jsonl audit journal (no projection)
 //	    endpoint.json      last-bound ports, re-bound on relaunch so
 //	                       adopted children re-Hello a stable endpoint
+//
 // Declared in discover, whose List globs this same directory to find live
 // coordinators: one constant, not two that agree by inspection.
 const coordDirName = discover.DirName

@@ -110,6 +110,19 @@ type loadSessionResult struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
+// Tool descriptions for the session-memory tools. Constants, not inline
+// literals, because the RUNNER surface registers the same six tools as
+// host relays (mcp_runner.go) and must advertise byte-identical text: a model
+// that reads one description in a coordinator session and a different one in a
+// delegated child cannot tell they are the same tool.
+const (
+	compactSessionDesc     = "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session."
+	listSessionsDesc       = "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title."
+	loadSessionDesc        = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
+	recoverSessionDesc     = "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session)."
+	getPreviousSessionDesc = "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead."
+)
+
 // This and the sibling registerXTools functions share a duplicate shape by
 // construction (a run of mcp.AddTool calls). Their tool descriptions are
 // independent content; a change to one implies nothing about the others.
@@ -118,7 +131,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "compact_session",
-			Description: "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session.",
+			Description: compactSessionDesc,
 		},
 		s.handleCompactSession)
 
@@ -130,28 +143,28 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "list_sessions",
-			Description: "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title.",
+			Description: listSessionsDesc,
 		},
 		s.handleListSessions)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "load_session",
-			Description: "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent.",
+			Description: loadSessionDesc,
 		},
 		s.handleLoadSession)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "recover_session",
-			Description: "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session).",
+			Description: recoverSessionDesc,
 		},
 		s.handleRecoverSession)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "get_previous_session",
-			Description: "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead.",
+			Description: getPreviousSessionDesc,
 		},
 		s.handleGetPreviousSession)
 }

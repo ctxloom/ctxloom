@@ -262,20 +262,22 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 	}
 
 	// Host-resident tools: relay as CustomRequest{ctxloom/<tool>}, with the
-	// SAME typed inputs (and so schemas) the stdio server registers. The
-	// descriptions mirror the stdio registrations (mcp_tools_memory.go);
-	// TestRunnerServer_HostRelayDescriptionsMatchStdio pins the parity.
-	mcp.AddTool(server, &mcp.Tool{Name: "compact_session", Description: relayCompactSessionDesc},
+	// SAME typed inputs (and so schemas) AND the same description constants the
+	// stdio server registers (mcp_tools_memory.go, mcp_tools_triggers.go). One
+	// declaration per description, so the two surfaces cannot advertise the same
+	// tool differently; TestRunnerServer_HostRelayDescriptionsMatchStdio still
+	// pins the registrations themselves.
+	mcp.AddTool(server, &mcp.Tool{Name: "compact_session", Description: compactSessionDesc},
 		relayTyped[compactSessionInput](home, "compact_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "load_session", Description: relayLoadSessionDesc},
+	mcp.AddTool(server, &mcp.Tool{Name: "load_session", Description: loadSessionDesc},
 		relayTyped[loadSessionInput](home, "load_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "recover_session", Description: relayRecoverSessionDesc},
+	mcp.AddTool(server, &mcp.Tool{Name: "recover_session", Description: recoverSessionDesc},
 		relayTyped[recoverSessionInput](home, "recover_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "get_previous_session", Description: relayGetPreviousSessionDesc},
+	mcp.AddTool(server, &mcp.Tool{Name: "get_previous_session", Description: getPreviousSessionDesc},
 		relayTyped[getPreviousSessionInput](home, "get_previous_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "list_sessions", Description: relayListSessionsDesc},
+	mcp.AddTool(server, &mcp.Tool{Name: "list_sessions", Description: listSessionsDesc},
 		relayTyped[listSessionsInput](home, "list_sessions"))
-	mcp.AddTool(server, &mcp.Tool{Name: "evaluate_triggers", Description: relayEvaluateTriggersDesc},
+	mcp.AddTool(server, &mcp.Tool{Name: "evaluate_triggers", Description: evaluateTriggersDesc},
 		relayTyped[evaluateTriggersInput](home, "evaluate_triggers"))
 	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session", "list_sessions", "evaluate_triggers"} {
 		if routes[name] != mcpschema.RouteHostRelay {
@@ -336,18 +338,6 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 	}
 	return server, nil
 }
-
-// Host-relay tool descriptions — kept byte-identical to the stdio
-// registrations in mcp_tools_memory.go (pinned by the parity test; the
-// stdio file stays untouched so its registration group stays uniform).
-const (
-	relayCompactSessionDesc     = "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session."
-	relayLoadSessionDesc        = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
-	relayRecoverSessionDesc     = "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session)."
-	relayGetPreviousSessionDesc = "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead."
-	relayListSessionsDesc       = "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title."
-	relayEvaluateTriggersDesc   = evaluateTriggersDesc
-)
 
 // relayTyped forwards one host-resident tool over the RunChannel as
 // CustomRequest{ctxloom/<tool>} with the SAME typed input the stdio server

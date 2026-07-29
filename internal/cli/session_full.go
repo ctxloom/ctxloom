@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -99,7 +100,7 @@ func emitSessionRows(cmd *cobra.Command, entries []sessions.Entry, full bool, ap
 		fullRows[i] = newSessionFullRow(e, appDir)
 	}
 
-	format, err := resolveFormat(cmd)
+	format, err := cliemit.Resolve(cmd)
 	if err != nil {
 		return err
 	}

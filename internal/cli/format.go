@@ -24,7 +24,7 @@ const (
 
 // unknownFormatError is the error the streaming commands above return for
 // any --format value outside their own text/json pair. emit() has its own,
-// wider error (clifmt.ParseFormat, via resolveFormat) covering all five
+// wider error (clifmt.ParseFormat, via cliemit.Resolve) covering all five
 // formats.
 func unknownFormatError(format string) error {
 	return fmt.Errorf("unknown format %q (supported: %s, %s)", format, formatText, formatJSON)
@@ -47,14 +47,6 @@ func unknownFormatError(format string) error {
 func emit(cmd *cobra.Command, data any, text func() error) error {
 	formatWasHonored = true
 	return cliemit.Emit(cmd, data, text)
-}
-
-// resolveFormat reads the inherited global --format value and parses it via
-// clifmt (through the shared cliemit filter). An unset flag reads as "" and is
-// treated as text; any other unrecognized value is an error wrapping
-// clifmt.ErrUnsupportedFormat.
-func resolveFormat(cmd *cobra.Command) (clifmt.Format, error) {
-	return cliemit.Resolve(cmd)
 }
 
 // outputFormatOf reads the raw inherited --format flag value, unparsed. An
@@ -107,7 +99,7 @@ func resetFormatGuard() { formatWasHonored = false }
 // (the default, or an explicit `--format text`) is always fine: there is
 // nothing to honor.
 func checkFormatWasHonored(cmd *cobra.Command) error {
-	format, ferr := resolveFormat(cmd)
+	format, ferr := cliemit.Resolve(cmd)
 	if ferr != nil || format == clifmt.FormatText || formatWasHonored {
 		return nil
 	}

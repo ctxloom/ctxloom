@@ -55,7 +55,7 @@ func TestReportExecuteError_JSON_EmitsStructuredEnvelope(t *testing.T) {
 // warnings side channel): json/yaml/toml turn it on, text/markdown (and an
 // unresolvable value, left for the command's own emit() to report) leave it
 // off. cmd is built via formatCmd (format_test.go), the same
-// inherited-persistent-flag stand-in resolveFormat's own tests use, since
+// inherited-persistent-flag stand-in this file's other format tests use, since
 // mutating rootCmd's real PersistentFlags wouldn't be visible on
 // cmd.Flags() without a full cobra parse. Verified end to end via
 // clidiag.Fwarn's actual output shape rather than a package-private getter.

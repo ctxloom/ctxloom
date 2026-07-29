@@ -109,17 +109,6 @@ func TestEmit_UnknownFormat_WrapsErrUnsupportedFormat(t *testing.T) {
 	assert.True(t, errors.Is(err, clifmt.ErrUnsupportedFormat), "got: %v", err)
 }
 
-func TestResolveFormat_AcceptsAllFiveEncodings(t *testing.T) {
-	for _, want := range []clifmt.Format{
-		clifmt.FormatJSON, clifmt.FormatYAML, clifmt.FormatTOML, clifmt.FormatText, clifmt.FormatMarkdown,
-	} {
-		cmd, _ := formatCmd(string(want))
-		got, err := resolveFormat(cmd)
-		require.NoError(t, err)
-		assert.Equal(t, want, got)
-	}
-}
-
 // --- U104-F01: the runtime guard that turns "--format is registered
 // globally but honoured opt-in" into a loud error instead of a silent exit 0
 // ---

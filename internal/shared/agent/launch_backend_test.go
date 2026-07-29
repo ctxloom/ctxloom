@@ -52,6 +52,7 @@ func (noAccessorLifecycle) MergeManaged(*ManagedConfig, string, string) {}
 type recordSet struct {
 	order      *[]string
 	contextErr error
+	mcpErr     error
 
 	inputs      SurfaceInputs
 	isolatedDir string
@@ -130,6 +131,9 @@ func (s *recordSurface) Deliver(dir string) (Delivered, error) {
 	if s.set.contextErr != nil && s.label == "context" {
 		return nil, s.set.contextErr
 	}
+	if s.set.mcpErr != nil && s.label == "mcp" {
+		return nil, s.set.mcpErr
+	}
 	return s.set.handle(s.label), nil
 }
 
@@ -137,7 +141,30 @@ func (s *recordSurface) DeliverIsolated() (Delivered, error) {
 	if s.set.contextErr != nil && s.label == "context" {
 		return nil, s.set.contextErr
 	}
+	if s.set.mcpErr != nil && s.label == "mcp" {
+		return nil, s.set.mcpErr
+	}
 	return s.set.handle(s.label), nil
+}
+
+// noContextRecordSet wraps a *recordSet to report NO supported approaches for
+// SurfaceContext — mirroring a backend with no distinct context surface (its
+// context rides another surface entirely) — so cells.go's Build() skips
+// SurfaceContext and the resolved surface list's first entry is something
+// else (MCP). It is the double U101-F07's regression test needs: the shared-
+// cwd delivery loop identified the context surface by INDEX 0 rather than by
+// KIND, so on a backend shaped like this an MCP delivery failure was
+// misidentified as a context failure and silently "recovered" via the
+// context-injection-hook fallback instead of returning an error.
+type noContextRecordSet struct {
+	*recordSet
+}
+
+func (s *noContextRecordSet) SupportedApproaches(kind SurfaceKind) []Approach {
+	if kind == SurfaceContext {
+		return nil
+	}
+	return s.recordSet.SupportedApproaches(kind)
 }
 
 // Kind maps the fake's label to its SurfaceKind so the SurfaceSelection the launch
@@ -410,6 +437,37 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	assert.True(t, injected, "the SessionStart injection hook is re-appended to the merged hooks")
 	// The failed context handle is not recorded, but the remaining surfaces are.
 	assert.Len(t, b.delivered, 4, "context handle skipped; mcp/settings/commands/skills still delivered")
+}
+
+// TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface pins U101-F07: the
+// context-recovery fallback used to fire whenever the FIRST resolved surface
+// failed (`i == 0`), coupling launch_backend.go to cells.go's surfaceOrder by
+// position rather than by the surface's actual kind. For a backend with no
+// distinct context surface (noContextRecordSet — cells.go's Build() skips a
+// kind with no supported approaches), the first resolved surface is MCP, not
+// context. An MCP delivery failure must be reported as a real failure, not
+// silently swallowed by a fallback meant only for the context surface.
+func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
+	var order []string
+	inner := &recordSet{order: &order, mcpErr: fmt.Errorf("mcp write failed")}
+	fake := &noContextRecordSet{recordSet: inner}
+
+	b := &LaunchBackend{}
+	b.BaseBackend = NewBaseBackend("test", "1.0.0")
+	b.InitLaunch(NewBaseLifecycle("test"), NewBaseContextProvider(), nil, &CellDelivery{
+		Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
+			inner.inputs = in
+			inner.isolatedDir = isolatedDir
+			return fake
+		},
+	})
+
+	err := b.Setup(context.Background(), &SetupRequest{
+		WorkDir:  t.TempDir(),
+		CellKind: CellKindShared,
+		Managed:  &ManagedConfig{},
+	})
+	require.Error(t, err, "an MCP delivery failure on a backend with no context surface must not be swallowed by the context-recovery fallback")
 }
 
 // TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty pins

@@ -299,10 +299,16 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	}
 
 	if req.CellKind == CellKindShared {
-		for i, rs := range resolved.surfaces {
+		for _, rs := range resolved.surfaces {
 			d, err := resolved.deliverOneShared(rs, b.WorkDir())
 			if err != nil {
-				if i == 0 && !b.delivery.RawContext && b.recoverContextViaHook(req) {
+				// U101-F07: matched by INDEX 0 rather than by kind, coupling this
+				// loop to cells.go's surfaceOrder by position — a backend with no
+				// distinct context surface (its context rides another surface) has
+				// resolved.surfaces[0] be something else (MCP), and that surface's
+				// failure was misidentified as the context failure this fallback
+				// exists for.
+				if rs.kind == SurfaceContext && !b.delivery.RawContext && b.recoverContextViaHook(req) {
 					continue
 				}
 				return fmt.Errorf("failed to deliver surface into shared cwd: %w", err)

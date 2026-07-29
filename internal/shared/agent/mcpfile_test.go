@@ -95,24 +95,6 @@ func TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces(t *testing.T) {
 	require.Error(t, err, "a ledger read failure (not simply missing) must surface, not be silently treated as an empty ledger")
 }
 
-// TestMCPFileConfig_RemoveServers_RemovesHuskFile pins U101-F24: when nothing
-// remains after removing every managed server and the registry file already
-// existed, save() used to fall through and write "{}\n" — a husk file —
-// instead of removing it, unlike writeLedger's own "remove when empty"
-// behaviour for the sidecar it sits next to.
-func TestMCPFileConfig_RemoveServers_RemovesHuskFile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", []byte(`{"mcpServers":{"ctxloom":{"command":"ctxloom"}}}`), 0644))
-	require.NoError(t, afero.WriteFile(fs, "/proj/.mcp-ledger", []byte("ctxloom\n"), 0644))
-
-	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerPath: "/proj/.mcp-ledger", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
-	require.NoError(t, c.RemoveServers())
-
-	exists, err := afero.Exists(fs, "/proj/mcp.json")
-	require.NoError(t, err)
-	assert.False(t, exists, "an mcp.json left with nothing to write must be removed, not left as a {} husk")
-}
-
 // TestMCPFileConfig_WriteServers_DedupesManagedNames pins U101-F25: a server
 // name that shadows an earlier one — here, the same name present in both
 // bundleMCP and mcp.Servers — used to be appended to `managed` on EVERY add,

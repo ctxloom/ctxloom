@@ -258,14 +258,9 @@ func (c MCPFileConfig) save(mf *mcpFile) error {
 	}
 
 	if len(output) == 0 {
-		exists, _ := afero.Exists(c.FS, c.Path)
-		if !exists {
+		if exists, _ := afero.Exists(c.FS, c.Path); !exists {
 			return nil
 		}
-		// U101-F24: nothing remains and the file already exists — remove it
-		// rather than writing "{}\n", mirroring writeLedger's own "remove the
-		// sidecar when empty" behaviour instead of leaving a husk file behind.
-		return c.FS.Remove(c.Path)
 	}
 	if err := c.FS.MkdirAll(filepath.Dir(c.Path), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", c.Label, err)

@@ -20,13 +20,42 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **878** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **887** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 62 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 105 |
-| `open` | no commit names this ID | **1,193** |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 63 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 115 |
+| `open` | no commit names this ID | **1,173** |
 
-**Totals: 2268 findings across 162 units — 878 resolved, 1193 still open, 197 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 887 resolved, 1173 still open, 208 adjudicated without a fix.**
+
+Updated again 2026-07-29 by the `wave6/netneg-delegation` batch: all 20
+net-negative rows of the DELEGATION flow adjudicated (U016-F11/F12/F13/F14/
+F15/F16/F21, U019-F07/F17, U021-F08/F10, U022-F22, U023-F11,
+U024-F17/F23/F25, U025-F01, U038-F05/F06/F07). 9 RESOLVED, 1 REFUTED
+(U021-F10 — `RevokeSessionOwner` gained a production caller in
+`internal/cli/run.go` under a DIFFERENT id, U021-F02, so `identityFor` and
+the `factSessionCredRevoked` fold arm are live; the batch added the one
+uncovered property, that a revocation survives journal replay), 10 ESCALATED.
+One row filed as mere duplication hid a live defect: `coord.mcpServerNames`
+duplicated `operations.MCPServerNames` but skipped its sort, so the MCP set
+`enqueueRun` JOURNALS and the roster surfaces carried composition order while
+the session-init summary for the same set carried sorted order — the parity
+test was genuinely red before the collapse (U024-F17). Of the 10 escalations,
+7 are the `U016` proto group (removing a wire field/message/enum or an RPC is
+a schema decision, not a sweep's call — note `U016-F01` already set the
+precedent of deleting never-populated fields WITH reserved-number hygiene,
+and its cleanup already removed `SpawnAgentRequest.NotifyOn`, one quarter of
+U016-F12, without naming that id); `U019-F07` (no artifact-blob GC exists —
+building one is a feature and net-POSITIVE LOC, and journal retention is
+already deferred to a Wave E decision); `U019-F17` (download `offset` is
+implemented and unused, but deleting the Go while keeping the field would
+silently ignore a documented parameter, and deleting the field is the same
+schema decision); and `U038-F07` (collapsing the two agent-tool
+implementations changes the advertised schemas on the user-facing stdio
+surface). Two U016 claims are partly overstated and the escalations say so:
+`U016-F14` names `artifact_ids`, which has a real producer AND consumer, and
+`U016-F12`'s fourth enum is already gone. Recounted by the gate, not by hand:
+RESOLVED 878->887, REFUTED 62->63, ESCALATED 105->115, open 1193->1173.
 
 Updated again 2026-07-29 by the `wave4/netneg-materialize` batch: all 18
 net-negative rows of the MATERIALIZE flow adjudicated (U029-F02/F04,
@@ -249,8 +278,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 223 | 683 | 11 | 19 | 63 |
-| LOW | 871 | 305 | 484 | 9 | 35 | 38 |
+| MED | 999 | 227 | 670 | 11 | 20 | 71 |
+| LOW | 871 | 310 | 477 | 9 | 35 | 40 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -897,12 +926,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U015-F01 | open | **`schema.go:66-67` vs `:78`, `:85`** | CORRECTNESS | The doc comment promises "**Safe for concurrent use after construction**", but `def` performs an unsynchronised read-then-write on `v.cache` and calls `v.compiler.Compile` concurrently. The promise... | U015.md |
 | U016-F07 | open | `coordination.proto:1163` | CORRECTNESS | `MESSAGE_CHANNEL_UNSPECIFIED` (0) is read with opposite meaning in two packages. | U016.md |
 | U016-F09 | open | `coordination.proto:266-268,269,295` | CORRECTNESS | Two MUST-level runner invariants ride fields nobody reads. "Runtime MUST NOT StartRun a harness the runner didn't advertise" (`RunnerHello.harnesses`) and "RESOURCE_EXHAUSTED when at capacity" (`Ru... | U016.md |
-| U016-F11 | open | `coordination.proto:818-904, 652-656, 921-930, 1040-1073, 607-616, 1319-1322, 393-395, 799-809` | DEAD | 23 of 82 messages have zero references outside generated code, including the entire coordinator→agent request direction of plane 2. | U016.md |
-| U016-F12 | open | `coordination.proto:1048,1060,1863,644` | DEAD | Four enums have no value ever referenced anywhere: `StepCompleted.Outcome`, `StatusChanged.Phase`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn`. `ArtifactKind` uses 3 of 10 values in product... | U016.md |
-| U016-F13 | open | `coordination.proto:468-476, 1032` | DEAD | `AgentIdentity`: 5 of 7 fields never populated, which makes `RunStarted`'s stated purpose false. | U016.md |
-| U016-F14 | open | `coordination.proto:1115,1116,1123,1124,1130,1147` | DEAD | `Result`: `structured_output`, `output_schema_id`, `retryable`, `wall_time`, `artifact_ids` have zero producers and zero consumers. `Usage.per_model` likewise. | U016.md |
-| U016-F15 | open | `coordination.proto:962,974,977,979` | DEAD | `AgentEvent.task_id`, `turn_id`, `parent_item_id`, `traceparent` are all unreferenced. `task_id` in particular is a first-class identity axis threaded through 6 messages with no producer or consume... | U016.md |
-| U016-F16 | open | `artifacts.proto:117,118,135` | DEAD | `ArtifactUploadHeader.name` and `media_type` are written and never read; `ArtifactReceipt.stored_at` is written and never read. | U016.md |
+| U016-F11 | **ESCALATED** `WAVE6SHA` | `coordination.proto:818-904, 652-656, 921-930, 1040-1073, 607-616, 1319-1322, 393-395, 799-809` | DEAD | 23 of 82 messages have zero references outside generated code, including the entire coordinator→agent request direction of plane 2. | U016.md |
+| U016-F12 | **ESCALATED** `WAVE6SHA` | `coordination.proto:1048,1060,1863,644` | DEAD | Four enums have no value ever referenced anywhere: `StepCompleted.Outcome`, `StatusChanged.Phase`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn`. `ArtifactKind` uses 3 of 10 values in product... | U016.md |
+| U016-F13 | **ESCALATED** `WAVE6SHA` | `coordination.proto:468-476, 1032` | DEAD | `AgentIdentity`: 5 of 7 fields never populated, which makes `RunStarted`'s stated purpose false. | U016.md |
+| U016-F14 | **ESCALATED** `WAVE6SHA` | `coordination.proto:1115,1116,1123,1124,1130,1147` | DEAD | `Result`: `structured_output`, `output_schema_id`, `retryable`, `wall_time`, `artifact_ids` have zero producers and zero consumers. `Usage.per_model` likewise. | U016.md |
+| U016-F15 | **ESCALATED** `WAVE6SHA` | `coordination.proto:962,974,977,979` | DEAD | `AgentEvent.task_id`, `turn_id`, `parent_item_id`, `traceparent` are all unreferenced. `task_id` in particular is a first-class identity axis threaded through 6 messages with no producer or consume... | U016.md |
+| U016-F16 | **ESCALATED** `WAVE6SHA` | `artifacts.proto:117,118,135` | DEAD | `ArtifactUploadHeader.name` and `media_type` are written and never read; `ArtifactReceipt.stored_at` is written and never read. | U016.md |
 | U016-F17 | open | `artifacts.proto:149-152` | CORRECTNESS | `ArtifactDownloadRequest.offset` has no producer and is structurally incompatible with the file's own MANDATORY integrity rule. | U016.md |
 | U016-F19 | open | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
 | U016-F22 | open | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
@@ -911,7 +940,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U019-F04 | open | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
 | U019-F05 | open | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |
 | U019-F06 | open | `artifactstore.go:100` | CORRECTNESS | The blob rename is not followed by a directory fsync, but the *manifest* that references the blob is fsynced (`Store.Exec` → journal.go:232). After a crash the durable manifest can point at a blob ... | U019.md |
-| U019-F07 | open | `artifactstore.go (whole file)` | NOPAY | The blob store has no delete, prune or GC — verified with `rg -iE "remove\ | U019.md |
+| U019-F07 | **ESCALATED** `WAVE6SHA` | `artifactstore.go (whole file)` | NOPAY | The blob store has no delete, prune or GC — verified with `rg -iE "remove\ | U019.md |
 | U019-F08 | open | `artifacts.go:96–98, :180` | COUPLING | `artifact_id` is validated as required but is never used to store, key or resolve anything — the blob is keyed by content hash and the manifest arrives on a *separate* `ArtifactProduced` plane-1 ev... | U019.md |
 | U019-F09 | open | `artifacts.go:198, :81, :112; approval.go:59, :186` | COMPLEXITY | Five of this unit's 25 functions are at or over the project's CI gate of CCN 10: `DownloadArtifact` 17, `UploadArtifact` 11, the anonymous chunk goroutine 10, `serveApproval` 10, `relayApproval` 10 | U019.md |
 | U019-F10 | open | `approval.go:63–68, :84` | CORRECTNESS | `rec = *r` copies a `RunRecord` whose `Ladder` field is a slice header, and `rec.Ladder.matchingRungs(kind)` at :84 then reads the fold's backing array **outside** the `View` window. `Store.View`'s... | U019.md |
@@ -928,9 +957,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U021-F05 | open | `folds.go:428-429` | CORRECTNESS | `mailFold.seen` and `mailFold.consumed` grow one entry per message **forever** and are never pruned — the exact unbounded-growth problem the run folds got a durable reap for. | U021.md |
 | U021-F06 | open | `enginehost.go:316` | COUPLING | `transcript.TeeAndClose` dispatches **two untracked goroutines** from inside `startRun`, violating this file's own stated discipline ("EVERY bare `go` this type dispatches ... must ride `goTracked`... | U021.md |
 | U021-F07 | open | `coordinator.go:92-246` | COHESION | `Coordinator` is a god object: ~40 fields across eight disjoint responsibility partitions, five of them under a **single** `sync.Mutex`. | U021.md |
-| U021-F08 | open | `coordinator.go:704-713 vs 785-792` | DUPLICATE | The §6a delivery-by-state classification is written twice, over the same `driveQueued` return, producing **two incompatible vocabularies**: `peerSend` returns free prose, `Inject` returns the typed... | U021.md |
+| U021-F08 | **RESOLVED** `cfe6ed9d` | `coordinator.go:704-713 vs 785-792` | DUPLICATE | The §6a delivery-by-state classification is written twice, over the same `driveQueued` return, producing **two incompatible vocabularies**: `peerSend` returns free prose, `Inject` returns the typed... | U021.md |
 | U021-F09 | open | `coordinator.go:282` | CORRECTNESS | `hashToken` — documented (creds.go:36) as "the persisted form of a bearer token" — is reused to derive the **state directory name**. If its algorithm is ever changed for a security reason, every pr... | U021.md |
-| U021-F10 | open | `folds.go:191, folds.go:168-174` | DEAD | `runsFold.identityFor` and the entire `factSessionCredRevoked` fold arm are unreachable in production — they exist only to serve the dead `RevokeSessionOwner`. | U021.md |
+| U021-F10 | **REFUTED** `ecb40d0e` | `folds.go:191, folds.go:168-174` | DEAD | `runsFold.identityFor` and the entire `factSessionCredRevoked` fold arm are unreachable in production — they exist only to serve the dead `RevokeSessionOwner`. | U021.md |
 | U022-F02 | open | `grpcserver.go:405-428` | CORRECTNESS | `requestRunner` can register a waiter into a map `failPending` has already swapped out, then stall for the full 60 s budget instead of failing fast. | U022.md |
 | U022-F03 | open | `harnessspec.go:49-98` | COUPLING | The D3 headless-safety invariant is enforced only at the decode end, so a bad posture is detected **after** the child process and credential are already spawned. | U022.md |
 | U022-F04 | open | `harnessspec.go:140-160` | ERRHANDLING | `decodeHarnessSpec` silently coerces malformed `mcp_servers` entries into `ChatMCPServer{}` with empty Name/Command instead of refusing. | U022.md |
@@ -962,7 +991,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U024-F11 | open | `spawner.go:410-424 vs 458-469` | COUPLING | `Launch` and `StartEngine` construct `operations.AgentChatRequest` twice with different field subsets (`Context`, `MCPServers`, `ResumeSessionID` only on `Launch`). A new field that both paths need... | U024.md |
 | U024-F12 | open | `spawner.go:515` | COUPLING | The `ExecutableTrustGate` is per-spawner and **cumulative for the process**, so `WarnWithheld()` reprints every item withheld since startup on every spawn, cross-attributing one child's withheld it... | U024.md |
 | U024-F13 | open | `spawner.go:510-516` | SILENTNOOP | `childMCPServers` can compose **nil** — a child with no ctxloom MCP server, i.e. no `agent_send`/`agent_recv`/`agent_report`. It launches, burns tokens, and can never report back; nothing warns. | U024.md |
-| U025-F01 | open | `discover.go:29`, `:34`, `:46-49`, `:74` | DUPLICATE | Four separate declarations are hand-mirrored from `coord` with no compiler link: the state-dir name, the MCP path, the JSON shape, and the URL format string. The header documents the duplication bu... | U025.md |
+| U025-F01 | **RESOLVED** `6268c492` | `discover.go:29`, `:34`, `:46-49`, `:74` | DUPLICATE | Four separate declarations are hand-mirrored from `coord` with no compiler link: the state-dir name, the MCP path, the JSON shape, and the URL format string. The header documents the duplication bu... | U025.md |
 | U025-F03 | open | `discover.go:62` | CORRECTNESS | The sort comparator calls `os.Stat` on every comparison, which is both O(n log n) syscalls and — more seriously — an **inconsistent comparator** if any `endpoint.json` is rewritten while the sort r... | U025.md |
 | U026-F02 | open | `binding.go:135–150` vs `internal/cli/mcp_runner.go:607–610` | COUPLING | `agent_report`'s output schema is a hand-written Go map literal that mirrors a *second* hand-written Go map literal in another package. Nothing gates the mirror — this is precisely the drift patter... | U026.md |
 | U026-F03 | open | `binding.go:99–110` | COUPLING | `agent_recv`'s hand-written input schema hard-codes `"default 60, max 600"` as English prose; the real numbers are Go constants in a different package. No gate ties them. | U026.md |
@@ -1055,9 +1084,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U037-F19 | open | `llm_runner_common.go:53-55, 110` | ERRHANDLING | Two `_ =`-swallowed syscalls in `standUpRunner` guard security- and correctness-critical invariants. `os.Unsetenv` failing means the coordinator credential is **not** scrubbed and is inherited by t... | U037.md |
 | U037-F20 | open | `llm_runner_common.go:35-121` | COMPLEXITY | `standUpRunner` is CCN 17 against a stated gate of 10 — the highest in the unit — and it interleaves four separable concerns: credential consumption+scrub, backend configuration, coordinator dial-h... | U037.md |
 | U038-F04 | open | `mcp_runner.go:121` | ERRHANDLING | A post-startup HTTP serve failure is invisible: the runner keeps running and keeps advertising a socket nothing answers on. | U038.md |
-| U038-F05 | open | `mcp_runner.go:497-511 vs mcp_tools_agents.go:135-137,260-266 vs `mcpschema/binding.go:99-109` | DUPLICATE | The `agent_recv` `wait` contract is hand-written three times across two packages, including the default/clamp arithmetic verbatim twice. | U038.md |
-| U038-F06 | open | `mcp_runner.go:323-330` | DUPLICATE | Five of six host-relay tool descriptions are verbatim string copies of literals in `mcp_tools_memory.go`, kept honest only by a test — while the sixth simply aliases the real constant, proving the ... | U038.md |
-| U038-F07 | open | `mcp_tools_agents.go:73-301 vs mcp_runner.go:274-309` | DUPLICATE / NOPAY | Two independent implementations of `agent_run`/`agent_send`/`agent_recv`/`agent_stop` with **different schemas**, on two surfaces, only one of which is documented. | U038.md |
+| U038-F05 | **RESOLVED** `564418d5` | `mcp_runner.go:497-511 vs mcp_tools_agents.go:135-137,260-266 vs `mcpschema/binding.go:99-109` | DUPLICATE | The `agent_recv` `wait` contract is hand-written three times across two packages, including the default/clamp arithmetic verbatim twice. | U038.md |
+| U038-F06 | **RESOLVED** `553d6347` | `mcp_runner.go:323-330` | DUPLICATE | Five of six host-relay tool descriptions are verbatim string copies of literals in `mcp_tools_memory.go`, kept honest only by a test — while the sixth simply aliases the real constant, proving the ... | U038.md |
+| U038-F07 | **ESCALATED** `WAVE6SHA` | `mcp_tools_agents.go:73-301 vs mcp_runner.go:274-309` | DUPLICATE / NOPAY | Two independent implementations of `agent_run`/`agent_send`/`agent_recv`/`agent_stop` with **different schemas**, on two surfaces, only one of which is documented. | U038.md |
 | U038-F08 | open | `mcp_runner.go:219-318` | COMPLEXITY | `newRunnerMCPServer` is CCN 16 against a CI gate of 10, and its two hard-coded name lists restate names already passed to the registrars above them. | U038.md |
 | U038-F09 | open | `mcp_resources.go:169` | CORRECTNESS / ERRHANDLING | `ctxloom://sessions/recent` reads the **process** cwd (with the error swallowed) instead of the caller's identity, so on the runner it can list the wrong project's sessions and on failure lists not... | U038.md |
 | U038-F10 | open | `mcp_resources.go:221-227` | CORRECTNESS | `handleResourceSessionsAll`'s doc claims parity with `ctxloom session list --all`, but it uses the unsorted lister while the CLI and every other cross-project consumer use the sorted one. | U038.md |
@@ -1896,14 +1925,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U015-F03 | **RESOLVED** `cac52a3e` `127539ad` | **`schema.go:70`** | TRIVIAL | `strings.NewReader(string(schemaJSON))` copies the entire embedded schema (142 `$defs`) into a fresh string purely to get an `io.Reader`. | U015.md |
 | U015-F04 | open | **`schema.go:20-23`, `:26-28`** | COUPLING | The re-vendor instructions and the pinned-provenance constants can drift apart silently: the documented `curl` command fetches `main` (`schema.go:28`), while `SchemaSourceURL` (`:46`) pins the comm... | U015.md |
 | U016-F20 | open | `coordination.proto:83-101, 1218-1219` | CORRECTNESS | Historical field renumbering left no `reserved` tombstones, and the safety argument for that is not recorded in the file. | U016.md |
-| U016-F21 | open | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
+| U016-F21 | **ESCALATED** `WAVE6SHA` | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
 | U019-F11 | open | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
 | U019-F12 | open | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |
 | U019-F13 | open | `artifactstore.go:47, artifacts.go:218` | CORRECTNESS | `artifactStore.path` does a bare `filepath.Join(s.dir, shaHex)` with no validation, and `DownloadArtifact` feeds it `rec.SHA256` — a string read back out of the runs journal. Safe today because `re... | U019.md |
 | U019-F14 | **RESOLVED** `72f7f6bf` | `artifactstore.go:108–114` | TRIVIAL | `artifactStore.open` is a pure pass-through: `f, err := os.Open(p); if err != nil { return nil, err }; return f, nil` is byte-for-byte equivalent to `return os.Open(p)`. It adds no wrapping, no inv... | U019.md |
 | U019-F15 | open | `approval.go:77` | CORRECTNESS | The ACCEPT_FOR_SESSION cache is consulted **before** the ladder, so a cached grant outranks a later `auto_decline` rung; and the grant is keyed only by `(harp, kind)`, so one "accept for session" o... | U019.md |
 | U019-F16 | open | `approval.go:78, :89, :97, :122, :132, :139` | COUPLING | The audit actor is `caller.Harp` while every detail field comes from `rec` (`rec.RunID`), and `relayApproval`'s warnings use `rec.Harp`. Two names for one identity inside one function; they are equ... | U019.md |
-| U019-F17 | open | `artifacts.go:244–249` | NOPAY | `DownloadArtifact` implements resumable download via `req.offset`, but the only shipped client never sets it (homeartifacts.go:90–93) *and would reject any partial response*: `Home.DownloadArtifact... | U019.md |
+| U019-F17 | **ESCALATED** `WAVE6SHA` | `artifacts.go:244–249` | NOPAY | `DownloadArtifact` implements resumable download via `req.offset`, but the only shipped client never sets it (homeartifacts.go:90–93) *and would reject any partial response*: `Home.DownloadArtifact... | U019.md |
 | U020-F11 | **REFUTED** `7a7c9fcf` | `consumer.go:253-255` | DEAD | `Coordinator.ListRuns` is a one-line pass-through with no production callers. | U020.md |
 | U020-F14 | open | **`children.go:1055`** | CORRECTNESS | `rt.oneshot` is read outside `c.mu` one line before the same function locks it. | U020.md |
 | U020-F15 | open | **`children.go:222-232`** | CORRECTNESS | A harp assigned by `AssignSession` is leaked into session accounting when the very next step fails. | U020.md |
@@ -1930,9 +1959,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U022-F18 | open | `httpserver.go:337` | COUPLING | `ip != "<no value>"` is connascence of meaning with Go's `text/template` output for a missing field. | U022.md |
 | U022-F19 | open | **`items.go:38-68`** | COMPLEXITY | `itemKind` is CCN 14 against a stated CI gate of 10. | U022.md |
 | U022-F21 | **REFUTED** `287972b3` | **`items.go:171-178`** | DEAD | `itemsFold.countsFor` has zero production call sites. | U022.md |
-| U022-F22 | open | `journal.go:26-32` | DUPLICATE | `newFact` has exactly one caller — `factAt`, which is itself a pure pass-through. Two names for one operation. | U022.md |
+| U022-F22 | **RESOLVED** `ce811af7` | `journal.go:26-32` | DUPLICATE | `newFact` has exactly one caller — `factAt`, which is itself a pure pass-through. Two names for one operation. | U022.md |
 | U023-F10 | **RESOLVED** `72f7f6bf` | `launchgate.go:258-264` | TRIVIAL | `noteLaunchFailure`'s `int` return is discarded at its only call site. | U023.md |
-| U023-F11 | open | `launchgate.go:100-126` | DUPLICATE | `envLaunchInt` and `envLaunchDuration` are structurally identical: lookup → empty check → parse → positivity check → identical warning text. ~26 lines to express one rule twice. | U023.md |
+| U023-F11 | **RESOLVED** `44a1207b` | `launchgate.go:100-126` | DUPLICATE | `envLaunchInt` and `envLaunchDuration` are structurally identical: lookup → empty check → parse → positivity check → identical warning text. ~26 lines to express one rule twice. | U023.md |
 | U023-F12 | **RESOLVED** `8edd95f3` | `mailbox.go:49` | DEAD | `parkedPoll.role` is written at construction (`mailbox.go:262`) and never read. | U023.md |
 | U023-F13 | open | `launchgate.go:270-282` | CORRECTNESS | `launchBackoff(1)` returns `launchBackoffBase` **uncapped**: if an operator sets `CTXLOOM_LAUNCH_BACKOFF_MAX` below `..._BASE`, the first retry ignores the ceiling. | U023.md |
 | U023-F14 | open | `ladder.go` (whole file)` | COHESION | `ladder.go` is a self-contained value-domain module with zero `Coordinator` coupling, welded into a 1764-LOC-plus god-package. | U023.md |
@@ -1951,15 +1980,15 @@ Full evidence and the suggested action for any row live in its source review at 
 | U024-F14 | **RESOLVED** `515a95f4` | `runchannel.go:80, :122, :159` | DEAD | `runChan.credHash` is written and never read; the per-stream `hashToken(mdToken(...))` that fills it is dead work on every dial. | U024.md |
 | U024-F15 | **RESOLVED** `bd050f8b` | `spawner.go:580` | DEAD | `strictnessCheckpoint` is test-only. | U024.md |
 | U024-F16 | **RESOLVED** `72f7f6bf` | `runchannel.go:456-461, :761-766` | TRIVIAL | `unreserveRuntime` is a pure pass-through (its `len(ids)==0` guard is already handled by `unreserve`, mailbox.go:195-213) and `orHost` is a one-expression helper with a single call site. | U024.md |
-| U024-F17 | open | `spawner.go:524-533` | DUPLICATE | `mcpServerNames` duplicates `operations.mcpServerNamesFor` (internal/operations/engine_session.go:446-456) — same nil-guard, same projection; only the `sort` differs. | U024.md |
+| U024-F17 | **RESOLVED** `92b70262` | `spawner.go:524-533` | DUPLICATE | `mcpServerNames` duplicates `operations.mcpServerNamesFor` (internal/operations/engine_session.go:446-456) — same nil-guard, same projection; only the `sort` differs. | U024.md |
 | U024-F18 | open | `statedir.go:44-50` | CORRECTNESS | `sanitizeKey` maps separators but not a **bare `"."` or a `.`-only key**, so a project key of `"."` resolves `stateDirForProject` to `~/.ctxloom/coord` itself — journals for every project in one di... | U024.md |
 | U024-F19 | open | `spawner.go:317-328 vs :409-469` | COUPLING | Split-brain config: the agent *definition* comes from a freshly re-read config, while everything that launches it (`PrepareAgentChat`, the trust gate, `childMCPServers`) uses the startup snapshot `... | U024.md |
 | U024-F20 | open | `runchannel.go:70-72` | COUPLING | `c.custom` is written without `c.mu` and read concurrently by every child's dispatch goroutine (`serveCustom`); correctness rests entirely on the unenforced convention "called once at hosting setup... | U024.md |
 | U024-F21 | open | `runchannel.go:332-336, :358-368, :871-886` | ERRHANDLING | Malformed `ctxloom/*` custom events no-op silently: an empty/absent `message_ids`, a missing `session_id`, a non-string list element. The `harness_session` case matters most — a missing id means th... | U024.md |
 | U024-F22 | open | `runchannel.go (whole file, 901 lines)` | COHESION | The file holds two responsibilities: stream/frame plumbing (`RunChannel`…`clearReqTrack`, ~530 lines) and the plane-2 **verb implementations** (`servePeerSend`…`serveCustom`, ~180 lines) which are ... | U024.md |
-| U024-F23 | open | `runnerlink.go:149-195` | DUPLICATE | The `mu`/`wg`/`closing` + `goTracked`/`waitTracked` + close-budget idiom is duplicated four times across the package family (`Coordinator`, `Home`, `EngineHost`, `RunnerLink`), each with its own bu... | U024.md |
+| U024-F23 | **RESOLVED** `cb1658be` | `runnerlink.go:149-195` | DUPLICATE | The `mu`/`wg`/`closing` + `goTracked`/`waitTracked` + close-budget idiom is duplicated four times across the package family (`Coordinator`, `Home`, `EngineHost`, `RunnerLink`), each with its own bu... | U024.md |
 | U024-F24 | open | `spawner.go:102-119` | CORRECTNESS | `ResumeMode`'s doc contradicts the code: it says one-shot is "not yet executed", "today's only behavior" is persistent, and one-shot is "(v0.8, Slice 4)" — while `Resolve` (:361-375) and `oneShotSu... | U024.md |
-| U024-F25 | open | `runnerlink.go:108-141` | DUPLICATE | The three-line unwind `cancel(); _ = conn.Close(); return nil, fmt.Errorf(...)` appears four times in `DialRunner`. | U024.md |
+| U024-F25 | **RESOLVED** `6253b193` | `runnerlink.go:108-141` | DUPLICATE | The three-line unwind `cancel(); _ = conn.Close(); return nil, fmt.Errorf(...)` appears four times in `DialRunner`. | U024.md |
 | U025-F04 | open | `discover.go:38-41` | CORRECTNESS | `Endpoint` carries a bearer credential in a plain exported `string` field with no redaction affordance, so any `%v`/`%+v` of an `Endpoint` (or a slice of them) prints a live token. | U025.md |
 | U025-F05 | **RESOLVED** `72f7f6bf` | `discover.go:58`, `:63` | TRIVIAL | Inconsistent nil-vs-empty return: the `UserHomeDir` failure path returns a `nil` slice, every other path returns a non-nil `make(…, 0, n)` slice. | U025.md |
 | U026-F01 | open | `binding.go:169–264` | COHESION | The routing table + relay budgets (a runtime-dispatch concern spanning all 16 MCP tools) live in the same file as the binding table + synthetic schemas (a build-time concern spanning 7). They share... | U026.md |

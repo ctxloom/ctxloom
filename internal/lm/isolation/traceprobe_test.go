@@ -273,3 +273,44 @@ func TestParseStraceReads_NegativeReturnIsNeverOK(t *testing.T) {
 		t.Errorf("a non-negative return is still a success; got %+v", reads)
 	}
 }
+
+// TestTraceProbeFromEnv_ActivationIsNeverSilent pins U064-F11's corrected
+// invariant. The row read TraceProbe's security note as claiming the loosened
+// seccomp profile is STRUCTURALLY unreachable from a normal run, and objected
+// that the gate is a plain os.Getenv — an environment variable is inherited
+// from whatever launched ctxloom, so any parent that exports it turns an
+// ordinary `ctxloom run` into a probe run with a loosened profile and an strace
+// wrap. That is correct about the gate; what is structural is only that
+// renderRunSpec applies the profile from RunSpec.Trace alone and that this
+// function is its sole setter. The residue — an inherited variable silently
+// changing a run's isolation posture — is closed by making activation LOUD, and
+// this pins it: the probe announces itself and names the variable to unset.
+func TestTraceProbeFromEnv_ActivationIsNeverSilent(t *testing.T) {
+	t.Setenv(probeTraceEnv, t.TempDir())
+	buf := captureWarnings(t)
+
+	if tp := traceProbeFromEnv(); tp == nil {
+		t.Fatal("the probe env var must still activate the probe")
+	}
+	out := buf.String()
+	if !strings.Contains(out, probeTraceEnv) {
+		t.Errorf("the activation warning must name the variable to unset; got %q", out)
+	}
+	if !strings.Contains(out, "seccomp") {
+		t.Errorf("the activation warning must name the isolation property being loosened; got %q", out)
+	}
+}
+
+// TestTraceProbeFromEnv_UnsetIsSilentAndNil: the ordinary run says nothing and
+// gets no Trace — the warning must not become ambient noise.
+func TestTraceProbeFromEnv_UnsetIsSilentAndNil(t *testing.T) {
+	t.Setenv(probeTraceEnv, "")
+	buf := captureWarnings(t)
+
+	if tp := traceProbeFromEnv(); tp != nil {
+		t.Fatalf("an unset probe var must yield a nil Trace; got %+v", tp)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("an ordinary run must be silent; got %q", buf.String())
+	}
+}

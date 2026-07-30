@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os/exec"
 	"reflect"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+	"github.com/hashicorp/go-plugin/runner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
@@ -369,6 +371,57 @@ func TestRunnerFromConn_HappyPath(t *testing.T) {
 	// LLMRunner.Kill delegates to the connection.
 	pc.Kill()
 	assert.Equal(t, 1, fake.killCalls)
+}
+
+// TestNewContainerClient_ThreadsRunnerFuncAndSocketDir characterizes the whole
+// container dial: the caller's RunnerFunc and the host socket dir are the only
+// two things NewContainerClient contributes to the dial (the in-container argv
+// is built inside the RunnerFunc, which already knows the backend and label),
+// and a dispense failure must still tear the connection down so a started
+// container never leaks. U059-F06 removed the two parameters this proves are
+// not consulted; the assertions below are unchanged by that removal.
+func TestNewContainerClient_ThreadsRunnerFuncAndSocketDir(t *testing.T) {
+	grpcClient := &GRPCClient{client: &fakeLLMClient{}}
+	fake := &fakeLLMConnection{clientResult: &fakeClientProtocol{dispenseResult: grpcClient}}
+
+	var (
+		gotRunnerFunc ContainerRunnerFunc
+		gotSocketDir  string
+	)
+	orig := dialContainerConnection
+	dialContainerConnection = func(runnerFunc ContainerRunnerFunc, socketTempDir string, _ hclog.Logger) llmConnection {
+		gotRunnerFunc, gotSocketDir = runnerFunc, socketTempDir
+		return fake
+	}
+	t.Cleanup(func() { dialContainerConnection = orig })
+
+	called := false
+	rf := ContainerRunnerFunc(func(hclog.Logger, *exec.Cmd, string) (runner.Runner, error) {
+		called = true
+		return nil, errors.New("not launched in this test")
+	})
+
+	pc, err := NewContainerClient(0, rf, "/host/sockets")
+	require.NoError(t, err)
+	require.NotNil(t, pc)
+	assert.Equal(t, "/host/sockets", gotSocketDir)
+	require.NotNil(t, gotRunnerFunc, "the caller's launcher must reach the dial")
+	_, _ = gotRunnerFunc(hclog.NewNullLogger(), nil, "")
+	assert.True(t, called, "the RunnerFunc that reached the dial must be the caller's own")
+	assert.Equal(t, 0, fake.killCalls)
+}
+
+// TestNewContainerClient_DispenseFailureKillsConnection is the leak half of the
+// same path: a half-started container must be torn down, not left running.
+func TestNewContainerClient_DispenseFailureKillsConnection(t *testing.T) {
+	fake := &fakeLLMConnection{clientResult: &fakeClientProtocol{dispenseErr: errors.New("dispense failed")}}
+	orig := dialContainerConnection
+	dialContainerConnection = func(ContainerRunnerFunc, string, hclog.Logger) llmConnection { return fake }
+	t.Cleanup(func() { dialContainerConnection = orig })
+
+	_, err := NewContainerClient(0, nil, "/host/sockets")
+	require.Error(t, err)
+	assert.Equal(t, 1, fake.killCalls, "a container whose plugin never dispensed must be killed")
 }
 
 // TestDefaultClientFactory_PassesLabelToServe pins the oneshot fix: the

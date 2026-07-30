@@ -347,10 +347,10 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 // but Kill tears down the container via the runner. socketTempDir is a host
 // directory under which go-plugin creates the unix-socket dir it bind-mounts into
 // the container; the runner's AddrTranslator maps the plugin's announced
-// container-namespace socket path back to that host mount. backendName/label are
-// carried for parity/diagnostics — the actual in-container argv is built by the
-// RunnerFunc (which knows the container's ctxloom path).
-func NewContainerClient(backendName, label string, verbosity int, runnerFunc ContainerRunnerFunc, socketTempDir string) (*LLMRunner, error) {
+// container-namespace socket path back to that host mount. The in-container
+// argv — backend name, label, and the container's own ctxloom path — is built
+// by the RunnerFunc, so none of it is a parameter here.
+func NewContainerClient(verbosity int, runnerFunc ContainerRunnerFunc, socketTempDir string) (*LLMRunner, error) {
 	return runnerFromConn(dialContainerConnection(runnerFunc, socketTempDir, newPluginLogger(verbosity)))
 }
 

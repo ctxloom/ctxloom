@@ -1029,6 +1029,11 @@ func leadContextIn(in chan<- agent.ChatMessage, lead string, done <-chan struct{
 // tail (runResolvedAgent — per-turn isolation window, headless permission
 // floor), its captured stdout emitted as an assistant entry + turn Complete.
 // There is no session continuity between turns beyond the composed context.
+//
+// The returned launch winds down on EITHER of the two routes its orchestrator
+// uses: In closing (the stream ended on its own) or Close (every other
+// terminal cause). Both end the driver goroutine, which closes Events and
+// Errs; Close never closes In, whose single closer is the orchestrator.
 func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 	rs := p.req.Resolved
 	in := make(chan agent.ChatMessage)
@@ -1038,7 +1043,25 @@ func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 	go func() {
 		defer close(errs)
 		defer close(events)
-		for msg := range in {
+		for {
+			var msg agent.ChatMessage
+			var ok bool
+			select {
+			case msg, ok = <-in:
+				if !ok {
+					return
+				}
+			case <-turnCtx.Done():
+				// Close() (= cancel) is the orchestrator's terminal lever for
+				// every cause that is not "the stream ended on its own"
+				// (agent_stop, launch failure, coordinator teardown). It must
+				// wind this launch down on its own: the orchestrator closes In
+				// only from the path that observes Events CLOSING, so waiting
+				// for In here would park this goroutine for the rest of the
+				// process's life. Close deliberately does NOT close In itself —
+				// In has exactly one closer, the orchestrator.
+				return
+			}
 			if msg.Text == "" {
 				continue
 			}

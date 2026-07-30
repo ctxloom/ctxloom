@@ -1219,3 +1219,75 @@ func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
 	require.Error(t, err, "an unreproducible entry must fail loud, never be skipped silently")
 	assert.Contains(t, err.Error(), "pipe", "the refusal names the path it could not reproduce")
 }
+
+// TestStartOneshot_CloseTerminatesTheDriverGoroutine pins U083-F05's real
+// half: AgentChatLaunch.Close is the orchestrator's "this child is over"
+// lever (coord.terminateRun calls it for agent_stop, launch failure and
+// every other terminal cause), and on the oneshot fallback it used to only
+// cancel the per-turn context — the driver goroutine stayed parked on its
+// input channel forever, so Events/Errs never closed and the coordinator's
+// driveChild select stayed alive until the whole coordinator shut down.
+//
+// The claimed DEADLOCK (endChild draining Errs before closing In) is a
+// DIFFERENT proposition and is refuted by construction: endChild is only
+// reached when Events closes, and on this path Events closing already
+// implies In was closed. What was real is the parked goroutine, which is
+// what this pins — Close alone must wind the launch down.
+func TestStartOneshot_CloseTerminatesTheDriverGoroutine(t *testing.T) {
+	resetStrictness(t)
+	p := &PreparedAgentChat{
+		cfg:     config.NewFixture(config.Fixture{}),
+		oneshot: true,
+		req: AgentChatRequest{
+			Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast"},
+			WorkDir:  t.TempDir(),
+		},
+	}
+	launch := p.startOneshot(context.Background())
+	require.True(t, launch.Oneshot)
+
+	launch.Close()
+
+	select {
+	case _, ok := <-launch.Events:
+		assert.False(t, ok, "Events must be CLOSED, not carrying a late event")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Events never closed after Close() — the oneshot driver goroutine is parked forever")
+	}
+	select {
+	case _, ok := <-launch.Errs:
+		assert.False(t, ok, "Errs must be CLOSED")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Errs never closed after Close()")
+	}
+}
+
+// TestStartOneshot_ClosingInStillTerminates keeps the pre-existing wind-down
+// route working: the orchestrator (coord.endChild) closes In as its own
+// last act, and that must still close Events and Errs. Close() gaining its
+// own exit must not become the ONLY way out — and, critically, Close must
+// never itself close In, because endChild closes In too and a second close
+// would panic.
+func TestStartOneshot_ClosingInStillTerminates(t *testing.T) {
+	resetStrictness(t)
+	p := &PreparedAgentChat{
+		cfg:     config.NewFixture(config.Fixture{}),
+		oneshot: true,
+		req: AgentChatRequest{
+			Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast"},
+			WorkDir:  t.TempDir(),
+		},
+	}
+	launch := p.startOneshot(context.Background())
+
+	in := launch.In
+	close(in)
+	launch.Close() // the orchestrator's real order: close In, THEN Close — must not double-close
+
+	select {
+	case _, ok := <-launch.Events:
+		assert.False(t, ok)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Events never closed after In was closed")
+	}
+}

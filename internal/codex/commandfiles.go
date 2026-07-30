@@ -32,7 +32,7 @@ func codexHome() (string, error) {
 
 // GlobalHome returns codex's home resolution with NO workDir context —
 // codexHome()'s own precedence ($CODEX_HOME, else ~/.codex) — exported for
-// operations/hooks.go's checkCodexHookTargetScope (comfy-lion: the codex
+// the codex descriptor's hookGlobalScopePaths (comfy-lion: the codex
 // analog of prim-guy's claude $HOME-collision guard).
 func GlobalHome() (string, error) { return codexHome() }
 

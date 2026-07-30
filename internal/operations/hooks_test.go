@@ -604,7 +604,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write the settings file")
 }
 
-// TestApplyHooks_RefusesCodexHomeCollision is checkCodexHookTargetScope's
+// TestApplyHooks_RefusesCodexHomeCollision is the codex hook-scope guard's
 // (comfy-lion) canonical red case, the codex sibling of
 // TestApplyHooks_RefusesHomeCollision: WorkDir set to HOME makes
 // codex.ProjectHome(WorkDir) resolve onto codex.GlobalHome() too — codex's
@@ -656,7 +656,7 @@ func TestApplyHooks_ForceOverridesCodexHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write codex's config.toml")
 }
 
-// TestApplyHooks_RefusesKiroHomeCollision is checkKiroHookTargetScope's
+// TestApplyHooks_RefusesKiroHomeCollision is the kiro hook-scope guard's
 // (flaky-spool) canonical red case, the kiro sibling of
 // TestApplyHooks_RefusesHomeCollision / TestApplyHooks_RefusesCodexHomeCollision:
 // WorkDir set to HOME makes kiro's project-scoped .kiro dir

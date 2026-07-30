@@ -127,8 +127,9 @@ func ComputeMCPServerHash(s wire.MCPServer) string {
 }
 
 // AtomicWriteFile writes data to path atomically: it backs up any existing file
-// to path.ctxloom.bak, writes to a temp file, then renames (falling back to a
-// direct write if rename fails cross-device).
+// to path.ctxloom.bak, then writes through iox.WriteFileAtomicFs (unique temp
+// in the destination directory, fsync, rename). There is no non-atomic
+// fallback: a rename failure is returned, never papered over.
 //
 // The existing file's mode is preserved across the rewrite, and a brand-new
 // file defaults to 0600 (not a world-readable 0644). Settings files written
@@ -158,9 +159,16 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	perm := os.FileMode(0600)
 	if info, err := fs.Stat(path); err == nil {
 		perm = info.Mode().Perm()
-		backupPath := path + ".ctxloom.bak"
-		if origData, err := afero.ReadFile(fs, path); err == nil {
-			_ = afero.WriteFile(fs, backupPath, origData, perm)
+		// The backup IS the recovery path this write leans on: atomicity only
+		// guarantees the file is never observed half-written, never that its
+		// previous contents can be got back. So a backup that could not be
+		// taken aborts the write, the same "refuse to overwrite, never
+		// self-heal" posture as the zero-byte guard above — proceeding would
+		// leave the user with no way back and no way to know. Both halves
+		// count: an unreadable original and an unwritable copy each mean no
+		// backup exists.
+		if err := backupExisting(fs, path, perm); err != nil {
+			return fmt.Errorf("refusing to write %s: %w", desc, err)
 		}
 	}
 
@@ -173,6 +181,22 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	// which cannot occur: the temp lives in the destination directory.
 	if err := iox.WriteFileAtomicFs(fs, path, data, perm); err != nil {
 		return fmt.Errorf("failed to write %s: %w", desc, err)
+	}
+	return nil
+}
+
+// backupExisting copies the live bytes at path to <path>.ctxloom.bak under the
+// same restrictive mode. Both the read and the copy are reported: a settings
+// file can carry MCPServer.Env secrets, so the backup is written with perm
+// rather than a wider default, and a backup that does not exist is not a
+// backup.
+func backupExisting(fs afero.Fs, path string, perm os.FileMode) error {
+	origData, err := afero.ReadFile(fs, path)
+	if err != nil {
+		return fmt.Errorf("cannot read the existing file to back it up: %w", err)
+	}
+	if err := afero.WriteFile(fs, path+".ctxloom.bak", origData, perm); err != nil {
+		return fmt.Errorf("cannot write the backup copy: %w", err)
 	}
 	return nil
 }

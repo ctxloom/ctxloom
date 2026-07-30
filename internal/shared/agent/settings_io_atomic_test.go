@@ -153,3 +153,74 @@ func TestAtomicWriteFile_ContractPreserved(t *testing.T) {
 		assert.Empty(t, string(got))
 	})
 }
+
+// backupHostileFs fails exactly one filesystem operation on exactly one path,
+// so a test can break the `.ctxloom.bak` backup without disturbing either the
+// temp file iox writes or the destination rename.
+type backupHostileFs struct {
+	afero.Fs
+	failOpenFileOn string // OpenFile on this path returns failErr
+	failOpenOn     string // Open (afero.ReadFile) on this path returns failErr
+	failErr        error
+}
+
+func (b *backupHostileFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if b.failOpenFileOn != "" && name == b.failOpenFileOn {
+		return nil, b.failErr
+	}
+	return b.Fs.OpenFile(name, flag, perm)
+}
+
+func (b *backupHostileFs) Open(name string) (afero.File, error) {
+	if b.failOpenOn != "" && name == b.failOpenOn {
+		return nil, b.failErr
+	}
+	return b.Fs.Open(name)
+}
+
+// A settings file is only safely overwritable because the previous bytes were
+// captured to <path>.ctxloom.bak first — that backup IS the recovery path
+// AtomicWriteFile's atomicity claim leans on for a bad-but-well-formed write.
+// So a backup that could not be taken must abort the write, exactly as the
+// zero-byte guard does: proceeding leaves the user with no way back and no way
+// to know. Both halves count — the read of the original and the write of the
+// copy — because either one failing means no backup exists.
+func TestAtomicWriteFile_BackupFailureAbortsTheWrite(t *testing.T) {
+	const path = "/proj/.claude/settings.json"
+	boom := errors.New("backup medium refused")
+
+	t.Run("the backup copy cannot be written", func(t *testing.T) {
+		fs := &backupHostileFs{Fs: afero.NewMemMapFs(), failOpenFileOn: path + ".ctxloom.bak", failErr: boom}
+		require.NoError(t, fs.MkdirAll("/proj/.claude", 0o755))
+		require.NoError(t, afero.WriteFile(fs, path, []byte(`{"old":true}`), 0o600))
+
+		err := AtomicWriteFile(fs, path, []byte(`{"new":true}`), "settings")
+		require.Error(t, err, "a settings overwrite with no recoverable backup must not report success")
+		assert.ErrorIs(t, err, boom, "the swallowed cause must reach the caller")
+
+		got, rerr := afero.ReadFile(fs, path)
+		require.NoError(t, rerr)
+		assert.Equal(t, `{"old":true}`, string(got), "the original must survive an aborted write")
+	})
+
+	t.Run("the original cannot be read", func(t *testing.T) {
+		fs := &backupHostileFs{Fs: afero.NewMemMapFs(), failOpenOn: path, failErr: boom}
+		require.NoError(t, fs.MkdirAll("/proj/.claude", 0o755))
+		require.NoError(t, afero.WriteFile(fs, path, []byte(`{"old":true}`), 0o600))
+
+		err := AtomicWriteFile(fs, path, []byte(`{"new":true}`), "settings")
+		require.Error(t, err, "an unreadable original is the case where losing it is least recoverable")
+		assert.ErrorIs(t, err, boom)
+	})
+
+	t.Run("a brand-new file has nothing to back up and still writes", func(t *testing.T) {
+		fs := &backupHostileFs{Fs: afero.NewMemMapFs(), failOpenFileOn: path + ".ctxloom.bak", failErr: boom}
+		require.NoError(t, fs.MkdirAll("/proj/.claude", 0o755))
+
+		require.NoError(t, AtomicWriteFile(fs, path, []byte(`{"new":true}`), "settings"),
+			"no existing file means no backup is owed; the guard must not block first writes")
+		got, rerr := afero.ReadFile(fs, path)
+		require.NoError(t, rerr)
+		assert.Equal(t, `{"new":true}`, string(got))
+	})
+}

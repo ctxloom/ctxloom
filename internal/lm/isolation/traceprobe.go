@@ -26,7 +26,7 @@ import (
 // direct child). The ONLY thing blocking strace in-container is Docker's
 // default SECCOMP profile, which denies the ptrace family unless
 // CAP_SYS_PTRACE is present. So the probe overrides seccomp with a TIGHT
-// profile (containerfiles.ProbeSeccomp — default policy + the ptrace family
+// profile (containerfiles.ProbeSeccomp() — default policy + the ptrace family
 // allowed) instead of granting the far broader capability. This is a strictly
 // smaller privilege delta: it permits only same-uid self-child tracing, not the
 // privileged cross-uid ptrace CAP_SYS_PTRACE confers.
@@ -105,7 +105,7 @@ func traceProbeFromEnv() *TraceProbe {
 	// to trace (surfaced as an empty read-set finding), never a silent
 	// isolation weakening.
 	seccompPath := filepath.Join(dir, probeSeccompFile)
-	if err := os.WriteFile(seccompPath, containerfiles.ProbeSeccomp, 0o644); err != nil {
+	if err := os.WriteFile(seccompPath, containerfiles.ProbeSeccomp(), 0o644); err != nil {
 		seccompPath = ""
 	}
 	return &TraceProbe{

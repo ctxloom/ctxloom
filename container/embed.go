@@ -3,28 +3,36 @@
 // half of the container degrade gate). The `container-build-*` just recipes are
 // the ahead-of-time half over these same files — one source of truth, two build
 // paths.
+//
+// Every asset is delivered through an accessor returning a fresh COPY, never as
+// an exported `[]byte` global: the embedded bytes are the process-wide source of
+// truth for every image build and probe in a run, so no caller may be in a
+// position to corrupt them for every later reader.
 package container
 
-import _ "embed"
+import (
+	"embed"
+	"fmt"
+	"slices"
+)
 
-// Base is the DEFAULT shared base image (stage 1 of every locally-built agent
-// image): the distro plus the coding-agent tool layer (git, ripgrep, curl,
-// certs, unzip, jq). The generated composed agent Containerfile
+//go:embed base/Containerfile entrypoint.sh seccomp/probe-seccomp.json
+var assets embed.FS
+
+// Base is the DEFAULT shared base image Containerfile (stage 1 of every
+// locally-built agent image): the distro plus the coding-agent tool layer (git,
+// ripgrep, curl, certs, unzip, jq). The generated composed agent Containerfile
 // (isolation.composeAgentContainerfile) layers engine specifics onto it via
 // ARG BASE_IMAGE; a user-provided base Containerfile, or an auto-detected
 // project devcontainer, replaces this one (isolation_base_containerfile /
 // `container build --base-containerfile`, or .devcontainer/devcontainer.json).
-//
-//go:embed base/Containerfile
-var Base []byte
+func Base() []byte { return asset("base/Containerfile") }
 
 // Entrypoint is the agent-image entrypoint script: the runtime PUID/PGID
 // identity remap (generic ctxloom user → the launching uid/gid, then a
 // privilege drop). Staged into every agent-stage build context as
 // `ctxloom-entrypoint` and installed by the agent Containerfiles.
-//
-//go:embed entrypoint.sh
-var Entrypoint []byte
+func Entrypoint() []byte { return asset("entrypoint.sh") }
 
 // ProbeSeccomp is the PROBE-ONLY seccomp profile the isolation read-observation
 // probe passes via `--security-opt seccomp=<file>`. It is a complete, TIGHT
@@ -37,6 +45,16 @@ var Entrypoint []byte
 // in-container (same-uid tracing) without the far broader CAP_SYS_PTRACE. Used
 // ONLY on the probe path (isolation.TraceProbe); production runs keep Docker's
 // default profile untouched.
-//
-//go:embed seccomp/probe-seccomp.json
-var ProbeSeccomp []byte
+func ProbeSeccomp() []byte { return asset("seccomp/probe-seccomp.json") }
+
+// asset reads one embedded file and returns a private copy of its bytes. A read
+// failure is a build-time bug (the file is compiled in), not a runtime
+// condition, so it panics rather than handing back nothing — mirroring
+// resources.MustGetPromptText.
+func asset(name string) []byte {
+	b, err := assets.ReadFile(name)
+	if err != nil {
+		panic(fmt.Sprintf("container: embedded asset %q: %v", name, err))
+	}
+	return slices.Clone(b)
+}

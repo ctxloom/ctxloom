@@ -7,21 +7,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEmbeddedAssets_ExportedGlobalsAreProcessWideMutable characterizes the
-// CURRENT delivery shape of the three embedded assets: they are exported
-// `[]byte` package globals, so a write through the slice any importer holds
-// changes the bytes every LATER reader of that same asset sees, for the rest
-// of the process. Nothing in the package restores them.
-//
-// Written before the accessor conversion so the collapse is provably a
-// behaviour change in exactly one respect (isolation between readers) and in
-// no other: the bytes each reader observes are otherwise identical.
-func TestEmbeddedAssets_ExportedGlobalsAreProcessWideMutable(t *testing.T) {
-	require.NotEmpty(t, Base)
-	first := Base[0]
-	t.Cleanup(func() { Base[0] = first })
+// TestEmbeddedAssets_CallerCannotCorruptThem is the isolation contract every
+// accessor owes: each call hands back a private copy, so a caller that writes
+// through the returned slice cannot change what the NEXT reader of that asset
+// sees. The assets are the source of truth for every image build and probe in a
+// run, and a corrupted one would surface as an unexplained build failure far
+// from its cause.
+func TestEmbeddedAssets_CallerCannotCorruptThem(t *testing.T) {
+	for name, read := range map[string]func() []byte{
+		"Base":         Base,
+		"Entrypoint":   Entrypoint,
+		"ProbeSeccomp": ProbeSeccomp,
+	} {
+		pristine := read()
+		require.NotEmpty(t, pristine, "%s", name)
 
-	Base[0] = 'X'
-	assert.Equal(t, byte('X'), Base[0],
-		"a write through the exported global is visible to every later reader of the same asset")
+		mine := read()
+		mine[0] = 'X'
+
+		assert.Equal(t, pristine, read(), "%s: a caller's write must not reach the next reader", name)
+	}
 }

@@ -1318,3 +1318,44 @@ func TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking(t *testing.T
 	assert.Nil(t, proc)
 	assert.Contains(t, serr.Error(), "Starter", "the refusal names the seam that was not supplied")
 }
+
+// TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured is
+// U083-F24's pin, and the row is REFUTED. The claim was that the
+// oneshot+"copy" refusal firing on an EMPTY capture turns a harmless spawn
+// into an error, so it should be suppressed when there is nothing to
+// reproduce. It should not:
+//
+//   - the refusal is about a CONFIGURATION the fallback path cannot honor
+//     ("copy" needs a durable worktree; the oneshot fallback carves and tears
+//     down a fresh one per turn), which is equally true whether this
+//     particular parent tree had one dirty file or a thousand;
+//   - suppressing it would make the same misconfiguration refuse or proceed
+//     depending on the parent tree's momentary contents — the caller learns
+//     about an unsatisfiable request only sometimes;
+//   - and the "harmless" premise needs a tree git reports DIRTY while both
+//     `git diff HEAD` and `git ls-files --others --exclude-standard` come
+//     back empty, which real git does not produce for any ordinary edit.
+//
+// This pin goes red the moment the refusal is made conditional on the
+// snapshot's contents.
+func TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: []string{" M f.go"},
+		// The row's premise, made explicit: nothing at all is captured.
+		DiffPatchValue: "",
+		UntrackedList:  nil,
+	}
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved:         &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
+		WorkDir:          "/proj",
+		DirtyTreeHandler: DirtyTreeHandlerCopy,
+		Git:              fake,
+	})
+	require.Error(t, err, "an unsatisfiable copy request is refused on the configuration, not on the snapshot's contents")
+	assert.Nil(t, p)
+	assert.Contains(t, err.Error(), `dirty_tree_handler "copy"`)
+	assert.Contains(t, err.Error(), "stale", "and names the handlers that DO work for this backend")
+}

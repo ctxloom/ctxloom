@@ -347,3 +347,28 @@ func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testi
 		assert.Empty(t, strictness.All())
 	})
 }
+
+// TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins U063-F13: the
+// predicate every "did we keep the container boundary?" check funnels through
+// must agree with what each policy actually calls itself. It used to match on
+// its own copies of the two name literals, so a rename on either base would
+// have silently reclassified a container run as an unsandboxed one — the
+// prepareChain warning downgraded to a generic degrade line, and the run path
+// reporting a satisfied container request as dropped. Asserting against the
+// policies' OWN Name() keeps the agreement checkable no matter where the
+// strings live.
+func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
+	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
+
+	assert.True(t, IsContainerPolicyName(NewContainer(rt, "img").Name()),
+		"the host-base container policy is container-backed")
+	assert.True(t, IsContainerPolicyName(NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil).Name()),
+		"the worktree-base container policy is container-backed")
+	assert.True(t, IsContainerPolicyName(Container{}.Name()),
+		"a bare Container (nil base) still reports a container-backed name")
+
+	assert.False(t, IsContainerPolicyName(None{}.Name()), "the host policy is not a container boundary")
+	assert.False(t, IsContainerPolicyName(NewWorktree(nil, "claude-code").Name()),
+		"a host worktree is a workspace boundary, never a container one")
+	assert.False(t, IsContainerPolicyName(""), "an empty name is never a container boundary")
+}

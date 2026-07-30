@@ -411,6 +411,19 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	return []Policy{None{}}
 }
 
+// PolicyNameContainer and PolicyNameContainerWorktree are the two
+// container-backed policy identities: the ONE place these strings are written.
+// The predicate every security-relevant "did we keep the boundary?" check
+// funnels through (IsContainerPolicyName) and the bases that produce the names
+// (hostBase.name / worktreeBase.name) must agree by construction — a drift
+// between a policy's own name and the predicate silently reclassifies a
+// container run as an unsandboxed one, which is the one mistake this predicate
+// exists to prevent.
+const (
+	PolicyNameContainer         = "container"
+	PolicyNameContainerWorktree = "container-worktree"
+)
+
 // IsContainerPolicyName reports whether a policy name denotes a container-backed
 // policy (the two that provide a real container boundary). Used by prepareChain
 // to detect a degrade that DROPS the container boundary (which warrants a
@@ -420,7 +433,7 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 // policies are now Container (host vs worktree base), so this matches on the two
 // base NAMES rather than distinct types.
 func IsContainerPolicyName(name string) bool {
-	return name == "container" || name == "container-worktree"
+	return name == PolicyNameContainer || name == PolicyNameContainerWorktree
 }
 
 // Prepare prepares a workspace for the requested axes and the run's BACKEND

@@ -215,7 +215,7 @@ func (c Container) provenanceFor(devBase *baseStage) string {
 // nil base (a bare test-built Container{}) reports the host name.
 func (c Container) Name() string {
 	if c.base == nil {
-		return "container"
+		return PolicyNameContainer
 	}
 	return c.base.name()
 }
@@ -486,7 +486,7 @@ type containerBase interface {
 type hostBase struct{}
 
 // name identifies the plain container policy.
-func (hostBase) name() string { return "container" }
+func (hostBase) name() string { return PolicyNameContainer }
 
 // withState is a no-op: the host base persists no per-session scratch of its own
 // (the container's durable state rides Container.sessionStateMounts).

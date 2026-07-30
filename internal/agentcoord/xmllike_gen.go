@@ -37,18 +37,6 @@ func (x *PausedReminder) XmlLike() string {
 }
 
 // XmlLike renders x as its injected <ctxloom-reminder> frame.
-func (x *PendingPullReminder) XmlLike() string {
-	var b strings.Builder
-	b.WriteString(`<ctxloom-reminder kind="pending-pull"`)
-	xmlLikeAttr(&b, `waiting_seconds`, strconv.FormatUint(uint64(x.GetWaitingSeconds()), 10))
-	xmlLikeAttr(&b, `urgency`, x.GetUrgency().String())
-	b.WriteString(">")
-	b.WriteString(`call agent_recv`)
-	b.WriteString(`</ctxloom-reminder>`)
-	return b.String()
-}
-
-// XmlLike renders x as its injected <ctxloom-reminder> frame.
 func (x *QuestionPendingReminder) XmlLike() string {
 	var b strings.Builder
 	b.WriteString(`<ctxloom-reminder kind="question-pending"`)
@@ -72,6 +60,18 @@ func (x *ResumedReminder) XmlLike() string {
 func (x *SteerPendingReminder) XmlLike() string {
 	var b strings.Builder
 	b.WriteString(`<ctxloom-reminder kind="steer-pending"`)
+	b.WriteString(">")
+	b.WriteString(`call agent_recv`)
+	b.WriteString(`</ctxloom-reminder>`)
+	return b.String()
+}
+
+// XmlLike renders x as its injected <ctxloom-reminder> frame.
+func (x *UnpulledReminder) XmlLike() string {
+	var b strings.Builder
+	b.WriteString(`<ctxloom-reminder kind="unpulled"`)
+	xmlLikeAttr(&b, `age_seconds`, strconv.FormatUint(uint64(x.GetAgeSeconds()), 10))
+	xmlLikeAttr(&b, `urgency`, x.GetUrgency().String())
 	b.WriteString(">")
 	b.WriteString(`call agent_recv`)
 	b.WriteString(`</ctxloom-reminder>`)

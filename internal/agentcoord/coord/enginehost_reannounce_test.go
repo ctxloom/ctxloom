@@ -125,7 +125,7 @@ func (s *steppedChat) recorded() []string {
 }
 
 var (
-	reannounceSecsRe    = regexp.MustCompile(`waiting_seconds="(\d+)"`)
+	reannounceSecsRe    = regexp.MustCompile(`age_seconds="(\d+)"`)
 	reannounceUrgencyRe = regexp.MustCompile(`urgency="([A-Z_]+)"`)
 )
 
@@ -186,7 +186,7 @@ func TestReannounce_TurnThatNeverPulledGetsAnotherAnnouncement(t *testing.T) {
 	sc.finish()
 
 	secs, urgency := parseReannouncement(t, sc.nextTurn(t))
-	assert.Equal(t, agentcoordpb.PendingPullReminder_URGENCY_REPEAT.String(), urgency,
+	assert.Equal(t, agentcoordpb.UnpulledReminder_URGENCY_REPEAT.String(), urgency,
 		"the first re-announcement is the bottom rung")
 	assert.GreaterOrEqual(t, secs, uint32(0))
 }
@@ -227,19 +227,19 @@ func TestReannounce_EscalatesWithTheOldestPendingAge(t *testing.T) {
 	first := sc.nextTurn(t)
 	secs1, urg1 := parseReannouncement(t, first)
 	assert.GreaterOrEqual(t, secs1, uint32(90), "the frame must report how long the instruction has waited")
-	assert.Equal(t, agentcoordpb.PendingPullReminder_URGENCY_REPEAT.String(), urg1)
+	assert.Equal(t, agentcoordpb.UnpulledReminder_URGENCY_REPEAT.String(), urg1)
 
 	home.backdateControlPayloads(60 * time.Second)
 	sc.finish()
 	second := sc.nextTurn(t)
 	secs2, urg2 := parseReannouncement(t, second)
 	assert.GreaterOrEqual(t, secs2, uint32(150), "the age must track the OLDEST pending item, not reset")
-	assert.Equal(t, agentcoordpb.PendingPullReminder_URGENCY_URGENT.String(), urg2)
+	assert.Equal(t, agentcoordpb.UnpulledReminder_URGENCY_URGENT.String(), urg2)
 
 	sc.finish()
 	third := sc.nextTurn(t)
 	_, urg3 := parseReannouncement(t, third)
-	assert.Equal(t, agentcoordpb.PendingPullReminder_URGENCY_FINAL.String(), urg3,
+	assert.Equal(t, agentcoordpb.UnpulledReminder_URGENCY_FINAL.String(), urg3,
 		"the last frame must SAY it is the last one")
 
 	// The property that matters is not the individual values: it is that no two
@@ -261,7 +261,7 @@ func TestReannounce_BoundTerminatesObservably(t *testing.T) {
 		sc.finish()
 		_, urgency := parseReannouncement(t, sc.nextTurn(t))
 		if i == reannounceLimit-1 {
-			assert.Equal(t, agentcoordpb.PendingPullReminder_URGENCY_FINAL.String(), urgency)
+			assert.Equal(t, agentcoordpb.UnpulledReminder_URGENCY_FINAL.String(), urgency)
 		}
 	}
 
@@ -274,7 +274,7 @@ func TestReannounce_BoundTerminatesObservably(t *testing.T) {
 	v := home.customValues(CustomControlUnpulled)[0]
 	assert.Equal(t, steerBodyID("ctl-abandoned"), v["message_id"])
 	assert.Equal(t, reannounceLimit+1, v["announcements"], "the original announcement counts too")
-	assert.GreaterOrEqual(t, v["waiting_seconds"], 120)
+	assert.GreaterOrEqual(t, v["age_seconds"], 120)
 
 	// And it really stops: the run keeps its remaining turns.
 	sc.noMoreTurns(t, 300*time.Millisecond)
@@ -345,7 +345,7 @@ func TestPlanReannounce_BudgetIsPerBody(t *testing.T) {
 	plan, _ = eh.planReannounce(pending)
 	require.True(t, plan.emit)
 	assert.Equal(t, "steer-b", plan.messageID)
-	assert.Equal(t, agentcoordpb.PendingPullReminder_URGENCY_REPEAT, plan.urgency)
+	assert.Equal(t, agentcoordpb.UnpulledReminder_URGENCY_REPEAT, plan.urgency)
 }
 
 // TestWholeSeconds_ClampsABackwardsClock: the age is rendered into an UNSIGNED

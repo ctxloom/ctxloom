@@ -51,7 +51,7 @@ const (
 	// CustomControlUnpulled is the turn-boundary re-announcer's GIVE-UP fact
 	// (F10): a control body was announced, re-announced to the limit across
 	// that many turn boundaries, and the agent never called agent_recv for it.
-	// Value: {"message_id": "...", "announcements": N, "waiting_seconds": N}.
+	// Value: {"message_id": "...", "announcements": N, "age_seconds": N}.
 	//
 	// It is the observable half of the re-announcer's bound. The control
 	// request was acknowledged long ago (APPLIED_NEXT_TURN), so there is no
@@ -442,7 +442,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		clidiag.Warn("ctxloom", "coordinator: %s never pulled control payload %s after %d announcements over %ds — "+
 			"the instruction was NOT acted on",
 			ch.role, f["message_id"].GetStringValue(),
-			int64(f["announcements"].GetNumberValue()), int64(f["waiting_seconds"].GetNumberValue()))
+			int64(f["announcements"].GetNumberValue()), int64(f["age_seconds"].GetNumberValue()))
 	}
 }
 

@@ -27,7 +27,7 @@ import (
 // still a parked body nobody pulled? If there is, it re-announces — and because
 // a notice repeated verbatim is a notice a model learns to skip, each
 // re-announcement carries the OLDEST body's age and one rung more urgency than
-// the last (PendingPullReminder).
+// the last (UnpulledReminder).
 //
 // It is BOUNDED, because an unbounded re-announcer is its own silent loss: it
 // would occupy every turn of the run forever, which costs the caller their
@@ -73,7 +73,7 @@ type reannounceState struct {
 type reannouncePlan struct {
 	messageID string
 	waited    time.Duration
-	urgency   agentcoordpb.PendingPullReminder_Urgency
+	urgency   agentcoordpb.UnpulledReminder_Urgency
 	// emit and giveUp are mutually exclusive; both false means "nothing to do
 	// at this boundary", which is the overwhelmingly common answer.
 	emit   bool
@@ -93,9 +93,9 @@ func (eh *EngineHost) reannounceAtBoundary(home engineHome) {
 	case plan.giveUp:
 		eh.reportUnpulled(home, plan)
 	case plan.emit:
-		frame := (&agentcoordpb.PendingPullReminder{
-			WaitingSeconds: wholeSeconds(plan.waited),
-			Urgency:        plan.urgency,
+		frame := (&agentcoordpb.UnpulledReminder{
+			AgeSeconds: wholeSeconds(plan.waited),
+			Urgency:    plan.urgency,
 		}).XmlLike()
 		eh.goTracked(func() {
 			defer eh.finishReannounce()
@@ -180,9 +180,9 @@ func (eh *EngineHost) finishReannounce() {
 func (eh *EngineHost) reportUnpulled(home engineHome, plan reannouncePlan) {
 	secs := wholeSeconds(plan.waited)
 	home.emitCustomEvent(CustomControlUnpulled, map[string]any{
-		"message_id":      plan.messageID,
-		"announcements":   int(reannounceLimit) + 1, // the original plus every re-announcement
-		"waiting_seconds": int(secs),
+		"message_id":    plan.messageID,
+		"announcements": int(reannounceLimit) + 1, // the original plus every re-announcement
+		"age_seconds":   int(secs),
 	})
 	clidiag.Warn("ctxloom", "runner: control payload %s was announced %d times over %ds and the agent never called agent_recv; "+
 		"no further reminders will be injected and the instruction has NOT been acted on",
@@ -195,17 +195,17 @@ func (eh *EngineHost) reportUnpulled(home engineHome, plan reannouncePlan) {
 // It escalates on the COUNT rather than the elapsed time, deliberately. Age is
 // already the frame's other attribute, and an engine that burns three turn
 // boundaries inside one second would otherwise see three frames reading
-// `waiting_seconds="0"` — identical strings, which is the habituation the
+// `age_seconds="0"` — identical strings, which is the habituation the
 // escalation exists to defeat. Count guarantees every frame differs from the
 // one before it; age carries the information a model actually weighs.
-func reannounceUrgency(sent uint32) agentcoordpb.PendingPullReminder_Urgency {
+func reannounceUrgency(sent uint32) agentcoordpb.UnpulledReminder_Urgency {
 	switch {
 	case sent >= reannounceLimit:
-		return agentcoordpb.PendingPullReminder_URGENCY_FINAL
+		return agentcoordpb.UnpulledReminder_URGENCY_FINAL
 	case sent <= 1:
-		return agentcoordpb.PendingPullReminder_URGENCY_REPEAT
+		return agentcoordpb.UnpulledReminder_URGENCY_REPEAT
 	default:
-		return agentcoordpb.PendingPullReminder_URGENCY_URGENT
+		return agentcoordpb.UnpulledReminder_URGENCY_URGENT
 	}
 }
 

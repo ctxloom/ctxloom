@@ -12,7 +12,7 @@
 //     deliberate prerelease break, human-sanctioned, per the
 //     no-backward-compat-shims rule.
 //   - 4.C: presentation-only reminder messages (MailPendingReminder,
-//     SteerPendingReminder, PendingPullReminder, QuestionPendingReminder,
+//     SteerPendingReminder, UnpulledReminder, QuestionPendingReminder,
 //     PausedReminder, ResumedReminder). NEVER WIRE TRAFFIC: they exist to be
 //     rendered into
 //     injected `<ctxloom-reminder>` frames by their GENERATED `.XmlLike()`
@@ -1178,7 +1178,7 @@ message SteerPendingReminder {
 // attributes here are the anti-habituation channel, and they are deliberately
 // different KINDS of signal:
 //
-//   - waiting_seconds is CONTINUOUS and monotone. It answers "how long has this
+//   - age_seconds is CONTINUOUS and monotone. It answers "how long has this
 //     been waiting", which is the question a model needs to weigh the notice
 //     against whatever it is doing;
 //   - urgency is a CLOSED, three-step escalation that changes on every
@@ -1187,7 +1187,7 @@ message SteerPendingReminder {
 //
 // Both are attribute-eligible by construction (a number and an enum), so this
 // frame carries no sender bytes, exactly like every other one.
-message PendingPullReminder {
+message UnpulledReminder {
   option (message_schema) = {
     xml_like: true,
     xml_text: "call agent_recv"
@@ -1210,7 +1210,7 @@ message PendingPullReminder {
   // How long the OLDEST unpulled body has been parked, whole seconds. Derived
   // from the runner's own clock at park time — it is not sender-influenced and
   // cannot carry sender bytes.
-  uint32 waiting_seconds = 1 [(xml_role) = XML_ATTRIBUTE];
+  uint32 age_seconds = 1 [(xml_role) = XML_ATTRIBUTE];
 
   // Which rung of the escalation this frame is.
   Urgency urgency = 2 [(xml_role) = XML_ATTRIBUTE];

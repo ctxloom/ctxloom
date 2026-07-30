@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // MemStore is an in-memory profiles Store adapter. It exists to prove the
@@ -41,13 +43,15 @@ func (m *MemStore) List() ([]*Profile, error) {
 	return out, nil
 }
 
-// Load returns the named profile or an error if absent.
+// Load returns the named profile, or errs.ErrProfileNotFound if absent — the
+// same sentinel the filesystem *Loader wraps, so errors.Is tells "absent" from
+// "broken" whichever adapter is installed behind the port.
 func (m *MemStore) Load(name string) (*Profile, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.profiles[name]
 	if !ok {
-		return nil, fmt.Errorf("profile %q not found", name)
+		return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 	}
 	return p, nil
 }
@@ -60,10 +64,16 @@ func (m *MemStore) Exists(name string) bool {
 	return ok
 }
 
-// Save persists the profile under its Name (create or overwrite).
+// Save persists the profile under its Name (create or overwrite). Names are
+// held to the SAME rule the filesystem adapter enforces (validateProfileName):
+// the port's two adapters must agree on what a valid profile name is, or a
+// name proven acceptable in memory is refused the moment the real store runs.
 func (m *MemStore) Save(p *Profile) error {
-	if p == nil || p.Name == "" {
+	if p == nil {
 		return fmt.Errorf("profile has no name")
+	}
+	if err := validateProfileName(p.Name); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -71,12 +81,13 @@ func (m *MemStore) Save(p *Profile) error {
 	return nil
 }
 
-// Delete removes the named profile, erroring if it is not present.
+// Delete removes the named profile, reporting errs.ErrProfileNotFound if it is
+// not present (the sentinel the *Loader adapter reports for the same case).
 func (m *MemStore) Delete(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.profiles[name]; !ok {
-		return fmt.Errorf("profile %q not found", name)
+		return fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 	}
 	delete(m.profiles, name)
 	return nil

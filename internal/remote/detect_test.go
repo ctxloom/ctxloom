@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,25 @@ func TestDetectForge(t *testing.T) {
 		{"self-hosted gitlab", "https://gitlab.company.com/owner/repo", ForgeGitGeneric, "https://gitlab.company.com", false},
 		{"self-hosted my-gitlab", "https://my-gitlab.internal.org/group/project", ForgeGitGeneric, "https://my-gitlab.internal.org", false},
 		{"unknown host", "https://unknown.host.com/owner/repo", ForgeGitGeneric, "https://unknown.host.com", false},
+
+		// scp-style SSH refs. url.Parse rejects them outright ("first path
+		// segment in URL cannot contain colon"), so the host has to be taken by
+		// hand — but ParseRepoURL documents and accepts exactly this form, and
+		// NormalizeURL rewrites it to https, so DetectForge refusing it made one
+		// package disagree with itself about which spellings name a repository.
+		{"scp ssh github", "git@github.com:owner/repo.git", ForgeGitHub, "https://github.com", false},
+		{"scp ssh github no suffix", "git@github.com:owner/repo", ForgeGitHub, "https://github.com", false},
+		{"scp ssh self-hosted", "git@gitlab.company.com:group/project.git", ForgeGitGeneric, "https://gitlab.company.com", false},
+
+		// Host-less input. url.Parse puts the whole string in Path when there is
+		// no authority component, so "%s://%s" over (Scheme, Host) rendered the
+		// literal "://" — a base URL that names nothing at all. The endpoint
+		// must be something a reader could act on: the host when one can be
+		// read off the path, otherwise the input itself.
+		{"bare host, no scheme, no path", "gitlab.com", ForgeGitGeneric, "https://gitlab.com", false},
+		{"bare host-qualified path", "gitlab.com/owner/repo", ForgeGitGeneric, "https://gitlab.com", false},
+		{"bare github.com host", "github.com/owner/repo", ForgeGitHub, "https://github.com", false},
+		{"path-addressed transport", "file:///srv/repo.git", ForgeGitGeneric, "file:///srv/repo.git", false},
 	}
 
 	for _, tt := range tests {
@@ -77,6 +97,16 @@ func TestParseRepoURL(t *testing.T) {
 		{"empty path", "https://github.com/", "", "", true},
 		{"single segment", "https://github.com/owner", "", "", true},
 		{"invalid ssh no colon", "git@github.comownerrepo", "", "", true},
+
+		// An empty owner or repo segment is not a repository. Reporting success
+		// hands the caller "" and it goes on to build /repos//<repo> (or
+		// /repos/<owner>/) and blame the forge for the 404.
+		{"shorthand empty repo", "alice/", "", "", true},
+		{"shorthand empty owner", "/repo", "", "", true},
+		{"shorthand both empty", "/", "", "", true},
+		{"ssh empty repo", "git@github.com:alice/", "", "", true},
+		{"ssh empty owner", "git@github.com:/repo", "", "", true},
+		{"https empty owner", "https://github.com//repo", "", "", true},
 	}
 
 	for _, tt := range tests {
@@ -122,6 +152,31 @@ func TestNormalizeURL(t *testing.T) {
 			assert.Equal(t, tt.expected, NormalizeURL(tt.input))
 		})
 	}
+}
+
+// TestNormalizeURL_FinalHTTPSFallbackIsReachable pins the reachability of
+// NormalizeURL's last return — "No scheme, not shorthand, not scp-like: assume
+// an HTTPS host."
+//
+// U093-F06 asserted that arm is unreachable. It is not: an input has to clear
+// three gates to arrive there — no "://", no "@", and NO "/" — and a bare
+// host name clears all three. What IS true is the row's first clause, that a
+// host-qualified path ("gitlab.com/owner/repo") is stolen by the shorthand arm
+// above and prefixed onto github.com; that half is escalated separately because
+// NormalizeURL feeds trust.CanonicalRepoURL, so changing it changes which trust
+// namespace a repository is consulted under.
+//
+// If someone later "removes the unreachable fallback", this goes red.
+func TestNormalizeURL_FinalHTTPSFallbackIsReachable(t *testing.T) {
+	for _, input := range []string{"gitlab.com", "git.company.internal", "example.com.git"} {
+		got := NormalizeURL(input)
+		assert.True(t, strings.HasPrefix(got, "https://"),
+			"NormalizeURL(%q) = %q: the final https:// fallback is the only arm that can produce this", input, got)
+		assert.NotContains(t, got, "github.com",
+			"NormalizeURL(%q) = %q: a bare host must not be routed through the github shorthand arm", input, got)
+	}
+	assert.Equal(t, "https://gitlab.com", NormalizeURL("gitlab.com"))
+	assert.Equal(t, "https://example.com", NormalizeURL("example.com.git"))
 }
 
 func TestNewFetcher(t *testing.T) {

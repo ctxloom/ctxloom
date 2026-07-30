@@ -845,8 +845,14 @@ remotes:
 	require.NoError(t, err)
 
 	// Swap the Fetcher too so PublishManager.Publish doesn't hit GitHub when
-	// looking up the default branch / ref-resolving for PR mode.
-	mockFetcher := &remote.MockFetcher{DefaultBranch: "main"}
+	// looking up the default branch / ref-resolving for PR mode. The base
+	// branch must be seeded explicitly: MockFetcher no longer synthesises a
+	// SHA for an unseeded ref (U093-F20), so PR mode branching from "main" is
+	// now something this fixture states rather than something it got for free.
+	mockFetcher := &remote.MockFetcher{
+		DefaultBranch: "main",
+		Refs:          map[string]string{"main": "base0000"},
+	}
 	mgr = remote.NewPublishManager(registry, remote.AuthConfig{},
 		remote.WithPublisherFactory(func(_ string, _ remote.AuthConfig) (remote.Publisher, error) {
 			return mock, nil

@@ -4,12 +4,18 @@
 //
 //	<ctxloom name="plump-loose-sash" kind="harp" />
 //
-// It is a self-closing element carrying point metadata (deliberately distinct
-// from the <ctxloom-context>…</ctxloom-context> content wrapper) so read-time
+// It is a self-closing element carrying point metadata, so read-time
 // resolution can answer "which harp owns this transcript?" without depending on
 // the session index, the PID registry, the binding, or hook bookkeeping — all of
-// which have proven unreliable. kind="harp" namespaces the marker so the same
-// element can carry other point metadata later (e.g. kind="resumed-from").
+// which have proven unreliable.
+//
+// kind="harp" is the ONLY thing that separates this marker from anything else
+// spelled <ctxloom…>, including the <ctxloom-context>…</ctxloom-context>
+// content wrapper. Neither the element name nor the self-closing shape
+// discriminates: markerRe's <ctxloom\b matches the wrapper's prefix too ('-'
+// is a word boundary), and its trailing slash is optional. The attribute also
+// namespaces the marker, so the same element can carry other point metadata
+// later (e.g. kind="resumed-from").
 //
 // The marker is written through a backend's SessionStart injection path, so it
 // lands in the transcript as escaped JSON (Claude wraps hook stdout in an
@@ -20,21 +26,39 @@ package harpmarker
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 )
 
-// markerRe matches a self-closing <ctxloom … kind="harp" … /> element. The
-// attribute scan stops at the first '>' so it can't run past the element.
+// markerRe matches a <ctxloom … kind="harp" … > element, self-closing or not
+// — the kind attribute is the discriminator, the shape is not. The attribute
+// scan stops at the first '>' so it can't run past the element.
 var markerRe = regexp.MustCompile(`<ctxloom\b[^>]*\bkind="harp"[^>]*?/?>`)
 
 // nameRe pulls the name attribute out of a matched marker element.
 var nameRe = regexp.MustCompile(`\bname="([^"]+)"`)
 
-// Format returns the harp marker for the given harp name, or "" when harp is
-// empty (nothing to identify).
+// unrepresentable are the characters a harp name cannot carry through the
+// marker's attribute syntax. harp.Validate is deliberately permissive on
+// charset (it rejects only path separators, control characters and edge
+// whitespace), so both of these reach Format as legal harp names.
+//
+// A '"' closes the name attribute early, so the element reads back as a
+// DIFFERENT, possibly real harp — the marker misattributes the transcript
+// instead of failing. A '>' closes the element before kind="harp" is
+// reached, so nothing recognises it at all.
+const unrepresentable = `">`
+
+// Format returns the harp marker for the given harp name, or "" when there is
+// nothing this package can say about it: an empty name (nothing to identify)
+// or a name the marker syntax cannot carry without changing which harp the
+// marker names. Whatever Format returns always reads back through Find as the
+// harp it was given — a marker that names the wrong harp is worse than no
+// marker, because a caller can detect the absent one and not the wrong one.
 func Format(harp string) string {
-	if harp == "" {
+	if harp == "" || strings.ContainsAny(harp, unrepresentable) {
 		return ""
 	}
 	return `<ctxloom name="` + harp + `" kind="harp" />`
@@ -85,8 +109,14 @@ func findInValue(v any) string {
 			}
 		}
 	case map[string]any:
-		for _, vv := range t {
-			if h := findInValue(vv); h != "" {
+		// Sorted key order, not Go's randomized range order: a line carrying
+		// markers under two different keys must resolve to the SAME harp on
+		// every scan of the same bytes. Which key wins is arbitrary; that the
+		// answer is stable is not — an identity resolver of last resort that
+		// disagrees with itself between runs cannot be checked by anything
+		// downstream. Arrays keep their own order, which is already stable.
+		for _, k := range slices.Sorted(maps.Keys(t)) {
+			if h := findInValue(t[k]); h != "" {
 				return h
 			}
 		}

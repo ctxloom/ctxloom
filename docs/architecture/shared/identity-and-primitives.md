@@ -101,12 +101,12 @@ Formats and recovers a self-closing `<ctxloom name="…" kind="harp" />` element
 |---|---|---|
 | `markerRe` | `internal/shared/harpmarker/marker.go:29` | `` `<ctxloom\b[^>]*\bkind="harp"[^>]*?/?>` `` |
 | `nameRe` | `internal/shared/harpmarker/marker.go:32` | `` `\bname="([^"]+)"` `` |
-| `Format(harp string) string` | `internal/shared/harpmarker/marker.go:36` | `""` when `harp == ""` (`:37-39`); else `` `<ctxloom name="` + harp + `" kind="harp" />` `` by raw concatenation (`:40`). Sole production caller `internal/cli/session_cmd.go:269` |
+| `Format(harp string) string` | `internal/shared/harpmarker/marker.go` | `""` when `harp == ""` **or** when the name contains `"` or `>` (the characters that would make the element name a different harp, or no harp); else `` `<ctxloom name="` + harp + `" kind="harp" />` ``. Whatever it returns round-trips through `Find`. Sole production caller `emitHarpMarker`, `internal/cli/session_bind.go` |
 | `Find(s string) string` | `internal/shared/harpmarker/marker.go:45` | `FindAllString` over the input (`:46`), returns the `name` of the first matched element **that has one** (`:47`). No production caller |
 | `Scan(line []byte) string` | `internal/shared/harpmarker/marker.go:60` | `Find` on the raw bytes first (`:61`); on a miss, `json.Unmarshal` (error → `""`, `:65-67`) and delegate to `findInValue` (`:68`). No production caller |
-| `findInValue(v any) string` | `internal/shared/harpmarker/marker.go:73` | Recursive descent: string leaf → `Find` (`:76`), then re-decode if it parses as JSON and recurse (`:83-85`); `map[string]any` → recurse over values (`:87-92`); `[]any` → recurse over elements (`:93-97`) |
+| `findInValue(v any) string` | `internal/shared/harpmarker/marker.go` | Recursive descent: string leaf → `Find`, then re-decode if it parses as JSON and recurse; `map[string]any` → recurse over values **in sorted key order**; `[]any` → recurse over elements in order |
 
-The write path is installed as the SessionStart hook for every ctxloom session (`emitHarpMarker`, `internal/cli/session_cmd.go:269`). The read half (`Scan`/`Find`/`findInValue`, 57 of the file's 101 lines) is reachable only from `internal/cli/session_cmd_test.go:68`.
+The write path is installed as the SessionStart hook for every ctxloom session (`emitHarpMarker`, `internal/cli/session_bind.go`). The read half (`Scan`/`Find`/`findInValue`) has no production caller: ADR 0017 names `ClaudeSessionHistory.harpFromTranscript` and `previousSessionByListing` as its consumers, and both were removed at `6683bc4c` with the four per-engine transcript scrapers. Its fate is the open decision recorded as U112-F01.
 
 ## `internal/shared/gitutil`
 
@@ -182,13 +182,13 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 **Harp marker**
 
 - `Format` is the **single authoritative spelling** of a wire format that crosses a process boundary and a storage layer: a Go hook writes it, a backend nests and escapes it into a transcript, and a different Go process is meant to recover it.
-- `Format("")` returns `""` and does not signal. The sole caller guards it (`internal/cli/session_cmd.go:270-272`, "No-op when harp is empty"), and the surrounding write path is best-effort at three further levels: a dropped marshal error (`session_cmd.go:277`), a dropped write error (`:278`), and a binding error downgraded to a warning (`:258`).
-- `Format` performs **no validation or escaping**. A `"` in the name truncates `nameRe`'s match; a `>` makes `markerRe` unable to match at all; a name containing a marker literal injects a second marker.
+- `Format` returns `""` for a name it cannot represent, and the sole caller REPORTS every such case: `emitHarpMarker` (`internal/cli/session_bind.go`) warns on the diagnostic channel for an empty return, a marshal failure and a write failure alike, naming `CTXLOOM_SESSION_HARP`'s value. stdout stays the hook's contract channel and never carries a diagnostic.
+- `Format` **refuses** a name containing `"` or `>` rather than emitting a corrupt element. A `"` would truncate `nameRe`'s match (silently naming a different harp, and admitting attribute injection); a `>` would stop `markerRe` matching at all. `harp.Validate` is permissive enough to admit both, so the guard lives here.
 - `Find` returns the name of the first marker **that has one** — a `kind="harp"` element without `name=` is skipped, not treated as a match. `""` means "not present" and is indistinguishable from "present but malformed".
 - `Scan` checks the **raw bytes before** any structural interpretation (`:61`) and `findInValue` descends into every map value and slice element with no field-name filter, so the search covers user-authored message content as well as the hook envelope.
-- `findInValue`'s `map[string]any` traversal is **Go map order**, i.e. randomized per run, while its `[]any` traversal and `Find` are both ordered — two markers under different object keys resolve to an arbitrary one that can differ between runs of the same input.
+- `findInValue` walks `map[string]any` in **sorted key order**, so two markers under different object keys resolve to the same harp on every scan of the same bytes. Which key wins is arbitrary and not a contract; stability is.
 - The nested re-decode has **no depth bound**; it terminates only because each JSON-decode round strips a quoting layer and the string strictly shrinks.
-- Real vs documented: the doc (`marker.go:6-8`) says the self-closing form is "deliberately distinct from the `<ctxloom-context>…</ctxloom-context>` content wrapper", but `<ctxloom\b` matches the `<ctxloom` prefix of `<ctxloom-context …>` (`-` is a word boundary) and `/?` makes the closing slash optional — the only real discriminator is the mandatory `kind="harp"` attribute.
+- `kind="harp"` is the only discriminator, and the package doc now says so. `<ctxloom\b` matches the `<ctxloom` prefix of `<ctxloom-context …>` (`-` is a word boundary) and `/?` makes the closing slash optional, so neither the element name nor the self-closing shape separates the marker from the content wrapper.
 
 **Git access**
 

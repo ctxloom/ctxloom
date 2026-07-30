@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
@@ -23,6 +24,7 @@ type MockFetcher struct {
 	FetchFileErr   error
 	ListDirErr     error
 	ResolveRefErr  error
+	ResolveTagErr  error
 	SearchReposErr error
 	ValidateErr    error
 	DefaultBrErr   error
@@ -31,6 +33,7 @@ type MockFetcher struct {
 	FetchFileCalls   []FetchFileCall
 	ListDirCalls     []ListDirCall
 	ResolveRefCalls  []ResolveRefCall
+	ResolveTagCalls  []ResolveTagCall
 	SearchReposCalls []SearchReposCall
 	ValidateCalls    []ValidateCall
 }
@@ -48,6 +51,11 @@ type ListDirCall struct {
 // ResolveRefCall records a call to ResolveRef.
 type ResolveRefCall struct {
 	Owner, Repo, Ref string
+}
+
+// ResolveTagCall records a call to ResolveTag.
+type ResolveTagCall struct {
+	Owner, Repo, Tag string
 }
 
 // SearchReposCall records a call to SearchRepos.
@@ -77,6 +85,30 @@ func NewMockFetcher() *MockFetcher {
 // resolution is exercisable against the mock.
 func (m *MockFetcher) ListTags(_ context.Context, _, _ string) ([]string, error) {
 	return m.Tags, nil
+}
+
+// ResolveTag satisfies the fetcherTagResolver capability, resolving through the
+// TAG NAMESPACE ONLY exactly as the production fetchers do.
+//
+// Tags is the namespace: a name that is not in it does not exist as a tag,
+// whatever Refs may say, so a branch of the same name can never answer for it.
+// Without this method the mock fell through fetcherRepoVersions.ResolveTag's
+// generic ResolveRef fallback, so every mock-backed semver test rehearsed the
+// branch-first order that GitCloneFetcher.ResolveTag's SECURITY note exists to
+// keep off the tag path.
+func (m *MockFetcher) ResolveTag(_ context.Context, owner, repo, tag string) (string, error) {
+	m.ResolveTagCalls = append(m.ResolveTagCalls, ResolveTagCall{owner, repo, tag})
+
+	if m.ResolveTagErr != nil {
+		return "", m.ResolveTagErr
+	}
+	if !slices.Contains(m.Tags, tag) {
+		return "", fmt.Errorf("tag not found: %s: %w", tag, errs.ErrRemoteContentNotFound)
+	}
+	if sha, ok := m.Refs[tag]; ok {
+		return sha, nil
+	}
+	return tag + "000000", nil
 }
 
 // WithFile adds a file to the mock.
@@ -159,8 +191,14 @@ func (m *MockFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (
 	if sha, ok := m.Refs[ref]; ok {
 		return sha, nil
 	}
-	// Default: return ref with suffix to indicate it was "resolved"
-	return ref + "000000", nil
+	// An unseeded ref does not resolve. Synthesising "<ref>000000" made the
+	// most decision-relevant method in this double answer SUCCESS to a question
+	// the test never set up: a caller that pins whatever comes back records a
+	// SHA that no fixture ever chose, and the assertion that it pinned "the
+	// right thing" passes without anything having been resolved. Wrap the same
+	// sentinel the production fetchers do, so absence stays distinguishable
+	// from breakage.
+	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
 
 func (m *MockFetcher) SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error) {
@@ -187,8 +225,11 @@ func (m *MockFetcher) ValidateRepo(ctx context.Context, owner, repo string) (boo
 	if valid, ok := m.ValidRepos[key]; ok {
 		return valid, nil
 	}
-	// Default to true for ease of testing
-	return true, nil
+	// A repo nobody marked valid is not valid. Defaulting to true asserted a
+	// property of a repository the fixture never described, so a test that
+	// forgot WithValidRepo still took the happy path — ValidRepos IS the
+	// answer, and its zero value is the honest one.
+	return false, nil
 }
 
 func (m *MockFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {

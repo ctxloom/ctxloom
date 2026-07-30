@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,6 +85,45 @@ func TestGitCloneFetcher_ListDeletedItems_ReAddedIsPresent(t *testing.T) {
 	deleted, err := f.ListDeletedItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 	assert.Empty(t, deleted, "an item re-added at HEAD is present, not deleted")
+}
+
+// TestGitCloneFetcher_ListDeletedItems_HeadUnreadable pins U093-F03: a failure
+// to read the HEAD tree used to be swallowed with `if err == nil`, leaving the
+// present-at-HEAD baseline EMPTY — so every item ever seen anywhere in history
+// came back as "removed upstream", which is the input to a prune.
+//
+// The corruption is the realistic one: refs/remotes/origin/<default> resolves
+// to a commit whose tree object is gone (a pruned or partially-fetched clone).
+// treeAtRef("") prefers that remote-tracking ref, so it fails — while
+// repo.Log(), which reads from HEAD, keeps working and happily enumerates the
+// whole history. That asymmetry is exactly what turned a read failure into a
+// deletion report instead of an error.
+func TestGitCloneFetcher_ListDeletedItems_HeadUnreadable(t *testing.T) {
+	dir := newTestRepo(t)
+	writeCommit(t, dir, "add alpha", map[string]string{".ctxloom/content/bundles/alpha.yaml": "x"}, nil)
+	repo, err := git.PlainOpen(dir)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	firstCommit, err := repo.CommitObject(head.Hash())
+	require.NoError(t, err)
+
+	writeCommit(t, dir, "add beta", map[string]string{".ctxloom/content/bundles/beta.yaml": "x"}, nil)
+
+	// Point the remote-tracking ref at the FIRST commit, then remove that
+	// commit's root tree object. HEAD and its own tree stay intact.
+	defaultBranch := head.Name().Short()
+	require.NoError(t, repo.Storer.SetReference(
+		plumbing.NewHashReference(plumbing.NewRemoteReferenceName("origin", defaultBranch), firstCommit.Hash)))
+	treeHash := firstCommit.TreeHash.String()
+	require.NoError(t, os.Remove(filepath.Join(dir, ".git", "objects", treeHash[:2], treeHash[2:])))
+
+	f, err := NewGitCloneFetcher(dir, "https://github.com/o/r", ForgeGitHub, nil)
+	require.NoError(t, err)
+
+	deleted, err := f.ListDeletedItems(context.Background(), ItemTypeBundle)
+	require.Error(t, err, "an unreadable HEAD tree must be reported, never treated as an empty baseline")
+	assert.Empty(t, deleted, "no item may be reported as removed upstream on the strength of a read that failed")
 }
 
 func TestGitForgeVCS_ListDeletedItems_NoHistoryBackend(t *testing.T) {

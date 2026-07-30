@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 func TestNewMockFetcher(t *testing.T) {
@@ -162,6 +164,50 @@ func TestMockFetcher_ListDir_Unit(t *testing.T) {
 	})
 }
 
+// TestMockFetcher_ResolveTagIsTagNamespaceOnly pins U093-F21: the shared double
+// implemented ListTags but not ResolveTag, so fetcherRepoVersions.ResolveTag
+// took its "backends that don't distinguish namespaces" fallback to the generic
+// ResolveRef — and every mock-backed semver test therefore rehearsed the
+// branch-first strategy order that GitCloneFetcher.ResolveTag's SECURITY note
+// exists to keep off the tag path. A double that cannot express the
+// distinction cannot test the control.
+func TestMockFetcher_ResolveTagIsTagNamespaceOnly(t *testing.T) {
+	ctx := context.Background()
+
+	mock := NewMockFetcher()
+	mock.Tags = []string{"v1.2.3"}
+	// "release" exists as a REF (a branch, in production terms) but is not a
+	// tag; "v1.2.3" is both.
+	mock.Refs = map[string]string{"v1.2.3": "tag-sha", "release": "branch-sha"}
+
+	sha, err := mock.ResolveTag(ctx, "owner", "repo", "v1.2.3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sha != "tag-sha" {
+		t.Errorf("sha = %q, want %q", sha, "tag-sha")
+	}
+	if len(mock.ResolveTagCalls) != 1 {
+		t.Errorf("len(ResolveTagCalls) = %d, want 1", len(mock.ResolveTagCalls))
+	}
+
+	if _, err := mock.ResolveTag(ctx, "owner", "repo", "release"); err == nil {
+		t.Fatal("a branch-only name must not resolve through the tag namespace")
+	}
+
+	// The capability the resolver probes for must actually be satisfied, or
+	// the fallback silently comes back.
+	var _ fetcherTagResolver = (*MockFetcher)(nil)
+	rv := NewFetcherRepoVersions(mock, "owner", "repo")
+	before := len(mock.ResolveRefCalls)
+	if _, err := rv.(TagResolver).ResolveTag(ctx, "v1.2.3"); err != nil {
+		t.Fatalf("unexpected error through the RepoVersions seam: %v", err)
+	}
+	if len(mock.ResolveRefCalls) != before {
+		t.Error("tag resolution must not fall through to the generic ResolveRef")
+	}
+}
+
 func TestMockFetcher_ResolveRef(t *testing.T) {
 	ctx := context.Background()
 
@@ -180,15 +226,21 @@ func TestMockFetcher_ResolveRef(t *testing.T) {
 		}
 	})
 
-	t.Run("ref not in map uses default", func(t *testing.T) {
+	// U093-F20: an unseeded ref must NOT resolve. The old default synthesised
+	// "<ref>000000", so a test that forgot to seed still got a SHA and a nil
+	// error back — a plausible fake where a failure belonged.
+	t.Run("ref not in map does not resolve", func(t *testing.T) {
 		mock := NewMockFetcher()
 		sha, err := mock.ResolveRef(ctx, "owner", "repo", "main")
 
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("expected an unseeded ref to fail, got a resolved SHA")
 		}
-		if sha != "main000000" {
-			t.Errorf("sha = %q, want %q", sha, "main000000")
+		if !errors.Is(err, errs.ErrRemoteContentNotFound) {
+			t.Errorf("err = %v, want it to wrap errs.ErrRemoteContentNotFound", err)
+		}
+		if sha != "" {
+			t.Errorf("sha = %q, want empty", sha)
 		}
 	})
 
@@ -269,15 +321,18 @@ func TestMockFetcher_ValidateRepo(t *testing.T) {
 		}
 	})
 
-	t.Run("default is valid", func(t *testing.T) {
+	// U093-F20: a repo nobody marked valid is not valid. ValidRepos IS the
+	// answer, so its zero value is the honest default; asserting true for an
+	// unseeded repo described a repository the fixture never set up.
+	t.Run("unseeded repo is not valid", func(t *testing.T) {
 		mock := NewMockFetcher()
 		valid, err := mock.ValidateRepo(ctx, "unknown", "repo")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !valid {
-			t.Error("expected default to be valid")
+		if valid {
+			t.Error("expected an unseeded repo to be reported invalid")
 		}
 	})
 

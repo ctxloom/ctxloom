@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,6 +44,13 @@ func (s *SessionStore) ResolveHomeDir() (string, error) {
 	return homeDir, nil
 }
 
+// ErrNoSessions reports honest absence: this project has no recorded session
+// history for the requested workDir. It is a distinct fact from "the history
+// could not be read", which arrives as a wrapped list/load error, and callers
+// that treat an empty history as a normal state must discriminate with
+// errors.Is rather than matching on message text.
+var ErrNoSessions = errors.New("no sessions found")
+
 // GetCurrentSessionViaGetSession is the common GetCurrentSession shape shared
 // by every per-agent SessionHistory whose per-session loader takes (workDir,
 // id string) — opencode's GetSession does (the claude/codex/antigravity
@@ -67,7 +75,7 @@ func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]Session
 		return nil, err
 	}
 	if len(sessions) == 0 {
-		return nil, fmt.Errorf("no sessions found")
+		return nil, ErrNoSessions
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].StartTime.After(sessions[j].StartTime)

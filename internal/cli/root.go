@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -14,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Version is set at build time via ldflags
@@ -182,27 +180,13 @@ func Execute() {
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}
-		format, ferr := cliemit.Resolve(rootCmd)
-		if ferr != nil {
-			// The --format value itself was rejected; report err (the ORIGINAL
-			// failure) rather than the format error, in the one shape every
-			// terminal can read.
-			format = clifmt.FormatText
-		}
-		reportExecuteError(os.Stderr, err, format)
+		// EmitError only fails if the underlying writer fails (os.Stderr in
+		// production never does); there is no further fallback if it did. A
+		// --format value that will not parse falls back to text in there, so
+		// the ORIGINAL failure is always what gets reported.
+		_ = cliemit.EmitError(os.Stderr, rootCmd, err)
 		os.Exit(1)
 	}
-}
-
-// reportExecuteError renders a top-level command failure to w, in the
-// selected --format. text keeps the plain "Error: msg" line the CLI has
-// always printed on failure; json/yaml/toml/markdown get clifmt's structured
-// {"error": "..."} envelope instead — the one stderr surface that used to
-// stay human-text-only no matter what --format a machine caller requested.
-func reportExecuteError(w io.Writer, err error, format clifmt.Format) {
-	// RenderError only fails if the underlying writer fails (os.Stderr in
-	// production never does); there's no further fallback if it did.
-	_ = clifmt.RenderError(w, err, format)
 }
 
 func init() {

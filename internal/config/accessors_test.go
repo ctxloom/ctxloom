@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -135,4 +136,56 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 			t.Fatal("mutating GetSettings() result's pointer field corrupted the source")
 		}
 	})
+}
+
+// mcpCloneParityCases are the shapes an MCPServer deep copy has to get right:
+// the nil/empty distinction on both containers (yaml `omitempty` renders those
+// differently, so collapsing one into the other changes persisted bytes) and a
+// populated value.
+var mcpCloneParityCases = []struct {
+	name string
+	in   wire.MCPServer
+}{
+	{"zero", wire.MCPServer{}},
+	{"nil containers", wire.MCPServer{Command: "srv"}},
+	{"empty non-nil containers", wire.MCPServer{Command: "srv", Args: []string{}, Env: map[string]string{}}},
+	{"populated", wire.MCPServer{
+		Command: "srv", Args: []string{"a", "b"},
+		Env: map[string]string{"K": "V"}, Notes: "n", Installation: "i", SCM: "m",
+	}},
+}
+
+// TestCloneMCPServer_Parity is the parity gate across BOTH deep-copy
+// implementations of wire.MCPServer — this package's own and wire's — before
+// one is deleted. Equality alone is not enough: the nil-vs-empty container
+// distinction and the non-aliasing property are the two things a divergent
+// copy silently gets wrong.
+func TestCloneMCPServer_Parity(t *testing.T) {
+	for _, tc := range mcpCloneParityCases {
+		t.Run(tc.name, func(t *testing.T) {
+			local, shared := cloneMCPServer(tc.in), wire.CloneMCPServer(tc.in)
+			if local.Args == nil != (shared.Args == nil) {
+				t.Fatalf("Args nil-ness diverges: local nil=%v shared nil=%v", local.Args == nil, shared.Args == nil)
+			}
+			if local.Env == nil != (shared.Env == nil) {
+				t.Fatalf("Env nil-ness diverges: local nil=%v shared nil=%v", local.Env == nil, shared.Env == nil)
+			}
+			if !reflect.DeepEqual(local, shared) {
+				t.Fatalf("clones diverge:\n local=%#v\nshared=%#v", local, shared)
+			}
+		})
+	}
+}
+
+// TestCloneMCPServer_NeverAliases pins the reason a deep copy exists at all: a
+// plain struct copy shares the Args backing array and the Env map, so a caller
+// mutating what it was handed would reach the value it was copied from.
+func TestCloneMCPServer_NeverAliases(t *testing.T) {
+	in := wire.MCPServer{Command: "srv", Args: []string{"a"}, Env: map[string]string{"K": "V"}}
+	got := wire.CloneMCPServer(in)
+	got.Args[0] = "mutated"
+	got.Env["K"] = "mutated"
+	if in.Args[0] != "a" || in.Env["K"] != "V" {
+		t.Fatalf("clone aliases its source: args=%v env=%v", in.Args, in.Env)
+	}
 }

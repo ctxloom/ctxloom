@@ -802,6 +802,14 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 	if p.oneshot {
 		return nil, errors.New("delegate: this backend has no structured chat; the oneshot fallback hosts no engine process for StartRun")
 	}
+	if p.starter == nil {
+		// The two spawn seams are independent: a caller-supplied Factory
+		// (legacy Chat dial) skips the isolation block that BINDS the
+		// production starter, so a caller taking the StartRun path with only
+		// Factory set arrives here with nothing to launch. Refusing by name
+		// beats the nil-func panic an exported method has no business raising.
+		return nil, errors.New("delegate: no engine Starter for this launch — a caller-supplied AgentChatRequest.Factory replaces the isolation-bound starter, so the StartRun path needs AgentChatRequest.Starter supplied too")
+	}
 	rs := p.req.Resolved
 	handle, err := p.starter(ctx)
 	if err != nil {

@@ -1291,3 +1291,30 @@ func TestStartOneshot_ClosingInStillTerminates(t *testing.T) {
 		t.Fatal("Events never closed after In was closed")
 	}
 }
+
+// TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking pins
+// U083-F13. The two spawn seams are independent — Factory fakes the legacy
+// go-plugin Chat dial, Starter fakes the StartRun runner launch — and a
+// non-nil Factory skips the whole isolation block that would otherwise BIND
+// a production starter. A caller that supplies only Factory and then takes
+// the StartRun path therefore reached StartEngine with p.starter == nil and
+// called it: a nil-func panic, from an exported method, naming nothing.
+//
+// (The register's stated mechanism — "p.starter is assigned only inside the
+// p.factory == nil branch" — no longer holds: req.Starter is copied across
+// unconditionally. The reachable defect is the unset case pinned here.)
+func TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking(t *testing.T) {
+	resetStrictness(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	require.Nil(t, p.starter, "the Factory seam deliberately binds no production starter")
+
+	proc, serr := p.StartEngine(context.Background())
+	require.Error(t, serr, "StartEngine must refuse a launch it has no starter for, not panic")
+	assert.Nil(t, proc)
+	assert.Contains(t, serr.Error(), "Starter", "the refusal names the seam that was not supplied")
+}

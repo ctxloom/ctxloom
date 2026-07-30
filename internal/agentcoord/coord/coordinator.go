@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
@@ -211,7 +212,12 @@ type Coordinator struct {
 	// goroutine racing that teardown is this package's worst flake class.
 	tracked trackedGroup
 
-	srv *coordServing // listeners (httpserver.go); nil until Serve
+	// srv is the listener set (httpserver.go), nil until Serve. ATOMIC, not
+	// mu-guarded: Serve publishes it while the spawn path (ReachURL, building
+	// a child's env) and Close read it from other goroutines, and those
+	// readers must not have to take the coordinator's big lock — nor can they
+	// be allowed to observe a half-published coordServing.
+	srv atomic.Pointer[coordServing]
 
 	// execGaugeHook, if set (tests only), is sampled synchronously every time
 	// a run's §6a state durably transitions (setState, terminateRun): it
@@ -538,8 +544,8 @@ func (c *Coordinator) Close() {
 				closeFn()
 			}
 		}
-		if c.srv != nil {
-			c.srv.close()
+		if srv := c.srv.Load(); srv != nil {
+			srv.close()
 		}
 		c.waitTracked()
 		c.closePartial()

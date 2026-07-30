@@ -66,7 +66,7 @@ type endpointState = discover.State
 // Serve stands the listeners up: loopback by default; widening happens on
 // demand when a container child spawns.
 func (c *Coordinator) Serve() error {
-	if c.srv != nil {
+	if c.srv.Load() != nil {
 		return nil
 	}
 	s := &coordServing{c: c}
@@ -110,7 +110,7 @@ func (c *Coordinator) Serve() error {
 	}
 	s.saveEndpoint()
 
-	c.srv = s
+	c.srv.Store(s)
 	return nil
 }
 
@@ -161,10 +161,11 @@ func (s *coordServing) saveEndpoint() {
 // sites would need to grow by a line to handle ReachURL's error return,
 // which costs more lines than this wrapper.
 func (c *Coordinator) LoopbackURL() string {
-	if c.srv == nil {
+	srv := c.srv.Load()
+	if srv == nil {
 		return ""
 	}
-	return c.srv.loopURL
+	return srv.loopURL
 }
 
 // ReachURL resolves the URL a caller on runtimeAxis dials: loopback for host
@@ -172,13 +173,14 @@ func (c *Coordinator) LoopbackURL() string {
 // (opened on demand, never 0.0.0.0). The hosting glue uses it for the parent
 // harness's env trio.
 func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
-	if c.srv == nil {
+	srv := c.srv.Load()
+	if srv == nil {
 		return "", errors.New("coordinator listeners are not up")
 	}
 	if runtimeAxis != "container" {
-		return c.srv.loopURL, nil
+		return srv.loopURL, nil
 	}
-	return c.srv.ensureWide()
+	return srv.ensureWide()
 }
 
 // ensureWide resolves the container-reachable URL once and returns it. On

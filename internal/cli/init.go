@@ -481,18 +481,19 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 	}
 }
 
-// discoverySessionPrompt returns the ONE prompt the init discovery session
-// receives: ctxloom's built-in five-phase setup body (ctxloomInitPrompt, see
-// agent.go) — orient+scan, companions, profiles+content, agents, close — so
-// content selection and agent binding happen in a single continuous
-// conversation (no mid-session prompt fetch). ACP is deliberately not one of
-// the five phases (it is optional, handed off to the acp-setup skill), so
-// this discovery session reaches a working CLI/TUI outcome without ever
-// gating on it. Resolves through ResolveSetupPrompt so every bundle- or
-// companion-shipped `agent-setup` command is composed in at init exactly as
-// it is for `ctxloom init prompt` and for the `/ctxloom-init` slash command;
-// a nil config degrades to the built-in text alone (CLAUDE.md fault
-// tolerance).
+// discoverySessionPrompt returns the ONE prompt every setup door emits:
+// ctxloom's built-in five-phase setup body (ctxloomInitPrompt, see agent.go) —
+// orient+scan, companions, profiles+content, agents, close — so content
+// selection and agent binding happen in a single continuous conversation (no
+// mid-session prompt fetch). ACP is deliberately not one of the five phases
+// (it is optional, handed off to the acp-setup skill), so the discovery
+// session reaches a working CLI/TUI outcome without ever gating on it.
+// Resolves through ResolveSetupPrompt so every bundle- or companion-shipped
+// `agent-setup` command is composed in identically for the init discovery
+// launch, for `ctxloom init prompt`, and for the `/ctxloom-init` slash
+// command. A nil config degrades to the built-in text alone (CLAUDE.md fault
+// tolerance) — which is also the path a config LOAD FAILURE takes, since
+// GetConfig returns a nil config on error.
 func discoverySessionPrompt(cfg *config.Config) string {
 	if cfg == nil {
 		return ctxloomInitPrompt
@@ -516,11 +517,9 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 
 	// Config is best-effort here: it only feeds the bundle-override lookup for
 	// the agent-setup half, and init just wrote it — but a load failure must
-	// not sink the discovery launch.
-	var cfg *config.Config
-	if c, cerr := GetConfig(); cerr == nil {
-		cfg = c
-	}
+	// not sink the discovery launch. GetConfig returns a nil config on error,
+	// which discoverySessionPrompt already degrades to the built-in body for.
+	cfg, _ := GetConfig()
 
 	// No PermissionMode is set: the zero value rides the wire as "" and
 	// resolves (agent.WireMode) to PermissionDefault — the engine's OWN normal

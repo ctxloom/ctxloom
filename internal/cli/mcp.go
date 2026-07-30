@@ -117,44 +117,52 @@ func runMCPList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	rows := make([]mcpListRow, 0, len(result.Servers))
-	for _, srv := range result.Servers {
-		rows = append(rows, mcpListRow{
-			Name:    srv.Name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			Backend: srv.Backend,
-		})
-	}
-	// Stamp effective trust only for the machine (json) surface, matching the
-	// fragment/prompt listings; the human output below is unchanged.
-	if outputFormatOf(cmd) == formatJSON {
-		stampMCPTrust(cfg, result.Servers, rows)
-	}
+	// Effective trust is stamped only for the machine (json) surface, matching
+	// the fragment/prompt listings; the human output below is unchanged.
+	rows := mcpListRows(cfg, result.Servers, outputFormatOf(cmd) == formatJSON)
 
 	return emit(cmd, mcpListJSON{Servers: rows, AutoRegister: result.AutoRegister}, func() error {
 		return printMCPList(cmd.OutOrStdout(), result)
 	})
 }
 
-// stampMCPTrust annotates each json row with its effective trust (TR3). A single
-// TrustStamper reads the trust store / remote registry once for the whole list;
-// each configured server is hashed by its executable surface
-// (BundleMCP.ComputeContentHash) and resolved as a local mcp item.
-func stampMCPTrust(cfg *config.Config, servers []operations.MCPServerEntry, rows []mcpListRow) {
-	stamper := operations.NewTrustStamper(cfg)
-	for i := range rows {
-		srv := servers[i]
-		res := stamper.ForLocalMCP(srv.Name, bundles.BundleMCP{
-			Command:      srv.Command,
-			Args:         srv.Args,
-			Env:          srv.Env,
-			Installation: srv.Installation,
-		})
-		rows[i].Trusted = res.Trusted()
-		rows[i].TrustSource = string(res.Source)
-		rows[i].State = string(res.State())
+// mcpListRows projects each configured server into its json row, stamping the
+// row's effective trust (TR3) in the same iteration that reads the server when
+// withTrust is set. A single TrustStamper reads the trust store / remote
+// registry once for the whole list; each configured server is hashed by its
+// executable surface (BundleMCP.ComputeContentHash) and resolved as a local mcp
+// item.
+//
+// One loop over ONE slice is the invariant: a row and the server it describes
+// are produced together, so there is no second slice for an index to drift
+// against and no length relationship for a caller to have to maintain.
+func mcpListRows(cfg *config.Config, servers []operations.MCPServerEntry, withTrust bool) []mcpListRow {
+	var stamper *operations.TrustStamper
+	if withTrust {
+		stamper = operations.NewTrustStamper(cfg)
 	}
+	rows := make([]mcpListRow, 0, len(servers))
+	for _, srv := range servers {
+		row := mcpListRow{
+			Name:    srv.Name,
+			Command: srv.Command,
+			Args:    srv.Args,
+			Backend: srv.Backend,
+		}
+		if stamper != nil {
+			res := stamper.ForLocalMCP(srv.Name, bundles.BundleMCP{
+				Command:      srv.Command,
+				Args:         srv.Args,
+				Env:          srv.Env,
+				Installation: srv.Installation,
+			})
+			row.Trusted = res.Trusted()
+			row.TrustSource = string(res.Source)
+			row.State = string(res.State())
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // printMCPList writes the human-readable MCP server listing, preserving the

@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,210** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 98 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 151 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 155 |
-| `open` | no commit names this ID | **654** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 156 |
+| `open` | no commit names this ID | **653** |
 
-**Totals: 2268 findings across 162 units — 1,210 resolved, 654 still open, 404 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,210 resolved, 653 still open, 405 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 409 | 368 | 56 | 69 | 97 |
-| LOW | 871 | 445 | 272 | 28 | 74 | 52 |
+| LOW | 871 | 445 | 271 | 28 | 74 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2712,7 +2712,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U134-F10 | **REFUTED** `f5df1b28` | **`sign.go:49`, `publisher.go:60`** | CORRECTNESS | `Verify` accepts an empty `namespace`, so the domain separator that the whole design rests on can be defeated by an empty string. `CoversBytes` takes `namespace` as a free caller parameter with no ... | U134.md |
 | U134-F11 | **RESOLVED** `cb2b8396` `127539ad` | `loadout.go:110-113` | TRIVIAL | Dead conditional: `var sig []byte; if env.Signature != "" { sig = []byte(env.Signature) }`. | U134.md |
 | U134-F12 | **RESOLVED** `fbb1479a` | **`sign.go:14`** | NOPAY | `DefaultHashAlgorithm` is exported but has **zero references anywhere in the repo** outside its single use at `sign.go:30`. | U134.md |
-| U134-F13 | open | `publisher.go:61,65` and `publisher.go:126,145` | COMPLEXITY | Every publisher verification unarmors the same blob twice — once here for the key, once inside `Verify`. | U134.md |
+| U134-F13 | **ESCALATED** `pending` | `publisher.go:61,65` and `publisher.go:126,145` | COMPLEXITY | Every publisher verification unarmors the same blob twice — once here for the key, once inside `Verify`. | U134.md |
 | U134-F14 | open | `payload.go:59,72,101` | CORRECTNESS | `Assertion`, `ItemKind`, and `Form` are bare string aliases with no `Valid()` method and no constructor, so "closed vocabulary" is a comment rather than a constraint — and F05 shows the boundary le... | U134.md |
 | U134-F15 | open | `loadout.go` (whole file)` | COHESION | `loadout.go` is a JSON transport container, not a signing primitive; it is the one file in this package that would still make sense with the crypto removed. | U134.md |
 | U135-F10 | open | `210` | ERRHANDLING | When `git config` fails with a non-1 exit and empty stderr, the wrap produces a message with a dangling leading colon. | U135.md |

@@ -10,19 +10,29 @@ import (
 // JSON it accepts on stdout. Consumers that sit on the hook wire (ltk's
 // antigravity engine) import these types instead of redefining them.
 //
-// Contract verified live against agy v1.0.7 (2026-06-10):
+// Contract probed live against agy v1.0.7 (2026-06-10) — a dated observation of
+// a closed-source CLI, see the package doc:
 //   - Allow / pass-through: emit nothing, exit 0.
 //   - Deny: stdout {"decision":"deny","reason":"…"}, exit 0. The tool call is
 //     blocked and the model receives the reason verbatim as
 //     "Tool call denied with reason: <reason>".
 //   - A hook that exits non-zero FAILS OPEN: the tool call proceeds and agy
 //     logs the failure. Denial must be a deliberate, well-formed decision.
+//
+// agy's own bundled hooks documentation (1.1.5) describes a WIDER decision
+// vocabulary than this file models: allow / ask / force_ask alongside deny, plus
+// permissionOverrides and argument-overwrite fields. ctxloom emits only deny, so
+// only deny is modelled.
 
-// Hook event names agy loads handlers for. SessionStart/SessionEnd entries in
-// hooks.json are silently skipped by agy v1.0.7 (no handler loads, no error).
-// The single source of truth for both the wire contract and antigravity.go's
-// own hooks.json event routing (addUnifiedHooks) — routing through these
-// constants instead of duplicating the string literals is what U029-F03 fixed.
+// The two hook events ctxloom routes to, and the single source of truth for both
+// the wire contract and antigravity.go's own hooks.json event routing
+// (addUnifiedHooks) — routing through these constants instead of duplicating the
+// string literals is what U029-F03 fixed.
+//
+// SessionStart/SessionEnd are not agy events at all: entries for them are
+// silently skipped (no handler loads, no error, probed on v1.0.7). agy's 1.1.5
+// documentation lists PreToolUse, PostToolUse, PreInvocation, PostInvocation and
+// Stop — the last three are unmodelled here.
 const (
 	EventPreToolUse  = "PreToolUse"
 	EventPostToolUse = "PostToolUse"

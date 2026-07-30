@@ -53,7 +53,7 @@ func TestAntigravityHookWriter_WriteSettingsHooks(t *testing.T) {
 	assert.Equal(t, "command", hooks["PreToolUse"][0].Hooks[0].Type)
 	assert.Equal(t, "./pre-tool.sh", hooks["PreToolUse"][0].Hooks[0].Command)
 	assert.Equal(t, antigravityCtxloomHookName, hooks["PreToolUse"][0].Hooks[0].Name)
-	assert.Zero(t, hooks["PreToolUse"][0].Hooks[0].Timeout, "timeout is never written (unit unverified in agy)")
+	assert.Zero(t, hooks["PreToolUse"][0].Hooks[0].Timeout, "timeout is never written — agy's own default applies")
 }
 
 // TestAntigravityHookWriter_PreShellPostFileEdit verifies the unified

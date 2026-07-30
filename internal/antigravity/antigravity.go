@@ -3,10 +3,19 @@
 // backend and the PreToolUse hook wire types other tools (ltk) consume.
 //
 // Antigravity splits workspace configuration across two files under .agents/:
-// hooks.json (lifecycle hooks, Claude-style nested shape with PreToolUse /
-// PostToolUse / Stop events) and mcp_config.json (MCP servers). Behavior here
-// follows the verified agy v1.0.7 contract — see the wire types in
-// hooks_wire.go for the verified payload/decision shapes.
+// hooks.json (lifecycle hooks, nested matcher/hooks[] shape) and
+// mcp_config.json (MCP servers) — see the wire types in hooks_wire.go for the
+// payload/decision shapes.
+//
+// EVERY "verified" claim in this package is a DATED observation of a
+// closed-source, fast-moving CLI, not a standing contract. The behaviour
+// described here was probed live against agy v1.0.7 on 2026-06-10; the installed
+// CLI is 1.1.5. Some v1.0.7 findings are already disproved (the flat `<name>.md`
+// skills shape; the "no plan mode" claim, see backend.go), and agy's own bundled
+// documentation now describes a WIDER hooks contract than the one modelled
+// here. Re-verify against the installed version — live, or from agy's bundled
+// docs under ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/
+// — before relying on any claim below.
 package antigravity
 
 import (
@@ -40,7 +49,10 @@ const AgentsDir = ".agents"
 
 // antigravityCtxloomHookName marks a hook entry as ctxloom-managed in the
 // durable (serialized) name field. agy tolerates and preserves the field
-// (verified v1.0.7: a named entry loads and fires, reported as a "named hook").
+// (probed on v1.0.7: a named entry loads and fires, reported as a "named hook").
+// The field is NOT part of agy's documented handler contract — 1.1.5 documents
+// type, command and timeout only — so ctxloom's ownership marker rides on
+// tolerated-unknown-field behaviour, not on a guarantee.
 const antigravityCtxloomHookName = "ctxloom-managed"
 
 // AntigravityHookWriter writes hooks to Antigravity CLI's .agents/hooks.json
@@ -61,19 +73,19 @@ func (w *AntigravityHookWriter) getFS() afero.Fs {
 	return agent.GetFS(w.FS)
 }
 
-// WorkspaceHooksPath returns the workspace-level .agents/hooks.json path —
-// the only place agy v1.0.7 reads hooks from. Exported for companion tools
-// (ltk) that manage hooks in the same file, so the path convention has a
-// single source of truth.
+// WorkspaceHooksPath returns the workspace-level .agents/hooks.json path — the
+// only place agy was observed to read hooks from (v1.0.7). Exported for
+// companion tools (ltk) that manage hooks in the same file, so the path
+// convention has a single source of truth.
 func WorkspaceHooksPath(dir string) string {
 	return filepath.Join(dir, AgentsDir, "hooks.json")
 }
 
 // SettingsPath returns the path to Antigravity's project-level hooks.json file
-// (the settings file ctxloom manages for Antigravity). There is no usable
-// global location in agy v1.0.7: ~/.gemini/antigravity-cli/hooks.json is
-// silently ignored, and a hooks.json under ~/.gemini/ or ~/.gemini/config/
-// hangs headless agy before any hook executes.
+// (the settings file ctxloom manages for Antigravity). No usable global location
+// was found on v1.0.7: ~/.gemini/antigravity-cli/hooks.json is silently ignored,
+// and a hooks.json under ~/.gemini/ or ~/.gemini/config/ hangs headless agy
+// before any hook executes.
 func (w *AntigravityHookWriter) SettingsPath(projectDir string) string {
 	return WorkspaceHooksPath(projectDir)
 }
@@ -171,8 +183,8 @@ func (g antigravityHookGroup) MarshalJSON() ([]byte, error) {
 // antigravityHookEntry is a single command hook. agy requires type:"command".
 // name is a durable field agy preserves, used to identify ctxloom-managed
 // entries for clean removal. The timeout field is deliberately never written:
-// agy v1.0.7 does not document its unit, and a seconds/milliseconds mismatch
-// would silently break hooks — agy's own default applies instead. An existing
+// agy documents it as seconds with its own 30s default (1.1.5 hooks contract),
+// and ctxloom has no better number to impose than the engine's. An existing
 // user-set timeout round-trips untouched. Unknown per-entry fields are
 // captured in extra on load and merged back on save (see antigravityHookGroup).
 type antigravityHookEntry struct {

@@ -642,7 +642,6 @@ func init() {
 	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
 	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
-	listCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
 	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)")
 	listCmd.Flags().StringVar(&tasksListSort, "sort", "", `sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged`)
@@ -657,10 +656,6 @@ func init() {
 
 	tagCmd.Flags().StringArrayVar(&tasksTagAdd, "add", nil, "tag to add (repeatable)")
 	tagCmd.Flags().StringArrayVar(&tasksTagRemove, "remove", nil, "tag to remove (repeatable)")
-
-	tagsCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
-
-	statusesCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 
 	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, tagCmd, tagsCmd, summaryCmd, statusesCmd)
 }

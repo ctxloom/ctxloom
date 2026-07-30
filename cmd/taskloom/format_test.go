@@ -123,3 +123,40 @@ func TestFormatBranchParity_HandRolledSitesAgreeWithEmit(t *testing.T) {
 				"renderer exactly when cliemit.Emit runs its text closure (format %q)", format)
 	}
 }
+
+// TestJSONShorthand_IsAvailableOnEveryCommand pins U007-F21's remedy: --json
+// is documented as "shorthand for --format json", and --format is a persistent
+// root flag, so the shorthand must be resolvable wherever --format is. It used
+// to be registered locally on five commands (list, tags, statuses, lint, plan
+// list) and absent from the rest, so `taskloom show <id> --json` failed with
+// "unknown flag" while `taskloom list --json` worked — the same shorthand
+// working or failing depending on which subcommand you typed.
+//
+// cliemit.Resolve reads --json off cmd.Flags(), which cobra populates with a
+// parent's persistent flags, so availability here is exactly what the resolver
+// can see.
+func TestJSONShorthand_IsAvailableOnEveryCommand(t *testing.T) {
+	var missing []string
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+		if c.Runnable() && c.Flags().Lookup("json") == nil && c.InheritedFlags().Lookup("json") == nil {
+			missing = append(missing, c.CommandPath())
+		}
+	}
+	walk(rootCmd)
+	assert.Empty(t, missing,
+		"--format is persistent on the root, so its --json shorthand must be too; "+
+			"these commands cannot see it")
+}
+
+// TestJSONShorthand_LivesOnTheRoot pins the other half: the shorthand is
+// declared in exactly one place, next to the --format flag it abbreviates.
+// A second, local declaration would shadow the inherited one and re-open the
+// per-command drift this collapsed.
+func TestJSONShorthand_LivesOnTheRoot(t *testing.T) {
+	assert.NotNil(t, rootCmd.PersistentFlags().Lookup("json"),
+		"--json is the persistent --format shorthand and belongs beside it on the root")
+}

@@ -91,6 +91,5 @@ func runLintCmd(out io.Writer, tc operations.TaskContext, format clifmt.Format) 
 }
 
 func init() {
-	lintCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 	rootCmd.AddCommand(lintCmd)
 }

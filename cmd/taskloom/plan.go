@@ -226,7 +226,6 @@ func renderPlanTable(out io.Writer, list []plans.Plan) error {
 }
 
 func init() {
-	planListCmd.Flags().Bool("json", false, "shorthand for --format json")
 	planListCmd.Flags().BoolVar(&planListGlobal, "global", false,
 		"list every project's plans, not just the current project's")
 	planCmd.AddCommand(planListCmd, planShowCmd)

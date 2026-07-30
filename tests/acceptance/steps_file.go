@@ -14,6 +14,12 @@ import (
 )
 
 func registerFileSteps(ctx *godog.ScenarioContext) {
+	// Seeds a file the user is taken to have authored by hand, so a scenario can
+	// assert what a ctxloom rewrite does to content ctxloom did not write.
+	ctx.Step(`^the project already has the file "([^"]*)":$`, func(c context.Context, rel string, body *godog.DocString) error {
+		return worldFrom(c).env.WriteFile(rel, body.Content)
+	})
+
 	ctx.Step(`^the file "([^"]*)" exists$`, func(c context.Context, rel string) error {
 		w := worldFrom(c)
 		if !w.env.FileExists(rel) {

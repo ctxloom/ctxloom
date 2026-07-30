@@ -386,7 +386,9 @@ func permissionsOutput(path string, perm *claudeCodePermissions) (map[string]int
 		if err := json.Unmarshal(v, &val); err != nil {
 			return nil, preserveFailure(path, "permissions."+k, err)
 		}
-		out[k] = val
+		// The decode above is the GATE, not the value: what gets re-emitted is
+		// the user's original bytes. See saveSettings for why.
+		out[k] = json.RawMessage(v)
 	}
 	if len(perm.Deny) > 0 {
 		out["deny"] = perm.Deny
@@ -424,7 +426,14 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		if err := json.Unmarshal(v, &val); err != nil {
 			return preserveFailure(path, k, err)
 		}
-		output[k] = val
+		// A preserved key is re-emitted as its ORIGINAL bytes, and the decode
+		// above serves only as the gate that rejects what cannot be carried
+		// through (preserveFailure). Handing the DECODED value to the
+		// canonicaliser instead would round every number the user wrote past
+		// float64's exact range — 1234567890123456789 comes back
+		// 1234567890123456800 — a rewrite of the user's own file that no
+		// warning or exit code reports.
+		output[k] = json.RawMessage(v)
 	}
 
 	// Add hooks if non-empty

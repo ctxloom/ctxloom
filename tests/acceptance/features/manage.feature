@@ -71,3 +71,25 @@ Feature: Manage the project harness
     When I run "ctxloom manage hooks install"
     Then the command succeeds
     And the file ".claude/settings.json" contains "hook hud"
+
+  # A rewrite of settings.json must only ADD ctxloom's own keys: whatever the
+  # user wrote by hand comes back byte-for-byte, including numbers no float64
+  # can hold exactly. The failure this pins reported success and altered the
+  # file, so the assertion is on the persisted digits.
+  Scenario: Installing hooks preserves the exact numbers the user wrote by hand
+    Given an initialized ctxloom project
+    And the project already has the file ".claude/settings.json":
+      """
+      {
+        "awkwardNumber": 1234567890123456789,
+        "nested": { "id": -9223372036854775808 },
+        "permissions": { "allow": ["Read"], "quota": 18446744073709551615 }
+      }
+      """
+    When I run "ctxloom manage hooks install"
+    Then the command succeeds
+    And the file ".claude/settings.json" contains "ctxloom hook"
+    And the file ".claude/settings.json" contains "1234567890123456789"
+    And the file ".claude/settings.json" contains "-9223372036854775808"
+    And the file ".claude/settings.json" contains "18446744073709551615"
+    And the file ".claude/settings.json" contains "Read"

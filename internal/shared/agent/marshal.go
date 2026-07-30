@@ -4,7 +4,10 @@
 // in the agent packages (claude/antigravity); nothing here is engine-specific.
 package agent
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 // CanonicalJSON marshals v to the canonical on-disk form: keys sorted
 // recursively, two-space indented, with a trailing newline. Structs are
@@ -20,8 +23,20 @@ func CanonicalJSON(v any) ([]byte, error) {
 	}
 	// Decoding into `any` turns every object into a map[string]any, which
 	// json.Marshal then emits with keys sorted — recursively, at every depth.
+	//
+	// UseNumber is load-bearing, not a tuning knob: canonicalising must be
+	// value-preserving. A plain generic decode lands every number in float64,
+	// so re-encoding rewrites any literal float64 cannot hold exactly — an
+	// int64 past 2^53 comes back rounded (1234567890123456789 →
+	// 1234567890123456800) and a long decimal comes back truncated, with no
+	// error, in a file the user authored. json.Number keeps the original
+	// literal and the encoder re-emits it verbatim, so the numbers on disk are
+	// the numbers that went in. It also stops rejecting magnitudes outside
+	// float64's range (1e1000): those now survive too.
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var generic any
-	if err := json.Unmarshal(raw, &generic); err != nil {
+	if err := dec.Decode(&generic); err != nil {
 		return nil, err
 	}
 	out, err := json.MarshalIndent(generic, "", "  ")

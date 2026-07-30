@@ -203,6 +203,15 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isolation.Mount, func() error, error) {
 	sock := os.Getenv(mcpSocketEnvVar)
 	if sock == "" {
+		// Degraded, never fatal — but never silent either: this function is only
+		// reached under container isolation, where the missing endpoint means the
+		// in-container engine cannot reach ctxloom's MCP surface AT ALL, so every
+		// ctxloom tool the session's loadout advertised is absent while the
+		// session otherwise looks healthy. A runner normally exports this before
+		// the engine spawns (internal/cli/llm_runner_common.go), so its absence
+		// says the engine was launched outside one, or that the runner's own MCP
+		// endpoint failed to stand up.
+		warnf("acp: %s is unset, so this containerized engine gets no ctxloom MCP surface (no ctxloom tools in-session) — expected when the engine was not launched by a ctxloom runner", mcpSocketEnvVar)
 		return nil, nil, nil, nil
 	}
 	if goos == "linux" {

@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"io"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestContainerReachBackEnv_NoSocket_ReturnsNothing pins the existing no-op
@@ -131,4 +133,28 @@ func TestContainerReachBackEnv_NonLinux_BridgesToTCP(t *testing.T) {
 
 		require.NoError(t, closeFn())
 	}
+}
+
+// TestContainerReachBackEnv_NoSocket_SaysSo is the payload half of the no-socket
+// case: delivering NOTHING is the correct behaviour (there is no endpoint to
+// share), but it must not be silent. This path is only ever reached under
+// container isolation, and its consequence is that the in-container engine gets
+// no ctxloom MCP surface at all — every ctxloom tool the session's loadout
+// promised is simply absent, with the session otherwise looking healthy.
+func TestContainerReachBackEnv_NoSocket_SaysSo(t *testing.T) {
+	t.Setenv(mcpSocketEnvVar, "unused-placeholder")
+	require.NoError(t, os.Unsetenv(mcpSocketEnvVar))
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	env, mounts, closeFn, err := containerReachBackEnv(isolation.Docker{}, "linux")
+	require.NoError(t, err, "a missing endpoint is a degraded session, not a failed one")
+	assert.Nil(t, env)
+	assert.Nil(t, mounts)
+	assert.Nil(t, closeFn)
+
+	assert.Contains(t, warnings.String(), mcpSocketEnvVar, "the warning names the variable that was unset")
+	assert.Contains(t, warnings.String(), "no ctxloom MCP", "and what the in-container engine therefore loses")
 }

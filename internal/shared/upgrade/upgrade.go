@@ -80,7 +80,9 @@ func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
 	if err := enc.Encode(&doc); err != nil {
 		return data, nil
 	}
-	_ = enc.Close()
+	if err := enc.Close(); err != nil {
+		return data, nil
+	}
 	return buf.Bytes(), applied
 }
 

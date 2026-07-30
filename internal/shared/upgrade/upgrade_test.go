@@ -1,6 +1,7 @@
 package upgrade
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -204,4 +205,56 @@ func TestVersion_PresentButUnreadable_IsNotGenerationZero(t *testing.T) {
 	v, ok = Version(parse(t, "version: 4\n"), "version")
 	assert.True(t, ok)
 	assert.Equal(t, 4, v)
+}
+
+// U131-F03 claimed the swallowed enc.Close() error meant "a truncated buffer
+// would be persisted verbatim". It cannot, and this pins why: yaml.v3's Encoder
+// writes the WHOLE document during Encode, so by the time Close runs the sink
+// already holds every byte, and Close appends nothing. Run's sink is a
+// bytes.Buffer, whose Write never fails, so the only way Close can error is a
+// document Encode already refused — which Run returns verbatim on, before Close
+// is ever reached.
+//
+// This goes red if yaml.v3 ever starts deferring output to Close, which is
+// exactly the world in which the original claim would be true.
+func TestEncoder_WritesTheWholeDocumentBeforeClose(t *testing.T) {
+	var doc yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("# c\nkept: 1\nnested:\n  k: v\n"), &doc))
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	require.NoError(t, enc.Encode(&doc))
+
+	beforeClose := buf.String()
+	require.NoError(t, enc.Close(), "Close cannot fail over a bytes.Buffer once Encode succeeded")
+	assert.Equal(t, beforeClose, buf.String(), "Close must contribute no bytes; a truncated Encode output is not a reachable state")
+
+	var round map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(beforeClose), &round), "the pre-Close bytes are already a complete document")
+	assert.Contains(t, round, "kept")
+	assert.Contains(t, round, "nested")
+}
+
+// The companion fact: every node shape that makes the encoder fail fails at
+// Encode, which Run already handles, so Close never sees a half-written stream.
+func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
+	shapes := map[string]*yaml.Node{
+		"alias with no target": {Kind: yaml.AliasNode},
+		"unknown kind":         {Kind: yaml.Kind(99)},
+		"document inside map":  {Kind: yaml.DocumentNode, Content: []*yaml.Node{ScalarNode("x")}},
+	}
+	for name, bad := range shapes {
+		t.Run(name, func(t *testing.T) {
+			var doc yaml.Node
+			require.NoError(t, yaml.Unmarshal([]byte("a: 1\n"), &doc))
+			MapSet(doc.Content[0], "broken", bad)
+
+			var buf bytes.Buffer
+			enc := yaml.NewEncoder(&buf)
+			require.Error(t, enc.Encode(&doc), "the failure must surface at Encode")
+			assert.Empty(t, buf.String(), "a refused encode writes nothing at all")
+			_ = enc.Close()
+		})
+	}
 }

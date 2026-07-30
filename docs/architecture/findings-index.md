@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,233** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,234** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 103 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 151 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 154 |
-| `open` | no commit names this ID | **627** |
+| `open` | no commit names this ID | **626** |
 
-**Totals: 2268 findings across 162 units — 1,233 resolved, 627 still open, 408 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,234 resolved, 626 still open, 408 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 423 | 353 | 57 | 69 | 97 |
+| MED | 999 | 424 | 352 | 57 | 69 | 97 |
 | LOW | 871 | 454 | 257 | 33 | 74 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1930,7 +1930,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U154-F03 | **RESOLVED** `40f3d18a` | `errors.go:17-22` | SILENTNOOP | `RenderError(w, nil, f)` produces a well-formed *failure* report with an empty message instead of rejecting the nil | U154.md |
 | U154-F04 | **RESOLVED** `afc77fe0` | `marshal.go:43-52` | CORRECTNESS | yaml and toml silently corrupt integers outside int64 range; json does not. Two `err == nil` swallows turn an exact integer into a lossy float | U154.md |
 | U154-F05 | **RESOLVED** `25c0ca69` | **`format.go:70`, `render.go:40`, `cmd/ltk/check.go:75`** | DUPLICATE | The literal `"%w: %q (supported: json, yaml, toml, text, markdown)"` is written out **three times**, once outside this package. Adding a sixth format requires finding all three | U154.md |
-| U154-F06 | open | **`format.go:11-17,26,58`; `render.go:28`** | COUPLING | Connascence of meaning across four independent enumerations of the same five values — const block, `Valid`'s switch, `ParseFormat`'s switch, `Render`'s switch. Nothing fails if one is updated and a... | U154.md |
+| U154-F06 | **RESOLVED** `0925afef` | **`format.go:11-17,26,58`; `render.go:28`** | COUPLING | Connascence of meaning across four independent enumerations of the same five values — const block, `Valid`'s switch, `ParseFormat`'s switch, `Render`'s switch. Nothing fails if one is updated and a... | U154.md |
 | U154-F08 | **RESOLVED** `058782eb` | `reflectmodel.go:284` vs `:288` | CORRECTNESS | `implementsStringer` (value receivers only) and `typeImplementsStringer` (value *or* pointer) disagree, so a struct whose `String()` has a pointer receiver is classified as "stringable" for the tab... | U154.md |
 | U154-F12 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `renderer.go:14`, `render.go:18-26` | DEAD | The `Renderer` escape hatch has **no production implementation**; the only two implementers are test fixtures written to exercise it. It costs a type assertion on every `Render` call and 16 lines o... | U154.md |
 | U155-F01 | open | **`embed.go:150-162, 174-190, 18-24`** | SILENTNOOP | Three readers succeed while producing nothing. `ListBuiltinCommands`/`ListBuiltinBundles` return `(nil, nil)` for a present-but-empty (or extension-mismatched) directory — so `backends.builtinComma... | U155.md |

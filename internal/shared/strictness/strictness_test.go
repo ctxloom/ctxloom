@@ -179,6 +179,46 @@ func TestSince_StaleMarkIsNil(t *testing.T) {
 	assert.Nil(t, Since(mark))
 }
 
+// goroutineID's ParseInt cannot fail, so its swallowed error is a dead branch:
+// runtime.Stack always writes the fixed "goroutine <id> [<status>]:" preamble
+// for the CALLING goroutine, and even the widest id an int64 counter can reach
+// leaves the 64-byte buffer room to spare (asserted below). The hazard the
+// dead branch would create if it ever fired is worth pinning anyway, because
+// it is not the one it looks like: returning 0 for every goroutine would
+// collapse them onto ONE shared window — the cross-attribution defect the
+// window type exists to fix. Pin the observable property rather than the dead
+// branch: ids are nonzero, stable per goroutine, and distinct across
+// goroutines.
+func TestGoroutineID_IsNonZeroStableAndDistinctPerGoroutine(t *testing.T) {
+	assert.Less(t, len("goroutine 9223372036854775807 [running]:"), 64,
+		"the widest preamble Go can print still fits the buffer goroutineID reads into")
+
+	first := goroutineID()
+	require.NotZero(t, first, "a parse failure would return 0 here")
+	assert.Equal(t, first, goroutineID(), "one goroutine keeps ONE id, so Checkpoint and record share a window")
+
+	const n = 24
+	ids := make([]int64, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			ids[i] = goroutineID()
+		}(i)
+	}
+	wg.Wait()
+
+	seen := map[int64]int{}
+	for i, id := range ids {
+		require.NotZero(t, id, "goroutine %d must not fall back to the shared 0 window", i)
+		seen[id]++
+	}
+	assert.Len(t, seen, n,
+		"every goroutine must get its OWN id — a swallowed parse error collapses them all onto 0, which is exactly the cross-attribution defect windows exist to prevent")
+	assert.NotContains(t, seen, first, "the spawning goroutine's id is not reused by any child")
+}
+
 // Nested checkpoints on ONE goroutine share ONE window, so releasing the
 // registry entry when the INNER one closes silently detaches the still-live
 // OUTER mark: the next record builds a fresh window and Since(outer) reads the

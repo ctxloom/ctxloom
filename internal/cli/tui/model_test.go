@@ -190,6 +190,36 @@ func TestModel_RosterNavigationSwitchesFeed(t *testing.T) {
 	assert.Equal(t, "h2", m.feedHarp)
 }
 
+// Every field openFeed resets has to be visible in the model Update RETURNS,
+// not just in the receiver it mutated. If the returned value is the pre-call
+// copy, the feed switch is silently half-applied: feedHarp still names the old
+// harp, so the incoming feedOpenedMsg is judged stale and cancelled, and the
+// new agent's feed never opens at all. U044-F05.
+func TestModel_SelectionMoveReturnsTheModelOpenFeedReset(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "h1", State: "live"},
+		RosterRow{Harp: "h2", State: "live"},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "old feed content"))
+	m.expanded[0] = true
+	m.follow = false
+	m.cursor = 0
+	require.NotEmpty(t, m.items)
+
+	for _, key := range []string{"j", "k"} {
+		before := m.feedHarp
+		m, _ = step(t, m, keyMsg(key))
+		require.NotEqual(t, before, m.feedHarp, "key=%s moved the selection", key)
+		assert.Empty(t, m.items, "key=%s: the returned model carries the reset item list", key)
+		assert.Empty(t, m.expanded, "key=%s: and the reset expansion set", key)
+		assert.Empty(t, m.feedSource, "key=%s: and the cleared source", key)
+		assert.Equal(t, 0, m.cursor, "key=%s", key)
+		assert.True(t, m.follow, "key=%s: a fresh feed tails", key)
+		assert.Nil(t, m.feed, "key=%s: the previous feed handle is gone", key)
+	}
+}
+
 func TestModel_StaleFeedOpenIsReleased(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", State: "live"},

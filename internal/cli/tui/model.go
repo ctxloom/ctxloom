@@ -199,7 +199,13 @@ func waitEventCmd(harp string, f *Feed) tea.Cmd {
 	}
 }
 
-// openFeedCmd cancels the current watch and opens the newly selected harp's.
+// openFeed cancels the current watch and opens the newly selected harp's.
+//
+// It mutates the receiver, so a caller must complete the call before the model
+// value it returns is taken. `return m, m.openFeed(...)` does not: Go orders
+// the function calls within a return statement, but not a plain operand
+// against them, so whether the returned Model is the one openFeed just reset
+// is left to the compiler. Bind the command to a variable first.
 func (m *Model) openFeed(harp string) tea.Cmd {
 	if m.feed != nil && m.feed.Cancel != nil {
 		m.feed.Cancel()
@@ -250,7 +256,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 			}
 			if !hadRows {
-				return m, m.openFeed(m.rows[m.sel].Harp)
+				cmd := m.openFeed(m.rows[m.sel].Harp)
+				return m, cmd
 			}
 		} else {
 			m.status = statusNoSessions
@@ -469,7 +476,8 @@ func (m Model) moveDown() (tea.Model, tea.Cmd) {
 	if m.focus == focusRoster {
 		if m.sel < len(m.rows)-1 {
 			m.sel++
-			return m, m.openFeed(m.rows[m.sel].Harp)
+			cmd := m.openFeed(m.rows[m.sel].Harp)
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -484,7 +492,8 @@ func (m Model) moveUp() (tea.Model, tea.Cmd) {
 	if m.focus == focusRoster {
 		if m.sel > 0 {
 			m.sel--
-			return m, m.openFeed(m.rows[m.sel].Harp)
+			cmd := m.openFeed(m.rows[m.sel].Harp)
+			return m, cmd
 		}
 		return m, nil
 	}

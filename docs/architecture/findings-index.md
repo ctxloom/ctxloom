@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,057** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 41 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 94 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **943** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,064** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 47 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 97 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 134 |
+| `open` | no commit names this ID | **926** |
 
-**Totals: 2268 findings across 162 units — 1,057 resolved, 943 still open, 268 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,064 resolved, 926 still open, 278 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 312 | 552 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 365 | 13 | 51 | 47 |
+| MED | 999 | 318 | 539 | 23 | 37 | 82 |
+| LOW | 871 | 396 | 361 | 14 | 52 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1261,22 +1261,22 @@ Full evidence and the suggested action for any row live in its source review at 
 | U052-F05 | open | `internal/operations/items.go:36-37` | DUPLICATE | A second, competing not-found taxonomy (`ErrItemNotFound`, `ErrItemExists`) is declared in `internal/operations` — a package that already imports `internal/errs`. Two sentinel vocabularies for the ... | U052.md |
 | U052-F07 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `internal/errs/errors.go:7-60` (systemic)` | NOPAY | The not-found taxonomy covers a small minority of the not-found conditions the codebase actually raises, so `errors.Is`-based handling is not a reliable strategy for callers — the same logical fail... | U052.md |
 | U053-F05 | **RESOLVED** `11ee1b56` | `exec.go:67-74, git.go:60` | DEAD | `WorktreeRemove`'s `force bool` parameter is **never `true` anywhere in the repo**. It is a destructive capability with no user, in the exact area where the project's standing rule is "never force-... | U053.md |
-| U053-F06 | open | `exec.go:123-129` | ERRHANDLING | `IsDirty` returns `(false, err)` on failure: the **unsafe** value is the zero value. Any caller writing `dirty, _ := IsDirty(…)` silently gets "safe to delete". | U053.md |
+| U053-F06 | **REFUTED** `6c526124` | `exec.go:123-129` | ERRHANDLING | `IsDirty` returns `(false, err)` on failure: the **unsafe** value is the zero value. Any caller writing `dirty, _ := IsDirty(…)` silently gets "safe to delete". | U053.md |
 | U053-F07 | **PARTIAL** `27ce9ebb` | `fake.go:44-94` | DEAD | 8 exported `Fake` fields plus `Removed` have **zero users repo-wide**: `RemoveErr`, `RepoStateErr`, `CurrentBranchErr`, `DiffPatchErr`, `UntrackedErr`, `DiffNameOnlyErr`, `DiffNameOnlyFiles`, `Topl... | U053.md |
 | U053-F08 | **RESOLVED** `27ce9ebb` | `git.go:42-44, exec.go:37` | DEAD | `Toplevel` is **test-only**: the only call site in the repo is its own test. It costs an interface method that both implementations must carry. | U053.md |
-| U053-F09 | open | `exec.go:162` | CORRECTNESS | `RepoDirs` records only each file's **immediate** parent, never its ancestors — so it under-reports exactly the question it was written to answer. A repo whose only content under `internal/signing`... | U053.md |
-| U053-F10 | open | `exec.go:104-106` | SILENTNOOP | `ListTracked` with zero pathspecs returns `nil, nil` — a silent empty result that makes the caller's skip-worktree merge-isolation pass a no-op. | U053.md |
-| U053-F11 | open | `exec.go:173-175, exec.go:201-203` | CORRECTNESS | `RepoDirs` and `WorkingChanges` truncate **silently**: no count, no marker, no second return. The consumer renders a complete-looking list into an LLM prompt. `RepoDirs` truncation is alphabetical ... | U053.md |
-| U053-F12 | open | `fake.go:216, fake.go:231, fake.go:190` | CORRECTNESS | `Fake` diverges from `execGit` on defaults, so tests can assert behaviour production does not have. Real `RepoDirs` maps `maxDirs<=0` → 400 and real `LogSince` maps `maxEntries<=0` → 50; the `Fake`... | U053.md |
-| U053-F13 | open | `exec.go:324-331` | ERRHANDLING | `LogSince` swallows every per-commit `diff-tree` failure with a bare `continue`, leaving `LogEntry.Files` nil — **indistinguishable from "this commit touched no files"**. The downstream path-matchi... | U053.md |
-| U053-F14 | open | `exec.go:223-226` | CORRECTNESS | `CommitAll` fails outright on an **unborn HEAD**: `rev-parse HEAD` errors in a repo with zero commits, so the `dirty_tree_handler: "commit"` WIP-preservation path can never rescue work in a freshly... | U053.md |
-| U054-F05 | open | `gitignore.go:248`, `:231-243` | CORRECTNESS | `Ensure` always appends at the **end** of the file, and gitignore is last-match-wins, so ctxloom's patterns silently override a user's earlier negation — the package doc's "without disturbing user ... | U054.md |
-| U054-F06 | open | `gitignore.go:152` | CORRECTNESS | `RetireSupersededFile` rewrites a **user-authored** file non-atomically and resets its mode. | U054.md |
-| U054-F07 | open | `gitignore.go:94`, `:132` | CORRECTNESS | The retirement migration matches only **four literal spellings** while its own doc frames the stake as content silently vanishing from a publishing repo. | U054.md |
-| U054-F08 | open | `gitignore.go:42` vs `:72-81` | COHESION | The two artifact sets have no enforced relationship and are inconsistent **in both directions**, despite `WorktreeArtifactPatterns` being documented as "the BROADENED set … must keep EVERY ctxloom-... | U054.md |
-| U054-F09 | open | `gitignore.go:33-42`, `:48-81` | COHESION | The file-granular vs directory-granular decision is made per-entry with **no stated rule**, and the single entry whose granularity is actually argued is the one that is now wrong. | U054.md |
+| U053-F09 | **RESOLVED** `a70d494e` | `exec.go:162` | CORRECTNESS | `RepoDirs` records only each file's **immediate** parent, never its ancestors — so it under-reports exactly the question it was written to answer. A repo whose only content under `internal/signing`... | U053.md |
+| U053-F10 | **REFUTED** `69947f17` | `exec.go:104-106` | SILENTNOOP | `ListTracked` with zero pathspecs returns `nil, nil` — a silent empty result that makes the caller's skip-worktree merge-isolation pass a no-op. | U053.md |
+| U053-F11 | **PARTIAL** `9fcf538e` | `exec.go:173-175, exec.go:201-203` | CORRECTNESS | `RepoDirs` and `WorkingChanges` truncate **silently**: no count, no marker, no second return. The consumer renders a complete-looking list into an LLM prompt. `RepoDirs` truncation is alphabetical ... | U053.md |
+| U053-F12 | **RESOLVED** `5219cf38` | `fake.go:216, fake.go:231, fake.go:190` | CORRECTNESS | `Fake` diverges from `execGit` on defaults, so tests can assert behaviour production does not have. Real `RepoDirs` maps `maxDirs<=0` → 400 and real `LogSince` maps `maxEntries<=0` → 50; the `Fake`... | U053.md |
+| U053-F13 | **RESOLVED** `c0c25592` | `exec.go:324-331` | ERRHANDLING | `LogSince` swallows every per-commit `diff-tree` failure with a bare `continue`, leaving `LogEntry.Files` nil — **indistinguishable from "this commit touched no files"**. The downstream path-matchi... | U053.md |
+| U053-F14 | **PARTIAL** `ba0e9f67` | `exec.go:223-226` | CORRECTNESS | `CommitAll` fails outright on an **unborn HEAD**: `rev-parse HEAD` errors in a repo with zero commits, so the `dirty_tree_handler: "commit"` WIP-preservation path can never rescue work in a freshly... | U053.md |
+| U054-F05 | **PARTIAL** `2a42772b` | `gitignore.go:248`, `:231-243` | CORRECTNESS | `Ensure` always appends at the **end** of the file, and gitignore is last-match-wins, so ctxloom's patterns silently override a user's earlier negation — the package doc's "without disturbing user ... | U054.md |
+| U054-F06 | **PARTIAL** `83ca3375` | `gitignore.go:152` | CORRECTNESS | `RetireSupersededFile` rewrites a **user-authored** file non-atomically and resets its mode. | U054.md |
+| U054-F07 | **RESOLVED** `845b97e5` | `gitignore.go:94`, `:132` | CORRECTNESS | The retirement migration matches only **four literal spellings** while its own doc frames the stake as content silently vanishing from a publishing repo. | U054.md |
+| U054-F08 | **RESOLVED** `69947f17` | `gitignore.go:42` vs `:72-81` | COHESION | The two artifact sets have no enforced relationship and are inconsistent **in both directions**, despite `WorktreeArtifactPatterns` being documented as "the BROADENED set … must keep EVERY ctxloom-... | U054.md |
+| U054-F09 | **PARTIAL** `b913c46e` | `gitignore.go:33-42`, `:48-81` | COHESION | The file-granular vs directory-granular decision is made per-entry with **no stated rule**, and the single entry whose granularity is actually argued is the one that is now wrong. | U054.md |
 | U054-F10 | **RESOLVED** `ef80fef6` | `gitignore.go:105-107` | DEAD | `RetireSuperseded` is test-only. | U054.md |
-| U054-F11 | open | `gitignore.go:110-156` | COMPLEXITY | `RetireSupersededFile` is the unit's only CI-gate violation (CCN 11, gate 10), and the excess is entirely incidental — two lookup sets rebuilt from package constants on every call, and an inner loo... | U054.md |
+| U054-F11 | **RESOLVED** `83ca3375` | `gitignore.go:110-156` | COMPLEXITY | `RetireSupersededFile` is the unit's only CI-gate violation (CCN 11, gate 10), and the excess is entirely incidental — two lookup sets rebuilt from package constants on every call, and an inner loo... | U054.md |
 | U055-F02 | open | **`mcp_registrar.go:14-16`** | COUPLING | The isolation claim in this comment is **stale and overclaims**. It says `KIRO_HOME` is "the same override **the session-history reader** and the worktree isolation policy use to relocate kiro's **... | U055.md |
 | U055-F03 | **RESOLVED** `ef0880e3` | **`chat.go:44-52`** | SILENTNOOP | A configured `effort:` is **silently dropped on the structured-chat path**. `buildArgs` emits `--effort` (backend.go:160) but `chatACPConfig` never reads `b.effort` — it sets only `Command`/`Agent`... | U055.md |
 | U055-F04 | **RESOLVED** `758c200e` | **`capabilities.go:27`** | DEAD | `KiroCommands.RegisterFromContent` and the whole `KiroCommands` type are dead. Confirms the brief. | U055.md |
@@ -2263,11 +2263,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U053-F15 | **ESCALATED** `cac52a3e` | `exec.go:437` | TRIVIAL | `cmd.Env = os.Environ()` is **exactly** `exec.Cmd`'s behaviour for a nil `Env`. The line is a no-op that reads as deliberate environment control — actively misleading in a codebase whose central co... | U053.md |
 | U053-F16 | **RESOLVED** `12f375ce` | `fake.go:98` | TRIVIAL | `Fake.record` is a single `append` with 6 call sites and no invariant beyond "caller holds mu" (which it does not enforce). | U053.md |
 | U053-F17 | **RESOLVED** `cb2b8396` `127539ad` | `exec.go:242` | TRIVIAL | `CommitAll` calls `(execGit{}).DiffNameOnly(…)` — constructing a throwaway value rather than naming the receiver. Harmless for an empty struct, but it hard-codes the concrete type inside a method w... | U053.md |
-| U053-F18 | open | `exec.go:350, exec.go:354` | ERRHANDLING | `parseLogEntries` silently drops any line that does not split into three fields, and silently substitutes the zero time for an unparseable date. A zero `Date` flows into downstream since-filtering ... | U053.md |
-| U053-F19 | open | `git.go:36` | COHESION | `Git` is two disjoint interfaces under one name — a worktree-lifecycle seam used only by `internal/lm/isolation` and a repository-evidence seam used only by `internal/operations`. No file calls met... | U053.md |
+| U053-F18 | **PARTIAL** `68e68d9c` | `exec.go:350, exec.go:354` | ERRHANDLING | `parseLogEntries` silently drops any line that does not split into three fields, and silently substitutes the zero time for an unparseable date. A zero `Date` flows into downstream since-filtering ... | U053.md |
+| U053-F19 | **ESCALATED** `PLACEHOLDER` | `git.go:36` | COHESION | `Git` is two disjoint interfaces under one name — a worktree-lifecycle seam used only by `internal/lm/isolation` and a repository-evidence seam used only by `internal/operations`. No file calls met... | U053.md |
 | U053-F20 | **RESOLVED** `27ce9ebb` | `git.go:132, exec.go:253` | NOPAY | `DiffNameOnly` is on the public `Git` interface but has **no caller outside this package** — its only use is `CommitAll` at exec.go:242. Being on the interface forces a `Fake` stub plus two dead fi... | U053.md |
-| U054-F12 | open | `gitignore.go:196-198` | SILENTNOOP | `EnsureFile` returns `nil` on an empty pattern list — a function named "ensure these rules exist" succeeding at ensuring nothing. | U054.md |
-| U054-F13 | open | `gitignore_test.go` (absence)` | CORRECTNESS | The pattern set implicated in destroying agent work has **no unit test pinning its membership**, while the harmless one does. | U054.md |
+| U054-F12 | **REFUTED** `69947f17` | `gitignore.go:196-198` | SILENTNOOP | `EnsureFile` returns `nil` on an empty pattern list — a function named "ensure these rules exist" succeeding at ensuring nothing. | U054.md |
+| U054-F13 | **RESOLVED** `69947f17` | `gitignore_test.go` (absence)` | CORRECTNESS | The pattern set implicated in destroying agent work has **no unit test pinning its membership**, while the harmless one does. | U054.md |
 | U054-F14 | **RESOLVED** `21498820` | `gitignore.go:216-227`, `:231-243` | DUPLICATE | `dedupe` and `missingPatterns` are the same map-based filter over two different inputs, and `dedupe` exists only to compensate for where `missingPatterns` draws its set. | U054.md |
 | U055-F09 | **RESOLVED** `3b74bf06` | **`surfaces.go:181-184`** | DUPLICATE | `deliveredFunc` is defined **six** times across the repo while an exported equivalent already exists in the shared package. | U055.md |
 | U055-F10 | open | **`surfaces.go:232-245`** | COMPLEXITY | The five surfaces are listed twice, ten lines apart — once as named struct fields and once as `dispatch` map entries — with nothing enforcing agreement. Adding a sixth surface and forgetting one li... | U055.md |

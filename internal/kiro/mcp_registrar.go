@@ -28,10 +28,17 @@ func (MCPRegistrar) Name() string { return "kiro" }
 
 // Present reports whether Kiro CLI appears to be in use for the scope: its
 // well-known config directory exists.
+//
+// The contract is a plain bool, so its single "no" carries three different
+// meanings: kiro is genuinely absent, the global home could not be resolved, and
+// the path could not be stat'ed. Only the first is a fact about kiro; the other
+// two are "unknown" and would otherwise make a caller's auto-detection skip kiro
+// exactly as if it were unused. They cannot be returned, so they are warned.
 func (MCPRegistrar) Present(dir string, global bool) bool {
 	if global {
 		home, err := kiroHome()
 		if err != nil {
+			agent.Warn("kiro: cannot resolve kiro's global config home, so its presence is unknown (treating it as absent; select it explicitly to override): %v", err)
 			return false
 		}
 		return pathExistsKiro(home)
@@ -82,9 +89,15 @@ func kiroHome() (string, error) {
 	return filepath.Join(home, kiroDir), nil
 }
 
-// pathExistsKiro reports whether the path exists (file or directory).
+// pathExistsKiro reports whether the path exists (file or directory). An absent
+// path is the legitimate "not in use here" answer; any other stat failure means
+// the answer is unknown, which the bool cannot express — so it is warned (see
+// Present).
 func pathExistsKiro(path string) bool {
 	_, err := os.Stat(path)
+	if err != nil && !os.IsNotExist(err) {
+		agent.Warn("kiro: cannot determine whether %s exists, so kiro's presence is unknown (treating it as absent; select it explicitly to override): %v", path, err)
+	}
 	return err == nil
 }
 

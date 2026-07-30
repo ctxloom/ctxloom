@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -226,6 +227,108 @@ func TestManage_AcceptsNonEmptyBin(t *testing.T) {
 	c.SetErr(io.Discard)
 	if err := c.Execute(); err != nil {
 		t.Fatalf("install with a multi-word --bin: %v", err)
+	}
+}
+
+// A user-level (--global) install is consulted in EVERY project on the
+// machine, so a PROJECT-RELATIVE rules path baked into it resolves against
+// whatever directory the hook host happens to run the hook in. In any project
+// that has no such file, evaluate's explicit-config branch fails closed
+// (TestEvaluate_ExplicitMissingConfigDeniesEverything pins that half), so one
+// `manage install --global` turns into a machine-wide deny-everything. The
+// hook command a --global install writes must therefore never name a relative
+// rules path — evaluate's own cwd-and-ancestors search is what finds each
+// project's rules.
+func TestManageInstallGlobal_DoesNotBakeARelativeRulesPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	var out bytes.Buffer
+	c := newInstallCmd()
+	c.SetArgs([]string{"--engine", "claude-code", "--global", "--print"})
+	c.SetOut(&out)
+	c.SetErr(io.Discard)
+	if err := c.Execute(); err != nil {
+		t.Fatalf("install --global --print: %v", err)
+	}
+	if strings.Contains(out.String(), "--config "+defaultConfigPath) {
+		t.Fatalf("a --global install baked the project-relative rules path %q into the user-level settings; "+
+			"every project without that file is then denied everything:\n%s", defaultConfigPath, out.String())
+	}
+}
+
+// The refusal is scoped to RELATIVE paths under --global: an absolute
+// --config names one machine-wide rules file and is exactly what --global
+// should honour.
+func TestManageInstallGlobal_KeepsAnAbsoluteRulesPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Chdir(dir)
+	abs := filepath.Join(dir, "machine-rules.yaml")
+
+	var out bytes.Buffer
+	c := newInstallCmd()
+	c.SetArgs([]string{"--engine", "claude-code", "--global", "--config", abs, "--print"})
+	c.SetOut(&out)
+	c.SetErr(io.Discard)
+	if err := c.Execute(); err != nil {
+		t.Fatalf("install --global --config <abs> --print: %v", err)
+	}
+	if !strings.Contains(out.String(), abs) {
+		t.Fatalf("an absolute --config must survive into the user-level hook command:\n%s", out.String())
+	}
+}
+
+// A project (non-global) install is anchored to the project it runs in, so the
+// relative default is correct there and must not be dropped along with the
+// global case.
+func TestManageInstallProject_KeepsTheRelativeDefault(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	var out bytes.Buffer
+	c := newInstallCmd()
+	c.SetArgs([]string{"--engine", "claude-code", "--print"})
+	c.SetOut(&out)
+	c.SetErr(io.Discard)
+	if err := c.Execute(); err != nil {
+		t.Fatalf("install --print: %v", err)
+	}
+	if !strings.Contains(out.String(), "--config "+defaultConfigPath) {
+		t.Fatalf("a project install must still point the hook at %s:\n%s", defaultConfigPath, out.String())
+	}
+}
+
+// install and uninstall must stay exact inverses: uninstall matches on the
+// command string install wrote, so the --global rules-path normalisation has
+// to apply identically on both sides or a --global install can never be
+// removed by the flags that created it.
+func TestManageGlobal_UninstallMatchesWhatInstallWrote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	inst := newInstallCmd()
+	inst.SetArgs([]string{"--engine", "claude-code", "--global"})
+	inst.SetOut(io.Discard)
+	inst.SetErr(io.Discard)
+	if err := inst.Execute(); err != nil {
+		t.Fatalf("install --global: %v", err)
+	}
+
+	var errBuf bytes.Buffer
+	un := newUninstallCmd()
+	un.SetArgs([]string{"--engine", "claude-code", "--global"})
+	un.SetOut(io.Discard)
+	un.SetErr(&errBuf)
+	if err := un.Execute(); err != nil {
+		t.Fatalf("uninstall --global: %v", err)
+	}
+	settings, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(settings), "ltk evaluate") {
+		t.Fatalf("uninstall --global did not remove what install --global wrote (stderr: %s):\n%s", errBuf.String(), settings)
 	}
 }
 

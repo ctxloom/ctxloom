@@ -83,18 +83,48 @@ func (f *manageFlags) resolve() (engine.Engine, string, error) {
 	return eng, path, nil
 }
 
+// hookRulesPath is the rules path baked into the installed hook command line.
+//
+// A user-level (--global) install is consulted in EVERY project on the
+// machine, and the hook host runs the hook with the project as its working
+// directory, so a PROJECT-RELATIVE path in that command resolves somewhere
+// different in each project. In any project that does not happen to have that
+// file, evaluate's explicit-config branch denies everything it guards (it
+// cannot tell a typo'd path from a deleted rules file, and failing open there
+// would silently disable the guard) — so one `manage install --global` becomes
+// a machine-wide deny-everything. Omitting the path instead is what --global
+// actually wants: evaluate then searches the cwd and its ancestors, finding
+// each project's own rules and falling back to the built-in allow-all, with a
+// diagnostic, where there are none.
+//
+// An ABSOLUTE path is honoured: that names one machine-wide rules file, which
+// is a coherent thing to ask a user-level install for. install and uninstall
+// both route through here so they stay exact inverses — uninstall matches on
+// the command string install wrote.
+func (f *manageFlags) hookRulesPath() string {
+	if f.global && f.configPath != "" && !filepath.IsAbs(f.configPath) {
+		return ""
+	}
+	return f.configPath
+}
+
 func newInstallCmd() *cobra.Command {
 	f := &manageFlags{}
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Add the pre-tool hook to the most relevant LLM config",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			eng, path, err := f.resolve()
 			if err != nil {
 				return err
 			}
-			command := eng.HookCommand(f.bin, f.configPath)
+			rulesPath := f.hookRulesPath()
+			if rulesPath != f.configPath {
+				fmt.Fprintf(os.Stderr, "%s: --global installs apply in every project, so the hook is installed "+
+					"without --config %s; each project's rules are found by evaluate's own search\n", progName, f.configPath)
+			}
+			command := eng.HookCommand(f.bin, rulesPath)
 			// --print is a dry run: show the merged settings without touching
 			// the filesystem, so no rules-file scaffold either.
 			if f.configPath != "" && !f.printOnly {
@@ -114,7 +144,7 @@ func newInstallCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, progName+": %s\n", note)
 			}
 			if f.printOnly {
-				_, err := os.Stdout.Write(merged)
+				_, err := cmd.OutOrStdout().Write(merged)
 				return err
 			}
 			if err := writeFile(path, merged); err != nil {
@@ -139,7 +169,7 @@ func newUninstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			command := eng.HookCommand(f.bin, f.configPath)
+			command := eng.HookCommand(f.bin, f.hookRulesPath())
 			existing, err := readIfExists(path)
 			if err != nil {
 				return err

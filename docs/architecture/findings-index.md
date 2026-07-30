@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,075** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,078** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 48 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 99 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 136 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
 | `open` | no commit names this ID | **910** |
 
-**Totals: 2268 findings across 162 units — 1,075 resolved, 910 still open, 283 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,078 resolved, 910 still open, 280 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 324 | 533 | 20 | 38 | 84 |
-| LOW | 871 | 401 | 351 | 18 | 53 | 48 |
+| MED | 999 | 325 | 533 | 20 | 38 | 83 |
+| LOW | 871 | 403 | 351 | 18 | 53 | 46 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -484,6 +484,34 @@ fallback on a host with a real, long-lived one. Bounded the walk at
 `os.TempDir()`; fixed at `39d7c09c`. Recounted (`just test-arch`):
 RESOLVED 485->517, REFUTED 10->12, ESCALATED 5->17, open 1758->1712,
 MED resolved 42->63, LOW resolved 106->117.
+
+Updated again 2026-07-30 by the `fix/u042-signer-rows` batch: the three U042
+CLI-layer rows wave 21 had ESCALATED onto the campaign's section 7 signing
+fence are RESOLVED. The fence was read too widely. It is the trust MODEL —
+`internal/signing/**`, `internal/trust/**`, the countersignature machinery and
+the approval ladder — and `internal/cli/sign.go` and `internal/cli/signer.go`
+are ordinary command files where ordinary defect fixes belong. What stays
+fenced is trust BEHAVIOUR: what gets signed, which namespace is consulted, what
+the user is asked to consent to, and the wording of any prompt. None of the
+three touched any of that. **U042-F12** `71457906`: `signerRoleWord` and
+`signerConsequenceText` now share one `hasPublishNamespace` scan instead of two
+identical open-coded copies that could only ever drift silently. **U042-F25**
+`ae84959a` `b08b5f0f`: the trust-consequence prompt wrote to `os.Stderr`
+directly — the same descriptor in production, but the missing seam meant
+nothing asserted the product's most consequential confirmation is displayed at
+all, and deleting the whole `Fprintf` kept the suite green. It now writes to
+`cmd.ErrOrStderr()` and the render half is split into `promptSignerAdd` so a
+test can reach it past the `--yes`/no-TTY gate; the new pin asserts the
+fingerprint, the role word and both consequence lines by membership over the
+prompt's parsed lines, and was verified by mutation. The prompt's wording is
+byte-identical. **U042-F10** `6e4eada0`: `runSign` measured CCN 13 (`lizard`,
+not the 12 the row claimed); the argument guards, the key-override precedence
+rule and the empty-target diagnostic are now three named helpers and it
+measures CCN 7. That fixes no gate — `just complexity-check` is red repo-wide
+at ~305 functions — it was done because the function did too much. Recounted
+(`just test-pkg ./tests/docs/ -tags arch`): RESOLVED 1075->1078, ESCALATED
+136->133, MED resolved 324->325, MED escalated 84->83, LOW resolved 401->403,
+LOW escalated 48->46.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -1178,7 +1206,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F07 | **RESOLVED** `ba297344` | `session_full.go:31-35` | DUPLICATE | `newSessionFullRow` resolves each session's essence **twice by two different mechanisms** — `newSessionRow` → `sessionEssenceInfo(appDir)` for the path, then `readSessionEssence` (which re-does the... | U042.md |
 | U042-F08 | **RESOLVED** `751bdad6` | **`search.go:132, 257-263, 292-302, 308-329`** | COUPLING | `search`'s five output functions write to process-global stdout via `fmt.Printf`/`fmt.Println` instead of `cmd.OutOrStdout()`, breaking the package's own emit/cmd-writer convention. `cobra`'s `SetO... | U042.md |
 | U042-F09 | **REFUTED** `c9d76b94` | **`sign.go:203-209; signer.go:411-435`** | COUPLING | Seven package-global flag variables are each bound into **two** different cobra commands (`signCmd`/`bundleSignCmd`, `signerAddCmd`/`trustSignerAddCmd`). pflag stores the same address in both flag ... | U042.md |
-| U042-F10 | **ESCALATED** `aea9d4a0` | **`sign.go:119-172`** | COMPLEXITY | `runSign` is CCN 12, above the CCN-10 gate the brief and `justfile:793` state CI enforces, with no `//nolint` and no exclusion for `internal/cli` in `.golangci.yml`. | U042.md |
+| U042-F10 | **RESOLVED** `6e4eada0` | **`sign.go:119-172`** | COMPLEXITY | `runSign` is CCN 12, above the CCN-10 gate the brief and `justfile:793` state CI enforces, with no `//nolint` and no exclusion for `internal/cli` in `.golangci.yml`. | U042.md |
 | U042-F11 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`signer.go:29-44, 73-80, 183-188, 267-273, 307-314, 402-418; sign.go:54-61, 201-204`** | NOPAY | The deprecated top-level `signer *` and `sign` alias trees cost ~110 lines across two files — 5 duplicate `*cobra.Command` values, 5 deprecation constants, 6 duplicated flag registrations, and one ... | U042.md |
 | U042-F17 | **RESOLVED** `71200c49` | `session_cmd.go:268-281` | SILENTNOOP | `emitHarpMarker` writes zero bytes and reports nothing when `harp == ""` — the SessionStart hook exits 0 having injected no harp self-id marker. Since the marker is the documented index-independent... | U042.md |
 | U042-F20 | **RESOLVED** `552f6a71` | `session_cmd.go (whole file, 611 lines)` | COHESION | `session_cmd.go` is four unrelated things in one file: (a) the `session` command tree; (b) the essence/compaction helper cluster that four *other* files depend on; (c) the `hook session-bind` machi... | U042.md |
@@ -2173,7 +2201,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F19 | open | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
 | U041-F21 | open | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
 | U041-F24 | **RESOLVED** `c482871e` | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |
-| U042-F12 | **ESCALATED** `aea9d4a0` | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
+| U042-F12 | **RESOLVED** `71457906` | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
 | U042-F13 | **PARTIAL** `26a08ce7` | `session_cmd.go:183-187` | DUPLICATE | `fileExists` is triplicated across three packages with a near-identical doc comment. | U042.md |
 | U042-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`search.go:167-171`** | TRIVIAL | `resolveSearchTypes`'s `case "profile"` returns literally the same expression as the preceding case. | U042.md |
 | U042-F15 | **RESOLVED** `f4e3e547` | **`search.go:309-321`** | COMPLEXITY | Five magic numbers govern one table: format widths `%-8s/%-12s/%-20s`, tag truncation at 20→17, name truncation at 18→15. The name column is 20 wide but truncates at 18; the two thresholds are unex... | U042.md |
@@ -2184,7 +2212,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F22 | **REFUTED** `0a1165d0` | `run_terminal_ui.go:116-122` | ERRHANDLING | `ExportDir` returns a non-empty path alongside a non-nil error: `return dir, os.MkdirAll(dir, 0o755)`. A caller that checks the path before the error gets a directory that does not exist. | U042.md |
 | U042-F23 | **RESOLVED** `24e4e92e` | `run_terminal_ui.go:136-146` | TRIVIAL | `surroundRoster` declares an `error` return that is provably always `nil` on both paths, forcing every caller into a dead `if err != nil`. | U042.md |
 | U042-F24 | **RESOLVED** `24e4e92e` | `session_cmd.go:477-482` | TRIVIAL | `compactionModelFor` has exactly **one** production call site, so its stated rationale — "Shared so every distill path resolves it identically" — is not realised; `compactEntry` is already the sing... | U042.md |
-| U042-F25 | **ESCALATED** `aea9d4a0` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
+| U042-F25 | **RESOLVED** `ae84959a` `b08b5f0f` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
 | U043-F10 | open | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
 | U043-F11 | open | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
 | U043-F12 | open | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |

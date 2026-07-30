@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 
@@ -233,6 +234,7 @@ func (h *Home) ParkControlPayload(pm *agentcoordpb.PeerMessage) {
 		}
 	}
 	h.buffer = append(h.buffer, pm)
+	h.parkedCtl = append(h.parkedCtl, PendingControlPayload{MessageID: id, ParkedAt: time.Now()})
 	p := h.park
 	var msgs []*agentcoordpb.PeerMessage
 	if p != nil && !p.done {
@@ -245,4 +247,30 @@ func (h *Home) ParkControlPayload(pm *agentcoordpb.PeerMessage) {
 	if msgs != nil {
 		p.ch <- msgs
 	}
+}
+
+// PendingControlPayload is one control body parked into the recv buffer that
+// the agent has NOT pulled yet.
+//
+// ParkedAt is the runner's own clock at park time, never anything a sender
+// supplied: it is the input to the re-announcement's anti-habituation, and a
+// caller-influenced age would let a steer's sender decide how loudly its own
+// instruction nags.
+type PendingControlPayload struct {
+	MessageID string
+	ParkedAt  time.Time
+}
+
+// PendingControlPayloads snapshots the control bodies this runner has parked
+// and the agent has not pulled, OLDEST FIRST.
+//
+// It exists for one caller: the engine host's turn-boundary re-announcer. A
+// steer is delivered as an announcement plus a pull, and an engine that takes
+// the announcement turn without pulling leaves the human's instruction sitting
+// here until the process dies. Nothing else in the system can see that state,
+// which is precisely why losing an instruction was silent.
+func (h *Home) PendingControlPayloads() []PendingControlPayload {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]PendingControlPayload(nil), h.parkedCtl...)
 }

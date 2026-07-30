@@ -205,6 +205,44 @@ func TestParkControlPayload_BypassesTheTurnSinkAndDedupes(t *testing.T) {
 	assert.Empty(t, sunk, "a control body must never reach the turn sink — the reminder is the turn, the body is the pull")
 }
 
+// TestPendingControlPayloads_TracksUnpulledBodies pins the state the
+// turn-boundary re-announcer runs on (F10). "The agent never pulled the
+// instruction" has to be a state something can OBSERVE — that it was not is
+// exactly why losing a steer was silent — and it must clear on the one event
+// that means the agent has it: the Recv that hands it over.
+//
+// This runs against the real Home rather than the engine host's fake, because a
+// fake that says "still pending" while Home says "pulled" would make the
+// re-announcer's whole test suite prove nothing.
+func TestPendingControlPayloads_TracksUnpulledBodies(t *testing.T) {
+	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	h := dialHome(t, c, "owner-harp", RunnerCapabilities(true)...)
+
+	assert.Empty(t, h.PendingControlPayloads(), "nothing parked, nothing pending")
+
+	before := time.Now()
+	h.ParkControlPayload(&agentcoordpb.PeerMessage{
+		MessageId: steerBodyID("ctl-first"), FromAgentId: UserSender, Text: "one",
+		Kind: agentcoordpb.MessageKind_MESSAGE_KIND_STEER,
+	})
+	h.ParkControlPayload(&agentcoordpb.PeerMessage{
+		MessageId: steerBodyID("ctl-second"), FromAgentId: UserSender, Text: "two",
+		Kind: agentcoordpb.MessageKind_MESSAGE_KIND_STEER,
+	})
+
+	pending := h.PendingControlPayloads()
+	require.Len(t, pending, 2)
+	assert.Equal(t, steerBodyID("ctl-first"), pending[0].MessageID, "oldest first: the age the frame reports is the OLDEST wait")
+	assert.Equal(t, steerBodyID("ctl-second"), pending[1].MessageID)
+	assert.False(t, pending[0].ParkedAt.Before(before), "the park time is the runner's own clock, not a zero value")
+
+	// The pull is the one event that ends the pending state.
+	got, err := h.Recv(context.Background(), 2*time.Second)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Empty(t, h.PendingControlPayloads(), "a pulled body is not pending, and must never be re-announced")
+}
+
 // TestCapabilityForRequest_CoversEveryDeclaredArm: the receiver's kind→capability
 // table is the ONE table that has to be right, because the receiver's refusal is
 // the guarantee. An arm with no entry returns "" and is refused as unrecognised

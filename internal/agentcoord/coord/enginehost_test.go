@@ -49,6 +49,10 @@ type fakeEngineHome struct {
 	// as seen from the Home seam.
 	ctrlHandler func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse
 	parked      []*agentcoordpb.PeerMessage
+	// pendingCtl mirrors Home's unpulled-control ledger. It is the state the
+	// turn-boundary re-announcer reads, so the fake must model it (and let a
+	// test age or drain it) rather than pretend every parked body is pulled.
+	pendingCtl []PendingControlPayload
 }
 
 func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
@@ -115,6 +119,49 @@ func (f *fakeEngineHome) ParkControlPayload(pm *agentcoordpb.PeerMessage) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.parked = append(f.parked, pm)
+	f.pendingCtl = append(f.pendingCtl, PendingControlPayload{MessageID: pm.GetMessageId(), ParkedAt: time.Now()})
+}
+
+func (f *fakeEngineHome) PendingControlPayloads() []PendingControlPayload {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]PendingControlPayload(nil), f.pendingCtl...)
+}
+
+// pullControlPayload is the fake's agent_recv: the agent pulled id, so it stops
+// being pending.
+func (f *fakeEngineHome) pullControlPayload(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, p := range f.pendingCtl {
+		if p.MessageID == id {
+			f.pendingCtl = append(f.pendingCtl[:i], f.pendingCtl[i+1:]...)
+			return
+		}
+	}
+}
+
+// backdateControlPayloads moves every pending body's park time d into the past,
+// so a test can age an instruction without waiting for a wall clock.
+func (f *fakeEngineHome) backdateControlPayloads(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.pendingCtl {
+		f.pendingCtl[i].ParkedAt = f.pendingCtl[i].ParkedAt.Add(-d)
+	}
+}
+
+// customValues snapshots the recorded custom events matching name.
+func (f *fakeEngineHome) customValues(name string) []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []map[string]any
+	for _, c := range f.customs {
+		if c.Name == name {
+			out = append(out, c.Value)
+		}
+	}
+	return out
 }
 
 // parkedBodies snapshots the control bodies parked for agent_recv.

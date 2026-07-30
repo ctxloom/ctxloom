@@ -58,8 +58,20 @@ type Home struct {
 	// emits their consumption fact. A crash before either re-delivers
 	// (at-least-once; the safe direction).
 	returned []string
-	park     *homePark
-	parked   bool
+	// parkedCtl is the UNPULLED-CONTROL-BODY ledger, oldest first: one entry
+	// per control payload ParkControlPayload put into buffer, dropped the
+	// moment Recv hands that id to the harness. It is what makes "the agent
+	// never pulled the instruction" an OBSERVABLE state rather than something
+	// only discoverable by rummaging in buffer — the engine host's
+	// turn-boundary re-announcer reads it (PendingControlPayloads), and
+	// nothing else does.
+	//
+	// Separate from buffer rather than derived from it because buffer holds
+	// ordinary mail too (the pre-engine window), and "how long has the human's
+	// instruction been sitting unread" is a question only about control bodies.
+	parkedCtl []PendingControlPayload
+	park      *homePark
+	parked    bool
 	// turnQ/turnPending are the ENGINE-HOST turn-delivery seam (§6a,
 	// runner-side): once a hosted engine registers a sink (SetTurnSink), a
 	// pushed PeerMessage with no recv parked is queued here in arrival
@@ -621,8 +633,21 @@ func (h *Home) recordReturned(msgs []*agentcoordpb.PeerMessage) {
 	for _, m := range msgs {
 		h.consumed[m.GetMessageId()] = true // never re-deliver to this harness
 		h.returned = append(h.returned, m.GetMessageId())
+		h.forgetParkedCtl(m.GetMessageId())
 	}
 	h.mu.Unlock()
+}
+
+// forgetParkedCtl drops id from the unpulled ledger. Called from the ONE place
+// a body stops being unpulled: the Recv that hands it to the harness. Caller
+// holds h.mu.
+func (h *Home) forgetParkedCtl(id string) {
+	for i, p := range h.parkedCtl {
+		if p.MessageID == id {
+			h.parkedCtl = append(h.parkedCtl[:i], h.parkedCtl[i+1:]...)
+			return
+		}
+	}
 }
 
 // ackReturned emits the consumption fact for everything a prior Recv handed

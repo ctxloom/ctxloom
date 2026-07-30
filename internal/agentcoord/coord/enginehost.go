@@ -36,6 +36,10 @@ type engineHome interface {
 	// it, WITHOUT routing it to the turn sink — the control verbs inject their
 	// own reminder turn and the agent pulls the body.
 	ParkControlPayload(pm *agentcoordpb.PeerMessage)
+	// PendingControlPayloads reports the parked bodies the agent has not pulled
+	// yet, oldest first — what the turn-boundary re-announcer reads to decide
+	// whether an announced instruction is still sitting unread.
+	PendingControlPayloads() []PendingControlPayload
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for forwarding a permission request as an
 	// ApprovalRequest (Wave C2, resolveApproval below).
@@ -85,6 +89,12 @@ type EngineHost struct {
 	// enqueueTurn serializes the sends onto the unbuffered `in`.
 	pendingTags []turnTag
 	currentTag  turnTag
+
+	// reannounce is the turn-boundary re-announcer's state (F10): what keeps
+	// an announced-but-never-pulled control body from sitting in the recv
+	// buffer, unread and unreported, until the process dies. See
+	// enginehost_reannounce.go.
+	reannounce reannounceState
 
 	// enqueueMu serializes the (push tag, send turn) pair so the FIFO cannot
 	// desynchronise from the order the engine actually receives turns. Two
@@ -400,6 +410,11 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			inTurn = false
 			eh.endTurn()
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
+			// THE TURN BOUNDARY IS THE TRIGGER (F10). A control body that
+			// was announced and not pulled during the turn that just ended
+			// gets re-announced here — the mechanism §6.1 assumed and never
+			// had. It dispatches and returns; this loop must keep draining.
+			eh.reannounceAtBoundary(home)
 		case ev.Permission != nil:
 			// C2: HarnessSpec sets ForwardPermissions unconditionally on this
 			// path now, so every engine permission request round-trips

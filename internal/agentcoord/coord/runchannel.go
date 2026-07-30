@@ -48,6 +48,17 @@ const (
 	// path's replacement for the coordinator-side driveChild state machine.
 	CustomTurnStarted = "ctxloom/turn_started"
 	CustomTurnIdle    = "ctxloom/turn_idle"
+	// CustomControlUnpulled is the turn-boundary re-announcer's GIVE-UP fact
+	// (F10): a control body was announced, re-announced to the limit across
+	// that many turn boundaries, and the agent never called agent_recv for it.
+	// Value: {"message_id": "...", "announcements": N, "waiting_seconds": N}.
+	//
+	// It is the observable half of the re-announcer's bound. The control
+	// request was acknowledged long ago (APPLIED_NEXT_TURN), so there is no
+	// open call left to fail — which is exactly why an instruction lost this
+	// way used to be invisible, and why stopping quietly would have been the
+	// same defect in a different coat.
+	CustomControlUnpulled = "ctxloom/control_unpulled"
 	// CustomToolPrefix namespaces host-relay tool requests
 	// (CustomRequest{name: "ctxloom/<tool>"}).
 	CustomToolPrefix = "ctxloom/"
@@ -419,6 +430,19 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		c.onTurnStarted(ch.role)
 	case CustomTurnIdle:
 		c.onTurnIdle(ch.role)
+	case CustomControlUnpulled:
+		// The coordinator is where a human's steer entered the system, so it
+		// is where "your instruction was never read" has to come out. There is
+		// no request left to fail — the ack went back the moment the reminder
+		// was queued — so this warns loudly rather than returning an error to
+		// nobody. Journalling it as a durable fact would be the better home
+		// for it and needs a new fact kind, which is a persisted-format change
+		// and not this change's to make.
+		f := ev.GetValue().GetFields()
+		clidiag.Warn("ctxloom", "coordinator: %s never pulled control payload %s after %d announcements over %ds — "+
+			"the instruction was NOT acted on",
+			ch.role, f["message_id"].GetStringValue(),
+			int64(f["announcements"].GetNumberValue()), int64(f["waiting_seconds"].GetNumberValue()))
 	}
 }
 

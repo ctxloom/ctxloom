@@ -275,3 +275,23 @@ func TestNativeACPRunGate_ProbesTheSubcommandNotTheClient(t *testing.T) {
 	assert.Contains(t, g, "kiro-cli acp is installed but its ACP surface cannot start")
 	assert.Contains(t, g, "exit 1")
 }
+
+// TestContainerProfileFor_EveryProfileMapsATranscriptStore is U064-F05's
+// pinning test. The row claimed an empty profile.transcriptStoreRel silently
+// skips the transcript mount, so a containerized run writes a transcript that
+// dies at --rm teardown with nothing said. sessionStateMounts' `if
+// c.profile.transcriptStoreRel != ""` guard is real, but the empty case is
+// unreachable: Container.profile is only ever assigned from
+// containerProfileFor (NewContainerFor), and EVERY branch of that switch —
+// each composable engine, plus the unknown/empty default — sets a non-empty
+// store root. This pins that reachability argument so the row's premise
+// cannot become true unnoticed: a new engine profile that forgets its store
+// root turns this red rather than silently losing that engine's transcripts.
+func TestContainerProfileFor_EveryProfileMapsATranscriptStore(t *testing.T) {
+	names := append(composableEngines(), "", "no-such-engine")
+	for _, name := range names {
+		p := containerProfileFor(name)
+		assert.NotEmpty(t, p.transcriptStoreRel,
+			"backend %q must map a native transcript store root; an empty one silently drops the transcript mount in sessionStateMounts", name)
+	}
+}

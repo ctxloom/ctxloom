@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TraceProbe marks a RunSpec as a PROBE-ONLY container run: when it is non-nil
@@ -31,16 +33,26 @@ import (
 // smaller privilege delta: it permits only same-uid self-child tracing, not the
 // privileged cross-uid ptrace CAP_SYS_PTRACE confers.
 //
-// SECURITY — WHY THIS IS A RUNSPEC FIELD, NOT AN ENV LOOKUP IN renderRunSpec:
-// the loosened seccomp profile must be UNREACHABLE from a normal `ctxloom run`.
-// renderRunSpec is a PURE function of RunSpec.Trace: it applies the probe
-// profile iff this field is non-nil, and NIL is the zero value every production
-// spec builder (buildRunSpec, buildRunnerSpec, the docker-exec spec) produces.
-// The ONLY code that sets it is traceProbeFromEnv, gated on a dedicated
-// probe-only env var (probeTraceEnv) that production never sets. So the
-// guarantee is structural: no non-nil Trace ⇒ Docker's DEFAULT seccomp profile
-// and no capability grant, and the sole setter is the isolation probe. See
+// SECURITY — WHY THIS IS A RUNSPEC FIELD, NOT AN ENV LOOKUP IN renderRunSpec.
+// Two properties, and only the first is structural; do not read the second as
+// if it were.
+//
+// STRUCTURAL: renderRunSpec is a PURE function of RunSpec.Trace — it applies
+// the probe profile iff this field is non-nil — NIL is the zero value every
+// production spec builder (buildRunSpec, buildRunnerSpec, the docker-exec spec)
+// produces, and traceProbeFromEnv is the SOLE writer. So no non-nil Trace ⇒
+// Docker's DEFAULT seccomp profile and no capability grant, and nothing but the
+// isolation probe can construct one. See
 // TestRenderRunSpec_NoTraceProbe_NoSeccompOverride.
+//
+// NOT STRUCTURAL: that sole writer's gate is an ENVIRONMENT VARIABLE
+// (probeTraceEnv), and an environment is inherited. ctxloom's own code never
+// sets it, but any parent process, shell profile or CI job that exports it
+// turns an ordinary `ctxloom run` into a probe run — loosened seccomp profile,
+// strace wrap and all. The gate is therefore not a boundary against a process
+// that can already choose ctxloom's environment; what it must never be is
+// SILENT, so traceProbeFromEnv announces every activation and names the
+// variable to unset (TestTraceProbeFromEnv_ActivationIsNeverSilent).
 type TraceProbe struct {
 	HostDir        string // host dir bind-mounted out so the trace survives --rm teardown
 	ContainerDir   string // in-container mount target the trace file is written under
@@ -66,10 +78,11 @@ const (
 const (
 	// probeTraceEnv is the dedicated, probe-only env var the isolation probe
 	// sets to a host directory. Its presence (and nothing else) turns a
-	// container run into a read-observing probe run. Production `ctxloom run`
-	// never sets it, so traceProbeFromEnv returns nil and no RunSpec ever
-	// carries a Trace — the structural gate that keeps the loosened seccomp
-	// profile (and the strace wrap) probe-only.
+	// container run into a read-observing probe run. ctxloom never sets it
+	// itself, so traceProbeFromEnv returns nil and no RunSpec carries a Trace
+	// — but the value is INHERITED like any other environment entry, so an
+	// exporting parent reaches this too. See TraceProbe's security note for
+	// which half of that gate is structural and which is only loud.
 	probeTraceEnv = "CTXLOOM_ISOLATION_PROBE_TRACE_DIR"
 	// probeTraceContainerDir is the fixed in-container mount target for the
 	// trace output — outside the engine's HOME so it is trivially distinct
@@ -92,11 +105,20 @@ const (
 // else nil. It is the SOLE writer of RunSpec.Trace — see TraceProbe's security
 // note. Called from the container spec builders (buildRunSpec / buildRunnerSpec);
 // a normal run leaves the env unset and gets a nil Trace.
+//
+// Activation is ANNOUNCED. The gate is an inherited environment variable, not a
+// boundary, so the one thing it must never do is change a run's isolation
+// posture quietly: a run that finds this variable set says so and names it, and
+// an operator who did not mean to be probing sees it. WarnOnce, because a
+// fan-out builds many specs from the same variable.
 func traceProbeFromEnv() *TraceProbe {
 	dir := os.Getenv(probeTraceEnv)
 	if dir == "" {
 		return nil
 	}
+	clidiag.WarnOnce("ctxloom",
+		"%s is set (%s): this run is a read-observing isolation probe — its container gets a loosened seccomp profile (the ptrace family allowed) and its engine is wrapped in strace. Unset %s for a normal run",
+		probeTraceEnv, dir, probeTraceEnv)
 	// Materialize the embedded probe-only seccomp profile to a host path the
 	// docker CLI can read for `--security-opt seccomp=<path>`. It lands in the
 	// probe's own trace dir, so the probe's teardown (os.RemoveAll) reaps it.
@@ -138,7 +160,11 @@ func straceWrapPrefix(tp *TraceProbe) []string {
 type TraceRead struct {
 	Path    string
 	Syscall string
-	Result  string // "ok" on success, else the errno name (e.g. "ENOENT")
+	// Result is "ok" on success, else the failure: the symbolic errno name
+	// when strace named one (e.g. "ENOENT"), or "errno <ret>" for a negative
+	// return it left unnamed. Never "ok" for a negative return — see
+	// straceResult.
+	Result string
 }
 
 // Failed reports whether this read did not succeed (an errno was returned) —
@@ -170,12 +196,37 @@ var readSyscalls = map[string]bool{
 // skipped — a documented, accepted limitation of a line-oriented parser.
 var straceLineRe = regexp.MustCompile(`^(?:\[pid\s+\d+\]\s+|\d+\s+)?(\w+)\([^"]*"((?:[^"\\]|\\.)*)".*?\)\s*=\s*(-?\d+)(?:\s+([A-Z][A-Z0-9]+))?`)
 
+// straceResult renders one traced syscall's outcome for TraceRead.Result: the
+// symbolic errno name when strace named one, "ok" for a non-negative return,
+// and "errno <ret>" for a negative return strace left unnamed — never "ok",
+// which TraceRead.Failed reads as a success. A return value that does not parse
+// as a number cannot be judged, so it keeps whichever verdict the errno group
+// gave.
+func straceResult(ret, errno string) string {
+	if errno != "" {
+		return errno
+	}
+	n, err := strconv.Atoi(ret)
+	if err == nil && n < 0 {
+		return "errno " + ret
+	}
+	return "ok"
+}
+
 // ParseStraceReads parses raw strace output (as written by straceWrapPrefix)
 // into a sorted, deduplicated read-set. Deduplication is by (path, syscall,
 // result), so the same file opened repeatedly collapses to one row while a path
 // that both succeeds once and ENOENTs once keeps BOTH observations. Lines that
 // are not a complete traced syscall (strace's own banner, signal lines,
 // unfinished/resumed split lines) are skipped.
+//
+// The RETURN VALUE decides success, not merely the presence of a named errno:
+// every syscall in readSyscalls returns >= 0 on success (a descriptor, a byte
+// count, or 0), so a negative return is a failure whether or not strace could
+// name its errno symbolically. An errno strace has no symbolic name for renders
+// lowercase ("= -1 errno 4242 (Unknown error 4242)"), and a truncated or
+// status-filtered trace can carry a bare "= -1"; treating either as a success
+// would invert exactly the observation this probe exists to make.
 func ParseStraceReads(raw []byte) []TraceRead {
 	seen := map[string]TraceRead{}
 	for _, line := range strings.Split(string(raw), "\n") {
@@ -187,10 +238,7 @@ func ParseStraceReads(raw []byte) []TraceRead {
 		if !readSyscalls[syscall] {
 			continue
 		}
-		result := "ok"
-		if errno != "" {
-			result = errno
-		}
+		result := straceResult(m[3], errno)
 		key := path + "\x00" + syscall + "\x00" + result
 		if _, ok := seen[key]; !ok {
 			seen[key] = TraceRead{Path: path, Syscall: syscall, Result: result}

@@ -1,6 +1,7 @@
 package mockengine
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -47,9 +48,21 @@ type Outcome struct {
 // Dispatch resolves a prompt (and the controlling environment) to an Outcome.
 // Prompt-embedded sentinels decide first; explicit env knobs override, because a
 // test that owns the child's env is making a deliberate, unambiguous request.
-func Dispatch(prompt string, getenv func(string) string) Outcome {
-	if getenv == nil {
-		getenv = func(string) string { return "" }
+//
+// lookup is the TWO-VALUE environment reader, for the same reason ObserveEnv
+// takes one: an override SET TO THE EMPTY STRING is a request for an empty
+// engine reply, and the one-value form cannot tell that from an unset variable.
+// A zero-byte reply is the shape ctxloom's characteristic bug produces, so the
+// knob that lets a test prove ctxloom surfaces one rather than papering over it
+// must be expressible.
+//
+// A knob that is set but UNREADABLE is an error, not a default. EnvExitCode is
+// the fault-INJECTION channel — a test sets it to prove ctxloom surfaces a
+// failing engine — so a typo silently degrading to "success" would make the
+// test that was asserting a failure go green having injected nothing.
+func Dispatch(prompt string, lookup func(string) (string, bool)) (Outcome, error) {
+	if lookup == nil {
+		lookup = func(string) (string, bool) { return "", false }
 	}
 
 	out := Outcome{ExitCode: 0, Response: "mock-engine: ok"}
@@ -62,15 +75,17 @@ func Dispatch(prompt string, getenv func(string) string) Outcome {
 		out.Response = "mock-engine: " + echoPayload(prompt)
 	}
 
-	if v := getenv(EnvResponse); v != "" {
+	if v, ok := lookup(EnvResponse); ok {
 		out.Response = v
 	}
-	if v := getenv(EnvExitCode); v != "" {
-		if code, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			out.ExitCode = code
+	if v, ok := lookup(EnvExitCode); ok && strings.TrimSpace(v) != "" {
+		code, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return out, fmt.Errorf("%s=%q is not an integer exit code", EnvExitCode, v)
 		}
+		out.ExitCode = code
 	}
-	return out
+	return out, nil
 }
 
 // echoPayload returns the rest of the line following the first SentinelEcho.

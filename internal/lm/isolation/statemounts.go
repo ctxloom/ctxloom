@@ -36,6 +36,19 @@ func SessionStateFromEnv(env map[string]string) SessionState {
 	}
 }
 
+// noHarpNotice and noProjectIDNotice are the two durability degrades a run
+// without session identity reports. They are WarnOnce lines: a fan-out
+// (map/weave, agent_run) puts every member through sessionStateMounts in ONE
+// process, so N identical lines would be startup spam. The cost of that
+// collapse is that the surviving line cannot name WHICH members it covers —
+// there is no identity available here to name them with, since the missing
+// harp IS that identity — so each says plainly that it speaks for every
+// affected run rather than reading as one run's notice.
+const (
+	noHarpNotice      = "container runs with no session harp: their engine transcripts and session artifacts will not survive the container — reported once for every affected run in this session"
+	noProjectIDNotice = "container runs with no project id: their in-container task writes will not reach the shared task log — reported once for every affected run in this session"
+)
+
 // safePathSegment reports whether s can be trusted as a single path segment
 // under ~/.ctxloom/sessions. Harps are normally minted by AssignSession, but
 // they arrive HERE from an env map — the same untrusted channel the task
@@ -77,7 +90,7 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 	var mounts []Mount
 	switch {
 	case c.state.Harp == "":
-		clidiag.WarnOnce("ctxloom", "container run has no session harp; the engine transcript and session artifacts will not survive the container")
+		clidiag.WarnOnce("ctxloom", "%s", noHarpNotice)
 	case !safePathSegment(c.state.Harp):
 		return nil, fmt.Errorf("container session-state mounts: session harp %q is not a safe path segment", c.state.Harp)
 	default:
@@ -113,7 +126,7 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 		// Without a pinned project id the in-container taskloom would MINT a
 		// fresh one and write a wrongly-keyed log; better that write dies with
 		// the container than pollutes the shared host store.
-		clidiag.WarnOnce("ctxloom", "container run has no project id; in-container task writes will not reach the shared task log")
+		clidiag.WarnOnce("ctxloom", "%s", noProjectIDNotice)
 	} else {
 		tasksDir, err := taskpaths.HomeTasksDir()
 		if err != nil {

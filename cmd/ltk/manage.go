@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -45,8 +46,20 @@ func (f *manageFlags) bind(c *cobra.Command) {
 	c.Flags().BoolVar(&f.force, "force", false, "overwrite an existing rules file (a .bak backup is written first)")
 }
 
-// resolve picks the engine and its settings path.
+// resolve validates the flags shared by install and uninstall, then picks the
+// engine and its settings path.
 func (f *manageFlags) resolve() (engine.Engine, string, error) {
+	// Every byte of the installed hook command line is derived from --bin. An
+	// empty (or blank) one still yields a syntactically valid command — it just
+	// names no program — which the hook host runs, fails to exec, and, both
+	// hosts failing OPEN on a hook error, treats as an allow. Installing that
+	// reports success over a guard that gates nothing, permanently. Uninstall
+	// takes the same refusal: the command it matches on is built the same way,
+	// so an empty --bin could only ever match a hook nobody could have installed.
+	if strings.TrimSpace(f.bin) == "" {
+		return nil, "", errors.New("--bin must name the ltk invocation the hook should run: " +
+			"an empty value builds a hook command that can never execute, and both hook hosts treat a failed hook as an allow")
+	}
 	var (
 		eng engine.Engine
 		err error

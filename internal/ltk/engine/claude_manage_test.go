@@ -202,6 +202,49 @@ func TestClaudeInstallRejectsMalformed(t *testing.T) {
 	}
 }
 
+// Install and Uninstall must agree about what a malformed settings document is
+// (U067-F08). Uninstall used to type-assert its way past a `hooks` that is not
+// an object (or a `PreToolUse` that is not an array) and return removed=false
+// with no error — which cmd/ltk reports as "no matching hook found", telling the
+// user their hook is not installed when in truth their settings file could not
+// be read at all. Install has always refused the same bytes with a precise
+// error; so must Uninstall.
+func TestClaudeUninstallRejectsMalformed(t *testing.T) {
+	for _, doc := range []string{
+		`{"hooks":"nope"}`,
+		`{"hooks":{"PreToolUse":"nope"}}`,
+	} {
+		_, _, uninstallErr := (ClaudeCode{}).Uninstall([]byte(doc), hookCmd)
+		if uninstallErr == nil {
+			t.Errorf("Uninstall(%s) returned no error; Install rejects the same bytes", doc)
+		}
+		if _, _, installErr := (ClaudeCode{}).Install([]byte(doc), hookCmd); installErr == nil {
+			t.Errorf("Install(%s) returned no error — the premise of this test has changed", doc)
+		}
+	}
+}
+
+// ...but an ABSENT hooks key is not malformed: nothing is installed, so
+// uninstall is a clean no-op. The wrong-type refusal must not swallow that.
+func TestClaudeUninstallAbsentKeysAreNotMalformed(t *testing.T) {
+	for _, doc := range []string{
+		`{"model":"opus"}`,
+		`{"hooks":{}}`,
+		`{"hooks":{"SessionStart":[]}}`,
+	} {
+		out, didRemove, err := (ClaudeCode{}).Uninstall([]byte(doc), hookCmd)
+		if err != nil {
+			t.Errorf("Uninstall(%s): unexpected error %v", doc, err)
+		}
+		if didRemove {
+			t.Errorf("Uninstall(%s) claimed a removal", doc)
+		}
+		if len(out) == 0 {
+			t.Errorf("Uninstall(%s) produced zero bytes", doc)
+		}
+	}
+}
+
 // quotePathIfNeeded must neutralize shell metacharacters: the path is spliced
 // into a shell-executed hook command line, so an embedded quote, $(…), or
 // backtick must never escape the quoting. Plain paths stay byte-stable.

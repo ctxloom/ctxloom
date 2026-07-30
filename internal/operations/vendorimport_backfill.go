@@ -34,9 +34,23 @@ type BackfillResult struct {
 // must not block every other session's backfill (CLAUDE.md fault tolerance;
 // mirrors session_cmd.go's distillMissingOrStale, which applies the same
 // per-entry warn-and-continue rule to distillation).
+//
+// CANCELLATION is the one thing that DOES stop it, and is not a per-entry
+// failure. Every registered adapter honours ctx (importer.ConvertJSONLLines'
+// per-line check, kiro's per-turn one), so without this the run continued and
+// recorded context.Canceled against each remaining harp in turn — one
+// "failed: <harp>" line per session for what was a single event, blaming
+// healthy sessions for the user's own interrupt, and running
+// ConvertVendorTranscript's partial-file cleanup once per entry on the way
+// past. The entries not reached are left unclassified rather than counted as
+// Skipped: "nothing to do" is a conclusion about an entry that was actually
+// examined, and the caller learns the run was cut short from ctx itself.
 func BackfillVendorTranscripts(ctx context.Context, entries []sessions.Entry) BackfillResult {
 	var res BackfillResult
 	for _, e := range entries {
+		if ctx.Err() != nil {
+			return res
+		}
 		converted, err := ConvertVendorTranscript(ctx, e)
 		switch {
 		case err != nil:

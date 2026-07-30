@@ -494,9 +494,12 @@ func profileLoader(cfg *config.Config) *profiles.Loader {
 	}
 	var opts []profiles.LoaderOption
 	// The loader must READ the same filesystem the directories were discovered
-	// on. Without this the dirs come from cfg.FS() and the reads go to the OS
-	// filesystem, so an injected filesystem yields a discovered-but-empty
-	// directory and an error-free empty listing.
+	// on, or an injected fs is a lie: the directory is found through cfg.FS()
+	// while every profile inside it is looked for on real disk, yielding a
+	// discovered-but-empty directory and an error-free empty listing. Nil keeps
+	// NewLoader's OS default, so production is unchanged. Mirrors
+	// config.GetProfileLoader, the twin this factory must agree with about
+	// which profiles exist.
 	if fs := cfg.FS(); fs != nil {
 		opts = append(opts, profiles.WithFS(fs))
 	}

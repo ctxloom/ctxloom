@@ -141,3 +141,36 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 		"the rejection must persist even when the post-mutation refresh fails")
 	assert.True(t, store.HasUnsignedContentReject(signing.AttestExecMCP, alphaPayload))
 }
+
+// TestBlacklist_UnresolvableItemStatesTheRejectionIsRefOnly pins the
+// refutation of U089-F06, which claimed `blacklist` reports
+// {"status":"rejected"} while having SILENTLY written no content-scoped
+// rejection. The ref-only outcome is real and deliberate — spec §5.3 requires
+// a rejection to succeed even when the item is already gone, and there are no
+// bytes to bind a content-reject to — but it is not silent at any layer, and
+// nothing here may become silent. SetBlacklistResult.ContentForms reports the
+// forms actually written (empty here), the command warns, and the render says
+// which half of the rejection landed.
+//
+// The "renamed or moved identical copy stays rejected" guarantee is
+// content-scoped and therefore inapplicable to an item with no resolvable
+// content — which is exactly what the user has to be told, and is.
+func TestBlacklist_UnresolvableItemStatesTheRejectionIsRefOnly(t *testing.T) {
+	root := scrubProjectRoot(t)
+	_ = root
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+
+	warnings := captureWarnings(t)
+	c, out := testCmd()
+	require.NoError(t, runBlacklist(c, cfg, "tools#mcp/ghost"),
+		"a rejection must still succeed when the item cannot be resolved — the sticky ref block is the durable guarantee")
+
+	assert.Contains(t, warnings.String(), "no content-reject countersignature was recorded",
+		"the missing content-scoped half must be stated, never left for the user to infer from a bare \"rejected\"")
+	assert.Contains(t, out.String(), "ref block: recorded",
+		"the durable half that DID land must be named")
+	assert.Contains(t, out.String(), "content:   not recorded",
+		"the half that did not land must be named too")
+}

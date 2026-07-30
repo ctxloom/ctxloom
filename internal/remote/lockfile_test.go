@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
@@ -394,6 +396,33 @@ func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 	_, ok := lockfile.GetEntry(ItemType("unknown"), "test/bundle")
 	if ok {
 		t.Error("expected entry not to be found for unknown type")
+	}
+}
+
+// TestLockfile_OnlyBundlesAreDistributed pins the property that makes
+// AddEntry's non-bundle discard unreachable, and that U093-F32 read as a live
+// silent no-op.
+//
+// AddEntry does drop an entry whose itemType is not ItemTypeBundle, and it has
+// no return value with which to say so. But ItemTypeBundle is the ONLY ItemType
+// constant, no production code converts a string to an ItemType, and the single
+// parser that derives one from a ref — parseTypePathVersion, behind
+// ParseReference — accepts the literal segment "bundles" and rejects every
+// other spelling. So no caller can reach the discard except by fabricating a
+// type, which only this package's own tests do.
+//
+// The day a second distributed item type is introduced, this goes red — and
+// that is exactly the day AddEntry's silent drop becomes reachable and must
+// grow a way to report it.
+func TestLockfile_OnlyBundlesAreDistributed(t *testing.T) {
+	ref, err := ParseReference("https://github.com/alice/repo@bundles/core")
+	require.NoError(t, err)
+	assert.Equal(t, ItemTypeBundle, ref.ItemType)
+
+	for _, seg := range []string{"profiles", "fragments", "commands", "skills", "mcp", "hooks", "widgets"} {
+		_, err := ParseReference("https://github.com/alice/repo@" + seg + "/core")
+		require.Error(t, err, "segment %q must not name a distributed item type", seg)
+		assert.ErrorContains(t, err, "unknown item type")
 	}
 }
 

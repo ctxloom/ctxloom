@@ -172,10 +172,15 @@ func buildTable(v reflect.Value) (*Table, error) {
 	for i := 0; i < v.Len(); i++ {
 		elem := derefValue(v.Index(i))
 		row := make([]string, len(indices))
+		if !elem.IsValid() {
+			// A nil element of a slice-of-pointer: no fields to read, but the
+			// row still occupies its place so row indexes keep matching the
+			// caller's slice indexes. Whole-row condition, so it is decided
+			// once per row rather than re-asked for every column.
+			tbl.Rows = append(tbl.Rows, row)
+			continue
+		}
 		for c, index := range indices {
-			if !elem.IsValid() {
-				continue
-			}
 			fv, err := elem.FieldByIndexErr(index)
 			if err != nil {
 				// A nil embedded pointer along this promoted field's index

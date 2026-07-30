@@ -290,3 +290,31 @@ func TestBuildTableNilEmbeddedPointerRendersEmptyCell(t *testing.T) {
 		t.Errorf("row 1 last column = %q; a nil embedded pointer must not disturb sibling fields", got)
 	}
 }
+
+// TestBuildTableNilRowElement characterizes both arms of buildTable's
+// row-validity guard: a nil element of a slice-of-pointer yields a row of the
+// right WIDTH with every cell empty (it is still appended, so row indexes keep
+// matching the caller's slice indexes), and a valid element is unaffected.
+// The guard depends only on the row, never on the column, so this pins the
+// behaviour across moving it out of the per-column loop.
+func TestBuildTableNilRowElement(t *testing.T) {
+	rows := []*simpleFixture{nil, {Name: "n", Count: 2}}
+	tbl, err := buildTable(reflect.ValueOf(rows))
+	if err != nil {
+		t.Fatalf("buildTable: %v", err)
+	}
+	if len(tbl.Rows) != 2 {
+		t.Fatalf("got %d rows, want 2 (a nil element must still occupy a row)", len(tbl.Rows))
+	}
+	if len(tbl.Rows[0]) != len(tbl.Columns) {
+		t.Errorf("nil-element row has %d cells, want %d", len(tbl.Rows[0]), len(tbl.Columns))
+	}
+	for i, c := range tbl.Rows[0] {
+		if c != "" {
+			t.Errorf("nil-element row cell %d = %q, want empty", i, c)
+		}
+	}
+	if tbl.Rows[1][0] != "n" || tbl.Rows[1][1] != "2" {
+		t.Errorf("valid row = %v, want [n 2]", tbl.Rows[1])
+	}
+}

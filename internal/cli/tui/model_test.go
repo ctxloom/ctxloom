@@ -379,6 +379,72 @@ func TestModel_GapRendersNotice(t *testing.T) {
 	assert.Contains(t, m.View(), "7 live events dropped")
 }
 
+// The roster refreshes every rosterRefreshEvery, so anything the refresh
+// clears has a lifetime of at most two seconds. "saved <path>" is the only
+// place the user learns WHERE the export landed, so the background refresh
+// must not own that line. U044-F23.
+func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "hello"))
+
+	m, _ = step(t, m, keyMsg("s"))
+	require.Contains(t, m.status, "saved ")
+
+	m, _ = step(t, m, rosterMsg{rows: f.rows})
+	assert.Contains(t, m.status, "saved ", "a background roster refresh must not eat the export path")
+}
+
+// A roster fetch that fails and then succeeds has recovered; the error line
+// must go with it. Nothing else ever clears it, so before this it survived
+// every later refresh for the life of the overlay. U044-F23.
+func TestModel_SuccessfulRosterRefreshClearsTheEarlierRosterError(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	m, _ = step(t, m, rosterErrMsg{err: fmt.Errorf("dial coordinator: refused")})
+	require.Contains(t, m.rosterErr, "dial coordinator: refused")
+	require.Contains(t, m.hintNote(), "dial coordinator: refused", "and it is the line the user sees")
+
+	m, _ = step(t, m, rosterMsg{rows: f.rows})
+	assert.Empty(t, m.rosterErr, "a recovered roster fetch must retire its own error")
+	assert.NotContains(t, m.hintNote(), "dial coordinator: refused")
+}
+
+// The hint bar shows ONE note, so a parked failure must not be able to hide a
+// newer outcome forever: the action slot wins, the roster's own failure comes
+// next, and the background note last. U044-F23.
+func TestModel_HintNotePrecedence(t *testing.T) {
+	m := Model{status: "saved /tmp/t.txt"}
+	assert.Equal(t, "saved /tmp/t.txt", m.hintNote())
+
+	m.rosterErr = "roster: refused"
+	assert.Equal(t, "roster: refused", m.hintNote(), "a live roster failure outranks a background note")
+
+	m.errMsg = "export: disk full"
+	assert.Equal(t, "export: disk full", m.hintNote(), "the last action's failure outranks both")
+}
+
+// View prefers errMsg over status, so an action that succeeds while a stale
+// error is still parked renders as the OLD failure — the success is
+// invisible. Every action reports exactly one outcome. U044-F23.
+func TestModel_ASucceedingActionRetiresTheEarlierFailure(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
+	f.exportDirErr = fmt.Errorf("session dir unavailable")
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "hello"))
+
+	m, _ = step(t, m, keyMsg("s"))
+	require.Contains(t, m.errMsg, "session dir unavailable")
+
+	f.exportDirErr = nil
+	m, _ = step(t, m, keyMsg("s"))
+	assert.Contains(t, m.status, "saved ")
+	assert.Empty(t, m.errMsg, "the superseded failure must not outlive the success")
+	assert.Contains(t, m.hintNote(), "saved ", "and the success is what the user actually sees")
+}
+
 func TestModel_RosterRefreshKeepsSelection(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", State: "live"},

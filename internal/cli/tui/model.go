@@ -56,8 +56,41 @@ type Model struct {
 	injectHarp string // the explicit target, latched when the line opens
 	injectText string
 
-	status string
-	errMsg string
+	// The hint bar carries one line, chosen in this order: the last action's
+	// failure, the roster's own failure, then status. Each slot is owned by
+	// exactly one producer so that none of them outlives its subject:
+	// rosterErr is retired by the next successful fetch, and an action
+	// replaces both of its own slots at once.
+	status    string // the last action's outcome, or a roster-owned note
+	errMsg    string // the last action's failure
+	rosterErr string // the roster fetch's failure, while it persists
+}
+
+// The roster pane owns these two status lines. It refreshes every
+// rosterRefreshEvery, so it may only ever clear a line it wrote itself —
+// anything else it clears has a lifetime of at most that tick.
+const (
+	statusLoading    = "loading agents…"
+	statusNoSessions = "no observable sessions"
+)
+
+// reportOK and reportErr record an action's outcome. An action produces
+// exactly one outcome, so each writes BOTH slots: otherwise an earlier
+// failure outlives the success that superseded it and — since View prefers
+// errMsg — hides it.
+func (m *Model) reportOK(s string)  { m.status, m.errMsg = s, "" }
+func (m *Model) reportErr(s string) { m.status, m.errMsg = "", s }
+
+// hintNote picks the single line the hint bar carries.
+func (m Model) hintNote() string {
+	switch {
+	case m.errMsg != "":
+		return m.errMsg
+	case m.rosterErr != "":
+		return m.rosterErr
+	default:
+		return m.status
+	}
 }
 
 // Messages.
@@ -98,7 +131,7 @@ func NewModel(ctx context.Context, src Sources, geo termui.OverlayGeometry, pref
 		firstKey:  true,
 		follow:    true,
 		expanded:  map[int]bool{},
-		status:    "loading agents…",
+		status:    statusLoading,
 	}
 	m.vp = viewport.New(m.feedWidth(), m.contentHeight())
 	return m
@@ -178,6 +211,9 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 	m.expanded = map[int]bool{}
 	m.cursor = 0
 	m.follow = true
+	// The pane's notes describe the feed being replaced ("feed ended", a
+	// watch error): they do not survive the switch.
+	m.reportOK("")
 	m.refreshFeed()
 	src, ctx := m.src, m.ctx
 	return func() tea.Msg {
@@ -208,18 +244,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		m.rosterErr = ""
 		if len(m.rows) > 0 {
-			m.status = ""
+			if m.status == statusLoading || m.status == statusNoSessions {
+				m.status = ""
+			}
 			if !hadRows {
 				return m, m.openFeed(m.rows[m.sel].Harp)
 			}
 		} else {
-			m.status = "no observable sessions"
+			m.status = statusNoSessions
 		}
 		return m, nil
 
 	case rosterErrMsg:
-		m.errMsg = fmt.Sprintf("roster: %v", msg.err)
+		m.rosterErr = fmt.Sprintf("roster: %v", msg.err)
 		return m, nil
 
 	case rosterTickMsg:
@@ -269,10 +308,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case injectResultMsg:
 		if msg.err != nil {
-			m.errMsg = fmt.Sprintf("inject %s: %v", msg.harp, msg.err)
+			m.reportErr(fmt.Sprintf("inject %s: %v", msg.harp, msg.err))
 		} else {
-			m.status = fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode)
-			m.errMsg = ""
+			m.reportOK(fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode))
 		}
 		return m, nil
 	}
@@ -358,18 +396,17 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // text mid-composition.
 func (m Model) openInject() (tea.Model, tea.Cmd) {
 	if m.feedHarp == "" {
-		m.status = "no agent selected to inject into"
+		m.reportOK("no agent selected to inject into")
 		return m, nil
 	}
 	if m.src.Inject == nil {
-		m.errMsg = "inject unavailable (no agent bus for this session)"
+		m.reportErr("inject unavailable (no agent bus for this session)")
 		return m, nil
 	}
 	m.injecting = true
 	m.injectHarp = m.feedHarp
 	m.injectText = ""
-	m.status = ""
-	m.errMsg = ""
+	m.reportOK("")
 	return m, nil
 }
 
@@ -461,30 +498,30 @@ func (m Model) moveUp() (tea.Model, tea.Cmd) {
 
 func (m Model) export(kind string) (tea.Model, tea.Cmd) {
 	if m.feedHarp == "" || len(m.items) == 0 {
-		m.status = "nothing to export yet"
+		m.reportOK("nothing to export yet")
 		return m, nil
 	}
 	if m.src.ExportDir == nil {
-		m.errMsg = "export unavailable (no session dir)"
+		m.reportErr("export unavailable (no session dir)")
 		return m, nil
 	}
 	dir, err := m.src.ExportDir(m.feedHarp)
 	if err != nil {
-		m.errMsg = fmt.Sprintf("export: %v", err)
+		m.reportErr(fmt.Sprintf("export: %v", err))
 		return m, nil
 	}
 	path, err := exportTranscript(dir, m.feedHarp, kind, m.items, m.src.now())
 	if err != nil {
-		m.errMsg = fmt.Sprintf("export: %v", err)
+		m.reportErr(fmt.Sprintf("export: %v", err))
 		return m, nil
 	}
-	m.status = "saved " + path
+	m.reportOK("saved " + path)
 	return m, nil
 }
 
 func (m Model) copySelection() (tea.Model, tea.Cmd) {
 	if len(m.items) == 0 {
-		m.status = "nothing to copy yet"
+		m.reportOK("nothing to copy yet")
 		return m, nil
 	}
 	text := copyText(m.items, m.cursor, m.focus == focusFeed)
@@ -493,7 +530,7 @@ func (m Model) copySelection() (tea.Model, tea.Cmd) {
 	// success. The feed has items, but they rendered to nothing (a feed of
 	// pure viewer chrome), so there is nothing to copy — say so.
 	if text == "" {
-		m.status = "nothing to copy: the selection holds no transcript content"
+		m.reportOK("nothing to copy: the selection holds no transcript content")
 		return m, nil
 	}
 
@@ -625,10 +662,7 @@ func (m Model) View() string {
 	}
 	hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
 		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
-	note := m.status
-	if m.errMsg != "" {
-		note = m.errMsg
-	}
+	note := m.hintNote()
 	if note != "" {
 		hints += "  ─ " + note
 	}

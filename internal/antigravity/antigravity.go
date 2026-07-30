@@ -318,7 +318,14 @@ func (w *AntigravityHookWriter) saveHooksFile(path string, hf *antigravityHooksF
 		// an existing one (e.g. RemoveSettings). For a context-only profile the
 		// injection hook is diverted to AGENTS.md, leaving hooks empty; agy
 		// treats an absent file and `{}` identically, so skip the write.
-		if exists, _ := afero.Exists(w.getFS(), path); !exists {
+		//
+		// A failed check is not an answer: skipping the write on it would decide
+		// "no file to clear" from an error that means the opposite is possible.
+		exists, err := afero.Exists(w.getFS(), path)
+		if err != nil {
+			return fmt.Errorf("failed to check %s/hooks.json: %w", AgentsDir, err)
+		}
+		if !exists {
 			return nil
 		}
 	}
@@ -612,7 +619,14 @@ func (w *AntigravityHookWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 
 	hooksPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, hooksPath); exists {
+	// An unreadable hooks.json is NOT an absent one: reporting success here
+	// would tell the user their managed hooks were cleared when nothing was
+	// even read.
+	exists, err := afero.Exists(fs, hooksPath)
+	if err != nil {
+		return fmt.Errorf("failed to check %s/hooks.json: %w", AgentsDir, err)
+	}
+	if exists {
 		hf, err := w.loadHooksFile(hooksPath)
 		if err != nil {
 			return fmt.Errorf("failed to load existing hooks.json: %w", err)
@@ -636,7 +650,13 @@ func (w *AntigravityHookWriter) Status(projectDir string) (agent.SettingsStatus,
 	var status agent.SettingsStatus
 
 	hooksPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, hooksPath); exists {
+	// Reported status must never be a guess: an unreadable hooks.json would
+	// otherwise read as an unconfigured project.
+	exists, err := afero.Exists(fs, hooksPath)
+	if err != nil {
+		return status, fmt.Errorf("failed to check %s/hooks.json: %w", AgentsDir, err)
+	}
+	if exists {
 		status.SettingsExists = true
 		hf, err := w.loadHooksFile(hooksPath)
 		if err != nil {
@@ -653,11 +673,17 @@ func (w *AntigravityHookWriter) Status(projectDir string) (agent.SettingsStatus,
 
 	// The managed context section is Antigravity's stand-in for the
 	// SessionStart injection hook other agents carry, so it counts as a
-	// managed hook for wired-status purposes.
-	if data, err := afero.ReadFile(fs, w.agentsMDPath(projectDir)); err == nil {
+	// managed hook for wired-status purposes. An absent file means "no managed
+	// context"; any other read failure means the answer is unknown, which is not
+	// the same thing.
+	data, err := afero.ReadFile(fs, w.agentsMDPath(projectDir))
+	switch {
+	case err == nil:
 		if strings.Contains(string(data), managedContextBegin) {
 			status.HooksPresent = true
 		}
+	case !os.IsNotExist(err):
+		return status, fmt.Errorf("failed to read %s/AGENTS.md: %w", AgentsDir, err)
 	}
 	return status, nil
 }

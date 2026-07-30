@@ -2,6 +2,9 @@ package antigravity
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -493,6 +496,96 @@ func TestAntigravityHookWriter_RemoveLeavesAbsentFilesAbsent(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, exists, p)
 	}
+}
+
+// errUnreadable stands in for the class of filesystem failure that is NOT
+// "absent": a permission denial, an I/O error, a path that stopped being
+// traversable. afero.Exists reports exactly this class as an error and reports a
+// genuinely missing file as (false, nil), so discarding its error is what turns
+// "I could not tell" into "it is not there".
+var errUnreadable = errors.New("permission denied by the test filesystem")
+
+// failFS fails Stat (and/or Open) for paths ending in the configured suffix,
+// delegating everything else. Injecting at Stat is what reaches the swallowed
+// afero.Exists errors; injecting at Open reaches the swallowed afero.ReadFile
+// error in Status.
+type failFS struct {
+	afero.Fs
+	statFail string
+	openFail string
+}
+
+func (f failFS) Stat(name string) (os.FileInfo, error) {
+	if f.statFail != "" && strings.HasSuffix(filepath.ToSlash(name), f.statFail) {
+		return nil, errUnreadable
+	}
+	return f.Fs.Stat(name)
+}
+
+func (f failFS) Open(name string) (afero.File, error) {
+	if f.openFail != "" && strings.HasSuffix(filepath.ToSlash(name), f.openFail) {
+		return nil, errUnreadable
+	}
+	return f.Fs.Open(name)
+}
+
+// TestAntigravityHookWriter_UnreadableFilesAreReportedNotAssumedAbsent pins
+// U029-F10: four filesystem errors were discarded with `_`, each collapsing "I
+// could not tell whether this file is there" into "it is not there". The
+// consequences are all silent: RemoveSettings reports success having cleared
+// nothing, Status reports an unwired project, and WriteSettings decides not to
+// write on the strength of a check that failed.
+func TestAntigravityHookWriter_UnreadableFilesAreReportedNotAssumedAbsent(t *testing.T) {
+	const managed = `{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"ctxloom hook pre-tool","name":"ctxloom-managed"}]}]}}`
+
+	t.Run("RemoveSettings", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(base, "/project/.agents/hooks.json", []byte(managed), 0644))
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, statFail: "hooks.json"}}
+
+		err := writer.RemoveSettings("/project")
+		require.Error(t, err, "uninstall must not report success when it could not read hooks.json")
+		assert.ErrorIs(t, err, errUnreadable)
+
+		// The managed hook is still there — proving the reported failure is real
+		// and not a cosmetic error on an otherwise-completed removal.
+		data, readErr := afero.ReadFile(base, "/project/.agents/hooks.json")
+		require.NoError(t, readErr)
+		assert.Contains(t, string(data), "ctxloom hook pre-tool")
+	})
+
+	t.Run("Status/hooks", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(base, "/project/.agents/hooks.json", []byte(managed), 0644))
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, statFail: "hooks.json"}}
+
+		_, err := writer.Status("/project")
+		require.Error(t, err, "status must not report an unwired project on an unreadable hooks.json")
+		assert.ErrorIs(t, err, errUnreadable)
+	})
+
+	t.Run("Status/AGENTS.md", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(base, "/project/.agents/AGENTS.md",
+			[]byte(managedContextBegin+"\ncontext\n"+managedContextEnd+"\n"), 0644))
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, openFail: "AGENTS.md"}}
+
+		_, err := writer.Status("/project")
+		require.Error(t, err, "status must not report 'no managed context' on an unreadable AGENTS.md")
+		assert.ErrorIs(t, err, errUnreadable)
+	})
+
+	t.Run("WriteSettings/emptyHooks", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, statFail: "hooks.json"}}
+
+		// Nothing to persist, so the writer consults "does hooks.json already
+		// exist?" to decide between rewriting it and leaving no stray file. That
+		// check failing is not an answer.
+		err := writer.WriteSettings(&wire.HooksConfig{}, nil, nil, "/project")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errUnreadable)
+	})
 }
 
 func TestAntigravityHookWriter_Status(t *testing.T) {

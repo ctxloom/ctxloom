@@ -81,8 +81,7 @@ func init() {
 // interrupts.
 func runSessionWatch(cmd *cobra.Command, args []string) error {
 	harpName := args[0]
-	sourceFlag, _ := cmd.Flags().GetString("source")
-	source, err := operations.ParseFeedSource(sourceFlag)
+	source, err := watchFeedSource(cmd)
 	if err != nil {
 		return err
 	}
@@ -97,6 +96,20 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return streamWatchEvents(cmd.OutOrStdout(), outputFormatOf(cmd), feed.Events, feed.Errs)
+}
+
+// watchFeedSource resolves --source into a feed source. A lookup failure is an
+// error rather than a "" that ParseFeedSource would happily read as auto:
+// `--source live` silently served from the store tail is a different feed with
+// different semantics (scrollback plus live events vs. a poll-and-diff tail),
+// and the whole point of forcing the flag is to be told when the live tap is
+// not available instead of being quietly given the other one.
+func watchFeedSource(cmd *cobra.Command) (operations.FeedSource, error) {
+	sourceFlag, err := cmd.Flags().GetString("source")
+	if err != nil {
+		return "", fmt.Errorf("read --source: %w", err)
+	}
+	return operations.ParseFeedSource(sourceFlag)
 }
 
 // streamWatchEvents renders an observation feed until it closes. json mode

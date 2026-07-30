@@ -12,10 +12,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// runCLIErr executes rootCmd with args and returns the error plus everything
-// written to the command's out/err streams. Unlike runCLIJSON it does not
+// runCLIErr executes rootCmd with args and returns everything written to the
+// command's out/err streams plus the error. Unlike runCLIJSON it does not
 // require success — the point is usually that a command must NOT succeed.
-func runCLIErr(t *testing.T, args ...string) (error, string) {
+func runCLIErr(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -26,7 +26,8 @@ func runCLIErr(t *testing.T, args ...string) (error, string) {
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	return rootCmd.Execute(), out.String()
+	err := rootCmd.Execute()
+	return out.String(), err
 }
 
 // TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped is the U037-F22
@@ -40,14 +41,14 @@ func runCLIErr(t *testing.T, args ...string) (error, string) {
 func TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
-	err, _ := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
 	require.NoError(t, err, "first install scaffolds")
 
 	cfgPath := filepath.Join(dir, ".ctxloom", "config.yaml")
 	before, rerr := os.ReadFile(cfgPath)
 	require.NoError(t, rerr)
 
-	err, _ = runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
+	_, err = runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
 	require.Error(t, err, "a --engine that cannot be applied must not report success")
 	assert.Contains(t, err.Error(), "codex", "the refusal must name the engine that was asked for")
 
@@ -63,7 +64,7 @@ func TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped(t *testing.T) {
 func TestManageInstall_RerunWithoutEngineStillWorks(t *testing.T) {
 	testsupport.ProjectDir(t)
 
-	err, _ := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
 	require.NoError(t, err)
 
 	// pflag records Changed on the shared FlagSet and cobra never resets it
@@ -73,7 +74,7 @@ func TestManageInstall_RerunWithoutEngineStillWorks(t *testing.T) {
 	require.NoError(t, manageInstallCmd.Flags().Set("engine", "claude-code"))
 	manageInstallCmd.Flags().Lookup("engine").Changed = false
 
-	err, _ = runCLIErr(t, "manage", "install", "--print=false")
+	_, err = runCLIErr(t, "manage", "install", "--print=false")
 	require.NoError(t, err, "re-running install to re-apply hooks must stay a supported repair")
 }
 

@@ -1216,3 +1216,111 @@ func TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten(t *testing.T) 
 	assert.False(t, exists, "an unclassified entry must never reach the filesystem")
 	assert.Zero(t, filesWritten)
 }
+
+// renameFailFs fails Rename for a chosen source and/or destination path, so a
+// test can make exactly one rename on the import path fail while every other
+// rename still works.
+type renameFailFs struct {
+	afero.Fs
+	failOldName string
+	failNewName string
+}
+
+func (f *renameFailFs) Rename(oldname, newname string) error {
+	if f.failOldName != "" && filepath.ToSlash(oldname) == f.failOldName {
+		return fmt.Errorf("simulated rename failure")
+	}
+	if f.failNewName != "" && filepath.ToSlash(newname) == f.failNewName {
+		return fmt.Errorf("simulated rename failure")
+	}
+	return f.Fs.Rename(oldname, newname)
+}
+
+// TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact is U031-F11.
+//
+// ImportSkillArchive did RemoveAll(final) and THEN Rename(staged, final). The
+// window between those two calls is the whole defect: if the rename fails —
+// cross-device, EACCES, a concurrent hold on the directory — the previously
+// good skill tree has already been deleted and the replacement never arrives,
+// so the user is left with NEITHER. The existing
+// FailedValidationLeavesDestinationIntact test covers a rejection BEFORE the
+// destination is touched; this covers a failure DURING the swap, which the
+// staging design did not protect against.
+//
+// Asserts the PAYLOAD: the original file's bytes must still be readable.
+func TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	mem := afero.NewMemMapFs()
+
+	existing := "/imported/humanize/SKILL.md"
+	require.NoError(t, mem.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(mem, existing, []byte("the good tree\n"), 0o644))
+
+	// Fail only the staged -> final swap, the one rename the old code did
+	// AFTER it had already deleted the destination.
+	fsys := &renameFailFs{Fs: mem, failOldName: "/imported/.ctxloom-import-staging/humanize"}
+
+	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	require.Error(t, err, "a failed swap must be reported, not swallowed")
+
+	got, rerr := afero.ReadFile(mem, existing)
+	require.NoError(t, rerr, "the previously-good tree must survive a failed swap — it was the only copy")
+	assert.Equal(t, "the good tree\n", string(got),
+		"a failed import must never leave the user with neither the old tree nor the new one")
+
+	leftover, _ := afero.Exists(mem, "/imported/.ctxloom-import-staging")
+	assert.False(t, leftover, "staging must be cleaned up even when the swap fails")
+}
+
+// TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup pins the
+// other half of U031-F11's fix: the aside-and-swap must still be a clean
+// REPLACEMENT on the happy path — the new tree wins, files the old tree had
+// and the new one does not are gone, and no backup debris is left behind.
+func TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup(t *testing.T) {
+	zipBytes, _, files := buildValidSkillZip(t, "humanize")
+	fsys := afero.NewMemMapFs()
+
+	require.NoError(t, fsys.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(fsys, "/imported/humanize/SKILL.md", []byte("stale\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/imported/humanize/leftover.txt", []byte("gone\n"), 0o644))
+
+	final, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join("/imported", "humanize"), final)
+
+	got, rerr := afero.ReadFile(fsys, filepath.Join(final, "SKILL.md"))
+	require.NoError(t, rerr)
+	assert.Equal(t, string(files["SKILL.md"]), string(got), "the imported tree must replace the old one")
+
+	stale, _ := afero.Exists(fsys, filepath.Join(final, "leftover.txt"))
+	assert.False(t, stale, "a replacement import must not leave the old tree's extra files behind")
+
+	staging, _ := afero.Exists(fsys, "/imported/.ctxloom-import-staging")
+	assert.False(t, staging, "no staging or backup debris may survive a successful import")
+}
+
+// TestImportSkillArchive_UnrestorableTreeSaysWhereItIs covers the worst branch
+// of U031-F11's fix: the swap failed AND the aside copy could not be put back.
+// Reporting only the swap failure would send the user to look at an empty
+// destination with no idea their tree is still on disk and recoverable, so the
+// error must name where the only surviving copy is.
+func TestImportSkillArchive_UnrestorableTreeSaysWhereItIs(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	mem := afero.NewMemMapFs()
+
+	require.NoError(t, mem.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(mem, "/imported/humanize/SKILL.md", []byte("the good tree\n"), 0o644))
+
+	// Every rename INTO the destination fails: the swap, and then the restore.
+	fsys := &renameFailFs{Fs: mem, failNewName: "/imported/humanize"}
+
+	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could NOT be restored")
+	assert.Contains(t, err.Error(), ".replaced",
+		"an unrestorable tree must be reported WITH the path it is still recoverable from")
+
+	got, rerr := afero.ReadFile(mem, "/imported/.ctxloom-import-staging/.replaced/SKILL.md")
+	require.NoError(t, rerr, "the surviving copy must not be cleaned up out from under the user")
+	assert.Equal(t, "the good tree\n", string(got))
+}

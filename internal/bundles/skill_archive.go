@@ -667,12 +667,36 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 		}
 	}
 
+	// Swap, never clear-then-hope. RemoveAll(final) followed by Rename leaves a
+	// window in which the previously-good tree is already gone and the
+	// replacement has not arrived: a rename that fails there (cross-device,
+	// EACCES, a concurrent hold on the directory) leaves the user with NEITHER
+	// tree. So any existing destination is moved ASIDE, and put back if the
+	// swap does not complete. The aside copy lives inside stagingRoot so the
+	// ordinary staging cleanup reclaims it.
 	final := filepath.Join(destParent, topDir)
-	if err := fsys.RemoveAll(final); err != nil {
+	aside := filepath.Join(stagingRoot, ".replaced")
+	replaced, err := afero.Exists(fsys, final)
+	if err != nil {
 		_ = fsys.RemoveAll(stagingRoot)
-		return "", fmt.Errorf("skill import: clearing destination %q: %w", final, err)
+		return "", fmt.Errorf("skill import: inspecting destination %q: %w", final, err)
+	}
+	if replaced {
+		if err := fsys.Rename(final, aside); err != nil {
+			_ = fsys.RemoveAll(stagingRoot)
+			return "", fmt.Errorf("skill import: moving the existing tree at %q aside: %w", final, err)
+		}
 	}
 	if err := fsys.Rename(staged, final); err != nil {
+		if replaced {
+			if rerr := fsys.Rename(aside, final); rerr != nil {
+				// Both the swap and the restore failed: say so, and say where
+				// the only surviving copy is. Reporting just the swap failure
+				// would send the user looking at an empty destination with no
+				// idea their tree is still recoverable.
+				return "", fmt.Errorf("skill import: moving extracted tree into place failed (%w) and the previous tree could NOT be restored to %q (%v) — it is still at %q", err, final, rerr, aside)
+			}
+		}
 		_ = fsys.RemoveAll(stagingRoot)
 		return "", fmt.Errorf("skill import: moving extracted tree into place: %w", err)
 	}

@@ -3,6 +3,7 @@ package coord
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,15 +24,17 @@ func TestNew_FailureAfterEphemeralFallbackLeavesNoTempDir(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 
-	// Hold the project's owner lock so New must fall back to ephemeral state.
+	// Park the project's owner lock on a live process that is NOT this one, so
+	// New loses the claim and must fall back to ephemeral state. (claimOwner
+	// treats a lock held by THIS pid as stale by design, so the test process
+	// cannot hold it against itself.)
 	const key = "abort-path-project"
 	dir, err := stateDirForProject(key)
 	assert.NoError(t, err)
-	release, err := claimOwner(dir)
-	if !assert.NoError(t, err, "precondition: the test must own the lock New will lose") {
+	assert.NoError(t, os.WriteFile(filepath.Join(dir, "owner.pid"), []byte(strconv.Itoa(os.Getppid())+"\n"), 0o600))
+	if _, cerr := claimOwner(dir); !assert.ErrorIs(t, cerr, errStateOwned, "precondition: the lock must be unavailable to New") {
 		return
 	}
-	defer release()
 
 	// Cfg nil with no injected Spawner: the first failure after the state dir
 	// is acquired.

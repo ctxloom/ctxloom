@@ -239,76 +239,26 @@ type Coordinator struct {
 // orchestration core. Listeners come up separately via Serve (httpserver.go)
 // so tests can run the core without ports.
 func New(opts Options) (*Coordinator, error) {
-	now := opts.Clock
-	if now == nil {
-		now = time.Now
+	claim, err := acquireStateDir(opts)
+	if err != nil {
+		return nil, err
 	}
-	turnCap := opts.TurnCap
-	if turnCap <= 0 {
-		turnCap = agentTurnCap
-	}
-	endedRunTail := opts.EndedRunTail
-	if endedRunTail <= 0 {
-		endedRunTail = defaultEndedRunTail
-	}
-	endedRunMaxAge := opts.EndedRunMaxAge
-	if endedRunMaxAge <= 0 {
-		endedRunMaxAge = defaultEndedRunMaxAge
-	}
-	runnerAwaitTimeout := opts.RunnerAwaitTimeout
-	if runnerAwaitTimeout <= 0 {
-		runnerAwaitTimeout = defaultRunnerAwaitTimeout
-	}
-	// The launch-retry budget has no Options field (deliberately — it is an
-	// operator/env tunable, not a per-call test seam): resolved once, here,
-	// from the environment (resolveLaunchTunables), never per attempt.
-	maxLaunchAttempts, launchBackoffBase, launchBackoffMax := resolveLaunchTunables()
-	stateDir := opts.StateDir
-	var release func()
-	ephemeral := false
-	if stateDir == "" {
-		key := opts.ProjectKey
-		if key == "" {
-			key = pathDerivedProjectKey(opts.ProjectDir)
-		}
-		dir, err := stateDirForProject(key)
-		if err != nil {
-			return nil, err
-		}
-		rel, err := claimOwner(dir)
-		if err != nil {
-			// Another live session-owning process holds this project's
-			// journals: single writer per journal holds across processes,
-			// so this coordinator runs on an ephemeral state dir (no
-			// adoption; its own state dies with it). Warned, not fatal —
-			// concurrent sessions in one project are legitimate.
-			clidiag.Warn("ctxloom", "coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
-			tmp, terr := os.MkdirTemp("", "ctxloom-coord-")
-			if terr != nil {
-				return nil, fmt.Errorf("coord: ephemeral state dir: %w", terr)
-			}
-			dir = tmp
-			ephemeral = true
-		} else {
-			release = rel
-		}
-		stateDir = dir
-	}
+	t := resolveTunables(opts)
 
 	c := &Coordinator{
 		projectDir:         opts.ProjectDir,
-		stateDir:           stateDir,
-		ephemeral:          ephemeral,
-		now:                now,
-		releaseOwner:       release,
+		stateDir:           claim.dir,
+		ephemeral:          claim.ephemeral,
+		now:                t.now,
+		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
-		slots:              newTurnSlots(turnCap),
-		endedRunTail:       endedRunTail,
-		endedRunMaxAge:     endedRunMaxAge,
-		runnerAwaitTimeout: runnerAwaitTimeout,
-		maxLaunchAttempts:  maxLaunchAttempts,
-		launchBackoffBase:  launchBackoffBase,
-		launchBackoffMax:   launchBackoffMax,
+		slots:              newTurnSlots(t.turnCap),
+		endedRunTail:       t.endedRunTail,
+		endedRunMaxAge:     t.endedRunMaxAge,
+		runnerAwaitTimeout: t.runnerAwaitTimeout,
+		maxLaunchAttempts:  t.maxLaunchAttempts,
+		launchBackoffBase:  t.launchBackoffBase,
+		launchBackoffMax:   t.launchBackoffMax,
 		watch:              newWatchHub(),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
@@ -324,54 +274,13 @@ func New(opts Options) (*Coordinator, error) {
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		if opts.Cfg == nil {
-			c.closePartial()
-			return nil, errors.New("coord: Options.Cfg is required without an injected Spawner")
+			return nil, c.abortNew(errors.New("coord: Options.Cfg is required without an injected Spawner"))
 		}
 		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Factory)
 	}
-
-	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
-	runs, err := openStore(filepath.Join(stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
-	if err != nil {
-		c.closePartial()
-		return nil, err
+	if err := c.openJournals(); err != nil {
+		return nil, c.abortNew(err)
 	}
-	c.runs = runs
-	c.mailF = newMailFold()
-	mail, err := openStore(filepath.Join(stateDir, "mailbox.jsonl"), c.mailF)
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.mail = mail
-	c.itemsF = newItemsFold()
-	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
-	// common case is none, a fresh project) seeds the fold and replay
-	// starts at its offset instead of byte 0 — openStoreFromOffset falls
-	// back to a full replay by itself if the offset is stale (journal.go).
-	itemsOffset := int64(0)
-	if snap, ok := loadItemsSnapshot(stateDir); ok {
-		c.itemsF.restore(snap)
-		itemsOffset = snap.Offset
-	}
-	items, err := openStoreFromOffset(filepath.Join(stateDir, "items.jsonl"), itemsOffset, c.itemsF)
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.items = items
-	auditJ, err := openStore(filepath.Join(stateDir, "interactions.jsonl"))
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.auditJ = auditJ
-	artifacts, err := newArtifactStore(stateDir)
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.artifacts = artifacts
 
 	c.adopt()
 	c.goTracked(c.runnerWatchdog)
@@ -382,6 +291,153 @@ func New(opts Options) (*Coordinator, error) {
 	// progress, and only ever warns.
 	c.goTracked(c.livenessWatchdog)
 	return c, nil
+}
+
+// abortNew unwinds a coordinator New never returned: cancel the base context,
+// release the journals and the owner lock (closePartial), and REMOVE an
+// ephemeral state dir this call itself created. Returns err unchanged so every
+// failure path reads `return nil, c.abortNew(err)`.
+//
+// The ephemeral removal is the part that mattered: the fallback mints a fresh
+// os.MkdirTemp dir, and a New that then failed left it behind with nobody
+// holding a reference to it — one stranded 0700 directory per attempt, since
+// nothing else knows the name.
+func (c *Coordinator) abortNew(err error) error {
+	c.cancel()
+	c.closePartial()
+	if c.ephemeral {
+		_ = os.RemoveAll(c.stateDir)
+	}
+	return err
+}
+
+// tunables is New's resolved configuration: every Options fallback applied
+// ONCE, at construction, so no hot path re-derives one.
+type tunables struct {
+	now                func() time.Time
+	turnCap            int
+	endedRunTail       int
+	endedRunMaxAge     time.Duration
+	runnerAwaitTimeout time.Duration
+	maxLaunchAttempts  int
+	launchBackoffBase  time.Duration
+	launchBackoffMax   time.Duration
+}
+
+// resolveTunables applies each Options field's documented fallback.
+func resolveTunables(opts Options) tunables {
+	t := tunables{
+		now:                opts.Clock,
+		turnCap:            opts.TurnCap,
+		endedRunTail:       opts.EndedRunTail,
+		endedRunMaxAge:     opts.EndedRunMaxAge,
+		runnerAwaitTimeout: opts.RunnerAwaitTimeout,
+	}
+	if t.now == nil {
+		t.now = time.Now
+	}
+	if t.turnCap <= 0 {
+		t.turnCap = agentTurnCap
+	}
+	if t.endedRunTail <= 0 {
+		t.endedRunTail = defaultEndedRunTail
+	}
+	if t.endedRunMaxAge <= 0 {
+		t.endedRunMaxAge = defaultEndedRunMaxAge
+	}
+	if t.runnerAwaitTimeout <= 0 {
+		t.runnerAwaitTimeout = defaultRunnerAwaitTimeout
+	}
+	// The launch-retry budget has no Options field (deliberately — it is an
+	// operator/env tunable, not a per-call test seam): resolved once, here,
+	// from the environment (resolveLaunchTunables), never per attempt.
+	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables()
+	return t
+}
+
+// stateDirClaim is an acquired state dir plus how it was acquired: release
+// frees the exclusive-owner lock (nil when there is none), and ephemeral marks
+// a per-process dir whose contents die with this coordinator.
+type stateDirClaim struct {
+	dir       string
+	release   func()
+	ephemeral bool
+}
+
+// acquireStateDir resolves and claims the coordinator's state dir: an explicit
+// Options.StateDir verbatim (tests), otherwise the project's durable dir under
+// its exclusive-owner lock, otherwise an ephemeral fallback.
+func acquireStateDir(opts Options) (stateDirClaim, error) {
+	if opts.StateDir != "" {
+		return stateDirClaim{dir: opts.StateDir}, nil
+	}
+	key := opts.ProjectKey
+	if key == "" {
+		key = pathDerivedProjectKey(opts.ProjectDir)
+	}
+	dir, err := stateDirForProject(key)
+	if err != nil {
+		return stateDirClaim{}, err
+	}
+	release, err := claimOwner(dir)
+	if err == nil {
+		return stateDirClaim{dir: dir, release: release}, nil
+	}
+	// Another live session-owning process holds this project's journals:
+	// single writer per journal holds across processes, so this coordinator
+	// runs on an ephemeral state dir (no adoption; its own state dies with
+	// it). Warned, not fatal — concurrent sessions in one project are
+	// legitimate.
+	clidiag.Warn("ctxloom", "coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
+	tmp, terr := os.MkdirTemp("", "ctxloom-coord-")
+	if terr != nil {
+		return stateDirClaim{}, fmt.Errorf("coord: ephemeral state dir: %w", terr)
+	}
+	return stateDirClaim{dir: tmp, ephemeral: true}, nil
+}
+
+// openJournals builds the folds and opens every journal (plus the artifact
+// blob store) in the claimed state dir. On failure the caller aborts; each
+// store opened so far is closed by closePartial.
+func (c *Coordinator) openJournals() error {
+	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
+	if err != nil {
+		return err
+	}
+	c.runs = runs
+	c.mailF = newMailFold()
+	mail, err := openStore(filepath.Join(c.stateDir, "mailbox.jsonl"), c.mailF)
+	if err != nil {
+		return err
+	}
+	c.mail = mail
+	c.itemsF = newItemsFold()
+	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
+	// common case is none, a fresh project) seeds the fold and replay
+	// starts at its offset instead of byte 0 — openStoreFromOffset falls
+	// back to a full replay by itself if the offset is stale (journal.go).
+	itemsOffset := int64(0)
+	if snap, ok := loadItemsSnapshot(c.stateDir); ok {
+		c.itemsF.restore(snap)
+		itemsOffset = snap.Offset
+	}
+	items, err := openStoreFromOffset(filepath.Join(c.stateDir, "items.jsonl"), itemsOffset, c.itemsF)
+	if err != nil {
+		return err
+	}
+	c.items = items
+	auditJ, err := openStore(filepath.Join(c.stateDir, "interactions.jsonl"))
+	if err != nil {
+		return err
+	}
+	c.auditJ = auditJ
+	artifacts, err := newArtifactStore(c.stateDir)
+	if err != nil {
+		return err
+	}
+	c.artifacts = artifacts
+	return nil
 }
 
 // goTracked runs fn on a new goroutine Close() joins (waitTracked) before

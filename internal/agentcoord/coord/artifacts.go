@@ -120,7 +120,7 @@ func recvUploadHeader(stream grpc.ClientStreamingServer[agentcoordpb.ArtifactUpl
 // unconditionally answered a full disk with "upload: io: read/write on
 // closed pipe".
 func uploadFailure(cerr, werr error, header *agentcoordpb.ArtifactUploadHeader, shaHex string) error {
-	if cerr != nil && !(werr != nil && errors.Is(cerr, io.ErrClosedPipe)) {
+	if cerr != nil && (werr == nil || !errors.Is(cerr, io.ErrClosedPipe)) {
 		if se, ok := status.FromError(cerr); ok {
 			return se.Err()
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ctxloom/ctxloom/internal/acpagent"
@@ -93,7 +94,6 @@ func openHarnessEngine(ctx context.Context, req acpagent.OpenRequest) (*acpagent
 	in := make(chan agent.ChatMessage, 4)
 	events := make(chan agent.ChatEvent, 16)
 	errs := make(chan error, 1)
-	closed := make(chan struct{})
 
 	engineCtx, cancel := context.WithCancel(ctx)
 
@@ -109,16 +109,26 @@ func openHarnessEngine(ctx context.Context, req acpagent.OpenRequest) (*acpagent
 		harp = "l1-harness-" + strconv.FormatInt(n, 10)
 	}
 
-	go runHarnessEngine(engineCtx, in, events, errs)
+	// stopped closes when the scripting goroutine has returned, so nothing can
+	// still be inside emit's send when the events channel is closed.
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		runHarnessEngine(engineCtx, in, events, errs)
+	}()
 
-	closeOnce := func() {
+	// Close is idempotent and safe from any number of goroutines: the only
+	// sender on events is the scripting goroutine, so events may be closed only
+	// after that goroutine has exited. cancel() is what makes it exit, and
+	// sync.Once (not a select/default probe, which two callers can both pass)
+	// is what makes exactly one caller do the closing.
+	var closeGuard sync.Once
+	closeChat := func() {
 		cancel()
-		select {
-		case <-closed:
-		default:
-			close(closed)
+		closeGuard.Do(func() {
+			<-stopped
 			close(events)
-		}
+		})
 	}
 
 	return &acpagent.EngineChat{
@@ -126,7 +136,7 @@ func openHarnessEngine(ctx context.Context, req acpagent.OpenRequest) (*acpagent
 		In:      in,
 		Events:  events,
 		Errs:    errs,
-		Close:   closeOnce,
+		Close:   closeChat,
 		Harp:    harp,
 		Replay:  replay,
 	}, nil

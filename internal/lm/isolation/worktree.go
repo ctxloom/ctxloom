@@ -664,7 +664,7 @@ func (w *worktreeWorkspace) Cleanup() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
 	defer cancel()
-	w.teardown(ctx, target)
+	teardownWorktree(ctx, w.git, w.repoDir, target)
 	// Unconditional: whether teardown actually removed target or (WIP-safely)
 	// left it in place, this process's ownership of it is ending either way —
 	// see removeWorktreeOwnerMarker's doc for why a left-in-place tree stays
@@ -695,7 +695,12 @@ func (w *worktreeWorkspace) Cleanup() error {
 	return nil
 }
 
-// teardown removes the target worktree WIP-safely and nested-worktree-aware:
+// teardownWorktree removes the target worktree WIP-safely and
+// nested-worktree-aware. It is a package-level function, not a method: it needs
+// only a Git seam and the owning repo dir, and BOTH callers hold those without
+// holding a workspace — the graceful worktreeWorkspace.Cleanup path, and the
+// startup reaper (worktree_reap.go), whose candidates are orphans no live
+// workspace value describes.
 //  1. list the repo-global worktrees; if that fails, LEAK the target rather than
 //     blind-remove it (a nested inner's WIP could be silently destroyed).
 //  2. remove any worktree nested UNDER the target INNER-FIRST — but only after a
@@ -703,33 +708,33 @@ func (w *worktreeWorkspace) Cleanup() error {
 //     own dirty-check misses these, which is exactly how nested WIP gets lost).
 //  3. remove the target itself with force=false (git refuses a dirty tree — a
 //     second WIP guard), then prune.
-func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
-	list, err := w.git.WorktreeList(ctx, w.repoDir)
+func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
+	list, err := g.WorktreeList(ctx, repoDir)
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree teardown: cannot list worktrees; leaving %q in place to avoid destroying nested work: %v", target, err)
 		return
 	}
 
 	for _, inner := range nestedUnder(list, target) {
-		if unsafe, reason := w.unsafeToRemove(ctx, inner.Path); unsafe {
+		if unsafe, reason := unsafeToRemove(ctx, g, inner.Path); unsafe {
 			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q %s; leaving %q in place to preserve it", inner.Path, reason, target)
 			return
 		}
-		if err := w.git.WorktreeRemove(ctx, w.repoDir, inner.Path); err != nil {
+		if err := g.WorktreeRemove(ctx, repoDir, inner.Path); err != nil {
 			clidiag.Warn("ctxloom", "worktree teardown: cannot remove nested worktree %q; leaving %q in place: %v", inner.Path, target, err)
 			return
 		}
 	}
 
-	if unsafe, reason := w.unsafeToRemove(ctx, target); unsafe {
+	if unsafe, reason := unsafeToRemove(ctx, g, target); unsafe {
 		clidiag.Warn("ctxloom", "worktree %q %s; leaving it in place to preserve WIP", target, reason)
 		return
 	}
-	if err := w.git.WorktreeRemove(ctx, w.repoDir, target); err != nil {
+	if err := g.WorktreeRemove(ctx, repoDir, target); err != nil {
 		clidiag.Warn("ctxloom", "worktree teardown: cannot remove %q: %v", target, err)
 		return
 	}
-	if err := w.git.WorktreePrune(ctx, w.repoDir); err != nil {
+	if err := g.WorktreePrune(ctx, repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
 	// U054-F02: NOT auto-retiring the shared config-exclude block here.
@@ -754,7 +759,7 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	// see DECISIONS.md.
 }
 
-// unsafeToRemove is teardown's WIP-safety gate, extended past IsDirty alone
+// unsafeToRemove is teardownWorktree's WIP-safety gate, extended past IsDirty alone
 // (U053-F01/U054-F01): IsDirty's `status --porcelain` deliberately does NOT
 // see gitignored/excluded content — that blindness is what lets a prepared
 // agent worktree's own delivered noise (.claude/, CLAUDE.md, .ctxloom/cache/,
@@ -764,11 +769,11 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 // this was the other half of the mechanism that destroyed agent-authored
 // work. An error from EITHER probe is treated the same as "dirty": an
 // unreadable state must never be read as "safe to delete".
-func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (unsafe bool, reason string) {
-	if dirty, err := w.git.IsDirty(ctx, dir); err != nil || dirty {
+func unsafeToRemove(ctx context.Context, g git.Git, dir string) (unsafe bool, reason string) {
+	if dirty, err := g.IsDirty(ctx, dir); err != nil || dirty {
 		return true, "has uncommitted changes (or unknown state)"
 	}
-	if ignored, err := w.git.HasIgnoredContent(ctx, dir); err != nil || ignored {
+	if ignored, err := g.HasIgnoredContent(ctx, dir); err != nil || ignored {
 		return true, "holds gitignored/excluded files (or unknown state)"
 	}
 	return false, ""

@@ -237,8 +237,7 @@ func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeRe
 	// (clidiag) and leaves wtDir in place on any doubt, so the only thing left
 	// to do here is tell REAPED apart from SPARED by checking whether it's
 	// actually gone afterward.
-	ws := &worktreeWorkspace{git: g, repoDir: repoDir, dir: wtDir}
-	ws.teardown(ctx, wtDir)
+	teardownWorktree(ctx, g, repoDir, wtDir)
 	removeWorktreeOwnerMarker(wtDir)
 
 	if worktreeRemoved(wtDir) {

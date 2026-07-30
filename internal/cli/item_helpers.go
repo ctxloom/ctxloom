@@ -28,16 +28,21 @@ func titleCase(s string) string {
 	return string(r)
 }
 
-// ItemType distinguishes between fragments and prompts.
-type ItemType string
+// ItemType is operations.ItemKind under the name this flow uses. It is an ALIAS,
+// not a second type: the CLI and the operations core address fragments and
+// commands with ONE vocabulary, so there is nothing to keep in sync and nothing to
+// convert at the boundary.
+type ItemType = operations.ItemKind
 
 const (
-	ItemTypeFragment ItemType = "fragment"
-	ItemTypeCommand  ItemType = "command"
+	ItemTypeFragment = operations.ItemKindFragment
+	ItemTypeCommand  = operations.ItemKindCommand
 )
 
-// itemPrefix returns the prefix used in references (e.g., "fragments/" or "commands/").
-func (t ItemType) prefix() string {
+// itemRefPrefix returns the prefix an item kind takes in a reference (e.g.
+// "fragments/" or "commands/"). A free function rather than a method because the
+// kind is owned by the operations core; the ref grammar is this frontend's.
+func itemRefPrefix(t ItemType) string {
 	return string(t) + "s/"
 }
 
@@ -45,13 +50,13 @@ func (t ItemType) prefix() string {
 func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, err error) {
 	hashIdx := strings.Index(ref, "#")
 	if hashIdx == -1 {
-		return "", "", fmt.Errorf("invalid reference format: expected bundle#%sname (got %q)", itemType.prefix(), ref)
+		return "", "", fmt.Errorf("invalid reference format: expected bundle#%sname (got %q)", itemRefPrefix(itemType), ref)
 	}
 
 	bundleName = ref[:hashIdx]
 	itemPath := ref[hashIdx+1:]
 
-	prefix := itemType.prefix()
+	prefix := itemRefPrefix(itemType)
 	if !strings.HasPrefix(itemPath, prefix) {
 		return "", "", fmt.Errorf("invalid reference format: expected bundle#%sname (got %q)", prefix, ref)
 	}
@@ -150,7 +155,7 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 			Name:        name,
 			Tags:        tags,
 			Bundle:      source,
-			Ref:         source + "#" + itemType.prefix() + name,
+			Ref:         source + "#" + itemRefPrefix(itemType) + name,
 			Remote:      remoteName,
 			BundleLabel: bundleLabel,
 			SourceURL:   sourceURL,
@@ -389,7 +394,7 @@ func createItem(bundleName, itemName string, itemType ItemType) error {
 
 	_, err = operations.AddItem(context.Background(), cfg, operations.AddItemRequest{
 		Bundle:  bundleName,
-		Kind:    operations.ItemKind(itemType),
+		Kind:    itemType,
 		Name:    itemName,
 		Content: "# " + itemName + "\n\nAdd content here.",
 	})
@@ -401,7 +406,7 @@ func createItem(bundleName, itemName string, itemType ItemType) error {
 	}
 
 	fmt.Printf("Created %s %q in bundle %q\n", itemType, itemName, bundleName)
-	fmt.Printf("Edit with: ctxloom %s edit %s#%s%s\n", itemType, bundleName, itemType.prefix(), itemName)
+	fmt.Printf("Edit with: ctxloom %s edit %s#%s%s\n", itemType, bundleName, itemRefPrefix(itemType), itemName)
 	return nil
 }
 
@@ -420,7 +425,7 @@ func deleteItem(ref string, itemType ItemType) error {
 
 	_, err = operations.DeleteItem(context.Background(), cfg, operations.DeleteItemRequest{
 		Bundle: bundleName,
-		Kind:   operations.ItemKind(itemType),
+		Kind:   itemType,
 		Name:   itemName,
 	})
 	if err != nil {
@@ -458,11 +463,9 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	kind := operations.ItemKind(itemType)
-
 	cur, err := operations.GetItemContent(context.Background(), cfg, operations.GetItemRequest{
 		Bundle: bundleName,
-		Kind:   kind,
+		Kind:   itemType,
 		Name:   itemName,
 	})
 	if err != nil {
@@ -483,7 +486,7 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 
 	res, err := operations.SetItemContent(context.Background(), cfg, operations.SetItemContentRequest{
 		Bundle:    bundleName,
-		Kind:      kind,
+		Kind:      itemType,
 		Name:      itemName,
 		Content:   newContent,
 		Distiller: distillerForEdit(cfg, noDistill),
@@ -546,7 +549,7 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 
 	res, err := operations.DistillItem(context.Background(), cfg, operations.DistillItemRequest{
 		Bundle:    bundleName,
-		Kind:      operations.ItemKind(itemType),
+		Kind:      itemType,
 		Name:      itemName,
 		Force:     force,
 		Distiller: newLLMDistiller(cfg),

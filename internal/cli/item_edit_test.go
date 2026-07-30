@@ -86,7 +86,7 @@ func TestEditItem_NoDistillClearsDistilledAndWarns(t *testing.T) {
 			seedDistilledItem(t, cfg, tc.kind, "x", "v1")
 			setFakeEditor(t, "v2")
 
-			ref := "demo#" + tc.itemType.prefix() + "x"
+			ref := "demo#" + itemRefPrefix(tc.itemType) + "x"
 			out := captureStdout(t, func() {
 				require.NoError(t, editItem(ref, tc.itemType, true))
 			})

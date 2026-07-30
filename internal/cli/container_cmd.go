@@ -343,6 +343,7 @@ Run it inside a dev container to learn whether to enable docker-in-docker
 or keep agents on 'runtime: host'.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, cerr := GetConfig()
 		var backend string
 		if len(args) == 1 {
 			backend = args[0]
@@ -350,22 +351,47 @@ or keep agents on 'runtime: host'.`,
 				sort.Strings(names)
 				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 			}
-		} else if cfg, err := GetConfig(); err == nil {
+		} else if cerr == nil {
 			backend, _ = operations.ResolveBackend(cfg, "")
 		}
 		img := isolation.ImageConfig{}
-		if cfg, err := GetConfig(); err == nil {
+		if cerr == nil {
 			img = operations.IsolationImageConfig(cfg, backend)
 		}
-		d := isolation.Diagnose(cmd.Context(), backend, img)
+		d := containerCheckConfigGap(isolation.Diagnose(cmd.Context(), backend, img), len(args) == 1, cerr)
 		return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
 	},
+}
+
+// containerCheckConfigGap folds an unloadable config into the diagnosis as
+// guidance. Without it the command reports on whatever it could still probe
+// and says nothing about the config: with no backend argument the backend stays
+// EMPTY, so the report describes no engine at all, and with one given the
+// project's isolation_images override is never consulted. A diagnostic that
+// silently narrows its own scope is worse than one that names the gap.
+func containerCheckConfigGap(d isolation.Diagnosis, backendGiven bool, cerr error) isolation.Diagnosis {
+	if cerr == nil {
+		return d
+	}
+	if backendGiven {
+		d.Guidance = append(d.Guidance, fmt.Sprintf(
+			"the config did not load (%v), so this project's isolation_images override was not consulted — the image line above reflects the default tag only", cerr))
+		return d
+	}
+	d.Guidance = append(d.Guidance, fmt.Sprintf(
+		"the config did not load (%v), so no default backend could be resolved and no engine's image was checked — name one explicitly: `ctxloom container check <backend>`", cerr))
+	return d
 }
 
 // renderContainerCheck writes the human-readable diagnosis. Extracted from
 // RunE so the formatting is testable with an injected report.
 func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) error {
 	w := iox.NewErrWriter(out)
+	if backend == "" {
+		// An unresolved backend is a real state here (no argument plus an
+		// unloadable config); an empty parenthesis reads as a rendering bug.
+		backend = "(unresolved)"
+	}
 	w.Printf("Container capability (backend: %s)\n", backend)
 	if d.InContainer {
 		w.Printf("  in a container:  yes (%s)\n", strings.Join(d.Markers, ", "))

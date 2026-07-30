@@ -118,6 +118,9 @@ var llmTurnCmd = &cobra.Command{
 // file — never argv/env — because RunStart can be large (fragments) and can
 // carry env values, and argv is world-readable.
 func writeRunStartHandoff(harp string, req *pb.RunStart) (string, error) {
+	if runStartCarriesNothing(req) {
+		return "", fmt.Errorf("run-start handoff: refusing to hand off a RunStart that carries no options, prompt, fragments or managed config — the turn would launch the engine context-free")
+	}
 	persist, err := paths.HarpPersistDir(harp)
 	if err != nil {
 		return "", fmt.Errorf("run-start handoff: %w", err)
@@ -153,8 +156,30 @@ func readRunStartHandoff(path string) (*pb.RunStart, error) {
 	if err := protojson.Unmarshal(data, &req); err != nil {
 		return nil, fmt.Errorf("run-start handoff: decode %s: %w", path, err)
 	}
+	if runStartCarriesNothing(&req) {
+		return nil, fmt.Errorf("run-start handoff: %s decoded to a RunStart carrying no options, prompt, fragments or managed config — refusing to run the engine context-free", path)
+	}
 	_ = os.Remove(path)
 	return &req, nil
+}
+
+// runStartCarriesNothing reports whether req would deliver nothing at all to
+// the engine: no options (work dir / env), no prompt, no fragments and no
+// managed config. It is the floor BOTH halves of the handoff enforce, so an
+// empty payload cannot be published by the host nor consumed by the turn.
+//
+// The test is over the WHOLE message rather than any single field because each
+// field alone is legitimately absent: an interactive turn carries no prompt and
+// no fragments (the user types on the engine's own TTY), and a skip_setup run
+// carries no managed config. Only a wholly empty RunStart is a defect, and it
+// is one the production writer cannot produce (stampHostTerminalEnv always
+// stamps Options) — which is exactly why it read as success.
+func runStartCarriesNothing(req *pb.RunStart) bool {
+	return req == nil ||
+		(req.GetOptions() == nil &&
+			req.GetPrompt() == nil &&
+			len(req.GetFragments()) == 0 &&
+			req.GetManagedConfig() == nil)
 }
 
 // turnResize adapts the cross-platform watchResize (SIGWINCH-sourced

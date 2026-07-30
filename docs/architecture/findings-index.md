@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,182** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **86** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **87** |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | **136** |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **716** |
+| `open` | no commit names this ID | **715** |
 
-**Totals: 2268 findings across 162 units — 1,182 resolved, 716 still open, 370 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,182 resolved, 715 still open, 371 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 391 | 409 | 46 | 59 | 94 |
-| LOW | 871 | 440 | 282 | 30 | 69 | 50 |
+| LOW | 871 | 440 | 281 | 31 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2686,7 +2686,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U123-F05 | **REFUTED** `78751323` | **`paths.go:127`** | DEAD | The `""` arm of `case ModeHome, "":` is unreachable from production; it is exercised only by a test. | U123.md |
 | U123-F06 | **RESOLVED** `78751323` | **`paths.go:26`, `paths.go:38`, `paths.go:76`** | NOPAY | Three exported symbols have no consumer outside this file: `ProjectsDir`, `ProjectMarkerFileName`, and `HomeProjectsDir`. Exporting them widens the package's API surface for nothing. | U123.md |
 | U123-F07 | **PARTIAL** `7dd608aa` | **`paths.go:163`** | COMPLEXITY | `ValidateProjectID` is CCN 15 (brief's baseline; the brief states the CI gate fails above 10), and two of those branches are provably subsumed by later checks. | U123.md |
-| U124-F08 | open | `:135`, `:305` | COMPLEXITY | Both formulas are recompiled from source via `expr.Compile` on **every** `Compute` call — i.e. on every `taskloom list --sort priority` and every `task_list` with `sort="priority"` | U124.md |
+| U124-F08 | **PARTIAL** `025b1771` | `:135`, `:305` | COMPLEXITY | Both formulas are recompiled from source via `expr.Compile` on **every** `Compute` call — i.e. on every `taskloom list --sort priority` and every `task_list` with `sort="priority"` | U124.md |
 | U124-F09 | **RESOLVED** `5076abe7` | `:427`, `:432` | CORRECTNESS | The composite-key scheme puts three different key kinds in **one flat namespace** — `target`, `target=value`, and `target=*` — so a tag whose *key* contains `=` can collide with another tag's compo... | U124.md |
 | U125-F10 | **RESOLVED** `388aa118` | **`marker.go:43-52`** | SILENTNOOP | `WriteMarker(dir, "")` succeeds, writing a file containing only `"\n"`, which `ReadMarker` then reports as "no marker at all" — a write that produced a file and no identity | U125.md |
 | U125-F11 | **PARTIAL** `3e680d17` | **`registry.go:265-273`** | CORRECTNESS | `cleanPath` silently changes comparison key when `EvalSymlinks` fails, so a transient permissions or mount problem makes a live tree compare *unequal to itself*, which `Resolve` reads as "not regis... | U125.md |

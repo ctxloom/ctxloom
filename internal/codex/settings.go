@@ -224,11 +224,17 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 }
 
 // RemoveSettings implements SettingsWriter for Codex CLI: it strips ctxloom
-// hooks and MCP servers from config.toml, leaving an absent file absent.
+// hooks and MCP servers from config.toml, leaving an absent file absent. A file
+// that cannot be STATTED is neither: reporting a clean removal from a file
+// nobody could look at leaves ctxloom's hooks and servers live in it.
 func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, settingsPath); !exists {
+	exists, err := afero.Exists(fs, settingsPath)
+	if err != nil {
+		return fmt.Errorf("cannot determine whether %s exists: %w", settingsPath, err)
+	}
+	if !exists {
 		return nil
 	}
 	cfg, err := w.load(settingsPath)
@@ -240,12 +246,18 @@ func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
 	return w.save(settingsPath, cfg, true)
 }
 
-// Status implements SettingsWriter for Codex CLI.
+// Status implements SettingsWriter for Codex CLI. An unreadable config.toml is
+// an error, not a "not configured" report: the two look identical to a caller
+// and only one of them is a fact about the file.
 func (w *CodexHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := w.getFS()
 	var status agent.SettingsStatus
 	settingsPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, settingsPath); !exists {
+	exists, err := afero.Exists(fs, settingsPath)
+	if err != nil {
+		return status, fmt.Errorf("cannot determine whether %s exists: %w", settingsPath, err)
+	}
+	if !exists {
 		return status, nil
 	}
 	status.SettingsExists = true

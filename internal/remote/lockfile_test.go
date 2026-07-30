@@ -118,6 +118,40 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 	}
 }
 
+// TestLockfileManager_LoadDoesNotRewriteOnAMereMention pins U093-F16's legible
+// half: the load-time self-heal must fire on the retired ctxloom_version KEY,
+// not on the characters appearing anywhere in the document.
+//
+// A read that writes is already a strong thing to do; triggering it off a raw
+// substring meant a repository URL, a bundle path or a retraction reason that
+// merely mentions the words rewrote the whole file through the struct —
+// discarding comments and any key the struct does not model.
+func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	path := manager.Path()
+
+	// "ctxloom_version" appears twice — in a bundle key and in free text — but
+	// never as an entry field.
+	original := "# hand-maintained; do not reformat\n" +
+		"version: 1\n" +
+		"bundles:\n" +
+		"  https://github.com/alice/repo@bundles/docs/ctxloom_version:\n" +
+		"    sha: abc1234\n" +
+		"    url: https://github.com/alice/repo\n" +
+		"    retracted_reason: the ctxloom_version field was dropped\n"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
+
+	loaded, err := manager.Load()
+	require.NoError(t, err)
+	_, ok := loaded.GetEntry(ItemTypeBundle, "https://github.com/alice/repo@bundles/docs/ctxloom_version")
+	require.True(t, ok, "the entry must still load")
+
+	onDisk, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(onDisk), "a read that finds no legacy field must not write")
+}
+
 func TestLockfile_AddEntry(t *testing.T) {
 	lockfile := &Lockfile{
 		Bundles: make(map[string]LockEntry),

@@ -258,3 +258,44 @@ func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
 		})
 	}
 }
+
+// CHARACTERIZATION of an ESCALATED defect (U131-F02), not a contract anyone
+// should rely on. When re-encoding fails after stages have demonstrably fired,
+// Run returns (original bytes, nil) — indistinguishable from "this file is
+// already current" — and the caller goes on to parse the LEGACY bytes with the
+// current schema, quietly losing whatever the migration would have supplied.
+//
+// Run has no error channel, so there is no honest value it can return here;
+// closing this needs Pipeline.Run to grow one, which propagates to five
+// production call sites across config, sessions, bundles and profiles. That is
+// a signature change through profile loading, so it is escalated rather than
+// taken in a sweep.
+//
+// INVERT THIS TEST when Run gains an error return: the assertion should become
+// "reports the failure", and the presence of a red here is the signal that the
+// escalated fix has landed.
+func TestPipeline_Run_EncodeFailure_IsReportedAsAlreadyCurrent(t *testing.T) {
+	// An upgrader that mutates the document and leaves behind a node the
+	// encoder refuses — the shape a future upgrader bug would take.
+	poison := nodeSurgery{name: "poison", fn: func(root *yaml.Node) bool {
+		MapSet(root, "renamed", ScalarNode("v"))
+		MapDelete(root, "legacy")
+		MapSet(root, "broken", &yaml.Node{Kind: yaml.AliasNode})
+		return true
+	}}
+
+	in := []byte("legacy: v\n")
+	out, applied := Pipeline{poison}.Run(in)
+
+	assert.Empty(t, applied, "escalated: a failed re-encode is currently indistinguishable from an already-current file")
+	assert.Equal(t, string(in), string(out), "the caller is handed the un-upgraded bytes to parse as if current")
+}
+
+// nodeSurgery is a test-only Upgrader whose Apply is supplied inline.
+type nodeSurgery struct {
+	name string
+	fn   func(*yaml.Node) bool
+}
+
+func (n nodeSurgery) Name() string            { return n.name }
+func (n nodeSurgery) Apply(r *yaml.Node) bool { return n.fn(r) }

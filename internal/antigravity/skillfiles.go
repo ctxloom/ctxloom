@@ -24,7 +24,8 @@ import (
 // walked up from cwd to the repo root.
 
 // antigravitySkillManifest tracks the skill directories ctxloom wrote,
-// distinct from antigravityManifest (commands' flat-file manifest) so the two
+// distinct from antigravityManifest (the COMMAND writer's manifest, which
+// records the same `<name>/SKILL.md` shape under the same parent) so the two
 // surfaces' cleanup never collides — mirrors claude's
 // .ctxloom-skills-manifest split.
 const antigravitySkillManifest = ".ctxloom-skills-manifest"

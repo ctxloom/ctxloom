@@ -103,6 +103,19 @@ func TestDecodeHookPayload_Malformed(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestDecodeHookPayload_MalformedErrorIsAttributed pins U029-F08: the decode
+// error reaches a user through a hook process whose only output channel is
+// stderr, where a bare `encoding/json` message ("invalid character 'o' ...")
+// names neither the payload nor the engine. Consumers (ltk's antigravity
+// engine, the session/hook-stamp readers in internal/cli) surface it verbatim,
+// so the attribution has to come from here.
+func TestDecodeHookPayload_MalformedErrorIsAttributed(t *testing.T) {
+	_, err := DecodeHookPayload([]byte("{not json"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "antigravity hook payload", "the error names what failed to decode")
+	assert.Contains(t, err.Error(), "invalid character", "the underlying json error is still wrapped, not replaced")
+}
+
 // TestEncodeDeny pins the exact decision JSON agy accepts: verified live —
 // this shape on stdout (exit 0) blocks the tool call and the model receives
 // "Tool call denied with reason: <reason>".

@@ -76,10 +76,18 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	// byte-identical to pre-P3; gate construction runs the trust baseline +
 	// opens the store). Ignored on the injected-Factory path.
 	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.GetWorkspace()), Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
+	var execGate *ExecutableTrustGate
 	var gate bundles.ContentGate
 	if !axes.Zero() {
-		gate = NewExecutableTrustGate(cfg).Gate()
+		execGate = NewExecutableTrustGate(cfg)
+		gate = execGate.Gate()
 	}
+	// Surface (content-free) whatever that gate withheld from the member's
+	// per-member config, exactly as MaterializeProfile and ApplyHooks do: a
+	// withhold must never be silent or reasonless (docs/trust-model.md).
+	// Deferred so it reports on the failure path too, and nil-safe for the
+	// all-defaults oneshot that builds no gate at all.
+	defer execGate.WarnWithheld()
 	// The single-profile oneshot's profile set is just req.Profile (empty falls back
 	// to the configured defaults inside AssembleManagedConfig), matching how the
 	// assembled context above was scoped.
@@ -321,6 +329,33 @@ func memberLabel(req resolvedRunRequest) string {
 	}
 }
 
+// effectiveMemberPermission resolves the posture a fan member actually launches
+// with. Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer
+// the engine's prompt. An honorable read-only plan (on a backend that enforces
+// it) is kept; a would-block posture (default/acceptEdits, or plan on a backend
+// with no read-only tier) floors up to bypass so a member cannot hang, and an
+// empty/unset posture floors the same way, preserving the always-bypass
+// behaviour for members that declare nothing.
+//
+// A posture the parser does not RECOGNISE is a different input from an unset
+// one, even though both parse to PermissionDefault. Unset declares that nothing
+// was declared; a misspelling is a declaration that MISSED, and flooring it
+// would silently hand the member the most permissive setting its author was
+// trying to constrain. LLMEntry.Permissions arrives straight from a hand-edited
+// config.yaml with no validation on the way in, so that input is reachable.
+func effectiveMemberPermission(req resolvedRunRequest) (agent.PermissionMode, error) {
+	mode, known := agent.ParsePermissionMode(req.Permissions)
+	if !known && strings.TrimSpace(req.Permissions) != "" {
+		return mode, fmt.Errorf("unknown permission mode %q for %q: expected one of %s (an unrecognised posture would run as %q, the most permissive setting)",
+			req.Permissions, memberLabel(req), strings.Join(agent.PermissionModeNames(), ", "), agent.PermissionBypass)
+	}
+	mode = mode.CollapsePlanIfUnenforced(backends.EnforcesReadOnlyPlan(req.Backend))
+	if !mode.SafeHeadless() {
+		return agent.PermissionBypass, nil
+	}
+	return mode, nil
+}
+
 // runResolvedAgent launches the resolved backend once in ONESHOT mode with the
 // composed context as the lead fragment and stdout captured. It carries no
 // context-assembly or LLM-resolution logic — those happen upstream (RunOneshot
@@ -338,6 +373,13 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		return nil, fmt.Errorf("empty context: profile set %v assembled to nothing — refusing to run %q unspecialised (check the profile's fragments/bundles resolve, or drop the profile to run context-free)",
 			req.Profiles, memberLabel(req))
 	}
+	// Resolve the effective posture before any workspace is prepared, so a
+	// declaration that missed costs nothing and blocks everything.
+	memberPerm, err := effectiveMemberPermission(req)
+	if err != nil {
+		return nil, err
+	}
+
 	var fragments []*pb.Fragment
 	if req.Context != "" {
 		fragments = append(fragments, &pb.Fragment{Content: req.Context})
@@ -432,18 +474,6 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		}
 	}
 
-	// Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer the
-	// engine's prompt. Honor the member's declared posture when it can run headless
-	// (a read-only plan on a backend that enforces it), but floor a would-block
-	// posture (default/acceptEdits, or plan on a backend with no read-only tier) up
-	// to bypass so a member can't hang. An empty/unset posture floors to bypass,
-	// preserving the prior always-bypass behavior for members that declare nothing.
-	memberPerm, _ := agent.ParsePermissionMode(req.Permissions)
-	memberPerm = memberPerm.CollapsePlanIfUnenforced(backends.EnforcesReadOnlyPlan(req.Backend))
-	if !memberPerm.SafeHeadless() {
-		memberPerm = agent.PermissionBypass
-	}
-
 	env := workspaceEnv
 	if len(req.ExtraEnv) > 0 {
 		merged := make(map[string]string, len(workspaceEnv)+len(req.ExtraEnv))
@@ -461,7 +491,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			PermissionMode: memberPerm.String(),
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          req.Model,
-			Verbosity:      uint32(req.Verbosity * 16),
+			Verbosity:      agent.WireVerbosity(req.Verbosity),
 			SkipSetup:      skipSetup,
 			CellKind:       pb.CellKindToProto(cellKind),
 		},

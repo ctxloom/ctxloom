@@ -120,6 +120,10 @@ func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.Parse
 		rec.Root = root
 		return observePath(rec, filepath.Join(root, p.Rel), p.Dir)
 	default:
+		// No resolver for this scope, so nothing was ever looked at. Marked
+		// rather than left as a bare present:false, which would read as an
+		// established absence.
+		rec.Unresolved = true
 		rec.Note = "unknown probe scope " + string(p.Scope)
 		return rec
 	}
@@ -135,7 +139,11 @@ func probeFlagValue(rec ProbeRecord, p agent.CLIProbe, cli agent.EngineCLI, argv
 	rec.Root = "flag:" + p.Flag
 	val, ok := argv.Value(p.Flag)
 	if !ok {
+		// The surface has no location on this run at all — distinct from a
+		// located path that turned out to be empty, and the digest must be able
+		// to tell them apart.
 		rec.Present = false
+		rec.Unresolved = true
 		rec.Note = joinNote(rec.Note, "flag "+p.Flag+" absent from argv")
 		return rec
 	}

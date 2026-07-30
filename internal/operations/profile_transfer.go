@@ -36,7 +36,9 @@ func loadLocalProfile(cfg *config.Config, fs afero.Fs, name string) (*profiles.P
 		if isRemoteReference(name) {
 			return nil, fmt.Errorf("profile %q is a remote reference; the edit/export flow is local-only (pull it first, then edit the local copy)", name)
 		}
-		return nil, fmt.Errorf("profile %q not found", name)
+		// Verbatim: the loader's error carries the errs.ErrProfileNotFound
+		// sentinel and its actionable detail; re-wrapping flat discards both.
+		return nil, err
 	}
 	return profile, nil
 }

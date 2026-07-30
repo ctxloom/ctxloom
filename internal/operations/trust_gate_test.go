@@ -310,3 +310,69 @@ fragments:
 	assert.Contains(t, string(data), "KEEP-MARKER", "the local sibling must be in the regenerated context")
 	assert.NotContains(t, string(data), "BLOCKED-MARKER", "the rejected fragment must be withheld from SessionStart regen")
 }
+
+// TestContentGate_RecordsEveryDenyWithAReason pins the refutation of U089-F11,
+// which read contentGate as two types — a trust gate and a withheld-item
+// ledger — and proposed splitting them. The tally is not a second concern with
+// a life of its own: it is the gate's record of ITS OWN decisions, written on
+// every deny by the same call that made them, and read only through the gate
+// value its builder returned. What makes it load-bearing is the mandate that a
+// withhold is never silent or reasonless (docs/trust-model.md): the executable
+// surfaces reach the gate directly with no loader to tally them, so if the gate
+// did not record, nothing else could.
+//
+// So the invariant to hold is that EVERY deny arm records, including the two
+// that never reach the decision function at all — a ref the gate cannot
+// address, and an evaluation that fails — since those are exactly the arms a
+// split would have to remember to keep wired.
+func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	fx := newTrustFixture(t)
+	g := &contentGate{cfg: cfg, records: fx.records()}
+
+	const unaddressable = "garbage-without-selector"
+	require.False(t, g.allow(unaddressable, pbytes("abc"), rawForm, ""))
+	require.False(t, g.allow(solidRef, pbytes("never-approved"), rawForm, ""))
+
+	byRef := map[string]EffectiveTrustResult{}
+	for _, it := range g.withheldItems() {
+		byRef[it.Ref] = it.Result
+	}
+	require.Contains(t, byRef, unaddressable,
+		"a ref the gate could not even parse must still be tallied — nothing downstream can report a withhold the gate did not record")
+	require.Contains(t, byRef, solidRef)
+
+	for ref, res := range byRef {
+		assert.False(t, res.Trusted(), "only denials are recorded (%s)", ref)
+		assert.NotEmpty(t, res.Reason(), "every withheld item must carry a reason a user can act on (%s)", ref)
+	}
+	assert.ElementsMatch(t, []string{unaddressable, solidRef}, g.withheldRefs(),
+		"withheldRefs and withheldItems must describe the same set")
+}
+
+// TestParseTrustItemRef_AttemptedSourceRefsFailClosed pins the half of
+// parseTrustItemRef's fail-open boundary that is CORRECT, so it cannot regress
+// while the gap U089-F12 names is adjudicated separately. A string carrying a
+// scheme marker that nonetheless fails remote.ParseReference must ERROR rather
+// than be downgraded to a first-party local bundle name: every caller treats
+// the error as fail-closed, so erroring withholds, while the downgrade would
+// hand the item the step-3 local exemption and skip review entirely.
+//
+// The counterpart — a bare token with no scheme marker at all IS a local bundle
+// name — is asserted alongside, because a boundary that only ever fails closed
+// would break every project whose bundles are its own.
+func TestParseTrustItemRef_AttemptedSourceRefsFailClosed(t *testing.T) {
+	for _, base := range []string{
+		"https://github.com/acme/repo", // canonical URL missing @bundles/<name>
+		"git@github.com:acme/repo",     // ssh ref missing the item path
+		"ctxloom:local@",               // local ref missing its item path
+	} {
+		_, _, _, err := parseTrustItemRef(base + "#fragments/x")
+		assert.Error(t, err, "%q looks like an attempted source ref and must fail closed, never resolve as a local bundle name", base)
+	}
+
+	tRef, _, _, err := parseTrustItemRef("my-tools#fragments/x")
+	require.NoError(t, err, "a bare bundle name carries no scheme marker and is genuinely local")
+	assert.True(t, tRef.IsLocal)
+	assert.Equal(t, "my-tools", tRef.Bundle)
+}

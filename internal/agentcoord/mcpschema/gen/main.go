@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -43,17 +44,22 @@ func main() {
 	if err := proto.Unmarshal(raw, &fds); err != nil {
 		fatalf("parse descriptor set: %v", err)
 	}
-	assertSourceInfo(&fds)
+	if err := checkSourceInfo(&fds); err != nil {
+		fatalf("%v", err)
+	}
 
 	p, err := mcpschema.NewProjector(&fds)
 	if err != nil {
 		fatalf("%v", err)
 	}
-	n, err := generateSchemas(p, mcpschema.CoordinationBindings(), *out)
+	res, err := generateSchemas(p, mcpschema.CoordinationBindings(), *out)
 	if err != nil {
 		fatalf("%v", err)
 	}
-	fmt.Printf("gen-mcp-schemas: wrote %d schemas to %s\n", n, *out)
+	fmt.Printf("gen-mcp-schemas: wrote %d schemas to %s\n", res.written, *out)
+	if len(res.pruned) > 0 {
+		fmt.Printf("gen-mcp-schemas: pruned %d stale schema(s): %s\n", len(res.pruned), strings.Join(res.pruned, ", "))
+	}
 
 	if *xmllikeOut == "" {
 		return
@@ -91,7 +97,15 @@ type projector interface {
 	ProjectTool(mcpschema.Binding) (*mcpschema.ToolSpec, error)
 }
 
-// generateSchemas writes one schema per binding and reports how many it wrote.
+// genResult is one generation run's outcome: the schemas written, and the
+// stale ones removed.
+type genResult struct {
+	written int
+	pruned  []string
+}
+
+// generateSchemas writes one schema per binding into an EXISTING goldens
+// directory, then removes the generated schemas no binding claims any more.
 //
 // An EMPTY binding table is a failure (U027-F01). The generator used to
 // complete having written zero files, printing nothing and exiting 0 — its only
@@ -99,40 +113,129 @@ type projector interface {
 // so, and these schemas are checked in and embedded as the live MCP tool
 // surface. The summary line now reports the count from outside the loop, so
 // "wrote 0" cannot masquerade as silence.
-func generateSchemas(p projector, bindings []mcpschema.Binding, out string) (int, error) {
+func generateSchemas(p projector, bindings []mcpschema.Binding, out string) (genResult, error) {
 	if len(bindings) == 0 {
-		return 0, fmt.Errorf("no coordination bindings to project — refusing to write an empty tool surface")
+		return genResult{}, fmt.Errorf("no coordination bindings to project — refusing to write an empty tool surface")
 	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		return 0, fmt.Errorf("output dir: %w", err)
+	if err := requireGoldensDir(out); err != nil {
+		return genResult{}, err
 	}
-	var written int
+	var res genResult
+	keep := map[string]bool{}
 	for _, b := range bindings {
 		spec, err := p.ProjectTool(b)
 		if err != nil {
-			return written, err
+			return res, err
 		}
-		path := filepath.Join(out, b.Tool+".json")
-		if err := writeSpec(path, spec); err != nil {
-			return written, err
+		name := b.Tool + ".json"
+		if err := writeSpec(filepath.Join(out, name), spec); err != nil {
+			return res, err
 		}
-		written++
+		keep[name] = true
+		res.written++
 	}
-	return written, nil
+	pruned, err := pruneStaleSchemas(out, keep)
+	res.pruned = pruned
+	return res, err
 }
 
-// assertSourceInfo fails loudly when the descriptor set carries no
-// SourceCodeInfo for the agentcoord module: the generated descriptions would
-// silently degrade to annotation-only. This is the playbook's verify step —
-// if buf ever stops emitting source info, switch the just recipe to the
-// protoc fallback (--include_source_info) and this assert documents why.
-func assertSourceInfo(fds *descriptorpb.FileDescriptorSet) {
+// requireGoldensDir refuses an output directory that does not already exist.
+// The schemas under it are checked in and ARE the goldens, so this generator's
+// job is to rewrite a directory somebody already has. os.MkdirAll used to
+// create whatever path it was handed, so a mistyped -out succeeded into a
+// brand-new tree: the real goldens went untouched and the CI `git diff` gate
+// passed on a run that had regenerated nothing. Bringing a new goldens
+// directory into existence is a deliberate act, not a typo's side effect.
+func requireGoldensDir(out string) error {
+	info, err := os.Stat(out)
+	if err != nil {
+		return fmt.Errorf("output dir %s: %w — create it deliberately; this generator rewrites checked-in goldens, it does not invent a tree", out, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("output dir %s is not a directory", out)
+	}
+	return nil
+}
+
+// pruneStaleSchemas removes generated schemas that no binding claims any more,
+// reporting what it deleted. The directory is embedded wholesale
+// (//go:embed schemas/*.json), so a renamed or deleted binding otherwise
+// leaves its old file behind and every runner keeps registering a live MCP
+// tool that nothing serves — invisible to the CI drift gate, which diffs
+// tracked files and never asks what else is in the directory.
+//
+// A .json that is not a generated tool spec ABORTS the prune instead of being
+// deleted: pruning plus a mistyped -out is how a sweep destroys somebody's
+// unrelated directory.
+func pruneStaleSchemas(out string, keep map[string]bool) ([]string, error) {
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		return nil, fmt.Errorf("prune %s: %w", out, err)
+	}
+	var pruned []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || filepath.Ext(name) != ".json" || keep[name] {
+			continue
+		}
+		path := filepath.Join(out, name)
+		if err := assertGeneratedSpec(path); err != nil {
+			return pruned, err
+		}
+		if err := os.Remove(path); err != nil {
+			return pruned, fmt.Errorf("prune %s: %w", path, err)
+		}
+		pruned = append(pruned, name)
+	}
+	return pruned, nil
+}
+
+// assertGeneratedSpec confirms a file is one of this generator's own outputs —
+// parseable as a ToolSpec, naming the tool its filename claims — before the
+// prune is allowed to delete it.
+func assertGeneratedSpec(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("prune %s: %w", path, err)
+	}
+	var spec mcpschema.ToolSpec
+	if err := json.Unmarshal(raw, &spec); err != nil || spec.Name == "" {
+		return fmt.Errorf("refusing to prune %s: not a generated tool schema", path)
+	}
+	if filepath.Base(path) != spec.Name+".json" {
+		return fmt.Errorf("refusing to prune %s: it names tool %q", path, spec.Name)
+	}
+	return nil
+}
+
+// checkSourceInfo fails loudly unless EVERY agentcoord.v1 file in the set
+// carries SourceCodeInfo. Descriptions come from proto comments, which live
+// only there, so a file without it projects annotation-only text and the loss
+// is visible nowhere but a golden diff read by eye. Checking until the first
+// file that HAS source info passed a set where the one carrying the comments
+// was the bare one. This is the playbook's verify step — if buf ever stops
+// emitting source info, switch the just recipe to the protoc fallback
+// (--include_source_info) and this check documents why.
+func checkSourceInfo(fds *descriptorpb.FileDescriptorSet) error {
+	var seen int
+	var bare []string
 	for _, f := range fds.GetFile() {
-		if f.GetPackage() == "agentcoord.v1" && f.GetSourceCodeInfo() != nil {
-			return
+		if f.GetPackage() != "agentcoord.v1" {
+			continue
+		}
+		seen++
+		if f.GetSourceCodeInfo() == nil {
+			bare = append(bare, f.GetName())
 		}
 	}
-	fatalf("descriptor set has no SourceCodeInfo for agentcoord.v1 — build it with `buf build -o <file>` (default includes source info) or `protoc --descriptor_set_out --include_source_info`")
+	const remedy = "build it with `buf build -o <file>` (default includes source info) or `protoc --descriptor_set_out --include_source_info`"
+	if seen == 0 {
+		return fmt.Errorf("descriptor set contains no agentcoord.v1 files — %s", remedy)
+	}
+	if len(bare) > 0 {
+		return fmt.Errorf("descriptor set has no SourceCodeInfo for %s — %s", strings.Join(bare, ", "), remedy)
+	}
+	return nil
 }
 
 // writeSpec emits one tool spec as stable, indented JSON with a trailing

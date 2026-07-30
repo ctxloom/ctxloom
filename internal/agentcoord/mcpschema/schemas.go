@@ -1,9 +1,11 @@
 package mcpschema
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"sort"
 	"sync"
 )
@@ -24,29 +26,55 @@ var (
 // Tools returns the generated coordination tool surface, sorted by name.
 // The embedded schemas are trusted build products: a parse failure is a
 // build corruption, surfaced as an error for the caller's fail-loud gate.
+//
+// The result is a fresh copy on every call. The load is memoised, so handing
+// back the memoised slice would let one caller's edit rewrite the tool surface
+// every later caller sees — and one of those callers is the runner's
+// registration loop, which is what withholds coordinator-only tools from a
+// leaf.
 func Tools() ([]ToolSpec, error) {
-	loadOnce.Do(func() {
-		entries, err := schemaFS.ReadDir("schemas")
+	loadOnce.Do(func() { loaded, loadedErr = loadTools(schemaFS) })
+	if loadedErr != nil {
+		return nil, loadedErr
+	}
+	return cloneSpecs(loaded), nil
+}
+
+// loadTools reads and parses every schema in fsys, sorted by tool name. A
+// failure returns NO tools: a partially populated surface handed back
+// alongside an error is a silently incomplete tool set for any caller that
+// treats the error as advisory.
+func loadTools(fsys fs.FS) ([]ToolSpec, error) {
+	entries, err := fs.ReadDir(fsys, "schemas")
+	if err != nil {
+		return nil, fmt.Errorf("mcpschema: embedded schemas: %w", err)
+	}
+	var specs []ToolSpec
+	for _, e := range entries {
+		raw, err := fs.ReadFile(fsys, "schemas/"+e.Name())
 		if err != nil {
-			loadedErr = fmt.Errorf("mcpschema: embedded schemas: %w", err)
-			return
+			return nil, fmt.Errorf("mcpschema: read %s: %w", e.Name(), err)
 		}
-		for _, e := range entries {
-			raw, err := schemaFS.ReadFile("schemas/" + e.Name())
-			if err != nil {
-				loadedErr = fmt.Errorf("mcpschema: read %s: %w", e.Name(), err)
-				return
-			}
-			var spec ToolSpec
-			if err := json.Unmarshal(raw, &spec); err != nil {
-				loadedErr = fmt.Errorf("mcpschema: parse %s: %w", e.Name(), err)
-				return
-			}
-			loaded = append(loaded, spec)
+		var spec ToolSpec
+		if err := json.Unmarshal(raw, &spec); err != nil {
+			return nil, fmt.Errorf("mcpschema: parse %s: %w", e.Name(), err)
 		}
-		sort.Slice(loaded, func(i, j int) bool { return loaded[i].Name < loaded[j].Name })
-	})
-	return loaded, loadedErr
+		specs = append(specs, spec)
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	return specs, nil
+}
+
+// cloneSpecs deep-copies a tool surface, schema bytes included — a shallow
+// slice copy would still alias the json.RawMessage backing arrays.
+func cloneSpecs(specs []ToolSpec) []ToolSpec {
+	out := make([]ToolSpec, len(specs))
+	for i, s := range specs {
+		s.InputSchema = bytes.Clone(s.InputSchema)
+		s.OutputSchema = bytes.Clone(s.OutputSchema)
+		out[i] = s
+	}
+	return out
 }
 
 // ToolByName looks one generated tool up.

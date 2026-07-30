@@ -335,6 +335,36 @@ func TestExecuteQuery_GitLogPath_UnknownFileListDoesNotSuppressAMatch(t *testing
 	assert.Contains(t, got.Output, "touch signing")
 }
 
+// TestBuildBatch_DeclaresTruncatedRepoState pins the gathering half of
+// U053-F11: the repo-state lists are bounded, and only the caller that owns
+// the bound can notice a listing that hit it. A batch built from a full-cap
+// result must carry the truncation flags the prompt renders, or the model is
+// handed a partial inventory presented as a complete one.
+func TestBuildBatch_DeclaresTruncatedRepoState(t *testing.T) {
+	repo := t.TempDir()
+
+	dirs := make([]string, repoDirsScanCap+50)
+	for i := range dirs {
+		dirs[i] = fmt.Sprintf("internal/pkg%04d", i)
+	}
+	changes := make([]string, workingChangesScanCap+50)
+	for i := range changes {
+		changes[i] = fmt.Sprintf("?? internal/new%04d.go", i)
+	}
+	gitFake := &git.Fake{Dirs: dirs, Changes: changes}
+
+	batch := buildBatch(context.Background(), nil, nil, nil, EvaluateTriggersRequest{RepoDir: repo, Git: gitFake})
+	assert.Len(t, batch.Repo.Dirs, repoDirsScanCap)
+	assert.True(t, batch.Repo.DirsTruncated, "a directory inventory that hit its bound must be declared truncated")
+	assert.Len(t, batch.Repo.WorkingChanges, workingChangesScanCap)
+	assert.True(t, batch.Repo.WorkingChangesTruncated, "a working-changes list that hit its bound must be declared truncated")
+
+	small := &git.Fake{Dirs: []string{"internal/a"}, Changes: []string{"?? a.go"}}
+	batch = buildBatch(context.Background(), nil, nil, nil, EvaluateTriggersRequest{RepoDir: repo, Git: small})
+	assert.False(t, batch.Repo.DirsTruncated, "a complete listing must not claim truncation")
+	assert.False(t, batch.Repo.WorkingChangesTruncated)
+}
+
 func TestExecuteQuery_TaskStatus_Found(t *testing.T) {
 	byHarp := map[string]tasks.Task{"other-task": {HarpID: "other-task", Status: "Done", Text: "shipped it"}}
 	got := executeQuery(context.Background(), &git.Fake{}, "", byHarp, triggers.Query{Type: triggers.QueryTaskStatus, HarpID: "other-task"})

@@ -61,6 +61,15 @@ type RepoState struct {
 	// (e.g. "?? internal/foo/bar.go", " M internal/baz.go"): work that exists
 	// but is in no commit, which commit history structurally cannot show.
 	WorkingChanges []string
+	// DirsTruncated / WorkingChangesTruncated mark a list that hit its bound
+	// and therefore does NOT speak to the whole repository. Both bounds cut
+	// ALPHABETICALLY, so the tail of the repo is what disappears — silently
+	// rendering such a list as complete invites exactly the confident wrong
+	// not-fired this evidence exists to prevent ("internal/signing is absent,
+	// so it was never built"). Absence from a truncated list is not evidence
+	// of absence, and the prompt must say so.
+	DirsTruncated           bool
+	WorkingChangesTruncated bool
 }
 
 // Batch is the full input to one batch-triage call: every Deferred task's

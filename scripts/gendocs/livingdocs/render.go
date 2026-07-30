@@ -151,10 +151,34 @@ func renderChecklist(cap DocCapture) string {
 	return strings.Join(lines, "\n")
 }
 
+// EmptyCaptureError is returned when a capture EXISTS for a scenario but
+// records no steps at all. Both honesty gates below are loops over cap.Steps,
+// so such a capture satisfies both VACUOUSLY, and renderChecklist then prints
+// "Every step below actually ran against a real ctxloom binary" above an empty
+// list — a provenance claim about nothing. A scenario with no capture at all
+// is a different, legitimate case (it renders the "not captured" notice); this
+// is a capture that arrived empty.
+type EmptyCaptureError struct {
+	Feature  string
+	Scenario string
+}
+
+func (e *EmptyCaptureError) Error() string {
+	return fmt.Sprintf(
+		"REFUSING TO GENERATE: scenario %q (%s) has a capture with ZERO steps — the pass and evidence checks would both succeed vacuously over it",
+		e.Scenario, e.Feature,
+	)
+}
+
 // assertAllPassed enforces the honesty rule: a capture with any step not
-// "passed" refuses the whole page, not just that scenario.
+// "passed" refuses the whole page, not just that scenario. A capture with no
+// steps at all is refused for the same reason — there is nothing to check, so
+// checking proves nothing.
 func assertAllPassed(featurePath, scenarioName string, captures []DocCapture) error {
 	for _, cap := range captures {
+		if len(cap.Steps) == 0 {
+			return &EmptyCaptureError{Feature: featurePath, Scenario: scenarioName}
+		}
 		for _, step := range cap.Steps {
 			if step.Status != "passed" {
 				return &RefusalError{

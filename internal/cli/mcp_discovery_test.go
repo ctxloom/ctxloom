@@ -257,3 +257,42 @@ func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 		assert.True(t, os.IsNotExist(statErr), "the stale marker should be cleaned up (self-heal)")
 	})
 }
+
+// TestDiscoveryMarkerName_ContainerTierIsDeliberatelyCwdIndependent is the
+// U037-F15 REFUTATION pin. The row read the container tier's fixed
+// "current.json" as a bug ("a marker written by one cell can be found by a shim
+// in a different workspace") and proposed keying it by cwd like the host tier.
+// Keying it by cwd is what would BREAK it:
+//
+//   - The two sides do NOT share a cwd inside a container. serveRunnerMCP keys
+//     the marker off coord.EnvCellWorkDir, which the host does not stamp for a
+//     container spawn, so the runner falls back to its OWN os.Getwd(); the shim
+//     runs in the engine child's cwd. A cwd-derived key would make the two
+//     names disagree, the probe would find nothing, and the shim would stand up
+//     the rogue local coordinator this whole file exists to prevent — the
+//     silent no-op, reintroduced.
+//   - There is nothing to disambiguate. A container hosts one agent, hence one
+//     workspace, so no second cell can publish here.
+//
+// The host tier is the one that genuinely needs the cwd key, because several
+// runners share $XDG_RUNTIME_DIR/ctxloom on one host; that asymmetry is the
+// design, and this test pins both halves of it.
+func TestDiscoveryMarkerName_ContainerTierIsDeliberatelyCwdIndependent(t *testing.T) {
+	runnerName, ok := discoveryMarkerName(socketKindContainer, "/runner/cwd")
+	require.True(t, ok, "the container tier publishes a marker")
+	shimName, ok := discoveryMarkerName(socketKindContainer, "/an/entirely/different/cell/cwd")
+	require.True(t, ok)
+
+	assert.Equal(t, runnerName, shimName,
+		"a container marker must be findable by a shim whose cwd differs from the runner's")
+
+	hostA, ok := discoveryMarkerName(socketKindHostRuntime, "/work/cell-a")
+	require.True(t, ok)
+	hostB, ok := discoveryMarkerName(socketKindHostRuntime, "/work/cell-b")
+	require.True(t, ok)
+	assert.NotEqual(t, hostA, hostB,
+		"the SHARED host runtime dir is where per-cell keying is required")
+
+	_, ok = discoveryMarkerName(socketKindPrivateTemp, "/work/cell-a")
+	assert.False(t, ok, "the private-temp tier publishes nothing discoverable")
+}

@@ -3,6 +3,7 @@ package kiro
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -348,16 +349,30 @@ func (w *KiroWriter) RemoveSettings(projectDir string) error {
 }
 
 // Status implements SettingsWriter for Kiro CLI.
+//
+// A reported status is never a guess (the same invariant codex's and
+// antigravity's Status state): an ABSENT agent config or steering file is the
+// legitimate "not configured" answer, but a file that exists and cannot be read
+// or parsed means the answer is UNKNOWN — which is a different fact from "no
+// managed hooks are wired" and must not be reported as one.
 func (w *KiroWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := w.getFS()
 	var status agent.SettingsStatus
 
-	if data, err := afero.ReadFile(fs, w.agentPath(projectDir)); err == nil {
+	agentPath := w.agentPath(projectDir)
+	data, err := afero.ReadFile(fs, agentPath)
+	switch {
+	case err == nil:
 		status.SettingsExists = true
 		var a kiroAgent
-		if err := json.Unmarshal(data, &a); err == nil && a.Hooks != nil && !a.Hooks.empty() {
+		if err := json.Unmarshal(data, &a); err != nil {
+			return status, fmt.Errorf("failed to parse existing %s: %w", agentPath, err)
+		}
+		if a.Hooks != nil && !a.Hooks.empty() {
 			status.HooksPresent = true
 		}
+	case !os.IsNotExist(err):
+		return status, fmt.Errorf("failed to read %s: %w", agentPath, err)
 	}
 
 	mcpPresent, err := w.mcpFile(projectDir).ManagedPresent()
@@ -368,7 +383,12 @@ func (w *KiroWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 
 	// The steering file is Kiro's stand-in for the SessionStart injection hook
 	// other agents carry, so it counts as a managed hook for wired-status.
-	if exists, _ := afero.Exists(fs, w.steeringPath(projectDir)); exists {
+	steeringPath := w.steeringPath(projectDir)
+	exists, err := afero.Exists(fs, steeringPath)
+	if err != nil {
+		return status, fmt.Errorf("failed to check %s: %w", steeringPath, err)
+	}
+	if exists {
 		status.HooksPresent = true
 	}
 

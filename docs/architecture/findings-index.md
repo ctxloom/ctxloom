@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,164** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 78 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 79 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 128 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **753** |
+| `open` | no commit names this ID | **752** |
 
-**Totals: 2268 findings across 162 units — 1,164 resolved, 753 still open, 351 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,164 resolved, 752 still open, 352 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -334,7 +334,7 @@ which also asserts each row's columns sum to its section size.
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 379 | 430 | 43 | 56 | 91 |
 | LOW | 871 | 433 | 300 | 24 | 64 | 50 |
-| (unparsed) | 22 | 2 | 17 | 1 | 2 | 0 |
+| (unparsed) | 22 | 2 | 16 | 2 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,
@@ -2863,7 +2863,7 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 | U114-F07 | open | `pidalive_unix.go:19` | LOW | CORRECTNESS | A negative pid other than `-1` is silently reinterpreted as a **process group**. `Alive(-5)` probes group 5 and can return `true` for something that is not the target at all. Not reachable today — ... | U114.md |
 | U116-F08 | open | `ptyrunner.go:110` and `:234` | LOW | ERRHANDLING | `ptty.Close()` is called twice on the normal path — once explicitly, once by the deferred closure — and both results are discarded. Correctness rests on go-pty's `Close` being idempotent, which is ... | U116.md |
 | U116-F10 | open | `ptyrunner.go:242-244` | LOW | CORRECTNESS | A child killed by a signal yields `exitErr.ExitCode() == -1`, which is propagated verbatim as the run's exit code. `-1` is not a valid POSIX exit status and is indistinguishable from a runner-inter... | U116.md |
-| U117-F06 | open | `shellenv.go:117-128` | LOW | CORRECTNESS | A single transient probe failure — a fork failure under load, a 10s timeout from a momentarily slow rc file — permanently disables the entire feature for the life of the process. For a long-lived `... | U117.md |
+| U117-F06 | **PARTIAL** `PENDING` | `shellenv.go:117-128` | LOW | CORRECTNESS | A single transient probe failure — a fork failure under load, a 10s timeout from a momentarily slow rc file — permanently disables the entire feature for the life of the process. For a long-lived `... | U117.md |
 | U117-F07 | **RESOLVED** `9d743159` | `shellenv.go:74`, `:79`, `:84` | LOW | TRIVIAL | `exec.LookPath(name)` is called twice on every failure path — once to try, once to regenerate the error that was already produced and discarded. `LookPath` stats every directory in `PATH`, so the s... | U117.md |
 | U117-F08 | open | `shellenv.go:38`, `:51`, `:56` | LOW | COUPLING | Two mutable package-level variables (`execCommandContext`, `shellPathCache`) plus a reset hook mean tests in this package can never run in parallel, and `Resolve`'s result depends on process history. | U117.md |
 | U118-F04 | open | `stderrtail.go:64-67` | LOW | CORRECTNESS | A single large `Write` transiently allocates proportional to that write's size before truncating, so the ring's peak memory is bounded by the largest single write, not by `max`. A child that emits ... | U118.md |

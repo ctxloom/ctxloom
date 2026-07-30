@@ -685,32 +685,45 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 		}
 	}
 	if caller.IsChild() {
-		parent := ""
-		c.runs.View(func() {
-			if r := c.runsF.currentRun(caller.Harp); r != nil {
-				parent = r.ParentHarp
-			}
-		})
-		if parent == "" {
-			return "", false, "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
-		}
-		if to != ParentAddress && to != parent {
-			return "", false, "", ErrPeerRouting
-		}
-		c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-		// NO DOUBLE DELIVERY (blunt-whiff): this child reported to its
-		// parent in its own words, so the automatic turn-boundary bridge
-		// (children.go's bridgeTurnResult) must not report the same turn
-		// again. Marked here — the one place a child→parent send is
-		// accepted — rather than at either call site.
-		c.noteChildReported(caller.Harp)
-		id, completed, qerr := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
-		if qerr != nil {
-			return "", false, "", qerr
-		}
-		return id, completed, "sent to the coordinator", nil
+		return c.childSend(caller, to, kind, body, structured, inReplyTo)
 	}
+	return c.ownerSend(caller, to, kind, body, structured, inReplyTo)
+}
 
+// childSend is peerSend's HUB-AND-SPOKE half: a delegated child addresses only
+// its own parent, resolved from journaled lineage — by ParentAddress or by the
+// parent's own harp, nothing else.
+func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, string, error) {
+	parent := ""
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(caller.Harp); r != nil {
+			parent = r.ParentHarp
+		}
+	})
+	if parent == "" {
+		return "", false, "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
+	}
+	if to != ParentAddress && to != parent {
+		return "", false, "", ErrPeerRouting
+	}
+	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
+	// NO DOUBLE DELIVERY (blunt-whiff): this child reported to its parent in
+	// its own words, so the automatic turn-boundary bridge (children.go's
+	// bridgeTurnResult) must not report the same turn again. Marked here — the
+	// one place a child→parent send is accepted — rather than at either call
+	// site.
+	c.noteChildReported(caller.Harp)
+	id, completed, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
+	if err != nil {
+		return "", false, "", err
+	}
+	return id, completed, "sent to the coordinator", nil
+}
+
+// ownerSend is peerSend's other half: the session owner addressing one of its
+// own children by harp. The disposition names the §6a state the delivery
+// observed (deliveryDisposition).
+func (c *Coordinator) ownerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, string, error) {
 	if to == ParentAddress {
 		return "", false, "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
@@ -720,7 +733,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 		return "", false, "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
-	msgID, delivered, err = c.queueMailPayload(caller.Harp, to, kind, body, structured, inReplyTo)
+	msgID, delivered, err := c.queueMailPayload(caller.Harp, to, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", false, "", err
 	}

@@ -270,3 +270,85 @@ func gitCmd(dir string, args ...string) *exec.Cmd {
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	return cmd
 }
+
+// TestGitIdentity_HostileAgentIDStillCommitsCleanly is U065-F12's pin, and the
+// row is REFUTED on its consequence. The claim: gitIdentity sanitizes agentID
+// for the email local-part but interpolates the RAW agentID into
+// GIT_AUTHOR_NAME/GIT_COMMITTER_NAME, so "a name containing a newline or
+// `<`/`>` would produce a malformed identity".
+//
+// The mechanism is true — the name really is raw. The consequence is not, and
+// it is git that decides, not us: git's own fmt_ident feeds every ident through
+// strbuf_addstr_without_crud, which trims edge crud and SILENTLY DROPS '\n',
+// '<' and '>' anywhere in the string, precisely because those three delimit an
+// identification line. Measured here against real git rather than reasoned
+// about: an agentID carrying all three commits successfully and records a
+// well-formed, single-line author.
+//
+// This pins the property the refutation rests on. If git ever stopped
+// sanitizing — or if gitIdentity started emitting something git rejects — the
+// commit fails or the recorded name grows a delimiter, and this goes red.
+func TestGitIdentity_HostileAgentIDStillCommitsCleanly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the git-identity integration test")
+	}
+	repo := initRealRepo(t)
+
+	const hostileID = "rev<iew>er\nspoofed"
+	name, email := gitIdentity(hostileID)
+	require.True(t, strings.ContainsAny(name, "<>\n"),
+		"the fixture must actually carry the delimiters the row is about")
+
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "work.txt"), []byte("agent work"), 0o644))
+	gitRunAsIdentity(t, repo, name, email, "add", "work.txt")
+	gitRunAsIdentity(t, repo, name, email, "commit", "-m", "agent commit")
+
+	got := strings.TrimRight(gitOutAsIdentity(t, repo, name, email, "log", "-1", "--format=%an%n%ae"), "\n")
+	lines := strings.Split(got, "\n")
+	require.Len(t, lines, 2, "the recorded ident is exactly one author line and one email line")
+	assert.NotContains(t, lines[0], "<", "git drops the ident delimiters itself")
+	assert.NotContains(t, lines[0], ">", "git drops the ident delimiters itself")
+	assert.True(t, strings.HasPrefix(lines[0], "ctxloom agent "),
+		"the surviving name still self-identifies as an agent: %q", lines[0])
+	assert.Equal(t, email, lines[1], "the email was already sanitized by gitIdentity itself")
+}
+
+// gitIdentTestEnv builds a git child environment carrying exactly the identity
+// under test. It strips any inherited GIT_AUTHOR_*/GIT_COMMITTER_* rather than
+// appending over them: this suite runs inside per-agent worktrees that export
+// those very vars, and duplicate keys are resolved by libc, not by us.
+func gitIdentTestEnv(name, email string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		switch key, _, _ := strings.Cut(kv, "="); key {
+		case "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL":
+			continue
+		default:
+			env = append(env, kv)
+		}
+	}
+	return append(env,
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+email,
+		"GIT_COMMITTER_NAME="+name, "GIT_COMMITTER_EMAIL="+email)
+}
+
+func gitRunAsIdentity(t *testing.T, dir, name, email string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitIdentTestEnv(name, email)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func gitOutAsIdentity(t *testing.T, dir, name, email string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitIdentTestEnv(name, email)
+	out, err := cmd.Output()
+	require.NoError(t, err, "git %v", args)
+	return string(out)
+}

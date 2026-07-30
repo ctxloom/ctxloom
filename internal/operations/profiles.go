@@ -493,6 +493,15 @@ func profileLoader(cfg *config.Config) *profiles.Loader {
 		profileDirs = []string{filepath.Join(cfg.GetAppPaths()[0], "profiles")}
 	}
 	var opts []profiles.LoaderOption
+	if fs := cfg.FS(); fs != nil {
+		// The loader must READ the filesystem discovery just walked, or the
+		// injected fs is a lie: the directory is found through cfg.FS() and
+		// every profile inside it is then looked for on real disk. Nil keeps
+		// NewLoader's OS default, so production is unchanged. Mirrors
+		// config.GetProfileLoader, the twin this factory must agree with about
+		// which profiles exist.
+		opts = append(opts, profiles.WithFS(fs))
+	}
 	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}

@@ -74,24 +74,11 @@ func ccShellForTool(tool string) ir.Shell {
 
 // Encode renders a denial as a PreToolUse permission decision on stdout with
 // exit 0. An allow produces a zero Output: no bytes, exit 0, which lets Claude
-// Code's normal permission flow proceed (it does NOT auto-approve).
+// Code's normal permission flow proceed (it does NOT auto-approve). The
+// allow/unanalyzed/deny arms are the shared contract; only the deny bytes are
+// Claude Code's own.
 func (ClaudeCode) Encode(resp Response) (Output, error) {
-	if resp.Allow {
-		if resp.Unanalyzed {
-			// Nothing to deny, but nothing was fully checked either — a silent
-			// zero Output here is byte-identical to a clean allow (U005-F01), so
-			// this is the one caller of the previously-unused Stderr channel
-			// (U067-F03). The host still proceeds (exit 0, no stdout document);
-			// this is diagnostic only.
-			return Output{Stderr: []byte(unanalyzedNote(resp))}, nil
-		}
-		return Output{}, nil
-	}
-	body, err := claudecli.EncodeDeny(resp.Message())
-	if err != nil {
-		return Output{}, err
-	}
-	return Output{Stdout: body, ExitCode: 0}, nil
+	return encodeDecision(resp, claudecli.EncodeDeny)
 }
 
 // --- management surface (Claude Code specific) ---
@@ -263,22 +250,32 @@ func mergePreToolUseHook(existing []byte, matcher, command string) ([]byte, stri
 // entries/keys that become empty. Idempotent. removed reports whether a matching
 // hook was actually found and dropped (false ⇒ the document is unchanged, so the
 // caller can skip the rewrite).
+//
+// It reads the document through the same accessors the merge uses, so a
+// malformed settings file — a `hooks` that is not an object, a `PreToolUse`
+// that is not an array — is REFUSED here exactly as it is on install. Reporting
+// it as "no matching hook found" instead would tell the user their hook is not
+// installed when the truth is that their settings could not be read.
+// Pruning is conditional on having removed something: an empty container the
+// user wrote themselves is theirs to keep.
 func removePreToolUseHook(existing []byte, command string) ([]byte, bool, error) {
 	settings, err := decodeSettings(existing)
 	if err != nil {
 		return nil, false, err
 	}
-	hooks, ok := settings[keyHooks].(map[string]any)
-	if !ok {
-		out, err := agent.CanonicalJSON(settings)
-		return out, false, err
+	hooks, err := childMap(settings, keyHooks)
+	if err != nil {
+		return nil, false, err
 	}
-	pre, ok := hooks[keyPreToolUse].([]any)
-	if !ok {
-		out, err := agent.CanonicalJSON(settings)
-		return out, false, err
+	pre, err := childSlice(hooks, keyPreToolUse)
+	if err != nil {
+		return nil, false, err
 	}
 	kept, removed := removeCommandEntries(pre, command)
+	if !removed {
+		out, err := agent.CanonicalJSON(settings)
+		return out, false, err
+	}
 	if len(kept) == 0 {
 		delete(hooks, keyPreToolUse)
 	} else {
@@ -353,12 +350,15 @@ func decodeSettings(existing []byte) (map[string]any, error) {
 	return settings, nil
 }
 
+// childMap and childSlice read one sub-document out of the untyped settings
+// map, materializing an empty one when the key is absent. Neither STORES what
+// it returns: the caller writes the (possibly reallocated, in childSlice's
+// case) result back itself, so a single contract covers both and no half-built
+// document is left behind when a later step errors out.
 func childMap(m map[string]any, key string) (map[string]any, error) {
 	switch v := m[key].(type) {
 	case nil:
-		nm := map[string]any{}
-		m[key] = nm
-		return nm, nil
+		return map[string]any{}, nil
 	case map[string]any:
 		return v, nil
 	default:

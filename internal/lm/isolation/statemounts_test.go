@@ -304,3 +304,46 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks"),
 	})
 }
+
+// TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember pins U064-F06.
+// The row observed that a missing harp or project id degrades durability behind
+// clidiag.WarnOnce, so in a fan-out (map/weave, agent_run — all one process)
+// only the FIRST affected member warns and every later one is silent. The
+// mechanism is real: WarnOnce dedups on the whole formatted line and these
+// lines carry no member identity.
+//
+// The collapse is deliberate and stays — the alternative is N identical lines
+// at startup — and per-member reporting is not available at this seam anyway:
+// Container carries no agent id, and the identity that would distinguish
+// members is precisely the harp that is missing. What was wrong is that the
+// single surviving line described "a container run", singular, so a reader of a
+// twenty-member fan-out concluded one member was affected.
+//
+// Both halves are pinned. The wording is asserted on the notice CONSTANTS
+// rather than on captured output, because clidiag's dedup set is process-global
+// and a sibling test in this package may legitimately have consumed the line
+// first — asserting on the buffer would make this test order-dependent (the
+// house workaround, internal/operations/context_test.go, is a per-test dedup
+// key, which is not available for a fixed diagnostic).
+func TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember(t *testing.T) {
+	for _, notice := range []string{noHarpNotice, noProjectIDNotice} {
+		assert.Contains(t, notice, "every affected run",
+			"the one surviving line must say it speaks for every affected member, not read as a single run: %q", notice)
+	}
+
+	testsupport.Isolate(t)
+	buf := captureWarnings(t)
+
+	// Three fan-out members in one process, none carrying session identity.
+	for range 3 {
+		c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+		_, err := c.sessionStateMounts()
+		require.NoError(t, err, "a member without session accounting degrades, it does not fail")
+	}
+
+	out := buf.String()
+	assert.LessOrEqual(t, strings.Count(out, "no session harp"), 1,
+		"the harp degrade collapses per process — one line per member would be startup spam in a fan-out")
+	assert.LessOrEqual(t, strings.Count(out, "no project id"), 1,
+		"the project-id degrade collapses the same way")
+}

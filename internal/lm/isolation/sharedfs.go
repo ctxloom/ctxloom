@@ -190,12 +190,60 @@ func runSharedFSProbe(ctx context.Context, rt Runtime, image string, roots []str
 	return nil
 }
 
+// probeScratchPrefix names every scratch directory the probe creates inside a
+// mount root. It is a prefix rather than a fixed name because probes run
+// concurrently (fan-out members, sibling ctxloom processes) against the same
+// roots; it is also what makes abandoned scratch identifiable, so
+// sweepAbandonedProbeDirs can tell the probe's own debris from user content.
+const probeScratchPrefix = "ctxloom-fsprobe-"
+
+// probeScratchMaxAge is how old a probe scratch dir must be before the sweep
+// treats it as abandoned. Two orders of magnitude beyond sharedFSProbeTimeout,
+// because the cost of the two errors is wildly asymmetric: sweeping late leaves
+// debris one more run, while sweeping early would delete a CONCURRENT process's
+// live probe dir out from under it — the probe would then read no marker back
+// and report a phantom sharing mismatch, degrading that run's isolation for a
+// reason nobody could reconstruct.
+const probeScratchMaxAge = time.Hour
+
+// sweepAbandonedProbeDirs removes probe scratch directories left in root by a
+// process that never ran its teardown — a hard kill, a panic, an OOM. The
+// scratch dir lives INSIDE the live mount root (the user's project directory,
+// among others) because that is the only place a per-path file-sharing grant
+// can be verified, so debris here is debris in the user's tree: it shows up in
+// git status and meets this project's own dirty-tree gate.
+//
+// Best-effort and deliberately narrow. Only DIRECTORIES carrying the probe's
+// own prefix and older than probeScratchMaxAge are touched, so neither user
+// content that merely sorts nearby nor a concurrent probe's live dir is at
+// risk. Failures are ignored: an unremovable dir means the next run sweeps it
+// instead, and a probe must never fail because a janitor could not run.
+func sweepAbandonedProbeDirs(root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-probeScratchMaxAge)
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), probeScratchPrefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(root, e.Name()))
+	}
+}
+
 // probeOneRoot verifies a single mount root: a marker file written into a
 // fresh scratch subdirectory created INSIDE root (so the marker lives at the
 // REAL path a run would bind-mount, not a directory elsewhere), read back
-// through one scratch container run of the given image.
+// through one scratch container run of the given image. Any scratch a previous
+// process abandoned is swept first — see sweepAbandonedProbeDirs.
 func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
-	dir, err := os.MkdirTemp(root, "ctxloom-fsprobe-")
+	sweepAbandonedProbeDirs(root)
+	dir, err := os.MkdirTemp(root, probeScratchPrefix)
 	if err != nil {
 		// dir is normally "" here (MkdirTemp itself failed) — defensive
 		// against a mutant flipping this check and orphaning a dir MkdirTemp

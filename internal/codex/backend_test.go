@@ -37,6 +37,37 @@ func TestCodex_Configure(t *testing.T) {
 	assert.Equal(t, "V", codex.Env["K"])
 }
 
+// foreignBackendConfig is a config for some OTHER backend — the only input for
+// which Configure's type assert can miss.
+type foreignBackendConfig struct{}
+
+func (foreignBackendConfig) BackendType() string { return "not-codex" }
+
+// U045-F15 called Configure's missing else a silent swallow. The branch is
+// unreachable by construction, not merely untaken: every caller resolves the
+// config BY the backend's own name — backends.ConfiguredBackend does
+// Get(cfg.BackendType()), llm_serve's serveBackendConfig gates on
+// entry.EffectiveType() == backendName, and acp.NewChatDriver configures a
+// backend with its own config type. A config that reached codex's Configure at
+// all therefore declares BackendType "codex", which only *CodexConfig does.
+// This pins both halves of that: the real config applies every field it
+// declares, and the assert's guard string is codex's own.
+func TestCodex_Configure_MismatchIsUnreachableNotSwallowed(t *testing.T) {
+	assert.Equal(t, "codex", CodexConfig{}.BackendType())
+	assert.NotEqual(t, CodexConfig{}.BackendType(), foreignBackendConfig{}.BackendType(),
+		"a foreign config never routes here: the registry dispatches on this string")
+
+	b := NewCodex()
+	b.Configure(&foreignBackendConfig{})
+	assert.Equal(t, "codex", b.BinaryPath, "an unreachable input leaves the backend at its defaults")
+
+	b.Configure(&CodexConfig{BinaryPath: "/custom/codex", Args: []string{"--x"}, Env: map[string]string{"K": "V"}, Thinking: "high"})
+	assert.Equal(t, "/custom/codex", b.BinaryPath)
+	assert.Equal(t, []string{"--x"}, b.Args)
+	assert.Equal(t, "V", b.Env["K"])
+	assert.Equal(t, agent.ThinkingHigh, b.thinking)
+}
+
 // TestNewCodex_ThinkingDefaultsToMedium pins that a freshly-constructed
 // backend that never runs Configure at all still resolves to the documented
 // medium default (agent.ThinkingLevel's zero value IS ThinkingMedium).

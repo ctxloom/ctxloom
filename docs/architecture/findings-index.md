@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,209** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,210** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 94 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **667** |
+| `open` | no commit names this ID | **666** |
 
-**Totals: 2268 findings across 162 units — 1,209 resolved, 667 still open, 392 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,210 resolved, 666 still open, 392 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 409 | 375 | 53 | 67 | 95 |
+| MED | 999 | 410 | 374 | 53 | 67 | 95 |
 | LOW | 871 | 444 | 275 | 28 | 73 | 51 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1816,7 +1816,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U127-F04 | open | `gitfixture.go:27-29` | CORRECTNESS | `t.Skip("git not on PATH")` means that in an environment without git, **all 16 call sites vanish and the suite still reports PASS** — and those 16 are the only coverage of the linked-worktree redir... | U127.md |
 | U127-F06 | **RESOLVED** `ebd33b7c` | `gitfixture.go:10-23` | DUPLICATE | `RealGitWorktreeFixture`'s doc declares itself canonical and sanctions **exactly one** frozen copy — but a **third** copy already exists, and the doc does not know | U127.md |
 | U128-F02 | **RESOLVED** `3eef08d4` | **`parse.go:63-71`** | CORRECTNESS | `stripCodeFence` unconditionally drops the whole fence-opener **line**. When the model puts the array on that same line (```` ```json [{...}]\n``` ````), the array is destroyed, `extractJSONArray` ... | U128.md |
-| U128-F03 | open | **`parse.go:52-53`** | CORRECTNESS | `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array — a common model habit — producing a garbage span that fails to unmarshal and degrades the chunk. | U128.md |
+| U128-F03 | **RESOLVED** `e48bd7ad` | **`parse.go:52-53`** | CORRECTNESS | `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array — a common model habit — producing a garbage span that fails to unmarshal and degrades the chunk. | U128.md |
 | U128-F04 | open | `verdict.go:58-79` | COHESION | `Verdict` fuses three fields with three different trust directions and lifetimes: the model↔caller contract, an internal round-1→round-2 control signal (`Queries`), and caller-stamped provenance (`... | U128.md |
 | U128-F05 | open | `prompt.go:112, prompt.go:213` | COUPLING | The response contracts hardcode the outcome vocabulary as pipe-separated string literals (`"fired\ | U128.md |
 | U128-F07 | open | `prompt.go:18, prompt.go:86` | SILENTNOOP | Given an empty `Batch`, `BuildPrompt` succeeds and returns a full prompt whose `=== Deferred tasks ===` header has nothing beneath it — asking a model to judge zero tasks. Zero payload, no error. `... | U128.md |

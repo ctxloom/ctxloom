@@ -2,7 +2,6 @@ package backends
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -257,7 +256,7 @@ func builtinCommands() []*bundles.LoadedContent {
 			continue
 		}
 
-		description, body := parseMarkdownFrontmatter(string(content))
+		description, body := resources.SplitCommandFrontmatter(string(content))
 		prompts = append(prompts, &bundles.LoadedContent{
 			Name:    name,
 			Content: body,
@@ -275,37 +274,4 @@ func builtinCommands() []*bundles.LoadedContent {
 		})
 	}
 	return prompts
-}
-
-// parseMarkdownFrontmatter extracts description from YAML frontmatter and returns body.
-// Expects format: ---\ndescription: ...\n---\nbody
-func parseMarkdownFrontmatter(content string) (description, body string) {
-	if !strings.HasPrefix(content, "---\n") {
-		return "", content
-	}
-
-	// Find the closing ---
-	rest := content[4:] // Skip opening "---\n"
-	endIdx := strings.Index(rest, "\n---")
-	if endIdx == -1 {
-		return "", content
-	}
-
-	frontmatter := rest[:endIdx]
-	body = strings.TrimPrefix(rest[endIdx+4:], "\n")
-
-	// Parse description from frontmatter (simple key: value parsing)
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "description:") {
-			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-			// Remove surrounding quotes if present
-			if len(description) >= 2 && description[0] == '"' && description[len(description)-1] == '"' {
-				description = description[1 : len(description)-1]
-			}
-			break
-		}
-	}
-
-	return description, body
 }

@@ -124,7 +124,7 @@ func GetBuiltinCommandBody(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, body := splitCommandFrontmatter(string(raw))
+	_, body := SplitCommandFrontmatter(string(raw))
 	return body, nil
 }
 
@@ -140,15 +140,19 @@ func MustGetBuiltinCommandBody(name string) string {
 	return body
 }
 
-// splitCommandFrontmatter extracts a builtin command's optional YAML
+// SplitCommandFrontmatter extracts a builtin command's optional YAML
 // frontmatter ("---\ndescription: ...\n---\n<body>") and returns
 // (description, body). A file with no frontmatter returns ("", the whole
-// content) unchanged. Deliberately minimal (only the description key) —
-// mirrors internal/lm/backends.parseMarkdownFrontmatter, which does the same
-// parse for slash-command export; kept as a small separate copy here rather
-// than an import (that package already imports resources, so the reverse
-// would cycle).
-func splitCommandFrontmatter(content string) (description, body string) {
+// content) unchanged. Deliberately minimal: only the description key, which is
+// the only key a builtin command carries.
+//
+// It is exported because the SAME embedded files are consumed two ways — as a
+// prompt body through GetBuiltinCommandBody here, and as a slash-command
+// export through internal/lm/backends.builtinCommands — and both must agree
+// about where the frontmatter ends. That package imports this one, so the
+// parser lives here, next to the bytes it parses; the reverse direction would
+// cycle.
+func SplitCommandFrontmatter(content string) (description, body string) {
 	if !strings.HasPrefix(content, "---\n") {
 		return "", content
 	}

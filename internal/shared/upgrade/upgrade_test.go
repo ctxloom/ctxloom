@@ -111,6 +111,42 @@ func TestPipeline_Run_MultiDocumentStream_ReturnsVerbatim(t *testing.T) {
 	assert.Equal(t, string(in), string(out), "every document in the stream must survive")
 }
 
+// A duplicate mapping key must stop the pipeline dead. The DOM helpers all act
+// on the FIRST match, so renaming `old` in "old: 1\nold: 2\n" produced
+// "old: 2\nnew: 1\n": a document that no longer has a duplicate key, therefore
+// parses cleanly, and carries the migrated value taken from one of the two
+// entries while the legacy key survives holding the other. That converts a loud
+// duplicate-key parse error into a silent load of the wrong values, and the
+// rewritten bytes are what the user is offered to persist.
+func TestPipeline_Run_DuplicateKey_ReturnsVerbatim(t *testing.T) {
+	in := []byte("one: first\none: second\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "two"}}
+	out, applied := p.Run(in)
+
+	assert.Empty(t, applied, "a document with a duplicate key must not be silently normalized")
+	assert.Equal(t, string(in), string(out))
+}
+
+// The same rule applies below the root: the helpers walk nested mappings too.
+func TestPipeline_Run_NestedDuplicateKey_ReturnsVerbatim(t *testing.T) {
+	in := []byte("outer:\n  dup: 1\n  dup: 2\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "outer", to: "renamed"}}
+	out, applied := p.Run(in)
+
+	assert.Empty(t, applied)
+	assert.Equal(t, string(in), string(out))
+}
+
+// A key repeated in two DIFFERENT mappings is not a duplicate and must still
+// upgrade — the check is per-mapping, not per-document.
+func TestPipeline_Run_SameKeyInDifferentMappings_StillUpgrades(t *testing.T) {
+	in := []byte("one:\n  name: a\ntwo:\n  name: b\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "renamed"}}
+	_, applied := p.Run(in)
+
+	assert.Equal(t, []string{"a"}, applied)
+}
+
 func TestVersion_MissingIsZero_RoundTrips(t *testing.T) {
 	p := Pipeline{versionStampUpgrade{target: 2}}
 

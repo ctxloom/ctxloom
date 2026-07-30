@@ -61,6 +61,9 @@ func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
 		return data, nil
 	}
 	root := doc.Content[0]
+	if hasDuplicateKey(root) {
+		return data, nil
+	}
 
 	for _, u := range p {
 		if u.Apply(root) {
@@ -98,6 +101,32 @@ func singleDocument(data []byte) (doc yaml.Node, ok bool) {
 		return doc, false
 	}
 	return doc, true
+}
+
+// hasDuplicateKey reports whether any mapping in the subtree rooted at n names
+// the same key twice. Such a document is malformed — every struct/map decode in
+// the codebase refuses it — but a yaml.Node decode accepts it, and MapValue,
+// MapSet and MapDelete all act on the FIRST match. An upgrade run over it
+// therefore rewrites one of the two entries and leaves the other under the
+// legacy key, producing a document that no longer has a duplicate and so parses
+// cleanly, carrying whichever value the helpers happened to reach. Refusing to
+// upgrade it keeps the loud parse error the caller would otherwise have got.
+func hasDuplicateKey(n *yaml.Node) bool {
+	if n.Kind == yaml.MappingNode {
+		seen := make(map[string]struct{}, len(n.Content)/2)
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if _, dup := seen[n.Content[i].Value]; dup {
+				return true
+			}
+			seen[n.Content[i].Value] = struct{}{}
+		}
+	}
+	for _, child := range n.Content {
+		if hasDuplicateKey(child) {
+			return true
+		}
+	}
+	return false
 }
 
 // Pending records that loading upgraded an older on-disk document to the

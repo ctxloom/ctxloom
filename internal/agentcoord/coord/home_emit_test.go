@@ -47,9 +47,9 @@ func (h *Home) emitted() []*agentcoordpb.AgentEvent {
 }
 
 // TestReport_EmptyReportIsRefused: a Report carrying neither a summary nor any
-// artifact must fail loudly. It previously returned nil having emitted zero
-// events — the caller's `if err == nil` read that as "filed and durable" when
-// nothing was filed at all, the exit-0-zero-bytes shape.
+// artifact must fail loudly. A nil return with zero events emitted is the
+// exit-0-zero-bytes shape — the caller's `if err == nil` reads it as "filed and
+// durable" when nothing was filed at all.
 func TestReport_EmptyReportIsRefused(t *testing.T) {
 	h := testHome(t)
 

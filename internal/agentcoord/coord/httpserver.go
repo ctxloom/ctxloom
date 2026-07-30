@@ -159,11 +159,12 @@ func (s *coordServing) saveEndpoint() {
 	s.saveEndpointLocked()
 }
 
-// saveEndpointLocked is saveEndpoint with s.mu already held — the form callers
-// inside a locked section use. Splitting it makes the lock discipline explicit
-// instead of leaving it to a `go` keyword whose real job was dodging
-// re-entrancy: dispatching the write also meant the file lagged the return of
-// the very call whose value a container child is about to discover.
+// saveEndpointLocked is saveEndpoint with s.mu already held — the form a caller
+// inside a locked section uses, so the lock discipline is in the name rather
+// than in a `go` that dodges re-entrancy. The write is SYNCHRONOUS: the file is
+// on disk before the call that changed the endpoint returns, which is what a
+// container child spawned immediately afterwards discovers the coordinator
+// through.
 func (s *coordServing) saveEndpointLocked() {
 	ep := endpointState{WidePort: s.widePort}
 	if s.loopback != nil {
@@ -375,8 +376,10 @@ func preferredContainerRuntime() string {
 // gateway, then the host's primary outbound interface IP. Every candidate must
 // PARSE as an address: the gateway probes are text/template expressions the
 // runtime evaluates, and a runtime that renames a field, errors mid-render, or
-// prints a diagnostic on stdout answers with prose, not an address — none of
-// which may become something the coordinator binds and advertises.
+// prints a diagnostic on stdout answers with prose, not an address. Prose comes
+// in more shapes than the "<no value>" sentinel a missing template field
+// renders to, so the test is that it PARSES — nothing else may become an
+// address the coordinator binds and advertises to a container.
 func containerReachIPs() []string {
 	var out []string
 	seen := map[string]bool{}

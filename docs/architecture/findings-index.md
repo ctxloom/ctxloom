@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,213** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 95 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **662** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 151 |
+| `open` | no commit names this ID | **661** |
 
-**Totals: 2268 findings across 162 units — 1,213 resolved, 662 still open, 393 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,213 resolved, 661 still open, 394 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 411 | 372 | 54 | 67 | 95 |
+| MED | 999 | 411 | 371 | 54 | 67 | 96 |
 | LOW | 871 | 446 | 273 | 28 | 73 | 51 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1817,7 +1817,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U127-F06 | **RESOLVED** `ebd33b7c` | `gitfixture.go:10-23` | DUPLICATE | `RealGitWorktreeFixture`'s doc declares itself canonical and sanctions **exactly one** frozen copy — but a **third** copy already exists, and the doc does not know | U127.md |
 | U128-F02 | **RESOLVED** `3eef08d4` | **`parse.go:63-71`** | CORRECTNESS | `stripCodeFence` unconditionally drops the whole fence-opener **line**. When the model puts the array on that same line (```` ```json [{...}]\n``` ````), the array is destroyed, `extractJSONArray` ... | U128.md |
 | U128-F03 | **RESOLVED** `e48bd7ad` | **`parse.go:52-53`** | CORRECTNESS | `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array — a common model habit — producing a garbage span that fails to unmarshal and degrades the chunk. | U128.md |
-| U128-F04 | open | `verdict.go:58-79` | COHESION | `Verdict` fuses three fields with three different trust directions and lifetimes: the model↔caller contract, an internal round-1→round-2 control signal (`Queries`), and caller-stamped provenance (`... | U128.md |
+| U128-F04 | **ESCALATED** `PENDING1` | `verdict.go:58-79` | COHESION | `Verdict` fuses three fields with three different trust directions and lifetimes: the model↔caller contract, an internal round-1→round-2 control signal (`Queries`), and caller-stamped provenance (`... | U128.md |
 | U128-F05 | **RESOLVED** `6596525f` | `prompt.go:112, prompt.go:213` | COUPLING | The response contracts hardcode the outcome vocabulary as pipe-separated string literals (`"fired\ | U128.md |
 | U128-F07 | **PARTIAL** `846509f3` | `prompt.go:18, prompt.go:86` | SILENTNOOP | Given an empty `Batch`, `BuildPrompt` succeeds and returns a full prompt whose `=== Deferred tasks ===` header has nothing beneath it — asking a model to judge zero tasks. Zero payload, no error. `... | U128.md |
 | U129-F01 | **RESOLVED** `6c89e42f` | `textutil.go:10` + 9 call sites` | DUPLICATE | **The concept every caller actually wants is "ellipsize to fit N bytes", and all nine of them hand-roll the second half of it.** Worse, the result *exceeds* the requested cap by the suffix length, ... | U129.md |

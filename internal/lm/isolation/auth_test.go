@@ -930,13 +930,12 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 // must report seedNoSource rather than seedOK — "succeeded having delivered
 // nothing" is precisely the shape this project's characteristic bug takes.
 func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
-	home := withFakeHome(t)
+	withFakeHome(t)
 	spec := credentialSeedSpec{
 		engine:      "phantom",
 		destSubdir:  "phantom",
 		sourceFiles: func(h string) []seedFile { return []seedFile{{host: filepath.Join(h, "nope"), destName: "nope"}} },
 	}
-	_ = home
 
 	dest := t.TempDir()
 	result, err := hostCredentialSeed(spec, dest)

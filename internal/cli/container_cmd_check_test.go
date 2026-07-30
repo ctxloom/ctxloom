@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -112,4 +113,22 @@ func TestContainerCheckConfigGap(t *testing.T) {
 		d := containerCheckConfigGap(base, false, nil)
 		assert.Equal(t, base.Guidance, d.Guidance, "a healthy config must add no noise")
 	})
+}
+
+// TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit pins U035-F22:
+// `container check` and `doctor` both advertised "always exits 0", yet both
+// end in `return emit(...)`, which propagates cliemit.Resolve's error for an
+// unrenderable --format (pinned by TestEmit_UnknownFormat_WrapsErrUnsupported
+// Format in format_test.go), and `container check` also rejects an unknown
+// backend argument. A promise of exit 0 invites `ctxloom doctor || exit 1`
+// wrappers that read any non-zero exit as a broken machine.
+func TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit(t *testing.T) {
+	for _, c := range []*cobra.Command{containerCheckCmd, doctorCmd} {
+		t.Run(c.Name(), func(t *testing.T) {
+			assert.NotContains(t, c.Long, "always exits 0",
+				"the command ends in emit(), which errors on an unrenderable --format")
+			assert.Contains(t, c.Long, "usage error",
+				"the exception must be documented where the promise was")
+		})
+	}
 }

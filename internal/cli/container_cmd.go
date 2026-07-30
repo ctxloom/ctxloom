@@ -325,7 +325,9 @@ existing file at the target is adopted, never overwritten (--force overwrites).`
 // containerCheckCmd reports whether `runtime: container` agents can actually
 // launch here: in-container detection, runtime reachability, image presence,
 // and the shared-filesystem probe (the docker-outside-of-docker detector).
-// Diagnostic only — always exits 0, never builds or changes anything.
+// Diagnostic only — no probe outcome ever fails the command, and nothing is
+// built or changed. USAGE errors still exit non-zero: an unknown backend
+// argument, or a --format value this build cannot render (emit()).
 var containerCheckCmd = &cobra.Command{
 	Use:   "check [backend]",
 	Short: "Diagnose container capability (runtime, image, shared filesystem)",
@@ -338,7 +340,9 @@ var containerCheckCmd = &cobra.Command{
     that detects docker-outside-of-docker, where bind mounts silently
     resolve against the WRONG filesystem and launches hang
 
-Diagnostic only: always exits 0 and never builds images or changes state.
+Diagnostic only: no probe outcome fails the command, and nothing is built or
+changed — read the report, not the exit code. A usage error is still an error
+(an unknown backend argument, or a --format this build cannot render).
 Run it inside a dev container to learn whether to enable docker-in-docker
 or keep agents on 'runtime: host'.`,
 	Args: cobra.MaximumNArgs(1),

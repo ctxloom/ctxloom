@@ -138,9 +138,10 @@ no agents/profiles/hooks/trust checks, so it reads clean on a project that
 hasn't been set up yet. This is the mode init's PRIME and the setup skill's
 phase 1 use, before there's anything else to check.
 
-Diagnostic only: always exits 0, never blocks or changes anything. A "warn"
-status IS this command's fail-loud signal — read the report, don't grep the
-exit code.`,
+Diagnostic only: no check outcome ever fails the command, and nothing is
+blocked or changed. A "warn" status IS this command's fail-loud signal — read
+the report, don't grep the exit code. A usage error is still an error (e.g. a
+--format value this build cannot render).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()

@@ -44,7 +44,16 @@ func ReadMarker(projectDir string) (string, error) {
 // WriteMarker writes id into <projectDir>/.ctxloom/project-id, creating the
 // .ctxloom directory if needed. The marker is private working state and is
 // gitignored by `ctxloom init`.
+//
+// id is held to exactly the contract ReadMarker enforces on the way back in:
+// an empty id used to write a file containing only "\n", which ReadMarker
+// then reports as no marker at all — a successful write that produced a file
+// and no identity. Refuse it, and refuse anything else the reader would
+// reject, at the write instead of one resolution later.
 func WriteMarker(projectDir, id string) error {
+	if err := paths.ValidateProjectID(id); err != nil {
+		return fmt.Errorf("write project marker at %s: %w", projectDir, err)
+	}
 	path, err := paths.ProjectMarkerPath(projectDir)
 	if err != nil {
 		return err

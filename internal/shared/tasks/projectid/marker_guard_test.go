@@ -52,3 +52,33 @@ func TestWriteMarkerRejectsEmptyProjectDir(t *testing.T) {
 		t.Fatalf("WriteMarker(\"\") created a marker under the cwd (stat err = %v)", err)
 	}
 }
+
+// WriteMarker(dir, "") used to succeed, writing a file containing only "\n"
+// that ReadMarker then reports as "no marker at all": exit 0, a success
+// return, a file on disk, and zero identity delivered. A marker write either
+// records an identity or fails; it never produces a file that means nothing.
+func TestWriteMarkerRejectsEmptyID(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := WriteMarker(dir, ""); err == nil {
+		t.Fatal("WriteMarker(dir, \"\") = nil — want an error, not a marker with no identity")
+	}
+	p := markerPathOf(t, dir)
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("WriteMarker(dir, \"\") left a file at %s (stat err = %v)", p, err)
+	}
+}
+
+// The same guard must reject an id ReadMarker would refuse on the way back
+// in: a marker whose content the reader rejects is a write that has already
+// failed, it just fails later and somewhere else.
+func TestWriteMarkerRejectsCraftedID(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := WriteMarker(dir, "../../../escape"); err == nil {
+		t.Fatal("WriteMarker(dir, \"../../../escape\") = nil — want the same rejection ReadMarker applies")
+	}
+	if _, err := os.Stat(markerPathOf(t, dir)); !os.IsNotExist(err) {
+		t.Fatalf("crafted id was written to disk (stat err = %v)", err)
+	}
+}

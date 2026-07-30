@@ -79,12 +79,16 @@ type fakeChatServerStream struct {
 	ctx     context.Context
 	recv    []*ChatInput
 	recvIdx int
+	recvErr error // returned once the canned inputs run out, instead of io.EOF
 	mu      sync.Mutex
 	sent    []*ChatEvent
 }
 
 func (s *fakeChatServerStream) Recv() (*ChatInput, error) {
 	if s.recvIdx >= len(s.recv) {
+		if s.recvErr != nil {
+			return nil, s.recvErr
+		}
 		return nil, io.EOF
 	}
 	in := s.recv[s.recvIdx]
@@ -146,13 +150,49 @@ func TestGRPCServer_Chat_UnimplementedWhenBackendLacksCapability(t *testing.T) {
 	assert.Equal(t, codes.Unimplemented, status.Code(err))
 }
 
+// TestGRPCServer_Chat_FirstMessageMustBeStart pins U059-F04 alongside the
+// original rejection: a first frame that carries no start is the CLIENT's
+// protocol violation, and a bare fmt.Errorf reaches the client as
+// codes.Unknown — indistinguishable from "the transport died". The same
+// function already proves the right shape three lines down, where a backend
+// without the capability returns codes.Unimplemented.
 func TestGRPCServer_Chat_FirstMessageMustBeStart(t *testing.T) {
 	srv := &GRPCServer{Impl: &chatBackend{fakeBackend: fakeBackend{name: "claude-code"}}}
 	stream := &fakeChatServerStream{
 		ctx:  context.Background(),
 		recv: []*ChatInput{{Input: &ChatInput_UserMessage{UserMessage: &ChatUserMessage{Text: "no start"}}}},
 	}
-	require.Error(t, srv.Chat(stream))
+	err := srv.Chat(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// TestGRPCServer_Chat_ClosedBeforeStartIsInvalidArgument covers the other
+// protocol violation on the same frame: the client half-closed without ever
+// sending a start. That is a malformed conversation, not a transport failure.
+func TestGRPCServer_Chat_ClosedBeforeStartIsInvalidArgument(t *testing.T) {
+	srv := &GRPCServer{Impl: &chatBackend{fakeBackend: fakeBackend{name: "claude-code"}}}
+	stream := &fakeChatServerStream{ctx: context.Background()}
+
+	err := srv.Chat(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// TestGRPCServer_Chat_RecvTransportErrorKeepsItsCode is the complement: when
+// the failure really IS the transport, its status code must survive to the
+// client rather than being flattened into Unknown by an fmt.Errorf wrap.
+func TestGRPCServer_Chat_RecvTransportErrorKeepsItsCode(t *testing.T) {
+	srv := &GRPCServer{Impl: &chatBackend{fakeBackend: fakeBackend{name: "claude-code"}}}
+	stream := &fakeChatServerStream{
+		ctx:     context.Background(),
+		recvErr: status.Error(codes.Canceled, "client went away"),
+	}
+
+	err := srv.Chat(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.Canceled, status.Code(err))
+	assert.Contains(t, err.Error(), "client went away")
 }
 
 // fakeChatClientStream implements the bidi client stream for GRPCClient.Chat.

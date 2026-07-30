@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -256,11 +257,17 @@ func chatSessionInfoFromProto(p *ChatSessionInfo) *agent.ChatSessionInfo {
 func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 	first, err := stream.Recv()
 	if err != nil {
+		// A client that half-closes before sending anything violated the
+		// protocol; anything else is the transport failing, and its own status
+		// code is the one the client needs to see.
+		if errors.Is(err, io.EOF) {
+			return status.Error(codes.InvalidArgument, "chat stream closed before the required start message")
+		}
 		return fmt.Errorf("receive chat start: %w", err)
 	}
 	start := first.GetStart()
 	if start == nil {
-		return fmt.Errorf("first Chat message must carry start")
+		return status.Error(codes.InvalidArgument, "first Chat message must carry start")
 	}
 
 	chat, ok := s.Impl.(agent.StructuredChat)

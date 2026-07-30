@@ -306,7 +306,17 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 
 	for ev := range out {
 		if serr := stream.Send(chatEventToProto(ev)); serr != nil {
-			return serr // client gone; stream ctx cancels, chat unwinds
+			// Client gone; the stream ctx cancels and chat unwinds. Keep
+			// consuming `out` until the backend closes it: a backend that
+			// writes to `out` with a plain channel send (no ctx select — the
+			// capability never required one) would otherwise stay blocked on
+			// that send forever, leaking a goroutine and the whole engine
+			// session it holds.
+			go func() {
+				for range out { //nolint:revive // draining, the values are unwanted
+				}
+			}()
+			return serr
 		}
 	}
 	return <-chatErr

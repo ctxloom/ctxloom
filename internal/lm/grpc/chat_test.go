@@ -81,6 +81,7 @@ type fakeChatServerStream struct {
 	recv    []*ChatInput
 	recvIdx int
 	recvErr error // returned once the canned inputs run out, instead of io.EOF
+	sendErr error // non-nil: every Send fails (the client went away)
 	mu      sync.Mutex
 	sent    []*ChatEvent
 }
@@ -98,8 +99,11 @@ func (s *fakeChatServerStream) Recv() (*ChatInput, error) {
 }
 func (s *fakeChatServerStream) Send(ev *ChatEvent) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sendErr != nil {
+		return s.sendErr
+	}
 	s.sent = append(s.sent, ev)
-	s.mu.Unlock()
 	return nil
 }
 func (s *fakeChatServerStream) sentEvents() []*ChatEvent {
@@ -178,6 +182,57 @@ func TestGRPCServer_Chat_ClosedBeforeStartIsInvalidArgument(t *testing.T) {
 	err := srv.Chat(stream)
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// ctxObliviousChatBackend writes a fixed number of events to `out` with a plain
+// channel send — no select on ctx. A backend is allowed to be written this way
+// (the capability contract never promised otherwise), and a real one that
+// streams a burst of tokens between ctx checks behaves identically for the
+// duration of the burst.
+type ctxObliviousChatBackend struct {
+	fakeBackend
+	events   int
+	finished chan struct{}
+}
+
+func (b *ctxObliviousChatBackend) Chat(_ context.Context, _ agent.ChatRequest, _ <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+	defer close(b.finished)
+	defer close(out)
+	for i := 0; i < b.events; i++ {
+		out <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "token"}}
+	}
+	return nil
+}
+
+var _ agent.StructuredChat = (*ctxObliviousChatBackend)(nil)
+
+// TestGRPCServer_Chat_SendFailureDrainsBackendOutput pins U059-F12: when the
+// client went away, the server returned from its `for ev := range out` loop
+// immediately and never read `out` again. A backend mid-burst was left blocked
+// on a channel send forever — a leaked goroutine holding the whole engine
+// session, per abandoned chat. The handler must keep draining until the backend
+// closes `out`.
+func TestGRPCServer_Chat_SendFailureDrainsBackendOutput(t *testing.T) {
+	backend := &ctxObliviousChatBackend{
+		fakeBackend: fakeBackend{name: "claude-code"},
+		events:      8,
+		finished:    make(chan struct{}),
+	}
+	srv := &GRPCServer{Impl: backend}
+	stream := &fakeChatServerStream{
+		ctx:     context.Background(),
+		recv:    []*ChatInput{{Input: &ChatInput_Start{Start: &ChatStart{}}}},
+		sendErr: errors.New("client went away"),
+	}
+
+	err := srv.Chat(stream)
+	require.Error(t, err, "the send failure is still the handler's error")
+
+	select {
+	case <-backend.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the backend's Chat never returned: its output channel was abandoned with a producer still blocked on it")
+	}
 }
 
 // TestGRPCServer_Chat_RecvTransportErrorKeepsItsCode is the complement: when

@@ -136,20 +136,24 @@ func writeRunStartHandoff(harp string, req *pb.RunStart) (string, error) {
 	return path, nil
 }
 
-// readRunStartHandoff decodes the RunStart the host wrote and DELETES the file
-// so the payload does not linger in the bind-mounted dir. A missing/corrupt
-// file is a loud error — never a silent empty RunStart (which would run the
-// engine context-free, the project's signature silent-no-op).
+// readRunStartHandoff decodes the RunStart the host wrote and, ON SUCCESS,
+// DELETES the file so the payload does not linger in the bind-mounted dir. A
+// missing/corrupt file is a loud error — never a silent empty RunStart (which
+// would run the engine context-free, the project's signature silent-no-op).
+//
+// The unlink is deliberately NOT deferred: it scrubs a payload that reached the
+// engine, so a payload that failed to decode must survive as the only evidence
+// of why the turn failed and the only way to reproduce it.
 func readRunStartHandoff(path string) (*pb.RunStart, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("run-start handoff: read %s: %w", path, err)
 	}
-	defer func() { _ = os.Remove(path) }()
 	var req pb.RunStart
 	if err := protojson.Unmarshal(data, &req); err != nil {
 		return nil, fmt.Errorf("run-start handoff: decode %s: %w", path, err)
 	}
+	_ = os.Remove(path)
 	return &req, nil
 }
 

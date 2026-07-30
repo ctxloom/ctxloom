@@ -64,3 +64,20 @@ func TestReadRunStartHandoff_MissingFileErrors(t *testing.T) {
 	_, err := readRunStartHandoff(filepath.Join(t.TempDir(), "nope.json"))
 	require.Error(t, err)
 }
+
+// TestReadRunStartHandoff_CorruptFileIsPreserved pins U037-F24: the unlink was
+// registered as a `defer` BEFORE the decode, so a handoff whose bytes are
+// malformed got deleted on the way out — destroying the only evidence of why
+// the turn failed and making the failure unreproducible. The delete is a
+// privacy measure for a payload that DID reach the engine; a payload that
+// never decoded has nothing to scrub and everything to explain.
+func TestReadRunStartHandoff_CorruptFileIsPreserved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runstart.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"options": not-json`), 0o600))
+
+	_, err := readRunStartHandoff(path)
+	require.Error(t, err, "a corrupt handoff must be a loud error")
+
+	_, statErr := os.Stat(path)
+	assert.NoError(t, statErr, "a corrupt handoff must survive the failed read as evidence")
+}

@@ -494,3 +494,53 @@ func readJSON(t *testing.T, path string) map[string]any {
 	require.NoError(t, json.Unmarshal(data, &m))
 	return m
 }
+
+// TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin U032-F08 asks for
+// without asking for it. The row reads fileTemplateDelivery's three
+// surface-scoped fields (mcpCommandOverride, denyTools, selfContainedCommands)
+// as a coupling defect because the constructor cannot set them and a missed
+// assignment is compile-clean. The assignments are real and each is
+// exactly-once, but "compile-clean if missed" is a TEST gap, not a constructor
+// problem — a functional-options constructor is just as silently omittable.
+//
+// So this closes the gap: all three inputs are driven from SurfaceInputs through
+// NewSurfaces and asserted on the delivered PAYLOAD. Two were already covered
+// elsewhere (the delivery parity gate for the MCP command override, the Setup
+// deny-tools tests); selfContainedCommands had no surface-level coverage at all,
+// which is precisely the field whose omission would silently drop commands from
+// a portable materialize target.
+func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
+	writeRenderedHomeCommand(t, fakeHome, dup)
+
+	in := sampleInputs()
+	in.Commands = []agent.CommandExport{dup}
+	in.SelfContainedCommands = true
+	in.MCPCommandOverride = "/usr/local/bin/ctxloom"
+	in.DenyTools = []string{"Task"}
+
+	dir := t.TempDir()
+	s := NewSurfaces(in, dirPlacement{dir: dir}, nil)
+
+	_, err := s.Commands.Deliver(dir)
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "recover.md"),
+		"SelfContainedCommands must reach the commands writer — otherwise a portable target silently loses "+
+			"every command that happens to exist in the delivering machine's home")
+
+	_, err = s.MCP.Deliver(dir)
+	require.NoError(t, err)
+	mcpData, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(mcpData), "/usr/local/bin/ctxloom",
+		"MCPCommandOverride must reach the ctxloom-managed server's command")
+
+	_, err = s.Settings.Deliver(dir)
+	require.NoError(t, err)
+	settingsData, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(settingsData), "Task", "DenyTools must reach permissions.deny")
+}

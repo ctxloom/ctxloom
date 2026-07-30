@@ -52,3 +52,43 @@ func TestNoteTaskProject_RendersTheSharedLabelNotATransposition(t *testing.T) {
 	assert.NotContains(t, got, formatProjectLabel("an-id", "/p/dir"),
 		"the arguments are transposed: the directory and the id have swapped places")
 }
+
+// TestRootCommandTree_ShipsEveryCommandAndInitOrderNeverReachesTheUser is
+// U007-F24's pin. Twelve init() functions in twelve files each mutate the one
+// package-level rootCmd, so the command surface is assembled by a convention
+// (Go runs init() in filename order) that nothing checks. Two things follow,
+// and this pins both.
+//
+// First, a lost or renamed init() silently ships a CLI missing a command:
+// nothing else in the package names the whole surface, so the expected set is
+// written down here and a disappearance is red.
+//
+// Second, filename order must not be OBSERVABLE. cobra sorts subcommands for
+// help, so the order twelve inits happen to run in never reaches the user —
+// which is the reason the arrangement has survived, and is worth holding
+// rather than assuming.
+//
+// The tree is completed the way main() completes it: newLoadoutCmd is a
+// factory added at run time rather than by an init(), so rootCmd alone — what
+// every other test in this package walks — is NOT the tree the binary ships.
+func TestRootCommandTree_ShipsEveryCommandAndInitOrderNeverReachesTheUser(t *testing.T) {
+	loadout := newLoadoutCmd()
+	rootCmd.AddCommand(loadout)
+	t.Cleanup(func() { rootCmd.RemoveCommand(loadout) })
+
+	got := make([]string, 0, len(rootCmd.Commands()))
+	for _, c := range rootCmd.Commands() {
+		got = append(got, c.Name())
+	}
+
+	for _, want := range []string{
+		"add", "edit", "lint", "list", "loadout", "manage", "mcp", "plan",
+		"repair", "run", "show", "status", "statuses", "summary", "tag",
+		"tags", "version", "watch",
+	} {
+		assert.Contains(t, got, want, "a command vanished from the tree twelve init() functions assemble")
+	}
+
+	assert.True(t, sort.StringsAreSorted(got),
+		"cobra must present subcommands sorted, so the order the init() functions ran in is invisible to the user: %v", got)
+}

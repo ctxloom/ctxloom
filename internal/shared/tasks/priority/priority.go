@@ -479,12 +479,12 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 	return out
 }
 
-// isTerminal reports whether status is one of the completed statuses
-// (Done/Archived) — the tasks package's own statusIsDone predicate isn't
-// exported, so this mirrors it against the two exported status constants
-// rather than importing an internal helper.
+// isTerminal reports whether status is one of the completed statuses. The
+// store owns that taxonomy (tasks.Statuses's Terminal flag is derived from
+// the same predicate), so this defers to it rather than re-deciding it:
+// a status added there is classified here without a second edit.
 func isTerminal(status string) bool {
-	return status == tasks.StatusDone || status == tasks.StatusArchived
+	return tasks.IsTerminalStatus(status)
 }
 
 // rankNormalize maps every id in population to a percentile-based [0,Max]

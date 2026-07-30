@@ -228,7 +228,7 @@ func (f *folded) apply(ev Event) error {
 			Trigger:       strings.TrimSpace(ev.Trigger),
 			OriginSession: ev.Session,
 		}
-		t.Checked = statusIsDone(t.Status)
+		t.Checked = IsTerminalStatus(t.Status)
 		t.TextHash = hashText(t.Text)
 		t.Tags = normalizeTags(ev.Tags)
 		t.CreatedAt = ev.Ts
@@ -248,7 +248,7 @@ func (f *folded) apply(ev Event) error {
 	case opStatus:
 		if t := f.byID[ev.Task]; t != nil {
 			t.Status = ev.Status
-			t.Checked = statusIsDone(ev.Status)
+			t.Checked = IsTerminalStatus(ev.Status)
 			// A status event only carries a trigger when one was (re)set; an
 			// empty trigger never clears an existing condition.
 			if tr := strings.TrimSpace(ev.Trigger); tr != "" {
@@ -427,7 +427,7 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 		HarpID:        id,
 		Text:          text,
 		Status:        status,
-		Checked:       statusIsDone(status),
+		Checked:       IsTerminalStatus(status),
 		TextHash:      hashText(text),
 		Trigger:       trigger,
 		OriginSession: l.session,
@@ -471,7 +471,7 @@ func (l *eventLog) setStatus(harpID, status, trigger string) (Task, error) {
 	}
 	out := *t
 	out.Status = status
-	out.Checked = statusIsDone(status)
+	out.Checked = IsTerminalStatus(status)
 	out.Trigger = effective
 	return out, nil
 }

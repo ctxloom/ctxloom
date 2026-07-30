@@ -80,9 +80,9 @@ func TestTriggerRoundTrips(t *testing.T) {
 }
 
 func TestDeferredStatusIsNotChecked(t *testing.T) {
-	assert.False(t, statusIsDone(StatusDeferred))
-	assert.True(t, statusIsDone(StatusDone))
-	assert.True(t, statusIsDone(StatusArchived))
+	assert.False(t, IsTerminalStatus(StatusDeferred))
+	assert.True(t, IsTerminalStatus(StatusDone))
+	assert.True(t, IsTerminalStatus(StatusArchived))
 }
 
 func TestSetTextReplacesInPlace(t *testing.T) {

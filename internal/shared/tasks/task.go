@@ -51,7 +51,7 @@ func Statuses() []StatusInfo {
 		out[i] = StatusInfo{
 			Name:            name,
 			Order:           i,
-			Terminal:        statusIsDone(name),
+			Terminal:        IsTerminalStatus(name),
 			RequiresTrigger: name == StatusDeferred,
 		}
 	}
@@ -136,7 +136,14 @@ func effectiveTrigger(newTrigger, existing string) string {
 	return existing
 }
 
-func statusIsDone(status string) bool {
+// IsTerminalStatus reports whether status is one of the completed statuses
+// (Done/Archived) — the same answer StatusInfo.Terminal carries in the
+// taxonomy Statuses() publishes, in predicate form for callers that hold a
+// status string rather than the taxonomy. It is exported because it is not
+// derivable from the exported surface without re-deciding which statuses are
+// terminal, which is how the read-time priority package came to carry a
+// hand-maintained second copy of it.
+func IsTerminalStatus(status string) bool {
 	return status == StatusDone || status == StatusArchived
 }
 

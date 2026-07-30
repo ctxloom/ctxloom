@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,268** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,269** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 116 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 166 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **553** |
+| `open` | no commit names this ID | **552** |
 
-**Totals: 2268 findings across 162 units — 1,268 resolved, 553 still open, 447 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,269 resolved, 552 still open, 447 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 446 | 306 | 65 | 78 | 104 |
-| LOW | 871 | 465 | 235 | 36 | 80 | 55 |
+| LOW | 871 | 466 | 234 | 36 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2002,7 +2002,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U007-F20 | **RESOLVED** `5fdf8767` | **`commands.go:128-136`** | TRIVIAL | `runListCmd`'s doc comment is attached to the wrong declaration: the comment block that begins "runListCmd is listCmd's RunE body…" runs straight into "listOptions bundles…" and lands on `type list... | U007.md |
 | U007-F21 | **RESOLVED** `2679e571` | **`commands.go:659/675/677, lint.go:87, plan.go:66`** | COUPLING | The `--json` shorthand is registered on 5 commands and absent from 7 others, so the same shorthand works or fails depending on which subcommand you type | U007.md |
 | U007-F22 | **RESOLVED** `6821b9f4` | **`commands.go:174-181 ≡ mcp_tools.go:202-208; scope.go:53, commands.go:247, mcp_tools.go:258-269`** | DUPLICATE | The global-notice composition is copy-pasted verbatim (8 lines, both branches identical), and the compact/full row projection is written three times: `compactRows`, `compactTasksOf`, and an inline ... | U007.md |
-| U007-F23 | open | **`root.go:96 + scope.go:96`** | COUPLING | The working directory is resolved twice per list: `taskContext` calls `workdir.Resolve()`, then `resolveListScope` — which is *handed* the resolved `workDir` — calls `workdir.ResolveBoundary()` aga... | U007.md |
+| U007-F23 | **RESOLVED** `c0bbe476` | **`root.go:96 + scope.go:96`** | COUPLING | The working directory is resolved twice per list: `taskContext` calls `workdir.Resolve()`, then `resolveListScope` — which is *handed* the resolved `workDir` — calls `workdir.ResolveBoundary()` aga... | U007.md |
 | U007-F24 | open | **`root.go:64, commands.go:655, format.go:10, lint.go:86, plan.go:65, manage.go:203, mcp.go:54, run.go:78 (+3 in U008's files)`** | COHESION | Eleven `init()` functions across the package mutate one package-level `rootCmd`, making registration order a filename-ordering convention. `main.go:12-14` explicitly calls this fragility out for `n... | U007.md |
 | U008-F05 | **RESOLVED** `e7ef2c9d` | `version.go:24` | DUPLICATE | The program name is a bare `"taskloom"` string literal, where both sibling binaries define a constant for it — `cmd/harp/root.go:16` and `cmd/ltk/paths.go:7` each declare `const progName`. Package-... | U008.md |
 | U009-F04 | **RESOLVED** `e479306b` | **`main.go:30`** | COUPLING | The validated path is relative to the process CWD, so the gate is silently a no-op when run from anywhere but the repo root — including any future recipe that changes directory first. Nothing check... | U009.md |

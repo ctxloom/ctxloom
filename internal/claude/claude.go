@@ -352,6 +352,22 @@ func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what st
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 
+// preserveFailure refuses a write that could not carry a preserved field
+// through. Every key in settings.json is user-authored unless ctxloom manages
+// it by name, so emitting the document without one is silent data loss on the
+// user's own file — and for a permissions.* sibling, silent data loss on a
+// security surface. Returning here leaves the file exactly as it was, the same
+// stance loadSettings takes on a block it cannot parse.
+//
+// The bytes always ARE valid JSON (they were lifted out of a document that
+// parsed), but valid JSON is not always decodable into `any`: a number outside
+// float64's range is the reachable case, and the value has to survive it.
+func preserveFailure(path, key string, cause error) error {
+	return fmt.Errorf("refusing to write %s: cannot re-encode the existing %q setting: %w "+
+		"(it would be dropped from the file; edit that value by hand to a form ctxloom can preserve)",
+		path, key, cause)
+}
+
 // saveSettings writes settings back to settings.json.
 // Note: MCP servers are written separately to .mcp.json
 //
@@ -364,8 +380,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	for k, v := range settings.Other {
 		var val interface{}
 		if err := json.Unmarshal(v, &val); err != nil {
-			agent.Warn("failed to preserve setting %q: %v", k, err)
-			continue // Skip corrupted field
+			return preserveFailure(path, k, err)
 		}
 		output[k] = val
 	}
@@ -388,8 +403,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		for k, v := range settings.Permissions.Other {
 			var val interface{}
 			if err := json.Unmarshal(v, &val); err != nil {
-				agent.Warn("failed to preserve permissions.%s: %v", k, err)
-				continue
+				return preserveFailure(path, "permissions."+k, err)
 			}
 			permOut[k] = val
 		}

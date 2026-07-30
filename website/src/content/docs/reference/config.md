@@ -66,7 +66,7 @@ Schema for ctxloom config.yaml files
 | `action` | string | **Required.** The rung's disposition. Allowed values: `auto_accept`, `auto_decline`, `relay_to_role`, `surface_to_human`. |
 | `kinds` | string[] | ApprovalRequest kinds this rung matches. Empty matches every kind (a catch-all rung). |
 | `role` | string | The relay_to_role/surface_to_human target. Only "parent" is addressable in this window (flat-hub topology); empty defaults to "parent". Not meaningful for auto_accept/auto_decline. |
-| `timeout` | string | Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. "5m"). Empty uses the resolver's default. Ignored by auto_accept/auto_decline. |
+| `timeout` | string | Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. "5m"). Empty uses the resolver's default. Refused on auto_accept/auto_decline, which resolve immediately. |
 
 ### config
 

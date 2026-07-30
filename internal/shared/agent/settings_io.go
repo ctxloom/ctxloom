@@ -66,10 +66,13 @@ func ResolveMCPCommand(override string) string {
 	return CtxloomCommand()
 }
 
-// SettingsOptions configures a settings-writing operation.
+// SettingsOptions configures a settings-writing operation. It carries the
+// filesystem seam and nothing else: per-engine POLICY (which surfaces are
+// managed, whether the HUD statusline is one of them) rides the surfaces ×
+// cells seam — see agent.SettingsDelivery.DeliverSettings — not this struct,
+// which is shared by every backend.
 type SettingsOptions struct {
-	FS                 afero.Fs // filesystem to use; nil means the real OS filesystem
-	StatusLineDisabled bool     // opt out of managing the ctxloom HUD statusline
+	FS afero.Fs // filesystem to use; nil means the real OS filesystem
 }
 
 // SettingsOption is a functional option for settings operations.
@@ -79,13 +82,6 @@ type SettingsOption func(*SettingsOptions)
 // provided, the real OS filesystem is used.
 func WithSettingsFS(fs afero.Fs) SettingsOption {
 	return func(o *SettingsOptions) { o.FS = fs }
-}
-
-// WithStatusLineDisabled controls whether the ctxloom HUD statusline is managed.
-// When disabled, the writer installs no statusline and clears any it previously
-// managed, so the user's own (or no) statusline stands.
-func WithStatusLineDisabled(disabled bool) SettingsOption {
-	return func(o *SettingsOptions) { o.StatusLineDisabled = disabled }
 }
 
 // GetFS returns fs, or the OS filesystem when fs is nil.

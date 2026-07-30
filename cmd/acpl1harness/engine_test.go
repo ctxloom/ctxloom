@@ -197,3 +197,68 @@ func recvEvent(t *testing.T, events <-chan agent.ChatEvent) agent.ChatEvent {
 		return agent.ChatEvent{}
 	}
 }
+
+// TestRunTurn_TornDownTurnNeverCompletesWithoutItsAnswer pins U001-F04: a turn
+// must never report completion having silently dropped the answer that
+// completion is about.
+//
+// emit returns false when the session died before the event could be delivered.
+// Where that answer is DISCARDED, the following completion emit still runs, and
+// emit's select is genuinely nondeterministic once the context is done and the
+// buffer has room — so the answer can be dropped while the "end_turn" that
+// follows it is delivered. That is this codebase's characteristic failure shape:
+// a successful-looking completion carrying nothing. Checking emit's result and
+// returning makes the pair atomic in the only sense that matters — no
+// completion without its answer.
+func TestRunTurn_TornDownTurnNeverCompletesWithoutItsAnswer(t *testing.T) {
+	for i := range 500 {
+		ctx, cancel := context.WithCancel(context.Background())
+		chat, err := openHarnessEngine(ctx, operations.OpenRequest{})
+		if err != nil {
+			cancel()
+			t.Fatalf("openHarnessEngine: %v", err)
+		}
+
+		chat.In <- agent.ChatMessage{Text: sentinelTerminal}
+		if ev := recvEvent(t, chat.Events); ev.Terminal == nil {
+			cancel()
+			chat.Close()
+			t.Fatalf("first event = %+v, want the brokered terminal request", ev)
+		}
+
+		// Race the editor's answer against session teardown, so the turn can
+		// reach its answer emit with the context ALREADY dead and the events
+		// buffer still roomy — the state in which emit's select is genuinely
+		// nondeterministic and a discarded false lets the completion through
+		// on its own.
+		go func() {
+			select {
+			case chat.In <- agent.ChatMessage{Terminal: &agent.TerminalResponse{ID: terminalTestID, Result: []byte(`{"terminalId":"t1"}`)}}:
+			case <-time.After(time.Second):
+			}
+		}()
+		cancel()
+
+		// Close waits for the scripting goroutine to exit and then closes
+		// events, so draining to closure sees exactly what the turn emitted.
+		chat.Close()
+		sawAnswer, sawCompletion := drainToClose(chat.Events)
+		if sawCompletion && !sawAnswer {
+			t.Fatalf("iteration %d: turn reported completion with its answer silently dropped", i)
+		}
+	}
+}
+
+// drainToClose reads a closed-on-teardown events channel to exhaustion,
+// reporting whether an answer entry and a completion were emitted.
+func drainToClose(events <-chan agent.ChatEvent) (answer, completion bool) {
+	for ev := range events {
+		if ev.Entry != nil {
+			answer = true
+		}
+		if ev.Complete != nil {
+			completion = true
+		}
+	}
+	return answer, completion
+}

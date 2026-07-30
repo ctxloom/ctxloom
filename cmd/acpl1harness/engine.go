@@ -261,7 +261,9 @@ func runPermissionTurn(ctx context.Context, in <-chan agent.ChatMessage, events 
 	case <-ctx.Done():
 		return
 	case m, ok := <-in:
-		emit(ctx, events, assistantEntry(permissionAnswer(m, ok)))
+		if !emit(ctx, events, assistantEntry(permissionAnswer(m, ok))) {
+			return
+		}
 	}
 	emit(ctx, events, completeTurn("end_turn"))
 }
@@ -293,7 +295,9 @@ func runTerminalTurn(ctx context.Context, in <-chan agent.ChatMessage, events ch
 	case <-ctx.Done():
 		return
 	case m, ok := <-in:
-		emit(ctx, events, assistantEntry(terminalAnswer(m, ok)))
+		if !emit(ctx, events, assistantEntry(terminalAnswer(m, ok))) {
+			return
+		}
 	}
 	emit(ctx, events, completeTurn("end_turn"))
 }
@@ -312,7 +316,15 @@ func terminalAnswer(m agent.ChatMessage, ok bool) string {
 }
 
 // emit sends one event, returning false if ctx died first (session torn down
-// mid-turn — the caller should stop scripting further events).
+// mid-turn).
+//
+// THE RULE, which every scripted arm follows: a false result MUST end the turn.
+// Any event still to come is part of the same answer, and once the session is
+// gone the two are no longer delivered together — emit's select is genuinely
+// nondeterministic while the context is done and the buffer has room, so
+// continuing past a false can deliver a turn COMPLETION whose answer was
+// dropped. The only unchecked emit in an arm is therefore its last one, where
+// nothing follows to guard.
 func emit(ctx context.Context, events chan<- agent.ChatEvent, ev agent.ChatEvent) bool {
 	select {
 	case events <- ev:

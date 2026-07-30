@@ -274,8 +274,18 @@ type chatSessionJSON struct {
 	MCPServers     []chatMCPJSON `json:"mcpServers,omitempty"`
 }
 
+// chatEventType* are the NDJSON contract's discriminator values. The frontend
+// switches on this field, so they are a published vocabulary — named here so
+// every producer of the feed is linked to it by the compiler rather than by
+// two files happening to spell the same word.
+const (
+	chatEventTypeEntry    = "entry"
+	chatEventTypeComplete = "complete"
+	chatEventTypeSession  = "session"
+)
+
 type chatEventJSON struct {
-	Type     string            `json:"type"` // entry | complete | session
+	Type     string            `json:"type"` // chatEventType*
 	Entry    *chatEntryJSON    `json:"entry,omitempty"`
 	Complete *chatCompleteJSON `json:"complete,omitempty"`
 	Session  *chatSessionJSON  `json:"session,omitempty"`
@@ -285,7 +295,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 	switch {
 	case ev.Entry != nil:
 		e := ev.Entry
-		return chatEventJSON{Type: "entry", Entry: &chatEntryJSON{
+		return chatEventJSON{Type: chatEventTypeEntry, Entry: &chatEntryJSON{
 			Type:          string(e.Type),
 			Timestamp:     rfc3339OrEmpty(e.Timestamp),
 			Content:       e.Content,
@@ -304,7 +314,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 		}}
 	case ev.Complete != nil:
 		c := ev.Complete
-		return chatEventJSON{Type: "complete", Complete: &chatCompleteJSON{
+		return chatEventJSON{Type: chatEventTypeComplete, Complete: &chatCompleteJSON{
 			InputTokens:         c.InputTokens,
 			OutputTokens:        c.OutputTokens,
 			CacheReadTokens:     c.CacheReadTokens,
@@ -329,7 +339,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 		for _, m := range s.MCPServers {
 			out.MCPServers = append(out.MCPServers, chatMCPJSON{Name: m.Name, Status: m.Status})
 		}
-		return chatEventJSON{Type: "session", Session: out}
+		return chatEventJSON{Type: chatEventTypeSession, Session: out}
 	default:
 		return chatEventJSON{}
 	}

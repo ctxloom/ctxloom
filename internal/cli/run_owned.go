@@ -293,7 +293,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				}
 				switch format {
 				case formatJSON:
-					if err := enc.Encode(chatEventJSON{Type: "entry", Entry: &chatEntryJSON{
+					if err := enc.Encode(chatEventJSON{Type: chatEventTypeEntry, Entry: &chatEntryJSON{
 						Type: string(agent.EntryTypeAssistant), Content: text,
 					}}); err != nil {
 						return answer.String(), err

@@ -173,9 +173,20 @@ func (b *treeBundle) Refs(ctx context.Context, kinds ...trust.ItemKind) ([]trust
 		if len(wanted) > 0 && !wanted[t.Dir()] {
 			continue
 		}
-		candidates, err := b.candidates(t)
+		candidates, unclaimed, err := b.candidates(t)
 		if err != nil {
 			return nil, err
+		}
+		// FAIL LOUD. A file inside a kind directory that no SurfaceType claims
+		// used to be dropped in silence, which is two bugs wearing one coat: a
+		// mis-extensioned hook (guard.yml) simply vanishes — the withheld
+		// pre_tool guardrail this design exists to prevent, reachable by typo —
+		// and an added file is never enumerated, so nothing ever covers it.
+		// Refusing to enumerate at all is the only answer that cannot be
+		// ignored.
+		if len(unclaimed) > 0 {
+			return nil, fmt.Errorf("%w: bundle %q has %d file(s) under %s/ that no surface type recognises: %s",
+				ErrUnclaimed, b.id, len(unclaimed), t.Dir(), strings.Join(unclaimed, ", "))
 		}
 		for _, src := range candidates {
 			ref, err := t.RefFor(string(b.id), src)
@@ -265,9 +276,93 @@ func (b *treeBundle) group(relDir, stem string) ([]string, error) {
 	return paths, nil
 }
 
-// candidates enumerates every candidate group under a type's directory.
-func (b *treeBundle) candidates(t SurfaceType) ([]*treeSource, error) {
-	return b.walk(t, t.Dir(), 0)
+// candidates enumerates every candidate group under a type's directory, and —
+// separately — every file under it that ended up in no group at all.
+//
+// The unclaimed set is computed by SUBTRACTION rather than by threading a
+// reject list through the recursion: every file under the kind directory, minus
+// every file some accepted candidate claimed. Subtraction is what makes the
+// answer complete by construction — a file cannot be missed by forgetting to
+// report it at one of the walk's several decline points, and a file below the
+// depth cap is reported too rather than being silently out of reach.
+func (b *treeBundle) candidates(t SurfaceType) ([]*treeSource, []string, error) {
+	out, err := b.walk(t, t.Dir(), 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	all, err := b.filesUnder(t.Dir())
+	if err != nil {
+		return nil, nil, err
+	}
+	claimed := make(map[string]struct{}, len(all))
+	for _, src := range out {
+		paths, err := src.List()
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, p := range paths {
+			claimed[p] = struct{}{}
+		}
+	}
+	var unclaimed []string
+	for _, p := range all {
+		if _, ok := claimed[p]; !ok {
+			unclaimed = append(unclaimed, p)
+		}
+	}
+	sort.Strings(unclaimed)
+	return out, unclaimed, nil
+}
+
+// Files enumerates every file in the bundle. See Bundle.Files for why this is
+// total and applies no exemption of its own.
+func (b *treeBundle) Files(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return b.filesUnder(".")
+}
+
+// ReadFile returns one file's bytes, refusing any path that escapes the bundle.
+func (b *treeBundle) ReadFile(ctx context.Context, relPath string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateDigestPath(relPath); err != nil {
+		return nil, err
+	}
+	data, err := afero.ReadFile(b.store.fsys, b.abs(relPath))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s/%s", ErrNotFound, b.id, relPath)
+		}
+		return nil, fmt.Errorf("content: reading %q: %w", relPath, err)
+	}
+	return data, nil
+}
+
+// Manifest reads and parses the bundle manifest.
+func (b *treeBundle) Manifest(ctx context.Context) (Manifest, error) {
+	raw, err := b.ReadFile(ctx, ManifestPath)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Manifest{}, fmt.Errorf("%w: %s", ErrManifestMissing, b.id)
+		}
+		return Manifest{}, err
+	}
+	m, err := ParseManifest(raw)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("%s: %w", b.id, err)
+	}
+	return m, nil
+}
+
+// BundleSignatures returns the signature bytes filed against the manifest.
+func (b *treeBundle) BundleSignatures(ctx context.Context) (SigSet, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return readSignatures(b.store.fsys, b.dir, BundleSigKey)
 }
 
 // walk groups the files under relDir into candidates and asks the type to claim
@@ -364,7 +459,7 @@ func (b *treeBundle) filesUnder(relDir string) ([]string, error) {
 		if relErr != nil {
 			return relErr
 		}
-		out = append(out, relDir+"/"+filepath.ToSlash(rel))
+		out = append(out, path.Join(relDir, filepath.ToSlash(rel)))
 		return nil
 	})
 	if err != nil {

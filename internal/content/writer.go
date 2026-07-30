@@ -184,3 +184,57 @@ func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.F
 	}
 	return writeSignature(s.fsys, filepath.Join(s.root, ref.Bundle), contentKey(digest), ns, sig)
 }
+
+// PutManifest writes a bundle's manifest.
+//
+// An empty manifest is refused rather than written: its bytes would be just the
+// version marker, a constant shared by every empty bundle, so one bundle's
+// signature over it would verify another's. Writing nothing while reporting
+// success is this project's characteristic failure and is exactly what a
+// zero-value Manifest would produce here.
+func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateBundleID(id); err != nil {
+		return err
+	}
+	if m.IsZero() {
+		return fmt.Errorf("content: refusing to write an empty manifest for bundle %q", id)
+	}
+	bundleDir := filepath.Join(s.root, string(id))
+	ok, err := afero.DirExists(s.fsys, bundleDir)
+	if err != nil {
+		return fmt.Errorf("content: opening bundle %q: %w", id, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
+	}
+	target := filepath.Join(bundleDir, ManifestPath)
+	if err := afero.WriteFile(s.fsys, target, m.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("content: writing manifest %q: %w", target, err)
+	}
+	return nil
+}
+
+// PutBundleSignature stores signature bytes over the bundle's manifest.
+//
+// It files them under the FIXED BundleSigKey rather than a content-derived one
+// — see BundleSigKey for why the bundle level diverges from content-keying.
+func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, sig []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateBundleID(id); err != nil {
+		return err
+	}
+	bundleDir := filepath.Join(s.root, string(id))
+	ok, err := afero.DirExists(s.fsys, bundleDir)
+	if err != nil {
+		return fmt.Errorf("content: opening bundle %q: %w", id, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
+	}
+	return writeSignature(s.fsys, bundleDir, BundleSigKey, ns, sig)
+}

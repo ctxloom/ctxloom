@@ -73,6 +73,16 @@ func Digest(components []Component) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// SHA256Hex is the hash rendering the digest and the manifest both use: hex,
+// lowercase, unabbreviated. It is exported so a layer above can compare a
+// component's bytes against a manifest entry without re-deciding the encoding —
+// two spellings of "the hash of these bytes" is how a comparison silently
+// becomes always-false.
+func SHA256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
 // validateDigestPath refuses paths the format cannot encode unambiguously.
 //
 // coreutils escapes backslashes and newlines in checksum files with a leading

@@ -52,6 +52,7 @@ type World struct {
 	j16       *j16State       // J16: the worktree-task-store redirect journey's fixture state (steps_j16_worktree_task_store.go)
 	j17       *j17State       // J17: cross-engine delegation — distinct context + real two-way bus (steps_j17_cross_engine_delegation.go)
 	ts        *tsState        // trust-surface matrix: fixture state (steps_trust_surface.go)
+	contract  *contractState  // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
 	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
@@ -134,6 +135,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerCLISteps(ctx)
 	registerFileSteps(ctx)
 	registerMCPSteps(ctx)
+	registerCoordinationContractSteps(ctx)
 	registerLiveSteps(ctx)
 	registerReviewSteps(ctx)
 	registerJ1SetupSteps(ctx)

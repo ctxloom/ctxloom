@@ -90,9 +90,12 @@ func TestDocCaptureIsTheSharedContract(t *testing.T) {
 	if got, want := reflect.TypeOf(DocCaptureStep{}), reflect.TypeOf(doccapture.DocCaptureStep{}); got != want {
 		t.Errorf("DocCaptureStep is %v, not the shared %v — a local copy has been re-declared", got, want)
 	}
-	// Compile-time half: assignment between two DISTINCT named struct types is
-	// illegal in Go even when their underlying types are identical, so these
-	// stop compiling the moment either name stops being an alias.
-	var _ doccapture.DocCapture = DocCapture{}
-	var _ doccapture.DocCaptureStep = DocCaptureStep{}
+	// Compile-time half: passing an argument is an assignment, and assignment
+	// between two DISTINCT named struct types is illegal in Go even when their
+	// underlying types are identical — so this call stops compiling the moment
+	// either name stops being an alias.
+	requireSharedContract(DocCapture{}, DocCaptureStep{})
 }
+
+// requireSharedContract accepts only internal/shared/doccapture's own types.
+func requireSharedContract(doccapture.DocCapture, doccapture.DocCaptureStep) {}

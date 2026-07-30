@@ -192,7 +192,7 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // session-index open failure degrades to the legacy-only reader rather than
 // failing the caller outright.
 //
-// tough-cloud S5: a pb.RetiredScraperBackends entry (codex/kiro/antigravity/
+// tough-cloud S5: a retired-scraper backend (codex/kiro/antigravity/
 // claude-code — their scrapers were deleted, not demoted) never gets a legacy
 // leg at all: there is no plugin-side History() left to ask, so this never
 // even spawns the plugin for that purpose. Every other backend (opencode's
@@ -205,7 +205,7 @@ func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
 	var legacy pb.SessionSource
-	if !pb.RetiredScraperBackends[backendName] {
+	if !pb.IsRetiredScraperBackend(backendName) {
 		legacy = pb.NewSessionReader(backendName, 0)
 	}
 	store, err := sessions.Open("")

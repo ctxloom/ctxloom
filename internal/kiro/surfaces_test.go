@@ -168,6 +168,26 @@ func TestSettingsSurface_DeliverWritesAgentConfig(t *testing.T) {
 	assert.False(t, exists, "cleanup removes the ctxloom-owned agent config")
 }
 
+// TestSettingsSurface_CleanupUndeterminableFileIsAnError is the delivery-seam
+// site of the same swallowed afero.Exists error RemoveSettings and writeSteering
+// carried: an existence check that fails read as "already gone", so teardown
+// reported a clean revert while the ctxloom-owned agent JSON stayed on disk for
+// the next run's `--agent` to pick up.
+func TestSettingsSurface_CleanupUndeterminableFileIsAnError(t *testing.T) {
+	base := afero.NewMemMapFs()
+	dir := "/proj"
+	path := filepath.Join(dir, kiroDir, "agents", defaultAgentName+".json")
+
+	s := NewSurfaces(sampleInputs(), &statFailFs{Fs: base, failOn: path})
+	handle, err := s.Settings.Deliver(dir)
+	require.NoError(t, err)
+
+	require.Error(t, handle.Cleanup(), "teardown must not report a clean revert over a file it could not look at")
+
+	exists, _ := afero.Exists(base, path)
+	assert.True(t, exists, "the agent config really is still there")
+}
+
 // ---- commands surface (.kiro/skills/) --------------------------------------
 
 func TestCommandsSurface_DeliverWritesSkillMd(t *testing.T) {
@@ -476,6 +496,40 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 		a, ok := s.DefaultApproach(kind)
 		require.True(t, ok, "%s", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, a)
+	}
+}
+
+// TestNewSurfaces_DispatchAgreesWithFieldsAndTable is U055-F10's pin. The row
+// claimed kiro's five surfaces are "listed twice with nothing enforcing
+// agreement" between the named struct fields and the dispatch map. There are in
+// fact THREE lists — fields, dispatch, and the declared kiroApproaches table —
+// and only the fields are unguarded, because they are read by tests alone
+// (production resolves every surface through SurfaceFor → dispatch, so omitting
+// a field is a compile error, not a silent divergence, and the table↔dispatch
+// pair is already held by internal/lm/backends'
+// TestApproachDispatch_SupportedIsResolvable across all five engines).
+//
+// This closes the one genuinely unguarded edge: a sixth surface added as a field
+// and to the table but wired into dispatch as the WRONG instance would deliver
+// the wrong file with every existing gate still green.
+func TestNewSurfaces_DispatchAgreesWithFieldsAndTable(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+
+	assert.Len(t, s.dispatch, len(kiroApproaches),
+		"every declared surface kind needs exactly one dispatch entry")
+	for kind := range kiroApproaches {
+		assert.Contains(t, s.dispatch, kind, "%s is declared in kiroApproaches but has no dispatch entry", kind)
+	}
+
+	for kind, field := range map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Settings,
+		agent.SurfaceCommands: s.Commands,
+		agent.SurfaceSkills:   s.Skills,
+	} {
+		assert.Same(t, field, s.dispatch[kind],
+			"%s must dispatch to the SAME surface instance the named field exposes — a second construction loses state a prior delivery recorded", kind)
 	}
 }
 

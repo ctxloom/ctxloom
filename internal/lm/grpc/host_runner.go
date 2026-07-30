@@ -53,7 +53,15 @@ const hostRunnerWaitDelay = 10 * time.Second
 // only — never the process-global launcher env, racy across concurrent spawns.
 // It returns after Start: the process is up but not yet dialed home (the
 // coordinator's awaitRunner is the readiness barrier).
+//
+// args must name a subcommand. A bare self-exec is refused rather than started:
+// `ctxloom` with no subcommand prints cobra's help and exits 0, so the caller
+// would get a healthy-looking *HostRunner for a process that never dials home,
+// and the failure would surface only as the coordinator's readiness timeout.
 func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, error) {
+	if len(args) == 0 || args[0] == "" {
+		return nil, fmt.Errorf("start host runner: no subcommand in args")
+	}
 	// Resolve the running binary upgrade-safely (selfexec strips a Linux
 	// "(deleted)" suffix after an in-place upgrade), matching the self-invoke
 	// path (NewSelfInvokingClientForLabelEnv).

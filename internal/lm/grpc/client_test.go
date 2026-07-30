@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os/exec"
+	"reflect"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+	"github.com/hashicorp/go-plugin/runner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
@@ -129,6 +132,29 @@ func (s *fakeStream) CloseSend() error {
 func (s *fakeStream) Context() context.Context { return context.Background() }
 func (s *fakeStream) SendMsg(m any) error      { return nil }
 func (s *fakeStream) RecvMsg(m any) error      { return nil }
+
+// TestVerbosityToHclogLevel_MappingMatchesItsDoc pins the verbosity->level
+// ladder the doc comment on verbosityToHclogLevel states. U059-F14 reported the
+// doc and the code disagreeing (the doc claimed 1=Warn, 2=Info, 3+=Debug/Trace
+// while the code returned Info/Debug/Trace); the code is the intended ladder, so
+// this table is what stops the two drifting apart again in either direction.
+func TestVerbosityToHclogLevel_MappingMatchesItsDoc(t *testing.T) {
+	for _, tc := range []struct {
+		verbosity int
+		want      hclog.Level
+	}{
+		{-1, hclog.Error},
+		{0, hclog.Error},
+		{1, hclog.Info},
+		{2, hclog.Debug},
+		{3, hclog.Trace},
+		{9, hclog.Trace},
+	} {
+		assert.Equal(t, tc.want, verbosityToHclogLevel(tc.verbosity), "verbosity %d", tc.verbosity)
+	}
+	assert.NotEqual(t, hclog.Warn, verbosityToHclogLevel(1),
+		"hclog.Warn is not a rung on this ladder — verbosity 1 is Info")
+}
 
 func TestGRPCClient_Info_Delegates(t *testing.T) {
 	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "test", Version: "1.2.3"}}
@@ -347,6 +373,57 @@ func TestRunnerFromConn_HappyPath(t *testing.T) {
 	assert.Equal(t, 1, fake.killCalls)
 }
 
+// TestNewContainerClient_ThreadsRunnerFuncAndSocketDir characterizes the whole
+// container dial: the caller's RunnerFunc and the host socket dir are the only
+// two things NewContainerClient contributes to the dial (the in-container argv
+// is built inside the RunnerFunc, which already knows the backend and label),
+// and a dispense failure must still tear the connection down so a started
+// container never leaks. U059-F06 removed the two parameters this proves are
+// not consulted; the assertions below are unchanged by that removal.
+func TestNewContainerClient_ThreadsRunnerFuncAndSocketDir(t *testing.T) {
+	grpcClient := &GRPCClient{client: &fakeLLMClient{}}
+	fake := &fakeLLMConnection{clientResult: &fakeClientProtocol{dispenseResult: grpcClient}}
+
+	var (
+		gotRunnerFunc ContainerRunnerFunc
+		gotSocketDir  string
+	)
+	orig := dialContainerConnection
+	dialContainerConnection = func(runnerFunc ContainerRunnerFunc, socketTempDir string, _ hclog.Logger) llmConnection {
+		gotRunnerFunc, gotSocketDir = runnerFunc, socketTempDir
+		return fake
+	}
+	t.Cleanup(func() { dialContainerConnection = orig })
+
+	called := false
+	rf := ContainerRunnerFunc(func(hclog.Logger, *exec.Cmd, string) (runner.Runner, error) {
+		called = true
+		return nil, errors.New("not launched in this test")
+	})
+
+	pc, err := NewContainerClient(0, rf, "/host/sockets")
+	require.NoError(t, err)
+	require.NotNil(t, pc)
+	assert.Equal(t, "/host/sockets", gotSocketDir)
+	require.NotNil(t, gotRunnerFunc, "the caller's launcher must reach the dial")
+	_, _ = gotRunnerFunc(hclog.NewNullLogger(), nil, "")
+	assert.True(t, called, "the RunnerFunc that reached the dial must be the caller's own")
+	assert.Equal(t, 0, fake.killCalls)
+}
+
+// TestNewContainerClient_DispenseFailureKillsConnection is the leak half of the
+// same path: a half-started container must be torn down, not left running.
+func TestNewContainerClient_DispenseFailureKillsConnection(t *testing.T) {
+	fake := &fakeLLMConnection{clientResult: &fakeClientProtocol{dispenseErr: errors.New("dispense failed")}}
+	orig := dialContainerConnection
+	dialContainerConnection = func(ContainerRunnerFunc, string, hclog.Logger) llmConnection { return fake }
+	t.Cleanup(func() { dialContainerConnection = orig })
+
+	_, err := NewContainerClient(0, nil, "/host/sockets")
+	require.Error(t, err)
+	assert.Equal(t, 1, fake.killCalls, "a container whose plugin never dispensed must be killed")
+}
+
 // TestDefaultClientFactory_PassesLabelToServe pins the oneshot fix: the
 // factory must carry the resolved config label into the self-invoked
 // `llm serve` argv, or serve's map-ordered type scan picks an arbitrary
@@ -455,17 +532,94 @@ func TestLLMRunner_DelegatesSessionAndPlanOperations(t *testing.T) {
 	assert.Equal(t, "do the thing", plans[0].Content)
 }
 
-func TestGRPCClient_Run_StreamWithNoOutputs_ZeroExit(t *testing.T) {
-	// A stream that EOFs without any messages — defensive: callers see
-	// exit=0 (default) and empty output. Possible if a plugin connects
-	// and dies before sending anything.
+// failingWriter fails every Write — a closed pipe (`ctxloom run | head`) or a
+// full disk on a redirected run, as seen by the client's output plumbing.
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// TestGRPCClient_RunWithModelInfo_StdoutWriteErrorSurfaces pins U059-F17: the
+// client discarded the error from every write to the caller's stdout/stderr, so
+// a redirected run that could not persist its output still exited 0 with a
+// silently truncated transcript. The write failure is the run's failure.
+func TestGRPCClient_RunWithModelInfo_StdoutWriteErrorSurfaces(t *testing.T) {
+	want := errors.New("no space left on device")
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_Stdout{Stdout: []byte("output nobody can keep\n")}},
+		{Output: &RunResponse_ExitCode{ExitCode: 0}},
+	}}
+	c := &GRPCClient{client: &fakeLLMClient{runStream: stream}}
+
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, failingWriter{err: want}, io.Discard, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, want)
+}
+
+// TestGRPCClient_RunWithModelInfo_StderrWriteErrorSurfaces is the same defect on
+// the stderr leg — diagnostics that never reached the caller must not be
+// reported as delivered either.
+func TestGRPCClient_RunWithModelInfo_StderrWriteErrorSurfaces(t *testing.T) {
+	want := errors.New("broken pipe")
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_Stderr{Stderr: []byte("a warning nobody can keep\n")}},
+		{Output: &RunResponse_ExitCode{ExitCode: 0}},
+	}}
+	c := &GRPCClient{client: &fakeLLMClient{runStream: stream}}
+
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, io.Discard, failingWriter{err: want}, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, want)
+}
+
+// TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError pins U059-F05. The
+// server sends the exit code as the FINAL message of every completed run
+// (server.go's Run ends with exactly that Send), so a stream that reaches EOF
+// without one means the plugin connected and died mid-run. Zero-valuing
+// RunResult.ExitCode made that indistinguishable from a genuine "exited 0":
+// `ctxloom run` reported success for a run that never happened.
+func TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError(t *testing.T) {
 	stream := &fakeStream{}
 	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	var stdout bytes.Buffer
 	exit, err := c.Run(context.Background(), &RunStart{}, nil, &stdout, io.Discard, nil)
-	require.NoError(t, err)
-	assert.Equal(t, int32(0), exit)
+	require.Error(t, err, "an exit-code-less stream must not be reported as a successful run")
+	assert.NotEqual(t, int32(0), exit, "a failed run must not hand back a success exit code")
 	assert.Empty(t, stdout.String())
+}
+
+// TestGRPCClient_Run_PartialOutputThenNoExitCode_IsAnError is the same defect
+// with output already delivered: bytes on stdout are not evidence the run
+// completed, so the missing terminal exit code still has to fail.
+func TestGRPCClient_Run_PartialOutputThenNoExitCode_IsAnError(t *testing.T) {
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_Stdout{Stdout: []byte("half a run\n")}},
+	}}
+	c := &GRPCClient{client: &fakeLLMClient{runStream: stream}}
+
+	var stdout bytes.Buffer
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, &stdout, io.Discard, nil)
+	require.Error(t, err)
+	assert.Equal(t, "half a run\n", stdout.String(), "output seen before the truncation is still delivered")
+}
+
+// TestContainerRunnerFunc_IsADefinedType pins U059-F19: ContainerRunnerFunc was
+// a type ALIAS, so it named go-plugin's runner signature without introducing a
+// type at all — every unrelated three-argument function of the same shape was
+// silently the same type, and the name existed only in the source text. As a
+// defined type it is a real type identity, and it stays assignable to
+// go-plugin's own ClientConfig.RunnerFunc field (an unnamed func type).
+func TestContainerRunnerFunc_IsADefinedType(t *testing.T) {
+	var f ContainerRunnerFunc
+	typ := reflect.TypeOf(&f).Elem()
+	assert.Equal(t, "ContainerRunnerFunc", typ.Name(),
+		"an alias reports an empty type name — the contract must be a defined type")
+
+	// Assignability to go-plugin's field is the constraint the defined type must
+	// not break: ClientConfig.RunnerFunc is an unnamed func type, so this
+	// compiles only while the underlying signatures still match exactly.
+	cfg := plugin.ClientConfig{}
+	cfg.RunnerFunc = f
+	assert.Nil(t, cfg.RunnerFunc)
 }

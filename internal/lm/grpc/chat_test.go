@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -50,6 +52,57 @@ func TestChatMCPServer_ProtoRoundTrip_HttpSse(t *testing.T) {
 	assert.Equal(t, req.MCPServers, back.MCPServers, "http/sse Transport/URL/Headers must survive the relay round trip byte for byte")
 }
 
+// TestTurnMetaToProto_SaturatesInsteadOfWrapping pins U059-F15: every int field
+// of agent.TurnMeta was narrowed to the proto's int32 with an unchecked
+// conversion, so a value past the field's range WRAPPED — a token count over
+// 2.1e9, or a turn longer than ~24.9 days, arrived as a small or negative
+// number that reads as a perfectly plausible measurement. Saturating is not
+// accurate either, but it cannot be mistaken for a real reading and it never
+// changes sign.
+func TestTurnMetaToProto_SaturatesInsteadOfWrapping(t *testing.T) {
+	if math.MaxInt == math.MaxInt32 {
+		t.Skip("int is 32 bits here: these values cannot be represented on the host side at all")
+	}
+	over := int(math.MaxInt32) + 1
+	under := int(math.MinInt32) - 1
+
+	got := turnMetaToProto(&agent.TurnMeta{
+		InputTokens:         over,
+		OutputTokens:        over,
+		CacheReadTokens:     over,
+		CacheCreationTokens: over,
+		ContextWindow:       over,
+		MaxOutputTokens:     over,
+		DurationMs:          over,
+		NumTurns:            under,
+	})
+
+	assert.Equal(t, int32(math.MaxInt32), got.GetInputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetOutputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetCacheReadTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetCacheCreationTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetContextWindow())
+	assert.Equal(t, int32(math.MaxInt32), got.GetMaxOutputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetDurationMs(),
+		"a duration past ~24.9 days must not come back as a short one")
+	assert.Equal(t, int32(math.MinInt32), got.GetNumTurns())
+}
+
+// TestTurnMetaToProto_InRangeValuesAreUntouched is the other half: clamping
+// must not perturb any value the field can actually hold.
+func TestTurnMetaToProto_InRangeValuesAreUntouched(t *testing.T) {
+	got := turnMetaToProto(&agent.TurnMeta{
+		InputTokens:   1234,
+		DurationMs:    math.MaxInt32,
+		NumTurns:      -7,
+		ContextWindow: 0,
+	})
+	assert.Equal(t, int32(1234), got.GetInputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetDurationMs())
+	assert.Equal(t, int32(-7), got.GetNumTurns())
+	assert.Equal(t, int32(0), got.GetContextWindow())
+}
+
 // chatBackend is a fakeBackend that also implements agent.StructuredChat: it
 // echoes each inbound message as an assistant entry + a completion, framed by a
 // session event.
@@ -79,12 +132,17 @@ type fakeChatServerStream struct {
 	ctx     context.Context
 	recv    []*ChatInput
 	recvIdx int
+	recvErr error // returned once the canned inputs run out, instead of io.EOF
+	sendErr error // non-nil: every Send fails (the client went away)
 	mu      sync.Mutex
 	sent    []*ChatEvent
 }
 
 func (s *fakeChatServerStream) Recv() (*ChatInput, error) {
 	if s.recvIdx >= len(s.recv) {
+		if s.recvErr != nil {
+			return nil, s.recvErr
+		}
 		return nil, io.EOF
 	}
 	in := s.recv[s.recvIdx]
@@ -93,8 +151,11 @@ func (s *fakeChatServerStream) Recv() (*ChatInput, error) {
 }
 func (s *fakeChatServerStream) Send(ev *ChatEvent) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sendErr != nil {
+		return s.sendErr
+	}
 	s.sent = append(s.sent, ev)
-	s.mu.Unlock()
 	return nil
 }
 func (s *fakeChatServerStream) sentEvents() []*ChatEvent {
@@ -146,13 +207,100 @@ func TestGRPCServer_Chat_UnimplementedWhenBackendLacksCapability(t *testing.T) {
 	assert.Equal(t, codes.Unimplemented, status.Code(err))
 }
 
+// TestGRPCServer_Chat_FirstMessageMustBeStart pins U059-F04 alongside the
+// original rejection: a first frame that carries no start is the CLIENT's
+// protocol violation, and a bare fmt.Errorf reaches the client as
+// codes.Unknown — indistinguishable from "the transport died". The same
+// function already proves the right shape three lines down, where a backend
+// without the capability returns codes.Unimplemented.
 func TestGRPCServer_Chat_FirstMessageMustBeStart(t *testing.T) {
 	srv := &GRPCServer{Impl: &chatBackend{fakeBackend: fakeBackend{name: "claude-code"}}}
 	stream := &fakeChatServerStream{
 		ctx:  context.Background(),
 		recv: []*ChatInput{{Input: &ChatInput_UserMessage{UserMessage: &ChatUserMessage{Text: "no start"}}}},
 	}
-	require.Error(t, srv.Chat(stream))
+	err := srv.Chat(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// TestGRPCServer_Chat_ClosedBeforeStartIsInvalidArgument covers the other
+// protocol violation on the same frame: the client half-closed without ever
+// sending a start. That is a malformed conversation, not a transport failure.
+func TestGRPCServer_Chat_ClosedBeforeStartIsInvalidArgument(t *testing.T) {
+	srv := &GRPCServer{Impl: &chatBackend{fakeBackend: fakeBackend{name: "claude-code"}}}
+	stream := &fakeChatServerStream{ctx: context.Background()}
+
+	err := srv.Chat(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// ctxObliviousChatBackend writes a fixed number of events to `out` with a plain
+// channel send — no select on ctx. A backend is allowed to be written this way
+// (the capability contract never promised otherwise), and a real one that
+// streams a burst of tokens between ctx checks behaves identically for the
+// duration of the burst.
+type ctxObliviousChatBackend struct {
+	fakeBackend
+	events   int
+	finished chan struct{}
+}
+
+func (b *ctxObliviousChatBackend) Chat(_ context.Context, _ agent.ChatRequest, _ <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+	defer close(b.finished)
+	defer close(out)
+	for i := 0; i < b.events; i++ {
+		out <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "token"}}
+	}
+	return nil
+}
+
+var _ agent.StructuredChat = (*ctxObliviousChatBackend)(nil)
+
+// TestGRPCServer_Chat_SendFailureDrainsBackendOutput pins U059-F12: when the
+// client went away, the server returned from its `for ev := range out` loop
+// immediately and never read `out` again. A backend mid-burst was left blocked
+// on a channel send forever — a leaked goroutine holding the whole engine
+// session, per abandoned chat. The handler must keep draining until the backend
+// closes `out`.
+func TestGRPCServer_Chat_SendFailureDrainsBackendOutput(t *testing.T) {
+	backend := &ctxObliviousChatBackend{
+		fakeBackend: fakeBackend{name: "claude-code"},
+		events:      8,
+		finished:    make(chan struct{}),
+	}
+	srv := &GRPCServer{Impl: backend}
+	stream := &fakeChatServerStream{
+		ctx:     context.Background(),
+		recv:    []*ChatInput{{Input: &ChatInput_Start{Start: &ChatStart{}}}},
+		sendErr: errors.New("client went away"),
+	}
+
+	err := srv.Chat(stream)
+	require.Error(t, err, "the send failure is still the handler's error")
+
+	select {
+	case <-backend.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the backend's Chat never returned: its output channel was abandoned with a producer still blocked on it")
+	}
+}
+
+// TestGRPCServer_Chat_RecvTransportErrorKeepsItsCode is the complement: when
+// the failure really IS the transport, its status code must survive to the
+// client rather than being flattened into Unknown by an fmt.Errorf wrap.
+func TestGRPCServer_Chat_RecvTransportErrorKeepsItsCode(t *testing.T) {
+	srv := &GRPCServer{Impl: &chatBackend{fakeBackend: fakeBackend{name: "claude-code"}}}
+	stream := &fakeChatServerStream{
+		ctx:     context.Background(),
+		recvErr: status.Error(codes.Canceled, "client went away"),
+	}
+
+	err := srv.Chat(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.Canceled, status.Code(err))
+	assert.Contains(t, err.Error(), "client went away")
 }
 
 // fakeChatClientStream implements the bidi client stream for GRPCClient.Chat.
@@ -167,6 +315,7 @@ func TestGRPCServer_Chat_FirstMessageMustBeStart(t *testing.T) {
 type fakeChatClientStream struct {
 	mu            sync.Mutex
 	sent          []*ChatInput
+	sendErrAfter  int // >0: fail every Send once this many have landed
 	recv          []*ChatEvent
 	recvIdx       int
 	closeSendOnce sync.Once
@@ -179,8 +328,13 @@ func newFakeChatClientStream(recv []*ChatEvent) *fakeChatClientStream {
 
 func (s *fakeChatClientStream) Send(in *ChatInput) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	// sendErrAfter models a stream that breaks mid-conversation: the first N
+	// sends land, every later one fails (and delivers nothing).
+	if s.sendErrAfter > 0 && len(s.sent) >= s.sendErrAfter {
+		return errors.New("chat stream send failed")
+	}
 	s.sent = append(s.sent, in)
-	s.mu.Unlock()
 	return nil
 }
 func (s *fakeChatClientStream) sentInputs() []*ChatInput {
@@ -254,6 +408,54 @@ func TestGRPCClient_Chat_SendsStartAndMessages_ReceivesEvents(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"hello"}, texts)
+}
+
+// TestGRPCClient_Chat_SendFailureKeepsDrainingInput pins U059-F07: when a
+// stream Send failed, the inbound pump broke out of its loop and returned,
+// leaving `in` with NO reader at all. Every later write to `in` — the channel
+// this method hands the caller and documents as "write messages here" — blocked
+// forever, with no error and no closed channel to notice. The pump must keep
+// draining input after a send failure so the caller can still make progress and
+// close `in` normally.
+func TestGRPCClient_Chat_SendFailureKeepsDrainingInput(t *testing.T) {
+	cs := newFakeChatClientStream(nil)
+	cs.sendErrAfter = 1 // the start lands; every user message fails
+	c := &GRPCClient{client: &fakeLLMClient{chatStream: cs}}
+
+	in, events, errs, err := c.Chat(context.Background(), agent.ChatRequest{})
+	require.NoError(t, err)
+
+	go func() {
+		for range events {
+		}
+		for range errs {
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		in <- agent.ChatMessage{Text: "first"}
+		in <- agent.ChatMessage{Text: "second — this one used to block forever"}
+		close(in)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writing to `in` blocked: the inbound pump abandoned the channel after a send failure")
+	}
+
+	select {
+	case <-cs.closeSendDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CloseSend never fired — the pump did not run to completion")
+	}
+
+	// Nothing after the start was delivered, and nothing pretends otherwise.
+	sent := cs.sentInputs()
+	require.Len(t, sent, 1)
+	assert.NotNil(t, sent[0].GetStart())
 }
 
 func TestGRPCClient_Chat_DialErrorReturned(t *testing.T) {

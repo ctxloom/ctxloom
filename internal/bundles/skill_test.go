@@ -3,6 +3,7 @@ package bundles
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -401,4 +402,49 @@ func TestResolveSkillDir_RejectsPathEscape(t *testing.T) {
 func TestResolveSkillDir_RejectsAbsolutePath(t *testing.T) {
 	_, err := ResolveSkillDir("/bundle", "evil", BundleSkill{Path: "/etc/passwd"})
 	require.Error(t, err)
+}
+
+// =============================================================================
+// U031 findings-sweep additions
+// =============================================================================
+
+// openFailFs fails Open for one exact path, so a test can make a single file in
+// an otherwise-valid skill tree unreadable without depending on real filesystem
+// permissions (afero.ReadFile goes through Open).
+type openFailFs struct {
+	afero.Fs
+	failPath string
+}
+
+func (f *openFailFs) Open(name string) (afero.File, error) {
+	if filepath.ToSlash(name) == f.failPath {
+		return nil, fmt.Errorf("simulated permission denied")
+	}
+	return f.Fs.Open(name)
+}
+
+// TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile is U031-F18.
+//
+// buildSkillManifest returned walkErr, relErr and readErr completely
+// unwrapped, so a mid-walk failure surfaced as a bare "simulated permission
+// denied" with no indication of which skill was being parsed or which file
+// failed — while the size-cap check two lines away carries `skill directory
+// %q`. ParseSkillPackage is reached from bundle loading, skill sync, export and
+// install, so the caller has no other way to know which of a bundle's skills
+// broke.
+func TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	dir := "/src/skills/humanize"
+	writeSkillFixture(t, mem, dir, "humanize")
+
+	fsys := &openFailFs{Fs: mem, failPath: dir + "/scripts/run.sh"}
+
+	_, err := ParseSkillPackage(fsys, dir, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "humanize",
+		"the failing skill must be named: a bundle can ship many skills and only one of them broke")
+	assert.Contains(t, err.Error(), "scripts/run.sh",
+		"the failing file must be named, relative to the package root")
+	assert.Contains(t, err.Error(), "simulated permission denied",
+		"the underlying cause must still be wrapped, not replaced")
 }

@@ -252,16 +252,19 @@ func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillM
 	var manifest SkillManifest
 	var total int64
 
+	// Every failure below names the skill and the file, like the size-cap error
+	// does: a bundle ships many skills, and a bare "permission denied" says
+	// which of them the caller must go fix only by accident.
 	err := afero.Walk(fsys, dir, func(p string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			return fmt.Errorf("skill directory %q: walking %s: %w", name, p, walkErr)
 		}
 		if info.IsDir() {
 			return nil
 		}
 		rel, relErr := filepath.Rel(dir, p)
 		if relErr != nil {
-			return relErr
+			return fmt.Errorf("skill directory %q: locating %s within the package: %w", name, p, relErr)
 		}
 		rel = filepath.ToSlash(rel)
 
@@ -272,7 +275,7 @@ func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillM
 
 		data, readErr := afero.ReadFile(fsys, p)
 		if readErr != nil {
-			return readErr
+			return fmt.Errorf("skill directory %q: reading %s: %w", name, rel, readErr)
 		}
 
 		manifest = append(manifest, SkillManifestEntry{

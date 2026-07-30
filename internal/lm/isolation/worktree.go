@@ -348,7 +348,35 @@ func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[s
 		return "", nil
 	}
 	denied = w.seedCredentials(home, agentID)
+	w.prepareHomeVarDirs(home, denied)
 	return home, denied
+}
+
+// prepareHomeVarDirs creates the per-agent directories Env() points this
+// backend's HomeVars at. Seeding alone does not: hostCredentialSeed creates
+// spec.destSubdir and nothing else, and only on the path where there was
+// something to seed — so an engine that authenticates from its envTrigger, or
+// one with no seedable files at all (kiro), is otherwise handed a scoped var
+// naming a directory nobody created. 0700 like every sibling scratch dir here:
+// these hold engine config/state, and leaving the engine to mkdir them itself
+// yields whatever its umask says instead. denied vars are skipped — Env() does
+// not export them, so their directory would be pure litter. Best-effort, like
+// the rest of this provisioning step: a failure warns and leaves the var
+// pointing at an absent directory, exactly as before.
+func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) {
+	spec, ok := credentialSeedSpecs[w.backend]
+	if !ok {
+		return
+	}
+	for _, hv := range spec.HomeVars {
+		if denied[hv.EnvVar] {
+			continue
+		}
+		dir := filepath.Join(configHome, hv.Subdir)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			clidiag.Warn("ctxloom", "worktree: cannot create the per-agent %s directory %q (the engine will see a missing config home): %v", hv.EnvVar, dir, err)
+		}
+	}
 }
 
 // seedCredentials seeds w.backend's subscription credentials into the per-agent

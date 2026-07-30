@@ -398,7 +398,7 @@ func TestWorktree_PrepareFailsLoudWhenNoCredsAndNoKey(t *testing.T) {
 	// And the config-home is NOT silently populated with a half-seeded state —
 	// no claude subdirectory at all.
 	env := WorkspaceEnv(ws)
-	assert.NoDirExists(t, env["CLAUDE_CONFIG_DIR"], "nothing is seeded when there is nothing to seed")
+	requireNothingSeeded(t, env["CLAUDE_CONFIG_DIR"])
 
 	require.NoError(t, ws.Cleanup())
 }
@@ -420,7 +420,7 @@ func TestWorktree_PrepareSkipsSeedingWithApiKeyNoFailLoud(t *testing.T) {
 
 	assert.Empty(t, strictness.All(), "ANTHROPIC_API_KEY covers auth — no finding, seeding skipped")
 	env := WorkspaceEnv(ws)
-	assert.NoDirExists(t, env["CLAUDE_CONFIG_DIR"], "no seed dir is created when the key rides the env")
+	requireNothingSeeded(t, env["CLAUDE_CONFIG_DIR"])
 
 	require.NoError(t, ws.Cleanup())
 }
@@ -868,4 +868,57 @@ func TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud(t *test
 	assert.NoDirExists(t, filepath.Join(env["XDG_DATA_HOME"], "opencode"), "no seed dir is created when the key rides the env")
 
 	require.NoError(t, ws.Cleanup())
+}
+
+// TestWorktree_HomeVarDirsExist is U065-F04's pin: every directory Env() names
+// for a backend's HomeVars must EXIST, owner-only, by the time the workspace is
+// handed to a caller. Only hostCredentialSeed ever created a config-home
+// subdirectory, it created spec.destSubdir alone, and only on the path where
+// there was something to seed — so an engine authenticating from the
+// environment (ANTHROPIC_API_KEY below) or one with no seedable files at all
+// (kiro) was handed a scoped var naming a directory nothing had created. The
+// MODE is half the assertion: these hold engine config/state and must be 0700
+// like every sibling scratch dir, not whatever umask the engine would have
+// mkdir'd them with itself.
+func TestWorktree_HomeVarDirsExist(t *testing.T) {
+	resetStrictness(t)
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // claude authenticates from the env: nothing to seed
+	t.Setenv("KIRO_API_KEY", "sk-test")      // grant kiro's gated XDG_DATA_HOME
+
+	for _, backend := range []string{"claude-code", "kiro"} {
+		t.Run(backend, func(t *testing.T) {
+			common := t.TempDir()
+			f := &git.Fake{CommonDirValue: common}
+			ws, err := NewWorktree(f, backend).PrepareWorkspace(context.Background(), "/proj", "member-"+backend)
+			require.NoError(t, err)
+			requireCleanWorkspace(t, ws)
+			t.Cleanup(func() { _ = ws.Cleanup() })
+
+			spec := credentialSeedSpecs[backend]
+			require.NotEmpty(t, spec.HomeVars, "%q must have HomeVars for this pin to mean anything", backend)
+			env := WorkspaceEnv(ws)
+			for _, hv := range spec.HomeVars {
+				dir := env[hv.EnvVar]
+				require.NotEmpty(t, dir, "%s must be exported", hv.EnvVar)
+				info, statErr := os.Stat(dir)
+				require.NoError(t, statErr, "%s names a directory that must exist on disk", hv.EnvVar)
+				assert.True(t, info.IsDir(), "%s names a directory", hv.EnvVar)
+				assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
+					"%s holds engine config/state and must be owner-only", hv.EnvVar)
+			}
+		})
+	}
+}
+
+// requireNothingSeeded asserts a per-agent config-home subdirectory carries no
+// seeded credential material. It states the invariant a NoDirExists check used
+// only to approximate: the directory Env() names is created unconditionally, so
+// "no seed happened" is EMPTINESS of that directory, not its absence.
+func requireNothingSeeded(t *testing.T, dir string) {
+	t.Helper()
+	require.NotEmpty(t, dir, "the scoped config-home var must be exported")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err, "the config-home subdirectory exists even when nothing was seeded")
+	assert.Empty(t, entries, "nothing is seeded when there is nothing to seed")
 }

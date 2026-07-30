@@ -99,3 +99,32 @@ func TestGetPromptTextRefusesEmptyFile(t *testing.T) {
 		})
 	}
 }
+
+// TestGetPromptTextAgreesWithMust pins the invariant that makes exporting the
+// FALLIBLE form of the prompt reader harmless: for every embedded prompt,
+// GetPromptText and MustGetPromptText deliver the same bytes, so a caller that
+// reaches for the exported error-returning form cannot receive anything the
+// panicking wrapper would have rejected. GetPromptText has no caller outside
+// this package today; this is what keeps that from mattering.
+func TestGetPromptTextAgreesWithMust(t *testing.T) {
+	names, err := listEmbeddedNames(resourcesFS, "prompts", ".md")
+	if err != nil {
+		t.Fatalf("listEmbeddedNames(prompts): %v", err)
+	}
+	if len(names) == 0 {
+		t.Fatal("no embedded prompts to compare")
+	}
+	for _, name := range names {
+		got, err := GetPromptText(name)
+		if err != nil {
+			t.Errorf("GetPromptText(%q): %v", name, err)
+			continue
+		}
+		if got == "" {
+			t.Errorf("GetPromptText(%q) delivered no bytes without erroring", name)
+		}
+		if must := MustGetPromptText(name); must != got {
+			t.Errorf("GetPromptText(%q) and MustGetPromptText(%q) disagree", name, name)
+		}
+	}
+}

@@ -517,29 +517,57 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		return nil, err
 	}
 
+	path, ok := l.findFile(localName)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
+	}
+	profile, err := l.loadFile(path, l.remoteFor(name))
+	if err != nil {
+		return nil, err
+	}
+	profile.Name = name
+	return profile, nil
+}
+
+// findFile resolves a validated local profile name to the file backing it,
+// searching the configured dirs in order and both extensions. Shared by Load
+// and Exists so the two can never disagree about which names have a file: an
+// Exists that answered by attempting a full Load reported a present-but-corrupt
+// profile as absent (U091-F06).
+func (l *Loader) findFile(localName string) (string, bool) {
 	// Convert forward slashes to OS-specific separator for file lookup
 	osName := filepath.FromSlash(localName)
-
 	for _, dir := range l.dirs {
 		for _, ext := range []string{".yaml", ".yml"} {
 			path := filepath.Join(dir, osName+ext)
 			if _, err := l.fs.Stat(path); err == nil {
-				profile, err := l.loadFile(path, l.remoteFor(name))
-				if err != nil {
-					return nil, err
-				}
-				profile.Name = name
-				return profile, nil
+				return path, true
 			}
 		}
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
+	return "", false
 }
 
-// Exists checks if a profile exists.
+// Exists reports whether a profile is STORED under name — a seeded
+// bundle-shipped profile, or a file in one of the profile directories. It
+// deliberately does not require the profile to parse: callers use Exists to
+// decide whether a name is free (operations.CreateProfile) or whether a
+// declared parent is present (requireProfilesExist), and answering "no" for a
+// profile that is there but malformed makes the first of those overwrite the
+// user's file. A name that can never have a file behind it — traversal,
+// a bundle-profile selector, a remote URL with no seed entry — is false.
 func (l *Loader) Exists(name string) bool {
-	_, err := l.Load(name)
-	return err == nil
+	if _, ok := l.lookupSeeded(name); ok {
+		return true
+	}
+	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
+		return false
+	}
+	if err := validateProfileName(name); err != nil {
+		return false
+	}
+	_, ok := l.findFile(name)
+	return ok
 }
 
 // remoteFor returns the short remote name a profile was installed from, or ""

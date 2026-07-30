@@ -155,7 +155,11 @@ func (b *Antigravity) Chat(ctx context.Context, req agent.ChatRequest, in <-chan
 			// (TOCTOU): this file is last-writer-wins under concurrent agy runs
 			// sharing a workDir; per-agent cwd isolation (worktree/container) is
 			// what actually protects this, not a lock here.
-			if id, ok := b.resolveChatConversationID(req.WorkDir); ok && id != conversationID {
+			id, ok, err := b.resolveChatConversationID(req.WorkDir)
+			if err != nil {
+				agent.Warn("antigravity: %v — this turn's conversation id is unknown, so the next turn starts a fresh conversation instead of resuming", err)
+			}
+			if ok && id != conversationID {
 				conversationID = id
 				if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{
 					SessionID:      conversationID,
@@ -294,14 +298,22 @@ func advisoryMCPStatus(servers []agent.ChatMCPServer) []agent.MCPStatus {
 // — a live continuation lookup, NOT the deleted transcript scraper; see
 // backend.go's convMap doc). ok is false when workDir is empty, the cache
 // file doesn't exist yet, or workDir has no entry.
-func (b *Antigravity) resolveChatConversationID(workDir string) (id string, ok bool) {
+//
+// A cache file that exists but cannot be read or parsed is returned as an error,
+// NOT folded into ok=false: "no entry yet" is routine, whereas an unreadable
+// cache means every later turn silently loses its continuation, which the caller
+// must be able to report.
+func (b *Antigravity) resolveChatConversationID(workDir string) (id string, ok bool, err error) {
 	if workDir == "" {
-		return "", false
+		return "", false, nil
 	}
 	m, err := b.convMap.read()
-	if err != nil || m == nil {
-		return "", false
+	if err != nil {
+		return "", false, err
+	}
+	if m == nil {
+		return "", false, nil
 	}
 	id, ok = m[filepath.Clean(workDir)]
-	return id, ok
+	return id, ok, nil
 }

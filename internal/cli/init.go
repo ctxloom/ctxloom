@@ -1021,20 +1021,34 @@ func pullSeededDependencies(cmd *cobra.Command) {
 	}
 }
 
+// applyHooksFn is a package var seam over operations.ApplyHooks: tests stub it
+// to drive applyInitHooks' reporting branches (most importantly the empty
+// backend list, which is a failure to report rather than a success line to
+// print) without writing real backend settings files. Defaults to the real
+// function.
+var applyHooksFn = operations.ApplyHooks
+
 // applyInitHooks registers the ctxloom MCP server with every backend. Failures
-// warn and continue (fault tolerant).
+// warn and continue (fault tolerant). An apply that touched NO backend is
+// reported as the failure it is: the engine settings surfaces are what make
+// ctxloom reachable from a session at all, so "applied to nothing" must never
+// render as a success line with an empty payload.
 func applyInitHooks(cmd *cobra.Command) {
 	cfg, err := config.Load()
 	if err != nil {
 		clidiag.Warn("ctxloom", "failed to load config: %v", err)
 		return
 	}
-	result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+	result, applyErr := applyHooksFn(context.Background(), cfg, operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: false,
 	})
 	if applyErr != nil {
 		clidiag.Warn("ctxloom", "failed to apply hooks: %v", applyErr)
+		return
+	}
+	if result == nil || len(result.Backends) == 0 {
+		clidiag.Warn("ctxloom", "applied hooks to no backends — no engine settings were written, so ctxloom's MCP server and context hook are not registered anywhere; install an engine and re-run `ctxloom manage hooks install`")
 		return
 	}
 	fmt.Printf("Applied hooks for: %v\n", result.Backends)

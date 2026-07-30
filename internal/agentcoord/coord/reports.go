@@ -215,8 +215,18 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 }
 
 // recordSummary journals one filed report (plane-1 Summary event → durable
-// fact). Best-effort from the stream handler: a journal failure warns — the
-// runner's Ack still advances, and the report re-rides the next checkpoint.
+// fact).
+//
+// A JOURNAL FAILURE LOSES THE REPORT. The runner's Ack advances on the event
+// regardless (handleAgentEvent raises ch.ackSeq before dispatching here, and
+// the flush that follows acks through it), so the runner will not re-emit it and
+// nothing else re-sends it — there is no retry buffer on this path, unlike the
+// item path's flushItems, which restores its facts and holds the watermark
+// back. So the failure warns, and everything downstream that would ASSERT the
+// report exists is skipped: no audit interaction (the interaction log would
+// otherwise record a report the reports journal does not contain) and no
+// checkpoint snapshot (whose contract is that the report it compacts to is
+// already durable).
 func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoordpb.Summary) {
 	structured := ""
 	if st := s.GetStructured(); st != nil {
@@ -240,7 +250,9 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 			ArtifactIDs:   s.GetArtifactIds(),
 		})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: journal report for %s: %v", harp, err)
+		clidiag.Warn("ctxloom", "coordinator: journal report for %s: %v — the report is LOST "+
+			"(the runner's ack has already advanced past it and nothing re-sends it)", harp, err)
+		return
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": s.GetScope().String()})
 	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
@@ -275,7 +287,8 @@ func (c *Coordinator) recordArtifact(harp string, a *agentcoordpb.ArtifactProduc
 			UploadID:   a.GetUploadId(),
 		})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: journal artifact manifest for %s: %v", harp, err)
+		clidiag.Warn("ctxloom", "coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
+			"so any bytes already uploaded for it are unreachable through the log", harp, err)
 	}
 }
 

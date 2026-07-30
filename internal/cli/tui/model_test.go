@@ -299,7 +299,7 @@ func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
 
 	// focus routes one key to two different panes.
 	require.Equal(t, focusRoster, m.focus)
-	selBefore, cursorBefore := m.sel, m.cursor
+	selBefore := m.sel
 	m, cmd := step(t, m, keyMsg("j"))
 	require.NotNil(t, cmd)
 	assert.Equal(t, selBefore+1, m.sel, "with the roster focused, j moves the roster")
@@ -308,7 +308,7 @@ func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
 	m = pushEntry(t, m, f, entryEv("assistant", "two"))
 	m, _ = step(t, m, keyMsg("enter"))
 	require.Equal(t, focusFeed, m.focus)
-	selBefore, cursorBefore = m.sel, m.cursor
+	selBefore, cursorBefore := m.sel, m.cursor
 	m, _ = step(t, m, keyMsg("k"))
 	assert.Equal(t, selBefore, m.sel, "with the feed focused, the roster does not move")
 	assert.Equal(t, cursorBefore-1, m.cursor, "the feed cursor does")

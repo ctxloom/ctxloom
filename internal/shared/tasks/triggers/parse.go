@@ -59,10 +59,24 @@ func ParseVerdicts(raw string) ([]Verdict, error) {
 	return out, nil
 }
 
+// maxArrayStartCandidates bounds how many "[" positions are tested as the
+// array's opener. Prose leading into a verdict array carries a handful of
+// brackets at most, and each candidate costs a full validity scan of the
+// remaining text — an unbounded search would be quadratic in the length of
+// adversarial output that has no valid array in it at all.
+const maxArrayStartCandidates = 32
+
 // extractJSONArray isolates the JSON array in raw, tolerating a wrapping
 // markdown code fence and stray prose around it. Returns "" when no
 // array-shaped substring can be found; every index used is bounds-checked, so
 // this never panics regardless of input.
+//
+// The opener is the LEFTMOST "[" that yields a well-formed JSON array, not
+// simply the leftmost "[": bracketed prose ahead of the array ("Evidence [1]
+// shows…", a markdown link) is a common model habit, and anchoring on it spans
+// from the prose to the array's closer — text that is not JSON at all. When no
+// candidate parses, the leftmost opener is returned unchanged so the caller
+// still reports a parse error against the widest span rather than "no array".
 func extractJSONArray(raw string) string {
 	s := stripCodeFence(strings.TrimSpace(raw))
 	start := strings.Index(s, "[")
@@ -70,7 +84,18 @@ func extractJSONArray(raw string) string {
 	if start == -1 || end == -1 || end < start {
 		return ""
 	}
-	return s[start : end+1]
+	widest := s[start : end+1]
+	for tried := 0; tried < maxArrayStartCandidates && start != -1 && start <= end; tried++ {
+		if candidate := s[start : end+1]; json.Valid([]byte(candidate)) {
+			return candidate
+		}
+		next := strings.Index(s[start+1:end+1], "[")
+		if next == -1 {
+			break
+		}
+		start += next + 1
+	}
+	return widest
 }
 
 // stripCodeFence removes a wrapping ``` or ```json fence, when present. Any

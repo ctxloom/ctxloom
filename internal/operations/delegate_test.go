@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1408,4 +1409,58 @@ func TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning(t *testin
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
 	require.NoError(t, err)
 	assert.Contains(t, warnings.String(), "could not list")
+}
+
+// reportingWorkspace mirrors the production Workspace contract every policy
+// implements: a teardown failure is REPORTED from inside Cleanup (see
+// isolation.warnCleanupResidue — it names the residue path, the likely cause
+// and the manual fix) and only then, for the container policy, also returned.
+type reportingWorkspace struct{ dir, residue string }
+
+func (w reportingWorkspace) Dir() string { return w.dir }
+func (w reportingWorkspace) Cleanup() error {
+	clidiag.Warn("ctxloom", "container scratch %s could not be removed (%v)", w.residue, assert.AnError)
+	return fmt.Errorf("remove container scratch %s: %w", w.residue, assert.AnError)
+}
+
+// TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce is U083-F12's
+// pin, and the row is REFUTED. The claim — "both workspace teardowns discard
+// ws.Cleanup()'s error, so a failed worktree removal is invisible" — has a
+// true mechanism and a false consequence:
+//
+//   - isolation's worktreeWorkspace.Cleanup returns nil UNCONDITIONALLY. Every
+//     failure it can have (an unremovable per-agent config-home/curated
+//     HOME/scratch dir, a teardown it must abandon to protect nested WIP) is
+//     already streamed from inside. There is no error to discard.
+//   - containerWorkspace.Cleanup does return one, and its own doc settles the
+//     question in tree: it warns via warnCleanupResidue AND returns, with
+//     "callers discard the returned error by contract" (SD3).
+//   - oneshot.go carries the matching decision block for why the caller must
+//     NOT re-record it: this teardown runs outside the checkpoint→gate window,
+//     so a finding raised here lands in an orphaned window nothing watches.
+//
+// So the report is not missing, and adding a caller-side one would print the
+// same residue twice. This pins that: exactly one report per teardown.
+func TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	const residue = "/scratch/ctxloom-abcd"
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }},
+			reportingWorkspace{dir: projectDir, residue: residue}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{Workspace: "worktree"}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	p.Abort()
+
+	assert.Equal(t, 1, strings.Count(warnings.String(), residue),
+		"the workspace reports its own teardown failure; a caller-side report would say it twice")
+	p.Abort() // idempotent: Abort clears its cleanup, so no second teardown either
+	assert.Equal(t, 1, strings.Count(warnings.String(), residue))
 }

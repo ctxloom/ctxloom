@@ -2,7 +2,9 @@ package coord
 
 import (
 	"encoding/hex"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -115,7 +117,13 @@ func (f *reportsFold) apply(fact Fact) {
 	switch fact.Kind {
 	case factSummary:
 		var p summaryFact
-		if fact.decode(&p) != nil {
+		if err := fact.decode(&p); err != nil {
+			// A report that cannot be decoded is a report that is GONE: the
+			// roster shows the previous one and nothing marks the gap. Replay
+			// must not fail on its own store's history, so the fold still
+			// continues — but silently is how a corrupt log looks identical to
+			// an agent that simply never reported.
+			clidiag.Warn("ctxloom", "coordinator: skipping an undecodable %s fact in the reports journal (the report it carried is lost): %v", factSummary, err)
 			return
 		}
 		k := reportKey(p.Harp, p.RunID)
@@ -131,13 +139,25 @@ func (f *reportsFold) apply(fact Fact) {
 		}
 	case factArtifact:
 		var p artifactFact
-		if fact.decode(&p) != nil {
+		if err := fact.decode(&p); err != nil {
+			// Same as factSummary above: an undecodable manifest means bytes
+			// that exist in a session dir are unreachable through the log, and
+			// the only way anyone can find that out is if it is said out loud.
+			clidiag.Warn("ctxloom", "coordinator: skipping an undecodable %s fact in the reports journal (the artifact manifest it carried is unresolvable): %v", factArtifact, err)
 			return
 		}
 		byID := f.artifacts[p.Harp]
 		if byID == nil {
 			byID = make(map[string]ArtifactRecord)
 			f.artifacts[p.Harp] = byID
+		}
+		// This projection is "each artifact's LATEST revision", so a manifest
+		// carrying a revision BELOW the one already folded is never it: a
+		// replayed or out-of-order fact (or a producer that supplied its own
+		// non-zero revision) must not roll the record backwards under every
+		// reader that resolves a manifest through it.
+		if cur, ok := byID[p.ArtifactID]; ok && p.Revision < cur.Revision {
+			return
 		}
 		byID[p.ArtifactID] = ArtifactRecord{
 			ArtifactID: p.ArtifactID,
@@ -164,9 +184,19 @@ func (f *reportsFold) latestSummary(harp string) string {
 	if i := strings.IndexByte(text, '\n'); i >= 0 {
 		text = text[:i]
 	}
+	// RUNES, not bytes: a report line in any non-ASCII script cut at a byte
+	// offset splits its final rune and renders U+FFFD in the roster.
 	const max = 200
-	if len(text) > max {
-		text = text[:max] + "…"
+	if utf8.RuneCountInString(text) > max {
+		cut := 0
+		for i := range text {
+			if cut == max {
+				text = text[:i]
+				break
+			}
+			cut++
+		}
+		text += "…"
 	}
 	return strings.TrimPrefix(s.Scope, "SCOPE_") + ": " + text
 }
@@ -250,13 +280,18 @@ func (c *Coordinator) recordArtifact(harp string, a *agentcoordpb.ArtifactProduc
 }
 
 // Artifacts lists the harp's artifact manifests (latest revisions) — the
-// seed-projection accessor.
+// seed-projection accessor. Ordered by artifact id: the underlying projection
+// is a map, and an unordered listing renders differently on every call, so two
+// listings of an unchanged set cannot be compared.
 func (c *Coordinator) Artifacts(harp string) []ArtifactRecord {
 	var out []ArtifactRecord
 	c.runs.View(func() {
 		for _, rec := range c.reportsF.artifacts[harp] {
 			out = append(out, rec)
 		}
+	})
+	slices.SortFunc(out, func(a, b ArtifactRecord) int {
+		return strings.Compare(a.ArtifactID, b.ArtifactID)
 	})
 	return out
 }

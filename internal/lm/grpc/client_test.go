@@ -645,6 +645,6 @@ func TestContainerClientConfig_SkipsHostEnv(t *testing.T) {
 	assert.NotNil(t, cfg.RunnerFunc, "the container transport still launches through the caller's runner")
 	require.NotNil(t, cfg.UnixSocketConfig)
 	assert.Equal(t, "/tmp/sock", cfg.UnixSocketConfig.TempDir)
-	assert.Equal(t, HandshakeConfig.MagicCookieKey, cfg.HandshakeConfig.MagicCookieKey,
+	assert.Equal(t, HandshakeConfig.MagicCookieKey, cfg.MagicCookieKey,
 		"the magic cookie is set by go-plugin itself and survives SkipHostEnv — it is not a host var")
 }

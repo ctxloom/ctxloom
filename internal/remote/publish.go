@@ -235,7 +235,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
-	owner, repo, err := ParseRepoURL(rem.URL)
+	owner, repo, err := ParseOwnerRepo(rem.URL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}

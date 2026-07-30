@@ -298,27 +298,27 @@ func cloneHost(cloneURL string) string {
 
 // RepoDirForURL computes the local cache path for a repo URL.
 // e.g., https://github.com/owner/repo → baseDir/github.com/owner/repo
-// RepoDirForURL computes the local cache path for a repo URL.
-// e.g., https://github.com/owner/repo → baseDir/github.com/owner/repo
+//
+// It is the FILESYSTEM renderer over the shared ParseRepoURL grammar
+// (RepoURL.CacheSegments). It used to re-parse normalizeCloneURL's output with
+// url.Parse and fall back to sanitizePath on error — which is why the scp form
+// keyed a "git/" user segment into the path, and why "git@host:owner/repo" and
+// "git@host:owner/repo.git" cached the SAME repository in two directories.
 //
 // U095-F01: a degenerate/pathless URL (empty, ".", a bare scheme like
 // "https://") must not silently resolve to the cache root itself — see
 // safeRepoPath. Callers that used to discard this error and clone/RemoveAll
 // whatever came back must now handle it explicitly.
 func (c *RepoCache) RepoDirForURL(repoURL string) (string, error) {
-	u, err := url.Parse(normalizeCloneURL(repoURL))
+	parsed, err := ParseRepoURL(repoURL)
 	if err != nil {
-		return c.safeRepoPath(sanitizePath(repoURL))
+		return "", err
 	}
-
-	// U095-F12: lowercased to match cloneHost (used for the auth header) — a
-	// mixed-case host must key to the same clone directory as its lowercase
-	// form, not a second, distinct one.
-	host := strings.ToLower(u.Hostname())
-	path := strings.Trim(u.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-
-	return c.safeRepoPath(host, path)
+	segs, err := parsed.CacheSegments()
+	if err != nil {
+		return "", err
+	}
+	return c.safeRepoPath(segs...)
 }
 
 // safeRepoPath joins parts under baseDir, guaranteeing the result stays inside
@@ -364,21 +364,16 @@ func (c *RepoCache) safeRepoPath(parts ...string) (string, error) {
 	return joined, nil
 }
 
-// normalizeCloneURL ensures a URL is suitable for git clone.
+// normalizeCloneURL renders a repository URL's TRANSPORT form: the argument
+// `git clone` and `git fetch` receive.
+//
+// It is now the CloneArg renderer over the shared ParseRepoURL grammar. It
+// used to carry its own copy of the shorthand arm, guarded differently from
+// NormalizeURL's — the drift that unranked-mouth was raised for.
 func normalizeCloneURL(repoURL string) string {
-	// Remove .git suffix for consistency, we'll let git handle it. This MUST
-	// happen before the shorthand check below (U095-F13): "owner/repo.git"
-	// contains a "." from the suffix alone, which used to make the shorthand
-	// test fail and return the bare relative path unexpanded — `git clone --
-	// owner/repo.git <dir>` then treats it as a local filesystem path.
-	repoURL = strings.TrimSuffix(repoURL, ".git")
-
-	// Handle shorthand (owner/repo → https://github.com/owner/repo)
-	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
-		if strings.Contains(repoURL, "/") && !strings.Contains(repoURL, ".") {
-			return "https://github.com/" + repoURL
-		}
+	parsed, err := ParseRepoURL(repoURL)
+	if err != nil {
+		return ""
 	}
-
-	return repoURL
+	return parsed.CloneArg()
 }

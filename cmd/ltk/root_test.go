@@ -22,7 +22,13 @@ func TestNewRootCmd(t *testing.T) {
 			t.Errorf("command %q has no Short — it would render blank in the reference", c.Name())
 		}
 	}
-	for _, want := range []string{"evaluate", "check", "manage", "version"} {
+	// `loadout` belongs in this list as much as the others, and more urgently:
+	// it is a CROSS-PROCESS wire contract. ctxloom's companion discovery execs
+	// `ltk loadout --format json` (companionloadout.Subcommand/FormatFlag/
+	// FormatJSON) and a probe that finds no such subcommand contributes
+	// nothing, silently. loadout_test exercises the emitter, but nothing pinned
+	// that newRootCmd still REGISTERS the command the probe invokes.
+	for _, want := range []string{"evaluate", "check", "manage", "version", "loadout"} {
 		if !got[want] {
 			t.Errorf("command %q missing from the root tree", want)
 		}

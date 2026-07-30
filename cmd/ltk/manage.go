@@ -83,18 +83,48 @@ func (f *manageFlags) resolve() (engine.Engine, string, error) {
 	return eng, path, nil
 }
 
+// hookRulesPath is the rules path baked into the installed hook command line.
+//
+// A user-level (--global) install is consulted in EVERY project on the
+// machine, and the hook host runs the hook with the project as its working
+// directory, so a PROJECT-RELATIVE path in that command resolves somewhere
+// different in each project. In any project that does not happen to have that
+// file, evaluate's explicit-config branch denies everything it guards (it
+// cannot tell a typo'd path from a deleted rules file, and failing open there
+// would silently disable the guard) — so one `manage install --global` becomes
+// a machine-wide deny-everything. Omitting the path instead is what --global
+// actually wants: evaluate then searches the cwd and its ancestors, finding
+// each project's own rules and falling back to the built-in allow-all, with a
+// diagnostic, where there are none.
+//
+// An ABSOLUTE path is honoured: that names one machine-wide rules file, which
+// is a coherent thing to ask a user-level install for. install and uninstall
+// both route through here so they stay exact inverses — uninstall matches on
+// the command string install wrote.
+func (f *manageFlags) hookRulesPath() string {
+	if f.global && f.configPath != "" && !filepath.IsAbs(f.configPath) {
+		return ""
+	}
+	return f.configPath
+}
+
 func newInstallCmd() *cobra.Command {
 	f := &manageFlags{}
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Add the pre-tool hook to the most relevant LLM config",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			eng, path, err := f.resolve()
 			if err != nil {
 				return err
 			}
-			command := eng.HookCommand(f.bin, f.configPath)
+			rulesPath := f.hookRulesPath()
+			if rulesPath != f.configPath {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --global installs apply in every project, so the hook is installed "+
+					"without --config %s; each project's rules are found by evaluate's own search\n", progName, f.configPath)
+			}
+			command := eng.HookCommand(f.bin, rulesPath)
 			// --print is a dry run: show the merged settings without touching
 			// the filesystem, so no rules-file scaffold either.
 			if f.configPath != "" && !f.printOnly {
@@ -111,16 +141,16 @@ func newInstallCmd() *cobra.Command {
 				return err
 			}
 			if note != "" {
-				fmt.Fprintf(os.Stderr, progName+": %s\n", note)
+				fmt.Fprintf(cmd.ErrOrStderr(), progName+": %s\n", note)
 			}
 			if f.printOnly {
-				_, err := os.Stdout.Write(merged)
+				_, err := cmd.OutOrStdout().Write(merged)
 				return err
 			}
 			if err := writeFile(path, merged); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
 			return nil
 		},
 	}
@@ -134,18 +164,18 @@ func newUninstallCmd() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove the pre-tool hook from the LLM config",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			eng, path, err := f.resolve()
 			if err != nil {
 				return err
 			}
-			command := eng.HookCommand(f.bin, f.configPath)
+			command := eng.HookCommand(f.bin, f.hookRulesPath())
 			existing, err := readIfExists(path)
 			if err != nil {
 				return err
 			}
 			if existing == nil {
-				fmt.Fprintf(os.Stderr, progName+": nothing to uninstall (%s not found)\n", path)
+				fmt.Fprintf(cmd.ErrOrStderr(), progName+": nothing to uninstall (%s not found)\n", path)
 				return nil
 			}
 			updated, removed, err := eng.Uninstall(existing, command)
@@ -153,20 +183,22 @@ func newUninstallCmd() *cobra.Command {
 				return err
 			}
 			if f.printOnly {
-				_, err := os.Stdout.Write(updated)
+				_, err := cmd.OutOrStdout().Write(updated)
 				return err
 			}
 			// No matching hook (e.g. installed under different --bin/--config flags
 			// than these): don't rewrite the user's settings file or claim a removal
-			// that didn't happen.
+			// that didn't happen. Rewriting would re-serialize the user's whole
+			// settings document — key order, indentation and all — for a removal
+			// that never took place.
 			if !removed {
-				fmt.Fprintf(os.Stderr, progName+": no matching hook found in %s (nothing removed)\n", path)
+				fmt.Fprintf(cmd.ErrOrStderr(), progName+": no matching hook found in %s (nothing removed)\n", path)
 				return nil
 			}
 			if err := writeFile(path, updated); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, progName+": removed hook for %s from %s\n", eng.Name(), path)
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": removed hook for %s from %s\n", eng.Name(), path)
 			return nil
 		},
 	}
@@ -211,7 +243,11 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 		}
 		fmt.Fprintf(os.Stderr, "%s: backed up existing rules to %s before overwriting\n", progName, backup)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		// Neither "exists" nor "does not exist" — a path component that is a
+		// file, an unreadable parent, a symlink loop. os.Stat's *fs.PathError
+		// already names the path; what it cannot say is which of scaffoldConfig's
+		// filesystem steps was underway, so say that, as every sibling here does.
+		return fmt.Errorf("check for an existing rules file: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -223,13 +259,28 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 	return nil
 }
 
-// copyFile copies src to dst, preserving contents (used for the --force backup).
+// copyFile copies src to dst, preserving both contents and permissions (used
+// for the --force backup).
+//
+// The mode is carried across because the backup is a copy of the USER's rules
+// file: writing it at a hardcoded 0o644 republishes a config the user
+// deliberately restricted to 0600 as world-readable. os.WriteFile is not
+// enough on its own — its mode applies only when it CREATES the file, and it
+// is masked by the process umask — so dst's mode is set explicitly, which also
+// tightens a wider backup left by an earlier run.
 func copyFile(src, dst string) error {
 	b, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, b, 0o644)
+	mode := os.FileMode(0o600) // conservative default; src is readable, so Stat succeeds
+	if fi, err := os.Stat(src); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	if err := os.WriteFile(dst, b, mode); err != nil {
+		return err
+	}
+	return os.Chmod(dst, mode)
 }
 
 func readIfExists(path string) ([]byte, error) {

@@ -449,7 +449,7 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 // constraint — U040-F02's fix depends on callers being able to tell these
 // two cases apart instead of both collapsing into "no update, all good."
 func latestWithinConstraint(ctx context.Context, fetcher remote.Fetcher, url, constraint string) (sha string, ok bool, err error) {
-	owner, repo, err := remote.ParseRepoURL(url)
+	owner, repo, err := remote.ParseOwnerRepo(url)
 	if err != nil {
 		return "", false, err
 	}

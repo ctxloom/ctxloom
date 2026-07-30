@@ -5,15 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/ltk/app"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
-	"github.com/ctxloom/ctxloom/internal/ltk/scm"
-	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -64,7 +61,7 @@ broken/unreadable config rather than failing closed.`,
 			if err != nil {
 				return err
 			}
-			return runCheck(cmd.OutOrStdout(), command, cfgPath, ir.Shell(shellName), format)
+			return runCheck(cmd.OutOrStdout(), cmd.ErrOrStderr(), command, cfgPath, ir.Shell(shellName), format)
 		},
 	}
 	c.Flags().StringVar(&command, "command", "", "the shell command to check (required)")
@@ -74,12 +71,16 @@ broken/unreadable config rather than failing closed.`,
 	return c
 }
 
-// runCheck loads the rules, evaluates the command, and writes the verdict. It
-// reuses evaluate's loadConfig + submodule expansion + app wiring, but skips the
-// engine adapter (no stdin, no wire format) and the confirm-by-repeat state.
-// text prints the human verdict via printCheckText; json/yaml/toml/markdown
-// serialize checkResult through the shared clifmt filter.
-func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format clifmt.Format) error {
+// runCheck loads the rules, evaluates the command, and writes the verdict to
+// w. It reuses evaluate's loadConfig + expandSubmodules + newDecider wiring,
+// but skips the engine adapter (no stdin, no wire format) and the
+// confirm-by-repeat state. text prints the human verdict via printCheckText;
+// json/yaml/toml/markdown serialize checkResult through the shared clifmt
+// filter.
+//
+// diag takes DIAGNOSTICS about how much checking happened, kept off w so the
+// structured payload's shape is unchanged for the tools that parse it.
+func runCheck(w, diag io.Writer, command, cfgPath string, forceShell ir.Shell, format clifmt.Format) error {
 	// Unreachable from the CLI — newCheckCmd's RunE resolves the format
 	// through cliemit.Resolve, which already rejects anything clifmt cannot
 	// parse. It survives as the seam for direct in-package calls (see
@@ -90,28 +91,32 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 	if forceShell != "" && !forceShell.Valid() {
 		return fmt.Errorf("unknown --shell %q (known: %s)", forceShell, knownShells())
 	}
-	cfg, _, err := loadConfig(cfgPath)
+	cfg, resolved, err := loadConfig(cfgPath)
 	if err != nil {
 		return fmt.Errorf("load rules config: %w", err)
 	}
+	if resolved == "" {
+		// No config was found anywhere from cwd up to the repository root, so
+		// the answer below was reached against the built-in zero-rule config.
+		// The hook surface already discloses this (see evaluate); without the
+		// same disclosure here, "allow" means two different things depending
+		// on which surface a tool asked, and the one whose whole job is
+		// answering "would this be blocked?" is the one that stayed silent.
+		// Diagnostic only — the verdict on w is unchanged, and it is kept off
+		// w so the structured payload's shape does not move.
+		fmt.Fprintf(diag, "%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
+			progName, strings.Join(configSearch, ", "))
+	}
 	// `check` is the diagnostic surface, not the guard: it may fail loudly. A
-	// .gitmodules that exists but cannot be read, or a submodule path that is
-	// not a valid glob, would otherwise leave a `path: ["@submodules"]` rule
-	// expanded to nothing and report the resulting non-decision as an "allow".
-	if wd, err := os.Getwd(); err == nil {
-		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
-		if err != nil {
-			return fmt.Errorf("resolve @submodules: %w", err)
-		}
-		if err := cfg.ExpandSubmodules(subs); err != nil {
-			return err
-		}
+	// working directory that cannot be determined, a .gitmodules that exists
+	// but cannot be read, or a submodule path that is not a valid glob would
+	// otherwise leave a `path: ["@submodules"]` rule expanded to nothing and
+	// report the resulting non-decision as an "allow".
+	if err := expandSubmodules(cfg, os.Getwd); err != nil {
+		return fmt.Errorf("resolve @submodules: %w", err)
 	}
 
-	a := app.New(cfg)
-	a.ForceShell = forceShell
-	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
-	resp := a.Decide(context.Background(), engine.Request{Command: command})
+	resp := newDecider(cfg, forceShell).Decide(context.Background(), engine.Request{Command: command})
 
 	result := checkResult{Decision: "allow", Analyzed: !resp.Unanalyzed, ParseError: resp.ParseError}
 	if !resp.Allow {

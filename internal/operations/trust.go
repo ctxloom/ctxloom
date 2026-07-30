@@ -919,7 +919,7 @@ func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err
 	// already treats an error as fail-closed (the content/exec gates withhold,
 	// TrustStamper stamps pending, the CLI mutations refuse the operation), so
 	// erroring here is safe in every call site.
-	if looksLikeSourceRef(base) {
+	if remote.IsSelfContainedRef(base) {
 		return trust.Ref{}, "", "", fmt.Errorf(
 			"trust ref %q: %q is not a valid canonical or ctxloom:local reference "+
 				"(and not a builtin source) — refusing to treat an unrecognized source as local", ref, base)
@@ -929,18 +929,15 @@ func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err
 	return trust.Ref{Bundle: base, Kind: kind, Name: name, IsLocal: true}, base, "", nil
 }
 
-// looksLikeSourceRef reports whether s carries a marker that indicates it was
-// INTENDED as a scheme-qualified reference — a canonical URL (contains "://"),
-// an SSH ref (git@ prefix), or a ctxloom:local ref (ctxloom:local@ prefix) —
-// as opposed to a bare local bundle name, which carries none of these. It is
-// the fail-closed/fail-open boundary for parseTrustItemRef's fallback: a
-// string that looks like it was meant to be a source ref but doesn't parse
-// must never be treated as local.
-func looksLikeSourceRef(s string) bool {
-	return strings.Contains(s, "://") ||
-		strings.HasPrefix(s, "git@") ||
-		strings.HasPrefix(s, remote.LocalSource+"@")
-}
+// The fail-closed/fail-open boundary above — "does this string carry a marker
+// saying it was INTENDED as a scheme-qualified reference?" — is
+// remote.IsSelfContainedRef. It used to be a second, local copy named
+// looksLikeSourceRef, and the copies had drifted: this one recognised any
+// "://" but not ctxloom:companion@, so a malformed companion ref was
+// downgraded to a first-party local bundle name and auto-trusted at step 3 —
+// trusted MORE than a well-formed one (giddy-handstand / U089-F12 /
+// U150-F09). There is now exactly one list, in the package that owns the ref
+// grammar, and it is the union of what the two copies recognised.
 
 // parseTrustSelector parses a "<kind>/<name>" selector (the part after "#").
 func parseTrustSelector(sel string) (trust.ItemKind, string, error) {

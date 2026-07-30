@@ -3,8 +3,9 @@
 // bytes. This file is deliberately separate from trust.go (which owns the
 // verification-side ReviewRecords/EffectiveTrust machinery) — it reuses
 // trust.go's unexported ref-grammar helpers (parseTrustItemRef,
-// looksLikeSourceRef, builtinSourcePrefix) directly, being in the same
-// package, rather than duplicating the grammar (ADR 0032: one ref grammar).
+// builtinSourcePrefix) directly, being in the same package, plus the shared
+// remote.IsSelfContainedRef marker list, rather than duplicating the grammar
+// (ADR 0032: one ref grammar).
 package operations
 
 import (
@@ -86,7 +87,7 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
 			"(signing bytes compiled into the binary that verifies them is circular)", ref)
 	}
-	if looksLikeSourceRef(ref) {
+	if remote.IsSelfContainedRef(ref) {
 		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is not a valid canonical or ctxloom:local reference", ref)
 	}
 	// A bare token with no scheme marker: a plain local bundle name — the

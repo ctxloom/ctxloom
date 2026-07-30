@@ -26,7 +26,7 @@ func FetchRefBytes(ctx context.Context, factory FetcherFactory, auth AuthConfig,
 	if err != nil {
 		return nil, fmt.Errorf("create fetcher for %s: %w", ref.URL, err)
 	}
-	owner, repo, err := ParseRepoURL(ref.URL)
+	owner, repo, err := ParseOwnerRepo(ref.URL)
 	if err != nil {
 		return nil, fmt.Errorf("parse repo URL %s: %w", ref.URL, err)
 	}

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,160** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,161** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 78 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 127 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **758** |
+| `open` | no commit names this ID | **757** |
 
-**Totals: 2268 findings across 162 units — 1,160 resolved, 758 still open, 350 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,161 resolved, 757 still open, 350 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -334,7 +334,7 @@ which also asserts each row's columns sum to its section size.
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 378 | 432 | 43 | 55 | 91 |
 | LOW | 871 | 432 | 301 | 24 | 64 | 50 |
-| (unparsed) | 22 | 0 | 19 | 1 | 2 | 0 |
+| (unparsed) | 22 | 1 | 18 | 1 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,
@@ -2858,7 +2858,7 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 | U109-F07 | open | `filelock_unix.go:16` vs `filelock.go:43` | LOW | CORRECTNESS | Permission asymmetry: the lock *directory* is created 0o755 but the lock *file* 0644 (note: written as `0644`, not `0o644` — inconsistent with `0o755` two files over). In a shared/multi-user `~/.ct... | U109.md |
 | U110-F06 | open | `gitutil.go:41-45` | LOW | CORRECTNESS | `urls[0]` silently picks the first of N configured URLs for a remote. Git treats multiple `url =` entries as fetch-from-first / push-to-all, so for a remote with a distinct push URL this returns th... | U110.md |
 | U112-F07 | **PARTIAL** `063f546b` | `marker.go:81-86` | LOW | CORRECTNESS | The nested re-decode has no depth bound. It terminates in practice (each JSON-decode round strips a quoting layer, so the string strictly shrinks) but the input is an untrusted transcript line and ... | U112.md |
-| U112-F08 | open | `marker.go:6-8` and `marker.go:29` | LOW | COUPLING | The doc explains that the self-closing form is "deliberately distinct from the `<ctxloom-context>…</ctxloom-context>` content wrapper", implying the shape does the separating. It does not: `<ctxloo... | U112.md |
+| U112-F08 | **RESOLVED** `453031f4` | `marker.go:6-8` and `marker.go:29` | LOW | COUPLING | The doc explains that the self-closing form is "deliberately distinct from the `<ctxloom-context>…</ctxloom-context>` content wrapper", implying the shape does the separating. It does not: `<ctxloo... | U112.md |
 | U114-F06 | open | `pidalive_unix.go:25` | LOW | ERRHANDLING | `err == syscall.EPERM` uses `==` rather than `errors.Is`. It happens to work today because Go returns the bare `syscall.Errno` — `convertESRCH(unix.PidFDSendSignal(...))` on the pidfd path (`$GOROO... | U114.md |
 | U114-F07 | open | `pidalive_unix.go:19` | LOW | CORRECTNESS | A negative pid other than `-1` is silently reinterpreted as a **process group**. `Alive(-5)` probes group 5 and can return `true` for something that is not the target at all. Not reachable today — ... | U114.md |
 | U116-F08 | open | `ptyrunner.go:110` and `:234` | LOW | ERRHANDLING | `ptty.Close()` is called twice on the normal path — once explicitly, once by the deferred closure — and both results are discarded. Correctness rests on go-pty's `Close` being idempotent, which is ... | U116.md |

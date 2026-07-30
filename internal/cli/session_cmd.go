@@ -140,27 +140,38 @@ var sessionShowCmd = &cobra.Command{
 	},
 }
 
-// readSessionEssence returns a session's distilled essence and whether one was
-// found. It prefers the harp-dir layout (~/.ctxloom/sessions/<harp>/essence.md)
-// and falls back to the legacy <sessionsDir>/<sessionID>.md path. A pending
-// session (no bound id) or a missing essence yields ("", false) rather than an
-// error, so callers can present "not distilled yet" uniformly.
-func readSessionEssence(harp string, entry *sessions.Entry) (string, bool) {
-	if data, err := readHarpEssence(harp); err == nil {
-		return string(data), true
-	}
-	if entry.SessionID == "" {
-		return "", false
-	}
-	cfg, err := config.Load()
+// readHarpEssence returns the bytes of ~/.ctxloom/sessions/<harp>/essence.md.
+// Errors when home can't be resolved or the file is missing.
+func readHarpEssence(harpName string) ([]byte, error) {
+	p, err := paths.HarpEssencePath(harpName)
 	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(p)
+}
+
+// readSessionEssence returns a session's distilled essence and whether one was
+// found. It is the READING face of sessionEssenceInfo — one resolution order
+// for both, so a session can never read as distilled in one command and
+// pending in another. A pending session (no bound id) or a missing essence
+// yields ("", false) rather than an error, so callers can present "not
+// distilled yet" uniformly; an essence that exists but cannot be READ is a
+// different fact and is reported rather than passed off as never-distilled.
+func readSessionEssence(harp string, entry *sessions.Entry) (string, bool) {
+	appDir := ""
+	if cfg, err := config.Load(); err == nil {
+		appDir = cfg.GetAppDir()
+	}
+	path, distilled := sessionEssenceInfo(harp, entry, appDir)
+	if !distilled {
 		return "", false
 	}
-	path := filepath.Join(paths.ProjectSessionsDir(cfg.GetAppDir()), entry.SessionID+".md")
-	if data, err := os.ReadFile(path); err == nil {
-		return string(data), true
+	data, err := os.ReadFile(path)
+	if err != nil {
+		clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", harp, path, err)
+		return "", false
 	}
-	return "", false
+	return string(data), true
 }
 
 // sessionEssenceInfo resolves a session's essence file path and whether it
@@ -186,17 +197,6 @@ func sessionEssenceInfo(harp string, entry *sessions.Entry, appDir string) (stri
 func fileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
-}
-
-// readHarpEssence returns the bytes of ~/.ctxloom/sessions/<harp>/essence.md.
-// Errors when home can't be resolved or the file is missing; callers fall
-// back to the legacy layout in either case.
-func readHarpEssence(harpName string) ([]byte, error) {
-	p, err := paths.HarpEssencePath(harpName)
-	if err != nil {
-		return nil, err
-	}
-	return os.ReadFile(p)
 }
 
 var sessionRenameCmd = &cobra.Command{

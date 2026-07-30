@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
@@ -284,4 +286,118 @@ func realpath(t *testing.T, p string) string {
 	resolved, err := filepath.EvalSymlinks(p)
 	require.NoError(t, err)
 	return resolved
+}
+
+// seedProjectConfig gives config.Load() a real project to resolve, so a test
+// can exercise the LEGACY <appDir>/sessions/<sessionID>.md essence leg —
+// which readSessionEssence reaches only through its own config.Load(). It
+// returns the resolved appDir.
+func seedProjectConfig(t *testing.T) string {
+	t.Helper()
+	dir := testsupport.ProjectDir(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("version: 1\n"), 0o644))
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	appDir := cfg.GetAppDir()
+	require.NotEmpty(t, appDir, "the fixture project must resolve an appDir")
+	return appDir
+}
+
+// seedLegacyEssence writes the pre-harp-dir <appDir>/sessions/<sessionID>.md
+// essence and returns its path.
+func seedLegacyEssence(t *testing.T, appDir, sessionID, body string) string {
+	t.Helper()
+	legacyDir := paths.ProjectSessionsDir(appDir)
+	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
+	p := filepath.Join(legacyDir, sessionID+".md")
+	require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
+	return p
+}
+
+// TestSessionEssenceResolution_SharedLookupOrder pins the ONE two-step
+// resolution order every essence entry point owes the user — harp-dir layout
+// (~/.ctxloom/sessions/<harp>/essence.md) first, legacy
+// <appDir>/sessions/<sessionID>.md second — across BOTH of the functions that
+// implement it: sessionEssenceInfo (path/exists, used by `session list`,
+// `session query` and the memory MCP tools) and readSessionEssence (bytes,
+// used by `session show` and `--full`). They must agree on whether a session
+// is distilled AND on which of the two candidate files wins, or the same
+// session reads as distilled in one command and pending in another.
+func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
+	t.Run("harp_dir_wins_over_legacy", func(t *testing.T) {
+		appDir := seedProjectConfig(t)
+		harp := "plump-loose-sash"
+		harpPath := seedDistilledEssence(t, harp, "harp-dir body\n")
+		seedLegacyEssence(t, appDir, "sess-1", "legacy body\n")
+		e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
+
+		gotPath, distilled := sessionEssenceInfo(harp, &e, appDir)
+		body, found := readSessionEssence(harp, &e)
+
+		assert.True(t, distilled)
+		assert.True(t, found, "both entry points must agree the session is distilled")
+		assert.Equal(t, harpPath, gotPath, "harp-dir layout wins")
+		assert.Equal(t, "harp-dir body\n", body, "the bytes must come from the SAME file the path resolver picked")
+	})
+
+	t.Run("legacy_path_when_no_harp_essence", func(t *testing.T) {
+		appDir := seedProjectConfig(t)
+		harp := "swift-amber-falcon"
+		legacyPath := seedLegacyEssence(t, appDir, "sess-2", "legacy body\n")
+		e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
+
+		gotPath, distilled := sessionEssenceInfo(harp, &e, appDir)
+		body, found := readSessionEssence(harp, &e)
+
+		assert.True(t, distilled)
+		assert.True(t, found, "both entry points must fall back to the legacy path")
+		assert.Equal(t, legacyPath, gotPath)
+		assert.Equal(t, "legacy body\n", body)
+	})
+
+	t.Run("neither_present_is_not_distilled", func(t *testing.T) {
+		appDir := seedProjectConfig(t)
+		e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3"}
+
+		gotPath, distilled := sessionEssenceInfo("never-distilled-harp", &e, appDir)
+		body, found := readSessionEssence("never-distilled-harp", &e)
+
+		assert.False(t, distilled)
+		assert.False(t, found)
+		assert.Empty(t, gotPath)
+		assert.Empty(t, body)
+	})
+}
+
+// TestReadSessionEssence_UnreadableEssenceIsReported is where the two
+// resolutions actually diverged: sessionEssenceInfo only STATS the candidate,
+// so `session list` prints an essence_path, while readSessionEssence's
+// os.ReadFile fails and `session show` answers "no essence for X (run
+// `ctxloom session distill X`)". Distilling again cannot fix a permission
+// problem, so the user is sent to do the one thing that will not help — and
+// nothing anywhere says the file was found but could not be read. The two
+// entry points may disagree about the BYTES (one of them never opens the
+// file); they must not disagree in silence.
+func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
+	appDir := seedProjectConfig(t)
+	harp := "plump-loose-sash"
+	essencePath := seedDistilledEssence(t, harp, "## Summary\n\nunreadable\n")
+	require.NoError(t, os.Chmod(essencePath, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(essencePath, 0o644) })
+	e := sessions.Entry{HarpName: harp}
+
+	var diag bytes.Buffer
+	restore := clidiag.SetSink(&diag)
+	t.Cleanup(restore)
+
+	gotPath, distilled := sessionEssenceInfo(harp, &e, appDir)
+	body, found := readSessionEssence(harp, &e)
+
+	assert.True(t, distilled, "the listing side sees the file and reports its path")
+	assert.Equal(t, essencePath, gotPath)
+	assert.False(t, found, "the reading side genuinely has no bytes to show")
+	assert.Empty(t, body)
+	assert.Contains(t, diag.String(), essencePath,
+		"an essence that EXISTS but cannot be read must be reported, not silently reported as never-distilled")
 }

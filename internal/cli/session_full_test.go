@@ -196,3 +196,30 @@ func TestEmitSessionRows_QueryFull_MatchesAndCarriesBody(t *testing.T) {
 	assert.Equal(t, hit.HarpName, rows[0]["harp"])
 	assert.Equal(t, body, rows[0]["essence"])
 }
+
+// TestNewSessionFullRow_EssenceAndPathAgree pins the one invariant a --full
+// row owes its consumer: the body and the path describe the SAME file, so a
+// row can never say "here is the essence" and "this session has no essence
+// file" at once. It bites because the row used to resolve the essence TWICE
+// through two different appDir sources — the caller's for EssencePath, and
+// readSessionEssence's own config.Load() for the body — which disagree
+// whenever the caller could not resolve one.
+func TestNewSessionFullRow_EssenceAndPathAgree(t *testing.T) {
+	appDir := seedProjectConfig(t)
+	seedLegacyEssence(t, appDir, "sess-9", "legacy body\n")
+	e := sessions.Entry{HarpName: "swift-amber-falcon", SessionID: "sess-9"}
+
+	// "" is the caller's honest "I could not resolve an appDir" (session
+	// list/query both pass exactly that when config.Load fails).
+	row := newSessionFullRow(e, "")
+
+	if row.Essence != "" {
+		assert.NotEmpty(t, row.EssencePath,
+			"a row carrying an essence BODY must also name the file it came from")
+	}
+	if row.EssencePath != "" {
+		body, err := os.ReadFile(row.EssencePath)
+		require.NoError(t, err)
+		assert.Equal(t, string(body), row.Essence, "the body must be the contents of the named path")
+	}
+}

@@ -36,15 +36,59 @@ import (
 //     kiro-cli interactive sessions in the SAME project dir, both started
 //     within the same run's window, are indistinguishable by this signal.
 func locateKiroConversation(ctx context.Context, e sessions.Entry) (string, bool) {
+	var dbs []string
 	for _, dbPath := range candidateKiroDBPaths(e.HarpName) {
-		if _, err := os.Stat(dbPath); err != nil {
-			continue
+		if _, err := os.Stat(dbPath); err == nil {
+			dbs = append(dbs, dbPath)
 		}
+	}
+	if len(dbs) == 0 {
+		return "", false
+	}
+	if e.SessionID != "" {
+		return kiroimporter.Locator(kiroDBHoldingConversation(ctx, dbs, e.SessionID), e.SessionID), true
+	}
+	for _, dbPath := range dbs {
 		if loc, ok := locateKiroConversationInDB(ctx, dbPath, e); ok {
 			return loc, true
 		}
 	}
 	return "", false
+}
+
+// kiroDBHoldingConversation picks which of several candidate dbs a BOUND
+// conversation id names. A conversation id is only meaningful relative to the
+// db it lives in, so a bound id does not on its own say which candidate to
+// read: an isolated (worktree) run's per-agent db and the host-ambient one are
+// independent stores, and candidateKiroDBPaths can offer several of the former
+// (one per isolated member agent under this harp's ephemeral dir). Handing
+// back the first candidate regardless made a host-db conversation unreachable
+// for any harp that also had an isolated db on disk — Convert then fails
+// against a store that never held the row.
+//
+// One candidate is answered without touching sqlite at all: with nothing to
+// choose between, the bound id IS the answer and reading the db would only add
+// a way to fail. A db that cannot be enumerated is skipped rather than
+// reported, since the next candidate may still hold the conversation; when no
+// candidate does (a db written since the index entry was bound, an id from a
+// store that has since been removed), the first candidate is returned so the
+// resulting Convert failure names the db the caller would have read anyway.
+func kiroDBHoldingConversation(ctx context.Context, dbs []string, conversationID string) string {
+	if len(dbs) == 1 {
+		return dbs[0]
+	}
+	for _, dbPath := range dbs {
+		refs, err := kiroimporter.EnumerateConversations(ctx, dbPath)
+		if err != nil {
+			continue
+		}
+		for i := range refs {
+			if refs[i].ConversationID == conversationID {
+				return dbPath
+			}
+		}
+	}
+	return dbs[0]
 }
 
 // candidateKiroDBPaths orders the sqlite db(s) locateKiroConversation
@@ -79,17 +123,13 @@ func candidateKiroDBPaths(harp string) []string {
 	return out
 }
 
-// locateKiroConversationInDB resolves e's conversation locator against one
-// already-confirmed-to-exist sqlite db: e.SessionID directly when bound
-// (kiro's agentSpawn hook sets KIRO_SESSION_ID — see session_cmd.go's
-// bindSessionFromPayload — so this is now the common case, not just a
-// theoretical fast path), else the enumerate-by-workdir best-effort
-// fallback for a pre-bind entry.
+// locateKiroConversationInDB resolves a PRE-BIND entry's conversation locator
+// against one already-confirmed-to-exist sqlite db: the enumerate-by-workdir
+// best-effort fallback for an entry that carries no SessionID. A bound
+// SessionID never reaches here — it names a conversation rather than
+// describing one, so its candidate db is chosen by kiroDBHoldingConversation
+// instead of by re-deriving a match per db.
 func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.Entry) (string, bool) {
-	if e.SessionID != "" {
-		return kiroimporter.Locator(dbPath, e.SessionID), true
-	}
-
 	if e.ProjectDir == "" {
 		return "", false
 	}

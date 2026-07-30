@@ -266,3 +266,37 @@ func TestConvertVendorTranscript_KiroEnumerateFallback(t *testing.T) {
 		assert.Contains(t, l, `"engine":"kiro"`)
 	}
 }
+
+// TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt pins the
+// candidate-db loop's whole reason for existing against the BOUND-SessionID
+// route. candidateKiroDBPaths deliberately returns more than one db (every
+// isolated per-agent config-home under this harp's ephemeral dir, then the
+// host-ambient one) and promises the host db is used "when no isolated db was
+// found" — but the bound route used to hand back the FIRST existing candidate
+// unconditionally, without ever asking whether that db contains the
+// conversation. A harp whose ephemeral dir holds any isolated kiro db (one
+// isolated member agent is enough) therefore made its own host-db conversation
+// unreachable: Convert fails with "no rows in result set" against a db that
+// never held it, and the transcript is never imported.
+func TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "bound-session-multi-db-harp"
+	const bound = "conversation-only-in-the-host-db"
+
+	row := loadKiroFixtureRow(t)
+	isolatedKiroFixtureDB(t, harp, kiroFixtureRow{
+		Key: row.Key, ConversationID: "some-other-isolated-conversation",
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Value: row.Value,
+	})
+	hostDB := newKiroFixtureDB(t, kiroFixtureRow{
+		Key: row.Key, ConversationID: bound,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Value: row.Value,
+	})
+
+	src, ok := locateKiroConversation(context.Background(), sessions.Entry{
+		HarpName: harp, SessionID: bound,
+	})
+	require.True(t, ok)
+	assert.Equal(t, hostDB+"#"+bound, src,
+		"a bound conversation id must resolve against the candidate db that actually holds it, not whichever db happens to be checked first")
+}

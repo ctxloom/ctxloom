@@ -1449,3 +1449,47 @@ func TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue(t *testin
 		t.Fatalf("log ops = %v; a re-tag of the same value must not retract it", ops)
 	}
 }
+
+// TestTagTask_NeverReturnsAnEmptyTaskWithANilError refutes U122-F07, which
+// claimed the `if len(addTags) > 0` guard leaves TagTask a path to return
+// TaskResult{Task: tasks.Task{}} with a nil error. It cannot: scalarCollapse
+// keeps the LAST occurrence of every scalar target and passes every
+// non-scalar tag through, so a non-empty incoming list can never collapse to
+// an empty one, and TagTask rejects an all-empty call before it gets there.
+//
+// The guard is therefore unreachable rather than wrong, and what actually
+// holds the property up is scalarCollapse's survivor rule — so that is what
+// this pins. If a future collapse ever CAN empty a non-empty list, this goes
+// red and the guard becomes a real silent-success path.
+func TestTagTask_NeverReturnsAnEmptyTaskWithANilError(t *testing.T) {
+	schema := scalarSchema(t)
+	for _, incoming := range [][]string{
+		{"triage:type=bug"},
+		{"triage:type=bug", "triage:type=security"},
+		{"triage:type=bug", "triage:type=bug"},
+		{"urgent"},
+		{"urgent", "triage:type=bug", "triage:type=security"},
+	} {
+		toAdd, _ := scalarCollapse(schema, []string{"triage:type=old"}, incoming)
+		if len(toAdd) == 0 {
+			t.Fatalf("scalarCollapse(%v) returned an empty add list; TagTask's len(addTags) > 0 guard would then report success with an empty task", incoming)
+		}
+	}
+
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
+	add, err := AddTaskWithTags(tc, "triage this", "", "", []string{"triage:type=bug"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	got, err := TagTask(tc, add.Task.HarpID, []string{"triage:type=security"}, nil)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if got.Task.HarpID == "" {
+		t.Fatalf("TagTask returned an empty task with a nil error: %+v", got)
+	}
+	if !slices.Contains(got.Task.Tags, "triage:type=security") {
+		t.Fatalf("Tags = %v, want the collapsed-to value", got.Task.Tags)
+	}
+}

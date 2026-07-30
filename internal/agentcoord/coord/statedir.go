@@ -75,13 +75,29 @@ func pathDigest(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// defaultProjectKey is the state-dir segment a key that names no usable
+// project identity resolves to.
+const defaultProjectKey = "default"
+
 // sanitizeKey makes a project key filesystem-safe as ONE path segment.
+//
+// A key that reduces to a DOT-ONLY segment is not a path segment at all: it
+// resolves stateDirForProject to the coord root itself, so every project taking
+// that key would share one set of journals AND collide with the per-project
+// directories discover.List globs out of that same root. Separator mapping
+// alone does not catch it — ".." is replaced but a bare "." is not — so the
+// RESULT is checked, and anything that is only dots falls back to the same
+// bucket an empty key gets.
 func sanitizeKey(k string) string {
 	if k == "" {
-		return "default"
+		return defaultProjectKey
 	}
 	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "..", "-")
-	return repl.Replace(k)
+	out := repl.Replace(k)
+	if strings.Trim(out, ".") == "" {
+		return defaultProjectKey
+	}
+	return out
 }
 
 // errStateOwned reports the project state dir is exclusively owned by another

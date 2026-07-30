@@ -93,3 +93,19 @@ Feature: Manage the project harness
     And the file ".claude/settings.json" contains "-9223372036854775808"
     And the file ".claude/settings.json" contains "18446744073709551615"
     And the file ".claude/settings.json" contains "Read"
+
+  # ctxloom is the wrong party to decide the fate of a setting it just failed to
+  # read: the write is refused and the user's file is left exactly as it was.
+  Scenario: A statusline ctxloom cannot read refuses the write instead of replacing it
+    Given an initialized ctxloom project
+    And the project already has the file ".claude/settings.json":
+      """
+      {
+        "env": { "A": "b" },
+        "statusLine": { "type": "command", "command": { "exec": "ccusage" } }
+      }
+      """
+    When I run "ctxloom manage hooks install"
+    Then the output contains "refusing to write settings.json"
+    And the file ".claude/settings.json" contains "ccusage"
+    And the file ".claude/settings.json" does not contain "ctxloom hook"

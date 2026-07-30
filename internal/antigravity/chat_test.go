@@ -283,6 +283,57 @@ func TestChat_ConversationContinuity(t *testing.T) {
 	assert.True(t, sawResolvedSession, "the resolved conversation id was surfaced as a Session event")
 }
 
+// TestChat_CorruptConversationCacheIsLoud pins U029-F07: agyConversationMap.read
+// deliberately distinguishes an ABSENT cache file (nil map, no error — nothing
+// to resume) from one that EXISTS but does not parse (agy changed the format, or
+// the file is corrupt), and its doc says the latter is surfaced rather than
+// discarded. The only caller collapsed both into ok=false, so a corrupt cache
+// silently cost every subsequent turn its continuation: each one starts a fresh
+// agy conversation with no journal-able id and no diagnostic anywhere.
+func TestChat_CorruptConversationCacheIsLoud(t *testing.T) {
+	dir := t.TempDir()
+	binary := writeFakeAgy(t, dir)
+	home := t.TempDir()
+	b := newChatTestBackend(t, binary, home)
+
+	ws := filepath.Join(dir, "ws")
+	require.NoError(t, os.MkdirAll(ws, 0755))
+	convFile := filepath.Join(home, ".gemini", "antigravity-cli", "cache", "last_conversations.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(convFile), 0755))
+	require.NoError(t, os.WriteFile(convFile, []byte("{not json"), 0644))
+
+	req := agent.ChatRequest{
+		WorkDir: ws,
+		Env: map[string]string{
+			"FAKE_AGY_LOG":   filepath.Join(dir, "argv.log"),
+			"FAKE_AGY_REPLY": "ack",
+		},
+	}
+
+	var (
+		events []agent.ChatEvent
+		err    error
+	)
+	stderr := captureStderr(t, func() {
+		events, err = drainChat(t, context.Background(), b, req, []string{"hi"}, nil)
+	})
+	require.NoError(t, err, "an unreadable cache must not fail the turn — the reply was already produced")
+	assert.Contains(t, stderr, "last_conversations.json", "the unreadable cache is reported")
+
+	// The turn itself still completed normally.
+	var sawEntry, sawComplete bool
+	for _, ev := range events {
+		if ev.Entry != nil && ev.Entry.Content == "ack" {
+			sawEntry = true
+		}
+		if ev.Complete != nil {
+			sawComplete = true
+		}
+	}
+	assert.True(t, sawEntry, "the assistant reply is still delivered")
+	assert.True(t, sawComplete, "the turn still completes")
+}
+
 // TestChat_ResumeSessionID_FirstTurnIncludesContinueFlags proves
 // ChatRequest.ResumeSessionID reaches the FIRST turn's argv, not just a later
 // one — resuming a prior native session per the StructuredChat contract.
@@ -404,6 +455,46 @@ func TestChat_InputClosedWithNoTurns(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 1, "only the initial Session event")
 	assert.NotNil(t, events[0].Session)
+}
+
+// TestChat_PermissionAnswerIsInert characterizes the input arm no other test
+// reaches, ahead of U029-F11's split of Chat's loop: a PermissionAnswer is
+// accepted and does nothing — agy -p never forwards a permission request, so
+// there is nothing for an answer to resolve — and in particular it is NOT
+// treated as a turn's text. It must not spawn agy, must not emit an Entry, and
+// must not stop the conversation: a real turn after it still runs.
+func TestChat_PermissionAnswerIsInert(t *testing.T) {
+	dir := t.TempDir()
+	binary := writeFakeAgy(t, dir)
+	home := t.TempDir()
+	b := newChatTestBackend(t, binary, home)
+
+	ws := filepath.Join(dir, "ws")
+	require.NoError(t, os.MkdirAll(ws, 0755))
+	logPath := filepath.Join(dir, "argv.log")
+	req := agent.ChatRequest{
+		WorkDir: ws,
+		Env:     map[string]string{"FAKE_AGY_LOG": logPath, "FAKE_AGY_REPLY": "after"},
+	}
+
+	events, err := drainChat(t, context.Background(), b, req, nil, func(in chan<- agent.ChatMessage, _ <-chan agent.ChatEvent) {
+		in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: "1", OptionID: "allow"}}
+		in <- agent.ChatMessage{Text: "real turn"}
+		close(in)
+	})
+	require.NoError(t, err)
+
+	calls := fakeAgyInvocations(t, logPath)
+	require.Len(t, calls, 1, "the permission answer spawned no agy; the text turn did")
+	assert.Contains(t, calls[0], "real turn")
+
+	var entries []string
+	for _, ev := range events {
+		if ev.Entry != nil {
+			entries = append(entries, ev.Entry.Content)
+		}
+	}
+	assert.Equal(t, []string{"after"}, entries)
 }
 
 func TestAdvisoryMCPStatus(t *testing.T) {

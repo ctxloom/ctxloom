@@ -9,10 +9,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// ErrNoGlobalMCPConfig: agy v1.0.7 reads MCP servers only from the workspace
-// .agents/mcp_config.json — no global location is consulted (verified
-// empirically: ~/.gemini/config/mcp_config.json and
-// ~/.gemini/antigravity-cli/mcp_config.json are both ignored).
+// ErrNoGlobalMCPConfig: agy was observed to read MCP servers only from the
+// workspace .agents/mcp_config.json — no global location consulted (probed
+// empirically on v1.0.7: ~/.gemini/config/mcp_config.json and
+// ~/.gemini/antigravity-cli/mcp_config.json were both ignored). agy's own 1.1.5
+// documentation DOES list ~/.gemini/config/mcp_config.json as the global
+// location and does not mention the workspace file, so this project-only scope
+// rests on the empirical result alone and is due a re-probe.
 var ErrNoGlobalMCPConfig = errors.New("antigravity has no user-level MCP config; use project scope")
 
 // MCPRegistrar implements agent.MCPRegistrar for Antigravity CLI (agy):

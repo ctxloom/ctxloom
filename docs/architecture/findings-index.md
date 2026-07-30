@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **949** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 36 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 72 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **960** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 37 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 73 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,085** |
+| `open` | no commit names this ID | **1,072** |
 
-**Totals: 2268 findings across 162 units — 949 resolved, 1,085 still open, 234 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 960 resolved, 1,072 still open, 236 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 260 | 621 | 14 | 24 | 80 |
-| LOW | 871 | 339 | 438 | 12 | 40 | 42 |
+| MED | 999 | 265 | 615 | 15 | 24 | 80 |
+| LOW | 871 | 345 | 431 | 12 | 41 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1062,13 +1062,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U028-F08 | open | **`agents.go:182-199`** | CORRECTNESS | `EscalationRung` — a safety control — is four untyped strings whose enums exist only in comments, validated one package away and one runtime phase later than every other axis. | U028.md |
 | U029-F02 | **RESOLVED** `758c200e` | **`capabilities.go:26,31 + backend.go:49`** | DEAD | `AntigravityCommands` and `RegisterFromContent` are never invoked in production. The `agent.ContentCommands` value is stored in `LaunchBackend.commands` and that field is never read anywhere in the... | U029.md |
 | U029-F03 | **RESOLVED** `2d4c4e03` | **`hooks_wire.go:21-23, 34-35, 42, 77`** | DEAD | Eight wire declarations have zero readers anywhere in the repo, including tests | U029.md |
-| U029-F05 | open | **`antigravity.go:426-448`** | SILENTNOOP | A hook with an empty `Command` is written as a live-looking but dead entry | U029.md |
+| U029-F05 | **RESOLVED** `0b9568f6` | **`antigravity.go:426-448`** | SILENTNOOP | A hook with an empty `Command` is written as a live-looking but dead entry | U029.md |
 | U029-F06 | **RESOLVED** `607f5379` | **`antigravity.go:252-282`** | CORRECTNESS | An unparseable (or schema-changed) `hooks.json` is silently replaced with a ctxloom-only file — the user's hook configuration is destroyed | U029.md |
-| U029-F07 | open | **`chat.go:301-303`** | ERRHANDLING | The only caller of `agyConversationMap.read()` discards the error that `read()`'s own doc says must be surfaced | U029.md |
-| U029-F11 | open | **`chat.go:57-195`** | COMPLEXITY | `Chat` has CCN 23 against a CI gate of 10 | U029.md |
-| U029-F14 | open | `capabilities.go (whole file)` | COHESION | `capabilities.go` holds two unrelated things: the command-file writer (`AntigravityCommands`, `WriteCommandFiles`) and agy's conversation-id cache reader (`agyConversationMap`), separated by 30 lin... | U029.md |
-| U029-F16 | open | **`skillfiles.go:10-23`** | CORRECTNESS | A stale doc comment asserts the OPPOSITE of what the code does and denies a collision the code explicitly resolves | U029.md |
-| U029-F18 | open | **`antigravity.go:8, 42, 73-75; hooks_wire.go:10, 19; mcp_registrar.go:12-15; capabilities.go (throughout)`** | CORRECTNESS | The package's normative claims are pinned to "verified agy v1.0.7" while the verified installed version is 1.1.2, and at least one v1.0.7 claim in this area has already been proven false | U029.md |
+| U029-F07 | **RESOLVED** `75f2461d` | **`chat.go:301-303`** | ERRHANDLING | The only caller of `agyConversationMap.read()` discards the error that `read()`'s own doc says must be surfaced | U029.md |
+| U029-F11 | **RESOLVED** `210f9542` | **`chat.go:57-195`** | COMPLEXITY | `Chat` has CCN 23 against a CI gate of 10 | U029.md |
+| U029-F14 | **RESOLVED** `4a0c48a6` | `capabilities.go (whole file)` | COHESION | `capabilities.go` holds two unrelated things: the command-file writer (`AntigravityCommands`, `WriteCommandFiles`) and agy's conversation-id cache reader (`agyConversationMap`), separated by 30 lin... | U029.md |
+| U029-F16 | **RESOLVED** `f0c5d073` | **`skillfiles.go:10-23`** | CORRECTNESS | A stale doc comment asserts the OPPOSITE of what the code does and denies a collision the code explicitly resolves | U029.md |
+| U029-F18 | **PARTIAL** `05b205cb` | **`antigravity.go:8, 42, 73-75; hooks_wire.go:10, 19; mcp_registrar.go:12-15; capabilities.go (throughout)`** | CORRECTNESS | The package's normative claims are pinned to "verified agy v1.0.7" while the verified installed version is 1.1.2, and at least one v1.0.7 claim in this area has already been proven false | U029.md |
 | U030-F05 | open | **`bundles.go:552-583`** | CORRECTNESS | The MCP preimage is **not stable across encodings**: `Args`/`Env` are emitted without `omitempty`, so a nil value hashes as `"args":null,"env":null` while an empty-but-present value hashes as `"arg... | U030.md |
 | U030-F08 | open | `loader_content.go:278, 396` | CORRECTNESS | `LoadedContent.IsDistilled` is re-derived with a **different predicate** than the bytes it claims to describe: `l.preferDistilled && frag.Distilled != ""` omits the `!NoDistill` term. An item with ... | U030.md |
 | U030-F09 | open | `loader_skills.go:87-88, bundles.go:271/284` | CORRECTNESS | Two comments that justify trust-relevant behaviour are **false**. (a) loader_skills.go:87-88 excuses the unverified manifest-less path with "no `ctxloom skill sync` has run — that CLI is Part B6" —... | U030.md |
@@ -2062,14 +2062,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U028-F09 | **RESOLVED** `f45e9b79` | **`agents.go:153`** | DEAD | `ParseDrivingMode` is exported with no caller outside this package. | U028.md |
 | U028-F10 | **RESOLVED** `f45e9b79` | **`agents.go:224-238` vs `:305-308`** | NOPAY | Two different filesystem-injection conventions live 70 lines apart in one 317-line file: a functional option for the loader, a plain nil-means-OsFs parameter for the directory helper. | U028.md |
 | U029-F04 | **RESOLVED** `3b74bf06` | **`surfaces.go:177-180`** | DUPLICATE | `deliveredFunc` is a local retype of the existing shared `agent.DeliveredFunc` | U029.md |
-| U029-F08 | open | **`hooks_wire.go:104-108`** | ERRHANDLING | `DecodeHookPayload` returns the bare `encoding/json` error with no context about what failed to decode | U029.md |
-| U029-F09 | open | **`surfaces.go:122`** | CORRECTNESS | `hooksSurface.Deliver` uses `s.fs` directly while its two sibling surfaces route through `getFS()`; a zero-valued `hooksSurface` nil-panics | U029.md |
-| U029-F10 | open | **`antigravity.go:311, 589, 613, 631`** | ERRHANDLING | Four swallowed filesystem errors | U029.md |
+| U029-F08 | **RESOLVED** `c96b251f` | **`hooks_wire.go:104-108`** | ERRHANDLING | `DecodeHookPayload` returns the bare `encoding/json` error with no context about what failed to decode | U029.md |
+| U029-F09 | **RESOLVED** `9a4e0eb3` | **`surfaces.go:122`** | CORRECTNESS | `hooksSurface.Deliver` uses `s.fs` directly while its two sibling surfaces route through `getFS()`; a zero-valued `hooksSurface` nil-panics | U029.md |
+| U029-F10 | **RESOLVED** `5a935744` | **`antigravity.go:311, 589, 613, 631`** | ERRHANDLING | Four swallowed filesystem errors | U029.md |
 | U029-F12 | **RESOLVED** `2d4c4e03` | **`antigravity.go:293-298`** | DEAD | The field-preservation error branch in `saveHooksFile` is unreachable | U029.md |
-| U029-F13 | open | **`antigravity.go:121-122, 167-169`** | COUPLING | The unknown-key capture depends on hand-maintained lists of known json tag names, in two places, with no compiler link to the structs | U029.md |
-| U029-F15 | open | **`hooks_wire.go:111-113`** | SILENTNOOP | `EncodeDeny("")` emits `{"decision":"deny"}` — the model is told "Tool call denied with reason: " with no reason | U029.md |
-| U029-F17 | open | **`surfaces.go:159, 184`** | CORRECTNESS | Two more stale references in `surfaces.go`: a function that does not exist, and the retired flat command shape | U029.md |
-| U029-F19 | open | **`surfaces.go:185-250`** | COUPLING | The surface set is enumerated in four places that must be kept in sync by hand | U029.md |
+| U029-F13 | **RESOLVED** `39f9afe3` | **`antigravity.go:121-122, 167-169`** | COUPLING | The unknown-key capture depends on hand-maintained lists of known json tag names, in two places, with no compiler link to the structs | U029.md |
+| U029-F15 | **REFUTED** `05823cab` | **`hooks_wire.go:111-113`** | SILENTNOOP | `EncodeDeny("")` emits `{"decision":"deny"}` — the model is told "Tool call denied with reason: " with no reason | U029.md |
+| U029-F17 | **RESOLVED** `ef7e3a4a` | **`surfaces.go:159, 184`** | CORRECTNESS | Two more stale references in `surfaces.go`: a function that does not exist, and the retired flat command shape | U029.md |
+| U029-F19 | **RESOLVED** `dc1d98ad` | **`surfaces.go:185-250`** | COUPLING | The surface set is enumerated in four places that must be kept in sync by hand | U029.md |
 | U029-F20 | **RESOLVED** `24e4e92e` | **`capabilities.go:100-115`** | TRIVIAL | A three-declaration functional-option machine exists to set one string field for one test | U029.md |
 | U029-F21 | **RESOLVED** `f0c5d073` | **`package-wide`** | NOPAY | Comment-to-code ratio is extreme and, per F16/F17/F18, the prose is where the rot is | U029.md |
 | U030-F12 | open | **`bundles.go:791-800, 820-826`** | CORRECTNESS | `detectLegacySkillsKey` reads a root `name:` key to name the offending bundle, but `Bundle.Name` is `yaml:"-"` — the schema has no `name:` key, so `bundleName` is almost always `""` and the error r... | U030.md |

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **907** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 31 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 66 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **918** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 33 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 67 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 120 |
-| `open` | no commit names this ID | **1,144** |
+| `open` | no commit names this ID | **1,130** |
 
-**Totals: 2268 findings across 162 units — 907 resolved, 1144 still open, 217 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 918 resolved, 1130 still open, 220 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 237 | 653 | 12 | 22 | 75 |
-| LOW | 871 | 320 | 465 | 9 | 36 | 41 |
+| MED | 999 | 244 | 643 | 14 | 23 | 75 |
+| LOW | 871 | 324 | 461 | 9 | 36 | 41 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1014,17 +1014,17 @@ Full evidence and the suggested action for any row live in its source review at 
 | U021-F08 | **RESOLVED** `cfe6ed9d` | `coordinator.go:704-713 vs 785-792` | DUPLICATE | The §6a delivery-by-state classification is written twice, over the same `driveQueued` return, producing **two incompatible vocabularies**: `peerSend` returns free prose, `Inject` returns the typed... | U021.md |
 | U021-F09 | open | `coordinator.go:282` | CORRECTNESS | `hashToken` — documented (creds.go:36) as "the persisted form of a bearer token" — is reused to derive the **state directory name**. If its algorithm is ever changed for a security reason, every pr... | U021.md |
 | U021-F10 | **REFUTED** `ecb40d0e` | `folds.go:191, folds.go:168-174` | DEAD | `runsFold.identityFor` and the entire `factSessionCredRevoked` fold arm are unreachable in production — they exist only to serve the dead `RevokeSessionOwner`. | U021.md |
-| U022-F02 | open | `grpcserver.go:405-428` | CORRECTNESS | `requestRunner` can register a waiter into a map `failPending` has already swapped out, then stall for the full 60 s budget instead of failing fast. | U022.md |
-| U022-F03 | open | `harnessspec.go:49-98` | COUPLING | The D3 headless-safety invariant is enforced only at the decode end, so a bad posture is detected **after** the child process and credential are already spawned. | U022.md |
-| U022-F04 | open | `harnessspec.go:140-160` | ERRHANDLING | `decodeHarnessSpec` silently coerces malformed `mcp_servers` entries into `ChatMCPServer{}` with empty Name/Command instead of refusing. | U022.md |
+| U022-F02 | **RESOLVED** `bfdd1d24` | `grpcserver.go:405-428` | CORRECTNESS | `requestRunner` can register a waiter into a map `failPending` has already swapped out, then stall for the full 60 s budget instead of failing fast. | U022.md |
+| U022-F03 | **PARTIAL** `cf31d30f` | `harnessspec.go:49-98` | COUPLING | The D3 headless-safety invariant is enforced only at the decode end, so a bad posture is detected **after** the child process and credential are already spawned. | U022.md |
+| U022-F04 | **RESOLVED** `cf31d30f` | `harnessspec.go:140-160` | ERRHANDLING | `decodeHarnessSpec` silently coerces malformed `mcp_servers` entries into `ChatMCPServer{}` with empty Name/Command instead of refusing. | U022.md |
 | U022-F05 | open | **`home.go:31-91`** | COHESION | `Home` is four protocol planes plus a connection manager under one mutex — six disjoint field partitions. | U022.md |
-| U022-F06 | open | **`home.go:675-684`** | ERRHANDLING | `emitCustomEvent` swallows the `structpb.NewStruct` error and emits a valueless event; for `mail_consumed` that silently breaks the consumption cursor. | U022.md |
-| U022-F07 | open | **`home.go:712-714`** | SILENTNOOP | `Report(ctx, nil, nil)` returns success having emitted nothing. | U022.md |
-| U022-F09 | open | `httpserver.go:245` | COUPLING | `go s.saveEndpoint()` is load-bearing for lock re-entrancy, and nothing says so — removing the `go` self-deadlocks the coordinator. | U022.md |
-| U022-F10 | open | `httpserver.go:99-107` | ERRHANDLING | `Serve` leaks the bound listener and its serving goroutine when the consumer-credential mint fails. | U022.md |
-| U022-F14 | open | **`home.go:721-736`** | CORRECTNESS | `Report` can report failure for a report that was durably journaled, because the Ack it waits for is explicitly droppable. | U022.md |
-| U022-F17 | open | `httpserver.go:180-247, 353-371` | CORRECTNESS | The doc claims "never opens anything LAN-visible"; on Linux the fallback binds the host's **primary outbound interface IP**, which is LAN-visible. | U022.md |
-| U022-F23 | open | `journal.go:140` | COMPLEXITY | `replay` reads the **entire** journal into memory with `io.ReadAll`, defeating the point of checkpointing whenever the snapshot is missing or stale. | U022.md |
+| U022-F06 | **RESOLVED** `7a6ed156` | **`home.go:675-684`** | ERRHANDLING | `emitCustomEvent` swallows the `structpb.NewStruct` error and emits a valueless event; for `mail_consumed` that silently breaks the consumption cursor. | U022.md |
+| U022-F07 | **RESOLVED** `7a6ed156` | **`home.go:712-714`** | SILENTNOOP | `Report(ctx, nil, nil)` returns success having emitted nothing. | U022.md |
+| U022-F09 | **RESOLVED** `aada967a` | `httpserver.go:245` | COUPLING | `go s.saveEndpoint()` is load-bearing for lock re-entrancy, and nothing says so — removing the `go` self-deadlocks the coordinator. | U022.md |
+| U022-F10 | **REFUTED** `aada967a` | `httpserver.go:99-107` | ERRHANDLING | `Serve` leaks the bound listener and its serving goroutine when the consumer-credential mint fails. | U022.md |
+| U022-F14 | **RESOLVED** `806bdd08` | **`home.go:721-736`** | CORRECTNESS | `Report` can report failure for a report that was durably journaled, because the Ack it waits for is explicitly droppable. | U022.md |
+| U022-F17 | **PARTIAL** `aada967a` | `httpserver.go:180-247, 353-371` | CORRECTNESS | The doc claims "never opens anything LAN-visible"; on Linux the fallback binds the host's **primary outbound interface IP**, which is LAN-visible. | U022.md |
+| U022-F23 | **RESOLVED** `e1e12166` | `journal.go:140` | COMPLEXITY | `replay` reads the **entire** journal into memory with `io.ReadAll`, defeating the point of checkpointing whenever the snapshot is missing or stale. | U022.md |
 | U023-F04 | open | `launchgate.go:313-319` | ERRHANDLING | Budget exhaustion is announced **only** for `CauseLaunchFailed`. Under every other cause the coordinator stops re-arming in total silence and the parent's mail is stranded with no notice — in a fil... | U023.md |
 | U023-F05 | open | `mailbox.go:133-137` | CORRECTNESS | `deliverToPoll`'s delivery goroutine calls `onRoleUnpark`, which can **block on the execution-slot semaphore** (`children.go:1762`, `c.slots.acquire(c.baseCtx)`). The recv's documented bounded `wai... | U023.md |
 | U023-F06 | open | `mailbox.go:85-96`, `owner_run.go:165-180` | SILENTNOOP | Neither the mailbox nor `SendOwnedRunTurn` rejects an empty body: an empty `agent_send`/turn is journaled, "delivered", and reported successful while carrying zero payload. | U023.md |
@@ -2005,13 +2005,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U021-F20 | open | `enginehost.go:238` | COUPLING | `startRun` reads `os.Getenv(EnvMCPSocket)` inline, mid-function — connascence of environment at the point of use, in the one method the whole delegation path funnels through. | U021.md |
 | U021-F21 | open | `enginehost.go:375-389` | CORRECTNESS | The engine's **live resume capability** is only reported when the session id is non-empty, so a Session event carrying `Resumable: true` with an empty `SessionID` silently drops the one-shot gate's... | U021.md |
 | U021-F22 | open | `enginehost.go:306 vs 335-341` | CORRECTNESS | The briefing is recorded to the canonical transcript **before** it is delivered, and its delivery goroutine can lose the race to `ctx.Done()` — leaving a transcript that claims a user turn the engi... | U021.md |
-| U022-F11 | open | `httpserver.go:127-133` | ERRHANDLING | A corrupt `endpoint.json` silently discards the stable-endpoint guarantee. | U022.md |
-| U022-F12 | open | **`home.go:462-467`** | ERRHANDLING | A second `SetTurnSink` silently no-ops — the new engine would never receive a turn and nothing says so. | U022.md |
+| U022-F11 | **RESOLVED** `aada967a` | `httpserver.go:127-133` | ERRHANDLING | A corrupt `endpoint.json` silently discards the stable-endpoint guarantee. | U022.md |
+| U022-F12 | **RESOLVED** `7a6ed156` | **`home.go:462-467`** | ERRHANDLING | A second `SetTurnSink` silently no-ops — the new engine would never receive a turn and nothing says so. | U022.md |
 | U022-F13 | **RESOLVED** `72f7f6bf` | `grpcserver.go:122-144` | TRIVIAL | The `auth` closure returns an `Identity` that both call sites discard. | U022.md |
 | U022-F15 | **REFUTED** `49a27f26` | `httpserver.go:151-156` | DEAD | `Coordinator.LoopbackURL` is exported and has **zero production call sites**. | U022.md |
 | U022-F16 | **RESOLVED** `72f7f6bf` | `httpserver.go:160-162` | TRIVIAL | `ReachURL` is a pure one-line pass-through to `reachURL`, existing only to export it. | U022.md |
-| U022-F18 | open | `httpserver.go:337` | COUPLING | `ip != "<no value>"` is connascence of meaning with Go's `text/template` output for a missing field. | U022.md |
-| U022-F19 | open | **`items.go:38-68`** | COMPLEXITY | `itemKind` is CCN 14 against a stated CI gate of 10. | U022.md |
+| U022-F18 | **RESOLVED** `aada967a` | `httpserver.go:337` | COUPLING | `ip != "<no value>"` is connascence of meaning with Go's `text/template` output for a missing field. | U022.md |
+| U022-F19 | **RESOLVED** `fcebe5de` | **`items.go:38-68`** | COMPLEXITY | `itemKind` is CCN 14 against a stated CI gate of 10. | U022.md |
 | U022-F21 | **REFUTED** `287972b3` | **`items.go:171-178`** | DEAD | `itemsFold.countsFor` has zero production call sites. | U022.md |
 | U022-F22 | **RESOLVED** `ce811af7` | `journal.go:26-32` | DUPLICATE | `newFact` has exactly one caller — `factAt`, which is itself a pure pass-through. Two names for one operation. | U022.md |
 | U023-F10 | **RESOLVED** `72f7f6bf` | `launchgate.go:258-264` | TRIVIAL | `noteLaunchFailure`'s `int` return is discarded at its only call site. | U023.md |

@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -146,8 +145,19 @@ func confirmSignerAdd(cmd *cobra.Command, principal string, key operations.Signe
 	if assumeYes || !isInteractiveTerminal() {
 		return true
 	}
+	return promptSignerAdd(cmd, principal, key, namespaces)
+}
+
+// promptSignerAdd renders the consequence block and reads the answer. It is
+// split out of confirmSignerAdd — whose only other job is the --yes/no-TTY
+// gate — because the gate made the prompt untestable: in any test process
+// isInteractiveTerminal() is false, so every existing test took the skip path
+// and the most consequential text in the product had nothing asserting it is
+// shown at all (U042-F25). It writes to cmd.ErrOrStderr() rather than
+// os.Stderr for the same reason; in production those are the same descriptor.
+func promptSignerAdd(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) bool {
 	consequence := signerConsequenceText(namespaces)
-	fmt.Fprintf(os.Stderr, "\nTrust %s as a %s?\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
+	fmt.Fprintf(cmd.ErrOrStderr(), "\nTrust %s as a %s?\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
 		principal, signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), consequence)
 	yes, err := promptYesNo("  [y/N] ")
 	return err == nil && yes

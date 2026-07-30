@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,235** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 110 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 111 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 157 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 162 |
-| `open` | no commit names this ID | **604** |
+| `open` | no commit names this ID | **603** |
 
-**Totals: 2268 findings across 162 units — 1,235 resolved, 604 still open, 429 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,235 resolved, 603 still open, 430 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 424 | 340 | 62 | 72 | 101 |
-| LOW | 871 | 454 | 252 | 33 | 77 | 55 |
+| LOW | 871 | 454 | 251 | 34 | 77 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1973,7 +1973,7 @@ Full evidence and the suggested action for any row live in its source review at 
 
 | ID | Status | Loc | Category | Claim | Source |
 |---|---|---|---|---|---|
-| U001-F02 | open | **`engine.go:108-116`** | CORRECTNESS | The `select`/`default` guard is a non-atomic imitation of `sync.Once`; two concurrent `Close()` calls can both observe `default` and both `close(closed)` → panic. Currently unexploited (`closeAllSe... | U001.md |
+| U001-F02 | **PARTIAL** `ec5b6608` | **`engine.go:108-116`** | CORRECTNESS | The `select`/`default` guard is a non-atomic imitation of `sync.Once`; two concurrent `Close()` calls can both observe `default` and both `close(closed)` → panic. Currently unexploited (`closeAllSe... | U001.md |
 | U001-F04 | open | **`engine.go:165,191,223,250,255` + `216-221`, `243-248`** | ERRHANDLING | `emit`'s "session died, stop scripting" return value is checked at 6 call sites and silently discarded at the other 6, with no stated rule for which. Worst case: at 216-221 a discarded `false` is f... | U001.md |
 | U001-F05 | **RESOLVED** `c6b66a47` | **`engine.go:23,31,35,39,46,51`** | NOPAY | Six identifiers are **exported from a `main` package**, which is unimportable by construction, so the export can never be consumed. `rg -w` across the repo excluding `cmd/acpl1harness/` finds zero ... | U001.md |
 | U001-F06 | open | **`engine.go:86-127`** | CORRECTNESS | `openHarnessEngine` ignores `req.Cwd`, `req.Profile`, `req.MCPServers`, `req.FsUpstreamAddr` and `req.ForwardTerminal`, and leaves `Modes`, `Commands`, `LLMs`, `AssembleMode`, `WatchChildren` and `... | U001.md |

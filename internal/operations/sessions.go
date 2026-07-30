@@ -86,9 +86,9 @@ func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 // most-recent-first by last-worked time (ActivityTime), after reconciling the
 // index so unrecoverable sessions are dropped here too. Mirrors
 // ListSessionsForProject without the project filter — the ordered all-projects
-// listing (`session list --all`, the list_sessions MCP tool). ListSessions
-// (unsorted) stays for order-insensitive callers (HarpForSession, the raw
-// ctxloom://sessions resource dump).
+// listing (`session list --all`, the list_sessions MCP tool, the
+// ctxloom://sessions resource). ListSessions (unsorted) stays for the
+// order-insensitive callers that only need membership (HarpForSession).
 func ListAllSessions() ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {

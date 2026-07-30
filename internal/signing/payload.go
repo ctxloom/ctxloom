@@ -291,6 +291,36 @@ func CountersignPayload(h CountersignHeader, payloadBytes []byte) []byte {
 	return buf.Bytes()
 }
 
+// CountersignPreimage frames a header the way the three shape wrappers below
+// do, dispatching on the shape the header already names. It is the seam a
+// header-carrying caller uses instead of calling CountersignPayload directly:
+// countersign.Store threads a CountersignHeader through its write, index-hash
+// and candidate-lookup paths, so it cannot pass (ref, form, payload) to a
+// wrapper the way an assertion-specific caller would — and calling the raw
+// framing function was what left the wrappers with zero production callers,
+// their traps unarmed on the only paths that actually sign anything.
+//
+// The dispatch is a pure re-expression: for every header it routes, the bytes
+// are identical to CountersignPayload(h, payloadBytes) — see
+// TestCountersignPreimage_MatchesCountersignPayload, which is the whole
+// contract. The ref-reject arm is guarded on an empty payload precisely because
+// RefRejectCountersignPayload has no payload parameter: routing a
+// payload-carrying header there would drop the bytes and silently reframe. Any
+// shape the wrappers do not name (a reject that binds both a ref and a form)
+// falls through to the raw framing rather than being reshaped to fit.
+func CountersignPreimage(h CountersignHeader, payloadBytes []byte) []byte {
+	switch {
+	case h.Assertion == AssertionApprove:
+		return ApproveCountersignPayload(h.Ref, h.Form, payloadBytes)
+	case h.Assertion == AssertionReject && h.Ref == "":
+		return ContentRejectCountersignPayload(h.Form, payloadBytes)
+	case h.Assertion == AssertionReject && h.Form == AttestNone && len(payloadBytes) == 0:
+		return RefRejectCountersignPayload(h.Ref)
+	default:
+		return CountersignPayload(h, payloadBytes)
+	}
+}
+
 // ApproveCountersignPayload builds the ref-scoped approve payload (spec
 // §5.2): the ref is bound deliberately, so an approval is of *this item at
 // this ref in this form*. Moving an item to a new ref re-gates it to

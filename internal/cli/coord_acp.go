@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -22,6 +23,14 @@ type acpCoordinator struct {
 }
 
 func newACPCoordinator() *acpCoordinator { return &acpCoordinator{} }
+
+// acpCoordinator is handed to operations.OpenEngineSession as an
+// operations.EngineSessionCoordinator (acp_cmd.go). Nothing but this line makes
+// that binding a COMPILE-time fact: the methods live in two files here
+// (SessionEnv below, WatchChildren in acp_children.go) and are never called
+// through the interface from this package, so a signature change on either side
+// would otherwise surface as `ctxloom acp` losing delegation at runtime.
+var _ operations.EngineSessionCoordinator = (*acpCoordinator)(nil)
 
 // SessionEnv returns the coordinator reach-back pair (EnvCoordURL,
 // EnvCoordCred) for one ACP session's

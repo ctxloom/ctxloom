@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Agent-delegation tools (agent_run / agent_send / agent_recv / agent_stop),
@@ -141,6 +142,12 @@ type agentBusMessage struct {
 	Kind       string         `json:"kind,omitempty"`
 	Body       string         `json:"body"`
 	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion the sender attached, when there is one. A message whose kind is approval_request carries the escalation ladder's ApprovalRequest projection and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first."`
+	// StructuredError reports a companion that arrived but could not be
+	// decoded. The mailbox commits a batch as delivered BEFORE this projection
+	// runs, so such a payload is lost rather than redelivered — the caller has
+	// to be able to tell "the sender attached nothing" from "the sender
+	// attached something and it did not survive the trip".
+	StructuredError string `json:"structured_error,omitempty" jsonschema:"Set when the sender attached a structured companion that could not be decoded; the body was still delivered but the structured field is absent and will NOT be redelivered. A message whose kind needs a structured answer (approval_request) cannot be answered from the body alone — treat this as a delivery fault, not an empty field."`
 }
 
 type agentRecvResult struct {
@@ -271,7 +278,16 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 		bm := agentBusMessage{MessageID: m.ID, From: m.From, Kind: m.Kind, Body: m.Body}
 		if len(m.Structured) > 0 {
 			var structured map[string]any
-			if json.Unmarshal(m.Structured, &structured) == nil {
+			if uerr := json.Unmarshal(m.Structured, &structured); uerr != nil {
+				// recvMail committed this batch as DELIVERED before the
+				// projection ran, so a companion dropped here is gone rather
+				// than redelivered. Naming it is the difference between the
+				// caller knowing an approval arrived unanswerable and the
+				// caller reading a courtesy note while the requesting child
+				// blocks to its auto-decline.
+				bm.StructuredError = uerr.Error()
+				clidiag.Warn("ctxloom", "agent_recv: message %s from %s: structured companion could not be decoded: %v (already acked as delivered — dropped, not redelivered)", m.ID, m.From, uerr)
+			} else {
 				bm.Structured = structured
 			}
 		}

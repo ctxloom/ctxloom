@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,154** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 71 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 122 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 123 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **776** |
+| `open` | no commit names this ID | **775** |
 
-**Totals: 2268 findings across 162 units — 1,154 resolved, 776 still open, 338 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,154 resolved, 775 still open, 339 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 373 | 446 | 38 | 51 | 91 |
+| MED | 999 | 373 | 445 | 38 | 52 | 91 |
 | LOW | 871 | 431 | 304 | 23 | 63 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1686,7 +1686,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U104-F03 | open | `internal/cli/format_coverage_test.go:204-207` | CORRECTNESS | The project's own coverage registry misattributes three unwired commands as *fixture* gaps, which permanently hides them from the "not wired to emit()" follow-up list the file's own header promises. | U104.md |
 | U104-F04 | open | `cliemit.go:25` (absence) vs `internal/cli/root.go:187` | COHESION | The package calls itself "the cross-binary `--format` output filter" but implements only the success half; the error half exists in exactly one binary and is not in this package. | U104.md |
 | U104-F05 | open | `cliemit.go:25` signature` | DUPLICATE | `Emit(cmd, data, text)` cannot express "the payload itself depends on the format/flags", so every such call site bypasses it and hand-rolls the format branch — six times so far, each re-implementin... | U104.md |
-| U104-F06 | open | `cliemit.go:30-33` → `pkg/clifmt/text.go:42-46` | SILENTNOOP | `Emit` with a nil text closure over an **empty scalar slice** writes zero bytes and returns nil, while the same value under `--format json` writes `[]` — so "nothing to show" is indistinguishable f... | U104.md |
+| U104-F06 | **REFUTED** `bbe45def` | `cliemit.go:30-33` → `pkg/clifmt/text.go:42-46` | SILENTNOOP | `Emit` with a nil text closure over an **empty scalar slice** writes zero bytes and returns nil, while the same value under `--format json` writes `[]` — so "nothing to show" is indistinguishable f... | U104.md |
 | U104-F07 | open | `internal/cli/format.go:11-31` and `cmd/harp/root.go:108-116` | DUPLICATE | Four format vocabularies now coexist for one user-facing flag, and one of them is a third independent `resolveFormat` implementation with different empty-value semantics. | U104.md |
 | U105-F01 | **RESOLVED** `732918df` | `cliversion.go:23-35` | DEAD | `Render` has zero production call sites; it is kept alive solely by its own test file. It duplicates `clifmt.Render`, which is what every real version command actually calls. | U105.md |
 | U105-F02 | open | `cliversion.go:25-27` | SILENTNOOP | The `text`/`""` branch of `Render` prints a bare newline for an unstamped `Version` and returns nil. Empty in, zero-payload out, exit 0. | U105.md |

@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 func newLog(t *testing.T, session string) *Store {
@@ -726,5 +729,269 @@ func TestLogRemove_HarpIsNeverReissued(t *testing.T) {
 		if task.HarpID == gone.HarpID {
 			t.Fatalf("removed task %s came back after reload", gone.HarpID)
 		}
+	}
+}
+
+// TestLogFold_TruncatedFinalLineFailsLoud pins the invariant snapshot()'s
+// lock rationale now states: a partially written final line (a peer process
+// caught mid-append) makes the WHOLE fold fail loud, naming the file and the
+// line. There is no malformed-line SKIP in this reader — the earlier wording
+// described a lenient fold that fold() has never had, and the difference
+// matters to the reason for taking the shared lock: the hazard a concurrent
+// append creates is a hard, transient read failure for every task in the
+// store, not one silently missing task (U120-F11).
+func TestLogFold_TruncatedFinalLineFailsLoud(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"good one","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"beta","text":"half-writ`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	got, err := s.List(nil, "")
+	if err == nil {
+		t.Fatalf("a truncated final line must fail the fold, got tasks: %+v", got)
+	}
+	if got != nil {
+		t.Fatalf("a failed fold must return no partial view, got %+v", got)
+	}
+	if !strings.Contains(err.Error(), ":2:") {
+		t.Fatalf("error %q does not name the truncated line", err.Error())
+	}
+}
+
+// TestAppend_RejectsAnEventTheFoldCouldNeverRead pins the write seam's own
+// admissibility rule. append() is the ONLY writer of this log, and fold()
+// treats an unreadable record as fatal for the whole file, so a record that
+// cannot fold is not a bad row — it is a bricked store. The seam therefore
+// refuses an event with no op or no task identity, and refuses it BEFORE any
+// bytes reach the file: the payload assertion below (file still absent /
+// unchanged) is the real contract, since exit-status-only checking is exactly
+// how a silent no-op survives here (U120-F06).
+func TestAppend_RejectsAnEventTheFoldCouldNeverRead(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ev   Event
+	}{
+		{"zero value", Event{}},
+		{"no op", Event{Task: "alpha", Text: "x"}},
+		{"no task identity", Event{Op: opStatus, Status: StatusToDo}},
+		{"add with no identity", Event{Op: opAdd, Text: "x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+			l := &eventLog{path: path}
+			if err := l.append(tc.ev); err == nil {
+				t.Fatalf("append(%+v) succeeded; it must refuse a record fold() cannot read", tc.ev)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				b, _ := os.ReadFile(path)
+				t.Fatalf("append wrote %d bytes for a rejected event: %q", len(b), string(b))
+			}
+		})
+	}
+}
+
+// TestAppend_RejectedEventLeavesAReadableStore is the consequence half: the
+// store that a rejected write was aimed at must still fold afterwards.
+func TestAppend_RejectedEventLeavesAReadableStore(t *testing.T) {
+	s := newLog(t, "sess")
+	if _, err := s.AddWithTrigger("real work", "", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := s.log.append(Event{}); err == nil {
+		t.Fatal("append(Event{}) succeeded")
+	}
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("store unreadable after a rejected append: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want the one real task, got %+v", got)
+	}
+}
+
+// TestFold_BlankIdentityAddIsCharacterizedNotRejected records what the READER
+// does today with an `add` line carrying no harp and no text: it mints a task
+// with a blank id and blank text rather than failing. This is characterization,
+// not endorsement (U120-F04). The write seam now refuses to create such a line
+// (see TestAppend_RejectsAnEventTheFoldCouldNeverRead), so the only source is a
+// hand-edited or foreign log — and making the READER reject it is a
+// persisted-format decision, not a sweep's call: it would convert a file that
+// loads today into one that never loads again, which is precisely the
+// permanently-unreadable-store failure U120-F01 existed to remove. If that
+// decision is ever taken, this test is the one to invert.
+func TestFold_BlankIdentityAddIsCharacterizedNotRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"beta","text":"real work","status":"To Do","ts":"2026-01-01T00:00:01Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("the reader is deliberately lenient here; a fold error means the decision changed without inverting this test: %v", err)
+	}
+	ids := make([]string, 0, len(got))
+	for _, task := range got {
+		ids = append(ids, task.HarpID)
+	}
+	if !slices.Contains(ids, "") {
+		t.Fatalf("blank-identity add is no longer folded into a task; ids = %v", ids)
+	}
+	if !slices.Contains(ids, "beta") {
+		t.Fatalf("the real task must still fold; ids = %v", ids)
+	}
+}
+
+// TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite pins the log's only
+// write path against reporting success for an event that may not be on disk
+// (U120-F08). A close error after a SUCCEEDED write is the result; a close
+// error after a failed one is noise, and the original diagnosis must survive.
+func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
+	open := func() *os.File {
+		f, err := os.Create(filepath.Join(t.TempDir(), "x"))
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		return f
+	}
+
+	f := open()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := closeAfter(f, nil); err == nil {
+		t.Fatal("closeAfter swallowed a close failure on a successful write")
+	}
+
+	f2 := open()
+	if err := f2.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	want := errors.New("the write itself failed")
+	if got := closeAfter(f2, want); !errors.Is(got, want) {
+		t.Fatalf("closeAfter = %v, want the original write error %v", got, want)
+	}
+}
+
+// TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken pins the
+// deliberate decision the three read paths document: the cross-process shared
+// lock is BEST-EFFORT, and a lock failure downgrades to an unlocked read
+// rather than failing, because a read must never block or die on lock
+// acquisition (U120-F10). Turning that into a hard error is the change this
+// test exists to catch: it would make every read of a store whose .lock is
+// unusable fail, on a path whose whole point is that it stays available.
+//
+// The lock failure is produced structurally — a DIRECTORY where filelock
+// wants to open a file — so no mocking is involved.
+func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
+	s := newLog(t, "sess")
+	added, err := s.AddWithTrigger("still readable", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := s.AddTags(added.HarpID, "urgent"); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	blockLockPath(t, s.Path()+".lock")
+
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("List must fall back to an unlocked read, got %v", err)
+	}
+	if len(got) != 1 || got[0].HarpID != added.HarpID {
+		t.Fatalf("List = %+v, want the one task", got)
+	}
+	tags, err := s.CurrentTags(added.HarpID)
+	if err != nil {
+		t.Fatalf("CurrentTags must fall back to an unlocked read, got %v", err)
+	}
+	if !slices.Contains(tags, "urgent") {
+		t.Fatalf("tags = %v", tags)
+	}
+	if _, err := s.DeferredSince(); err != nil {
+		t.Fatalf("DeferredSince must fall back to an unlocked read, got %v", err)
+	}
+}
+
+// TestApply_EventsForAnUnknownHarpAreSilentlyDropped measures U120-F03: the
+// fold's own doc says "a reader must never silently drop a record", and
+// apply()'s status/text/tag/untag arms do exactly that whenever byID has no
+// entry for the event's harp. All three ways that happens are recorded here,
+// because they are NOT the same defect and a single "fail the fold" remedy
+// would be wrong for two of them:
+//
+//   - after a remove: the drop is correct and must stay (tombstoned task).
+//   - clock skew across machines: the log is git-merged and replayed in ts
+//     order, so a status stamped BEFORE its own add is replayed before the
+//     task exists and is lost. This is the real payload loss.
+//   - a harp that was never issued at all: a genuinely dangling record.
+//
+// Escalated rather than fixed: what an event addressed to an unknown harp
+// MEANS is a persisted-format decision, and the obvious remedy (fatal fold)
+// would turn a merge artifact into a permanently unreadable store — the
+// failure U120-F01 was filed to remove.
+func TestApply_EventsForAnUnknownHarpAreSilentlyDropped(t *testing.T) {
+	statusOf := func(t *testing.T, raw string) map[string]string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+		if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, _ := OpenLog(path, "")
+		got, err := s.List(nil, "")
+		if err != nil {
+			t.Fatalf("fold: %v", err)
+		}
+		out := map[string]string{}
+		for _, task := range got {
+			out[task.HarpID] = task.Status
+		}
+		return out
+	}
+
+	// A status event replayed BEFORE its own add (writer clock skew, the case
+	// the chronological fold cannot order correctly) is lost without a word.
+	skew := statusOf(t, `{"op":"status","task":"alpha","status":"In Progress","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"alpha","text":"skewed","status":"To Do","ts":"2026-01-01T00:00:05Z"}
+`)
+	if skew["alpha"] != StatusToDo {
+		t.Fatalf("status = %q; this test records the CURRENT silent-drop behaviour", skew["alpha"])
+	}
+
+	// An event for a harp that was never issued at all: dropped, no error.
+	dangling := statusOf(t, `{"op":"add","task":"alpha","text":"real","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"tag","task":"ghost","tags":["urgent"],"ts":"2026-01-01T00:00:01Z"}
+`)
+	if len(dangling) != 1 || dangling["alpha"] != StatusToDo {
+		t.Fatalf("fold = %v, want just the real task", dangling)
+	}
+
+	// After a remove, the drop is CORRECT and must survive any future fix.
+	removed := statusOf(t, `{"op":"add","task":"alpha","text":"real","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"remove","task":"alpha","ts":"2026-01-01T00:00:01Z"}
+{"op":"status","task":"alpha","status":"Done","ts":"2026-01-01T00:00:02Z"}
+`)
+	if len(removed) != 0 {
+		t.Fatalf("fold = %v, want an empty view: a status for a tombstoned task is correctly ignored", removed)
+	}
+}
+
+// blockLockPath makes filelock.LockShared fail on path, structurally: a
+// DIRECTORY cannot be opened as a lock file. Nothing is mocked, so the
+// fallback under test is the real one.
+func blockLockPath(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove lock file: %v", err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("block the lock path: %v", err)
+	}
+	if _, err := filelock.LockShared(path); err == nil {
+		t.Fatalf("the shared lock at %s was acquired; this test no longer exercises the fallback", path)
 	}
 }

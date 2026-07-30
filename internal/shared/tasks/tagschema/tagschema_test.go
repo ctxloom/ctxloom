@@ -142,11 +142,13 @@ func TestEnum_ParsesCommaSeparatedListAndDropsEmptyEntries(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	v, ok := s.Enum("triage:type")
+	v, ok, eerr := s.Enum("triage:type")
+	require.NoError(t, eerr)
 	require.True(t, ok)
 	assert.Equal(t, []string{"correctness", "security", "docs", "build"}, v)
 
-	_, ok = s.Enum("unrelated")
+	_, ok, eerr = s.Enum("unrelated")
+	require.NoError(t, eerr)
 	assert.False(t, ok)
 }
 
@@ -175,7 +177,8 @@ func TestRange_MalformedValueIsAReturnedError(t *testing.T) {
 
 func TestEnumRangePriorityFnDecayFn_NilSchemaIsEmpty(t *testing.T) {
 	var s *Schema
-	_, ok := s.Enum("triage:type")
+	_, ok, eerr := s.Enum("triage:type")
+	require.NoError(t, eerr)
 	assert.False(t, ok)
 	_, _, ok, err := s.Range("triage:impact")
 	require.NoError(t, err)

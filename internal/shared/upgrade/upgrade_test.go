@@ -1,6 +1,7 @@
 package upgrade
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +36,7 @@ type versionStampUpgrade struct{ target int }
 func (versionStampUpgrade) Name() string { return "version-stamp" }
 
 func (u versionStampUpgrade) Apply(root *yaml.Node) bool {
-	if Version(root, "version") >= u.target {
+	if v, ok := Version(root, "version"); !ok || v >= u.target {
 		return false
 	}
 	SetVersion(root, "version", u.target)
@@ -96,6 +97,57 @@ func TestPipeline_Run_Idempotent_SecondRunIsNoOp(t *testing.T) {
 	assert.Equal(t, string(once), string(twice))
 }
 
+// A multi-document stream must survive Run byte-for-byte. yaml.Unmarshal into a
+// yaml.Node silently decodes only the FIRST document of a stream and reports no
+// error, so re-encoding that node emits a single-document file: every later
+// document is deleted. The upgraded bytes are handed to the caller as
+// Pending.Data and written verbatim over the user's file on consent, so the loss
+// is permanent and silent.
+func TestPipeline_Run_MultiDocumentStream_ReturnsVerbatim(t *testing.T) {
+	in := []byte("one: x\n---\nsecond: doc\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "two"}}
+	out, applied := p.Run(in)
+
+	assert.Empty(t, applied, "a multi-document stream must not report an upgrade it cannot safely re-encode")
+	assert.Equal(t, string(in), string(out), "every document in the stream must survive")
+}
+
+// A duplicate mapping key must stop the pipeline dead. The DOM helpers all act
+// on the FIRST match, so renaming `old` in "old: 1\nold: 2\n" produced
+// "old: 2\nnew: 1\n": a document that no longer has a duplicate key, therefore
+// parses cleanly, and carries the migrated value taken from one of the two
+// entries while the legacy key survives holding the other. That converts a loud
+// duplicate-key parse error into a silent load of the wrong values, and the
+// rewritten bytes are what the user is offered to persist.
+func TestPipeline_Run_DuplicateKey_ReturnsVerbatim(t *testing.T) {
+	in := []byte("one: first\none: second\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "two"}}
+	out, applied := p.Run(in)
+
+	assert.Empty(t, applied, "a document with a duplicate key must not be silently normalized")
+	assert.Equal(t, string(in), string(out))
+}
+
+// The same rule applies below the root: the helpers walk nested mappings too.
+func TestPipeline_Run_NestedDuplicateKey_ReturnsVerbatim(t *testing.T) {
+	in := []byte("outer:\n  dup: 1\n  dup: 2\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "outer", to: "renamed"}}
+	out, applied := p.Run(in)
+
+	assert.Empty(t, applied)
+	assert.Equal(t, string(in), string(out))
+}
+
+// A key repeated in two DIFFERENT mappings is not a duplicate and must still
+// upgrade — the check is per-mapping, not per-document.
+func TestPipeline_Run_SameKeyInDifferentMappings_StillUpgrades(t *testing.T) {
+	in := []byte("one:\n  name: a\ntwo:\n  name: b\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "renamed"}}
+	_, applied := p.Run(in)
+
+	assert.Equal(t, []string{"a"}, applied)
+}
+
 func TestVersion_MissingIsZero_RoundTrips(t *testing.T) {
 	p := Pipeline{versionStampUpgrade{target: 2}}
 
@@ -118,5 +170,132 @@ func TestSetVersion_IsIntScalar(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("k: v\n"), &doc))
 	root := doc.Content[0]
 	SetVersion(root, "version", 3)
-	assert.Equal(t, 3, Version(root, "version"))
+	v, ok := Version(root, "version")
+	assert.True(t, ok)
+	assert.Equal(t, 3, v)
 }
+
+// "the key is absent" and "the key is present and unreadable" are different
+// facts. Only the first is generation 0; the second must not be migrated as if
+// it were, because doing so re-runs every step over a probably-corrupt document
+// and stamps the current version on the way out.
+func TestVersion_PresentButUnreadable_IsNotGenerationZero(t *testing.T) {
+	parse := func(t *testing.T, doc string) *yaml.Node {
+		t.Helper()
+		var d yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &d))
+		return d.Content[0]
+	}
+
+	v, ok := Version(parse(t, "k: v\n"), "version")
+	assert.True(t, ok, "an absent version key is the pre-versioning generation")
+	assert.Equal(t, 0, v)
+
+	for _, doc := range []string{
+		"version: banana\nk: v\n",
+		"version: 6.5\nk: v\n",
+		"version: \"\"\nk: v\n",
+		"version:\n  nested: 6\n",
+		"version:\n  - 6\n",
+	} {
+		_, ok := Version(parse(t, doc), "version")
+		assert.False(t, ok, "input %q", doc)
+	}
+
+	v, ok = Version(parse(t, "version: 4\n"), "version")
+	assert.True(t, ok)
+	assert.Equal(t, 4, v)
+}
+
+// U131-F03 claimed the swallowed enc.Close() error meant "a truncated buffer
+// would be persisted verbatim". It cannot, and this pins why: yaml.v3's Encoder
+// writes the WHOLE document during Encode, so by the time Close runs the sink
+// already holds every byte, and Close appends nothing. Run's sink is a
+// bytes.Buffer, whose Write never fails, so the only way Close can error is a
+// document Encode already refused — which Run returns verbatim on, before Close
+// is ever reached.
+//
+// This goes red if yaml.v3 ever starts deferring output to Close, which is
+// exactly the world in which the original claim would be true.
+func TestEncoder_WritesTheWholeDocumentBeforeClose(t *testing.T) {
+	var doc yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("# c\nkept: 1\nnested:\n  k: v\n"), &doc))
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	require.NoError(t, enc.Encode(&doc))
+
+	beforeClose := buf.String()
+	require.NoError(t, enc.Close(), "Close cannot fail over a bytes.Buffer once Encode succeeded")
+	assert.Equal(t, beforeClose, buf.String(), "Close must contribute no bytes; a truncated Encode output is not a reachable state")
+
+	var round map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(beforeClose), &round), "the pre-Close bytes are already a complete document")
+	assert.Contains(t, round, "kept")
+	assert.Contains(t, round, "nested")
+}
+
+// The companion fact: every node shape that makes the encoder fail fails at
+// Encode, which Run already handles, so Close never sees a half-written stream.
+func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
+	shapes := map[string]*yaml.Node{
+		"alias with no target": {Kind: yaml.AliasNode},
+		"unknown kind":         {Kind: yaml.Kind(99)},
+		"document inside map":  {Kind: yaml.DocumentNode, Content: []*yaml.Node{ScalarNode("x")}},
+	}
+	for name, bad := range shapes {
+		t.Run(name, func(t *testing.T) {
+			var doc yaml.Node
+			require.NoError(t, yaml.Unmarshal([]byte("a: 1\n"), &doc))
+			MapSet(doc.Content[0], "broken", bad)
+
+			var buf bytes.Buffer
+			enc := yaml.NewEncoder(&buf)
+			require.Error(t, enc.Encode(&doc), "the failure must surface at Encode")
+			assert.Empty(t, buf.String(), "a refused encode writes nothing at all")
+			_ = enc.Close()
+		})
+	}
+}
+
+// CHARACTERIZATION of an ESCALATED defect (U131-F02), not a contract anyone
+// should rely on. When re-encoding fails after stages have demonstrably fired,
+// Run returns (original bytes, nil) — indistinguishable from "this file is
+// already current" — and the caller goes on to parse the LEGACY bytes with the
+// current schema, quietly losing whatever the migration would have supplied.
+//
+// Run has no error channel, so there is no honest value it can return here;
+// closing this needs Pipeline.Run to grow one, which propagates to five
+// production call sites across config, sessions, bundles and profiles. That is
+// a signature change through profile loading, so it is escalated rather than
+// taken in a sweep.
+//
+// INVERT THIS TEST when Run gains an error return: the assertion should become
+// "reports the failure", and the presence of a red here is the signal that the
+// escalated fix has landed.
+func TestPipeline_Run_EncodeFailure_IsReportedAsAlreadyCurrent(t *testing.T) {
+	// An upgrader that mutates the document and leaves behind a node the
+	// encoder refuses — the shape a future upgrader bug would take.
+	poison := nodeSurgery{name: "poison", fn: func(root *yaml.Node) bool {
+		MapSet(root, "renamed", ScalarNode("v"))
+		MapDelete(root, "legacy")
+		MapSet(root, "broken", &yaml.Node{Kind: yaml.AliasNode})
+		return true
+	}}
+
+	in := []byte("legacy: v\n")
+	out, applied := Pipeline{poison}.Run(in)
+
+	assert.Empty(t, applied, "escalated: a failed re-encode is currently indistinguishable from an already-current file")
+	assert.Equal(t, string(in), string(out), "the caller is handed the un-upgraded bytes to parse as if current")
+}
+
+// nodeSurgery is a test-only Upgrader whose Apply is supplied inline.
+type nodeSurgery struct {
+	name string
+	fn   func(*yaml.Node) bool
+}
+
+func (n nodeSurgery) Name() string            { return n.name }
+func (n nodeSurgery) Apply(r *yaml.Node) bool { return n.fn(r) }

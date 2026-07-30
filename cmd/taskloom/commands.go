@@ -276,13 +276,16 @@ func priorityOf(t tasks.Task) float64 {
 // doc) — or "" when the ranking is fine. NoPriorityFn is checked first and
 // reported on its own (not folded into the tied-scores wording below) since
 // its fix — declare a priority_fn — is a different fix from a genuinely-tied
-// population's (apply the tags the formula reads).
+// population's (apply the tags the formula reads). The tied wording quotes
+// ScoredTasks against its NonTerminalTasks denominator: the numerator alone
+// says nothing, since the same "only 3" is a healthy ranking of 3 active
+// tasks and a broken one of 300.
 func priorityDiagnosticWarning(d priority.Diagnostics) string {
 	switch {
 	case d.NoPriorityFn:
 		return "--sort priority is meaningless here: this project's tag_schema declares no priority_fn, so every task's raw score is 0 and the ranking reflects nothing"
 	case d.AllTied:
-		return fmt.Sprintf("--sort priority is meaningless here: every active task ties at the same raw priority score (only %d carry a tag any priority_fn/decay_fn formula actually reads) — the ranking reflects nothing", d.ScoredTasks)
+		return fmt.Sprintf("--sort priority is meaningless here: every active task ties at the same raw priority score (only %d of %d active tasks carry a tag any priority_fn/decay_fn formula actually reads) — the ranking reflects nothing", d.ScoredTasks, d.NonTerminalTasks)
 	default:
 		return ""
 	}

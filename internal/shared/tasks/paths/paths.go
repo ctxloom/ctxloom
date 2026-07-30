@@ -150,14 +150,13 @@ func ValidateProjectID(id string) error {
 		return fmt.Errorf("project id is too long (%d bytes)", len(id))
 	}
 	for _, r := range id {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case r == '-' || r == '_' || r == '.':
-		default:
+		if !projectIDRune(r) {
 			return fmt.Errorf("project id %q contains an invalid character %q", id, r)
 		}
 	}
-	if id == "." || id == ".." || strings.Contains(id, "..") {
+	// ".." alone is already covered by the Contains scan; only "." needs its
+	// own equality, since it carries no doubled dot.
+	if id == "." || strings.Contains(id, "..") {
 		return fmt.Errorf("project id %q is not a valid path segment", id)
 	}
 	if strings.HasPrefix(id, ".") {
@@ -166,8 +165,30 @@ func ValidateProjectID(id string) error {
 	return nil
 }
 
+// projectIDRune reports whether r may appear in a project id: ASCII
+// alphanumerics plus '-', '_' and '.'. Everything else — separators, "..",
+// control characters, spaces, and every non-ASCII rune — is rejected, which
+// is what keeps a crafted id from steering a write outside ~/.ctxloom/tasks.
+func projectIDRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	case r == '-' || r == '_' || r == '.':
+		return true
+	default:
+		return false
+	}
+}
+
 // ProjectMarkerPath returns <projectDir>/.ctxloom/project-id — the in-tree
-// marker carrying the project's stable project-id.
-func ProjectMarkerPath(projectDir string) string {
-	return filepath.Join(projectDir, AppDirName, projectMarkerFileName)
+// marker carrying the project's stable project-id. An empty projectDir errors
+// rather than resolving against the process's cwd, exactly as
+// RepoTasksLogPath does: a cwd-relative ".ctxloom/project-id" is the REAL
+// marker of whatever tree the process happens to sit in, so silently
+// resolving it reads or overwrites another project's identity.
+func ProjectMarkerPath(projectDir string) (string, error) {
+	if projectDir == "" {
+		return "", fmt.Errorf("project marker: no project directory resolved")
+	}
+	return filepath.Join(projectDir, AppDirName, projectMarkerFileName), nil
 }

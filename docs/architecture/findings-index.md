@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,057** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 41 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 94 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **943** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,068** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 44 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 95 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 136 |
+| `open` | no commit names this ID | **925** |
 
-**Totals: 2268 findings across 162 units — 1,057 resolved, 943 still open, 268 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,068 resolved, 925 still open, 275 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 312 | 552 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 365 | 13 | 51 | 47 |
+| MED | 999 | 317 | 545 | 18 | 36 | 83 |
+| LOW | 871 | 401 | 354 | 16 | 51 | 49 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1047,14 +1047,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U024-F13 | **RESOLVED** `3e05cfe6` | `spawner.go:510-516` | SILENTNOOP | `childMCPServers` can compose **nil** — a child with no ctxloom MCP server, i.e. no `agent_send`/`agent_recv`/`agent_report`. It launches, burns tokens, and can never report back; nothing warns. | U024.md |
 | U025-F01 | **RESOLVED** `6268c492` | `discover.go:29`, `:34`, `:46-49`, `:74` | DUPLICATE | Four separate declarations are hand-mirrored from `coord` with no compiler link: the state-dir name, the MCP path, the JSON shape, and the URL format string. The header documents the duplication bu... | U025.md |
 | U025-F03 | open | `discover.go:62` | CORRECTNESS | The sort comparator calls `os.Stat` on every comparison, which is both O(n log n) syscalls and — more seriously — an **inconsistent comparator** if any `endpoint.json` is rewritten while the sort r... | U025.md |
-| U026-F02 | open | `binding.go:135–150` vs `internal/cli/mcp_runner.go:607–610` | COUPLING | `agent_report`'s output schema is a hand-written Go map literal that mirrors a *second* hand-written Go map literal in another package. Nothing gates the mirror — this is precisely the drift patter... | U026.md |
-| U026-F03 | open | `binding.go:99–110` | COUPLING | `agent_recv`'s hand-written input schema hard-codes `"default 60, max 600"` as English prose; the real numbers are Go constants in a different package. No gate ties them. | U026.md |
-| U026-F04 | open | `project.go:317` | CORRECTNESS | `additionalProperties: false` is applied **only at the top level**, so the stated invariant "models must not invent argument names" silently does not hold for nested objects — while `protojson` at ... | U026.md |
-| U026-F10 | open | `project.go:268–274` | CORRECTNESS | `leadingComment` returns `""` when source info is missing, and the fail-loud guard meant to prevent that (`gen.assertSourceInfo`) checks only the **first** `agentcoord.v1` file it encounters — but ... | U026.md |
-| U026-F16 | open | `binding.go:40–47` | COUPLING | `CoordinatorOnlyTools` is a hand-maintained **security-relevant** allowlist with no derivation and no gate. A new coordinator-scoped tool that its author forgets to add is silently granted to every... | U026.md |
+| U026-F02 | **RESOLVED** `8091d810` | `binding.go:135–150` vs `internal/cli/mcp_runner.go:607–610` | COUPLING | `agent_report`'s output schema is a hand-written Go map literal that mirrors a *second* hand-written Go map literal in another package. Nothing gates the mirror — this is precisely the drift patter... | U026.md |
+| U026-F03 | **REFUTED** `8091d810` | `binding.go:99–110` | COUPLING | `agent_recv`'s hand-written input schema hard-codes `"default 60, max 600"` as English prose; the real numbers are Go constants in a different package. No gate ties them. | U026.md |
+| U026-F04 | **RESOLVED** `ccb2fa5e` | `project.go:317` | CORRECTNESS | `additionalProperties: false` is applied **only at the top level**, so the stated invariant "models must not invent argument names" silently does not hold for nested objects — while `protojson` at ... | U026.md |
+| U026-F10 | **RESOLVED** `6784e6f4` | `project.go:268–274` | CORRECTNESS | `leadingComment` returns `""` when source info is missing, and the fail-loud guard meant to prevent that (`gen.assertSourceInfo`) checks only the **first** `agentcoord.v1` file it encounters — but ... | U026.md |
+| U026-F16 | **ESCALATED** `PENDING` | `binding.go:40–47` | COUPLING | `CoordinatorOnlyTools` is a hand-maintained **security-relevant** allowlist with no derivation and no gate. A new coordinator-scoped tool that its author forgets to add is silently granted to every... | U026.md |
 | U027-F01 | **RESOLVED** `20451f26` | **`main.go:53-63`** | SILENTNOOP | The generator can complete successfully having written zero files, printing nothing and exiting 0 — it never asserts that it produced output. | U027.md |
-| U027-F02 | open | **`main.go:50-63`** | CORRECTNESS | The generator never prunes the output directory, so a removed or renamed binding leaves a stale `<tool>.json` that `//go:embed schemas/*.json` continues to ship as a live MCP tool. The CI drift gat... | U027.md |
-| U027-F03 | open | **`main.go:28`, `:50`** | CORRECTNESS | A mistyped `-out` silently succeeds into a brand-new directory: `os.MkdirAll` creates whatever path it is given, the real goldens are left untouched, and the CI `git diff` gate passes because the t... | U027.md |
+| U027-F02 | **RESOLVED** `6784e6f4` | **`main.go:50-63`** | CORRECTNESS | The generator never prunes the output directory, so a removed or renamed binding leaves a stale `<tool>.json` that `//go:embed schemas/*.json` continues to ship as a live MCP tool. The CI drift gat... | U027.md |
+| U027-F03 | **RESOLVED** `6784e6f4` | **`main.go:28`, `:50`** | CORRECTNESS | A mistyped `-out` silently succeeds into a brand-new directory: `os.MkdirAll` creates whatever path it is given, the real goldens are left untouched, and the CI `git diff` gate passes because the t... | U027.md |
 | U028-F04 | open | **`agents.go:263-273`** | CORRECTNESS | A **failed** load still claims the name, so a corrupt agent file in the first directory shadows a perfectly valid same-named agent in a later directory — the user sees only a skip warning and no ag... | U028.md |
 | U028-F05 | open | **`agents.go:249-252`, `:312`** | ERRHANDLING | A directory that exists but cannot be statted is skipped in **silence**, in both the loader and the directory-discovery helper — so "no agents configured" is indistinguishable from "your agents dir... | U028.md |
 | U028-F06 | open | **`agents.go:164-168`; `operations/agents.go:157-172`; `coord/spawner.go:349`** | COHESION | The record's invariants are enforced by **three other packages at three different phases**, and cover one of six user-settable fields. `Agent` has no `Validate()` of its own. | U028.md |
@@ -2045,20 +2045,20 @@ Full evidence and the suggested action for any row live in its source review at 
 | U024-F25 | **RESOLVED** `6253b193` | `runnerlink.go:108-141` | DUPLICATE | The three-line unwind `cancel(); _ = conn.Close(); return nil, fmt.Errorf(...)` appears four times in `DialRunner`. | U024.md |
 | U025-F04 | open | `discover.go:38-41` | CORRECTNESS | `Endpoint` carries a bearer credential in a plain exported `string` field with no redaction affordance, so any `%v`/`%+v` of an `Endpoint` (or a slice of them) prints a live token. | U025.md |
 | U025-F05 | **RESOLVED** `72f7f6bf` | `discover.go:58`, `:63` | TRIVIAL | Inconsistent nil-vs-empty return: the `UserHomeDir` failure path returns a `nil` slice, every other path returns a non-nil `make(…, 0, n)` slice. | U025.md |
-| U026-F01 | open | `binding.go:169–264` | COHESION | The routing table + relay budgets (a runtime-dispatch concern spanning all 16 MCP tools) live in the same file as the binding table + synthetic schemas (a build-time concern spanning 7). They share... | U026.md |
-| U026-F05 | open | `binding.go:176–178` | COUPLING | `Route` has no `RouteUnspecified`, so a `Routes()` map miss is indistinguishable from a deliberate `RouteCoordination` classification. | U026.md |
+| U026-F01 | **ESCALATED** `PENDING` | `binding.go:169–264` | COHESION | The routing table + relay budgets (a runtime-dispatch concern spanning all 16 MCP tools) live in the same file as the binding table + synthetic schemas (a build-time concern spanning 7). They share... | U026.md |
+| U026-F05 | **PARTIAL** `8091d810` | `binding.go:176–178` | COUPLING | `Route` has no `RouteUnspecified`, so a `Routes()` map miss is indistinguishable from a deliberate `RouteCoordination` classification. | U026.md |
 | U026-F06 | **RESOLVED** `72f7f6bf` | `project.go:83` | TRIVIAL | `MessageDoc` is exported but has exactly one caller, in the same file. | U026.md |
-| U026-F07 | open | `schemas.go:24–50` | ERRHANDLING | `Tools()` returns the package-level slice by reference, and on error returns a **partially populated** slice rather than `nil`. | U026.md |
-| U026-F08 | open | `project.go:180–185` | ERRHANDLING | A malformed `(field_schema).example` annotation is silently discarded — the schema loses the example with no error at generation time. | U026.md |
-| U026-F09 | open | `project.go:218–219` | ERRHANDLING | `singularSchema`'s `default:` projects an unhandled proto kind as `{}` — "any JSON value" — silently. | U026.md |
+| U026-F07 | **RESOLVED** `e519c349` | `schemas.go:24–50` | ERRHANDLING | `Tools()` returns the package-level slice by reference, and on error returns a **partially populated** slice rather than `nil`. | U026.md |
+| U026-F08 | **RESOLVED** `ccb2fa5e` | `project.go:180–185` | ERRHANDLING | A malformed `(field_schema).example` annotation is silently discarded — the schema loses the example with no error at generation time. | U026.md |
+| U026-F09 | **PARTIAL** `ccb2fa5e` | `project.go:218–219` | ERRHANDLING | `singularSchema`'s `default:` projects an unhandled proto kind as `{}` — "any JSON value" — silently. | U026.md |
 | U026-F11 | **RESOLVED** `cac52a3e` `127539ad` | `project.go:291` | TRIVIAL | `strings.TrimSuffix(..., " ")` is a provable no-op. | U026.md |
-| U026-F12 | open | `project.go:306` | COMPLEXITY | `ProjectTool` is CCN 11, over the project's own declared CCN-10 gate. | U026.md |
+| U026-F12 | **RESOLVED** `ccb2fa5e` | `project.go:306` | COMPLEXITY | `ProjectTool` is CCN 11, over the project's own declared CCN-10 gate. | U026.md |
 | U026-F13 | **REFUTED** `49e0177e` | `schemas.go:53–64` | DEAD | `ToolByName` has **zero production call sites** — it is test-only — and it swallows the error it is given. | U026.md |
-| U026-F14 | open | `project.go:306–342` | CORRECTNESS | `ProjectTool` does not assert the schemas it emits have `"type": "object"`, which the MCP SDK requires on pain of `panic` at every child runner's startup. | U026.md |
-| U026-F15 | open | `binding.go:218–231`, `binding.go:252–259` | COUPLING | The 7 coordination tools have named constants; the other 9 tools on the surface are raw string literals repeated across packages. Asymmetric, and the strings are the only thing holding the tables t... | U026.md |
-| U026-F17 | open | `project.go:107–112` | CORRECTNESS | The recursion-guard marker `"(recursive X)"` is silently overwritten whenever the recursing field carries a comment or doc annotation, so the model loses the only signal that the object is a trunca... | U026.md |
-| U027-F04 | open | **`main.go:71-78`** | CORRECTNESS | `assertSourceInfo` returns on the **first** `agentcoord.v1` file that has source info, so a descriptor set where one file carries it and the others do not passes the assert — and the messages proje... | U027.md |
-| U027-F05 | open | **`main.go:28`** | COUPLING | The default `-out` is repo-root-relative, so the tool is only correct when invoked from the module root — an unwritten precondition (connascence of **execution context**). | U027.md |
+| U026-F14 | **RESOLVED** `ccb2fa5e` | `project.go:306–342` | CORRECTNESS | `ProjectTool` does not assert the schemas it emits have `"type": "object"`, which the MCP SDK requires on pain of `panic` at every child runner's startup. | U026.md |
+| U026-F15 | **ESCALATED** `PENDING` | `binding.go:218–231`, `binding.go:252–259` | COUPLING | The 7 coordination tools have named constants; the other 9 tools on the surface are raw string literals repeated across packages. Asymmetric, and the strings are the only thing holding the tables t... | U026.md |
+| U026-F17 | **RESOLVED** `ccb2fa5e` | `project.go:107–112` | CORRECTNESS | The recursion-guard marker `"(recursive X)"` is silently overwritten whenever the recursing field carries a comment or doc annotation, so the model loses the only signal that the object is a trunca... | U026.md |
+| U027-F04 | **RESOLVED** `6784e6f4` | **`main.go:71-78`** | CORRECTNESS | `assertSourceInfo` returns on the **first** `agentcoord.v1` file that has source info, so a descriptor set where one file carries it and the others do not passes the assert — and the messages proje... | U027.md |
+| U027-F05 | **PARTIAL** `6784e6f4` | **`main.go:28`** | COUPLING | The default `-out` is repo-root-relative, so the tool is only correct when invoked from the module root — an unwritten precondition (connascence of **execution context**). | U027.md |
 | U028-F09 | **RESOLVED** `f45e9b79` | **`agents.go:153`** | DEAD | `ParseDrivingMode` is exported with no caller outside this package. | U028.md |
 | U028-F10 | **RESOLVED** `f45e9b79` | **`agents.go:224-238` vs `:305-308`** | NOPAY | Two different filesystem-injection conventions live 70 lines apart in one 317-line file: a functional option for the loader, a plain nil-means-OsFs parameter for the directory helper. | U028.md |
 | U029-F04 | **RESOLVED** `3b74bf06` | **`surfaces.go:177-180`** | DUPLICATE | `deliveredFunc` is a local retype of the existing shared `agent.DeliveredFunc` | U029.md |

@@ -524,11 +524,22 @@ func nonNegU64(n int) uint64 {
 // usdToMicros converts a harness-reported float dollar amount to micro-USD
 // with round-half-even. Non-finite or negative input reads as 0 (costs are
 // non-negative by construction; a poisoned float must not wrap).
+//
+// MAGNITUDE saturates as well as sign: Go leaves a float→integer conversion
+// whose value is out of the target's range implementation-defined, so a cost
+// above ~1.8e13 USD (uint64 micros' ceiling) yielded an arbitrary number —
+// on amd64 a value SMALLER than the truthful one, journaled as if measured.
+// A saturated MaxUint64 is at least monotone in the input and unmistakably
+// out-of-band.
 func usdToMicros(usd float64) uint64 {
 	if usd <= 0 || math.IsNaN(usd) || math.IsInf(usd, 0) {
 		return 0
 	}
-	return uint64(math.RoundToEven(usd * 1e6))
+	micros := math.RoundToEven(usd * 1e6)
+	if micros >= math.MaxUint64 {
+		return math.MaxUint64
+	}
+	return uint64(micros)
 }
 
 // frameCoordinatorMessage renders one coordinator-delivered mailbox message

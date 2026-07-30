@@ -520,3 +520,56 @@ type Reader interface {
 		})
 	}
 }
+
+// U046-F13: two extractors abandoned the AST for substring surgery.
+// extractJSLexical searched the DECLARATION TEXT for "=> {" and sliced there,
+// so an arrow token inside a STRING LITERAL was treated as the arrow function's
+// body opener — the declaration was cut mid-literal and the rest, including its
+// closing quote, was thrown away. The AST already knows which node is the value
+// and where its body starts.
+func TestCodeCompressor_JavaScriptArrowTokenInsideStringLiteral(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := "const usage = \"pass a callback like x => { done() } to run it\";\n"
+
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Content, "to run it\"",
+		"the string literal is not an arrow-function body: it must survive whole")
+	assert.NotContains(t, result.Content, "x => { ... }",
+		"an arrow token inside a literal must not be mistaken for a body to elide")
+}
+
+// A real arrow function is still elided — via the AST's body node rather than a
+// text search, so this holds for expression bodies and CRLF sources too.
+func TestCodeCompressor_JavaScriptArrowFunctionsStillElided(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := "const handler = (req, res) => {\n  res.send(req.body);\n  log(req);\n};\n"
+
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Content, "const handler = (req, res) =>")
+	assert.NotContains(t, result.Content, "res.send", "the arrow body is elided")
+}
+
+// The Python half of U046-F13: extractPythonAssignment cut the text at the
+// first '=' byte, which for an AUGMENTED assignment lands INSIDE the operator —
+// "counts += [...]" was emitted as "counts + = ...", an expression that says
+// something else. The AST tags the right-hand side; slice there instead.
+func TestCodeCompressor_PythonAugmentedAssignmentOperatorSurvives(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := "counts += [" + strings.Repeat("'entry', ", 20) + "]\n"
+
+	result, err := c.Compress(ctx, ContentTypePython, input)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Content, "counts +=", "the augmented-assignment operator is one token")
+	assert.NotContains(t, result.Content, "counts + =", "splitting '+=' changes what the line says")
+}

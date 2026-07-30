@@ -62,13 +62,18 @@ func (c *CodeCompressor) extractPythonExpressionStatement(node *sitter.Node, sou
 }
 
 // extractPythonAssignment emits a module-level assignment, eliding a long
-// right-hand-side value after the first '=' so the binding name (and any type
-// annotation) survives without inflating the compressed output.
+// right-hand-side value so the binding name (and any type annotation) survives
+// without inflating the compressed output. The cut is made at the grammar's
+// `right` field, not at the first '=' byte: an AUGMENTED assignment's operator
+// is one token, and splitting it wrote "counts + = ..." — a line that says
+// something else. It also keeps an '=' inside a type annotation or a default
+// out of the decision.
 func (c *CodeCompressor) extractPythonAssignment(node *sitter.Node, source []byte, out *strings.Builder) {
 	text := c.nodeText(node, source)
 	if len(text) >= 100 {
-		if idx := strings.IndexByte(text, '='); idx > 0 {
-			text = strings.TrimRight(text[:idx], " ") + " = ..."
+		if right := node.ChildByFieldName("right"); right != nil && right.StartByte() > node.StartByte() {
+			head := strings.TrimRight(string(source[node.StartByte():right.StartByte()]), " \t\r\n")
+			text = head + " ..."
 		}
 	}
 	out.WriteString(text)

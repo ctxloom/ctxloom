@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,176** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,177** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 83 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **726** |
+| `open` | no commit names this ID | **725** |
 
-**Totals: 2268 findings across 162 units — 1,176 resolved, 726 still open, 366 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,177 resolved, 725 still open, 366 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 387 | 415 | 45 | 58 | 94 |
-| LOW | 871 | 438 | 286 | 28 | 69 | 50 |
+| LOW | 871 | 439 | 285 | 28 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2670,7 +2670,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U120-F08 | open | `log.go:321` | ERRHANDLING | `defer func() { _ = f.Close() }()` swallows the close error on the log's only write path. | U120.md |
 | U120-F09 | **RESOLVED** `80b0c3e4` | **`store.go:67-70, 77-80 vs log.go:360`** | DUPLICATE | `ValidateStatusTrigger` is called twice on every add — once in `Store.AddWithTrigger`/`AddWithTags`, again in `eventLog.addWithTags`. | U120.md |
 | U120-F10 | open | `log.go:554, 578, 598` | ERRHANDLING | The shared read lock is acquired with `if unlock, err := filelock.LockShared(…); err == nil { defer unlock() }` — a lock *failure* is silently downgraded to an unlocked read with no diagnostic at a... | U120.md |
-| U120-F11 | open | `log.go:574-576, log.go:59` | CORRECTNESS | Two comments describe behaviour the code no longer has. | U120.md |
+| U120-F11 | **RESOLVED** `7849951c` | `log.go:574-576, log.go:59` | CORRECTNESS | Two comments describe behaviour the code no longer has. | U120.md |
 | U120-F15 | **RESOLVED** `86e22106` | `task.go:32, 64, 69` | NOPAY | `ValidateStatusTrigger`, `ErrTriggerRequired`, and `DefaultStatusOrder` are exported but have **no consumer outside this package**. | U120.md |
 | U120-F16 | open | `task.go:301-311` | ERRHANDLING | `tagsToTagmaTags` silently `continue`s on an unparseable tag, so a malformed stored tag makes a task invisible to any query naming it, with no signal. | U120.md |
 | U120-F18 | **RESOLVED** `847ea1c7` | `store.go (13 methods) + log.go:344, 617` | TRIVIAL | Three pure pass-through layers stack up on the read path: `Store.List` → `eventLog.list` → `eventLog.listWithTagQuery`, where `eventLog.list` only supplies `""` and `nil`. Similarly `Store.AddWithT... | U120.md |

@@ -330,8 +330,20 @@ func (c *Coordinator) ackThrough(ch *runChan, seq uint64) {
 func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEvent) {
 	switch ev.GetName() {
 	case CustomMailConsumed:
-		ids := stringList(ev.GetValue(), "message_ids")
+		ids, dropped := stringList(ev.GetValue(), "message_ids")
+		if dropped > 0 {
+			clidiag.Warn("ctxloom", "coordinator: %s from %s carried %d unusable message_ids entry/entries (not non-empty strings); those messages keep their cursor and will be re-delivered",
+				CustomMailConsumed, ch.role, dropped)
+		}
 		if len(ids) == 0 {
+			// The mailbox cursor advances ONLY on this fact, so an event with
+			// nothing usable in it means the runner's claim of consumption was
+			// lost: the messages stay pending and re-deliver. Both in-tree
+			// emitters refuse to send an empty list (home.go's ackReturned and
+			// the per-notice ack), so reaching here is a real fault, never
+			// ordinary traffic.
+			clidiag.Warn("ctxloom", "coordinator: ignoring a %s event from %s with no usable message_ids — the consumption it claims cannot be journaled",
+				CustomMailConsumed, ch.role)
 			return
 		}
 		if err := c.mail.Exec(func() ([]Fact, error) {
@@ -357,15 +369,27 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		c.mu.Unlock()
 		c.onRoleUnpark(ch.role)
 	case CustomHarnessSession:
-		if s := ev.GetValue(); s != nil {
-			if v, ok := s.GetFields()["session_id"]; ok {
-				c.recordHarnessSession(ch.id.RunID, v.GetStringValue())
-			}
-			// The engine's live loadSession capability (the one-shot gate's
-			// live half) rides the SAME custom event as the session id.
-			if v, ok := s.GetFields()["resumable"]; ok {
-				c.recordResumable(ch.id.RunID, v.GetBoolValue())
-			}
+		s := ev.GetValue()
+		sid := ""
+		if v, ok := s.GetFields()["session_id"]; ok {
+			sid = v.GetStringValue()
+		}
+		if sid == "" {
+			// The harness-native session id is the run's ONLY resume handle: a
+			// child killed mid-run respawns through HarnessSpec.resume_session_id,
+			// and the one-shot turn loop refuses to tear an engine down without
+			// one (oneShotReady). recordHarnessSession drops an empty id, so
+			// losing it here used to leave no trace at all — the run simply
+			// stopped being resumable and nothing said why.
+			clidiag.Warn("ctxloom", "coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
+				CustomHarnessSession, ch.role, ch.id.RunID)
+			return
+		}
+		c.recordHarnessSession(ch.id.RunID, sid)
+		// The engine's live loadSession capability (the one-shot gate's
+		// live half) rides the SAME custom event as the session id.
+		if v, ok := s.GetFields()["resumable"]; ok {
+			c.recordResumable(ch.id.RunID, v.GetBoolValue())
 		}
 	case CustomTurnStarted:
 		c.onTurnStarted(ch.role)
@@ -1031,22 +1055,31 @@ func statusFromErr(err error) *rpcstatus.Status {
 	return statusErr(code, err.Error())
 }
 
-// stringList extracts a []string field from a Struct value.
-func stringList(s *structpb.Struct, key string) []string {
-	if s == nil {
-		return nil
-	}
+// stringList extracts a []string field from a Struct value, also reporting how
+// many entries it could NOT use: a list element that is not a non-empty string
+// counts one each, and a key whose value is not a list at all counts one. An
+// ABSENT key is not a fault and reports zero.
+//
+// The count is what lets a caller tell "the field said nothing" apart from "the
+// field said something this build cannot read" — without it, a malformed event
+// and an absent one were the same silent empty result at every call site.
+func stringList(s *structpb.Struct, key string) (out []string, dropped int) {
 	v, ok := s.GetFields()[key]
 	if !ok {
-		return nil
+		return nil, 0
 	}
-	var out []string
-	for _, e := range v.GetListValue().GetValues() {
+	lv, isList := v.GetKind().(*structpb.Value_ListValue)
+	if !isList {
+		return nil, 1
+	}
+	for _, e := range lv.ListValue.GetValues() {
 		if str := e.GetStringValue(); str != "" {
 			out = append(out, str)
+			continue
 		}
+		dropped++
 	}
-	return out
+	return out, dropped
 }
 
 // removeIDs filters ids out of list.

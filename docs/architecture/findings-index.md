@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,238** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 112 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 113 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 158 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 162 |
-| `open` | no commit names this ID | **598** |
+| `open` | no commit names this ID | **597** |
 
-**Totals: 2268 findings across 162 units — 1,238 resolved, 598 still open, 432 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,238 resolved, 597 still open, 433 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 426 | 337 | 63 | 72 | 101 |
+| MED | 999 | 426 | 336 | 64 | 72 | 101 |
 | LOW | 871 | 455 | 249 | 34 | 78 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -977,7 +977,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U003-F03 | **ESCALATED** `18a8c154` | **`main.go:23` (whole unit)`** | NOPAY | **Nothing reads the generated schemas.** 70 files / 284 KB are generated on every container build and CI run and embedded into the shipped binary, and I can find no consumer. `resources.GetSchema` ... | U003.md |
 | U003-F04 | **RESOLVED** `434fcd12` | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
 | U003-F05 | **PARTIAL** `17fcbd1b` | **`main.go:30`** | CORRECTNESS | The generator never prunes, so a renamed or deleted result type leaves its old schema on disk forever — and, because `//go:embed all:schema` sweeps the directory, **ships it inside the binary as a ... | U003.md |
-| U004-F02 | open | **`root.go:94-99`, `root.go:61,65`** | CORRECTNESS | The CLI advertises validity ranges it never enforces, and the library it calls **silently clamps** rather than rejecting. `--components`'s help says "number of words (2-16)" and `--group`'s help en... | U004.md |
+| U004-F02 | **PARTIAL** `0335ffa9` | **`root.go:94-99`, `root.go:61,65`** | CORRECTNESS | The CLI advertises validity ranges it never enforces, and the library it calls **silently clamps** rather than rejecting. `--components`'s help says "number of words (2-16)" and `--group`'s help en... | U004.md |
 | U004-F03 | **RESOLVED** `31d9d8d0` | **`root.go:113-116`** | DUPLICATE | `resolveFormat` re-implements a shared helper that already exists, and the copy has drifted. `internal/shared/cliemit.Resolve` (`cliemit.go:42-50`) does the same job and additionally (a) treats an ... | U004.md |
 | U005-F03 | **RESOLVED** `bfd6abca` | **`manage.go:167-193`** | SILENTNOOP | `scaffoldConfig` writes the embedded defaults with no check that they contain any rules, and reports "wrote rules file". A defaults file that lost its rules installs a guard that gates nothing, lou... | U005.md |
 | U005-F05 | open | **`manage.go:40-41` + `evaluate.go:113-122`** | CORRECTNESS | `manage install --global` bakes a **relative** `--config .ltk/config.yaml` into the *user-level* settings, and a missing explicit `--config` fail-closes. Result: in every project on the machine wit... | U005.md |

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,149** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,150** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 71 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 121 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **782** |
+| `open` | no commit names this ID | **781** |
 
-**Totals: 2268 findings across 162 units — 1,149 resolved, 782 still open, 337 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,150 resolved, 781 still open, 337 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 370 | 450 | 38 | 50 | 91 |
+| MED | 999 | 371 | 449 | 38 | 50 | 91 |
 | LOW | 871 | 429 | 306 | 23 | 63 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1673,7 +1673,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U102-F04 | open | `sessionstore.go:105-138` | SILENTNOOP | A transcript whose every line fails `parseLine` returns an empty `Session` and `nil` error — "no content" and "totally unparseable" are indistinguishable to callers | U102.md |
 | U102-F09 | open | `settings_io.go:141-143` | ERRHANDLING | The `.ctxloom.bak` backup is written with a swallowed error, then the original is overwritten regardless — the only recovery path can silently not exist | U102.md |
 | U102-F10 | **RESOLVED** `67a26a8f` | `settings_io.go:151-156` | ERRHANDLING | The rename error is discarded entirely and atomicity is silently abandoned on *any* rename failure, not just cross-device | U102.md |
-| U102-F11 | open | `settings_io.go:146` | CORRECTNESS | The temp path is a fixed suffix, so two ctxloom processes writing the same settings file race and can leave one process's rename delivering the other's bytes | U102.md |
+| U102-F11 | **RESOLVED** `67a26a8f` | `settings_io.go:146` | CORRECTNESS | The temp path is a fixed suffix, so two ctxloom processes writing the same settings file race and can leave one process's rename delivering the other's bytes | U102.md |
 | U102-F14 | open | `symlink.go:10-92` + `internal/operations/hooks.go:32,64-65` | COUPLING | Production code calls a `…ForTesting` mutator, and the package global it mutates is unsynchronized | U102.md |
 | U102-F15 | **PARTIAL** `28b54eb6` | `symlink.go` (whole file)` | NOPAY | The entire file exists to warn about surfaces materialized *before* the `CtxloomCommand` self-exec fix — a backward-compat concern the project's own standing rule rejects | U102.md |
 | U102-F16 | **RESOLVED** `f8d2a90a` | `skillcommandshape.go:23` | DUPLICATE | Two YAML-frontmatter scalar quoters coexist **in the same package** with different algorithms and different correctness | U102.md |

@@ -330,6 +330,38 @@ func TestSharedCell_AcceptsOnlyUnsafeAntigravitySurfaces(t *testing.T) {
 
 // ---- approach dispatch (vital-tiger v2) -------------------------------------
 
+// TestSurfaces_EnumerationsAgree pins U029-F19: agy's surface set was written
+// out four times — the named struct fields, the kind→surface dispatch map, the
+// declared approach table, and the prose table on this file's header comment —
+// with nothing tying them together. The failure that costs the most is silent: a
+// surface present in the dispatch map but missing from the approach table is
+// simply unreachable through SurfaceFor, and the surface's own delivery test
+// still passes. The table is now derived from the dispatch map; this test pins
+// the remaining pair against each other, so a surface added to one and not the
+// other fails here.
+func TestSurfaces_EnumerationsAgree(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+
+	named := map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Hooks,
+		agent.SurfaceCommands: s.Commands,
+		agent.SurfaceSkills:   s.Skills,
+	}
+	require.Len(t, s.dispatch, len(named), "every named surface field is dispatchable, and nothing else is")
+
+	for kind, want := range named {
+		got, err := s.SurfaceFor(kind, agent.ApproachUnsafeFile)
+		require.NoError(t, err, "%s is declared but unreachable", kind)
+		assert.Same(t, want, got, "%s resolves to the same instance NewSurfaces built", kind)
+
+		approach, ok := s.DefaultApproach(kind)
+		require.True(t, ok, "%s has no declared approach", kind)
+		assert.Equal(t, agent.ApproachUnsafeFile, approach, "%s", kind)
+	}
+}
+
 // SupportedApproaches pins agy's per-surface table: every surface is
 // native-file-only — agy has no out-of-cwd flag and no SessionStart hook.
 func TestSurfaces_SupportedApproaches(t *testing.T) {

@@ -213,33 +213,38 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 			return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
 		},
 	)
+	dispatch := map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  context,
+		agent.SurfaceMCP:      mcp,
+		agent.SurfaceSettings: hooks,
+		agent.SurfaceCommands: commands,
+		agent.SurfaceSkills:   skills,
+	}
 	return Surfaces{
-		TableDispatch: agent.TableDispatch{Table: agyApproaches},
+		TableDispatch: agent.TableDispatch{Table: agyApproaches(dispatch)},
 		Context:       context,
 		MCP:           mcp,
 		Hooks:         hooks,
 		Commands:      commands,
 		Skills:        skills,
-		dispatch: map[agent.SurfaceKind]agent.Delivery{
-			agent.SurfaceContext:  context,
-			agent.SurfaceMCP:      mcp,
-			agent.SurfaceSettings: hooks,
-			agent.SurfaceCommands: commands,
-			agent.SurfaceSkills:   skills,
-		},
+		dispatch:      dispatch,
 	}
 }
 
-// agyApproaches is agy's DECLARED per-surface approach table (vital-tiger v2
-// per-provider dispatch): every surface is a single native file — agy has no
-// out-of-cwd flag and no SessionStart hook (it reads .agents/AGENTS.md directly).
-// The mechanical lookups ride agent.ApproachTable; only this table is agy's.
-var agyApproaches = agent.ApproachTable{
-	agent.SurfaceContext:  {agent.ApproachUnsafeFile},
-	agent.SurfaceMCP:      {agent.ApproachUnsafeFile},
-	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
-	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
-	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
+// agyApproaches builds agy's DECLARED per-surface approach table (vital-tiger v2
+// per-provider dispatch) from the surface set itself: every agy surface has
+// exactly ONE realization, a native file in the workspace — agy has no
+// out-of-cwd flag and no SessionStart hook (it reads .agents/AGENTS.md
+// directly). Deriving the table means a surface cannot be added to the dispatch
+// map and then be unreachable through SurfaceFor for want of a matching table
+// row. The mechanical lookups ride agent.ApproachTable; only the uniform
+// UnsafeFile declaration is agy's.
+func agyApproaches(dispatch map[agent.SurfaceKind]agent.Delivery) agent.ApproachTable {
+	table := make(agent.ApproachTable, len(dispatch))
+	for kind := range dispatch {
+		table[kind] = []agent.Approach{agent.ApproachUnsafeFile}
+	}
+	return table
 }
 
 // SurfaceFor resolves one (kind, UnsafeFile) to the concrete agy surface via
@@ -247,7 +252,7 @@ var agyApproaches = agent.ApproachTable{
 // reallocated per call). agy's hooks file IS its settings surface. Any other
 // approach is unsupported.
 func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	return agyApproaches.SurfaceFor("antigravity", s.dispatch, kind, a)
+	return s.Table.SurfaceFor("antigravity", s.dispatch, kind, a)
 }
 
 // SharedRealization reports no realization for any kind: agy has no out-of-cwd

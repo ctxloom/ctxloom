@@ -47,6 +47,26 @@ func (r *Runtime) getenv(k string) string {
 	return r.Getenv(k)
 }
 
+// stdout and stderr are the nil-safe wire/diagnostic writers. An absent
+// injection means "the process's own stream", the same policy getenv applies to
+// an absent environment reader — never io.Discard: every byte this instrument
+// emits is evidence, and swallowing it is precisely the silent no-op the mock
+// exists to catch. Stdin has no equivalent default because "no prompt arrived"
+// is a first-class observation a nil reader can express and a writer cannot.
+func (r *Runtime) stdout() io.Writer {
+	if r.Stdout == nil {
+		return os.Stdout
+	}
+	return r.Stdout
+}
+
+func (r *Runtime) stderr() io.Writer {
+	if r.Stderr == nil {
+		return os.Stderr
+	}
+	return r.Stderr
+}
+
 // lookupenv is the nil-safe two-value environment reader. When only the
 // one-value seam is injected it is derived from that, degrading to "empty
 // means unset" rather than reaching past the seam into the real process
@@ -78,7 +98,7 @@ func (r *Runtime) Run() int {
 	outcome := Dispatch(string(prompt), r.getenv)
 
 	if err := r.render(len(prompt), outcome); err != nil {
-		fmt.Fprintf(r.Stderr, "mock-engine: render error: %v\n", err)
+		fmt.Fprintf(r.stderr(), "mock-engine: render error: %v\n", err)
 		return 1
 	}
 	return outcome.ExitCode
@@ -111,13 +131,13 @@ func (r *Runtime) readPrompt() []byte {
 func (r *Runtime) emitReport(report Report) {
 	b, err := report.Marshal()
 	if err != nil {
-		fmt.Fprintf(r.Stderr, "mock-engine: report marshal error: %v\n", err)
+		fmt.Fprintf(r.stderr(), "mock-engine: report marshal error: %v\n", err)
 		return
 	}
-	fmt.Fprintf(r.Stderr, "%s\n%s\n%s\n", ReportBegin, b, ReportEnd)
+	fmt.Fprintf(r.stderr(), "%s\n%s\n%s\n", ReportBegin, b, ReportEnd)
 	if path := r.getenv(EnvReportFile); path != "" {
 		if werr := os.WriteFile(path, b, 0o644); werr != nil {
-			fmt.Fprintf(r.Stderr, "mock-engine: report file write error: %v\n", werr)
+			fmt.Fprintf(r.stderr(), "mock-engine: report file write error: %v\n", werr)
 		}
 	}
 }
@@ -132,7 +152,7 @@ func (r *Runtime) emitReport(report Report) {
 func (r *Runtime) render(promptLen int, outcome Outcome) error {
 	switch r.CLI.Surface {
 	case agent.CLISurfaceOneshot:
-		return renderOneshotWire(r.CLI.Engine, r.Stdout, r.Argv, promptLen, outcome)
+		return renderOneshotWire(r.CLI.Engine, r.stdout(), r.Argv, promptLen, outcome)
 	default:
 		// U079-F13: no interactive personality exists (--surface has no
 		// caller, main.go hard-codes oneshot), so this arm used to echo the

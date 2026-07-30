@@ -2,6 +2,7 @@ package acpagent
 
 import (
 	"encoding/json"
+	"io"
 	"testing"
 
 	api "github.com/coder/acp-go-sdk"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestMapEvent_SystemEntryEmitsVisibleFrame covers the Q1 bug: an ACP `plan`
@@ -171,4 +173,33 @@ func TestMapEvent_RawOnlyPassthrough(t *testing.T) {
 	t.Run("malformed Raw is dropped, not forwarded blind", func(t *testing.T) {
 		assert.Nil(t, sess.mapEvent(agent.ChatEvent{Raw: json.RawMessage(`not json`)}))
 	})
+}
+
+// TestContentBlocksFromACP_MarshalFailureIsLoud pins U014-F17: when
+// json.Marshal of a prompt block failed, contentBlocksFromACP `continue`d,
+// dropping that block from the structured payload entirely — the exact silent
+// drop the function exists to prevent, and with nothing said anywhere.
+//
+// Reaching the branch needs a block whose _meta carries a value encoding/json
+// refuses (a func); a block decoded off the wire can never hold one, so this
+// is defense in depth rather than a live wire path. The invariant being pinned
+// is nonetheless the one that matters: this function never loses a block in
+// silence.
+func TestContentBlocksFromACP_MarshalFailureIsLoud(t *testing.T) {
+	var sink syncWriter
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	unmarshalable := api.ContentBlock{Text: &api.ContentBlockText{
+		Text: "carried",
+		Meta: map[string]any{"nope": func() {}},
+	}}
+	require.Error(t, json.NewEncoder(io.Discard).Encode(unmarshalable),
+		"the fixture must really be unmarshalable, or this test proves nothing")
+
+	out := contentBlocksFromACP([]api.ContentBlock{unmarshalable})
+
+	assert.Empty(t, out, "an unmarshalable block still cannot be carried")
+	assert.Contains(t, sink.String(), "session/prompt",
+		"dropping a prompt block must be reported, never silent")
 }

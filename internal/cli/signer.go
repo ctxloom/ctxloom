@@ -153,14 +153,26 @@ func confirmSignerAdd(cmd *cobra.Command, principal string, key operations.Signe
 	return err == nil && yes
 }
 
+// hasPublishNamespace reports whether a grant includes the publish namespace —
+// the one conditional every publish-vs-review distinction in the confirmation
+// turns on (U042-F12). signerRoleWord and signerConsequenceText each used to
+// open-code this scan, so no test between them could catch the two disagreeing;
+// they now share this single answer.
+func hasPublishNamespace(namespaces []string) bool {
+	for _, ns := range namespaces {
+		if ns == signing.NamespacePublish {
+			return true
+		}
+	}
+	return false
+}
+
 // signerRoleWord picks the noun for the confirmation header: PUBLISHER when
 // publish is among the trusted namespaces (the broadest, most dangerous
 // grant — content AND executables, unreviewed), REVIEWER otherwise.
 func signerRoleWord(namespaces []string) string {
-	for _, ns := range namespaces {
-		if ns == signing.NamespacePublish {
-			return "PUBLISHER"
-		}
+	if hasPublishNamespace(namespaces) {
+		return "PUBLISHER"
 	}
 	return "REVIEWER"
 }
@@ -170,11 +182,9 @@ func signerRoleWord(namespaces []string) string {
 // requires (§7.2) — a publish grant and a delegated-review grant are
 // different dangers and must not share one sentence.
 func signerConsequenceText(namespaces []string) string {
-	for _, ns := range namespaces {
-		if ns == signing.NamespacePublish {
-			return "Everything this signer ever publishes — text AND executables (MCP servers,\n" +
-				"  hooks), now and in every future update — will reach your agent WITHOUT REVIEW."
-		}
+	if hasPublishNamespace(namespaces) {
+		return "Everything this signer ever publishes — text AND executables (MCP servers,\n" +
+			"  hooks), now and in every future update — will reach your agent WITHOUT REVIEW."
 	}
 	return "Everything this signer ever approves reaches your agent unreviewed —\n" +
 		"  you are delegating your review decisions to them, forever."

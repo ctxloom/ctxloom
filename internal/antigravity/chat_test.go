@@ -457,6 +457,46 @@ func TestChat_InputClosedWithNoTurns(t *testing.T) {
 	assert.NotNil(t, events[0].Session)
 }
 
+// TestChat_PermissionAnswerIsInert characterizes the input arm no other test
+// reaches, ahead of U029-F11's split of Chat's loop: a PermissionAnswer is
+// accepted and does nothing — agy -p never forwards a permission request, so
+// there is nothing for an answer to resolve — and in particular it is NOT
+// treated as a turn's text. It must not spawn agy, must not emit an Entry, and
+// must not stop the conversation: a real turn after it still runs.
+func TestChat_PermissionAnswerIsInert(t *testing.T) {
+	dir := t.TempDir()
+	binary := writeFakeAgy(t, dir)
+	home := t.TempDir()
+	b := newChatTestBackend(t, binary, home)
+
+	ws := filepath.Join(dir, "ws")
+	require.NoError(t, os.MkdirAll(ws, 0755))
+	logPath := filepath.Join(dir, "argv.log")
+	req := agent.ChatRequest{
+		WorkDir: ws,
+		Env:     map[string]string{"FAKE_AGY_LOG": logPath, "FAKE_AGY_REPLY": "after"},
+	}
+
+	events, err := drainChat(t, context.Background(), b, req, nil, func(in chan<- agent.ChatMessage, _ <-chan agent.ChatEvent) {
+		in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: "1", OptionID: "allow"}}
+		in <- agent.ChatMessage{Text: "real turn"}
+		close(in)
+	})
+	require.NoError(t, err)
+
+	calls := fakeAgyInvocations(t, logPath)
+	require.Len(t, calls, 1, "the permission answer spawned no agy; the text turn did")
+	assert.Contains(t, calls[0], "real turn")
+
+	var entries []string
+	for _, ev := range events {
+		if ev.Entry != nil {
+			entries = append(entries, ev.Entry.Content)
+		}
+	}
+	assert.Equal(t, []string{"after"}, entries)
+}
+
 func TestAdvisoryMCPStatus(t *testing.T) {
 	assert.Nil(t, advisoryMCPStatus(nil))
 	got := advisoryMCPStatus([]agent.ChatMCPServer{{Name: "toolserver"}})

@@ -307,7 +307,7 @@ func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
 
 	name := containerName(launch.AgentID)
 	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv)
-	return pb.NewContainerClient(launch.BackendName, launch.Label, launch.Verbosity, runnerFunc, launch.HostSocketDir)
+	return pb.NewContainerClient(launch.Verbosity, runnerFunc, launch.HostSocketDir)
 }
 
 // Docker launches containers via the docker CLI. rootless records whether the

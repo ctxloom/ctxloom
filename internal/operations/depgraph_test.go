@@ -29,9 +29,10 @@ func newTestWalker(fetcher remote.Fetcher) *depWalker {
 		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 			return ref.ContentVersion, "", "", true
 		},
-		pins:    map[string]PinnedRef{},
-		hashes:  map[string]map[string]struct{}{},
-		visited: map[string]struct{}{},
+		pins:       map[string]PinnedRef{},
+		hashes:     map[string]map[string]struct{}{},
+		visited:    map[string]struct{}{},
+		unexpanded: map[string]struct{}{},
 	}
 }
 

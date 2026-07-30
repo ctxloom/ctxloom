@@ -206,6 +206,7 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		pins:        map[string]PinnedRef{},
 		hashes:      map[string]map[string]struct{}{},
 		visited:     map[string]struct{}{},
+		unexpanded:  map[string]struct{}{},
 	}
 	for _, p := range roots {
 		// A local root resolves its short sibling refs to ctxloom:local.
@@ -237,15 +238,15 @@ type depWalker struct {
 	// could not be read or parsed during the walk: their subtrees are MISSING
 	// from pins, so the closure is incomplete. Callers that rebuild the lockfile
 	// wholesale consult this to avoid erasing entries under a failed subtree.
+	// Initialised with the other three maps at construction — every one of this
+	// walker's maps is owned by whoever builds it, so no method has to decide
+	// whether it exists yet.
 	unexpanded map[string]struct{}
 }
 
 // markUnexpanded records identity as a parent (local OR remote) whose
 // subtree could not be walked, and emits the project-standard warning.
 func (w *depWalker) markUnexpanded(identity string, cause error) {
-	if w.unexpanded == nil {
-		w.unexpanded = map[string]struct{}{}
-	}
 	w.unexpanded[identity] = struct{}{}
 	clidiag.Warn("ctxloom", "could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)", identity, cause)
 }

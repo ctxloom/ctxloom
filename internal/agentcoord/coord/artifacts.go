@@ -245,16 +245,23 @@ func (s *artifactService) DownloadArtifact(req *agentcoordpb.ArtifactDownloadReq
 	if !ok {
 		return status.Errorf(codes.NotFound, "download: no artifact %q for %q", req.GetArtifactId(), ownerHarp)
 	}
-	f, err := c.artifacts.open(rec.SHA256)
-	if err != nil {
-		return status.Errorf(codes.NotFound, "download: stored content missing for %q: %v", req.GetArtifactId(), err)
-	}
-	defer func() { _ = f.Close() }()
-
+	// Validate the manifest's own sha BEFORE it is used as a file name: a
+	// name that is not a content hash is a corrupt manifest, and answering
+	// that with "stored content missing" would send the reader looking for a
+	// blob rather than at the record that named it.
 	shaBytes, err := hex.DecodeString(rec.SHA256)
 	if err != nil {
 		return status.Errorf(codes.Internal, "download: corrupt manifest sha256 for %q: %v", req.GetArtifactId(), err)
 	}
+	f, err := c.artifacts.open(rec.SHA256)
+	if err != nil {
+		if errors.Is(err, errArtifactBadName) {
+			return status.Errorf(codes.Internal, "download: corrupt manifest sha256 for %q: %v", req.GetArtifactId(), err)
+		}
+		return status.Errorf(codes.NotFound, "download: stored content missing for %q: %v", req.GetArtifactId(), err)
+	}
+	defer func() { _ = f.Close() }()
+
 	kind := agentcoordpb.ArtifactKind_ARTIFACT_KIND_UNSPECIFIED
 	if v, ok := agentcoordpb.ArtifactKind_value[rec.Kind]; ok {
 		kind = agentcoordpb.ArtifactKind(v)

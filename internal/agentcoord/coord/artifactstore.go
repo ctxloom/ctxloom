@@ -60,6 +60,34 @@ var errArtifactSHAMismatch = errors.New("coord: artifact content does not match 
 // contradicts the caller's own declared size.
 var errArtifactSizeMismatch = errors.New("coord: artifact content does not match its declared size")
 
+// errArtifactBadName is returned when a name handed to the store is not a
+// content hash (U019-F13). The store's whole contract is "the file name IS
+// the sha256 of its own bytes", so anything else is a malformed request, not
+// a miss — and left unchecked it is a plain filepath.Join into whatever the
+// caller supplied.
+var errArtifactBadName = errors.New("coord: artifact name is not a lowercase sha256 hex digest")
+
+// shaHexLen is the length of a sha256 rendered by hex.EncodeToString, which
+// is the ONLY way a name is ever minted here.
+const shaHexLen = sha256.Size * 2
+
+// validShaHex reports whether name is exactly what hex.EncodeToString emits
+// for a sha256: 64 lowercase hex digits. Deliberately not hex.DecodeString —
+// that accepts any even length and both cases, so it would admit both a
+// short name and an uppercase twin of an existing blob.
+func validShaHex(name string) bool {
+	if len(name) != shaHexLen {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // writeAtomic drains r, hashing as it goes, and stores the bytes under the
 // hash it actually computed — content addressing by construction, so the
 // stored name is never a caller-supplied value. If declaredSHA is non-empty
@@ -122,8 +150,12 @@ func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte, declaredSiz
 	return shaHex, n, nil
 }
 
-// open opens a stored blob for reading by its hex sha256 ("", os.ErrNotExist
-// on a miss).
+// open opens a stored blob for reading by its hex sha256 (os.ErrNotExist on
+// a miss, errArtifactBadName when the name is not a content hash at all —
+// the store never joins an unvalidated name onto its directory).
 func (s *artifactStore) open(shaHex string) (*os.File, error) {
+	if !validShaHex(shaHex) {
+		return nil, fmt.Errorf("%w: %q", errArtifactBadName, shaHex)
+	}
 	return os.Open(s.path(shaHex))
 }

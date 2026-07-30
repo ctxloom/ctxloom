@@ -324,6 +324,9 @@ func (f *folded) anomalyError(path string) error {
 // append writes one event as a single JSON line under O_APPEND. The caller
 // holds the locks.
 func (l *eventLog) append(ev Event) error {
+	if err := admissible(ev); err != nil {
+		return err
+	}
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
@@ -340,6 +343,30 @@ func (l *eventLog) append(ev Event) error {
 	}
 	defer func() { _ = f.Close() }()
 	return appendLine(f, append(b, '\n'))
+}
+
+// admissible rejects an event this reader could never fold back. The write
+// seam is where such a record must be stopped: fold() treats an unreadable
+// record as fatal for the WHOLE log, so a single inadmissible line does not
+// cost one task, it costs the store — every later read and write fails until
+// a human edits the file. Only invariants every op shares are enforced here
+// (an op this binary knows, and an identity to address), never per-op
+// payload rules, which belong to the mutators that own them. This is a
+// write-time check by design and must never move onto the fold path: an
+// existing log already carrying such a line has to keep loading, exactly as
+// the reader stays lenient about tag shape (see tagsToTagmaTags).
+func admissible(ev Event) error {
+	switch ev.Op {
+	case opAdd, opStatus, opText, opRemove, opTag, opUntag:
+	case "":
+		return fmt.Errorf("refusing to write a task event with no op field: it would make every later read of this log fail")
+	default:
+		return fmt.Errorf("refusing to write a task event with unrecognized op %q", ev.Op)
+	}
+	if strings.TrimSpace(ev.Task) == "" {
+		return fmt.Errorf("refusing to write a %q event with no task id: every event addresses a task by harp", ev.Op)
+	}
+	return nil
 }
 
 // appendLine writes line to f — already opened O_APPEND, so the write always

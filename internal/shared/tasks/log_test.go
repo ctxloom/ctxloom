@@ -756,3 +756,54 @@ func TestLogFold_TruncatedFinalLineFailsLoud(t *testing.T) {
 		t.Fatalf("error %q does not name the truncated line", err.Error())
 	}
 }
+
+// TestAppend_RejectsAnEventTheFoldCouldNeverRead pins the write seam's own
+// admissibility rule. append() is the ONLY writer of this log, and fold()
+// treats an unreadable record as fatal for the whole file, so a record that
+// cannot fold is not a bad row — it is a bricked store. The seam therefore
+// refuses an event with no op or no task identity, and refuses it BEFORE any
+// bytes reach the file: the payload assertion below (file still absent /
+// unchanged) is the real contract, since exit-status-only checking is exactly
+// how a silent no-op survives here (U120-F06).
+func TestAppend_RejectsAnEventTheFoldCouldNeverRead(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ev   Event
+	}{
+		{"zero value", Event{}},
+		{"no op", Event{Task: "alpha", Text: "x"}},
+		{"no task identity", Event{Op: opStatus, Status: StatusToDo}},
+		{"add with no identity", Event{Op: opAdd, Text: "x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+			l := &eventLog{path: path}
+			if err := l.append(tc.ev); err == nil {
+				t.Fatalf("append(%+v) succeeded; it must refuse a record fold() cannot read", tc.ev)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				b, _ := os.ReadFile(path)
+				t.Fatalf("append wrote %d bytes for a rejected event: %q", len(b), string(b))
+			}
+		})
+	}
+}
+
+// TestAppend_RejectedEventLeavesAReadableStore is the consequence half: the
+// store that a rejected write was aimed at must still fold afterwards.
+func TestAppend_RejectedEventLeavesAReadableStore(t *testing.T) {
+	s := newLog(t, "sess")
+	if _, err := s.AddWithTrigger("real work", "", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := s.log.append(Event{}); err == nil {
+		t.Fatal("append(Event{}) succeeded")
+	}
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("store unreadable after a rejected append: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want the one real task, got %+v", got)
+	}
+}

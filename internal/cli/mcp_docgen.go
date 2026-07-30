@@ -25,7 +25,18 @@ import (
 // nil config and a dead coordinator endpoint are safe. gendocs enumerates the
 // registered tools/resources via an in-memory MCP client (the SDK exposes no
 // direct ListTools accessor on the server).
-func NewDocMCPServer() *mcp.Server {
+//
+// The returned closer releases the coord.Home standing behind the surface. That
+// Home is NOT inert: constructing one opens a gRPC client and dispatches two
+// background loops that go on redialling the dead endpoint, so a caller that
+// never closes it leaks a connection and two goroutines for the life of the
+// process — and both list helpers below build a fresh server per call.
+//
+// Failures are returned rather than panicked. Nothing here is a user condition
+// (the endpoint is a constant; a routing-table mismatch is a build defect), but
+// both callers already report errors, and a panic in a completeness gate takes
+// the whole test binary down instead of failing one assertion with a message.
+func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error) {
 	home, err := coord.NewHome(context.Background(), coord.HomeConfig{
 		URL:     "http://127.0.0.1:1/mcp", // never dialed successfully; docgen only reads registrations
 		Token:   "docgen",
@@ -33,13 +44,15 @@ func NewDocMCPServer() *mcp.Server {
 		Version: Version,
 	})
 	if err != nil {
-		panic("docgen: dead-endpoint home: " + err.Error())
+		return nil, nil, fmt.Errorf("docgen: dead-endpoint home: %w", err)
 	}
-	server, err := newRunnerMCPServer(nil, "", home, false, "") // full surface documented, never the leaf-gated subset
+	closeHome = func() { home.Close(0, "") }
+	server, err = newRunnerMCPServer(nil, "", home, false, "") // full surface documented, never the leaf-gated subset
 	if err != nil {
-		panic("docgen: assemble runner MCP surface: " + err.Error())
+		closeHome()
+		return nil, nil, fmt.Errorf("docgen: assemble runner MCP surface: %w", err)
 	}
-	return server
+	return server, closeHome, nil
 }
 
 // ListDocMCPToolNames returns the sorted tool names registered on the
@@ -58,7 +71,11 @@ func NewDocMCPServer() *mcp.Server {
 // package's own doc as existing only here, and were never checked by
 // anything.
 func ListDocMCPToolNames(ctx context.Context) ([]string, error) {
-	server := NewDocMCPServer()
+	server, closeHome, err := NewDocMCPServer()
+	if err != nil {
+		return nil, err
+	}
+	defer closeHome()
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		return nil, fmt.Errorf("connect doc server: %w", err)
@@ -108,7 +125,11 @@ type DocMCPToolContract struct {
 // Registration reads only static tool literals and the embedded generated
 // schemas, so this dials nothing and invokes no handler.
 func ListDocMCPToolContracts(ctx context.Context) ([]DocMCPToolContract, error) {
-	server := NewDocMCPServer()
+	server, closeHome, err := NewDocMCPServer()
+	if err != nil {
+		return nil, err
+	}
+	defer closeHome()
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		return nil, fmt.Errorf("connect doc server: %w", err)

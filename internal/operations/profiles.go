@@ -330,9 +330,13 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	if loader == nil {
 		loader = profileLoader(cfg)
 	}
+	// Return the loader's error verbatim, exactly as GetProfile does: it carries
+	// the errs.ErrProfileNotFound sentinel callers branch on plus the actionable
+	// detail (the remote-pull hint for a seed-missing bundle profile, the
+	// reserved-'#' explanation) that a flat re-wrap discards.
 	profile, err := loader.Load(req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("profile %q not found", req.Name)
+		return nil, err
 	}
 
 	// A seeded remote profile is the shared in-memory copy of a read-only

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,153** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,154** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 71 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 122 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **777** |
+| `open` | no commit names this ID | **776** |
 
-**Totals: 2268 findings across 162 units — 1,153 resolved, 777 still open, 338 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,154 resolved, 776 still open, 338 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 373 | 446 | 38 | 51 | 91 |
-| LOW | 871 | 430 | 305 | 23 | 63 | 50 |
+| LOW | 871 | 431 | 304 | 23 | 63 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2587,7 +2587,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U101-F34 | **RESOLVED** `8bb4db07` | `mcp_bytes.go:27-31` | CORRECTNESS | `InstallMCPServerJSON` silently replaces a non-object `mcpServers` value with a fresh empty map, destroying whatever the user had there | U101.md |
 | U101-F35 | **RESOLVED** `2bac30c5` | `launch_backend.go:386-390` | ERRHANDLING | `Cleanup` keeps only the first teardown error; every subsequent failure is discarded with no record | U101.md |
 | U102-F05 | **REFUTED** `73ce930a` | **`settings.go:69`** | DEAD | `SettingsStatus.Wired()` is test-only | U102.md |
-| U102-F06 | open | `settings_io.go:69,84` | COHESION | `StatusLineDisabled` is a claude-only policy flag sitting in the options struct of a package 26 packages import | U102.md |
+| U102-F06 | **RESOLVED** `76fc5b4b` | `settings_io.go:69,84` | COHESION | `StatusLineDisabled` is a claude-only policy flag sitting in the options struct of a package 26 packages import | U102.md |
 | U102-F07 | **ESCALATED** `c3314e2e` | `skillexport.go:22` | NOPAY | `SkillExport.Description` is write-only — set by the loader, read by no engine | U102.md |
 | U102-F12 | **RESOLVED** `695cf375` | `thinking.go:45-83` | DUPLICATE | The four spellings `off/low/medium/high` are written out three times in one 84-line file | U102.md |
 | U102-F17 | **RESOLVED** `8b987554` | `sessionstore.go:35` | TRIVIAL | The package has two independent "default to the OS filesystem" mechanisms | U102.md |

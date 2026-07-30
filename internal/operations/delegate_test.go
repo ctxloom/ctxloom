@@ -1525,3 +1525,56 @@ func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
 	defer p.Abort()
 	assert.NotContains(t, warnings.String(), "zero bytes")
 }
+
+// TestPrepareAgentChat_BothLaunchPathsShareOneResolution is U083-F14's pin,
+// and the row is REFUTED. The claim is that AgentChatRequest and
+// PreparedAgentChat are each "two objects" — a legacy-Chat prep and a
+// StartRun prep — because a few fields (contextText, and the request's
+// Context/MCPServers/ResumeSessionID/ChatDialTimeout) are read by only one of
+// them.
+//
+// One shape, deliberately. Everything load-bearing is SHARED and resolved
+// exactly once: the workspace axis and its dirty-parent-tree decision, the
+// isolation prepare, the resolved (never-aliased) model, the MCP command
+// override, the workspace env and the teardown. That is the point —
+// coord/spawner.go composes both paths' request through ONE chatRequest
+// helper whose doc states the reason ("so a field cannot land on one path and
+// be forgotten on the other"), and each per-path field carries a doc saying
+// which path reads it. Splitting the type would give the two launch paths two
+// preps that can drift, reintroducing exactly what the shared shape prevents;
+// and nothing is lost on the StartRun side, which receives the same composed
+// context through runChildViaStartRun rather than through this field.
+//
+// So this pins the invariant instead: both launch halves report the SAME
+// resolution. It goes red the moment a split lets one path resolve its own.
+func TestPrepareAgentChat_BothLaunchPathsShareOneResolution(t *testing.T) {
+	resetStrictness(t)
+	workDir := t.TempDir()
+	client := &fakeACPEngineClient{}
+	started := false
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host", Model: "resolved-model", Context: "lead"},
+		WorkDir:  workDir,
+		Env:      map[string]string{"CTXLOOM_SESSION_HARP": "ample-tidy-quail"},
+		Factory:  func(string, string, int) (pb.Client, error) { return client, nil },
+		Starter: func(context.Context) (*isolation.RunnerHandle, error) {
+			started = true
+			return &isolation.RunnerHandle{Name: "fake", Kill: func() {}}, nil
+		},
+	})
+	require.NoError(t, err)
+
+	launch, serr := p.Start(context.Background())
+	require.NoError(t, serr)
+	require.NotNil(t, launch)
+	require.NotNil(t, client.gotReq, "the legacy dial must have opened")
+
+	eng, eerr := p.StartEngine(context.Background())
+	require.NoError(t, eerr)
+	require.True(t, started, "the StartRun half must have launched its runner")
+
+	assert.Equal(t, client.gotReq.WorkDir, eng.WorkDir, "both halves run the child in the SAME resolved workspace")
+	assert.Equal(t, client.gotReq.Model, eng.Model, "…against the same resolved model")
+	assert.Equal(t, "ample-tidy-quail", client.gotReq.Env["CTXLOOM_SESSION_HARP"], "…with the same ambient identity")
+	assert.Equal(t, "ample-tidy-quail", eng.Env["CTXLOOM_SESSION_HARP"])
+}

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,057** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 41 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,068** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 44 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 94 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **943** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 134 |
+| `open` | no commit names this ID | **928** |
 
-**Totals: 2268 findings across 162 units — 1,057 resolved, 943 still open, 268 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,068 resolved, 928 still open, 272 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 312 | 552 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 365 | 13 | 51 | 47 |
+| MED | 999 | 319 | 543 | 19 | 35 | 83 |
+| LOW | 871 | 399 | 359 | 15 | 51 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1304,17 +1304,17 @@ Full evidence and the suggested action for any row live in its source review at 
 | U058-F04 | open | **`doc.go:3-4` vs `conformance_test.go:121-135`** | CORRECTNESS | `doc.go` claims "**full hook-event coverage**", but the coverage test is a substring grep over the whole settings file: it proves each event's *marker string* appears somewhere, not that it is atta... | U058.md |
 | U058-F05 | open | **`doc.go:3` vs `conformance_test.go:99-116`** | CORRECTNESS | `doc.go` claims "**atomic** write + backup". The test asserts only that a `.ctxloom.bak` exists with the prior content — nothing in the suite tests atomicity (temp-file + rename, no torn reads). Th... | U058.md |
 | U058-F06 | open | `conformance_test.go:82-97`, `:139-151` | CORRECTNESS | Two of the five tests verify the writer's behaviour **by asking the writer** — `w.Status(projectDir)` — rather than by inspecting the file. A writer whose `Status` were wrong in the same direction ... | U058.md |
-| U059-F04 | open | **`chat.go:248, chat.go:252`** | ERRHANDLING | Server-side protocol violations return bare `fmt.Errorf`, which gRPC maps to `codes.Unknown` — the client cannot distinguish "malformed request" from "transport died". The same function proves the ... | U059.md |
-| U059-F05 | open | `client.go:59-157` | CORRECTNESS | `RunWithModelInfo` cannot distinguish "server reported exit 0" from "stream ended without ever sending an exit code": `result := &RunResult{}` zero-values `ExitCode` to 0 and the loop `break`s on E... | U059.md |
-| U059-F06 | open | `client.go:334` | CORRECTNESS | `NewContainerClient` takes `backendName` and `label` and **never reads them**. The doc claims they are "carried for parity/diagnostics" — they are carried nowhere. | U059.md |
-| U059-F07 | open | **`chat.go:402-406`** | ERRHANDLING | The inbound pump swallows `stream.Send` errors and exits, leaving `in` with no reader; a caller that sends on `in` without a `ctx.Done()` escape blocks forever, and it is never told its message was... | U059.md |
+| U059-F04 | **PARTIAL** `3224e669` | **`chat.go:248, chat.go:252`** | ERRHANDLING | Server-side protocol violations return bare `fmt.Errorf`, which gRPC maps to `codes.Unknown` — the client cannot distinguish "malformed request" from "transport died". The same function proves the ... | U059.md |
+| U059-F05 | **RESOLVED** `37f411bb` | `client.go:59-157` | CORRECTNESS | `RunWithModelInfo` cannot distinguish "server reported exit 0" from "stream ended without ever sending an exit code": `result := &RunResult{}` zero-values `ExitCode` to 0 and the loop `break`s on E... | U059.md |
+| U059-F06 | **RESOLVED** `a8a1e678` | `client.go:334` | CORRECTNESS | `NewContainerClient` takes `backendName` and `label` and **never reads them**. The doc claims they are "carried for parity/diagnostics" — they are carried nowhere. | U059.md |
+| U059-F07 | **RESOLVED** `a18f97c3` | **`chat.go:402-406`** | ERRHANDLING | The inbound pump swallows `stream.Send` errors and exits, leaving `in` with no reader; a caller that sends on `in` without a `ctx.Done()` escape blocks forever, and it is never told its message was... | U059.md |
 | U059-F08 | **RESOLVED** `b91ceef7` | `client.go:379-391, chat.go:517, sessionhistory.go:301,306, plans.go:95, sessionwatch.go:270` | TRIVIAL | `LLMRunner` hand-writes 8 pure forwarders to `p.grpc`, spread over 5 files; embedding `*GRPCClient` gives all 8 for free and leaves only `Kill` (which `GRPCClient` does not define, so there is no c... | U059.md |
-| U059-F09 | open | **`chat.go:340-467`** | COHESION | `GRPCClient.Chat` mixes three concerns in one 140-line function: gRPC stream adaptation, transcript capture policy, and a completion barrier — 60% of its body (and ~90 lines of comment) is capture,... | U059.md |
-| U059-F10 | open | `canonical_source.go:130-133` | ERRHANDLING | `GetSession` discards the *first* canonical error outright, so a genuinely corrupt/unparseable transcript for a harp-shaped id is reported as "no canonical transcript for session X (legacy scraper ... | U059.md |
+| U059-F09 | **RESOLVED** `3919aadd` | **`chat.go:340-467`** | COHESION | `GRPCClient.Chat` mixes three concerns in one 140-line function: gRPC stream adaptation, transcript capture policy, and a completion barrier — 60% of its body (and ~90 lines of comment) is capture,... | U059.md |
+| U059-F10 | **RESOLVED** `47349803` | `canonical_source.go:130-133` | ERRHANDLING | `GetSession` discards the *first* canonical error outright, so a genuinely corrupt/unparseable transcript for a harp-shaped id is reported as "no canonical transcript for session X (legacy scraper ... | U059.md |
 | U059-F11 | **RESOLVED** `b23a9334` | **`chat.go:396`** | SILENTNOOP | The user-turn tap requires `msg.Text != ""`, so a `ContentBlocks`-only turn is delivered to the engine but recorded nowhere — the transcript shows an assistant reply to a prompt that never appears. | U059.md |
-| U059-F12 | open | **`chat.go:304-309`** | CORRECTNESS | On a client-side `Send` failure the server returns immediately without draining `out`; a backend whose `Chat` sends to `out` without selecting on ctx blocks forever, leaking a goroutine and the who... | U059.md |
-| U059-F13 | open | `canonical_source.go:196-200` | COMPLEXITY | `ListSessions` calls `f.store.Find` once per canonical session and each `Find` re-reads and re-parses the whole index file from disk — O(N) file reads for one listing, plus one more per `GetSession... | U059.md |
-| U059-F20 | open | **`package-wide`** | COUPLING | Against the project's stated "use standard mechanisms" guidance: this gRPC transport registers **no** `grpc.health.v1` health service, **no** server reflection, and **no** OTel/interceptor instrume... | U059.md |
+| U059-F12 | **RESOLVED** `31591dd0` | **`chat.go:304-309`** | CORRECTNESS | On a client-side `Send` failure the server returns immediately without draining `out`; a backend whose `Chat` sends to `out` without selecting on ctx blocks forever, leaking a goroutine and the who... | U059.md |
+| U059-F13 | **RESOLVED** `e78cc923` | `canonical_source.go:196-200` | COMPLEXITY | `ListSessions` calls `f.store.Find` once per canonical session and each `Find` re-reads and re-parses the whole index file from disk — O(N) file reads for one listing, plus one more per `GetSession... | U059.md |
+| U059-F20 | **ESCALATED** `PENDING` | **`package-wide`** | COUPLING | Against the project's stated "use standard mechanisms" guidance: this gRPC transport registers **no** `grpc.health.v1` health service, **no** server reflection, and **no** OTel/interceptor instrume... | U059.md |
 | U060-F02 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `llm.proto:534`; `llm.pb.go:3515` | DEAD | `RunOptions.max_tokens` (field 9) is dead end-to-end — nothing writes it, nothing reads it, and no mirror field exists | U060.md |
 | U060-F03 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `llm.proto:533`; `llm.pb.go:3514` | DEAD | `RunOptions.temperature` (field 8) travels from nowhere to nowhere: the only code touching it is the wire plumbing itself | U060.md |
 | U060-F04 | open | `llm.proto:541`; `server.go:318` | CORRECTNESS | The isolation cell fails **open**: proto3's zero `CELL_KIND_UNSPECIFIED` decodes to `Shared` — the user's live cwd, the least-isolated cell | U060.md |
@@ -2296,13 +2296,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U058-F07 | open | `justfile:346` | CORRECTNESS | The `just` recipe's comment names the wrong agent: "(claude/**gemini**/codex …)". There is no gemini writer; the third agent is `antigravity`. | U058.md |
 | U058-F08 | open | `package location` | COUPLING | The package lives at `internal/lm/conformance` but tests nothing in `internal/lm`: its three subjects are `internal/claude`, `internal/antigravity`, and `internal/codex`. The path implies a contain... | U058.md |
 | U058-F09 | open | `conformance_test.go:44-46` | CORRECTNESS | `asSettingsWriter` converts a compile-time contract into a **runtime panic**: `newWriter(o).(settingsWriter)` panics if a concrete writer stops exposing `SettingsPath`, rather than failing to build. | U058.md |
-| U059-F14 | open | `client.go:165-166` | CORRECTNESS | The doc comment contradicts the code it documents. | U059.md |
-| U059-F15 | open | **`chat.go:170-187`** | CORRECTNESS | `turnMetaToProto` performs 8 unchecked `int → int32` narrowings; overflow truncates silently (`DurationMs` wraps past ~24.9 days, token counts past 2.1e9). | U059.md |
+| U059-F14 | **RESOLVED** `eff34e81` | `client.go:165-166` | CORRECTNESS | The doc comment contradicts the code it documents. | U059.md |
+| U059-F15 | **RESOLVED** `f5b23f4d` | **`chat.go:170-187`** | CORRECTNESS | `turnMetaToProto` performs 8 unchecked `int → int32` narrowings; overflow truncates silently (`DurationMs` wraps past ~24.9 days, token counts past 2.1e9). | U059.md |
 | U059-F16 | **RESOLVED** `12f375ce` | `client.go:341-343` | TRIVIAL | `NewSelfInvokingClient` is a one-line default-argument wrapper with a single production call site, forming a 3-deep ladder (`NewSelfInvokingClient` → `…ForLabel` → `…ForLabelEnv`). | U059.md |
-| U059-F17 | open | `client.go:146,148` | ERRHANDLING | Writes to the caller's `stdout`/`stderr` discard their errors, so a full disk or a closed pipe on a redirected `ctxloom run` yields a truncated transcript with a clean exit code. | U059.md |
-| U059-F18 | open | `host_runner.go:56-77` | SILENTNOOP | `StartHostRunner` does not validate `args`; with an empty slice it starts bare `ctxloom` (cobra prints help and exits 0), returns a healthy-looking `*HostRunner`, and the coordinator then waits out... | U059.md |
-| U059-F19 | open | `client.go:25` | COUPLING | `ContainerRunnerFunc` is a type **alias** (`=`), so it provides a name but no type distinction — the stated goal ("callers name the contract without importing go-plugin's exact signature") is only ... | U059.md |
-| U059-F21 | open | `canonical_source.go:50` | COUPLING | `RetiredScraperBackends` is an exported **mutable** package-level map; every consumer only ever does a membership test, and each must independently remember to consult it before choosing `legacy=nil`. | U059.md |
+| U059-F17 | **RESOLVED** `6e5a83cd` | `client.go:146,148` | ERRHANDLING | Writes to the caller's `stdout`/`stderr` discard their errors, so a full disk or a closed pipe on a redirected `ctxloom run` yields a truncated transcript with a clean exit code. | U059.md |
+| U059-F18 | **PARTIAL** `a3022ed5` | `host_runner.go:56-77` | SILENTNOOP | `StartHostRunner` does not validate `args`; with an empty slice it starts bare `ctxloom` (cobra prints help and exits 0), returns a healthy-looking `*HostRunner`, and the coordinator then waits out... | U059.md |
+| U059-F19 | **RESOLVED** `4f4c7891` | `client.go:25` | COUPLING | `ContainerRunnerFunc` is a type **alias** (`=`), so it provides a name but no type distinction — the stated goal ("callers name the contract without importing go-plugin's exact signature") is only ... | U059.md |
+| U059-F21 | **PARTIAL** `3d09dfa3` | `canonical_source.go:50` | COUPLING | `RetiredScraperBackends` is an exported **mutable** package-level map; every consumer only ever does a membership test, and each must independently remember to consult it before choosing `legacy=nil`. | U059.md |
 | U060-F06 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `llm.proto:388` | NOPAY | `LLMInfo.supported_modes` is written but never read in production | U060.md |
 | U060-F07 | open | `llm.pb.go:3391` | CORRECTNESS | Generated getter `GetAutoRegisterCtxloom()` collapses the unset/true/false tri-state the field exists to preserve; latent, not live | U060.md |
 | U060-F08 | open | `llm.proto:383` | DUPLICATE | Local `Empty` duplicates the `google.protobuf.Empty` well-known type | U060.md |

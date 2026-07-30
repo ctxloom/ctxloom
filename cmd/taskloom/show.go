@@ -39,7 +39,7 @@ task for scripting.`,
 		if !ok {
 			return fmt.Errorf("no task with harp id %q (see `taskloom list`)", args[0])
 		}
-		noteTaskProject(res.ProjectID, res.ProjectDir)
+		noteTaskProject(res.ProjectDir, res.ProjectID)
 		cfg := hideConfigFor(tc)
 		return cliemit.Emit(cmd, task, func() error {
 			return renderTaskDetail(cmd.OutOrStdout(), task, cfg)

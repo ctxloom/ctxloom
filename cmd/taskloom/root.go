@@ -198,12 +198,14 @@ func isInteractiveTerminal() bool {
 }
 
 // noteTaskProject names the store a mutation landed in, on stderr so stdout
-// stays parseable. A pinned project-id wins over cwd, so without this a task
+// stays parseable. Its parameters are in formatProjectLabel's order — the two
+// take the same pair of same-typed strings and nothing in the type system
+// separates them, so a second order is a transposition waiting to happen. A pinned project-id wins over cwd, so without this a task
 // added while cd'd into another project lands somewhere invisible. In
 // repo-homed mode projectID is always empty (the repo path IS the identity —
 // see operations.resolveRepoHomedStore), so the "(id)" suffix is only shown
 // when there is actually an id to show.
-func noteTaskProject(projectID, projectDir string) {
+func noteTaskProject(projectDir, projectID string) {
 	fmt.Fprintf(os.Stderr, "taskloom: project %s\n", formatProjectLabel(projectDir, projectID))
 }
 

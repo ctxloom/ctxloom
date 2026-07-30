@@ -415,7 +415,7 @@ budget before the subject appears. Full text is always available via
 			return err
 		}
 		warnTask(res.Warning)
-		noteTaskProject(res.ProjectID, res.ProjectDir)
+		noteTaskProject(res.ProjectDir, res.ProjectID)
 		task := res.Task
 		return cliemit.Emit(cmd, task, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -446,7 +446,7 @@ carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
 			return err
 		}
 		warnTask(res.Warning)
-		noteTaskProject(res.ProjectID, res.ProjectDir)
+		noteTaskProject(res.ProjectDir, res.ProjectID)
 		task := res.Task
 		return cliemit.Emit(cmd, task, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -475,7 +475,7 @@ status and any Deferred trigger are left unchanged.`,
 			return err
 		}
 		warnTask(res.Warning)
-		noteTaskProject(res.ProjectID, res.ProjectDir)
+		noteTaskProject(res.ProjectDir, res.ProjectID)
 		task := res.Task
 		return cliemit.Emit(cmd, task, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -515,7 +515,7 @@ tags already in use with "taskloom tags"; filter tasks by tag with
 			return err
 		}
 		warnTask(res.Warning)
-		noteTaskProject(res.ProjectID, res.ProjectDir)
+		noteTaskProject(res.ProjectDir, res.ProjectID)
 		task := res.Task
 		return cliemit.Emit(cmd, task, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,184** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **87** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **88** |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | **137** |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **712** |
+| `open` | no commit names this ID | **711** |
 
-**Totals: 2268 findings across 162 units — 1,184 resolved, 712 still open, 372 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,184 resolved, 711 still open, 373 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 392 | 407 | 46 | 60 | 94 |
+| MED | 999 | 392 | 406 | 47 | 60 | 94 |
 | LOW | 871 | 441 | 280 | 31 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1808,7 +1808,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U125-F08 | **PARTIAL** `5e8ea1a3` | `resolve.go:109-118` | CORRECTNESS | `mintInto` is a **non-atomic two-step**: the registry entry is appended and persisted, then the marker is written. A failure between them leaves an id registered at a path whose tree does not know ... | U125.md |
 | U126-F01 | **RESOLVED** `c43420f2` | `tagschema.go:215-229` | CORRECTNESS | `Enum` returns an **empty-but-present** member list for a declaration containing no usable member, and cannot report the malformation. Both consumers then reject *every* value on that target — one ... | U126.md |
 | U126-F02 | **RESOLVED** `9e25a5a2` | `tagschema.go:189`, `:196`, `:206` | TRIVIAL | `PriorityFn`, `DecayFn`, and `Type` are three one-line aliases for `Get(<constant>, target)` that add no invariant, no validation, and no concept — and the one design that appears to justify them d... | U126.md |
-| U126-F04 | open | `tagschema.go:283-285` vs `:243-245` vs `:113` | COHESION | One package applies **three different policies to a malformed declaration**: `Parse`/`add` errors, `Range` errors, `Enum` silently returns an empty set (F01), and `HideFacts` silently skips. A conf... | U126.md |
+| U126-F04 | **PARTIAL** `e7023214` | `tagschema.go:283-285` vs `:243-245` vs `:113` | COHESION | One package applies **three different policies to a malformed declaration**: `Parse`/`add` errors, `Range` errors, `Enum` silently returns an empty set (F01), and `HideFacts` silently skips. A conf... | U126.md |
 | U126-F06 | **RESOLVED** `b35a226d` | `formula.go:12-16` | DUPLICATE | `placeholderPattern` is the authoritative definition of the placeholder syntax, and it has been **copied verbatim into two other packages** rather than exported | U126.md |
 | U126-F07 | **REFUTED** `5b30aa83` | `tagschema.go:99-107` | SILENTNOOP | `Parse` on an empty declaration list returns a **valid `Schema` and a nil error**, producing an object that silently disables every schema-driven behaviour in the product — scalar collapse, enum/ra... | U126.md |
 | U127-F02 | **RESOLVED** `ae01686f` `ebd33b7c` | **`package-wide`** | NOPAY | This package has **zero test files** while 127 call sites depend on it for correctness, and its failure mode is silent by construction | U127.md |

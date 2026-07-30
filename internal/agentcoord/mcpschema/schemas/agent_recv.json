@@ -26,12 +26,28 @@
             "in_reply_to": {
               "type": "string"
             },
+            "kind": {
+              "description": "The message's kind, from a closed vocabulary: MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION, MESSAGE_KIND_APPROVAL_REQUEST (an escalation waiting on your decision — see `structured`), MESSAGE_KIND_USER_INJECTED (a human injected text into a session you supervise), MESSAGE_KIND_USER_CONTROL, MESSAGE_KIND_EXITED (a child of yours ended), MESSAGE_KIND_STEER",
+              "enum": [
+                "MESSAGE_KIND_UNSPECIFIED",
+                "MESSAGE_KIND_MESSAGE",
+                "MESSAGE_KIND_RESULT",
+                "MESSAGE_KIND_ERROR",
+                "MESSAGE_KIND_QUESTION",
+                "MESSAGE_KIND_APPROVAL_REQUEST",
+                "MESSAGE_KIND_USER_INJECTED",
+                "MESSAGE_KIND_USER_CONTROL",
+                "MESSAGE_KIND_EXITED",
+                "MESSAGE_KIND_STEER"
+              ],
+              "type": "string"
+            },
             "message_id": {
               "type": "string"
             },
             "structured": {
               "additionalProperties": true,
-              "description": "Structured companion the sender attached, when there is one. `kind` names the message kind. A message whose kind is approval_request carries the escalation ladder's ApprovalRequest projection and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first.",
+              "description": "Structured companion the sender attached, when there is one. A message whose `kind` is MESSAGE_KIND_APPROVAL_REQUEST carries the escalation ladder's ApprovalRequest projection here and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first. This object no longer carries the message kind — read the `kind` field.",
               "type": "object"
             },
             "text": {

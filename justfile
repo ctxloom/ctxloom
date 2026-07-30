@@ -881,7 +881,9 @@ gen-mcp-schemas:
     tmp=$(mktemp)
     trap 'rm -f "$tmp"' EXIT
     buf build -o "$tmp"
-    go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" -out internal/agentcoord/mcpschema/schemas
+    go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" \
+        -out internal/agentcoord/mcpschema/schemas \
+        -xmllike-out internal/agentcoord/xmllike_gen.go
 
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra

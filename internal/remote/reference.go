@@ -53,6 +53,11 @@ const CompanionSource = "ctxloom:companion"
 //   - "ctxloom:local@bundles/name"
 //   - "ctxloom:local@bundles/name@<rev>" (pinned to a project revision)
 func ParseReference(ref string) (*Reference, error) {
+	// Ingest boundary: a reference reaching the grammar carries no control
+	// characters (NormalizeRef). Doing it here rather than in each caller is
+	// what lets every downstream consumer — canonical strings, lockfile keys,
+	// the countersign preimage — treat a parsed Reference's fields as clean.
+	ref = NormalizeRef(ref)
 	if ref == "" {
 		return nil, fmt.Errorf("empty reference")
 	}
@@ -121,6 +126,7 @@ func isSelfContainedRef(ref string) bool {
 // kind selects the item-type segment of the expanded canonical ref
 // (bundles/profiles). A short ref with no source to expand against is an error.
 func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
+	ref, sourceURL = NormalizeRef(ref), NormalizeRef(sourceURL)
 	// Already self-contained (canonical URL or ctxloom:local) → as-is.
 	if parsed, err := ParseReference(ref); err == nil {
 		return parsed, nil
@@ -161,6 +167,10 @@ func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
 // at a given commit IS pinned to that commit. On any failure ref is returned
 // unchanged (fault tolerant — persist the authored form rather than drop it).
 func ResolveRefString(ref, sourceURL, sourceHash string, kind ItemType) string {
+	// Normalised at entry, not left to ParseReference: every failure path here
+	// returns `ref` VERBATIM (fault tolerant — persist the authored form rather
+	// than drop it), so an un-normalised input would be handed straight back.
+	ref, sourceURL, sourceHash = NormalizeRef(ref), NormalizeRef(sourceURL), NormalizeRef(sourceHash)
 	base, item := SplitItemPath(ref)
 	if _, err := ParseReference(base); err == nil {
 		return ref // already self-contained

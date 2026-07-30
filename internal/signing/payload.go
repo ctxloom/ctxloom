@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // CountersignContract is the fixed contract-version string that opens every
@@ -204,7 +205,38 @@ func (h CountersignHeader) Validate() error {
 	if h.Form == AttestNone && h.Ref == "" {
 		return fmt.Errorf("countersign header: a payload-free record must bind a ref (a header binding neither a ref nor a form asserts nothing)")
 	}
+	if i := strings.IndexFunc(h.Ref, isControl); i != -1 {
+		return fmt.Errorf("countersign header: ref %q contains a control character at byte %d — "+
+			"a ctxloom ref carries none, and one here forges the rest of the frame", h.Ref, i)
+	}
 	return nil
+}
+
+// isControl reports whether r is a C0 control character or DEL — the class
+// CountersignPayload's framing cannot survive inside Ref.
+//
+// This is what makes the framing's "no user-controlled structure beyond Ref"
+// claim TRUE rather than assumed. The preamble is LF-delimited and `ref:` is
+// emitted BEFORE `form:` and `len:`, so an LF inside Ref closes the ref line
+// early and the remainder of the ref is read back as those later fields: the
+// header {approve, "bundle#fragments/a", fragment/raw} over a 15-byte payload
+// and the header {approve, "bundle#fragments/a\nform: fragment/raw\nlen: 15\n",
+// AttestNone} over an empty payload frame to the SAME bytes. One signature then
+// verifies for both tuples, and countersign.indexHash files both at one path.
+// `len` cannot disambiguate: it is emitted after `ref` and never parsed back.
+//
+// Refusing — rather than silently stripping, which is what the INGEST
+// normaliser (remote.NormalizeRef) does at the boundary — is deliberate here:
+// these bytes are the preimage, and quietly rewriting a preimage changes what a
+// signature covers without anyone being told. By the time a ref reaches this
+// function it has already had its one chance to be normalised; arriving dirty
+// means it bypassed ingest, which is a fault to report, not to repair.
+//
+// The two layers share no code on purpose. This package deliberately depends on
+// nothing else in the tree, and a defence in depth whose second layer imports
+// its first is one layer.
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f
 }
 
 // CountersignPayload builds the exact byte sequence a countersignature signs:
@@ -220,10 +252,18 @@ func (h CountersignHeader) Validate() error {
 // This is NOT a canonicalization. It is a fixed, length-prefixed,
 // LF-delimited ASCII preamble with a closed field set, emitted and parsed by
 // exactly this function on both signer and verifier, containing no
-// user-controlled structure beyond Ref (drawn from an existing ref grammar)
-// — and `len` makes the payload boundary unambiguous regardless of what
-// payloadBytes itself contains (see
+// user-controlled structure beyond Ref — and `len` makes the payload boundary
+// unambiguous regardless of what payloadBytes itself contains (see
 // TestCountersignPayload_HeaderIsNotAffectedByPayloadContent).
+//
+// Ref is the one field the caller supplies as free text, and the framing is
+// injective ONLY because a ref may not carry a control character:
+// CountersignHeader.Validate enforces that, and every write and lookup path
+// goes through Validate first. Without it a ref containing an LF closes the
+// `ref:` line early and forges the `form:` and `len:` lines emitted after it,
+// so two distinct tuples frame to identical bytes. Do not reorder the fields to
+// put `len:` before `ref:` and call the problem solved either — the invariant
+// is that Ref contains no framing characters, and that is where it is kept.
 //
 // Most callers should prefer ApproveCountersignPayload,
 // ContentRejectCountersignPayload, or RefRejectCountersignPayload, which

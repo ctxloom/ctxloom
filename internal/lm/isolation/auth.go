@@ -920,6 +920,23 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 	if spec.envTrigger != "" && os.Getenv(spec.envTrigger) != "" {
 		return seedSkippedEnv, nil
 	}
+	files, ok := hostSeedSources(spec)
+	if !ok {
+		return seedNoSource, nil
+	}
+	destDir := filepath.Join(configHome, spec.destSubdir)
+	if err := prepareSeedDir(spec, destDir); err != nil {
+		return seedNoSource, err
+	}
+	return copySeedFiles(spec, files, destDir)
+}
+
+// hostSeedSources resolves spec's host source files against the host HOME and
+// reports whether there is anything seedable at all. ok=false is the
+// "nothing to seed" degrade — an unresolvable/empty host HOME, or an absent
+// REQUIRED file — never an error, because the caller must be free to proceed
+// (worktree.go turns it into its own fail-loud decision).
+func hostSeedSources(spec credentialSeedSpec) ([]seedFile, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		// Still a degrade, never an abort (the caller must not be blocked by a
@@ -931,24 +948,38 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 		clidiag.Warn("ctxloom",
 			"%s credential seed: could not resolve the host HOME to copy credentials from (%v); this run is treated as having no host credentials to seed",
 			spec.engine, err)
-		return seedNoSource, nil
+		return nil, false
 	}
 	files := spec.sourceFiles(home)
 	for _, f := range files {
 		if f.required && !fileExists(f.host) {
-			return seedNoSource, nil
+			return nil, false
 		}
 	}
-	destDir := filepath.Join(configHome, spec.destSubdir)
+	return files, true
+}
+
+// prepareSeedDir creates the per-engine destination and makes it owner-only.
+// MkdirAll's perm argument, like os.WriteFile's, applies only on CREATION — a
+// pre-existing dir keeps its own mode — so the 0700 is restated rather than
+// assumed on a directory about to hold live credential files.
+func prepareSeedDir(spec credentialSeedSpec, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
-		return seedNoSource, fmt.Errorf("create %s credential seed dir: %w", spec.engine, err)
+		return fmt.Errorf("create %s credential seed dir: %w", spec.engine, err)
 	}
-	// MkdirAll's perm argument, like os.WriteFile's, applies only on CREATION —
-	// a pre-existing dir keeps its own mode. This one is about to hold live
-	// credential files, so owner-only is restated rather than assumed.
 	if err := os.Chmod(destDir, 0o700); err != nil {
-		return seedNoSource, fmt.Errorf("restrict %s credential seed dir: %w", spec.engine, err)
+		return fmt.Errorf("restrict %s credential seed dir: %w", spec.engine, err)
 	}
+	return nil
+}
+
+// copySeedFiles copies each PRESENT source file into destDir (required ones are
+// already known present — see hostSeedSources). A copy failure is an error, not
+// a degrade: the material exists and we failed to place it. Copying nothing
+// reports seedNoSource, never seedOK — no current spec reaches that (claude's
+// primary file is required), but a future all-optional spec must not report
+// success having delivered zero bytes.
+func copySeedFiles(spec credentialSeedSpec, files []seedFile, destDir string) (seedResult, error) {
 	seededAny := false
 	for _, f := range files {
 		if !fileExists(f.host) {
@@ -960,10 +991,6 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 		seededAny = true
 	}
 	if !seededAny {
-		// Defensive: a spec with no required files and nothing present. No
-		// current spec hits this (claude's primary file is required), but a
-		// future all-optional spec should not report seedOK having copied
-		// nothing.
 		return seedNoSource, nil
 	}
 	return seedOK, nil

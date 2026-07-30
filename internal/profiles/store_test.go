@@ -1,9 +1,12 @@
 package profiles
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // TestProfileStoreContract runs one CRUD scenario against every Store adapter,
@@ -56,6 +59,73 @@ func TestProfileStoreContract(t *testing.T) {
 			}
 			if s.Exists("alpha") {
 				t.Fatal("alpha should be gone after Delete")
+			}
+		})
+	}
+}
+
+// storeAdapters is the adapter table the port-parity tests below run against.
+// Both Store implementations answer the same questions the same way, or the
+// port is a lie: a caller written against profiles.Store must not have to know
+// which adapter it holds.
+func storeAdapters() []struct {
+	name string
+	make func() Store
+} {
+	return []struct {
+		name string
+		make func() Store
+	}{
+		{"MemStore", func() Store { return NewMemStore() }},
+		{"Loader", func() Store { return NewLoader([]string{"/profiles"}, WithFS(afero.NewMemMapFs())) }},
+	}
+}
+
+// TestProfileStoreParity_MissingProfileIsSentinel pins that every Store adapter
+// reports an absent profile with errs.ErrProfileNotFound, so
+// errors.Is(err, errs.ErrProfileNotFound) — the check callers actually use to
+// tell "absent" from "broken" — answers correctly whichever adapter is
+// installed. MemStore used to return a bare fmt.Errorf, so the sentinel check
+// silently reported false for a genuinely missing profile (U091-F05).
+func TestProfileStoreParity_MissingProfileIsSentinel(t *testing.T) {
+	for _, a := range storeAdapters() {
+		t.Run(a.name, func(t *testing.T) {
+			s := a.make()
+
+			_, err := s.Load("absent")
+			if !errors.Is(err, errs.ErrProfileNotFound) {
+				t.Fatalf("Load of a missing profile: err = %v, want errors.Is ErrProfileNotFound", err)
+			}
+			if err := s.Delete("absent"); !errors.Is(err, errs.ErrProfileNotFound) {
+				t.Fatalf("Delete of a missing profile: err = %v, want errors.Is ErrProfileNotFound", err)
+			}
+		})
+	}
+}
+
+// TestProfileStoreParity_RejectsUnsafeNames pins that every Store adapter agrees
+// on what a valid profile name is. The two adapters used to disagree: the
+// filesystem *Loader rejects '#' (reserved for bundle refs) and traversal names
+// via validateProfileName, while MemStore accepted anything non-empty — so a
+// name that a MemStore-backed test proved acceptable would be refused the moment
+// the same code ran against the real store (U091-F21).
+func TestProfileStoreParity_RejectsUnsafeNames(t *testing.T) {
+	unsafe := []string{
+		"a#profiles/b",
+		"../escape",
+		"/absolute",
+		"",
+	}
+	for _, a := range storeAdapters() {
+		t.Run(a.name, func(t *testing.T) {
+			for _, name := range unsafe {
+				s := a.make()
+				if err := s.Save(&Profile{Name: name, Bundles: []string{"go-development"}}); err == nil {
+					t.Fatalf("Save(%q) succeeded; want rejection", name)
+				}
+				if s.Exists(name) {
+					t.Fatalf("Exists(%q) is true after a rejected Save", name)
+				}
 			}
 		})
 	}

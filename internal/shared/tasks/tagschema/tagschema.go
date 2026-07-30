@@ -72,6 +72,34 @@ const (
 	TypeFacet       = "type"
 )
 
+// knownFacets closes the facet set above. Every consumer reads a facet by
+// one of those constant names and nothing reads any other, so a declaration
+// under an unrecognised facet is MISFILED rather than dropped — the same
+// effect as losing it, with no signal at either end (nothing upstream
+// catches it either: the taskloom config JSON Schema constrains tag_schema
+// only to an array of strings). add rejects one instead.
+var knownFacets = map[string]bool{
+	ArityFacet:      true,
+	PriorityFnFacet: true,
+	DecayFnFacet:    true,
+	EnumFacet:       true,
+	RangeFacet:      true,
+	HideFacet:       true,
+	TypeFacet:       true,
+}
+
+// KnownFacets returns every facet a declaration may name, sorted — the
+// closed set add validates against, exported so an error message or a
+// config-authoring surface can name it rather than re-listing the constants.
+func KnownFacets() []string {
+	out := make([]string, 0, len(knownFacets))
+	for f := range knownFacets {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // SemverTypeName is the tagma.type value naming taskloom's semver
 // TypeComparator (tagma SPEC.md §9, "client-loadable type comparison"):
 // internal/shared/tasks registers a TypeComparator under this exact name, so
@@ -89,13 +117,13 @@ type Schema struct {
 }
 
 // Parse parses every declaration in decls (in order; a later declaration for
-// the same facet+target overwrites an earlier one, "last wins" — mirroring
-// a real config file where a later line is the more specific intent) into a
+// the same facet+target overwrites an earlier one, "last wins") into a
 // Schema. A malformed declaration — one tagma.ParseTag rejects, one with no
-// namespace, one whose namespace isn't "tagma" or "tagma.<facet>", or one
-// with no value — is a returned error naming the offending declaration:
-// fail loud, never silently drop a schema entry (a dropped arity=scalar
-// declaration would silently stop collapsing a task's tags).
+// namespace, one whose namespace isn't "tagma" or "tagma.<facet>", one
+// naming a facet outside KnownFacets, or one with no value — is a returned
+// error naming the offending declaration: fail loud, never silently drop a
+// schema entry (a dropped arity=scalar declaration would silently stop
+// collapsing a task's tags).
 func Parse(decls []string) (*Schema, error) {
 	s := &Schema{facets: map[string]map[string]string{}}
 	for _, decl := range decls {
@@ -123,6 +151,10 @@ func (s *Schema) add(decl string) error {
 			decl, ns, FacetNamespace, FacetNamespace, ArityFacet)
 	}
 	facet := strings.TrimPrefix(ns, prefix)
+	if !knownFacets[facet] {
+		return fmt.Errorf("tag_schema: declaration %q names unknown facet %q (known: %s)",
+			decl, facet, strings.Join(KnownFacets(), ", "))
+	}
 	if tag.Value == nil {
 		return fmt.Errorf("tag_schema: declaration %q has no value (expected %s:%q=<value>)", decl, ns, tag.Key)
 	}
@@ -188,10 +220,17 @@ func (s *Schema) IsScalar(target string) bool {
 // `tagma.enum:"triage:type"="correctness,security,..."` — and whether one
 // was declared. Each returned value is trimmed; empty entries (e.g. a
 // trailing comma) are dropped rather than surfacing as a spurious "" member.
-func (s *Schema) Enum(target string) ([]string, bool) {
-	v, ok := s.Get(EnumFacet, target)
-	if !ok {
-		return nil, false
+//
+// A declaration left with NO usable member (an empty value, or nothing but
+// separators and whitespace) is a returned error naming the offending
+// target, exactly as Range reports a malformed range: an empty-but-present
+// member list is indistinguishable at every consumer from a closed set that
+// admits nothing, so lint and the write seam would reject EVERY value on
+// that target while nothing could say the declaration was the fault.
+func (s *Schema) Enum(target string) (members []string, ok bool, err error) {
+	v, has := s.Get(EnumFacet, target)
+	if !has {
+		return nil, false, nil
 	}
 	parts := strings.Split(v, ",")
 	out := make([]string, 0, len(parts))
@@ -201,7 +240,10 @@ func (s *Schema) Enum(target string) ([]string, bool) {
 			out = append(out, p)
 		}
 	}
-	return out, true
+	if len(out) == 0 {
+		return nil, true, fmt.Errorf("tag_schema: enum declaration for %q lists no usable member, got %q", target, v)
+	}
+	return out, true, nil
 }
 
 // Range returns target's declared numeric [min,max] range — a facet="range"
@@ -234,9 +276,12 @@ func (s *Schema) Range(target string) (min, max float64, ok bool, err error) {
 // tagma.HideFact values ready for tagma.HideConfigFromPatterns — the
 // display-time hide config a caller filters a task's tags through (see
 // cmd/taskloom's hideConfigFor/visibleTags). A declared value other than
-// "true"/"false" is skipped (mirrors tagma's own hideFact decoding: an
-// uninterpretable value configures nothing rather than erroring, since it
-// only ever narrows what's hidden, never what's stored). A nil Schema
+// "true"/"false" is skipped — the ONE malformed-declaration shape this
+// package does not report, deliberately (it mirrors tagma's own hideFact
+// decoding, and hide only ever narrows what a listing shows, never what is
+// stored, matched or ranked); pinned by
+// TestHideFacts_UninterpretableValueIsSkipped, and see U126-F03/F04 for why
+// making it loud is a config-surface decision rather than a fix. A nil Schema
 // returns nil, same nil-receiver-safety as Get. Order is unspecified (map
 // iteration) — HideConfigFromPatterns's resolution doesn't depend on fact
 // order (a target with both a true and a false fact on record resolves

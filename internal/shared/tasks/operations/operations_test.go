@@ -1395,3 +1395,219 @@ func TestTaskResult_PopulatesEveryField(t *testing.T) {
 		}
 	}
 }
+
+// TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction pins U122-F05:
+// scalar collapse decides TARGET identity by parsing the tag through tagma,
+// but decided VALUE identity by comparing raw strings. tagma's grammar admits
+// a quoted spelling of any component, so `triage:type=bug` and
+// `triage:type="bug"` are one and the same tag — same target, same value — yet
+// the raw comparison saw two different strings and emitted a retraction plus a
+// re-tag for a no-op re-tagging. That writes a permanent untag into an
+// append-only log for a value that never changed, and momentarily leaves the
+// task carrying two spellings of one scalar.
+func TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction(t *testing.T) {
+	schema := scalarSchema(t)
+
+	toAdd, toUntag := scalarCollapse(schema, []string{"triage:type=bug"}, []string{`triage:type="bug"`})
+	if len(toUntag) != 0 {
+		t.Fatalf("toUntag = %v; the incoming tag is the SAME value, quoted — no retraction is due", toUntag)
+	}
+	if len(toAdd) != 1 {
+		t.Fatalf("toAdd = %v, want the incoming tag passed through", toAdd)
+	}
+
+	// The genuine change must still retract, or the fix would have disarmed
+	// the collapse entirely.
+	toAdd, toUntag = scalarCollapse(schema, []string{"triage:type=bug"}, []string{`triage:type="security"`})
+	if len(toUntag) != 1 || toUntag[0] != "triage:type=bug" {
+		t.Fatalf("toUntag = %v, want the superseded value retracted", toUntag)
+	}
+	if len(toAdd) != 1 {
+		t.Fatalf("toAdd = %v", toAdd)
+	}
+}
+
+// TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue is the
+// end-to-end half of U122-F05: re-tagging with the same value spelled
+// differently must not append an untag event to the log.
+func TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "triage this", "", "", []string{"triage:type=bug"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := TagTask(tc, add.Task.HarpID, []string{`triage:type="bug"`}, nil); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	ops := make([]string, 0, 4)
+	for _, ev := range readTaskEvents(t, tc, add.Task.HarpID) {
+		ops = append(ops, ev.Op)
+	}
+	if slices.Contains(ops, "untag") {
+		t.Fatalf("log ops = %v; a re-tag of the same value must not retract it", ops)
+	}
+}
+
+// TestTagTask_NeverReturnsAnEmptyTaskWithANilError refutes U122-F07, which
+// claimed the `if len(addTags) > 0` guard leaves TagTask a path to return
+// TaskResult{Task: tasks.Task{}} with a nil error. It cannot: scalarCollapse
+// keeps the LAST occurrence of every scalar target and passes every
+// non-scalar tag through, so a non-empty incoming list can never collapse to
+// an empty one, and TagTask rejects an all-empty call before it gets there.
+//
+// The guard is therefore unreachable rather than wrong, and what actually
+// holds the property up is scalarCollapse's survivor rule — so that is what
+// this pins. If a future collapse ever CAN empty a non-empty list, this goes
+// red and the guard becomes a real silent-success path.
+func TestTagTask_NeverReturnsAnEmptyTaskWithANilError(t *testing.T) {
+	schema := scalarSchema(t)
+	for _, incoming := range [][]string{
+		{"triage:type=bug"},
+		{"triage:type=bug", "triage:type=security"},
+		{"triage:type=bug", "triage:type=bug"},
+		{"urgent"},
+		{"urgent", "triage:type=bug", "triage:type=security"},
+	} {
+		toAdd, _ := scalarCollapse(schema, []string{"triage:type=old"}, incoming)
+		if len(toAdd) == 0 {
+			t.Fatalf("scalarCollapse(%v) returned an empty add list; TagTask's len(addTags) > 0 guard would then report success with an empty task", incoming)
+		}
+	}
+
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
+	add, err := AddTaskWithTags(tc, "triage this", "", "", []string{"triage:type=bug"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	got, err := TagTask(tc, add.Task.HarpID, []string{"triage:type=security"}, nil)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if got.Task.HarpID == "" {
+		t.Fatalf("TagTask returned an empty task with a nil error: %+v", got)
+	}
+	if !slices.Contains(got.Task.Tags, "triage:type=security") {
+		t.Fatalf("Tags = %v, want the collapsed-to value", got.Task.Tags)
+	}
+}
+
+// writeHostileMarker plants an in-tree project marker whose value
+// projectid.ValidateProjectID rejects — the case ReadMarker exists to catch,
+// since the marker travels with the working tree and can be committed by a
+// third party.
+func writeHostileMarker(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".ctxloom", "project-id"), []byte("../../etc/passwd\n"), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+}
+
+// TestResolveProjectIdentity_NamesTheStageThatFailed pins U122-F09: this
+// function returned both of its failure modes bare, so its callers
+// (internal/cli/run.go's pre-launch export and coord_host.go's state-dir key)
+// could not tell "the project registry would not open" from "this tree's
+// identity could not be resolved" — two different operator actions. Every
+// other resolver in this file already wraps; this one now does too.
+func TestResolveProjectIdentity_NamesTheStageThatFailed(t *testing.T) {
+	taskstest.Isolate(t)
+	proj := t.TempDir()
+	writeHostileMarker(t, proj)
+
+	_, _, err := ResolveProjectIdentity(proj)
+	if err == nil {
+		t.Fatal("a marker that fails validation must not resolve")
+	}
+	if !strings.Contains(err.Error(), "resolve project id") {
+		t.Fatalf("error %q does not name the stage that failed", err.Error())
+	}
+	if !strings.Contains(err.Error(), "invalid project marker") {
+		t.Fatalf("error %q lost the underlying cause", err.Error())
+	}
+}
+
+// TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead pins U122-F03. The
+// pin-vs-cwd mismatch check reads the working directory's own marker with
+// `cwdID, _ := projectid.ReadMarker(...)`, discarding the error from the one
+// function written specifically to REJECT a hostile marker. A rejected marker
+// then looks exactly like no marker at all: the check silently falls through
+// to the registry and, when that has nothing either, says nothing — so a
+// tree carrying a marker crafted to escape the tasks directory produces the
+// same silence as a perfectly ordinary tree.
+func TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead(t *testing.T) {
+	taskstest.Isolate(t)
+	work := t.TempDir()
+	writeHostileMarker(t, work)
+	tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
+
+	got, err := AddTask(tc, "a task", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !strings.Contains(got.Warning, "marker") {
+		t.Fatalf("warning = %q; a marker ReadMarker refused must be reported, not silently treated as absent", got.Warning)
+	}
+	if got.ProjectID != "pinned-project" {
+		t.Fatalf("project = %q; the pin must still win — this is a diagnostic, not a refusal", got.ProjectID)
+	}
+}
+
+// writeRegistry plants a raw project-registry file, so a test can express
+// registry states the API would refuse to create — the registry is a
+// user-editable YAML file, so these states are reachable in the field.
+func writeRegistry(t *testing.T, body string) {
+	t.Helper()
+	path, err := paths.ProjectRegistryPath()
+	if err != nil {
+		t.Fatalf("registry path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+}
+
+// TestMissingLogSiblingNote_SaysWhenItCouldNotLook pins U122-F06: the note
+// swallowed a registry read failure and an unusable sibling id into the same
+// empty string it returns for "nothing to report". The whole purpose of this
+// note is to stop a project's real backlog hiding behind an honest-looking
+// "(no tasks)", so answering "nothing hidden" when it never managed to look
+// is the one answer it must not give.
+func TestMissingLogSiblingNote_SaysWhenItCouldNotLook(t *testing.T) {
+	t.Run("registry unreadable", func(t *testing.T) {
+		taskstest.Isolate(t)
+		work := t.TempDir()
+		writeRegistry(t, "projects: [this is not a registry\n")
+		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
+
+		got, err := ListTasks(tc, nil, "", false, false, 0)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if !strings.Contains(got.Warning, "could not") {
+			t.Fatalf("warning = %q; an unreadable registry must not read as 'nothing to report'", got.Warning)
+		}
+	})
+
+	t.Run("sibling id unusable", func(t *testing.T) {
+		taskstest.Isolate(t)
+		work := t.TempDir()
+		writeRegistry(t, "projects:\n  - project_id: \"../escape\"\n    path: "+work+"\n")
+		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
+
+		got, err := ListTasks(tc, nil, "", false, false, 0)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if !strings.Contains(got.Warning, "../escape") {
+			t.Fatalf("warning = %q; a registry entry whose id has no usable log path must be named", got.Warning)
+		}
+	})
+}

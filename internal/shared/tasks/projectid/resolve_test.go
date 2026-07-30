@@ -29,6 +29,17 @@ func mustResolve(t *testing.T, m *Manager, dir string) Resolution {
 	return res
 }
 
+// markerPathOf is the in-tree marker path for dir, failing the test if dir is
+// one ProjectMarkerPath refuses (an empty one).
+func markerPathOf(t *testing.T, dir string) string {
+	t.Helper()
+	p, err := paths.ProjectMarkerPath(dir)
+	if err != nil {
+		t.Fatalf("marker path for %q: %v", dir, err)
+	}
+	return p
+}
+
 func markerOf(t *testing.T, dir string) string {
 	t.Helper()
 	got, err := ReadMarker(dir)
@@ -190,7 +201,7 @@ func TestResolveForkedInconclusive(t *testing.T) {
 	if _, err := m.Adopt(ghost, oldDir); err != nil {
 		t.Fatalf("adopt: %v", err)
 	}
-	if err := os.MkdirAll(paths.ProjectMarkerPath(oldDir), 0o755); err != nil {
+	if err := os.MkdirAll(markerPathOf(t, oldDir), 0o755); err != nil {
 		t.Fatalf("mk marker dir: %v", err)
 	}
 
@@ -233,7 +244,7 @@ func TestResolveOriginalSurvivesCleanedMarkerWhenCopyResolvesFirst(t *testing.T)
 	}
 	// `git clean -xdf` inside the ORIGINAL: removes only its own marker.
 	// oldDir itself is untouched -- still the same live, registered tree.
-	if err := os.Remove(paths.ProjectMarkerPath(oldDir)); err != nil {
+	if err := os.Remove(markerPathOf(t, oldDir)); err != nil {
 		t.Fatalf("simulate git clean removing the marker: %v", err)
 	}
 
@@ -288,7 +299,7 @@ func TestResolveRejectsCraftedMarker(t *testing.T) {
 
 	// Write the marker file directly — an attacker doesn't go through
 	// WriteMarker — with a path-traversal payload.
-	markerPath := paths.ProjectMarkerPath(dir)
+	markerPath := markerPathOf(t, dir)
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

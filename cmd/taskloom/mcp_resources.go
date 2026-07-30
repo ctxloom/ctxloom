@@ -119,7 +119,10 @@ func buildTagSchemaDoc(schema *tagschema.Schema) (*tagSchemaDoc, error) {
 		get(target).Scalar = schema.IsScalar(target)
 	}
 	for _, target := range schema.Targets(tagschema.EnumFacet) {
-		enum, _ := schema.Enum(target)
+		enum, _, err := schema.Enum(target)
+		if err != nil {
+			return nil, fmt.Errorf("tag-schema resource: %w", err)
+		}
 		get(target).Enum = enum
 	}
 	for _, target := range schema.Targets(tagschema.RangeFacet) {

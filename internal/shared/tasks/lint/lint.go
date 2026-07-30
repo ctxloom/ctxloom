@@ -89,7 +89,10 @@ type Result struct {
 func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 	enums := make(map[string][]string)
 	for _, target := range schema.Targets(tagschema.EnumFacet) {
-		enum, _ := schema.Enum(target)
+		enum, _, err := schema.Enum(target)
+		if err != nil {
+			return Result{}, fmt.Errorf("lint: %w", err)
+		}
 		enums[target] = enum
 	}
 

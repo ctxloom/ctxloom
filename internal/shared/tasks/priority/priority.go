@@ -110,7 +110,20 @@ type Diagnostics struct {
 	// ScoredTasks against a large non-terminal population is the signature
 	// of a schema/data mismatch (formulas declared, but the tags they read
 	// are never actually applied to tasks).
+	//
+	// It is only ever meaningful against NonTerminalTasks: "3 scored" is a
+	// healthy ranking of 3 active tasks and a broken one of 300.
 	ScoredTasks int
+
+	// NonTerminalTasks is the size of the population ScoredTasks is drawn
+	// from — every task whose Status is neither Done nor Archived, i.e.
+	// exactly the set rank-normalization runs over. It is ScoredTasks's
+	// denominator: without it neither this package's own doc rule ("a low
+	// ScoredTasks against a large non-terminal population") nor the warning
+	// cmd/taskloom renders from it can be evaluated at all, and a caller
+	// cannot recompute it without re-implementing this package's terminal-
+	// status predicate.
+	NonTerminalTasks int
 }
 
 // Compute derives a Result for every task in all (any status). Raw scores
@@ -216,7 +229,11 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 		}
 	}
 
-	diag := Diagnostics{NoPriorityFn: priorityFn == nil, ScoredTasks: scoredTasks}
+	diag := Diagnostics{
+		NoPriorityFn:     priorityFn == nil,
+		ScoredTasks:      scoredTasks,
+		NonTerminalTasks: len(nonTerminal),
+	}
 	if len(nonTerminal) > 1 {
 		first := raw[nonTerminal[0]]
 		tied := true
@@ -442,6 +459,19 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 			continue
 		}
 		target := tagschema.Target(t)
+		if strings.Contains(target, "=") {
+			// The three key kinds below share ONE flat namespace, which is
+			// unambiguous only while a target cannot contain '='. tagma's
+			// quoting extension lets it (`ns:"impact=3"=7` has Key
+			// "impact=3"), and such a target's bare entry lands on exactly
+			// the slot `ns:impact=3` occupies as a composite presence key —
+			// so a formula's presence test would read that tag's arbitrary
+			// value instead of 1.0-or-absent. No placeholder can name such a
+			// target unambiguously anyway (any `{{a=b}}` reads as the
+			// composite form), so it contributes nothing rather than
+			// redefining a key that IS referenceable.
+			continue
+		}
 		out[target+"=*"] = 1.0
 		if t.Value == nil {
 			out[target] = 1.0
@@ -462,12 +492,12 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 	return out
 }
 
-// isTerminal reports whether status is one of the completed statuses
-// (Done/Archived) — the tasks package's own statusIsDone predicate isn't
-// exported, so this mirrors it against the two exported status constants
-// rather than importing an internal helper.
+// isTerminal reports whether status is one of the completed statuses. The
+// store owns that taxonomy (tasks.Statuses's Terminal flag is derived from
+// the same predicate), so this defers to it rather than re-deciding it:
+// a status added there is classified here without a second edit.
 func isTerminal(status string) bool {
-	return status == tasks.StatusDone || status == tasks.StatusArchived
+	return tasks.IsTerminalStatus(status)
 }
 
 // rankNormalize maps every id in population to a percentile-based [0,Max]

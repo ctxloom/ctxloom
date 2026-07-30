@@ -131,14 +131,18 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	// under SkipSetup (--print --output-format json --model). The prompt goes on
 	// stdin, exactly as L1 declares for claude oneshot. The report is written to
 	// a file in the mounted workspace so we read it back host-side.
-	prompt := "summarize the project rules"
-	cmd := exec.Command("docker", "run", "--rm", "-i",
-		"-v", workspace+":/work", "-w", "/work",
+	//
+	// Both the argv and the stdin channel come from container_argv_test.go,
+	// which asserts them against the live declaration in the DEFAULT gate — so
+	// a declaration that moves out from under this hand-written line fails
+	// there rather than passing here for the wrong reason.
+	args := append([]string{"run", "--rm", "-i",
+		"-v", workspace + ":/work", "-w", "/work",
 		"-e", "CTXLOOM_MOCK_REPORT_FILE=/work/report.json",
-		img, "/usr/local/bin/mockengine",
-		"--claude", "--print", "--output-format", "json", "--model", "mock-model",
-	)
-	cmd.Stdin = strings.NewReader(prompt)
+		img, "/usr/local/bin/mockengine", "--claude",
+	}, claudeContainerVendorArgv()...)
+	cmd := exec.Command("docker", args...)
+	cmd.Stdin = strings.NewReader(containerPrompt)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -309,13 +313,16 @@ func TestMockEngineContainer_CodexDiscoversDeliveredSurfaces(t *testing.T) {
 	// subcommand, then the sandbox tier, then the prompt as the TRAILING
 	// POSITIONAL (codex's PromptPositional delivery — NOT stdin). The report is
 	// written to a file in the mounted workspace so we read it back host-side.
-	prompt := "summarize the project rules"
-	cmd := exec.Command("docker", "run", "--rm",
-		"-v", workspace+":/work", "-w", "/work",
+	//
+	// The argv comes from container_argv_test.go, which asserts it — and the
+	// fact that the prompt is the TRAILING positional the mock will read —
+	// against the live declaration in the default gate.
+	args := append([]string{"run", "--rm",
+		"-v", workspace + ":/work", "-w", "/work",
 		"-e", "CTXLOOM_MOCK_REPORT_FILE=/work/report.json",
-		img, "/usr/local/bin/mockengine",
-		"--codex", "exec", "--sandbox", "read-only", prompt,
-	)
+		img, "/usr/local/bin/mockengine", "--codex",
+	}, codexContainerVendorArgv()...)
+	cmd := exec.Command("docker", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

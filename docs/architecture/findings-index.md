@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,156** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 73 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 74 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 124 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **770** |
+| `open` | no commit names this ID | **769** |
 
-**Totals: 2268 findings across 162 units — 1,156 resolved, 770 still open, 342 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,156 resolved, 769 still open, 343 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 374 | 442 | 40 | 52 | 91 |
+| MED | 999 | 374 | 441 | 41 | 52 | 91 |
 | LOW | 871 | 432 | 302 | 23 | 64 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1684,7 +1684,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U103-F09 | open | `clidiag.go:56,108,125,140` | COUPLING | Every warning entry point takes `prog` as its first positional parameter, yet the value is a per-binary constant: **327 of 351 call sites pass the literal `"ctxloom"`**. This is connascence of mean... | U103.md |
 | U104-F02 | **PARTIAL** `4c58940a` | `cliemit.go:46` | ERRHANDLING | `Resolve` swallows the one error that distinguishes "user asked for text" from "this command has no `--format` flag", and both become `FormatText`. | U104.md |
 | U104-F03 | **RESOLVED** `c1fbb79a` | `internal/cli/format_coverage_test.go:204-207` | CORRECTNESS | The project's own coverage registry misattributes three unwired commands as *fixture* gaps, which permanently hides them from the "not wired to emit()" follow-up list the file's own header promises. | U104.md |
-| U104-F04 | open | `cliemit.go:25` (absence) vs `internal/cli/root.go:187` | COHESION | The package calls itself "the cross-binary `--format` output filter" but implements only the success half; the error half exists in exactly one binary and is not in this package. | U104.md |
+| U104-F04 | **PARTIAL** `738f2cd6` | `cliemit.go:25` (absence) vs `internal/cli/root.go:187` | COHESION | The package calls itself "the cross-binary `--format` output filter" but implements only the success half; the error half exists in exactly one binary and is not in this package. | U104.md |
 | U104-F05 | open | `cliemit.go:25` signature` | DUPLICATE | `Emit(cmd, data, text)` cannot express "the payload itself depends on the format/flags", so every such call site bypasses it and hand-rolls the format branch — six times so far, each re-implementin... | U104.md |
 | U104-F06 | **REFUTED** `bbe45def` | `cliemit.go:30-33` → `pkg/clifmt/text.go:42-46` | SILENTNOOP | `Emit` with a nil text closure over an **empty scalar slice** writes zero bytes and returns nil, while the same value under `--format json` writes `[]` — so "nothing to show" is indistinguishable f... | U104.md |
 | U104-F07 | **PARTIAL** `b29ab035` | `internal/cli/format.go:11-31` and `cmd/harp/root.go:108-116` | DUPLICATE | Four format vocabularies now coexist for one user-facing flag, and one of them is a third independent `resolveFormat` implementation with different empty-value semantics. | U104.md |

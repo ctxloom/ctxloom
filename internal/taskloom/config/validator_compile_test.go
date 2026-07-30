@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // TestNewValidator_EmbeddedSchemaAlwaysCompiles pins the property that makes
@@ -33,4 +34,23 @@ func TestNewValidator_EmbeddedSchemaAlwaysCompiles(t *testing.T) {
 	// The compile really can fail — the assertion above is not vacuous.
 	_, err = schema.NewValidatorFromSchema([]byte(`{"type":`))
 	assert.Error(t, err, "a malformed schema document must be a compile error, not a nil-error nil validator")
+}
+
+// TestLoad_ValidationFailureReturnsZeroConfig pins that Load never hands back
+// a config it just refused.
+//
+// Every other error return in Load yields Config{}; the validation-failure
+// path was the one that returned the decoded value alongside the error. A
+// caller that mishandles the error then holds a config whose contents the
+// schema rejected — the "homing" case is the sharp one, since the value that
+// failed the enum is the value that selects which task store gets written.
+// One error contract, uniformly: on error there is no config.
+func TestLoad_ValidationFailureReturnsZeroConfig(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+	writeConfig(t, project, "homing: sometimes\n")
+
+	cfg, err := Load(project, nil)
+	require.Error(t, err)
+	assert.Equal(t, Config{}, cfg,
+		"a rejected config must not escape alongside its rejection")
 }

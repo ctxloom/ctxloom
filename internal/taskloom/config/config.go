@@ -337,7 +337,11 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 		return Config{}, fmt.Errorf("taskloom: load config schema: %w", verr)
 	}
 	if err := v.ValidateBytes(data); err != nil {
-		return cfg, fmt.Errorf("taskloom: config error: %w", err)
+		// Config{}, not cfg: on error this function yields no config at all,
+		// the same as every other error return above. Handing back the value
+		// the schema just rejected invites a caller that mishandles the error
+		// to act on content that failed validation.
+		return Config{}, fmt.Errorf("taskloom: config error: %w", err)
 	}
 	return cfg, nil
 }

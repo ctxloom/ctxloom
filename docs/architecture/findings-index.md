@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,208** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,209** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 96 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **666** |
+| `open` | no commit names this ID | **665** |
 
-**Totals: 2268 findings across 162 units — 1,208 resolved, 666 still open, 394 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,209 resolved, 665 still open, 394 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 3 | 11 | 6 | 4 |
 | MED | 999 | 408 | 375 | 54 | 67 | 95 |
-| LOW | 871 | 444 | 275 | 28 | 73 | 51 |
+| LOW | 871 | 445 | 274 | 28 | 73 | 51 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2702,7 +2702,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U128-F11 | open | `evidence.go:91-94` | CORRECTNESS | `FollowupBatch` carries no `RepoState` and no `OtherTasks`, so round 2 sees *less* global evidence than round 1 — the escalation round loses exactly the existence evidence `RepoState` exists to sup... | U128.md |
 | U128-F12 | open | `query.go:137-139` | ERRHANDLING | `SanitizeQueries` drops every invalid query silently — the caller cannot distinguish "the model asked for nothing" from "the model asked for four things and all four were rejected", and the two mea... | U128.md |
 | U130-F05 | **RESOLVED** `659eab02` | **`internal/memory/compactor.go:1127-1129`** | TRIVIAL | `estimateTokens` is a pure one-line pass-through to `tokens.Estimate`, adding nothing — a third name for the same operation, alongside the F02 alias. | U130.md |
-| U131-F07 | open | **`upgrade.go:103-113`** | CORRECTNESS | `Version` collapses "key absent" and "key present but unparseable" into the same `0`, so `version: banana` silently re-runs every migration from generation 0 over a document that is probably corrupt. | U131.md |
+| U131-F07 | **RESOLVED** `339754cb` | **`upgrade.go:103-113`** | CORRECTNESS | `Version` collapses "key absent" and "key present but unparseable" into the same `0`, so `version: banana` silently re-runs every migration from generation 0 over a document that is probably corrupt. | U131.md |
 | U131-F08 | **RESOLVED** `2291df39` | **`upgrade.go:41`, `upgrade.go:46-53`** | NOPAY | `Pipeline.Name` and `Pipeline.Apply` exist solely so pipelines can nest, and **nothing in production nests a pipeline**. Both are test-only. | U131.md |
 | U131-F09 | open | **`upgrade.go:100-168`** | COHESION | Two responsibilities in one package: the upgrade protocol (`Upgrader`/`Pipeline`/`Pending`) and a general `yaml.Node` DOM helper library (`MapValue`/`MapSet`/`MapDelete`/`EnsureMap`/`ScalarNode`). ... | U131.md |
 | U133-F06 | open | **`mcp.go:45-48,56`** | CORRECTNESS | The doc comment promises "dest is independent of src", but `AutoRegisterCtxloom` is copied as a shared `*bool` | U133.md |

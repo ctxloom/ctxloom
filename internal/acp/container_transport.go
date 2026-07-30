@@ -103,7 +103,7 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("acp: reach-back for %q: %w", engine, err)
 	}
-	// The chat's own model/session env (spawnEnv's overlay, already curated —
+	// The chat's own model/session env (envOverlay's product, already curated —
 	// never the full host os.Environ(): the container gets a fresh, minimal
 	// env by design, unlike spawnHostTransport's os.Environ() passthrough).
 	for k, v := range env {

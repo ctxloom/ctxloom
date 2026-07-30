@@ -155,7 +155,7 @@ type ACP struct {
 	// "" = host, agent.RuntimeContainer = container), stashed by chatArgv as a
 	// deliberate side effect (see its doc) so spawnTransport can route to
 	// containerTransport WITHOUT session.go's Chat needing to change: Chat calls
-	// `open(ctx, b.chatArgv(req), b.spawnEnv(req), req.WorkDir)`, and Go evaluates
+	// `open(ctx, b.chatArgv(req), b.envOverlay(req), req.WorkDir)`, and Go evaluates
 	// every argument (chatArgv included) before invoking `open` — which is already
 	// a bound method value over this same *ACP, so the mutation is visible by the
 	// time `open`'s body (spawnTransport) actually runs. One *ACP instance ever
@@ -333,7 +333,7 @@ func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 	// ISO1 side channel: this is the one point in session.go's Chat where the
 	// full ChatRequest reaches code this package owns before the transport is
 	// chosen (session.go itself calls `open(ctx, b.chatArgv(req),
-	// b.spawnEnv(req), req.WorkDir)`, evaluating chatArgv's argument BEFORE
+	// b.envOverlay(req), req.WorkDir)`, evaluating chatArgv's argument BEFORE
 	// `open` runs) — see runtimeAxis's doc on why stashing it here, rather
 	// than threading a new parameter through session.go, is deliberate and
 	// safe.

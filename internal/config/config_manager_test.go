@@ -360,3 +360,49 @@ func TestSnapshot_CannotBeReplacedWholesale(t *testing.T) {
 	assert.Equal(t, "a", a.GetDefaultAgent())
 	assert.Equal(t, "b", b.GetDefaultAgent(), "loading b must never have overwritten a's contents")
 }
+
+// TestNoArgManager_TargetsTheAmbientProject pins the property a no-argument
+// Manager carries: it writes to the config.yaml the no-arg Load() resolves to
+// — the ambient project discovered by walking up from cwd — not to some
+// process-wide default path. This is the whole behaviour a caller that names
+// no explicit target relies on.
+func TestNoArgManager_TargetsTheAmbientProject(t *testing.T) {
+	appDir := managerTestDir(t)
+	t.Chdir(filepath.Dir(appDir))
+	Invalidate()
+
+	require.NoError(t, NewManager().Update(func(d *Draft) error {
+		d.DefaultAgent = "ambient"
+		return nil
+	}))
+
+	data, err := os.ReadFile(paths.ConfigPath(appDir))
+	require.NoError(t, err, "a no-arg Manager must have written the ambient project's own config.yaml")
+	assert.Contains(t, string(data), "ambient")
+}
+
+// TestManagerConstructors_Parity is the pre-collapse parity gate across BOTH
+// no-argument Manager constructors: DefaultManager() and NewManager() must be
+// indistinguishable in the target they resolve and the bytes they persist.
+func TestManagerConstructors_Parity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mk   func() *Manager
+	}{
+		{"DefaultManager", func() *Manager { return DefaultManager() }},
+		{"NewManagerNoOpts", func() *Manager { return NewManager() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			appDir := managerTestDir(t)
+			t.Chdir(filepath.Dir(appDir))
+			Invalidate()
+			require.NoError(t, tc.mk().Update(func(d *Draft) error {
+				d.DefaultAgent = "parity"
+				return nil
+			}))
+			data, err := os.ReadFile(paths.ConfigPath(appDir))
+			require.NoError(t, err)
+			assert.Contains(t, string(data), "parity")
+		})
+	}
+}

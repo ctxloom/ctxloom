@@ -832,7 +832,13 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 	// doc); memo is shared across the whole call and keyed by the exact
 	// name string each recursive call receives, matching visited's own
 	// keying so the two stay consistent.
-	return l.resolveProfileRecursive(name, visited, 0, make(map[string]*ResolvedProfile))
+	// The caller's spelling is canonicalized exactly as every recursive step
+	// canonicalizes a parent, so the top frame shares one identity with the
+	// frames below it: visited and memo are keyed the same way at every depth.
+	// Keying the top frame by the raw spelling made an alias-spelled entry a
+	// SECOND identity for a profile the recursion already knew by its canonical
+	// key, so reaching it again re-Loaded and re-resolved it.
+	return l.resolveProfileRecursive(l.canonicalProfileName(name), visited, 0, make(map[string]*ResolvedProfile))
 }
 
 func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int, memo map[string]*ResolvedProfile) (*ResolvedProfile, error) {

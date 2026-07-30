@@ -58,7 +58,7 @@ func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(signing.KindFragments, countersignRefFor(ref)))
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(countersignRefFor(ref)))
 
 	rows, err := listItemRows(cfg, ItemTypeFragment)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 	seedLocalCommand(t, cfg, "demo", "review", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(signing.KindSkills, countersignRefFor(ref)))
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(countersignRefFor(ref)))
 
 	rows, err := listItemRows(cfg, ItemTypeCommand)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestStampMCPTrust_RejectedServerJSON(t *testing.T) {
 	// The rejection is recorded content-only (ref omitted, spec §5.3); the
 	// content-reject still catches the identical executable surface by bytes,
 	// regardless of which ref/name it is later exposed under.
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.KindMCP, signing.FormRaw, mcpPayload))
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.AttestExecMCP, mcpPayload))
 
 	rows := []mcpListRow{{Name: srv.Name, Command: srv.Command, Args: srv.Args, Backend: srv.Backend}}
 	stampMCPTrust(cfg, []operations.MCPServerEntry{srv}, rows)

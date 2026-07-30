@@ -4,11 +4,12 @@
 //
 // This package deliberately knows nothing about trust.Ref, bundle kinds, or
 // the review decision function — it operates purely in terms of the
-// signing package's closed vocabulary (signing.ItemKind, signing.Form,
+// signing package's closed vocabulary (signing.AttestationForm,
 // signing.CountersignHeader) so it has no dependency on package operations
 // or package trust. The operations-level ReviewRecords adapter (which DOES
-// know about trust.Ref, the two physical stores' union, and cross-store
-// rejection precedence) is built on top of this package.
+// know about trust.Ref, derives the attestation form from the item's kind, and
+// composes the two physical stores' union and cross-store rejection
+// precedence) is built on top of this package.
 //
 // A Store here is ONE physical store — either the user-global store
 // (~/.ctxloom/approvals) or the project/committable store (.ctxloom/approvals,
@@ -152,6 +153,11 @@ func (s *Store) Readable() error {
 // already has in hand (never from a filename it read off disk), so an
 // attacker renaming a file gains nothing — the candidate must still verify
 // (spec §9.3, implementer trap #2).
+//
+// The tuple it is unique per is (assertion, ref, attestation form, bytes): the
+// item's ROLE is inside the framed preimage as part of the form, so a fragment
+// and an MCP server with byte-identical payloads land on DIFFERENT filenames
+// and neither one's record can be found by the other's query.
 func indexHash(header signing.CountersignHeader, payload []byte) string {
 	sum := sha256.Sum256(signing.CountersignPayload(header, payload))
 	return hex.EncodeToString(sum[:])
@@ -194,13 +200,19 @@ func pinsBytes(header signing.CountersignHeader, payload []byte) error {
 	if header.Assertion != signing.AssertionApprove || len(payload) > 0 {
 		return nil
 	}
-	return fmt.Errorf("countersign approve %s %s: refusing to record an empty payload — an approval that pinned nothing can never be honoured", header.Kind, header.Ref)
+	return fmt.Errorf("countersign approve %s %s: refusing to record an empty payload — an approval that pinned nothing can never be honoured", header.Form, header.Ref)
 }
 
 // write signs header+payload with signer under namespace and persists the
 // resulting armored signature under this store's directory.
 func (s *Store) write(header signing.CountersignHeader, payload []byte, signer ssh.Signer, namespace string) error {
 	if err := s.configured(); err != nil {
+		return err
+	}
+	// Fail LOUD on a header outside the closed vocabulary: a record signed
+	// under a form no query can reconstruct is unreachable forever, so it
+	// would tell the user "approved" and leave the item pending.
+	if err := header.Validate(); err != nil {
 		return err
 	}
 	if err := pinsBytes(header, payload); err != nil {
@@ -222,8 +234,8 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 // ref, in this form".
 //
 // An EMPTY payload is refused — see pinsBytes.
-func (s *Store) WriteApprove(kind signing.ItemKind, ref string, form signing.Form, payload []byte, signer ssh.Signer) error {
-	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Kind: kind, Ref: ref, Form: form}
+func (s *Store) WriteApprove(ref string, form signing.AttestationForm, payload []byte, signer ssh.Signer) error {
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
 	return s.write(h, payload, signer, signing.NamespaceApprove)
 }
 
@@ -231,17 +243,26 @@ func (s *Store) WriteApprove(kind signing.ItemKind, ref string, form signing.For
 // (spec §5.3) — these bytes, wherever they appear, in this form, are refused.
 // Callers emit one of these per form the item currently has (raw and
 // distilled), mirroring the deleted denylist's two-hash rejection.
-func (s *Store) WriteContentReject(kind signing.ItemKind, form signing.Form, payload []byte, signer ssh.Signer) error {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: "", Form: form}
+func (s *Store) WriteContentReject(form signing.AttestationForm, payload []byte, signer ssh.Signer) error {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
 	return s.write(h, payload, signer, signing.NamespaceReject)
 }
 
 // WriteRefReject signs and stores the STICKY ref-level block (spec §5.3):
 // form is always FormNone and the payload is always empty — this blocks the
 // ref regardless of what its content becomes.
-func (s *Store) WriteRefReject(kind signing.ItemKind, ref string, signer ssh.Signer) error {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: ref, Form: signing.FormNone}
+func (s *Store) WriteRefReject(ref string, signer ssh.Signer) error {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
 	return s.write(h, nil, signer, signing.NamespaceReject)
+}
+
+// headerInvalid reports a header the closed vocabulary rejects, on the READ
+// paths, where the answer must be "nothing recorded" rather than an error: a
+// lookup is not a place to fail loud, and every read here feeds a decision
+// whose default is to withhold. The WRITE paths call Validate directly instead,
+// because there the same fault must be reported, not absorbed.
+func (s *Store) headerInvalid(header signing.CountersignHeader) bool {
+	return header.Validate() != nil
 }
 
 // candidates returns the armored signature blobs found under header+payload's
@@ -253,6 +274,11 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 	if s.configured() != nil {
 		// Not "no candidates here" but "there is no here" — globbing an
 		// unconfigured store would glob the working directory.
+		return nil
+	}
+	// Fail CLOSED on a header outside the closed vocabulary: an unrecognized
+	// form must find nothing, never be framed and matched on its bytes alone.
+	if s.headerInvalid(header) {
 		return nil
 	}
 	pattern := filepath.Join(s.dir, indexHash(header, payload)+".*.sig")
@@ -299,22 +325,22 @@ func (s *Store) verified(header signing.CountersignHeader, payload []byte, root 
 }
 
 // VerifiedApprove is the verified convenience wrapper for an approve query.
-func (s *Store) VerifiedApprove(kind signing.ItemKind, ref string, form signing.Form, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
-	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Kind: kind, Ref: ref, Form: form}
+func (s *Store) VerifiedApprove(ref string, form signing.AttestationForm, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
 	return s.verified(h, payload, root, now)
 }
 
 // VerifiedContentReject is the verified convenience wrapper for a
 // content-reject query (ref omitted, matching WriteContentReject).
-func (s *Store) VerifiedContentReject(kind signing.ItemKind, form signing.Form, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: "", Form: form}
+func (s *Store) VerifiedContentReject(form signing.AttestationForm, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
 	return s.verified(h, payload, root, now)
 }
 
 // VerifiedRefReject is the verified convenience wrapper for a ref-reject
 // query (matching WriteRefReject: form none, payload empty).
-func (s *Store) VerifiedRefReject(kind signing.ItemKind, ref string, root signing.TrustRoot, now time.Time) (string, bool) {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: ref, Form: signing.FormNone}
+func (s *Store) VerifiedRefReject(ref string, root signing.TrustRoot, now time.Time) (string, bool) {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
 	return s.verified(h, nil, root, now)
 }
 
@@ -339,6 +365,10 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 	if err := s.configured(); err != nil {
 		return err
 	}
+	// See write: an unreachable marker is worse than a refused write.
+	if err := header.Validate(); err != nil {
+		return err
+	}
 	if err := pinsBytes(header, payload); err != nil {
 		return err
 	}
@@ -358,46 +388,49 @@ func (s *Store) hasUnsigned(header signing.CountersignHeader, payload []byte) bo
 		// directory, because a marker's mere existence IS the approval.
 		return false
 	}
+	if s.headerInvalid(header) {
+		return false
+	}
 	exists, err := afero.Exists(s.fs, filepath.Join(s.dir, unsignedFilename(header, payload)))
 	return err == nil && exists
 }
 
 // WriteUnsignedApprove records an unsigned approve marker (degraded path).
-func (s *Store) WriteUnsignedApprove(kind signing.ItemKind, ref string, form signing.Form, payload []byte) error {
-	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Kind: kind, Ref: ref, Form: form}
+func (s *Store) WriteUnsignedApprove(ref string, form signing.AttestationForm, payload []byte) error {
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
 	return s.writeUnsigned(h, payload)
 }
 
 // WriteUnsignedContentReject records an unsigned content-reject marker.
-func (s *Store) WriteUnsignedContentReject(kind signing.ItemKind, form signing.Form, payload []byte) error {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: "", Form: form}
+func (s *Store) WriteUnsignedContentReject(form signing.AttestationForm, payload []byte) error {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
 	return s.writeUnsigned(h, payload)
 }
 
 // WriteUnsignedRefReject records an unsigned ref-reject marker.
-func (s *Store) WriteUnsignedRefReject(kind signing.ItemKind, ref string) error {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: ref, Form: signing.FormNone}
+func (s *Store) WriteUnsignedRefReject(ref string) error {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
 	return s.writeUnsigned(h, nil)
 }
 
 // HasUnsignedApprove reports whether an unsigned approve marker exists for
 // exactly this (kind, ref, form, payload).
-func (s *Store) HasUnsignedApprove(kind signing.ItemKind, ref string, form signing.Form, payload []byte) bool {
-	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Kind: kind, Ref: ref, Form: form}
+func (s *Store) HasUnsignedApprove(ref string, form signing.AttestationForm, payload []byte) bool {
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
 	return s.hasUnsigned(h, payload)
 }
 
 // HasUnsignedContentReject reports whether an unsigned content-reject marker
 // exists for exactly this (kind, form, payload).
-func (s *Store) HasUnsignedContentReject(kind signing.ItemKind, form signing.Form, payload []byte) bool {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: "", Form: form}
+func (s *Store) HasUnsignedContentReject(form signing.AttestationForm, payload []byte) bool {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
 	return s.hasUnsigned(h, payload)
 }
 
 // HasUnsignedRefReject reports whether an unsigned ref-reject marker exists
 // for exactly this (kind, ref).
-func (s *Store) HasUnsignedRefReject(kind signing.ItemKind, ref string) bool {
-	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Kind: kind, Ref: ref, Form: signing.FormNone}
+func (s *Store) HasUnsignedRefReject(ref string) bool {
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
 	return s.hasUnsigned(h, nil)
 }
 
@@ -413,6 +446,13 @@ func (s *Store) HasUnsignedRefReject(kind signing.ItemKind, ref string) bool {
 // from scratch.
 
 // IndexEntry is one appended record in the sidecar index.
+//
+// Kind and Form are DISPLAY labels drawn from the item's live kind and its
+// LAYOUT form — deliberately not the attestation vocabulary the preimage binds.
+// The index has to outlive contract bumps: it is the only thing that can tell a
+// human "you approved something here once" after their records stopped
+// verifying, so keying it on the preimage vocabulary would make every
+// superseded approval read as a first-time item instead of an update.
 type IndexEntry struct {
 	Ref         string `yaml:"ref"`
 	Kind        string `yaml:"kind"`
@@ -500,16 +540,33 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 }
 
 // LatestApprove returns the most recently appended approve index entry for
-// (kind, ref, form), or (_, false, nil) if none exist. Display-only: a caller
+// (ref, layout form), or (_, false, nil) if none exist. Display-only: a caller
 // MUST still verify before treating anything about the result as an approval
 // — this only answers "was there ever a prior approval attempt here", to
 // decide whether to label a pending item UPDATE and to pick a diff base.
+//
+// The query is deliberately keyed on the LAYOUT form and NOT on the entry's kind
+// label, and both halves of that are load-bearing:
+//
+//   - the ref already embeds the item's kind directory, so (ref, layout) is
+//     exactly as precise as adding a kind term would be;
+//   - it is what lets a record written under a SUPERSEDED contract still be
+//     recognized. Those records name their kind in an older vocabulary and can
+//     never verify again, but "a human approved something here once" is still
+//     true and still worth showing. Matching on nothing that a bump changes is
+//     what makes a stale approval read as STALE (an update to re-review) rather
+//     than as ABSENT.
+//
+// Recognizing such a record is the ONLY thing done with it: it is reported, and
+// never re-keyed onto the current vocabulary — re-keying would guess at the role
+// a superseded record was approved in, which is precisely the confusion the
+// composite attestation form exists to make impossible.
 //
 // The error return is what stops an unreadable index from silently answering
 // "no prior approval": that answer relabels an UPDATE as NEW, which is
 // exactly how substituted bytes would slip past a reviewer looking for a
 // diff. Callers must not treat an error as "false".
-func (s *Store) LatestApprove(kind signing.ItemKind, ref string, form signing.Form) (IndexEntry, bool, error) {
+func (s *Store) LatestApprove(ref string, layout signing.Form) (IndexEntry, bool, error) {
 	entries, err := s.readIndex()
 	if err != nil {
 		return IndexEntry{}, false, err
@@ -517,8 +574,8 @@ func (s *Store) LatestApprove(kind signing.ItemKind, ref string, form signing.Fo
 	var latest IndexEntry
 	found := false
 	for _, e := range entries {
-		if e.Assertion != string(signing.AssertionApprove) || e.Kind != string(kind) ||
-			e.Ref != ref || e.Form != string(form) {
+		if e.Assertion != string(signing.AssertionApprove) ||
+			e.Ref != ref || e.Form != string(layout) {
 			continue
 		}
 		if !found || e.ReviewedAt > latest.ReviewedAt {

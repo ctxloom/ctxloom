@@ -23,8 +23,15 @@ import (
 //
 //   - ref     — the item's full ref, "<bundle>#<kind>/<name>"
 //   - payload — the EXACT bytes about to be exposed (pre-mustache)
-//   - form    — "raw" | "distilled"
+//   - form    — the LAYOUT form: "raw" | "distilled"
 //   - signer  — the bundle's VERIFIED publisher identity, or "" for unsigned
+//
+// form is the layout axis ONLY. A countersignature binds a COMPOSITE
+// attestation form that also names the item's role ("fragment/raw",
+// "exec/hook", …), and that value is derived below the gate from the ref's kind
+// — never passed in here. A gate call site therefore cannot name its own role,
+// which is what stops a text item's approval from ever satisfying an
+// executable's gate over identical bytes: the caller does not get a say.
 //
 // and reports whether the item may be exposed (true) or must be withheld
 // (false).

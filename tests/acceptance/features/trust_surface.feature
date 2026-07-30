@@ -134,6 +134,38 @@ Feature: The trust surface — what "review" actually controls
     Then the fragment is withheld entirely, in neither its raw nor its new distilled form
     And the fragment's review state is "pending"
 
+  # THE TEXT→EXEC ESCALATION. An approval attests bytes IN A ROLE, and the role
+  # is not recoverable from the bytes: a fragment's payload is its bare body,
+  # while an MCP server's is deterministic JSON, so a publisher can ship a
+  # FRAGMENT whose body IS the MCP server's executable preimage — byte equality,
+  # no collision search needed. The reviewer is shown that fragment as TEXT
+  # (fragments render as content; executables render as "what they run"), and if
+  # the two shared one approval key the executable would reach the assistant
+  # having NEVER been displayed as an executable, because the dangerous rendering
+  # is exactly the step skipped for an already-approved item. What the countersign
+  # payload binds is therefore a COMPOSITE form naming the role
+  # ("fragment/raw" vs "exec/mcp"), so the two can never share a key.
+  Scenario: Approving a text fragment never approves the executable whose bytes it copies
+    Given a bundle from an unsigned, never-reviewed publisher ships a fragment whose body is byte-identical to its MCP server's executable preimage
+    When Alice approves the fragment
+    And Alice starts a session
+    Then the copied preimage is present in her assistant's delivered surface as text
+    And the MCP server is absent from her assistant's delivered surface
+
+  # STALING. The composite form is a change to what gets signed, so it bumps the
+  # countersign contract and every approval recorded before it stops verifying.
+  # That is accepted and announced — but it must land as STALE, not ABSENT: an
+  # item whose earlier approval no longer covers it has to come back labelled an
+  # UPDATE, because "new" would tell the reviewer nobody ever looked at this,
+  # hiding that these bytes might be a substitution for something they approved.
+  Scenario: An approval recorded under a superseded contract reads as an update, not as a new item
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
+    When Alice approves the fragment
+    And her approval was recorded under a superseded countersign contract
+    And Alice starts a session
+    Then the fragment is absent from her assistant's delivered surface
+    And review lists the fragment as an update awaiting re-review, not as a new item
+
   # GAP E — the review STATE LABEL a human actually sees (`ctxloom review`,
   # `fragment list --format json`'s "state" field) is a SEPARATE claim from "the
   # payload is withheld", and nothing above checks it: EffectiveTrustResult.

@@ -15,19 +15,29 @@
 //  2. A COUNTERSIGNATURE (a human approval or rejection) covers the exposed
 //     ITEM bytes — the same bytes ComputeContentHash/EffectiveContentHash in
 //     package bundles already hash — wrapped in a small fixed-shape ASCII
-//     header that binds {contract, assertion, kind, ref, form, len}. See
+//     header that binds {contract, assertion, ref, form, len}. See
 //     spec §3.2, and CountersignPayload below.
 package signing
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
 )
 
 // CountersignContract is the fixed contract-version string that opens every
 // countersign payload. Bumping it invalidates every existing approval and
 // rejection — a deliberate, announced act (spec §12), never a silent drift.
-const CountersignContract = "ctxloom-countersign/1"
+//
+// /2 replaced the separate `kind:` and `form:` header lines with the single
+// composite AttestationForm: the role an approval attests is now carried by the
+// form value itself. Every /1 record therefore stops verifying and its item
+// returns to pending. Those records are still READ — the display index makes a
+// superseded approval surface as an UPDATE ("a human approved something here
+// once, and it no longer covers these bytes") rather than as a first-time item
+// (see countersign.Store.LatestApprove) — but they are never re-keyed onto the
+// new vocabulary: a stale record is reported, never honoured.
+const CountersignContract = "ctxloom-countersign/2"
 
 // ExecPreimageContract is the contract-version string carried as the FIRST
 // field of the canonical JSON preimage of an EXEC item — an MCP server or a
@@ -66,66 +76,143 @@ const (
 	AssertionReject Assertion = "reject"
 )
 
-// ItemKind identifies which bundle content collection an item was drawn
-// from. Matches the trust.ItemKind vocabulary; kept independent here so this
-// package does not need to import the trust/operations packages.
-type ItemKind string
-
-const (
-	KindFragments ItemKind = "fragments"
-	// KindSkills is a LEGACY stored value: it is the historical item-kind for
-	// what is now called a "command" (the skill->command rename, Part A of
-	// the skill/command split). It is baked into persisted countersignature
-	// payloads (see signingKindOf in internal/operations/countersign_records.go)
-	// and MUST NOT be renamed or reused for anything else — doing so would
-	// change the preimage bytes of every existing command approval/rejection
-	// and silently invalidate them. The TRUE Agent Skill kind is
-	// KindAgentSkills, below; it is a deliberately different string so the two
-	// can never collide.
-	KindSkills ItemKind = "skills"
-	KindMCP    ItemKind = "mcp"
-	KindHooks  ItemKind = "hooks"
-	// KindAgentSkills is the Agent Skills item-kind (Part B2 of the
-	// skill/command split): a true SKILL.md package (directory tree), never
-	// the legacy KindSkills value above. Fresh stored value, no prior
-	// signatures to protect.
-	KindAgentSkills ItemKind = "agentskills"
-)
-
-// Form identifies which materialization of an item's content the payload
-// bytes are. Mirrors bundles.ContentForm's string values (FormRaw =
-// "raw", FormDistilled = "distilled") plus two values bundles.ContentForm
-// has no use for: FormExec (mcp/hooks — items with exactly one form, whose
-// preimage is a canonical JSON encoding, not raw/distilled text) and
-// FormNone (the ref-reject payload, which binds no content form at all).
+// Form is the LAYOUT form: which materialization of an item's content a byte
+// sequence is, in the terms the FILE LAYOUT uses. Mirrors bundles.ContentForm's
+// string values (FormRaw = "raw", FormDistilled = "distilled") plus FormNone,
+// the absent form (a ref-reject binds no content at all).
+//
+// It is deliberately NOT what a countersignature binds. A layout form names a
+// materialization and nothing else — the same "raw" describes a fragment's
+// authored text and an MCP server's canonical JSON — so it cannot discriminate
+// ROLE, and a preimage keyed on it would let byte-identical items of different
+// kinds share one approval. AttestationForm carries the role; the two axes are
+// separate types precisely so neither can stand in for the other. The layout
+// axis is the one that reaches filenames (the suffix is ".distilled.md", which
+// could never carry "fragment/distilled").
+//
+// Items with exactly one materialization (mcp, hook, skill) carry the BASE
+// layout form, FormRaw: their single component has an unsuffixed filename.
 type Form string
 
 const (
 	FormRaw       Form = "raw"
 	FormDistilled Form = "distilled"
-	FormExec      Form = "exec"
 	FormNone      Form = ""
 )
+
+// AttestationForm is the ATTESTATION form: the closed composite vocabulary a
+// countersignature binds, naming both the item's ROLE and (for the two
+// distillable kinds) which materialization was reviewed.
+//
+// It is composite because an approval attests bytes IN A ROLE, and role is not
+// recoverable from the bytes. Fragment and command payloads are bare content
+// bytes with no tag or length prefix, and exec/skill payloads are deterministic
+// JSON with every field always emitted — so a bundle can ship a FRAGMENT whose
+// body is literally an MCP server's preimage JSON alongside the matching MCP
+// server, by byte EQUALITY rather than by any collision search. With role
+// folded into the signed form value, the reviewer's approval of that fragment
+// keys as "fragment/raw" and can never satisfy the MCP server's "exec/mcp" gate
+// — which matters because the dangerous rendering (an executable shown as "what
+// it runs") is exactly the step skipped once an item is already approved.
+//
+// It is a CLOSED enum, not a free string, for two reasons. What VERIFIES must
+// not depend on which plugins are loaded: an open vocabulary would make the
+// preimage a function of the running binary's registry. And a closed set of
+// typed constants is unforgeable and attribute-eligible by construction rather
+// than by remembering to escape.
+//
+// Routing and rendering never read this value — they come from the surface-type
+// registry — so a new registry name with no attestation form is INERT: it can
+// be neither approved nor exposed through the gate, and extension therefore
+// adds no security surface.
+type AttestationForm string
+
+const (
+	AttestFragmentRaw       AttestationForm = "fragment/raw"
+	AttestFragmentDistilled AttestationForm = "fragment/distilled"
+	AttestCommandRaw        AttestationForm = "command/raw"
+	AttestCommandDistilled  AttestationForm = "command/distilled"
+	AttestExecMCP           AttestationForm = "exec/mcp"
+	AttestExecHook          AttestationForm = "exec/hook"
+	AttestSkill             AttestationForm = "skill"
+	// AttestNone is the absent attestation form: a ref-reject binds no
+	// content, so it binds no role either.
+	AttestNone AttestationForm = ""
+)
+
+// AttestationForms returns every content-bearing attestation form, in a fixed
+// order. AttestNone is excluded: it names the absence of a bound payload, not a
+// role anything can be approved in.
+//
+// This is the enumeration the exhaustiveness gate walks — a new value that is
+// added to the vocabulary but reachable from no (kind, layout) pair, or a pair
+// that maps to no value, fails that test rather than surfacing as a silent
+// pending item at runtime.
+func AttestationForms() []AttestationForm {
+	return []AttestationForm{
+		AttestFragmentRaw, AttestFragmentDistilled,
+		AttestCommandRaw, AttestCommandDistilled,
+		AttestExecMCP, AttestExecHook, AttestSkill,
+	}
+}
+
+// Valid reports whether f is a member of the closed vocabulary. The switch is
+// exhaustive over the constants above, which is what makes "closed enum" a
+// property of the code rather than a claim in a comment: a value that reaches
+// the framing without appearing here is refused (CountersignHeader.Validate).
+func (f AttestationForm) Valid() bool {
+	switch f {
+	case AttestFragmentRaw, AttestFragmentDistilled,
+		AttestCommandRaw, AttestCommandDistilled,
+		AttestExecMCP, AttestExecHook, AttestSkill, AttestNone:
+		return true
+	default:
+		return false
+	}
+}
 
 // CountersignHeader is the closed field set bound to a countersignature
 // (approve/reject) payload. Every field is drawn from a closed vocabulary
 // except Ref, which is a ctxloom item-ref string; that plus the `len` field
 // making the payload boundary unambiguous is what keeps this a fixed framing
 // rather than a canonicalization (spec §3.2).
+//
+// There is no Kind field. The role an approval attests lives in Form, whose
+// composite vocabulary carries it — one field, one closed vocabulary, and no
+// way to write a header whose kind and form disagree.
 type CountersignHeader struct {
 	Assertion Assertion
-	Kind      ItemKind
-	Ref       string // canonical item ref, or "" for a content-reject (§5.3)
-	Form      Form   // "" for a ref-reject, whose payload is also empty
+	Ref       string          // canonical item ref, or "" for a content-reject (§5.3)
+	Form      AttestationForm // AttestNone for a ref-reject, whose payload is also empty
+}
+
+// Validate refuses a header no honest caller can produce: an assertion or a
+// form outside its closed vocabulary. It is the enforcement point that makes
+// the vocabularies closed in practice — the store calls it before writing (fail
+// loud: a record signed under an unknown form could never be looked up again)
+// and before looking up candidates (fail closed: an unrecognized form finds
+// nothing rather than being framed and matched on its bytes alone).
+func (h CountersignHeader) Validate() error {
+	switch h.Assertion {
+	case AssertionApprove, AssertionReject:
+	default:
+		return fmt.Errorf("countersign header: assertion %q is not %q or %q", h.Assertion, AssertionApprove, AssertionReject)
+	}
+	if !h.Form.Valid() {
+		return fmt.Errorf("countersign header: attestation form %q is not in the closed vocabulary %v", h.Form, AttestationForms())
+	}
+	if h.Form == AttestNone && h.Ref == "" {
+		return fmt.Errorf("countersign header: a payload-free record must bind a ref (a header binding neither a ref nor a form asserts nothing)")
+	}
+	return nil
 }
 
 // CountersignPayload builds the exact byte sequence a countersignature signs:
 //
-//	"ctxloom-countersign/1\n"
+//	"ctxloom-countersign/2\n"
 //	"assertion: " <approve|reject> "\n"
-//	"kind: " <fragments|skills|mcp|hooks|agentskills> "\n"
 //	"ref: " <canonical item ref, or empty> "\n"
-//	"form: " <raw|distilled|exec, or empty> "\n"
+//	"form: " <an AttestationForm value, or empty> "\n"
 //	"len: " <decimal length of payloadBytes> "\n"
 //	"\n"
 //	<payloadBytes>
@@ -150,9 +237,6 @@ func CountersignPayload(h CountersignHeader, payloadBytes []byte) []byte {
 	buf.WriteString("assertion: ")
 	buf.WriteString(string(h.Assertion))
 	buf.WriteByte('\n')
-	buf.WriteString("kind: ")
-	buf.WriteString(string(h.Kind))
-	buf.WriteByte('\n')
 	buf.WriteString("ref: ")
 	buf.WriteString(h.Ref)
 	buf.WriteByte('\n')
@@ -172,10 +256,9 @@ func CountersignPayload(h CountersignHeader, payloadBytes []byte) []byte {
 // this ref in this form*. Moving an item to a new ref re-gates it to
 // pending; approving a fragment's raw form does not approve its distilled
 // form.
-func ApproveCountersignPayload(kind ItemKind, ref string, form Form, payloadBytes []byte) []byte {
+func ApproveCountersignPayload(ref string, form AttestationForm, payloadBytes []byte) []byte {
 	return CountersignPayload(CountersignHeader{
 		Assertion: AssertionApprove,
-		Kind:      kind,
 		Ref:       ref,
 		Form:      form,
 	}, payloadBytes)
@@ -189,25 +272,26 @@ func ApproveCountersignPayload(kind ItemKind, ref string, form Form, payloadByte
 // no ref parameter to pass by mistake here; that is implementer trap #1
 // (spec §14.1). Emit one of these per form the item currently has (raw and
 // distilled), mirroring today's two-hash SetBlacklist denylist.
-func ContentRejectCountersignPayload(kind ItemKind, form Form, payloadBytes []byte) []byte {
+func ContentRejectCountersignPayload(form AttestationForm, payloadBytes []byte) []byte {
 	return CountersignPayload(CountersignHeader{
 		Assertion: AssertionReject,
-		Kind:      kind,
 		Ref:       "",
 		Form:      form,
 	}, payloadBytes)
 }
 
 // RefRejectCountersignPayload builds the sticky ref-level block (spec §5.3,
-// "ref-reject"): form is always FormNone and the payload is always empty —
+// "ref-reject"): form is always AttestNone and the payload is always empty —
 // this blocks the ref regardless of what its content becomes. There are no
 // form/payload parameters here to pass by mistake, for the same reason
 // ContentRejectCountersignPayload has no ref parameter.
-func RefRejectCountersignPayload(kind ItemKind, ref string) []byte {
+//
+// A ref-reject needs no role either: the ref it blocks already embeds the kind
+// directory, so blocking "…#mcp/postgres" cannot spill onto a fragment.
+func RefRejectCountersignPayload(ref string) []byte {
 	return CountersignPayload(CountersignHeader{
 		Assertion: AssertionReject,
-		Kind:      kind,
 		Ref:       ref,
-		Form:      FormNone,
+		Form:      AttestNone,
 	}, nil)
 }

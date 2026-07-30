@@ -766,8 +766,9 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 // the expected manifest. Any mismatch — a missing file, an extra
 // unaccounted-for file, a content change, or a mode change — is a loud error:
 // a skill's signed manifest is meant to cover the WHOLE package (the same
-// "grant binds the whole package" precedent as the trust gate's FormExec
-// preimage), so a partial or tampered tree is never accepted silently.
+// "grant binds the whole package" precedent as the executable preimage a
+// countersignature over an "exec/mcp" or "exec/hook" item covers), so a partial
+// or tampered tree is never accepted silently.
 func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) error {
 	name := filepath.Base(filepath.Clean(dir))
 	actual, err := buildSkillManifest(fsys, dir, name, DefaultMaxSkillPackageBytes)

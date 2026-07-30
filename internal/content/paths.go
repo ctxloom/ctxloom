@@ -75,9 +75,13 @@ func stemOf(p string) string {
 	return lb
 }
 
-// formSuffixForms are the forms that appear as a filename suffix. FormRaw and
-// FormExec deliberately do NOT: they are base forms, carried by an unsuffixed
+// formSuffixForms are the forms that appear as a filename suffix. FormRaw
+// deliberately does NOT: it is the base form, carried by an unsuffixed
 // filename, so the common single-form item stays a single plainly-named file.
+//
+// This is the axis that reaches FILENAMES, which is why it is the plain
+// raw/distilled vocabulary and not the composite one a countersignature binds:
+// the suffix is ".distilled.md" and could never be ".fragment/distilled.md".
 var formSuffixForms = []signing.Form{signing.FormDistilled}
 
 // formOf reports which form a component belongs to, given the forms the item
@@ -87,8 +91,9 @@ var formSuffixForms = []signing.Form{signing.FormDistilled}
 // components by form with no per-kind branching: a component whose logical base
 // ends in ".<form>" belongs to that form, and an unsuffixed component belongs to
 // forms[0], the BASE form the type reported first. So fragments/solid.md is raw,
-// fragments/solid.distilled.md is distilled, mcp/postgres.yaml is exec — one
-// rule, and a newly registered kind gets it for free.
+// fragments/solid.distilled.md is distilled, and mcp/postgres.yaml — unsuffixed,
+// single-form — is raw too: one rule, and a newly registered kind gets it for
+// free.
 func formOf(p string, forms []signing.Form) signing.Form {
 	lb := logicalBase(p)
 	for _, f := range forms {

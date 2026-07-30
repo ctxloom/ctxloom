@@ -148,13 +148,13 @@ func TestSetBlacklist_ContentRejectWriteFailure_NotFalselyReported(t *testing.T)
 		"the distilled content-reject write failed and must NOT be reported as recorded — inverting the error check would report it anyway")
 
 	// Prove it from the store itself, not just the report.
-	_, rawOK := store.VerifiedContentReject(signingKindOf(trust.KindFragment), signing.FormRaw, []byte("raw body"), fx.root, time.Now())
+	_, rawOK := store.VerifiedContentReject(signing.AttestFragmentRaw, []byte("raw body"), fx.root, time.Now())
 	assert.True(t, rawOK, "the raw content-reject that succeeded must actually verify from the store")
-	_, distilledOK := store.VerifiedContentReject(signingKindOf(trust.KindFragment), signing.FormDistilled, []byte("distilled body"), fx.root, time.Now())
+	_, distilledOK := store.VerifiedContentReject(signing.AttestFragmentDistilled, []byte("distilled body"), fx.root, time.Now())
 	assert.False(t, distilledOK, "the distilled content-reject write failed and must not verify as recorded")
 
 	// The sticky ref-level block itself is unaffected by the later content
 	// write failure — it already landed on write #1.
-	_, refOK := store.VerifiedRefReject(signingKindOf(trust.KindFragment), countersignRef(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}), fx.root, time.Now())
+	_, refOK := store.VerifiedRefReject(countersignRef(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}), fx.root, time.Now())
 	assert.True(t, refOK, "the ref-level block succeeded on write #1 and must not be undone by a later, unrelated write failure")
 }

@@ -86,7 +86,7 @@ func (t widgetType) Forms(src content.Source) ([]signing.Form, error) {
 	if _, ok := widgetName(src); !ok {
 		return nil, fmt.Errorf("not a widget")
 	}
-	return []signing.Form{signing.FormExec}, nil
+	return []signing.Form{signing.FormRaw}, nil
 }
 
 func (t widgetType) RefFor(bundle string, src content.Source) (trust.Ref, error) {
@@ -196,7 +196,7 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormExec)
+	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -222,17 +222,17 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 
 	// Writing and signing work through the same interfaces.
 	newRef := trust.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "flange"}
-	if err := store.Put(ctx, newRef, signing.FormExec, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
+	if err := store.Put(ctx, newRef, signing.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	if err := store.PutSignature(ctx, newRef, signing.FormExec, content.Namespace(signing.NamespacePublish), []byte("sig")); err != nil {
+	if err := store.PutSignature(ctx, newRef, signing.FormRaw, content.Namespace(signing.NamespacePublish), []byte("sig")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	newItem, err := bundle.Item(ctx, newRef)
 	if err != nil {
 		t.Fatalf("Item(flange): %v", err)
 	}
-	newForm, err := newItem.Form(ctx, signing.FormExec)
+	newForm, err := newItem.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form(flange): %v", err)
 	}

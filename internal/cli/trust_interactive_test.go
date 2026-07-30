@@ -49,7 +49,7 @@ func TestApplyItemTrustChoice_Grant(t *testing.T) {
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(signing.KindFragments, countersignRefFor(ref), signing.FormRaw, []byte("trust-me body")),
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestFragmentRaw, []byte("trust-me body")),
 		"[t] must record an approval bound to the content bytes")
 }
 
@@ -69,9 +69,9 @@ func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(ref)),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
 		"[b] must record a ref-level rejected state")
-	assert.True(t, store.HasUnsignedContentReject(signing.KindFragments, signing.FormRaw, []byte("rm -rf danger")),
+	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")),
 		"[b] must record a content-reject over the item's bytes")
 }
 
@@ -90,9 +90,9 @@ func TestApplyItemTrustChoice_Skip(t *testing.T) {
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.False(t, store.HasUnsignedApprove(signing.KindFragments, countersignRefFor(ref), signing.FormRaw, []byte("look-but-do-not-touch")),
+	assert.False(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestFragmentRaw, []byte("look-but-do-not-touch")),
 		"skip must not record any review state")
-	assert.False(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(ref)))
+	assert.False(t, store.HasUnsignedRefReject(countersignRefFor(ref)))
 }
 
 // TestShowItem_NonInteractiveStdoutUnchanged proves the TR4 guarantee: in a

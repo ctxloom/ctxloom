@@ -10,7 +10,7 @@ import (
 
 func TestVerifyCountersignature_ApproveByTrustedKey(t *testing.T) {
 	signer, pub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionApprove, Kind: KindFragments, Ref: "acme/tooling#fragments/x", Form: FormRaw}
+	header := CountersignHeader{Assertion: AssertionApprove, Ref: "acme/tooling#fragments/x", Form: AttestFragmentRaw}
 	payload := []byte("the fragment body")
 
 	sig, err := Sign(CountersignPayload(header, payload), signer, NamespaceApprove)
@@ -29,7 +29,7 @@ func TestVerifyCountersignature_ApproveByTrustedKey(t *testing.T) {
 // does (spec §9.3, implementer trap #2).
 func TestVerifyCountersignature_CorruptedSignatureBodyIsNotVerified(t *testing.T) {
 	signer, pub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionApprove, Kind: KindFragments, Ref: "acme/tooling#fragments/x", Form: FormRaw}
+	header := CountersignHeader{Assertion: AssertionApprove, Ref: "acme/tooling#fragments/x", Form: AttestFragmentRaw}
 	payload := []byte("the fragment body")
 
 	sig, err := Sign(CountersignPayload(header, payload), signer, NamespaceApprove)
@@ -57,7 +57,7 @@ func TestVerifyCountersignature_CorruptedSignatureBodyIsNotVerified(t *testing.T
 func TestVerifyCountersignature_UntrustedKeyIsNotVerified(t *testing.T) {
 	signer, _ := newTestSigner(t)
 	_, otherPub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionApprove, Kind: KindFragments, Ref: "acme/tooling#fragments/x", Form: FormRaw}
+	header := CountersignHeader{Assertion: AssertionApprove, Ref: "acme/tooling#fragments/x", Form: AttestFragmentRaw}
 	payload := []byte("the fragment body")
 
 	sig, err := Sign(CountersignPayload(header, payload), signer, NamespaceApprove)
@@ -73,7 +73,7 @@ func TestVerifyCountersignature_UntrustedKeyIsNotVerified(t *testing.T) {
 
 func TestVerifyCountersignature_EditedBytesNoLongerVerify(t *testing.T) {
 	signer, pub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionApprove, Kind: KindFragments, Ref: "acme/tooling#fragments/x", Form: FormRaw}
+	header := CountersignHeader{Assertion: AssertionApprove, Ref: "acme/tooling#fragments/x", Form: AttestFragmentRaw}
 	payload := []byte("the original body")
 
 	sig, err := Sign(CountersignPayload(header, payload), signer, NamespaceApprove)
@@ -90,7 +90,7 @@ func TestVerifyCountersignature_EditedBytesNoLongerVerify(t *testing.T) {
 // the namespace lives inside the signed blob, matching the header's Assertion.
 func TestVerifyCountersignature_AssertionNamespaceMismatch(t *testing.T) {
 	signer, pub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionApprove, Kind: KindFragments, Ref: "acme/tooling#fragments/x", Form: FormRaw}
+	header := CountersignHeader{Assertion: AssertionApprove, Ref: "acme/tooling#fragments/x", Form: AttestFragmentRaw}
 	payload := []byte("body")
 
 	// Signed under the REJECT namespace (wrong one for this header's assertion).
@@ -105,7 +105,7 @@ func TestVerifyCountersignature_AssertionNamespaceMismatch(t *testing.T) {
 
 func TestVerifyCountersignature_EmptyOrNilInputs(t *testing.T) {
 	_, pub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionApprove, Kind: KindFragments, Ref: "x", Form: FormRaw}
+	header := CountersignHeader{Assertion: AssertionApprove, Ref: "x", Form: AttestFragmentRaw}
 	root := rootWith("ben@abbitt.me", pub, NamespaceApprove)
 
 	_, ok := VerifyCountersignature(header, []byte("body"), nil, root, time.Now())
@@ -120,7 +120,7 @@ func TestVerifyCountersignature_EmptyOrNilInputs(t *testing.T) {
 
 func TestVerifyCountersignature_RefRejectEmptyPayload(t *testing.T) {
 	signer, pub := newTestSigner(t)
-	header := CountersignHeader{Assertion: AssertionReject, Kind: KindFragments, Ref: "acme/tooling#fragments/x", Form: FormNone}
+	header := CountersignHeader{Assertion: AssertionReject, Ref: "acme/tooling#fragments/x", Form: AttestNone}
 
 	sig, err := Sign(CountersignPayload(header, nil), signer, NamespaceReject)
 	require.NoError(t, err)

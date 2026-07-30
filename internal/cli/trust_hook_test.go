@@ -56,7 +56,7 @@ func TestRunItemTrust_AcceptsHook(t *testing.T) {
 	assert.Contains(t, out.String(), "Approved hookb#hooks/pre_tool/0")
 
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0")), signing.FormRaw, hookPayload),
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(hookRefFor("hookb", "pre_tool/0")), signing.AttestExecHook, hookPayload),
 		"trust must record an approval for the hook's executable surface")
 }
 
@@ -78,9 +78,9 @@ func TestRunBlacklist_Hook(t *testing.T) {
 	assert.Contains(t, out.String(), "Rejected hookb#hooks/pre_tool/0")
 
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedRefReject(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),
 		"blacklist must record a ref-level rejected state for the hook")
-	assert.True(t, store.HasUnsignedContentReject(signing.KindHooks, signing.FormRaw, hookPayload),
+	assert.True(t, store.HasUnsignedContentReject(signing.AttestExecHook, hookPayload),
 		"blacklist must record a content-reject over the hook's executable surface")
 }
 
@@ -102,7 +102,7 @@ func TestApplyItemTrustChoice_HookGrant(t *testing.T) {
 	assert.Contains(t, out.String(), "Approved hookb#hooks/pre_tool/0")
 
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0")), signing.FormRaw, hookPayload),
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(hookRefFor("hookb", "pre_tool/0")), signing.AttestExecHook, hookPayload),
 		"[t] on a hook must record an approval")
 }
 
@@ -122,9 +122,9 @@ func TestApplyItemTrustChoice_HookBlacklist(t *testing.T) {
 	require.NoError(t, applyItemTrustChoice(c, cfg, "hookb#hooks/pre_tool/0", itemTrustBlacklist))
 
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedRefReject(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),
 		"[b] on a hook must record a ref-level rejected state")
-	assert.True(t, store.HasUnsignedContentReject(signing.KindHooks, signing.FormRaw, hookPayload),
+	assert.True(t, store.HasUnsignedContentReject(signing.AttestExecHook, hookPayload),
 		"[b] on a hook must record a content-reject over its executable surface")
 }
 

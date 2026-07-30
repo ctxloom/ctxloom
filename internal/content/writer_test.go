@@ -210,7 +210,7 @@ func TestWriter_DeleteDoesNotRemoveSignatures(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
-	if err := store.PutSignature(ctx, ref, signing.FormExec, Namespace(signing.NamespaceReject), []byte("rejection")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespaceReject), []byte("rejection")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	before, err := afero.ReadDir(store.fsys, fixtureRoot+"/code-quality/.sigs")
@@ -244,7 +244,7 @@ func TestWriter_PutSignatureRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormExec)
+	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -256,19 +256,19 @@ func TestWriter_PutSignatureRoundTrip(t *testing.T) {
 		t.Fatalf("unsigned item reported %d signatures", len(sigs))
 	}
 
-	if err := store.PutSignature(ctx, ref, signing.FormExec, publish, []byte("pub-a")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, []byte("pub-a")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	// Writing the same signature twice is idempotent: the filename derives from
 	// the signature's own bytes.
-	if err := store.PutSignature(ctx, ref, signing.FormExec, publish, []byte("pub-a")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, []byte("pub-a")); err != nil {
 		t.Fatalf("PutSignature (repeat): %v", err)
 	}
 	// A second, different publisher signature over the same content coexists.
-	if err := store.PutSignature(ctx, ref, signing.FormExec, publish, []byte("pub-b")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, []byte("pub-b")); err != nil {
 		t.Fatalf("PutSignature (second signer): %v", err)
 	}
-	if err := store.PutSignature(ctx, ref, signing.FormExec, approve, []byte("approval")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, approve, []byte("approval")); err != nil {
 		t.Fatalf("PutSignature (approve): %v", err)
 	}
 
@@ -303,7 +303,7 @@ func TestWriter_PutSignatureIsContentKeyed(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}
-	if err := store.PutSignature(ctx, ref, signing.FormExec, Namespace(signing.NamespacePublish), []byte("sig")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), []byte("sig")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/hooks/pre_tool/guard.yaml", "matcher: Bash\ntype: command\ncommand: rm -rf /\n")
@@ -313,7 +313,7 @@ func TestWriter_PutSignatureIsContentKeyed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormExec)
+	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -406,11 +406,11 @@ func TestWriter_PutSignatureRefusesUnsafeNamespace(t *testing.T) {
 	store := fixtureStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
 	for _, ns := range []Namespace{"", "../escape", "with/slash", "*"} {
-		if err := store.PutSignature(ctx, ref, signing.FormExec, ns, []byte("sig")); !errors.Is(err, ErrBadPath) {
+		if err := store.PutSignature(ctx, ref, signing.FormRaw, ns, []byte("sig")); !errors.Is(err, ErrBadPath) {
 			t.Errorf("namespace %q: err = %v, want ErrBadPath", ns, err)
 		}
 	}
-	if err := store.PutSignature(ctx, ref, signing.FormExec, Namespace(signing.NamespacePublish), nil); err == nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), nil); err == nil {
 		t.Error("an empty signature was accepted")
 	}
 }

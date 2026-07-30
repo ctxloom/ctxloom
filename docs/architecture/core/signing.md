@@ -131,10 +131,11 @@ flowchart TD
 ## Where documented and real behavior diverge
 
 - `payload.go`'s doc claims every header field is drawn from a closed vocabulary except `Ref`.
-  At the package boundary that is not enforced: `signingKindOf`
-  (`internal/operations/countersign_records.go:160`) passes an unmapped kind through verbatim, and
-  `operations.Approved` casts an arbitrary form string with `signing.Form(form)`
-  (`countersign_records.go:139`).
+  That IS now enforced at the store boundary: `CountersignHeader.Validate` refuses an assertion or
+  an attestation form outside the closed set — loudly on the write paths, and as "nothing
+  recorded" on the read paths. `operations.Approved` still casts an arbitrary LAYOUT form string
+  (`signing.Form(form)`), but it then derives the attestation form from it, and an unrecognized
+  layout form has no derivation, so it withholds.
 - `Sign`, `EncodeLoadoutEnvelope`, `DecodeLoadoutEnvelope`, `CountersignPayload` and all four
   verifiers operate successfully over zero-byte payloads; the only length floor is in a different
   package (`internal/operations/countersign_records.go:127,142`).

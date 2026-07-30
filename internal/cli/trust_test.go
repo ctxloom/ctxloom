@@ -112,7 +112,7 @@ func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(signing.KindFragments, countersignRefFor(ref), signing.FormRaw, []byte("always-trusted body")),
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestFragmentRaw, []byte("always-trusted body")),
 		"approval must be recorded for the canonical ctxloom:local key, over the exact fragment bytes")
 }
 
@@ -139,7 +139,7 @@ func TestRunItemTrust_AcceptsLocalCommand(t *testing.T) {
 	// spelling.
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(signing.KindSkills, countersignRefFor(ref), signing.FormRaw, []byte("always-trusted command body")))
+	assert.True(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestCommandRaw, []byte("always-trusted command body")))
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it
@@ -159,10 +159,10 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
 	store := userApprovalsStore(t)
 	// Ref-level (sticky) component.
-	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(ref)),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(ref)),
 		"ref-level rejected state must be recorded")
 	// Content-reject companion.
-	assert.True(t, store.HasUnsignedContentReject(signing.KindFragments, signing.FormRaw, []byte("rm -rf danger")),
+	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")),
 		"the item's content must be recorded as a content-reject")
 }
 
@@ -186,6 +186,6 @@ func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 	// Query with an entirely different spelling of the same repo (git@ form).
 	variantRef := trust.Ref{RepoURL: "git@github.com:acme/repo", Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(variantRef)),
+	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(variantRef)),
 		"a URL variant of the same remote must resolve to the same rejection key")
 }

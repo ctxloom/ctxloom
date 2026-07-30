@@ -73,7 +73,7 @@ func TestDocumentStore_ReadsABundleWithNoFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormExec)
+	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestDocumentStore_DigestMatchesTheTreeForIdenticalBytes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item: %v", err)
 		}
-		form, err := item.Form(ctx, signing.FormExec)
+		form, err := item.Form(ctx, signing.FormRaw)
 		if err != nil {
 			t.Fatalf("Form: %v", err)
 		}

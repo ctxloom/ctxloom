@@ -69,18 +69,17 @@ func (c countersignRecords) readable() error {
 // exact ref, in either store. The CONTENT component is deliberately
 // ref-omitted at signing time (spec §5.3) — but the ReviewRecords interface
 // gives Rejected only (ref, payload), no form, so a content-reject candidate
-// is searched across every closed Form value it could have been signed
-// under. This mirrors the deleted hash denylist, which was form-agnostic by
-// construction (a bare set of hashes); trying every form here is a search
-// over a small closed vocabulary, not a security weakening — each candidate
-// still must cryptographically verify.
+// is searched across every attestation form THIS KIND can be signed under
+// (attestationFormsFor). This mirrors the deleted hash denylist, which was
+// form-agnostic by construction (a bare set of hashes); trying every form here
+// is a search over a small closed vocabulary, not a security weakening — each
+// candidate still must cryptographically verify.
 func (c countersignRecords) Rejected(ref trust.Ref, payload []byte) bool {
-	kind := signingKindOf(ref.Kind)
 	refStr := countersignRef(ref)
 	now := time.Now()
 
 	for _, st := range c.bothStores() {
-		if _, ok := st.VerifiedRefReject(kind, refStr, c.root, now); ok {
+		if _, ok := st.VerifiedRefReject(refStr, c.root, now); ok {
 			return true
 		}
 	}
@@ -90,80 +89,136 @@ func (c countersignRecords) Rejected(ref trust.Ref, payload []byte) bool {
 	// which is why it is never honored from the PROJECT store: that store is
 	// committable and shared, and an unsigned record there would be a
 	// forgery primitive with a friendly name.
-	if c.user.HasUnsignedRefReject(kind, refStr) {
+	if c.user.HasUnsignedRefReject(refStr) {
 		return true
 	}
 	if len(payload) == 0 {
 		return false
 	}
-	for _, form := range contentRejectForms {
+	for _, form := range attestationFormsFor(ref.Kind) {
 		for _, st := range c.bothStores() {
-			if _, ok := st.VerifiedContentReject(kind, form, payload, c.root, now); ok {
+			if _, ok := st.VerifiedContentReject(form, payload, c.root, now); ok {
 				return true
 			}
 		}
-		if c.user.HasUnsignedContentReject(kind, form, payload) {
+		if c.user.HasUnsignedContentReject(form, payload) {
 			return true
 		}
 	}
 	return false
 }
-
-// contentRejectForms are the closed Form values a content-reject
-// countersignature could have been signed under (spec §3.2's table): raw and
-// distilled text forms, and the exec (mcp/hooks) canonical-JSON preimage.
-var contentRejectForms = []signing.Form{signing.FormRaw, signing.FormDistilled, signing.FormExec}
 
 // Approved reports that a human approved exactly these bytes, at this ref, in
 // this form — checked against EITHER store. An empty payload or form can
 // never match (an approval that pinned nothing would be meaningless), so
 // those resolve false without even touching the stores.
+//
+// form is the LAYOUT form the caller resolved (raw or distilled); the
+// ATTESTATION form actually looked up is derived here from it and the item's
+// kind. That derivation is the reason an approval of a fragment cannot satisfy
+// an mcp/hook/skill gate over byte-identical bytes, and it happens HERE — at the
+// one point where both axes are in hand — rather than at each gate call site,
+// because a call site that could name its own role could name the wrong one.
+//
+// A kind with no attestation form resolves false, which withholds the item.
 func (c countersignRecords) Approved(ref trust.Ref, payload []byte, form string) bool {
 	if len(payload) == 0 || form == "" {
 		return false
 	}
-	kind := signingKindOf(ref.Kind)
+	attested, err := attestationFormFor(ref.Kind, signing.Form(form))
+	if err != nil {
+		clidiag.Warn("ctxloom", "trust: %q cannot be approved (%v) — treating it as unapproved", ref.Key(), err)
+		return false
+	}
 	refStr := countersignRef(ref)
 	now := time.Now()
 
 	for _, st := range c.bothStores() {
-		if _, ok := st.VerifiedApprove(kind, refStr, signing.Form(form), payload, c.root, now); ok {
+		if _, ok := st.VerifiedApprove(refStr, attested, payload, c.root, now); ok {
 			return true
 		}
 	}
 	// Unsigned degraded path (spec §9.5) — user store only, see Rejected.
-	if c.user.HasUnsignedApprove(kind, refStr, signing.Form(form), payload) {
-		return true
-	}
-	return false
+	return c.user.HasUnsignedApprove(refStr, attested, payload)
 }
 
-// signingKindOf maps trust's item-kind vocabulary onto signing's closed
-// ItemKind vocabulary. The two disagree on TWO spellings:
-//   - trust.KindPrompt vs signing.KindSkills, because trust.ItemKind predates
-//     the "skills" (skill->command) rename and signing.ItemKind was authored
-//     after it;
-//   - trust.KindSkill (the TRUE Agent Skill kind, Part B2) vs
-//     signing.KindAgentSkills, because signing.KindSkills was already taken by
-//     the legacy mapping above and must not be reused (it is baked into
-//     existing command approval/rejection payloads).
+// attestationFormFor is the ONE derivation from (live item kind, LAYOUT form)
+// to the ATTESTATION form a countersignature binds. Every read and every write
+// of a countersignature goes through it, which is what guarantees the two sides
+// agree: no call site chooses a role, so no call site can choose the wrong one.
 //
-// This is the single place that reconciles both.
-func signingKindOf(k trust.ItemKind) signing.ItemKind {
-	switch k {
+// The published mapping. Note the vocabularies do not line up, and the LIVE
+// kind is what governs — the composite says "command" while the kind is
+// trust.KindPrompt ("prompt", directory "prompts"), a residue of the
+// skill→command rename:
+//
+//	trust.KindFragment + raw       -> fragment/raw
+//	trust.KindFragment + distilled -> fragment/distilled
+//	trust.KindPrompt   + raw       -> command/raw
+//	trust.KindPrompt   + distilled -> command/distilled
+//	trust.KindMCP      + raw       -> exec/mcp
+//	trust.KindHook     + raw       -> exec/hook
+//	trust.KindSkill    + raw       -> skill
+//
+// mcp, hook and skill have exactly one materialization, so they accept only the
+// BASE layout form; asking for their distilled form is a caller bug, not an
+// item state, and is refused rather than silently folded onto the single form.
+//
+// There is deliberately NO mapping for the pre-composite vocabulary. Records
+// written under the superseded contract stale, and staleness is only ever
+// REPORTED (see countersign.Store.LatestApprove) — re-keying one would have to
+// guess the role it was approved in, which is the confusion this whole
+// vocabulary exists to prevent.
+//
+// An unrecognized kind is an ERROR, never a passthrough: a kind the surface-type
+// registry knows and this function does not can be neither approved nor exposed,
+// so extending the registry adds no security surface by construction.
+func attestationFormFor(kind trust.ItemKind, layout signing.Form) (signing.AttestationForm, error) {
+	switch kind {
 	case trust.KindFragment:
-		return signing.KindFragments
+		switch layout {
+		case signing.FormRaw:
+			return signing.AttestFragmentRaw, nil
+		case signing.FormDistilled:
+			return signing.AttestFragmentDistilled, nil
+		}
 	case trust.KindPrompt:
-		return signing.KindSkills
+		switch layout {
+		case signing.FormRaw:
+			return signing.AttestCommandRaw, nil
+		case signing.FormDistilled:
+			return signing.AttestCommandDistilled, nil
+		}
 	case trust.KindMCP:
-		return signing.KindMCP
+		if layout == signing.FormRaw {
+			return signing.AttestExecMCP, nil
+		}
 	case trust.KindHook:
-		return signing.KindHooks
+		if layout == signing.FormRaw {
+			return signing.AttestExecHook, nil
+		}
 	case trust.KindSkill:
-		return signing.KindAgentSkills
+		if layout == signing.FormRaw {
+			return signing.AttestSkill, nil
+		}
 	default:
-		return signing.ItemKind(k)
+		return signing.AttestNone, fmt.Errorf("no attestation form for item kind %q: it cannot be countersigned", kind)
 	}
+	return signing.AttestNone, fmt.Errorf("no attestation form for item kind %q in form %q", kind, layout)
+}
+
+// attestationFormsFor returns every attestation form kind can be countersigned
+// under, derived from attestationFormFor rather than tabulated a second time —
+// one table, so the reject search can never look under a form the approve path
+// would never write. Empty for a kind with no attestation form at all.
+func attestationFormsFor(kind trust.ItemKind) []signing.AttestationForm {
+	var out []signing.AttestationForm
+	for _, layout := range []signing.Form{signing.FormRaw, signing.FormDistilled} {
+		if form, err := attestationFormFor(kind, layout); err == nil {
+			out = append(out, form)
+		}
+	}
+	return out
 }
 
 // countersignRef builds the canonical item-ref string a countersignature
@@ -247,9 +302,13 @@ func newCountersignRecords(cfg *config.Config, fs afero.Fs) ReviewRecords {
 // approval": the caller uses the answer to WARN a user that re-distilling
 // just invalidated something they signed, and staying silent about that is
 // the failure mode worth avoiding.
-func (c countersignRecords) hadPriorApprove(kind signing.ItemKind, refStr string, form signing.Form) (bool, error) {
+//
+// layout is the LAYOUT form, not the attestation form: the index is keyed on the
+// bump-independent axis so a superseded record still counts as a prior approval
+// (see countersign.Store.LatestApprove).
+func (c countersignRecords) hadPriorApprove(refStr string, layout signing.Form) (bool, error) {
 	for _, st := range c.bothStores() {
-		_, ok, err := st.LatestApprove(kind, refStr, form)
+		_, ok, err := st.LatestApprove(refStr, layout)
 		if err != nil {
 			return false, err
 		}

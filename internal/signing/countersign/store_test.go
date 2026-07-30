@@ -60,10 +60,10 @@ func TestStore_WriteApprove_ThenVerified(t *testing.T) {
 	s := NewStore("/store", fs)
 
 	payload := []byte("fragment body")
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, signer))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, signer))
 
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	principal, ok := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, root, time.Now())
+	principal, ok := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, root, time.Now())
 	assert.True(t, ok)
 	assert.Equal(t, "ben@abbitt.me", principal)
 }
@@ -77,7 +77,7 @@ func TestStore_CorruptedSignatureBodyAtCorrectIndex_NeverVerifies(t *testing.T) 
 	s := NewStore("/store", fs)
 
 	payload := []byte("fragment body")
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, signer))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, signer))
 
 	// Find the written file and corrupt its body in place — the filename
 	// (the index) is untouched, so it is still found as a candidate.
@@ -97,7 +97,7 @@ func TestStore_CorruptedSignatureBodyAtCorrectIndex_NeverVerifies(t *testing.T) 
 	require.NoError(t, afero.WriteFile(fs, matches[0], corrupted, 0o644))
 
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	principal, ok := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, root, time.Now())
+	principal, ok := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, root, time.Now())
 	assert.False(t, ok, "a corrupted signature body must never resolve as approved, even at the right index")
 	assert.Empty(t, principal)
 }
@@ -109,10 +109,10 @@ func TestStore_UntrustedKey_NeverVerifies(t *testing.T) {
 	s := NewStore("/store", fs)
 
 	payload := []byte("fragment body")
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, signer))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, signer))
 
 	root := rootTrusting("someone-else@example.com", otherPub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, root, time.Now())
+	_, ok := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, root, time.Now())
 	assert.False(t, ok, "an untrusted key's countersignature is not an approval")
 }
 
@@ -121,10 +121,10 @@ func TestStore_EditedBytes_NeverVerifies(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, []byte("original body"), signer))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, []byte("original body"), signer))
 
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, []byte("edited body"), root, time.Now())
+	_, ok := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, []byte("edited body"), root, time.Now())
 	assert.False(t, ok, "an approval of the original bytes must go pending once the bytes change")
 }
 
@@ -134,12 +134,12 @@ func TestStore_ContentReject_MatchesAnyRef(t *testing.T) {
 	s := NewStore("/store", fs)
 
 	payload := []byte("malicious body")
-	require.NoError(t, s.WriteContentReject(signing.KindFragments, signing.FormRaw, payload, signer))
+	require.NoError(t, s.WriteContentReject(signing.AttestFragmentRaw, payload, signer))
 
 	root := rootTrusting("lead@team.example", pub, signing.NamespaceReject)
 	// The content-reject payload omits ref entirely; a query never even
 	// carries one — VerifiedContentReject matches "these bytes" full stop.
-	_, ok := s.VerifiedContentReject(signing.KindFragments, signing.FormRaw, payload, root, time.Now())
+	_, ok := s.VerifiedContentReject(signing.AttestFragmentRaw, payload, root, time.Now())
 	assert.True(t, ok, "content-reject must match regardless of which ref the bytes are queried under")
 }
 
@@ -148,10 +148,10 @@ func TestStore_RefReject_StickyAcrossContentChange(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+	require.NoError(t, s.WriteRefReject("acme/tooling#fragments/x", signer))
 
 	root := rootTrusting("lead@team.example", pub, signing.NamespaceReject)
-	_, ok := s.VerifiedRefReject(signing.KindFragments, "acme/tooling#fragments/x", root, time.Now())
+	_, ok := s.VerifiedRefReject("acme/tooling#fragments/x", root, time.Now())
 	assert.True(t, ok, "the ref-level rejection is form/content-agnostic")
 }
 
@@ -161,7 +161,7 @@ func TestStore_EmptyStore_NoCandidates(t *testing.T) {
 	s := NewStore("/nonexistent", fs)
 
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, []byte("z"), root, time.Now())
+	_, ok := s.VerifiedApprove("x#fragments/y", signing.AttestFragmentRaw, []byte("z"), root, time.Now())
 	assert.False(t, ok, "an empty/nonexistent store has no candidates and never approves")
 }
 
@@ -170,7 +170,7 @@ func TestStore_NilStore_IsSafe(t *testing.T) {
 	var s *Store
 	_, pub := testSigner(t)
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, []byte("z"), root, time.Now())
+	_, ok := s.VerifiedApprove("x#fragments/y", signing.AttestFragmentRaw, []byte("z"), root, time.Now())
 	assert.False(t, ok)
 }
 
@@ -180,10 +180,10 @@ func TestStore_ApproveRawDoesNotApproveDistilled(t *testing.T) {
 	s := NewStore("/store", fs)
 
 	payload := []byte("identical bytes")
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, signer))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, signer))
 
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormDistilled, payload, root, time.Now())
+	_, ok := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentDistilled, payload, root, time.Now())
 	assert.False(t, ok, "an approval of the raw form must not validate the distilled form, even with identical bytes")
 }
 
@@ -197,19 +197,19 @@ func TestStore_TwoSignersSameContent_BothPersist(t *testing.T) {
 	s := NewStore("/store", fs)
 
 	payload := []byte("body")
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, signerA))
-	require.NoError(t, s.WriteApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, signerB))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, signerA))
+	require.NoError(t, s.WriteApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, signerB))
 
 	matches, err := afero.Glob(fs, "/store/*.sig")
 	require.NoError(t, err)
 	assert.Len(t, matches, 2, "distinct signers over identical content must not clobber each other's file")
 
 	rootA := rootTrusting("a@example.com", pubA, signing.NamespaceApprove)
-	_, okA := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, rootA, time.Now())
+	_, okA := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, rootA, time.Now())
 	assert.True(t, okA)
 
 	rootB := rootTrusting("b@example.com", pubB, signing.NamespaceApprove)
-	_, okB := s.VerifiedApprove(signing.KindFragments, "acme/tooling#fragments/x", signing.FormRaw, payload, rootB, time.Now())
+	_, okB := s.VerifiedApprove("acme/tooling#fragments/x", signing.AttestFragmentRaw, payload, rootB, time.Now())
 	assert.True(t, okB)
 }
 
@@ -220,20 +220,20 @@ func TestStore_UnsignedApprove_RoundTrip(t *testing.T) {
 	s := NewStore("/store", fs)
 	payload := []byte("local body")
 
-	assert.False(t, s.HasUnsignedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, payload))
-	require.NoError(t, s.WriteUnsignedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, payload))
-	assert.True(t, s.HasUnsignedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, payload))
+	assert.False(t, s.HasUnsignedApprove("x#fragments/y", signing.AttestFragmentRaw, payload))
+	require.NoError(t, s.WriteUnsignedApprove("x#fragments/y", signing.AttestFragmentRaw, payload))
+	assert.True(t, s.HasUnsignedApprove("x#fragments/y", signing.AttestFragmentRaw, payload))
 }
 
 func TestStore_UnsignedApprove_DoesNotSatisfySignedVerification(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 	payload := []byte("local body")
-	require.NoError(t, s.WriteUnsignedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, payload))
+	require.NoError(t, s.WriteUnsignedApprove("x#fragments/y", signing.AttestFragmentRaw, payload))
 
 	_, pub := testSigner(t)
 	root := rootTrusting("nobody@example.com", pub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, payload, root, time.Now())
+	_, ok := s.VerifiedApprove("x#fragments/y", signing.AttestFragmentRaw, payload, root, time.Now())
 	assert.False(t, ok, "an unsigned marker must never satisfy the cryptographic verification path")
 }
 
@@ -243,7 +243,7 @@ func TestStore_Index_AppendAndLatestApprove(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	_, found, err := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	_, found, err := s.LatestApprove("x#fragments/y", signing.FormRaw)
 	require.NoError(t, err)
 	assert.False(t, found)
 
@@ -256,24 +256,25 @@ func TestStore_Index_AppendAndLatestApprove(t *testing.T) {
 		Principal: "ben@abbitt.me", PayloadHash: "sha256:bbb", ReviewedAt: "2026-06-01T00:00:00Z",
 	}))
 
-	got, found, err := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	got, found, err := s.LatestApprove("x#fragments/y", signing.FormRaw)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "sha256:bbb", got.PayloadHash, "the LATEST entry (by reviewed_at) must win")
 }
 
-// TestStore_LatestApprove_ScopedToKindRefForm pins U137-F13's refutation: the
-// register filed the sidecar index as NOPAY on the theory that its only
-// documented consumer ("ctxloom approvals list") does not exist — but
-// operations.review (review.go:378, UPDATE-vs-NEW labelling + diff base) and
-// operations/trust.go:718 (post-approval index write) are real, live
-// production callers of AppendIndex/LatestApprove, rg-verified. This test
-// pins the exact scoping behaviour that caller depends on: a chronologically
-// LATER entry for a different kind, ref, or form must never win — if it did,
-// operations.review would offer the wrong diff base (or label an UPDATE for
-// the wrong item), which is precisely the substituted-content risk the index
-// exists to avoid.
-func TestStore_LatestApprove_ScopedToKindRefForm(t *testing.T) {
+// TestStore_LatestApprove_ScopedToRefAndLayoutForm pins the exact scoping the
+// UPDATE-vs-NEW label and the diff base depend on: a chronologically LATER entry
+// for a different ref or a different form must never win — if it did,
+// operations.review would offer the wrong diff base (or label an UPDATE for the
+// wrong item), which is precisely the substituted-content risk the index exists
+// to avoid.
+//
+// The KIND LABEL is deliberately not a query term, and this test pins that too:
+// a later entry whose kind is spelled differently but whose ref and form match
+// DOES win, because the ref already embeds the kind directory and because a
+// record written under an older kind vocabulary must still be recognized as a
+// prior approval after a contract bump — stale, rather than absent.
+func TestStore_LatestApprove_ScopedToRefAndLayoutForm(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
@@ -289,18 +290,26 @@ func TestStore_LatestApprove_ScopedToKindRefForm(t *testing.T) {
 		PayloadHash: "sha256:wrong-ref", ReviewedAt: "2026-06-01T00:00:00Z",
 	}))
 	require.NoError(t, s.AppendIndex(IndexEntry{
-		Ref: "x#fragments/y", Kind: "hooks", Form: "raw", Assertion: "approve",
-		PayloadHash: "sha256:wrong-kind", ReviewedAt: "2026-06-01T00:00:00Z",
-	}))
-	require.NoError(t, s.AppendIndex(IndexEntry{
 		Ref: "x#fragments/y", Kind: "fragments", Form: "distilled", Assertion: "approve",
 		PayloadHash: "sha256:wrong-form", ReviewedAt: "2026-06-01T00:00:00Z",
 	}))
 
-	got, found, err := s.LatestApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw)
+	got, found, err := s.LatestApprove("x#fragments/y", signing.FormRaw)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, "sha256:real", got.PayloadHash, "a later entry for a different kind/ref/form must never win")
+	assert.Equal(t, "sha256:real", got.PayloadHash, "a later entry for a different ref or form must never win")
+
+	// A record whose KIND is spelled in a superseded vocabulary still counts:
+	// staleness must read as an update, never as a first-time item.
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "x#fragments/y", Kind: "agentskills", Form: "raw", Assertion: "approve",
+		PayloadHash: "sha256:legacy-kind-label", ReviewedAt: "2026-07-01T00:00:00Z",
+	}))
+	got, found, err = s.LatestApprove("x#fragments/y", signing.FormRaw)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "sha256:legacy-kind-label", got.PayloadHash,
+		"a prior approval recorded under an older kind vocabulary must still be recognized")
 }
 
 func TestStore_Index_NeverConfusedWithSignedVerification(t *testing.T) {
@@ -315,7 +324,7 @@ func TestStore_Index_NeverConfusedWithSignedVerification(t *testing.T) {
 
 	_, pub := testSigner(t)
 	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
-	_, ok := s.VerifiedApprove(signing.KindFragments, "x#fragments/y", signing.FormRaw, []byte("body"), root, time.Now())
+	_, ok := s.VerifiedApprove("x#fragments/y", signing.AttestFragmentRaw, []byte("body"), root, time.Now())
 	assert.False(t, ok)
 }
 
@@ -323,9 +332,9 @@ func TestStore_UnsignedRefReject_RoundTrip(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	assert.False(t, s.HasUnsignedRefReject(signing.KindFragments, "x#fragments/y"))
-	require.NoError(t, s.WriteUnsignedRefReject(signing.KindFragments, "x#fragments/y"))
-	assert.True(t, s.HasUnsignedRefReject(signing.KindFragments, "x#fragments/y"))
+	assert.False(t, s.HasUnsignedRefReject("x#fragments/y"))
+	require.NoError(t, s.WriteUnsignedRefReject("x#fragments/y"))
+	assert.True(t, s.HasUnsignedRefReject("x#fragments/y"))
 }
 
 // --- Readable: absent vs unreadable (fail-closed preamble seam) --------------
@@ -369,7 +378,7 @@ func TestStore_Readable_FileWithinUnreadable_IsAnError(t *testing.T) {
 	signer, _ := testSigner(t)
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
-	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+	require.NoError(t, s.WriteRefReject("acme/tooling#fragments/x", signer))
 
 	matches, err := afero.Glob(fs, "/store/*.sig")
 	require.NoError(t, err)
@@ -410,14 +419,14 @@ func TestStore_UnconfiguredStore_DoesNotReadTheWorkingDirectory(t *testing.T) {
 
 	fs := afero.NewOsFs()
 	configured := NewStore(dir, fs)
-	require.NoError(t, configured.WriteUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body")))
+	require.NoError(t, configured.WriteUnsignedApprove("acme#fragments/x", signing.AttestFragmentRaw, []byte("body")))
 
 	markers, err := afero.Glob(fs, filepath.Join(dir, "*.unsigned"))
 	require.NoError(t, err)
 	require.Len(t, markers, 1, "the marker must exist in the working directory for this test to mean anything")
 
 	unconfigured := NewStore("", fs)
-	assert.False(t, unconfigured.HasUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body")),
+	assert.False(t, unconfigured.HasUnsignedApprove("acme#fragments/x", signing.AttestFragmentRaw, []byte("body")),
 		"an unconfigured store must not honour a marker sitting in the working directory")
 }
 
@@ -432,12 +441,12 @@ func TestStore_UnconfiguredStore_DoesNotVerifyFromTheWorkingDirectory(t *testing
 	fs := afero.NewOsFs()
 
 	configured := NewStore(dir, fs)
-	require.NoError(t, configured.WriteRefReject(signing.KindFragments, "acme#fragments/x", signer))
-	_, ok := configured.VerifiedRefReject(signing.KindFragments, "acme#fragments/x", root, time.Now())
+	require.NoError(t, configured.WriteRefReject("acme#fragments/x", signer))
+	_, ok := configured.VerifiedRefReject("acme#fragments/x", root, time.Now())
 	require.True(t, ok, "the signature must verify from the configured store for this test to mean anything")
 
 	unconfigured := NewStore("", fs)
-	_, ok = unconfigured.VerifiedRefReject(signing.KindFragments, "acme#fragments/x", root, time.Now())
+	_, ok = unconfigured.VerifiedRefReject("acme#fragments/x", root, time.Now())
 	assert.False(t, ok, "an unconfigured store must not verify a signature sitting in the working directory")
 }
 
@@ -450,8 +459,8 @@ func TestStore_UnconfiguredStore_RefusesToWrite(t *testing.T) {
 	signer, _ := testSigner(t)
 	s := NewStore("", afero.NewOsFs())
 
-	assert.Error(t, s.WriteApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body"), signer))
-	assert.Error(t, s.WriteUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, []byte("body")))
+	assert.Error(t, s.WriteApprove("acme#fragments/x", signing.AttestFragmentRaw, []byte("body"), signer))
+	assert.Error(t, s.WriteUnsignedApprove("acme#fragments/x", signing.AttestFragmentRaw, []byte("body")))
 	assert.Error(t, s.AppendIndex(IndexEntry{Ref: "acme#fragments/x"}))
 }
 
@@ -467,11 +476,11 @@ func TestStore_WriteApprove_EmptyPayload_IsRefused(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	err := s.WriteApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, nil, signer)
+	err := s.WriteApprove("acme#fragments/x", signing.AttestFragmentRaw, nil, signer)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty payload")
 
-	err = s.WriteUnsignedApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw, nil)
+	err = s.WriteUnsignedApprove("acme#fragments/x", signing.AttestFragmentRaw, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty payload")
 }
@@ -483,8 +492,8 @@ func TestStore_WriteRefReject_EmptyPayload_IsStillAllowed(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
 
-	assert.NoError(t, s.WriteRefReject(signing.KindFragments, "acme#fragments/x", signer))
-	assert.NoError(t, s.WriteUnsignedRefReject(signing.KindFragments, "acme#fragments/x"))
+	assert.NoError(t, s.WriteRefReject("acme#fragments/x", signer))
+	assert.NoError(t, s.WriteUnsignedRefReject("acme#fragments/x"))
 }
 
 // --- the sidecar index must not be destroyed by a corrupt read ---------------
@@ -520,7 +529,7 @@ func TestStore_LatestApprove_CorruptIndex_IsNotSilentlyEmpty(t *testing.T) {
 
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "index.yaml"), []byte("- ref: x\n  bad: [\n"), 0o644))
 
-	_, found, err := s.LatestApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw)
+	_, found, err := s.LatestApprove("acme#fragments/x", signing.FormRaw)
 	require.Error(t, err, "an index this store cannot parse must not answer 'no prior approval'")
 	assert.False(t, found)
 }
@@ -530,7 +539,7 @@ func TestStore_LatestApprove_CorruptIndex_IsNotSilentlyEmpty(t *testing.T) {
 func TestStore_LatestApprove_AbsentIndex_IsNotAnError(t *testing.T) {
 	s := NewStore(t.TempDir(), afero.NewOsFs())
 
-	_, found, err := s.LatestApprove(signing.KindFragments, "acme#fragments/x", signing.FormRaw)
+	_, found, err := s.LatestApprove("acme#fragments/x", signing.FormRaw)
 	assert.NoError(t, err)
 	assert.False(t, found)
 }
@@ -550,7 +559,7 @@ func TestStore_Readable_UnparseableSignature_IsAnError(t *testing.T) {
 	dir := t.TempDir()
 	fs := afero.NewOsFs()
 	s := NewStore(dir, fs)
-	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+	require.NoError(t, s.WriteRefReject("acme/tooling#fragments/x", signer))
 
 	matches, err := afero.Glob(fs, filepath.Join(dir, "*.sig"))
 	require.NoError(t, err)
@@ -571,7 +580,7 @@ func TestStore_Readable_UnverifiableButParseableSignature_IsNotAnError(t *testin
 	dir := t.TempDir()
 	fs := afero.NewOsFs()
 	s := NewStore(dir, fs)
-	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+	require.NoError(t, s.WriteRefReject("acme/tooling#fragments/x", signer))
 
 	assert.NoError(t, s.Readable())
 }
@@ -587,4 +596,40 @@ func TestStore_Readable_NonSignatureFiles_AreIgnored(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "notes.txt"), []byte("hi\n"), 0o644))
 
 	assert.NoError(t, s.Readable())
+}
+
+// --- the closed attestation vocabulary, enforced at the store boundary -------
+
+// A form outside the closed vocabulary must be REFUSED on write: a record
+// signed under a form no query can reconstruct is unreachable forever, so
+// writing it would tell the user "approved" and leave the item pending.
+func TestStore_Write_RefusesAFormOutsideTheClosedVocabulary(t *testing.T) {
+	signer, _ := testSigner(t)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+
+	const rogue signing.AttestationForm = "exec"
+	assert.Error(t, s.WriteApprove("acme#mcp/x", rogue, []byte("body"), signer))
+	assert.Error(t, s.WriteUnsignedApprove("acme#mcp/x", rogue, []byte("body")))
+	assert.Error(t, s.WriteContentReject(rogue, []byte("body"), signer))
+}
+
+// The read side is the mirror, and fails CLOSED rather than loud: a lookup
+// under an unrecognized form finds nothing, so nothing is ever approved on the
+// strength of a form the vocabulary does not contain.
+func TestStore_Read_AFormOutsideTheClosedVocabularyFindsNothing(t *testing.T) {
+	signer, pub := testSigner(t)
+	root := rootTrusting("fixture@example.com", pub, signing.NamespaceApprove)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+	payload := []byte("body")
+
+	require.NoError(t, s.WriteApprove("acme#mcp/x", signing.AttestExecMCP, payload, signer))
+	_, ok := s.VerifiedApprove("acme#mcp/x", signing.AttestExecMCP, payload, root, time.Now())
+	require.True(t, ok, "the record under the real form must verify, or this test proves nothing")
+
+	const rogue signing.AttestationForm = "exec"
+	_, ok = s.VerifiedApprove("acme#mcp/x", rogue, payload, root, time.Now())
+	assert.False(t, ok, "an unrecognized form must resolve to 'nothing recorded'")
+	assert.False(t, s.HasUnsignedApprove("acme#mcp/x", rogue, payload))
 }

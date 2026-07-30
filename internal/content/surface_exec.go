@@ -9,12 +9,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// execForms is the single form an executable surface carries. Reporting FormRaw
-// here instead would be a correctness bug, not a naming nit: the countersign
-// header binds (assertion, kind, ref, form), so a layer above would rebuild the
-// wrong preimage and every existing mcp/hook approval would silently fail to
-// match.
-var execForms = []signing.Form{signing.FormExec}
+// execForms is the single LAYOUT form an executable surface carries: the BASE
+// form, whose component has an unsuffixed filename ("mcp/postgres.yaml").
+//
+// Naming the role here would be the wrong axis, not a stricter one. What a
+// countersignature binds is the composite ATTESTATION form ("exec/mcp"), and
+// that is derived from the item's KIND at the trust layer — so this axis stays
+// purely about layout, and an executable surface reports the same base form a
+// never-distilled document does.
+var execForms = []signing.Form{signing.FormRaw}
 
 // detectSingleYAML is the shared recognition for the executable surfaces: exactly
 // one non-sidecar component, a .yaml file, at the expected depth below the kind

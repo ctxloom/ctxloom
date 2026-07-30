@@ -26,6 +26,7 @@
 package acceptance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -855,4 +857,157 @@ func tsAssertHook(w *World, present bool) error {
 		return fmt.Errorf("%s's SessionStart hooks %v unexpectedly include the marker command %q", rel, cmds, tsHookMarker)
 	}
 	return nil
+}
+
+// =============================================================================
+// THE TEXT→EXEC ESCALATION, AND STALING.
+//
+// These two scenarios cover the composite attestation form: what a
+// countersignature binds names the item's ROLE as well as its bytes, so
+// byte-identical items of different kinds can never share one approval — and the
+// contract bump that introduced it leaves every earlier approval STALE rather
+// than absent.
+// =============================================================================
+
+// tsCollisionMCP is the MCP server the collision fixture ships. Its executable
+// preimage — the exact bytes a countersignature over it would cover — is what the
+// fixture's FRAGMENT carries as its body.
+func tsCollisionMCP() bundles.BundleMCP {
+	return bundles.BundleMCP{Command: "/bin/echo", Args: []string{tsMCPMarker}}
+}
+
+// tsCollisionBundleYAML ships a fragment whose body is byte-for-byte the MCP
+// server's executable preimage. No collision search is involved: exec preimages
+// are deterministic JSON with every field always emitted, and a fragment's
+// payload is its bare body, so a publisher simply pastes one into the other.
+//
+// The equality is VERIFIED in the step below through the production preimage
+// builders rather than asserted here — a fixture that failed to collide would
+// make the scenario prove nothing at all.
+func tsCollisionBundleYAML(execPayload []byte) string {
+	return fmt.Sprintf(`version: "1.0.0"
+fragments:
+  context:
+    content: %q
+mcp:
+  toolserver:
+    command: %q
+    args: [%q]
+`, string(execPayload), tsCollisionMCP().Command, tsMCPMarker)
+}
+
+// tsSupersedeStore rewrites Alice's approvals store into the state a countersign
+// contract bump leaves behind: every recorded signature is still on disk and
+// still parses, but none of them can be found any more, because the index hash a
+// lookup reconstructs is derived from the framed preimage and the framing
+// changed. Renaming each record to a hash nothing reconstructs models that
+// exactly, without needing an old binary to have written it.
+//
+// The display-only index.yaml is deliberately left ALONE — it is the only record
+// that a human once approved something here, and the whole point of the staling
+// requirement is that it survives to say so.
+func tsSupersedeStore(w *World) error {
+	dir := filepath.Join(w.env.HomeDir, ".ctxloom", "approvals")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read approvals store %s: %w", dir, err)
+	}
+	moved := 0
+	for _, e := range entries {
+		name := e.Name()
+		// Both record shapes: a signed .sig and the degraded unsigned marker
+		// (spec §9.5) this key-less environment actually writes. Each is named
+		// for the index hash of its framed preimage, so both go stale together.
+		if e.IsDir() || (!strings.HasSuffix(name, ".sig") && !strings.HasSuffix(name, ".unsigned")) {
+			continue
+		}
+		// The filename's leading field is the index hash; perturbing it is what
+		// makes the record unreachable, exactly as a reframed preimage would.
+		superseded := "0000" + name[4:]
+		if err := os.Rename(filepath.Join(dir, name), filepath.Join(dir, superseded)); err != nil {
+			return fmt.Errorf("supersede approval record %s: %w", name, err)
+		}
+		moved++
+	}
+	if moved == 0 {
+		return fmt.Errorf("no approval records found in %s — the approve step must have written one, or this scenario proves nothing", dir)
+	}
+	index, err := os.ReadFile(filepath.Join(dir, "index.yaml"))
+	if err != nil {
+		return fmt.Errorf("the display index must survive a contract bump (it is what reports staleness): %w", err)
+	}
+	w.docStepMaterialized = fmt.Sprintf("%d approval record(s) superseded; the display index survives:\n%s", moved, strings.TrimSpace(string(index)))
+	return nil
+}
+
+func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
+	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a fragment whose body is byte-identical to its MCP server's executable preimage$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
+			return err
+		}
+		mcp := tsCollisionMCP()
+		execPayload, err := mcp.ContentPayload()
+		if err != nil {
+			return fmt.Errorf("build the mcp executable preimage: %w", err)
+		}
+		// The collision, verified through the two PRODUCTION preimage builders:
+		// the fragment the reviewer will be shown as text and the executable the
+		// gate will ask about resolve to identical bytes.
+		frag := bundles.BundleFragment{Content: string(execPayload)}
+		fragPayload, _ := frag.ContentPayload(false)
+		if !bytes.Equal(fragPayload, execPayload) {
+			return fmt.Errorf("fixture does not actually collide: fragment payload %q != mcp preimage %q", fragPayload, execPayload)
+		}
+		ts := tsOf(w)
+		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		url, err := w.env.SeedRemote(map[string]string{rel: tsCollisionBundleYAML(execPayload)})
+		if err != nil {
+			return fmt.Errorf("seed collision trust-surface remote: %w", err)
+		}
+		return tsWireAndPull(w, url)
+	})
+
+	ctx.Step(`^the copied preimage is present in her assistant's delivered surface as text$`, func(c context.Context) error {
+		w := worldFrom(c)
+		rel := filepath.Join("out", "CLAUDE.md")
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read materialized %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
+		}
+		if !strings.Contains(body, tsMCPMarker) {
+			return fmt.Errorf("%s does not carry the approved fragment's body; the approval Alice actually made must be honoured, or this scenario proves nothing:\n%s", rel, body)
+		}
+		w.docStepMaterialized = j5Excerpt(body, tsMCPMarker, 1)
+		return nil
+	})
+
+	ctx.Step(`^her approval was recorded under a superseded countersign contract$`, func(c context.Context) error {
+		return tsSupersedeStore(worldFrom(c))
+	})
+
+	ctx.Step(`^review lists the fragment as an update awaiting re-review, not as a new item$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := runOK(w, "review", "--list"); err != nil {
+			return err
+		}
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		if !strings.Contains(out, "update") {
+			return fmt.Errorf("`review --list` does not label the superseded item an update — a stale approval must not read as a first-time item; output:\n%s", out)
+		}
+		if !strings.Contains(out, "fragments/context") {
+			return fmt.Errorf("`review --list` does not list the superseded fragment at all; output:\n%s", out)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if !strings.Contains(line, "fragments/context") {
+				continue
+			}
+			if !strings.Contains(line, "update") {
+				return fmt.Errorf("the superseded fragment is listed as %q, want it labelled an update; output:\n%s", strings.TrimSpace(line), out)
+			}
+			return nil
+		}
+		return fmt.Errorf("`review --list` listed no line for fragments/context; output:\n%s", out)
+	})
 }

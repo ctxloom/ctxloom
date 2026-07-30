@@ -124,6 +124,21 @@ const (
 	KindSkill ItemKind = "skill"
 )
 
+// ItemKinds returns every item kind declared here, in a fixed order.
+//
+// It exists so exhaustiveness over the kinds is TESTABLE rather than trusted:
+// anything that must handle every kind (in particular the derivation of the
+// attestation form a countersignature binds) has a test that walks this list, so
+// a kind added here without being handled there fails that test instead of
+// surfacing at runtime as an item nobody can approve.
+//
+// The vocabulary is open at the surface-type registry (a registered kind may be
+// declared outside this package — content.KindProfile is one), which is exactly
+// why this list is the CLOSED core rather than a claim of completeness.
+func ItemKinds() []ItemKind {
+	return []ItemKind{KindFragment, KindPrompt, KindMCP, KindHook, KindSkill}
+}
+
 // Dir returns the selector directory segment for the kind, matching the ref
 // grammar: "<bundle>#fragments/<name>", "<bundle>#prompts/<name>",
 // "<bundle>#mcp/<name>", "<bundle>#hooks/<event>/<index>",

@@ -176,12 +176,15 @@ over the union of two stores:
 | project | `<appPath>/.ctxloom/approvals` (`paths.ApprovalsPath`) | same |
 
 - `Rejected` (`:85`): ref-reject in either store, an unsigned reject in the user store, then
-  content-reject across all three forms.
+  content-reject across every attestation form the item's KIND can be signed under.
 - `Approved` (`:129`): a verified approve in either store, or an unsigned approve in the user store.
 - `readable` (`:54`): the fail-closed precondition — both stores are probed and the failing one is named.
-- `signingKindOf` (`:160`): the single reconciliation point between `trust.ItemKind` and
-  `signing.ItemKind`; the mapping is deliberately not the identity
-  (`KindPrompt → signing.KindSkills`, `KindSkill → signing.KindAgentSkills`), for rename-history reasons.
+- `attestationFormFor`: the single derivation from (`trust.ItemKind`, LAYOUT form) to the
+  composite `signing.AttestationForm` the countersign preimage binds. The mapping is deliberately
+  not the identity (`KindPrompt + raw → command/raw`, for rename-history reasons), and an
+  unmapped kind is an ERROR, not a passthrough — so a kind with no attestation form can be
+  neither approved nor exposed. `attestationFormsFor` derives the reject search set from the same
+  table, so a rejection can never be looked for under a form the approve path would never write.
 
 ## Enforcement points
 
@@ -238,10 +241,12 @@ approved, so the next review can show a diff rather than the whole item:
    text, and a signature never covers a rendering.
 8. **`BuiltinSigner` (`builtin:ctxloom`) is excluded at step 5** — built-in content is allowed at
    step 4 by identity, not by signature.
-9. **Three kind vocabularies must be kept in sync by hand**: `trust.ItemKind`
-   (`internal/trust/trust.go:110`), the selector strings in `parseTrustSelector`
-   (`internal/operations/trust.go:815-847`), and `signing.ItemKind` via `signingKindOf`
-   (`internal/operations/countersign_records.go:160-175`).
+9. **Three kind vocabularies must be kept in sync**: `trust.ItemKind`
+   (`internal/trust/trust.go`), the selector strings in `parseTrustSelector`
+   (`internal/operations/trust.go`), and the composite `signing.AttestationForm` via
+   `attestationFormFor` (`internal/operations/countersign_records.go`). Only the first two are
+   held by hand: the third is exhaustiveness-tested against `trust.ItemKinds()`, so a kind added
+   without a mapping fails a test rather than surfacing as an item nobody can approve.
 10. **The exposure path and the management path use different loaders.** `exposureLoader`
     (`trust_gate.go:223`) is gated; `bundleLoader` (`internal/operations/fragments.go:41`) is not.
     Authoring commands read ungated content on purpose.
@@ -263,10 +268,11 @@ approved, so the next review can show a diff rather than the whole item:
 - `Ref`'s field comment claims `IsLocal`/`IsBuiltin` are mutually exclusive
   (`internal/trust/trust.go:189`); nothing enforces it, and `CanonicalURL` silently prefers builtin
   when both are set.
-- `ItemKind.Dir()` (`internal/trust/trust.go:131`) and `signingKindOf`
-  (`internal/operations/countersign_records.go:160`) both fall through to an unchecked
-  `string(k)` passthrough, so an unknown kind produces a well-formed but meaningless store key
-  rather than an error.
+- `ItemKind.Dir()` falls through to an unchecked `string(k)` passthrough, so an unknown kind
+  produces a well-formed but meaningless selector directory rather than an error. The
+  countersign side no longer does: `attestationFormOf`'s successor,
+  `attestationFormFor` (`internal/operations/countersign_records.go`), returns an ERROR for a
+  kind it does not map, so an unmapped kind can be neither approved nor exposed.
 - `EffectiveTrust` is declared as returning `(*EffectiveTrustResult, error)` but never returns a
   non-nil error; `review.go:306`'s `err != nil || res == nil` branch is unreachable.
 - `TrustStamper`'s doc claims no per-item file I/O (`internal/operations/trust.go:1091`); the

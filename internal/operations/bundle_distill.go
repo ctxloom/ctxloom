@@ -155,8 +155,7 @@ func invalidatedByDistill(cfg *config.Config, bundleName string, items []Distill
 			continue
 		}
 		ref := trust.Ref{Bundle: bundleName, Kind: tKind, Name: it.Name, IsLocal: true}
-		kind := signingKindOf(tKind)
-		prior, err := records.hadPriorApprove(kind, countersignRef(ref), signing.FormDistilled)
+		prior, err := records.hadPriorApprove(countersignRef(ref), signing.FormDistilled)
 		if err != nil {
 			// Cannot tell whether this item had a prior approval — say so and
 			// list it anyway. Over-warning costs a re-review; under-warning

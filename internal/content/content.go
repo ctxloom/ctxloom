@@ -88,9 +88,9 @@ type Item interface {
 	// Surface returns the decoded, typed representation of the WHOLE item —
 	// every form it carries. Use As to recover the concrete type.
 	Surface(ctx context.Context) (Surface, error)
-	// Forms reports exactly the forms this item actually has on disk. A
-	// fragment with no distilled sibling reports only FormRaw; an executable
-	// surface reports only FormExec.
+	// Forms reports exactly the LAYOUT forms this item actually has on disk. A
+	// fragment with no distilled sibling reports only FormRaw, and so does a
+	// single-form surface such as an mcp server or a hook.
 	Forms(ctx context.Context) ([]signing.Form, error)
 	// Form returns one form, or ErrNoSuchForm when the item does not carry it.
 	Form(ctx context.Context, f signing.Form) (Form, error)

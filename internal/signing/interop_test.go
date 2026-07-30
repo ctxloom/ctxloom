@@ -18,10 +18,13 @@ import (
 //
 // FORWARD direction (ssh-keygen signs, we verify) runs unconditionally
 // against goldens committed under testdata/golden/ + testdata/keys/ — these
-// were generated once with `ssh-keygen -Y sign` (see the shell transcript in
-// the S2 implementation notes) and require no openssh binary or network at
-// test time, matching the spec's "verification must be pure Go, offline, and
-// in-process" requirement.
+// were generated with `ssh-keygen -t ed25519` + `ssh-keygen -Y sign -n
+// approve.v1.ctxloom.dev` and require no openssh binary or network at test
+// time, matching the spec's "verification must be pure Go, offline, and
+// in-process" requirement. A change to the countersign framing means the
+// countersign golden has to be re-signed the same way — its whole value is that
+// an EXTERNAL signer, not this package, produced the signature over the exact
+// framed bytes the current contract specifies.
 //
 // REVERSE direction (we sign, ssh-keygen verifies) shells out to ssh-keygen
 // at test time and is skipped if the binary isn't on PATH — signing MAY use
@@ -70,9 +73,8 @@ func TestInterop_VerifiesRealSSHKeygenCountersignSignature(t *testing.T) {
 	// ApproveCountersignPayload produces for the same inputs — pinning that
 	// the golden wasn't hand-edited out of sync with the framing function.
 	rebuilt := ApproveCountersignPayload(
-		KindFragments,
 		"acme-tools#fragments/go-testing",
-		FormRaw,
+		AttestFragmentRaw,
 		[]byte("Use table-driven tests in Go.\n"),
 	)
 	require.Equal(t, payload, rebuilt)
@@ -146,7 +148,7 @@ func TestInterop_RealSSHKeygenVerifiesOurCountersignSignature(t *testing.T) {
 	signer, err := ssh.NewSignerFromSigner(priv)
 	require.NoError(t, err)
 
-	payload := ApproveCountersignPayload(KindSkills, "my-tools#skills/reviewer", FormDistilled, []byte("distilled skill body"))
+	payload := ApproveCountersignPayload("my-tools#commands/reviewer", AttestCommandDistilled, []byte("distilled command body"))
 	armored, err := Sign(payload, signer, "approve.v1.ctxloom.dev")
 	require.NoError(t, err)
 

@@ -136,7 +136,7 @@ func TestExecContentPayload_IsDeterministic(t *testing.T) {
 
 // Round-trip through the real countersign path: an exec item approved under the
 // versioned preimage verifies, and the framing is exactly what the countersign
-// path expects (spec §3.2 — kind mcp/hooks, form "exec", payload = the bytes
+// path expects (spec §3.2 — attestation form "exec/mcp", payload = the bytes
 // ContentPayload returns and nothing re-derived).
 func TestExecContentPayload_ApproveCountersignRoundTrip(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -153,7 +153,7 @@ func TestExecContentPayload_ApproveCountersignRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// The approver signs the framed countersign payload over the exec preimage.
-	framed := signing.ApproveCountersignPayload(signing.KindMCP, ref, signing.FormExec, payload)
+	framed := signing.ApproveCountersignPayload(ref, signing.AttestExecMCP, payload)
 	armored, err := signing.Sign(framed, signer, signing.NamespaceApprove)
 	require.NoError(t, err)
 
@@ -161,7 +161,7 @@ func TestExecContentPayload_ApproveCountersignRoundTrip(t *testing.T) {
 	// must land on identical bytes — that is the whole contract.
 	rederived, err := mcp.ContentPayload()
 	require.NoError(t, err)
-	reframed := signing.ApproveCountersignPayload(signing.KindMCP, ref, signing.FormExec, rederived)
+	reframed := signing.ApproveCountersignPayload(ref, signing.AttestExecMCP, rederived)
 	assert.Equal(t, framed, reframed)
 	require.NoError(t, signing.Verify(reframed, armored, sshPub, signing.NamespaceApprove))
 
@@ -175,7 +175,7 @@ func TestExecContentPayload_ApproveCountersignRoundTrip(t *testing.T) {
 	changed := BundleMCP{Command: "postgres-mcp", Args: []string{"--host", "evil"}}
 	changedPayload, err := changed.ContentPayload()
 	require.NoError(t, err)
-	changedFrame := signing.ApproveCountersignPayload(signing.KindMCP, ref, signing.FormExec, changedPayload)
+	changedFrame := signing.ApproveCountersignPayload(ref, signing.AttestExecMCP, changedPayload)
 	assert.Error(t, signing.Verify(changedFrame, armored, sshPub, signing.NamespaceApprove))
 }
 

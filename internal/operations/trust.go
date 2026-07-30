@@ -30,10 +30,14 @@ import (
 type EffectiveTrustRequest struct {
 	Ref     trust.Ref
 	Payload []byte
-	// Form names which materialization Payload is (bundles.FormRaw or
-	// bundles.FormDistilled, as a string; exec items use FormRaw). An approval
-	// only allows when it covers THIS form — an unknown/empty form matches
-	// nothing, so it resolves pending (fail closed).
+	// Form names which materialization Payload is — the LAYOUT form
+	// (bundles.FormRaw or bundles.FormDistilled, as a string; single-form items
+	// — mcp, hook, skill — use FormRaw). An approval only allows when it covers
+	// THIS form, and the ROLE it must also cover is derived from Ref.Kind rather
+	// than named here (see countersignRecords.Approved): a caller cannot assert
+	// its own role, so it cannot assert the wrong one. An unknown/empty form,
+	// or a kind with no attestation form at all, matches nothing and resolves
+	// pending (fail closed).
 	Form string
 	// Signer is the VERIFIED publisher identity of the document this item was
 	// parsed out of (bundles.Bundle.Signer): the principal of an allowed_signers
@@ -83,7 +87,8 @@ type ReviewRecords interface {
 
 	// Approved reports that a human approved exactly these bytes, at this ref,
 	// in this form. Any change to the exposed bytes must drop the approval and
-	// return the item to pending.
+	// return the item to pending. form is the LAYOUT form; the role the
+	// approval must have been recorded in comes from ref.Kind.
 	Approved(ref trust.Ref, payload []byte, form string) bool
 }
 
@@ -677,7 +682,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
-	rawPayload, distilledPayload, _, err := computeItemPayloadPair(loader, tRef, loadRef)
+	attestations, _, err := itemAttestations(loader, tRef, loadRef)
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve %q to approve it: %w", req.Ref, err)
 	}
@@ -691,42 +696,47 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 		return nil, err
 	}
 
-	kind := signingKindOf(tRef.Kind)
 	refStr := countersignRef(tRef)
 
 	var principal string
 	if !unsigned {
 		principal = ssh.FingerprintSHA256(signer.PublicKey())
 	}
-	writeApprove := func(form signing.Form, payload []byte) error {
+	writeApprove := func(a itemAttestation) error {
 		if unsigned {
-			if err := store.WriteUnsignedApprove(kind, refStr, form, payload); err != nil {
+			if err := store.WriteUnsignedApprove(refStr, a.Attested, a.Payload); err != nil {
 				return err
 			}
-		} else if err := store.WriteApprove(kind, refStr, form, payload, signer); err != nil {
+		} else if err := store.WriteApprove(refStr, a.Attested, a.Payload, signer); err != nil {
 			return err
 		}
 		// Best-effort: the sidecar index is untrusted display metadata (spec
 		// §9.2) that lets `ctxloom review` label a later pending item UPDATE
 		// vs NEW and pick a diff base — never an input to any trust decision.
+		// It records the LIVE kind and the LAYOUT form, not the attestation
+		// form: those labels must stay readable across a contract bump, which
+		// is what makes a superseded approval show up as an update rather than
+		// as a first-time item.
 		_ = store.AppendIndex(countersign.IndexEntry{
-			Ref: refStr, Kind: string(kind), Form: string(form), Assertion: string(signing.AssertionApprove),
-			Principal: principal, Unsigned: unsigned, PayloadHash: bundles.HashPayload(payload), ReviewedAt: time.Now().UTC().Format(time.RFC3339),
+			Ref: refStr, Kind: string(tRef.Kind), Form: string(a.Layout), Assertion: string(signing.AssertionApprove),
+			Principal: principal, Unsigned: unsigned, PayloadHash: bundles.HashPayload(a.Payload), ReviewedAt: time.Now().UTC().Format(time.RFC3339),
 		})
 		return nil
 	}
-	if err := writeApprove(signing.FormRaw, rawPayload); err != nil {
-		return nil, fmt.Errorf("countersign %q (raw): %w", req.Ref, err)
-	}
-	var distilledHash string
-	if len(distilledPayload) > 0 {
-		if err := writeApprove(signing.FormDistilled, distilledPayload); err != nil {
-			return nil, fmt.Errorf("countersign %q (distilled): %w", req.Ref, err)
+	var rawHash, distilledHash string
+	for _, a := range attestations {
+		if err := writeApprove(a); err != nil {
+			return nil, fmt.Errorf("countersign %q (%s): %w", req.Ref, a.Attested, err)
 		}
-		distilledHash = bundles.HashPayload(distilledPayload)
+		switch a.Layout {
+		case signing.FormRaw:
+			rawHash = bundles.HashPayload(a.Payload)
+		case signing.FormDistilled:
+			distilledHash = bundles.HashPayload(a.Payload)
+		}
 	}
 
-	snapshotAcceptedItemContent(cfg, loader, tRef, loadRef, req.FS, bundles.HashPayload(rawPayload), distilledHash)
+	snapshotAcceptedItemContent(cfg, loader, tRef, loadRef, req.FS, rawHash, distilledHash)
 
 	res := &SetItemTrustResult{
 		Status:   "approved",
@@ -801,39 +811,35 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 		return nil, err
 	}
 
-	kind := signingKindOf(tRef.Kind)
 	refStr := countersignRef(tRef)
 
 	// Ref-level (sticky) block — the durable guarantee, written even when the
 	// item cannot be resolved (e.g. already deleted).
 	if unsigned {
-		if err := store.WriteUnsignedRefReject(kind, refStr); err != nil {
+		if err := store.WriteUnsignedRefReject(refStr); err != nil {
 			return nil, fmt.Errorf("countersign rejection of %q: %w", req.Ref, err)
 		}
 	} else {
-		if err := store.WriteRefReject(kind, refStr, signer); err != nil {
+		if err := store.WriteRefReject(refStr, signer); err != nil {
 			return nil, fmt.Errorf("countersign rejection of %q: %w", req.Ref, err)
 		}
 	}
 
 	// Best-effort content component: rejecting must succeed even when the
-	// content is gone.
+	// content is gone. The reported forms stay the LAYOUT names the user's
+	// mental model uses ("raw", "distilled"); the record itself binds the
+	// derived attestation form.
 	var forms []string
-	if rawPayload, distilledPayload, _, herr := computeItemPayloadPair(loader, tRef, loadRef); herr == nil {
-		writeContentReject := func(form signing.Form, payload []byte) error {
+	if attestations, _, herr := itemAttestations(loader, tRef, loadRef); herr == nil {
+		for _, a := range attestations {
+			var werr error
 			if unsigned {
-				return store.WriteUnsignedContentReject(kind, form, payload)
+				werr = store.WriteUnsignedContentReject(a.Attested, a.Payload)
+			} else {
+				werr = store.WriteContentReject(a.Attested, a.Payload, signer)
 			}
-			return store.WriteContentReject(kind, form, payload, signer)
-		}
-		if len(rawPayload) > 0 {
-			if err := writeContentReject(signing.FormRaw, rawPayload); err == nil {
-				forms = append(forms, string(bundles.FormRaw))
-			}
-		}
-		if len(distilledPayload) > 0 {
-			if err := writeContentReject(signing.FormDistilled, distilledPayload); err == nil {
-				forms = append(forms, string(bundles.FormDistilled))
+			if werr == nil {
+				forms = append(forms, string(a.Layout))
 			}
 		}
 	}
@@ -980,6 +986,11 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 // It also returns the bundle's VERIFIED publisher identity (empty for unsigned),
 // so a caller resolving an item by ref gets the same signer the exposure gate
 // would see.
+//
+// It returns BYTES BY LAYOUT FORM and deliberately not by role: callers that
+// record a countersignature must go through itemAttestations, which pairs each
+// payload with the attestation form derived from the item's kind. Nothing that
+// writes a countersignature may pick a form itself.
 func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef string) (rawPayload, distilledPayload []byte, signer string, err error) {
 	bundle, err := loader.Load(loadRef)
 	if err != nil {
@@ -1057,6 +1068,64 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 	default:
 		return nil, nil, "", fmt.Errorf("unknown item kind %q", tRef.Kind)
 	}
+}
+
+// itemAttestation is one countersignable materialization of an item: the exact
+// payload bytes, the ATTESTATION form a countersignature over them binds, and
+// the LAYOUT form the display-only sidecar index is keyed on.
+//
+// The two forms travel together because they answer different questions and are
+// needed in the same breath — what the signature covers, and what a later review
+// looks up to say "you approved something here once". Nothing constructs one of
+// these by hand.
+type itemAttestation struct {
+	Attested signing.AttestationForm
+	Layout   signing.Form
+	Payload  []byte
+}
+
+// itemAttestations resolves every countersignable materialization of an item:
+// its payload bytes (computeItemPayloadPair — the single definition of "the
+// bytes of item X in form F") each paired with the attestation form derived from
+// the item's KIND (attestationFormFor). It is the role-aware entry point both
+// write paths use, so an approval or a rejection can never be recorded under a
+// kind-blind form.
+//
+// A kind with no attestation form yields an error rather than an empty list: it
+// cannot be countersigned, and a caller told "nothing to record" would report a
+// decision it never made.
+func itemAttestations(loader *bundles.Loader, tRef trust.Ref, loadRef string) ([]itemAttestation, string, error) {
+	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, loadRef)
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]itemAttestation, 0, 2)
+	for _, m := range []struct {
+		layout  signing.Form
+		payload []byte
+	}{
+		{signing.FormRaw, rawPayload},
+		{signing.FormDistilled, distilledPayload},
+	} {
+		if len(m.payload) == 0 {
+			continue
+		}
+		attested, ferr := attestationFormFor(tRef.Kind, m.layout)
+		if ferr != nil {
+			return nil, "", ferr
+		}
+		out = append(out, itemAttestation{Attested: attested, Layout: m.layout, Payload: m.payload})
+	}
+	if len(out) == 0 {
+		// An item with no bytes in any form has nothing to countersign, and
+		// returning an empty list would let a caller report "approved" having
+		// written no record at all — exit 0, a success message, zero bytes.
+		// The store refuses an empty-payload approve for the same reason; this
+		// is that refusal reaching the case where there is no payload to offer
+		// it in the first place.
+		return nil, "", fmt.Errorf("%s has no content in any form: there is nothing to countersign", tRef.Key())
+	}
+	return out, signer, nil
 }
 
 // computeItemPayload resolves the item's CURRENT effective form — distilled when

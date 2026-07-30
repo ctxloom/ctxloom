@@ -245,20 +245,24 @@ assertion's scope.
 
 ```
 signed_payload(approve|reject) :=
-    "ctxloom-countersign/1\n"          # contract version, ASCII, fixed
+    "ctxloom-countersign/2\n"          # contract version, ASCII, fixed
     "assertion: " <approve|reject> "\n"
-    "kind: " <fragments|skills|mcp|hooks> "\n"
     "ref: " <canonical item ref, or empty> "\n"
-    "form: " <raw|distilled|exec, or empty> "\n"
+    "form: " <an attestation form, or empty> "\n"
     "len: " <decimal length of payload_bytes> "\n"
     "\n"                                # blank line terminates the header
     <payload_bytes>                     # verbatim, exactly len bytes
 ```
 
+The `form` field is the **attestation form**: a single composite value naming both
+the item's ROLE and, for the two distillable kinds, which materialization was
+reviewed (§3.2.2). There is deliberately no separate `kind:` line — one field, one
+closed vocabulary, and no way to emit a header whose kind and form disagree.
+
 The header is **not a canonicalization**. It is a fixed, length-prefixed,
 LF-delimited ASCII preamble with a closed field set, emitted and parsed by the
 same function on both sides (`signing.CountersignPayload`), containing no
-user-controlled structure beyond the ref — the assertion, kind, and form are drawn
+user-controlled structure beyond the ref — the assertion and the form are drawn
 from closed vocabularies, and `len` makes the payload boundary unambiguous
 regardless of what the payload contains. It exists because the ref and the form are
 *not* present in the payload bytes and must be bound to the assertion (otherwise an
@@ -314,33 +318,57 @@ and a locally authored fragment yields:
 ctxloom:local|my-tools#fragments/go-testing
 ```
 
-**One vocabulary trap, and it is deliberate, not a bug.** The header's `kind:`
-field and the ref's `KindDir` component use **different tokens for skills**: the
-`kind:` field says `skills` (`signing.KindSkills`), while the ref embeds `prompts`
+**One vocabulary trap, and it is deliberate, not a bug.** The attestation form says
+`command/*`, while the ref's `KindDir` component embeds `prompts`
 (`trust.ItemKind.Dir` — the on-disk directory name, which predates the
-prompt→skill rename and is what the ref grammar has always used). Both appear in
+prompt→command rename and is what the ref grammar has always used). Both appear in
 the same signed payload, and both are load-bearing. An implementer who "unifies"
-them changes the signed bytes and invalidates every skill approval in existence.
+them changes the signed bytes and invalidates every command approval in existence.
 
-#### 3.2.2 `payload_bytes` per kind
+#### 3.2.2 The attestation form, and `payload_bytes` per kind
 
-Bind these to the existing hash preimages, and to nothing else:
+The `form:` field is a **closed composite vocabulary** (`signing.AttestationForm`),
+derived from the item's live kind and the layout form its bytes are in. This is the
+complete, normative mapping — a third party that emits any other value produces
+signatures that will never verify:
 
-| kind | `payload_bytes` | preimage builder |
-|---|---|---|
-| fragments | the fragment's effective content in the exposed form | `BundleFragment.ContentPayload` |
-| skills | the command's effective content in the exposed form | `BundleCommand.ContentPayload` |
-| mcp | `BundleMCP` canonical JSON (Command, Args, Env, Installation) | `BundleMCP.ContentPayload` |
-| hooks | `BundleHook` canonical JSON (executable surface) | `BundleHook.ContentPayload` |
+| item kind (`trust.ItemKind`) | layout form | `form:` field | `payload_bytes` | preimage builder |
+|---|---|---|---|---|
+| `fragment` | raw | `fragment/raw` | the fragment's authored content | `BundleFragment.ContentPayload` |
+| `fragment` | distilled | `fragment/distilled` | the fragment's distilled rewrite | `BundleFragment.ContentPayload` |
+| `prompt` (a command) | raw | `command/raw` | the command's authored content | `BundleCommand.ContentPayload` |
+| `prompt` (a command) | distilled | `command/distilled` | the command's distilled rewrite | `BundleCommand.ContentPayload` |
+| `mcp` | raw (its only form) | `exec/mcp` | `BundleMCP` canonical JSON (Command, Args, Env, Installation) | `BundleMCP.ContentPayload` |
+| `hook` | raw (its only form) | `exec/hook` | `BundleHook` canonical JSON (executable surface) | `BundleHook.ContentPayload` |
+| `skill` | raw (its only form) | `skill` | `SkillManifest` canonical JSON (the whole package tree) | `BundleSkill.ContentPayload` |
+
+A ref-reject binds no content, so its `form:` field is empty (§5.3).
+
+**Why the form is composite, and why this is security-load-bearing.** An approval
+attests bytes IN A ROLE, and the role is not recoverable from the bytes. A
+fragment's and a command's payloads are BARE content bytes — no tag, no length
+prefix, no delimiter — while exec and skill payloads are deterministic JSON with
+every field always emitted. So a publisher can ship a FRAGMENT whose body is
+literally an MCP server's preimage alongside the matching MCP server: byte
+EQUALITY, no collision search. A reviewer is shown that fragment as TEXT
+(fragments render as content; executables render as "what they run") and approves
+it. If the two shared an approval key, the executable would then be trusted having
+NEVER been displayed as an executable — the dangerous rendering is exactly the step
+skipped for an already-approved item. Folding the role into the signed form value
+makes them different signed bytes, so no such transfer is possible. The same holds
+one axis over, for fragment vs command, which are otherwise indistinguishable.
+
+**Routing never reads this value.** What an item IS, and how it is rendered and
+dispatched, comes from the surface-type registry. A registry name with no
+attestation form is INERT by construction: it can be neither approved nor exposed
+through the gate, so extending the vocabulary of things a bundle can carry adds no
+security surface. That is also why the attestation vocabulary is CLOSED — what
+verifies must never depend on which plugins are loaded.
 
 There is **exactly one** definition of "the bytes of item X in form F": the
 `ContentPayload` method for that kind. `ComputeContentHash` hashes precisely that
 function's output, and the signer signs precisely that function's output. Two
 definitions is the bug.
-
-The `form:` field is drawn from `signing.Form`: `raw`, `distilled`, `exec` (mcp and
-hooks, which have exactly one form), or empty (a ref-reject, which binds no content
-at all — §5.3).
 
 ### 3.3 The two honest caveats — do not paper over these
 
@@ -1390,8 +1418,9 @@ this spec specified `sha256(payload_bytes)` and **that scheme is broken**:
   name.
 
 In both cases the second write silently clobbers the first. Hashing the framed
-payload makes the key unique per `(assertion, kind, ref, form, bytes)` tuple, which
-is exactly the granularity a countersignature is scoped to. **Do not "simplify" this
+payload makes the key unique per `(assertion, ref, form, bytes)` tuple — and since
+the form names the item's ROLE, that granularity separates byte-identical items of
+different kinds, which is exactly the granularity a countersignature is scoped to. **Do not "simplify" this
 back.**
 
 The `key_tag` disambiguates multiple signers countersigning the same content — an
@@ -1413,6 +1442,16 @@ written to the committable project store.
 A sidecar `index.yaml` MAY cache `{ref, kind, form, principal, reviewed_at}` for
 `ctxloom approvals list` to render without verifying everything; it is **untrusted
 display metadata** and must never be an input to steps 1–6.
+
+Its `kind` and `form` fields are DISPLAY labels — the item's live kind and its plain
+LAYOUT form (`raw`/`distilled`) — deliberately not the attestation vocabulary the
+preimage binds, and lookups into it key on `(ref, layout form)` only. That is what
+makes a contract bump (§12) land as STALE rather than ABSENT: a record framed under
+a superseded contract can never verify again, but "a human approved something here
+once" is still true, and the index is the only thing left that can say so, which is
+what labels the item an UPDATE to re-review instead of a first-time item. Such a
+record is only ever REPORTED, never re-keyed onto the current vocabulary —
+re-keying would have to guess the role it was approved in.
 
 ### 9.3 What is left of the content hash? (question c)
 
@@ -1788,7 +1827,7 @@ versioned independently, because they change for independent reasons:
 | Contract | Version carrier | Bump means |
 |---|---|---|
 | Publisher signature | SSH **namespace**: `publish.v1.ctxloom.dev` | old signatures no longer verify → publishers must re-sign |
-| Countersignature payload framing | header line `ctxloom-countersign/1` **and** namespace `approve.v1.ctxloom.dev` | all existing approvals invalidate → mass re-review |
+| Countersignature payload framing | header line `ctxloom-countersign/2` **and** namespace `approve.v1.ctxloom.dev` | all existing approvals invalidate → mass re-review |
 | Countersignature **`ref` serialization** (§3.2.1) | the framing above | a different `ref` string is a different signed payload — signatures will not verify |
 | Exec-item preimage | `"preimage":"ctxloom-exec/1"` **first field** (§3.3.2) | all MCP/hook approvals invalidate |
 | Companion loadout envelope | `"contract":"ctxloom-loadout/1"` | companions must re-emit |

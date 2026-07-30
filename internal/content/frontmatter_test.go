@@ -141,8 +141,8 @@ func TestFormOf(t *testing.T) {
 		{"fragments/solid.distilled.md", both, signing.FormDistilled},
 		{"fragments/.solid.meta.yaml", both, signing.FormRaw},
 		{"fragments/.solid.distilled.meta.yaml", both, signing.FormDistilled},
-		{"mcp/postgres.yaml", execForms, signing.FormExec},
-		{"mcp/.postgres.meta.yaml", execForms, signing.FormExec},
+		{"mcp/postgres.yaml", execForms, signing.FormRaw},
+		{"mcp/.postgres.meta.yaml", execForms, signing.FormRaw},
 		{"skills/code-reviewer/SKILL.md", []signing.Form{signing.FormRaw}, signing.FormRaw},
 	} {
 		if got := formOf(tc.path, tc.forms); got != tc.want {

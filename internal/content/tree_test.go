@@ -168,8 +168,8 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"}, []signing.Form{signing.FormRaw, signing.FormDistilled}},
 		{trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky"}, []signing.Form{signing.FormRaw}},
 		{trust.Ref{Bundle: "code-quality", Kind: trust.KindPrompt, Name: "review"}, []signing.Form{signing.FormRaw}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []signing.Form{signing.FormExec}},
-		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []signing.Form{signing.FormExec}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, []signing.Form{signing.FormRaw}},
+		{trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}, []signing.Form{signing.FormRaw}},
 		{trust.Ref{Bundle: "code-quality", Kind: trust.KindSkill, Name: "code-reviewer"}, []signing.Form{signing.FormRaw}},
 		{trust.Ref{Bundle: "code-quality", Kind: KindProfile, Name: "strict"}, []signing.Form{signing.FormRaw}},
 	} {
@@ -187,10 +187,16 @@ func TestItem_FormsReportExactlyWhatExists(t *testing.T) {
 	}
 }
 
-// TestItem_ExecutableSurfacesReportExecNotRaw states the invariant on its own.
-// Reporting FormRaw for an mcp or hook would make a later layer rebuild the wrong
-// countersign preimage — a correctness bug, not a naming preference.
-func TestItem_ExecutableSurfacesReportExecNotRaw(t *testing.T) {
+// TestItem_ExecutableSurfacesCarryOnlyTheBaseForm states the layout invariant on
+// its own: an executable surface has exactly ONE materialization, carried by an
+// unsuffixed filename, so it reports the BASE layout form and nothing else.
+//
+// The ROLE that distinguishes it from a fragment lives in the composite
+// attestation form the trust layer derives from the item's kind, NOT in this
+// axis — so an mcp server reporting the same layout form a never-distilled
+// document reports is correct, and a distilled form it does not have is still
+// refused.
+func TestItem_ExecutableSurfacesCarryOnlyTheBaseForm(t *testing.T) {
 	store := fixtureStore(t)
 	bundle, _ := store.Open(context.Background(), "code-quality")
 	for _, ref := range []trust.Ref{
@@ -201,11 +207,11 @@ func TestItem_ExecutableSurfacesReportExecNotRaw(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item(%s): %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), signing.FormRaw); !errors.Is(err, ErrNoSuchForm) {
-			t.Errorf("%s: FormRaw err = %v, want ErrNoSuchForm", ref.Key(), err)
+		if _, err := item.Form(context.Background(), signing.FormRaw); err != nil {
+			t.Errorf("%s: FormRaw: %v", ref.Key(), err)
 		}
-		if _, err := item.Form(context.Background(), signing.FormExec); err != nil {
-			t.Errorf("%s: FormExec: %v", ref.Key(), err)
+		if _, err := item.Form(context.Background(), signing.FormDistilled); !errors.Is(err, ErrNoSuchForm) {
+			t.Errorf("%s: FormDistilled err = %v, want ErrNoSuchForm", ref.Key(), err)
 		}
 	}
 }
@@ -474,7 +480,7 @@ func TestMCP_SidecarIsHashedAndContentFileStaysPure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormExec)
+	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -526,7 +532,7 @@ func TestHook_TwoHooksInOneEventHaveNameIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Item(%s): %v", tc.name, err)
 		}
-		form, err := item.Form(ctx, signing.FormExec)
+		form, err := item.Form(ctx, signing.FormRaw)
 		if err != nil {
 			t.Fatalf("Form(%s): %v", tc.name, err)
 		}
@@ -588,7 +594,7 @@ func TestHook_SingleHookInAnEventResolvesIdentically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Item: %v", err)
 	}
-	form, err := item.Form(ctx, signing.FormExec)
+	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
 	}
@@ -677,7 +683,7 @@ func TestSurfaces_DecodeAuthoredFields(t *testing.T) {
 		t.Errorf("unknown engine's settings were dropped: %+v", cmd.Exports)
 	}
 
-	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, signing.FormExec))
+	mcp, err := As[MCP](ctx, formFor(trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}, signing.FormRaw))
 	if err != nil {
 		t.Fatalf("As[MCP]: %v", err)
 	}

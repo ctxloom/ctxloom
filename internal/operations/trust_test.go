@@ -673,9 +673,9 @@ func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 
 	// Both forms verify as content-rejected — content-reject is deliberately
 	// ref-omitted, so it is never queried under a ref at all.
-	_, ok := fx.user.VerifiedContentReject(signingKindOf(trust.KindFragment), signing.FormRaw, []byte("raw body"), fx.root, time.Now())
+	_, ok := fx.user.VerifiedContentReject(signing.AttestFragmentRaw, []byte("raw body"), fx.root, time.Now())
 	assert.True(t, ok)
-	_, ok = fx.user.VerifiedContentReject(signingKindOf(trust.KindFragment), signing.FormDistilled, []byte("distilled body"), fx.root, time.Now())
+	_, ok = fx.user.VerifiedContentReject(signing.AttestFragmentDistilled, []byte("distilled body"), fx.root, time.Now())
 	assert.True(t, ok)
 }
 

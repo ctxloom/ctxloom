@@ -347,14 +347,18 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 		Executable: executable,
 	}
 	// UPDATE detection + diff base: consult the (display-only, untrusted)
-	// sidecar index for a PRIOR approve attempt at this ref+kind+form — a
-	// human saw an earlier version if one exists, even though it no longer
-	// verifies (that is exactly why the item is pending again). This is never
-	// a trust decision, only a label + a diff base; EffectiveTrust above has
-	// already, independently, decided this item is pending.
-	signingKind := signingKindOf(tRef.Kind)
+	// sidecar index for a PRIOR approve attempt at this ref+form — a human saw
+	// an earlier version if one exists, even though it no longer verifies (that
+	// is exactly why the item is pending again). This is never a trust decision,
+	// only a label + a diff base; EffectiveTrust above has already,
+	// independently, decided this item is pending.
+	//
+	// It is keyed on the LAYOUT form, which is what makes an approval superseded
+	// by a countersign-contract bump read as an UPDATE rather than as a NEW item:
+	// the record can no longer verify, but a human's earlier look at this ref is
+	// still a fact, and telling them "new" would hide it.
 	refStr := countersignRef(tRef)
-	entry, found, idxErr := latestApproveEntry(e.records, signingKind, refStr, signing.Form(form))
+	entry, found, idxErr := latestApproveEntry(e.records, refStr, signing.Form(form))
 	if idxErr != nil {
 		// "I cannot read the index" is not "there was never a prior
 		// approval". Say so, and take the conservative label: UPDATE puts the
@@ -383,11 +387,11 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 // An unreadable index is reported, never folded into "no prior approval":
 // that answer would relabel an UPDATE as NEW and hide the diff a reviewer
 // looks at.
-func latestApproveEntry(records countersignRecords, kind signing.ItemKind, ref string, form signing.Form) (countersign.IndexEntry, bool, error) {
+func latestApproveEntry(records countersignRecords, ref string, layout signing.Form) (countersign.IndexEntry, bool, error) {
 	var latest countersign.IndexEntry
 	found := false
 	for _, st := range records.bothStores() {
-		e, ok, err := st.LatestApprove(kind, ref, form)
+		e, ok, err := st.LatestApprove(ref, layout)
 		if err != nil {
 			return countersign.IndexEntry{}, false, err
 		}

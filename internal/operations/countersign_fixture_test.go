@@ -30,7 +30,20 @@ type trustFixture struct {
 	user    *countersign.Store
 	project *countersign.Store
 	root    *allowedsigners.Store
+	// memFs backs both stores. Exposed via fs() for the rare test that must
+	// place a file in a store DIRECTLY — a record framed under a superseded
+	// contract, which no current API can write.
+	memFs afero.Fs
 }
+
+// The directories the fixture's two stores are rooted at, named so a test
+// writing into one directly does not re-spell the path.
+const (
+	userApprovalsDir    = "/user-approvals"
+	projectApprovalsDir = "/project-approvals"
+)
+
+func (f *trustFixture) fs() afero.Fs { return f.memFs }
 
 // newTrustFixture builds a fresh fixture over an in-memory filesystem, with
 // one signer trusted for both the approve and reject namespaces.
@@ -49,9 +62,10 @@ func newTrustFixture(t *testing.T) *trustFixture {
 	fs := afero.NewMemMapFs()
 	return &trustFixture{
 		t: t, signer: signer, pub: signer.PublicKey(),
-		user:    countersign.NewStore("/user-approvals", fs),
-		project: countersign.NewStore("/project-approvals", fs),
+		user:    countersign.NewStore(userApprovalsDir, fs),
+		project: countersign.NewStore(projectApprovalsDir, fs),
 		root:    root,
+		memFs:   fs,
 	}
 }
 
@@ -64,16 +78,22 @@ func (f *trustFixture) records() countersignRecords {
 // approve signs+writes a REAL approve countersignature over payload, for ref
 // in form, to the USER store — the direct equivalent of the deleted
 // store.SetAccepted's single-slot write.
+//
+// form is the LAYOUT form, as at every gate call site; the ATTESTATION form the
+// record binds is DERIVED from the ref's kind, exactly as production derives it,
+// so a fixture can no more choose a role than a caller can.
 func (f *trustFixture) approve(ref trust.Ref, form signing.Form, payload []byte) {
 	f.t.Helper()
-	require.NoError(f.t, f.user.WriteApprove(signingKindOf(ref.Kind), countersignRef(ref), form, payload, f.signer))
+	attested, err := attestationFormFor(ref.Kind, form)
+	require.NoError(f.t, err)
+	require.NoError(f.t, f.user.WriteApprove(countersignRef(ref), attested, payload, f.signer))
 }
 
 // rejectRef writes a ref-level (sticky) reject countersignature — the direct
 // equivalent of the deleted store.SetRejected(repo, ref) with no hashes.
 func (f *trustFixture) rejectRef(ref trust.Ref) {
 	f.t.Helper()
-	require.NoError(f.t, f.user.WriteRefReject(signingKindOf(ref.Kind), countersignRef(ref), f.signer))
+	require.NoError(f.t, f.user.WriteRefReject(countersignRef(ref), f.signer))
 }
 
 // rejectContent writes a content-reject countersignature over payload (ref
@@ -81,7 +101,9 @@ func (f *trustFixture) rejectRef(ref trust.Ref) {
 // store.SetRejected(repo, ref, hashes...) denylist write.
 func (f *trustFixture) rejectContent(kind trust.ItemKind, form signing.Form, payload []byte) {
 	f.t.Helper()
-	require.NoError(f.t, f.user.WriteContentReject(signingKindOf(kind), form, payload, f.signer))
+	attested, err := attestationFormFor(kind, form)
+	require.NoError(f.t, err)
+	require.NoError(f.t, f.user.WriteContentReject(attested, payload, f.signer))
 }
 
 // approveFragment/approvePrompt are approve() convenience wrappers for the
@@ -140,10 +162,11 @@ func installUnsignedRejection(t *testing.T, ref trust.Ref, form signing.Form, pa
 	home, err := paths.HomeApprovalsPath()
 	require.NoError(t, err)
 	store := countersign.NewStore(home, afero.NewOsFs())
-	kind := signingKindOf(ref.Kind)
 	refStr := countersignRef(ref)
-	require.NoError(t, store.WriteUnsignedRefReject(kind, refStr))
+	require.NoError(t, store.WriteUnsignedRefReject(refStr))
 	if len(payload) > 0 {
-		require.NoError(t, store.WriteUnsignedContentReject(kind, form, payload))
+		attested, ferr := attestationFormFor(ref.Kind, form)
+		require.NoError(t, ferr)
+		require.NoError(t, store.WriteUnsignedContentReject(attested, payload))
 	}
 }

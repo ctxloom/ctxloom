@@ -719,13 +719,21 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
 		defer cancel()
 	}
+	return h.awaitAck(ctx, last)
+}
+
+// awaitAck blocks until the cumulative Ack watermark covers seq — the point at
+// which the coordinator has fsynced those facts. A quiet stretch re-issues the
+// unacked events rather than waiting on in silence, because the watermark that would end
+// this wait is droppable in flight (see reissueUnacked).
+func (h *Home) awaitAck(ctx context.Context, seq uint64) error {
 	started := time.Now()
 	for {
 		h.mu.Lock()
 		acked := h.acked
 		ch := h.ackCh
 		h.mu.Unlock()
-		if acked >= last {
+		if acked >= seq {
 			return nil
 		}
 		prod := time.NewTimer(ackReissueInterval)

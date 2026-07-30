@@ -110,7 +110,20 @@ type Diagnostics struct {
 	// ScoredTasks against a large non-terminal population is the signature
 	// of a schema/data mismatch (formulas declared, but the tags they read
 	// are never actually applied to tasks).
+	//
+	// It is only ever meaningful against NonTerminalTasks: "3 scored" is a
+	// healthy ranking of 3 active tasks and a broken one of 300.
 	ScoredTasks int
+
+	// NonTerminalTasks is the size of the population ScoredTasks is drawn
+	// from — every task whose Status is neither Done nor Archived, i.e.
+	// exactly the set rank-normalization runs over. It is ScoredTasks's
+	// denominator: without it neither this package's own doc rule ("a low
+	// ScoredTasks against a large non-terminal population") nor the warning
+	// cmd/taskloom renders from it can be evaluated at all, and a caller
+	// cannot recompute it without re-implementing this package's terminal-
+	// status predicate.
+	NonTerminalTasks int
 }
 
 // Compute derives a Result for every task in all (any status). Raw scores
@@ -216,7 +229,11 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 		}
 	}
 
-	diag := Diagnostics{NoPriorityFn: priorityFn == nil, ScoredTasks: scoredTasks}
+	diag := Diagnostics{
+		NoPriorityFn:     priorityFn == nil,
+		ScoredTasks:      scoredTasks,
+		NonTerminalTasks: len(nonTerminal),
+	}
 	if len(nonTerminal) > 1 {
 		first := raw[nonTerminal[0]]
 		tied := true

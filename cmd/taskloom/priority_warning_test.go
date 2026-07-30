@@ -32,3 +32,14 @@ func TestPriorityDiagnosticWarning_DegenerateRankingIsNeverSilent(t *testing.T) 
 	assert.Empty(t, priorityDiagnosticWarning(priority.Diagnostics{ScoredTasks: 3}),
 		"a healthy ranking must stay quiet")
 }
+
+// The tied-scores warning quotes ScoredTasks. On its own that number cannot
+// be read: "only 3 carry a tag any formula reads" is a healthy ranking of 3
+// active tasks and a broken one of 300. The warning must carry the
+// denominator Compute now reports.
+func TestPriorityDiagnosticWarning_TiedWarningNamesBothSides(t *testing.T) {
+	msg := priorityDiagnosticWarning(priority.Diagnostics{
+		AllTied: true, ScoredTasks: 3, NonTerminalTasks: 300,
+	})
+	assert.Contains(t, msg, "3 of 300", "the warning must quote the ratio, not a bare numerator")
+}

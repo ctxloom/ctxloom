@@ -39,3 +39,49 @@ func TestCompute_NoPriorityFn_EveryTaskMaxButDiagnosticsSayItIsMeaningless(t *te
 	assert.True(t, diag.NoPriorityFn, "the degenerate ranking must be reported, not just produced")
 	assert.True(t, diag.AllTied, "every non-terminal task shares one raw score")
 }
+
+// ScoredTasks is a numerator. Its own doc rule — "a low ScoredTasks against
+// a large non-terminal population" — cannot be evaluated without the
+// population size, and a caller cannot recompute that size without
+// re-implementing this package's terminal-status predicate. So Compute must
+// report the denominator alongside it.
+func TestCompute_Diagnostics_ReportsScoredTasksDenominator(t *testing.T) {
+	schema := defaultTriageSchema(t)
+	all := []tasks.Task{
+		{HarpID: "scored", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
+		{HarpID: "unrelated", Status: tasks.StatusToDo, Tags: []string{"urgent"}, CreatedAt: fixedNow},
+		{HarpID: "bare", Status: tasks.StatusInProgress, CreatedAt: fixedNow},
+		{HarpID: "parked", Status: tasks.StatusDeferred, CreatedAt: fixedNow},
+		{HarpID: "finished", Status: tasks.StatusDone, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
+		{HarpID: "shelved", Status: tasks.StatusArchived, CreatedAt: fixedNow},
+	}
+	_, diag, err := Compute(all, schema, fixedNow)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, diag.ScoredTasks)
+	assert.Equal(t, 4, diag.NonTerminalTasks,
+		"Deferred is non-terminal (it only skips decay); Done and Archived are not")
+}
+
+// The denominator must track the same population rank-normalization uses,
+// not the whole task list — otherwise the ratio the warning reports is drawn
+// from a set no ranking was ever computed over.
+func TestCompute_Diagnostics_DenominatorMatchesTheNormalizedPopulation(t *testing.T) {
+	schema := defaultTriageSchema(t)
+	all := []tasks.Task{
+		{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
+		{HarpID: "b", Status: tasks.StatusToDo, Tags: []string{"triage:kind=chore"}, CreatedAt: fixedNow},
+		{HarpID: "done", Status: tasks.StatusDone, CreatedAt: fixedNow},
+	}
+	results, diag, err := Compute(all, schema, fixedNow)
+	require.NoError(t, err)
+
+	ranked := 0
+	for id, r := range results {
+		if r.Priority > 0 {
+			ranked++
+			assert.NotEqual(t, "done", id)
+		}
+	}
+	assert.Equal(t, ranked, diag.NonTerminalTasks)
+}

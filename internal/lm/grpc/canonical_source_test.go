@@ -362,3 +362,62 @@ func TestCanonicalFallbackSource_ListSessions_CanonicalErrorsButLegacyHasSession
 	require.Len(t, metas, 1)
 	assert.Equal(t, "legacy-only-session", metas[0].ID)
 }
+
+// countingStore counts every read of the session index. Each of these methods
+// re-reads and re-parses the whole index file in the production Manager, so the
+// count is a direct proxy for file reads.
+type countingStore struct {
+	*sessions.MemStore
+	reads int
+}
+
+func (c *countingStore) Load() (*sessions.Index, error) {
+	c.reads++
+	return c.MemStore.Load()
+}
+
+func (c *countingStore) Find(harpName string) (*sessions.Entry, error) {
+	c.reads++
+	return c.MemStore.Find(harpName)
+}
+
+func (c *countingStore) ListForProject(projectDir string) ([]sessions.Entry, error) {
+	c.reads++
+	return c.MemStore.ListForProject(projectDir)
+}
+
+// listSessionsIndexReads builds a project with n canonical-backed sessions and
+// returns how many index reads one ListSessions costs.
+func listSessionsIndexReads(t *testing.T, n int) int {
+	t.Helper()
+	testsupport.Isolate(t)
+
+	store := &countingStore{MemStore: sessions.NewMemStore()}
+	for i := 0; i < n; i++ {
+		harp := fmt.Sprintf("harp-count-%d", i)
+		mintBoundHarp(t, store.MemStore, harp, "/proj", fmt.Sprintf("backend-uuid-c%d", i))
+		writeCanonicalFixture(t, harp, "codex", "payload")
+	}
+
+	src := NewCanonicalFallbackSource(&fakeSessionSource{}, "/proj", store)
+	store.reads = 0
+	metas, err := src.ListSessions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, metas, n)
+	return store.reads
+}
+
+// TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale pins U059-F13:
+// the dedup set was built by calling store.Find once per canonical session, and
+// every Find re-reads and re-parses the entire index file. Listing a project
+// with N sessions cost N index reads on top of the enumeration — work that is
+// wholly avoidable, since one read already carries every entry. The cost of a
+// listing must not depend on how many sessions the project has.
+func TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale(t *testing.T) {
+	var few, many int
+	t.Run("one session", func(t *testing.T) { few = listSessionsIndexReads(t, 1) })
+	t.Run("six sessions", func(t *testing.T) { many = listSessionsIndexReads(t, 6) })
+
+	assert.Equal(t, few, many,
+		"index reads grew with the session count: %d for 1 session, %d for 6", few, many)
+}

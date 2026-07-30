@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,230** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 104 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 154 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 155 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 155 |
-| `open` | no commit names this ID | **625** |
+| `open` | no commit names this ID | **624** |
 
-**Totals: 2268 findings across 162 units — 1,230 resolved, 625 still open, 413 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,230 resolved, 624 still open, 414 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 423 | 349 | 58 | 71 | 98 |
+| MED | 999 | 423 | 348 | 58 | 72 | 98 |
 | LOW | 871 | 451 | 259 | 33 | 75 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1913,7 +1913,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U150-F07 | **REFUTED** `5074750d` | `internal/operations/trust.go:151-160` | COHESION | `State()` is a lossy 7→3 projection that **misreports two things to the user**: a publisher *retraction* renders as `rejected` (a vocabulary this package defines as "a human COUNTERSIGNED this"), a... | U150.md |
 | U150-F08 | open | `internal/operations/trust.go:244,349` | ERRHANDLING | `EffectiveTrust`'s `error` return is **structurally always nil** — all 9 return statements return `nil`. Callers' error handling is dead code, and the signature falsely implies faults propagate. | U150.md |
 | U150-F09 | open | `internal/trust/trust.go:244-255` vs `internal/operations/trust.go:808-812` | COUPLING | The two functions that decide "is this string a sentinel source?" **disagree on the sentinel list**, and the fail-closed boundary is a **denylist of markers** rather than an allowlist. Anything not... | U150.md |
-| U150-F10 | open | `internal/trust/trust.go:142-145`; `internal/operations/countersign_records.go:172-174` | CORRECTNESS | Both kind-mapping functions have an unchecked `default` passthrough, so an unknown or empty `ItemKind` silently produces a **well-formed store address** instead of an error. | U150.md |
+| U150-F10 | **REFUTED** `2f285b5e` | `internal/trust/trust.go:142-145`; `internal/operations/countersign_records.go:172-174` | CORRECTNESS | Both kind-mapping functions have an unchecked `default` passthrough, so an unknown or empty `ItemKind` silently produces a **well-formed store address** instead of an error. | U150.md |
 | U151-F01 | open | `vpio.go:79-80` | COUPLING | `Session.Wait` does not say whether it may be called more than once, and the two implementations answer differently: dockerexec's is idempotent, goplugin's deadlocks on the second call. | U151.md |
 | U151-F02 | open | `vpio.go:48-51` | COUPLING | `ProcessSpec` specifies nil-handling for `Stdin` only. For nil `Stdout` the two implementations have **opposite** failure modes — one silently discards the entire session, the other panics. Neither... | U151.md |
 | U151-F03 | open | `vpio.go:50-51` | CORRECTNESS | The interface promises "Stderr receives the session's diagnostic output", but one of the two implementations never reads the field — dockerexec merges stderr into stdout and drops the caller's writ... | U151.md |

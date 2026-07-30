@@ -51,6 +51,13 @@ type EngineSessionCoordinator interface {
 	WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func())
 }
 
+// assignSession is OpenEngineSession's seam onto AssignSession (a package
+// var, like newACPEngineClient below): minting a harp touches the real
+// session store, and the DEGRADE this opener takes when it fails — three
+// facilities silently off for the rest of the session — is otherwise
+// undrivable from a test.
+var assignSession = AssignSession
+
 // newACPEngineClient is OpenEngineSession's seam onto
 // pb.NewSelfInvokingClientForLabelEnv — a package var, mirroring oneshot.go's
 // prepareIsolation seam style, so a test can drive the WHOLE opener
@@ -256,8 +263,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 		replay = entries
 		contextText = JoinLeadBlocks(contextText, RenderResumedTranscript(harp, replay))
-	} else if entry, aerr := AssignSession(req.Cwd, backendName); aerr != nil {
-		clidiag.Warn("ctxloom", "acp agent: session accounting unavailable; session will not be resumable: %v", aerr)
+	} else if entry, aerr := assignSession(req.Cwd, backendName); aerr != nil {
+		// The harp is the load-bearing identifier for THREE separate
+		// facilities, and every one of them is off for the rest of this
+		// session (see the `if harp != ""` guards below and the closeOnce
+		// tail). Naming only the first left the other two to be discovered
+		// as unexplained absences mid-session.
+		clidiag.Warn("ctxloom", "acp agent: session accounting unavailable (%v) — this session is NOT recorded and cannot be resumed, the engine and its hooks run WITHOUT CTXLOOM_SESSION_HARP, and delegation reach-back is off (no agent_run from this session)", aerr)
 	} else {
 		harp = entry.HarpName
 	}

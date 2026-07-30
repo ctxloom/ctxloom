@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -451,4 +452,47 @@ func TestAcpWorkspaceAxis_SilentWhenNothingWasAsked(t *testing.T) {
 	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{Workspace: "worktree"}), "", "", "")
 	assert.Equal(t, isolation.WorkspaceAxis(""), got)
 	assert.Empty(t, warnings.String())
+}
+
+// stubAssignSession swaps the harp-minting seam for one that always fails,
+// restoring the production seam on cleanup.
+func stubAssignSession(t *testing.T, err error) {
+	t.Helper()
+	prev := assignSession
+	assignSession = func(string, string) (sessions.Entry, error) { return sessions.Entry{}, err }
+	t.Cleanup(func() { assignSession = prev })
+}
+
+// TestOpenEngineSession_FailedHarpMintNamesEveryConsequence pins U083-F18. A
+// failed AssignSession degrades to harp == "", and that single empty string
+// switches off THREE separate facilities at once: session recording (so no
+// resume, and no MarkSessionEnded), CTXLOOM_SESSION_HARP for the engine and
+// its SessionStart hooks, and the coordinator reach-back trio (so the session
+// cannot delegate at all). The warning named only the first, leaving the other
+// two to be discovered as unexplained absences mid-session.
+func TestOpenEngineSession_FailedHarpMintNamesEveryConsequence(t *testing.T) {
+	requireGit(t)
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	repo := writeACPTestProject(t, "")
+	warnings := captureWarnings(t)
+	stubAssignSession(t, assert.AnError)
+
+	client := &fakeACPEngineClient{}
+	stubACPEngineClient(t, client)
+
+	chat, err := OpenEngineSession(context.Background(), OpenRequest{Cwd: repo}, fakeEngineSessionCoord{}, "", "", "", "")
+	require.NoError(t, err, "a failed mint degrades; it never refuses the editor's session")
+	require.NotNil(t, chat)
+	t.Cleanup(chat.Close)
+
+	assert.Empty(t, chat.Harp, "the session really is unrecorded")
+	require.NotNil(t, client.gotReq)
+	_, hasHarp := client.gotReq.Env["CTXLOOM_SESSION_HARP"]
+	assert.False(t, hasHarp, "and the engine really does run without the harp env")
+
+	out := warnings.String()
+	assert.Contains(t, out, "resum", "the warning names the recording/resume consequence")
+	assert.Contains(t, out, "CTXLOOM_SESSION_HARP", "…the engine/hook env consequence")
+	assert.Contains(t, out, "delegation", "…and the delegation reach-back consequence")
 }

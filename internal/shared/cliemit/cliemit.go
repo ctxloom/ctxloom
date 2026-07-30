@@ -11,6 +11,9 @@
 package cliemit
 
 import (
+	"fmt"
+	"io"
+
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -33,17 +36,57 @@ func Emit(cmd *cobra.Command, data any, text func() error) error {
 	return clifmt.Render(cmd.OutOrStdout(), data, format)
 }
 
+// EmitError is Emit's failure half: it renders err to w in the format the
+// invocation selected, so a caller that asked for json/yaml/toml gets a
+// parseable {"error": "..."} envelope instead of a bare human line, and
+// text/markdown keep the "Error: <msg>" line a terminal expects.
+//
+// It takes an explicit writer because a failure belongs on stderr, not on
+// cmd.OutOrStdout(). cmd is the command that OWNS --format — for a top-level
+// Execute tail that is the root, whose persistent flag carries the parsed
+// value (see Resolve's ordering note). A --format that will not even parse
+// cannot be a reason to lose the original error, so an unresolvable format
+// falls back to text rather than propagating.
+//
+// The rendering error is returned for callers that can act on it; a process
+// tail writing to os.Stderr has no further fallback and discards it.
+func EmitError(w io.Writer, cmd *cobra.Command, err error) error {
+	format, ferr := Resolve(cmd)
+	if ferr != nil {
+		format = clifmt.FormatText
+	}
+	return clifmt.RenderError(w, err, format)
+}
+
 // Resolve reads the inherited global --format value and parses it via clifmt.
 // A set --json flag (the backward-compatible shorthand a few commands still
 // carry) is honored as --format json so existing scripts keep working. An unset
 // --format (e.g. a unit test that never registered it) reads as "" and is
 // treated as text; any other unrecognized value is an error wrapping
 // clifmt.ErrUnsupportedFormat.
+//
+// ORDERING (connascence of execution): Resolve reads cmd.Flags(), and cobra
+// merges a parent's PERSISTENT flags into a child's flag set during
+// ParseFlags, inside Execute. Call Resolve from RunE/PersistentPreRunE, or
+// from Execute's own error tail against the root that OWNS the flag. Called
+// earlier against a subcommand it sees no --format and answers text.
+//
+// Two causes of "cannot read --format" are deliberately NOT the same. An
+// ABSENT flag is the affordance above: it lets a command be driven without a
+// root, and turning it into an error breaks that contract at 30-plus call
+// sites. A flag registered with the WRONG TYPE is a wiring bug — the value
+// the user typed cannot be read at all — and is reported.
 func Resolve(cmd *cobra.Command) (clifmt.Format, error) {
 	if f := cmd.Flags().Lookup("json"); f != nil && f.Changed {
 		return clifmt.FormatJSON, nil
 	}
-	raw, _ := cmd.Flags().GetString("format")
+	if cmd.Flags().Lookup("format") == nil {
+		return clifmt.FormatText, nil
+	}
+	raw, err := cmd.Flags().GetString("format")
+	if err != nil {
+		return "", fmt.Errorf("cliemit: --format on %q is not a string flag: %w", cmd.CommandPath(), err)
+	}
 	if raw == "" {
 		return clifmt.FormatText, nil
 	}

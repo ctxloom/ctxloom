@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
 // dyingAgentScript reproduces the 2026-07-24 incident shape: the ACP adapter
@@ -105,6 +106,6 @@ exit 1
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "FATAL: the actual cause",
 		"the tail must keep the LAST stderr bytes — a dying process says why at the end")
-	assert.Less(t, len(err.Error()), 2*engineStderrTailBytes,
+	assert.Less(t, len(err.Error()), 2*stderrtail.DefaultBytes,
 		"the tail must be BOUNDED: unbounded engine stderr forwarded into a transcript is its own problem")
 }

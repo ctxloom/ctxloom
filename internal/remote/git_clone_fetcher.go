@@ -111,11 +111,16 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
 	base := paths.RepoContentPrefix + "/" + kind.DirName()
 
-	// Items present at HEAD — the baseline we subtract from history.
-	present := map[string]struct{}{}
-	if head, err := f.treeAtRef(""); err == nil {
-		collectItemPaths(head, base, present)
+	// Items present at HEAD — the baseline every historical path is subtracted
+	// from. It is not optional: an unread baseline is empty, and an empty
+	// baseline says every item this repo ever contained was removed upstream.
+	// That answer feeds a prune, so a read failure has to be a read failure.
+	head, err := f.treeAtRef("")
+	if err != nil {
+		return nil, fmt.Errorf("read the default-branch tree: %w", err)
 	}
+	present := map[string]struct{}{}
+	collectItemPaths(head, base, present)
 
 	// Union of every item path ever seen under base across all commits.
 	everSeen := map[string]struct{}{}
@@ -259,6 +264,12 @@ func (f *GitCloneFetcher) ValidateRepo(ctx context.Context, owner, repo string) 
 // GetDefaultBranch returns the default branch name.
 // Uses only local data — no network calls. For shallow clones, HEAD
 // points to the default branch that was cloned.
+//
+// When local HEAD, origin/HEAD and the conventional origin/main and
+// origin/master have all been tried and none resolved, this returns an error.
+// There is nothing further to consult, and the callers — the publish target
+// branch and the retraction-manifest read — act on the answer, so a guess
+// dressed as an answer is worse than a refusal.
 func (f *GitCloneFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
 	// Try HEAD directly — for non-bare clones (including shallow), HEAD
 	// points to the default branch
@@ -285,7 +296,7 @@ func (f *GitCloneFetcher) GetDefaultBranch(ctx context.Context, owner, repo stri
 		}
 	}
 
-	return "main", nil
+	return "", fmt.Errorf("cannot determine the default branch of %s: local HEAD is not on a branch and the clone has no origin/HEAD, origin/main or origin/master", f.repoURL)
 }
 
 // treeAtRef resolves a ref and returns the commit tree.

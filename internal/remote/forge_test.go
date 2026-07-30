@@ -63,6 +63,65 @@ func TestResolveForge_HostMatch(t *testing.T) {
 	assert.Equal(t, "GHE_TOKEN", rf.TokenEnv)
 }
 
+// TestResolveForge_UnknownLabelCannotBePersisted pins the guard that makes
+// U093-F07 unreachable.
+//
+// The row claimed an unknown `forge:` label on a remote is silently ignored and
+// falls through to host matching, binding the remote to a different endpoint
+// and a different token env. resolveForge's label lookup does indeed fall
+// through when the label is absent — but a remote cannot ACQUIRE an unknown
+// label: SetForge validates against MergeForges(registry forges) and refuses,
+// leaving the previous binding in place. Every label that can reach
+// resolveForge is therefore a label resolveForge can find.
+//
+// This goes red the moment that validation is relaxed.
+func TestResolveForge_UnknownLabelCannotBePersisted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remotes.yaml")
+	reg, err := NewRegistry(path)
+	require.NoError(t, err)
+	require.NoError(t, reg.Add("corp", "https://git.example.com/corp/repo"))
+	require.NoError(t, reg.SetForge("corp", "git"))
+
+	require.Error(t, reg.SetForge("corp", "no-such-forge"))
+
+	rem, err := reg.Get("corp")
+	require.NoError(t, err)
+	assert.Equal(t, "git", rem.Forge, "a refused bind must not overwrite the previous label")
+
+	// The surviving label resolves against the merged forge set — the lookup
+	// arm the row said was skipped.
+	forges := MergeForges(reg.Forges())
+	require.Contains(t, forges, rem.Forge)
+	assert.Equal(t, ForgeGitGeneric, resolveForge(rem.URL, rem.Forge, forges).Type)
+}
+
+// TestResolveForge_HostMatchIsDeterministic pins that host matching answers the
+// same way every time. The candidate set is a map, and ranging a Go map yields
+// a randomised order per iteration, so two forges sharing a base_url host used
+// to bind the remote to a different endpoint and a DIFFERENT token env from one
+// process to the next. Lowest label wins, and it wins every time.
+func TestResolveForge_HostMatchIsDeterministic(t *testing.T) {
+	forges := MergeForges(map[string]ForgeConfig{
+		"zulu-ghe": {Type: "github", Body: map[string]any{
+			"base_url":  "https://git.acme.example",
+			"token_env": "ZULU_TOKEN",
+		}},
+		"alfa-ghe": {Type: "github", Body: map[string]any{
+			"base_url":  "https://git.acme.example",
+			"token_env": "ALFA_TOKEN",
+		}},
+		"mike-ghe": {Type: "github", Body: map[string]any{
+			"base_url":  "https://git.acme.example",
+			"token_env": "MIKE_TOKEN",
+		}},
+	})
+
+	for i := 0; i < 200; i++ {
+		rf := resolveForge("https://git.acme.example/me/repo", "", forges)
+		require.Equal(t, "ALFA_TOKEN", rf.TokenEnv, "host match must not depend on map iteration order (attempt %d)", i)
+	}
+}
+
 func TestResolvedForge_Token(t *testing.T) {
 	t.Run("github reads token_env over ambient", func(t *testing.T) {
 		t.Setenv("GHE_TOKEN", "ghe-secret")

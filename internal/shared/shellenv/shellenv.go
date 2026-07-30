@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
@@ -33,6 +34,12 @@ import (
 // never stalls an engine launch — mirrors ctxloom-vscode's
 // RESOLVE_TIMEOUT_MS.
 const resolveTimeout = 10 * time.Second
+
+// probeStderrBudget bounds how much of the shell's stderr is retained and
+// then reported. Enough to carry the rc-file line that names the failure;
+// small enough that the error stays readable wherever it surfaces, since a
+// startup file can print a great deal on the way to failing.
+const probeStderrBudget = 512
 
 // execCommandContext is the seam tests override to avoid actually spawning a
 // shell — production points it at exec.CommandContext (the same pattern
@@ -73,17 +80,25 @@ func Resolve(name string) (string, error) {
 	if strings.ContainsRune(name, os.PathSeparator) {
 		return name, nil
 	}
-	if p, err := exec.LookPath(name); err == nil {
+	// Kept, not re-derived. exec.LookPath stats every directory in PATH, and
+	// on the failure path it was previously called a second time purely to
+	// reconstruct the error the first call had already produced and dropped —
+	// paying the whole PATH walk again for a value that was in hand. Holding
+	// it also makes the promise above literal: the error a caller sees is the
+	// one that actually happened, not a fresh one from a re-run that could
+	// disagree with it.
+	p, lookErr := exec.LookPath(name)
+	if lookErr == nil {
 		return p, nil
 	}
 	pathEnv, err := loginShellPath()
 	if err != nil || pathEnv == "" {
-		return exec.LookPath(name) // preserve the original, informative error
+		return "", lookErr
 	}
 	if p, err := lookPathIn(name, pathEnv); err == nil {
 		return p, nil
 	}
-	return exec.LookPath(name)
+	return "", lookErr
 }
 
 // lookPathIn searches name across the directories in pathEnv (a
@@ -104,16 +119,22 @@ func lookPathIn(name, pathEnv string) (string, error) {
 	return "", fmt.Errorf("%s: not found in login-shell PATH", name)
 }
 
-// isExecutableFile reports whether path exists, is a regular file, and has
-// at least one executable bit set — exec.LookPath's own criterion for a PATH
-// hit, applied here against a directory drawn from the login-shell probe
-// rather than os.Getenv("PATH").
+// isExecutableFile reports whether path exists, is a regular file, and is
+// executable BY THIS PROCESS — exec.LookPath's own criterion for a PATH hit,
+// applied here against a directory drawn from the login-shell probe rather
+// than os.Getenv("PATH").
+//
+// "By this process" is the load-bearing half. lookPathIn returns the first
+// accepting directory, so accepting a file the current user cannot exec lets
+// it SHADOW the real binary further down the PATH, and the launch then fails
+// with EACCES on a path ctxloom itself chose — a worse outcome than the ENOENT
+// this package exists to prevent, because it looks like a successful find.
 func isExecutableFile(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		return false
 	}
-	return info.Mode()&0o111 != 0
+	return currentUserCanExecute(path)
 }
 
 // loginShellPath returns the login shell's PATH, probed at most once per
@@ -161,8 +182,20 @@ func probeLoginShellPath() (string, error) {
 	cmd := execCommandContext(ctx, shell, loginShellArgs(shell, probe)...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
+	// The probe sources the user's REAL rc files, so a failure has almost
+	// always already been diagnosed by the shell itself — a syntax error with
+	// a file and line, an nvm/rbenv init that aborted, a missing command. An
+	// exit status alone cannot name which startup file broke a feature whose
+	// whole point is to be invisible when it works. Captured, not tee'd: this
+	// runs on every engine launch, so rc-file noise must not reach the
+	// operator's terminal on the paths that succeed.
+	stderr := stderrtail.New(probeStderrBudget)
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("login shell PATH probe (%s) failed: %w", shell, err)
+		if tail := stderr.Tail(); tail != "" {
+			return "", fmt.Errorf("login shell PATH probe (%s) failed: %w: %s", shell, err, textutil.TruncateBytes(tail, probeStderrBudget))
+		}
+		return "", fmt.Errorf("login shell PATH probe (%s) failed: %w (the shell wrote nothing to stderr)", shell, err)
 	}
 	return extractFencedPath(out.String())
 }

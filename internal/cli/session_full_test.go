@@ -223,3 +223,53 @@ func TestNewSessionFullRow_EssenceAndPathAgree(t *testing.T) {
 		assert.Equal(t, string(body), row.Essence, "the body must be the contents of the named path")
 	}
 }
+
+// U104-F05 names emitSessionRows as an instance of the hand-rolled format
+// branch that bypasses emit(). The parity check across the family's other
+// hand-rolled sites (cmd/taskloom/format_test.go) found them all equivalent to
+// cliemit.Emit's own predicate — except this one, which additionally routes
+// MARKDOWN to the bespoke human renderer:
+//
+//	if format != clifmt.FormatText && format != clifmt.FormatMarkdown
+//
+// So one command answers `--format markdown` two different ways depending on
+// --full: the non-full branch goes through emit(), which hands markdown to
+// clifmt.Render, while --full renders the human text table through the pager.
+// Nothing in the code says that asymmetry is intended, so it is characterized
+// here rather than silently "corrected" — the decision is the command owner's.
+// If the exclusion is deliberate, this test is its record; if it is not, this
+// test is what goes red when it is fixed.
+func TestEmitSessionRows_FullMarkdown_TakesTheHumanBranchUnlikeEmit(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	seedDistilledEssence(t, entry.HarpName, "## Summary\n\nmarkdown asymmetry.\n")
+
+	render := func(args ...string) string {
+		var out bytes.Buffer
+		rootCmd.SetOut(&out)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs(args)
+		t.Cleanup(func() {
+			rootCmd.SetOut(nil)
+			rootCmd.SetErr(nil)
+			rootCmd.SetArgs(nil)
+			sessionListFull = false
+		})
+		require.NoError(t, rootCmd.Execute())
+		return out.String()
+	}
+
+	full := render("session", "list", "--full", "--format", "markdown")
+	// --full is a BoolVar: cobra only assigns it when the flag is parsed, so a
+	// second invocation without it inherits true unless it is reset here.
+	sessionListFull = false
+	plain := render("session", "list", "--format", "markdown")
+
+	assert.NotContains(t, full, "| HARP",
+		"--full --format markdown currently renders the bespoke human view, not a clifmt markdown table")
+	assert.Contains(t, plain, "|",
+		"without --full the same flag goes through emit() and gets clifmt's markdown table")
+}

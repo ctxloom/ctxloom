@@ -2,8 +2,13 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// ErrSearchUnsupported reports that a forge cannot serve repository search at
+// all, as distinct from serving it and finding nothing.
+var ErrSearchUnsupported = errors.New("repository search is not supported by this forge")
 
 // NewCachedFetcherFactory returns a FetcherFactory that uses local git clones
 // for all content operations. The remote is cloned on first touch and every
@@ -118,11 +123,14 @@ func (f *cacheFetcher) ListTags(ctx context.Context, owner, repo string) ([]stri
 
 // SearchRepos has no local equivalent; it queries the forge's search index.
 // Only the GitHub adapter has a search API — the generic git adapter clones a
-// known URL and cannot enumerate a host, so it returns no results. The API
-// client is constructed lazily so it is only created when search is invoked.
+// known URL and cannot enumerate a host, so it cannot answer the question at
+// all and says so. "Unsupported here" and "your query matched nothing" are
+// different facts and must not share a return value. The API client is
+// constructed lazily so it is only created when search is invoked.
 func (f *cacheFetcher) SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error) {
 	if f.forgeType != ForgeGitHub {
-		return nil, nil
+		return nil, fmt.Errorf("%w: %s has no search index (the git adapter reads one known clone and cannot enumerate a host)",
+			ErrSearchUnsupported, f.repoURL)
 	}
 	apiFetcher, err := NewFetcher(f.repoURL, f.auth)
 	if err != nil {

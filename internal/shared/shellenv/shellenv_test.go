@@ -243,3 +243,130 @@ func TestLoginShellArgs_ClassifiesRobustly(t *testing.T) {
 		})
 	}
 }
+
+// TestProbeLoginShellPath_SilentShellIsAnError pins U117-F03's subject. The
+// row claims probeLoginShellPath returns ("", nil) -- success with an empty
+// payload -- when the shell runs but prints nothing, and that the cache then
+// blesses that for the process lifetime.
+//
+// That is what a bare `echo "$PATH"` capture did. Since the probe was fenced,
+// a shell that prints nothing produces neither sentinel, so extractFencedPath
+// refuses and the probe fails LOUDLY, naming the likely cause. A shell that
+// prints its startup noise and no PATH fails the same way.
+func TestProbeLoginShellPath_SilentShellIsAnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	cases := map[string]string{
+		"prints nothing at all": "",
+		"prints only a banner":  "printf 'Welcome to your shell\\n'",
+	}
+	for name, script := range cases {
+		t.Run(name, func(t *testing.T) {
+			orig := execCommandContext
+			execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+				return exec.CommandContext(ctx, "/bin/sh", "-c", script)
+			}
+			resetCacheForTest()
+			t.Cleanup(func() {
+				execCommandContext = orig
+				resetCacheForTest()
+			})
+
+			got, err := probeLoginShellPath()
+			require.Error(t, err, "a probe that recovered no PATH must not report success")
+			assert.Empty(t, got)
+			assert.Contains(t, err.Error(), "begin marker not found")
+		})
+	}
+}
+
+// TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError pins the second
+// half of U117-F03: the one ("", nil) outcome that CAN still occur is a shell
+// whose PATH is genuinely empty, and Resolve must treat that as "resolved to
+// nothing" rather than searching an empty PATH and inventing a different
+// failure. The caller keeps exec.LookPath's own error, naming the binary.
+func TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	withFakeShellProbe(t, "") // sentinels present, PATH between them empty
+
+	path, err := loginShellPath()
+	require.NoError(t, err, "an empty PATH between the sentinels is a resolved-to-nothing outcome, not a failure")
+	assert.Empty(t, path)
+
+	_, err = Resolve("definitely-does-not-exist-anywhere-xyz")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "definitely-does-not-exist-anywhere-xyz")
+}
+
+// TestProbeLoginShellPath_FailureCarriesTheShellsStderr pins U117-F02. The
+// probe runs the user's REAL login shell against their REAL rc files, so
+// when it fails the shell has almost always already said why -- "command not
+// found", a syntax error with a file and line, an nvm/rbenv init that
+// aborted. Discarding that stream leaves the operator an exit status and no
+// way to learn which of their startup files broke a feature whose entire
+// purpose is to be invisible when it works.
+func TestProbeLoginShellPath_FailureCarriesTheShellsStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	orig := execCommandContext
+	execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "/bin/sh", "-c",
+			`printf 'zshrc:42: command not found: nvm\n' >&2; exit 127`)
+	}
+	resetCacheForTest()
+	t.Cleanup(func() {
+		execCommandContext = orig
+		resetCacheForTest()
+	})
+
+	_, err := probeLoginShellPath()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "zshrc:42: command not found: nvm",
+		"the shell's own diagnosis is the only thing that names the broken startup file")
+	assert.Contains(t, err.Error(), "127", "the exit status must survive alongside it")
+}
+
+// TestResolve_SkipsAFileTheCurrentUserCannotExecute pins U117-F05.
+// isExecutableFile tested RAW MODE BITS (Mode()&0o111 != 0), which asks "does
+// SOMEBODY have an execute bit here?", not "can THIS process exec it?".
+// exec.LookPath's Unix implementation asks the second question, via an
+// effective-uid access check, so the two disagree on a file whose owner bit
+// is clear and whose group/other bits are set (0o011): the mode-bit test
+// accepts it, the kernel refuses it.
+//
+// The consequence is not a cosmetic divergence. lookPathIn returns the FIRST
+// accepting directory, so one unexecutable shim early in the login-shell PATH
+// shadowed the real binary further down, and the engine launch failed with
+// EACCES on a path ctxloom had just chosen — worse than the ENOENT this whole
+// package exists to prevent, because it looks like the binary was found.
+func TestResolve_SkipsAFileTheCurrentUserCannotExecute(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the execute permission check entirely")
+	}
+	const bin = "shadowed-fake-engine-binary"
+
+	shadowDir := t.TempDir()
+	shadow := filepath.Join(shadowDir, bin)
+	require.NoError(t, os.WriteFile(shadow, []byte("#!/bin/sh\n"), 0o644))
+	// Group and other may execute; the OWNER may not. POSIX consults the owner
+	// bits alone when euid matches, so this process cannot exec it despite
+	// Mode()&0o111 being non-zero.
+	require.NoError(t, os.Chmod(shadow, 0o011))
+
+	realDir := t.TempDir()
+	real := filepath.Join(realDir, bin)
+	require.NoError(t, os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755))
+
+	withFakeShellProbe(t, shadowDir+string(filepath.ListSeparator)+realDir)
+
+	got, err := Resolve(bin)
+	require.NoError(t, err)
+	assert.Equal(t, real, got, "an unexecutable file must not shadow the executable one behind it")
+}

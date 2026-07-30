@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -155,6 +156,15 @@ type window struct {
 	// goroutine lifetime, matching pre-fix behavior for a process where no
 	// Checkpoint has fired yet.
 	generation int
+	// open counts the checkpoints currently bracketing work on this
+	// goroutine. Nested Checkpoints on one goroutine share ONE window, so the
+	// registry entry may only be released when the LAST of them closes:
+	// releasing it while an outer Mark is still live detaches that mark — the
+	// next record builds a fresh window and the outer Since reads the
+	// orphaned old one, missing every finding recorded after the inner Close.
+	// A fail-loudly gate going quiet is the one failure this package exists
+	// to prevent, and nothing in the API would have detected it.
+	open int
 }
 
 // currentWindow returns (creating if absent) the calling goroutine's window.
@@ -229,6 +239,12 @@ func Degraded() bool {
 type Mark struct {
 	w   *window
 	idx int
+	// release is this checkpoint's one-shot token for its slot in the
+	// window's open count. Close is documented as safe to call more than once
+	// with the same Mark, so the release must be per-CHECKPOINT rather than
+	// per-call: a repeated Close of an inner mark must not consume an outer
+	// bracket's slot. Nil on a zero-value Mark, which Close no-ops on.
+	release *atomic.Bool
 }
 
 // Checkpoint returns a Mark for the current findings position on the CALLING
@@ -255,7 +271,8 @@ func Checkpoint() Mark {
 	// could have bumped again before this one's window ever records
 	// anything.
 	w.generation = gen
-	return Mark{w: w, idx: len(w.findings)}
+	w.open++
+	return Mark{w: w, idx: len(w.findings), release: &atomic.Bool{}}
 }
 
 // Since returns a copy of the findings this mark's goroutine recorded after
@@ -295,20 +312,30 @@ func All() []Finding {
 	return out
 }
 
-// Close releases the goroutine-keyed registry entry backing mark. Safe to
-// call multiple times, or with a zero Mark; a no-op either way. See
-// Checkpoint's doc for when a caller should bother — long-lived processes
-// that open many short-lived concurrent windows (one per request goroutine)
-// should call it so the registry does not grow one entry per goroutine
-// forever; a window on a goroutine that terminates with the process (a
-// one-shot CLI command) needs no explicit release.
+// Close releases mark's slot in its goroutine's window, and releases the
+// goroutine-keyed registry entry itself once the LAST bracketing checkpoint
+// has closed — never while an outer Mark on the same goroutine is still live
+// (see window.open). Safe to call multiple times, or with a zero Mark; a
+// no-op either way. See Checkpoint's doc for when a caller should bother —
+// long-lived processes that open many short-lived concurrent windows (one per
+// request goroutine) should call it so the registry does not grow one entry
+// per goroutine forever; a window on a goroutine that terminates with the
+// process (a one-shot CLI command) needs no explicit release.
 func Close(mark Mark) {
-	if mark.w == nil {
+	if mark.w == nil || mark.release == nil || mark.release.Swap(true) {
+		return
+	}
+	w := mark.w
+	w.mu.Lock()
+	w.open--
+	last := w.open <= 0
+	w.mu.Unlock()
+	if !last {
 		return
 	}
 	windowsMu.Lock()
-	if windows[mark.w.gid] == mark.w {
-		delete(windows, mark.w.gid)
+	if windows[w.gid] == w {
+		delete(windows, w.gid)
 	}
 	windowsMu.Unlock()
 }
@@ -367,17 +394,22 @@ func Reset() {
 // on. fixit names the command or edit that resolves the fault ("" when the
 // message already says).
 func Fail(class Class, fixit, format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
+	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.Warn(prog, "%s", msg)
 	record(class, fixit, msg, false)
 }
 
-// FailOnce is Fail with per-process dedup on the formatted message: the
-// warning prints at most once (clidiag.WarnOnce) and the finding records at
-// most once. For chokes that re-fire per subsystem (e.g. an unresolvable
-// profile parent hit by every loader build).
+// FailOnce is Fail with dedup on BOTH halves — but the two dedups have
+// different scopes and are not interchangeable. The warning LINE is deduped
+// process-wide and permanently (clidiag.WarnOnce), keyed on the rendered line.
+// The FINDING is deduped only within the recording goroutine's current
+// checkpoint window, and on class as well as message (see generation's doc):
+// a fault re-fired in a LATER window must record again, or a session refused
+// over it and retried unfixed opens silently on broken context. For chokes
+// that re-fire per subsystem (e.g. an unresolvable profile parent hit by
+// every loader build).
 func FailOnce(class Class, fixit, format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
+	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.WarnOnce(prog, "%s", msg)
 	record(class, fixit, msg, true)
 }
@@ -386,7 +418,23 @@ func FailOnce(class Class, fixit, format string, args ...any) {
 // already own their (richer) stderr reporting, e.g. the sync summary's
 // per-item failure breakdown. No-op in degraded mode.
 func Record(class Class, fixit, format string, args ...any) {
-	record(class, fixit, fmt.Sprintf(format, args...), false)
+	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), false)
+}
+
+// detailOr substitutes a statement of what is known for a message that
+// formatted to nothing. Every renderer of a Finding — FindingsError here,
+// cli.formatFindings, operations.isolationGateErr — writes the message into a
+// bullet unconditionally, so a blank message produces a bullet carrying a
+// fix-it and no statement of what broke: a loud failure with an empty payload,
+// which is exactly the shape this package exists to prevent. The class is the
+// only thing still known at that point, so it is what the substitute reports.
+// Applied at all three entry points rather than in record alone, so the
+// streamed warning line and the collected finding always agree.
+func detailOr(class Class, msg string) string {
+	if strings.TrimSpace(msg) == "" {
+		return fmt.Sprintf("unspecified %s failure: the choke reported no detail", class)
+	}
+	return msg
 }
 
 // record appends a finding in strict mode, honoring the FailOnce dedup set

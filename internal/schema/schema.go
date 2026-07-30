@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -178,11 +179,52 @@ func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
 	if sub, ok := s.AdditionalProperties.(*jsonschema.Schema); ok {
 		return resolveSchemaRef(sub)
 	}
+	if child := arrayChild(s, key); child != nil {
+		return child
+	}
 	for _, branches := range [][]*jsonschema.Schema{s.AnyOf, s.OneOf, s.AllOf} {
 		for _, branch := range branches {
 			if child := schemaChild(branch, key); child != nil {
 				return child
 			}
+		}
+	}
+	return nil
+}
+
+// arrayChild resolves an ARRAY INDEX segment to the schema governing that
+// position, or nil when s is not an array or key is not an index. An array is
+// addressed by position, so only a non-negative integer descends -- treating a
+// word as an array key would make every misspelling under every array resolve
+// as known.
+//
+// Paths reach here because a config path that crosses an array carries the
+// index as a segment: config/unknown_keys.go turns the violation's instance
+// location "/hooks/unified/pre_tool/0" into "hooks.unified.pre_tool.0" before
+// asking for that section's declared names.
+//
+// Draft 2020-12 spells the positional schemas `prefixItems` and the remainder
+// `items` (Items2020); earlier drafts spell the remainder `items` and allow a
+// tuple form (a []*Schema). All three shapes are honored so the walker matches
+// whatever draft the caller's schema declares -- NewValidatorFromSchema is a
+// public seam and does not fix the draft.
+func arrayChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
+	idx, err := strconv.Atoi(key)
+	if err != nil || idx < 0 {
+		return nil
+	}
+	if idx < len(s.PrefixItems) {
+		return resolveSchemaRef(s.PrefixItems[idx])
+	}
+	if s.Items2020 != nil {
+		return resolveSchemaRef(s.Items2020)
+	}
+	switch items := s.Items.(type) {
+	case *jsonschema.Schema:
+		return resolveSchemaRef(items)
+	case []*jsonschema.Schema:
+		if idx < len(items) {
+			return resolveSchemaRef(items[idx])
 		}
 	}
 	return nil

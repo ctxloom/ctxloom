@@ -3,11 +3,29 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// newCheckCmd discards MarkFlagRequired's error, which cobra returns only when
+// the named flag is not registered on the command — unreachable while the
+// literal matches the StringVar two lines above it, and a programmer error if
+// it ever stops matching. Nothing would report that: the requirement would
+// simply evaporate and `ltk check` would run with an empty command, reporting
+// "allow" for a command nobody asked about. Pin the requirement behaviourally
+// so a drifting literal is a red test rather than a silent downgrade.
+func TestCheckCmd_CommandFlagIsRequired(t *testing.T) {
+	c := newCheckCmd()
+	c.SetArgs(nil)
+	c.SetOut(io.Discard)
+	c.SetErr(io.Discard)
+	if err := c.Execute(); err == nil {
+		t.Fatal("`ltk check` with no --command was accepted; the required-flag marking is not in effect")
+	}
+}
 
 // check is the GUI/query path: evaluate one command and return a structured
 // {decision, message, suggestion} with the message and suggestion as discrete

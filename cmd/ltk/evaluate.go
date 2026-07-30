@@ -70,16 +70,34 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	if err != nil {
 		return err
 	}
+	if err := emitDecision(out, os.Stdout, os.Stderr); err != nil {
+		return err
+	}
+	if out.ExitCode != 0 {
+		os.Exit(out.ExitCode)
+	}
+	return nil
+}
+
+// emitDecision writes a decision's two streams. The stdout write is checked
+// and the stderr write is not, and that asymmetry is the contract, not an
+// oversight:
+//
+//   - stdout carries the DECISION. If it cannot be delivered the host never
+//     sees the deny, so there is nothing left to do but say so loudly.
+//   - stderr carries only a DIAGNOSTIC, and the sole channel on which a failed
+//     stderr write could be reported is stderr. Promoting it to an error would
+//     turn a lost diagnostic into a non-zero exit — which both hook hosts read
+//     as an allow, so a broken pipe on the diagnostic channel would disable
+//     the guard for that call.
+func emitDecision(out engine.Output, stdout, stderr io.Writer) error {
 	if len(out.Stdout) > 0 {
-		if _, err := os.Stdout.Write(out.Stdout); err != nil {
+		if _, err := stdout.Write(out.Stdout); err != nil {
 			return fmt.Errorf("write decision: %w", err)
 		}
 	}
 	if len(out.Stderr) > 0 {
-		os.Stderr.Write(out.Stderr)
-	}
-	if out.ExitCode != 0 {
-		os.Exit(out.ExitCode)
+		_, _ = stderr.Write(out.Stderr)
 	}
 	return nil
 }

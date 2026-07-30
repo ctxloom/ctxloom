@@ -128,6 +128,45 @@ func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 	})
 }
 
+// failingWriter fails every write, standing in for a closed or broken stream.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+// The two stream writes are deliberately asymmetric. stdout carries the
+// DECISION: if it cannot be delivered the hook host never sees the deny, so
+// the failure must surface. stderr carries only a diagnostic, and the sole
+// channel on which a failed stderr write could be reported is stderr itself —
+// promoting it to an error would turn a lost diagnostic into a non-zero exit,
+// which both hook hosts read as an allow. A broken diagnostic pipe must never
+// be able to disable the guard.
+func TestEmitDecision_StreamFailuresAreAsymmetric(t *testing.T) {
+	t.Run("a lost diagnostic never becomes an error exit", func(t *testing.T) {
+		out := engine.Output{Stderr: []byte("ltk: no rules config found\n")}
+		if err := emitDecision(out, &strings.Builder{}, failingWriter{}); err != nil {
+			t.Fatalf("a failed diagnostic write must not surface as an error (exit 1 fails open): %v", err)
+		}
+	})
+
+	t.Run("an undeliverable decision does surface", func(t *testing.T) {
+		out := engine.Output{Stdout: []byte(`{"decision":"deny"}`)}
+		if err := emitDecision(out, failingWriter{}, &strings.Builder{}); err == nil {
+			t.Fatal("a decision that could not be written must not be reported as delivered")
+		}
+	})
+
+	t.Run("a healthy decision reaches both streams", func(t *testing.T) {
+		var stdout, stderr strings.Builder
+		out := engine.Output{Stdout: []byte("D"), Stderr: []byte("E")}
+		if err := emitDecision(out, &stdout, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		if stdout.String() != "D" || stderr.String() != "E" {
+			t.Fatalf("streams = %q / %q", stdout.String(), stderr.String())
+		}
+	})
+}
+
 // A working directory that cannot be determined is not "this repo has no
 // submodules": it means the `@submodules` sentinel is never expanded, so a
 // rule written to block every submodule keeps the literal token in its path

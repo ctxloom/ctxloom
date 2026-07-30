@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // runVersionCmd executes `ctxloom version` with the given --format and
@@ -47,6 +48,32 @@ func TestVersion_TextEmitsANonEmptyVersionPayload(t *testing.T) {
 	assert.NotEmpty(t, strings.TrimSpace(got),
 		"`ctxloom version` must not print a bare newline and exit 0")
 	assert.Equal(t, Version, strings.TrimSpace(got))
+}
+
+// TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary pins U105-F04's
+// subject: the set of legal --format values for `version` is owned in ONE
+// place (clifmt.ParseFormat, reached through emit/cliemit.Resolve) and not
+// re-enumerated by the version command itself. The row described a bare
+// string switch over ""/"text"/"json" inside cliversion.Render duplicating
+// that vocabulary; Render is gone (U105-F01), and this asserts what replaced
+// it — an unknown format is refused, with a message naming the FULL five-format
+// set, which a command-local text/json switch could not produce.
+func TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary(t *testing.T) {
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{"version", "--format", "definitely-not-a-format"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	err := rootCmd.Execute()
+	require.Error(t, err, "an unknown --format must not be silently rendered as text")
+	assert.Contains(t, err.Error(), "definitely-not-a-format")
+	assert.Contains(t, err.Error(), string(clifmt.FormatYAML),
+		"the error must come from the shared five-format vocabulary, not a command-local text/json pair")
 }
 
 // TestVersion_JSONCarriesTheCliversionContract pins the machine-readable half:

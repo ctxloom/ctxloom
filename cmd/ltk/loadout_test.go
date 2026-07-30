@@ -112,6 +112,79 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 	assert.Empty(t, signer)
 }
 
+// U005-F15 read the two `--format` flags as a coupling defect: the root
+// registers a PERSISTENT --format over clifmt's five output formats
+// (default "text"), and `loadout` registers a LOCAL one over two envelope
+// formats (default "yaml"), which shadows it. The two meanings are real. The
+// shadowing is not a defect but the mechanism that makes both correct, and
+// every remedy the row implies breaks something:
+//
+//   - removing loadout's local flag makes the bare `ltk loadout` inherit the
+//     root default "text", which loadout cannot emit — the DEFAULT invocation
+//     would start erroring;
+//   - renaming it breaks a cross-process wire contract: ctxloom's companion
+//     discovery execs `<bin> loadout --format json`, built from
+//     companionloadout.Subcommand/FormatFlag/FormatJSON, and shared with
+//     cmd/taskloom;
+//   - unifying the vocabularies would have loadout advertise toml/markdown
+//     envelope formats that do not exist.
+//
+// So this pins the arrangement instead: both flag positions reach the local
+// flag, the default is the emittable one, a root-vocabulary value is refused
+// LOUDLY rather than silently mis-emitted, and check's five formats are
+// untouched by any of it.
+func TestRoot_FormatMeansTheEnvelopeFormatUnderLoadout(t *testing.T) {
+	run := func(t *testing.T, args ...string) (string, error) {
+		t.Helper()
+		var out bytes.Buffer
+		root := newRootCmd()
+		root.SetArgs(args)
+		root.SetOut(&out)
+		root.SetErr(&out)
+		err := root.Execute()
+		return out.String(), err
+	}
+
+	t.Run("bare loadout emits the raw bundle, not the root's text default", func(t *testing.T) {
+		out, err := run(t, "loadout")
+		require.NoError(t, err, "the DEFAULT invocation must work; the root's --format default is not an envelope format")
+		assert.Equal(t, string(loadoutYAML), out)
+	})
+
+	t.Run("--format json after the subcommand emits the envelope", func(t *testing.T) {
+		out, err := run(t, "loadout", "--format", "json")
+		require.NoError(t, err)
+		decoded, _, err := signing.DecodeLoadoutEnvelope([]byte(out), nil, time.Now())
+		require.NoError(t, err, "this is the exact argv ctxloom's companion discovery execs")
+		assert.Equal(t, loadoutYAML, decoded)
+	})
+
+	t.Run("--format json in the persistent position reaches the same flag", func(t *testing.T) {
+		out, err := run(t, "--format", "json", "loadout")
+		require.NoError(t, err)
+		_, _, err = signing.DecodeLoadoutEnvelope([]byte(out), nil, time.Now())
+		require.NoError(t, err, "the shadow must resolve toward the local flag, or this silently emits YAML")
+	})
+
+	t.Run("a root-vocabulary format is refused loudly", func(t *testing.T) {
+		for _, f := range []string{"text", "toml", "markdown"} {
+			out, err := run(t, "loadout", "--format", f)
+			require.Error(t, err, "loadout must not silently accept %q", f)
+			assert.NotContains(t, out, "fragments:", "nothing may be emitted for an unsupported envelope format")
+		}
+	})
+
+	t.Run("check still speaks the root's five formats", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+		require.NoError(t, os.WriteFile(cfgPath, []byte("version: 1\nrules: []\n"), 0o644))
+		for _, f := range []string{"text", "json", "yaml", "toml", "markdown"} {
+			out, err := run(t, "check", "--command", "git status", "--config", cfgPath, "--format", f)
+			require.NoError(t, err, "check --format %s", f)
+			assert.Contains(t, out, "allow")
+		}
+	})
+}
+
 func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	var buf bytes.Buffer
 	err := companionloadout.Emit(&buf, "toml", loadoutYAML, loadoutSig)

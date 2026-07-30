@@ -69,6 +69,16 @@ func TestNewKiro_Defaults(t *testing.T) {
 	assert.Equal(t, "kiro-cli", b.BinaryPath)
 }
 
+// TestNewKiro_HasNoSessionHistoryReader pins the fact several comments in this
+// package rest on (U055-F02): kiro's sessions/cli/*.jsonl scraper was DELETED,
+// not demoted — it was confirmed broken against the v2 SQLite store a real
+// `kiro-cli chat --no-interactive` writes, and canonical capture is the only
+// transcript source now. Anything reintroducing a reader here must revisit
+// those comments, and KIRO_HOME's scope with them.
+func TestNewKiro_HasNoSessionHistoryReader(t *testing.T) {
+	assert.Nil(t, NewKiro().History(), "kiro declares no session history; it must not answer an empty list nobody can tell from 'genuinely none'")
+}
+
 func TestKiro_Configure(t *testing.T) {
 	b := NewKiro()
 	b.Configure(&KiroConfig{

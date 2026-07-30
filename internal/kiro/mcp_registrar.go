@@ -12,8 +12,11 @@ import (
 // servers live in `.kiro/settings/mcp.json` under the project (the same file
 // KiroWriter.mcpFile reconciles via the ledger-tracked path), user-scope
 // servers in `$KIRO_HOME/settings/mcp.json` (default `~/.kiro/settings/
-// mcp.json` — KIRO_HOME is the same override the session-history reader and
-// the worktree isolation policy use to relocate kiro's global state). Both
+// mcp.json` — KIRO_HOME is the same override the worktree isolation policy
+// relocates per agent, which moves kiro's config and session state but NOT its
+// credentials: those live in a global sqlite outside every kiro home var, which
+// is why kiro's isolation spec sets HonoursVarForCreds false — see
+// internal/lm/isolation/auth.go). Both
 // scopes use the JSON "mcpServers" table shape — identical to Claude Code's
 // and Antigravity's, so this reuses the same generic byte-level helpers
 // rather than the ledger-based agent.MCPFileConfig reconciler: this

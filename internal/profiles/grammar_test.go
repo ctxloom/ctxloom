@@ -153,3 +153,38 @@ func TestLoad_AliasWithoutResolver_FailsWithHint(t *testing.T) {
 	assert.ErrorIs(t, err, errs.ErrProfileNotFound)
 	assert.Contains(t, err.Error(), "ctxloom remote pull")
 }
+
+// TestResolveProfile_VisitedKeyIsCanonical pins that the cycle-detection and
+// memo key for the profile the caller NAMED is the same canonical identity every
+// recursive step uses. ResolveProfile seeded visited with the caller's raw
+// spelling while resolveProfileRecursive canonicalizes every parent, so the top
+// frame was keyed differently from every frame below it: the same profile,
+// reached again through its canonical spelling, was loaded and resolved a second
+// time and only recognised one frame later (U091-F18).
+func TestResolveProfile_VisitedKeyIsCanonical(t *testing.T) {
+	const alias = "myrem/ai-developer#profiles/developer"
+	canonical := defaultURL + "@bundles/ai-developer#profiles/developer"
+
+	loader := grammarLoader(t)
+	visited := map[string]bool{}
+	resolved, err := loader.ResolveProfile(alias, visited)
+	require.NoError(t, err)
+	assert.Contains(t, resolved.Bundles, defaultURL+"@bundles/testing")
+
+	assert.True(t, visited[canonical], "visited must be keyed by the canonical identity")
+	assert.False(t, visited[alias], "the raw alias spelling must not be a second identity for the same profile")
+}
+
+// TestResolveProfile_SpellingsAgree pins that the alias and canonical spellings
+// of one bundle profile resolve to the same content, whichever the caller names.
+func TestResolveProfile_SpellingsAgree(t *testing.T) {
+	canonical := defaultURL + "@bundles/ai-developer#profiles/developer"
+
+	viaAlias, err := grammarLoader(t).ResolveProfile("myrem/ai-developer#profiles/developer", nil)
+	require.NoError(t, err)
+	viaCanonical, err := grammarLoader(t).ResolveProfile(canonical, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, viaCanonical.Bundles, viaAlias.Bundles)
+	assert.Equal(t, viaCanonical.SourceRef, viaAlias.SourceRef)
+}

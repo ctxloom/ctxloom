@@ -1233,8 +1233,12 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 // bundle ref and therefore no publisher signature. It resolves the server's
 // executable surface (BundleMCP.ContentPayload — Command+Args+Env+Installation)
 // as a local mcp item, which the decision function ALLOWS via the first-party
-// local exemption at step 2 (the user configured it in this project themselves)
-// — unless it has been explicitly rejected at step 1, which beats the exemption.
+// local exemption at step 3 (the user configured it in this project themselves)
+// — unless it has been explicitly rejected at step 1, which beats the
+// exemption, as does a retraction at step 2. Retraction never actually fires
+// for a local item, but by SCOPE rather than by precedence: retractable()
+// excludes a ref with no remote lockfile entry. The distinction matters,
+// because it is what makes the exemption safe to sit this low.
 // Signing is irrelevant here and its absence is not a downgrade: local content
 // never needed a key and still does not.
 func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) EffectiveTrustResult {
@@ -1282,8 +1286,13 @@ func (ts *TrustStamper) signerFor(loadRef string) string {
 	return bundle.Signer()
 }
 
-// resolve runs the decision function with the stamper's shared records store
-// so no per-item file I/O happens on the happy path.
+// resolve runs the decision function with the stamper's shared records store,
+// so no item re-reads the countersignature stores. It does NOT make the call
+// I/O-free: Retraction is left unset, so EffectiveTrust reads and parses the
+// active lockfile once per stamped item (measured in
+// trust_perkitem_io_test.go). Sharing that too would fix the sample point of
+// retraction state for a whole listing, which is a trust decision, not a
+// caching one.
 func (ts *TrustStamper) resolve(ref trust.Ref, payload []byte, form, signer string) EffectiveTrustResult {
 	res, err := EffectiveTrust(ts.cfg, EffectiveTrustRequest{
 		Ref:     ref,

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -265,4 +267,67 @@ func TestConvertVendorTranscript_KiroEnumerateFallback(t *testing.T) {
 	for _, l := range lines {
 		assert.Contains(t, l, `"engine":"kiro"`)
 	}
+}
+
+// TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt pins the
+// candidate-db loop's whole reason for existing against the BOUND-SessionID
+// route. candidateKiroDBPaths deliberately returns more than one db (every
+// isolated per-agent config-home under this harp's ephemeral dir, then the
+// host-ambient one) and promises the host db is used "when no isolated db was
+// found" — but the bound route used to hand back the FIRST existing candidate
+// unconditionally, without ever asking whether that db contains the
+// conversation. A harp whose ephemeral dir holds any isolated kiro db (one
+// isolated member agent is enough) therefore made its own host-db conversation
+// unreachable: Convert fails with "no rows in result set" against a db that
+// never held it, and the transcript is never imported.
+func TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "bound-session-multi-db-harp"
+	const bound = "conversation-only-in-the-host-db"
+
+	row := loadKiroFixtureRow(t)
+	isolatedKiroFixtureDB(t, harp, kiroFixtureRow{
+		Key: row.Key, ConversationID: "some-other-isolated-conversation",
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Value: row.Value,
+	})
+	hostDB := newKiroFixtureDB(t, kiroFixtureRow{
+		Key: row.Key, ConversationID: bound,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Value: row.Value,
+	})
+
+	src, ok := locateKiroConversation(context.Background(), sessions.Entry{
+		HarpName: harp, SessionID: bound,
+	})
+	require.True(t, ok)
+	assert.Equal(t, hostDB+"#"+bound, src,
+		"a bound conversation id must resolve against the candidate db that actually holds it, not whichever db happens to be checked first")
+}
+
+// TestLocateKiroConversation_UnreadableDBIsReportedNotSilentlyNothing pins
+// U089-F20: a kiro sqlite store that exists but cannot be read (corrupt,
+// truncated mid-write, locked by a still-running kiro-cli, or simply not a
+// sqlite file at all) is a DIFFERENT fact from "this session has no
+// conversation to import", and the two used to be indistinguishable —
+// EnumerateConversations' error was folded into the same ok=false the
+// ordinary nothing-to-do case returns, so `session backfill` counted the harp
+// as Skipped and said nothing. The locator still degrades to "not found"
+// (fault tolerance: one bad store must not abort a whole backfill), but the
+// failure is now stated.
+func TestLocateKiroConversation_UnreadableDBIsReportedNotSilentlyNothing(t *testing.T) {
+	testsupport.Isolate(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	dbPath := filepath.Join(dataHome, "kiro-cli", "data.sqlite3")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dbPath), 0o755))
+	require.NoError(t, os.WriteFile(dbPath, []byte("this is not a sqlite database"), 0o600))
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	_, ok := locateKiroConversation(context.Background(), sessions.Entry{ProjectDir: "/some/project"})
+	assert.False(t, ok, "an unreadable store still yields no locator — one bad db must not abort the backfill")
+	assert.Contains(t, warnings.String(), "kiro conversation store",
+		"an unreadable kiro store must be reported, not reported as nothing to convert")
+	assert.Contains(t, warnings.String(), dbPath, "the advisory must name the db the user has to fix")
 }

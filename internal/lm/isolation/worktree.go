@@ -195,6 +195,16 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		if r := recover(); r != nil {
 			_ = os.RemoveAll(ws.dir)
 			removeWorktreeOwnerMarker(ws.dir)
+			// Removing the directory does not retire the repo's
+			// administrative registration of it (.git/worktrees/<name>) —
+			// that is what prune is for, and the graceful teardown below
+			// runs it for the same reason. Without it every recovered
+			// panic leaves a `git worktree list` entry naming a path that
+			// no longer exists. A FRESH context: the caller's may already
+			// be cancelled, and this unwind must still complete.
+			pruneCtx, cancelPrune := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
+			_ = w.git.WorktreePrune(pruneCtx, projectDir)
+			cancelPrune()
 			if ws.configHome != "" {
 				_ = os.RemoveAll(ws.configHome)
 			}
@@ -348,7 +358,35 @@ func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[s
 		return "", nil
 	}
 	denied = w.seedCredentials(home, agentID)
+	w.prepareHomeVarDirs(home, denied)
 	return home, denied
+}
+
+// prepareHomeVarDirs creates the per-agent directories Env() points this
+// backend's HomeVars at. Seeding alone does not: hostCredentialSeed creates
+// spec.destSubdir and nothing else, and only on the path where there was
+// something to seed — so an engine that authenticates from its envTrigger, or
+// one with no seedable files at all (kiro), is otherwise handed a scoped var
+// naming a directory nobody created. 0700 like every sibling scratch dir here:
+// these hold engine config/state, and leaving the engine to mkdir them itself
+// yields whatever its umask says instead. denied vars are skipped — Env() does
+// not export them, so their directory would be pure litter. Best-effort, like
+// the rest of this provisioning step: a failure warns and leaves the var
+// pointing at an absent directory, exactly as before.
+func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) {
+	spec, ok := credentialSeedSpecs[w.backend]
+	if !ok {
+		return
+	}
+	for _, hv := range spec.HomeVars {
+		if denied[hv.EnvVar] {
+			continue
+		}
+		dir := filepath.Join(configHome, hv.Subdir)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			clidiag.Warn("ctxloom", "worktree: cannot create the per-agent %s directory %q (the engine will see a missing config home): %v", hv.EnvVar, dir, err)
+		}
+	}
 }
 
 // seedCredentials seeds w.backend's subscription credentials into the per-agent
@@ -626,7 +664,7 @@ func (w *worktreeWorkspace) Cleanup() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
 	defer cancel()
-	w.teardown(ctx, target)
+	teardownWorktree(ctx, w.git, w.repoDir, target)
 	// Unconditional: whether teardown actually removed target or (WIP-safely)
 	// left it in place, this process's ownership of it is ending either way —
 	// see removeWorktreeOwnerMarker's doc for why a left-in-place tree stays
@@ -657,7 +695,12 @@ func (w *worktreeWorkspace) Cleanup() error {
 	return nil
 }
 
-// teardown removes the target worktree WIP-safely and nested-worktree-aware:
+// teardownWorktree removes the target worktree WIP-safely and
+// nested-worktree-aware. It is a package-level function, not a method: it needs
+// only a Git seam and the owning repo dir, and BOTH callers hold those without
+// holding a workspace — the graceful worktreeWorkspace.Cleanup path, and the
+// startup reaper (worktree_reap.go), whose candidates are orphans no live
+// workspace value describes.
 //  1. list the repo-global worktrees; if that fails, LEAK the target rather than
 //     blind-remove it (a nested inner's WIP could be silently destroyed).
 //  2. remove any worktree nested UNDER the target INNER-FIRST — but only after a
@@ -665,33 +708,33 @@ func (w *worktreeWorkspace) Cleanup() error {
 //     own dirty-check misses these, which is exactly how nested WIP gets lost).
 //  3. remove the target itself with force=false (git refuses a dirty tree — a
 //     second WIP guard), then prune.
-func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
-	list, err := w.git.WorktreeList(ctx, w.repoDir)
+func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
+	list, err := g.WorktreeList(ctx, repoDir)
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree teardown: cannot list worktrees; leaving %q in place to avoid destroying nested work: %v", target, err)
 		return
 	}
 
 	for _, inner := range nestedUnder(list, target) {
-		if unsafe, reason := w.unsafeToRemove(ctx, inner.Path); unsafe {
+		if unsafe, reason := unsafeToRemove(ctx, g, inner.Path); unsafe {
 			clidiag.Warn("ctxloom", "worktree teardown: nested worktree %q %s; leaving %q in place to preserve it", inner.Path, reason, target)
 			return
 		}
-		if err := w.git.WorktreeRemove(ctx, w.repoDir, inner.Path); err != nil {
+		if err := g.WorktreeRemove(ctx, repoDir, inner.Path); err != nil {
 			clidiag.Warn("ctxloom", "worktree teardown: cannot remove nested worktree %q; leaving %q in place: %v", inner.Path, target, err)
 			return
 		}
 	}
 
-	if unsafe, reason := w.unsafeToRemove(ctx, target); unsafe {
+	if unsafe, reason := unsafeToRemove(ctx, g, target); unsafe {
 		clidiag.Warn("ctxloom", "worktree %q %s; leaving it in place to preserve WIP", target, reason)
 		return
 	}
-	if err := w.git.WorktreeRemove(ctx, w.repoDir, target); err != nil {
+	if err := g.WorktreeRemove(ctx, repoDir, target); err != nil {
 		clidiag.Warn("ctxloom", "worktree teardown: cannot remove %q: %v", target, err)
 		return
 	}
-	if err := w.git.WorktreePrune(ctx, w.repoDir); err != nil {
+	if err := g.WorktreePrune(ctx, repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
 	// U054-F02: NOT auto-retiring the shared config-exclude block here.
@@ -716,7 +759,7 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 	// see DECISIONS.md.
 }
 
-// unsafeToRemove is teardown's WIP-safety gate, extended past IsDirty alone
+// unsafeToRemove is teardownWorktree's WIP-safety gate, extended past IsDirty alone
 // (U053-F01/U054-F01): IsDirty's `status --porcelain` deliberately does NOT
 // see gitignored/excluded content — that blindness is what lets a prepared
 // agent worktree's own delivered noise (.claude/, CLAUDE.md, .ctxloom/cache/,
@@ -726,11 +769,11 @@ func (w *worktreeWorkspace) teardown(ctx context.Context, target string) {
 // this was the other half of the mechanism that destroyed agent-authored
 // work. An error from EITHER probe is treated the same as "dirty": an
 // unreadable state must never be read as "safe to delete".
-func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (unsafe bool, reason string) {
-	if dirty, err := w.git.IsDirty(ctx, dir); err != nil || dirty {
+func unsafeToRemove(ctx context.Context, g git.Git, dir string) (unsafe bool, reason string) {
+	if dirty, err := g.IsDirty(ctx, dir); err != nil || dirty {
 		return true, "has uncommitted changes (or unknown state)"
 	}
-	if ignored, err := w.git.HasIgnoredContent(ctx, dir); err != nil || ignored {
+	if ignored, err := g.HasIgnoredContent(ctx, dir); err != nil || ignored {
 		return true, "holds gitignored/excluded files (or unknown state)"
 	}
 	return false, ""
@@ -752,12 +795,28 @@ func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (uns
 // falling back to a same-file stat comparison only when both paths exist.
 // nestedUnder returns the worktrees strictly nested inside target, DEEPEST-FIRST
 // (by path-separator depth) so inner worktrees are handled before their parents.
+//
+// Matching considers target under BOTH the spelling the caller holds and its
+// realpath resolution: `git worktree list --porcelain` reports every path
+// symlink-resolved, while target is whatever scratchBase built — os.TempDir()
+// on macOS is /var/folders/… behind the /var → /private/var symlink, and a
+// symlinked HOME does the same to the session ephemeral dir. A raw prefix
+// match against one spelling then finds nothing nested. Resolution is
+// best-effort: an unresolvable target (a path already removed, or one that
+// never existed — several callers pass synthetic paths) simply keeps the raw
+// comparison.
 func nestedUnder(list []git.Worktree, target string) []git.Worktree {
-	prefix := target + string(os.PathSeparator)
+	prefixes := []string{target + string(os.PathSeparator)}
+	if resolved, err := filepath.EvalSymlinks(target); err == nil && resolved != target {
+		prefixes = append(prefixes, resolved+string(os.PathSeparator))
+	}
 	var nested []git.Worktree
 	for _, wt := range list {
-		if wt.Path != target && strings.HasPrefix(wt.Path, prefix) {
-			nested = append(nested, wt)
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(wt.Path, prefix) {
+				nested = append(nested, wt)
+				break
+			}
 		}
 	}
 	sep := string(os.PathSeparator)
@@ -775,6 +834,15 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 // worktree half: a fallback warns and the run proceeds.
 func (w Worktree) scratchBase() string {
 	if !safePathSegment(w.state.Harp) {
+		// An EMPTY harp is the documented no-session-accounting construction
+		// and stays silent. A NON-empty harp that fails the validator is a
+		// rejected value on the same untrusted channel (an env map) the
+		// container path hard-errors on — reporting it is the least this side
+		// can do, since the fallback silently relocates every per-agent
+		// scratch resource out of the session layout the run claims to use.
+		if w.state.Harp != "" {
+			clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent scratch falls back to the OS temp dir instead of the session's ephemeral dir", w.state.Harp)
+		}
 		return os.TempDir()
 	}
 	dir, err := paths.HarpEphemeralDir(w.state.Harp)

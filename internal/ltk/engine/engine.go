@@ -75,6 +75,35 @@ func unanalyzedNote(r Response) string {
 	return "ltk: could not fully analyze this command (" + detail + "); allowed per defaults.on_parse_error (default: allow)\n"
 }
 
+// encodeDecision is the whole Encode contract, shared by every Adapter. Only
+// the DENY bytes are engine-specific, so an engine supplies just its own
+// encodeDeny and inherits the rest:
+//
+//   - a clean allow is a zero Output — no bytes, exit 0 — letting the host's
+//     own permission flow proceed;
+//   - an unanalyzed allow adds the shared stderr note, so "allowed per
+//     on_parse_error" is never byte-identical to "checked and nothing matched";
+//   - a deny is the engine's decision document on STDOUT at exit 0, never an
+//     exit code: both hosts fail OPEN on a non-zero hook, so a denial signalled
+//     that way is invisible and the action proceeds anyway.
+//
+// One home for those rules is the point: an engine cannot implement Encode and
+// forget an arm, which is exactly how the unanalyzed diagnostic went missing
+// from one adapter before.
+func encodeDecision(resp Response, encodeDeny func(string) ([]byte, error)) (Output, error) {
+	if resp.Allow {
+		if resp.Unanalyzed {
+			return Output{Stderr: []byte(unanalyzedNote(resp))}, nil
+		}
+		return Output{}, nil
+	}
+	body, err := encodeDeny(resp.Message())
+	if err != nil {
+		return Output{}, err
+	}
+	return Output{Stdout: body, ExitCode: 0}, nil
+}
+
 // Message renders the reason and suggestion into a single human-facing string.
 // Message renders the reason and suggestion into a single human-facing
 // string. Never empty: both Adapters' Encode call this only when rendering a

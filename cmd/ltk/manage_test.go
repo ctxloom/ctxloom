@@ -1,10 +1,13 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
@@ -174,6 +177,55 @@ func TestWriteFileAtomicReplace(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".tmp") {
 			t.Errorf("temp file left behind: %s", e.Name())
 		}
+	}
+}
+
+// An empty --bin makes HookCommand emit a command line that begins with a
+// space and names a bare "evaluate" — syntactically valid, permanently
+// non-functional, and installed with a "installed hook for …" success message
+// over it (U067-F09). The hook host then fails open on every invocation, so the
+// guard the user just installed gates nothing and nothing ever says so. Refuse
+// the flag value instead; the whole payload is derived from it.
+func TestManage_RefusesEmptyBin(t *testing.T) {
+	for _, cmd := range []struct {
+		name string
+		new  func() *cobra.Command
+	}{
+		{"install", newInstallCmd},
+		{"uninstall", newUninstallCmd},
+	} {
+		t.Run(cmd.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+
+			c := cmd.new()
+			c.SetArgs([]string{"--engine", "claude-code", "--bin", "", "--print"})
+			c.SetOut(io.Discard)
+			c.SetErr(io.Discard)
+			if err := c.Execute(); err == nil {
+				t.Fatal("an empty --bin was accepted; the resulting hook can never run")
+			}
+			for _, unwanted := range []string{".ltk", ".claude"} {
+				if _, err := os.Stat(filepath.Join(dir, unwanted)); !os.IsNotExist(err) {
+					t.Errorf("a refused run still wrote %s", unwanted)
+				}
+			}
+		})
+	}
+}
+
+// The refusal must be scoped to an EMPTY --bin: a bin whose path needs quoting,
+// or a multi-word invocation, is legitimate and must still install.
+func TestManage_AcceptsNonEmptyBin(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	c := newInstallCmd()
+	c.SetArgs([]string{"--engine", "claude-code", "--bin", "go run ./cmd/ltk", "--print"})
+	c.SetOut(io.Discard)
+	c.SetErr(io.Discard)
+	if err := c.Execute(); err != nil {
+		t.Fatalf("install with a multi-word --bin: %v", err)
 	}
 }
 

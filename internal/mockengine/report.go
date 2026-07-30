@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -73,6 +75,15 @@ type ProbeRecord struct {
 	// Head is a bounded prefix of the content for eyeballing (never the
 	// assertion target — hashes are). Omitted for directories and absent paths.
 	Head string `json:"head,omitempty"`
+	// Unresolved marks a probe whose LOCATION could never be determined, as
+	// opposed to one that was located and found absent: the declared flag was
+	// not in argv at all, or the declared scope has no resolver. Both render as
+	// Present=false, and every byte that told them apart used to live in Note,
+	// which the digest excludes — so "ctxloom never passed --settings" and
+	// "ctxloom passed --settings and wrote nothing there" hashed the same
+	// (U079-F08). They are different delivery failures. It is in the digest for
+	// the reason Fallback and Unreadable are.
+	Unresolved bool `json:"unresolved,omitempty"`
 	// Fallback marks a ScopeEnvDir probe whose env var was UNSET, so the root
 	// came from $HOME/<EnvHomeDefault> instead. It is in the digest because
 	// the alternative is a false green on the host path: a developer with a
@@ -177,11 +188,52 @@ type Report struct {
 const headLimit = 256
 
 // head returns a bounded, printable prefix of b for human debugging.
+//
+// Bounded on a RUNE boundary, not a byte offset: a probed surface is arbitrary
+// vendor content, and half a multi-byte rune is not a prefix of anything. And
+// printable in fact, not just in the doc — a probed path can be a binary file,
+// and its raw control bytes have no business riding into a report a person
+// reads or a terminal renders. Newlines and tabs survive; everything else
+// non-graphic becomes the replacement character. Plain text — the ordinary
+// case — passes through byte for byte.
 func head(b []byte) string {
-	if len(b) > headLimit {
-		return string(b[:headLimit])
+	return printablePrefix(string(b), headLimit)
+}
+
+// printablePrefix takes at most limit BYTES of s, cutting only between runes,
+// and substitutes the replacement character for anything non-graphic. Ranging
+// over a string already decodes an invalid byte as one RuneError, so an
+// undecodable surface degrades to visible replacement characters instead of raw
+// bytes, and never to a truncated sequence.
+func printablePrefix(s string, limit int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		w := utf8.RuneLen(r)
+		if w < 0 {
+			w = 1
+		}
+		if n+w > limit {
+			break
+		}
+		n += w
+		if isPrintableInReport(r) {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune(utf8.RuneError)
 	}
-	return string(b)
+	return b.String()
+}
+
+// isPrintableInReport keeps the whitespace that carries meaning when eyeballing
+// a config file and rejects the rest of the non-graphic range.
+func isPrintableInReport(r rune) bool {
+	switch r {
+	case '\n', '\t':
+		return true
+	}
+	return unicode.IsPrint(r)
 }
 
 // hashBytes is sha256 lowercase hex over raw bytes, no normalization — the one
@@ -193,15 +245,17 @@ func hashBytes(b []byte) string {
 
 // canonicalRendering is the one-line-per-record text the DiscoveryDigest hashes.
 // It carries the STABLE identity of each observation — order, kind, scope, rel,
-// present, size, content hash — and every directory entry's (name, size, hash),
+// present, size, content hash, and the three qualifiers that change what a
+// present:false MEANS (fallback, unreadable, unresolved) — and every directory
+// entry's (name, size, hash),
 // but NOT the absolute Root/Path, which vary by machine and would make the
 // digest un-assertable. Two deliveries of the same bytes to the same declared
 // surfaces render identically here regardless of where on disk they landed.
 func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 	var b strings.Builder
 	for _, r := range recs {
-		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t|%t\n",
-			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback, r.Unreadable)
+		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t|%t|%t\n",
+			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback, r.Unreadable, r.Unresolved)
 		for _, e := range r.Entries {
 			fmt.Fprintf(&b, "  entry|%s|%d|%s|%t\n", e.Name, e.Size, e.SHA256, e.Unreadable)
 		}

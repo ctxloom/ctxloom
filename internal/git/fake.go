@@ -47,6 +47,11 @@ type Fake struct {
 	// Dirs is what RepoDirs returns; Changes is what WorkingChanges returns.
 	Dirs    []string
 	Changes []string
+	// ChangesErr, when set, is returned by WorkingChanges instead of Changes —
+	// the only way to unit-test a caller that renders a file list it could not
+	// obtain (U083-F15), which is otherwise indistinguishable from "the tree is
+	// dirty but nothing is listed".
+	ChangesErr error
 
 	// Error injectors: when set, the matching method fails (fault-tolerance tests).
 	AddErr  error
@@ -230,6 +235,9 @@ func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, err
 func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ChangesErr != nil {
+		return nil, f.ChangesErr
+	}
 	changes := f.Changes
 	if maxEntries <= 0 {
 		maxEntries = defaultWorkingChangesMax

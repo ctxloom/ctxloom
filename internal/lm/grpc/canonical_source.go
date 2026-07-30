@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -128,11 +129,21 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 // and changes nothing about which session an already-working call resolves
 // to.
 func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*agent.Session, error) {
-	if sess, err := f.canonical.GetSession(ctx, id); err == nil {
+	sess, firstErr := f.canonical.GetSession(ctx, id)
+	if firstErr == nil {
 		return sess, nil
 	}
 
+	// "This harp captured no transcript" is the selection rule saying "try the
+	// other leg", not a failure. Any OTHER canonical error — corrupt, truncated,
+	// a schema this build refuses to guess at — is a real one, and reporting it
+	// as absence tells the user to stop looking for a transcript that is right
+	// there on disk.
 	var lastErr error
+	var uncaptured *transcript.NoCanonicalTranscriptError
+	if !errors.As(firstErr, &uncaptured) {
+		lastErr = firstErr
+	}
 	if harp := f.harpForSessionID(id); harp != "" {
 		sess, err := f.canonical.GetSession(ctx, harp)
 		if err == nil {

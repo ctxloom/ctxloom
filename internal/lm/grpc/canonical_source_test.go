@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -56,6 +58,57 @@ func writeCanonicalFixture(t *testing.T, harp, engine, content string) {
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},
 	}))
 	require.NoError(t, rec.Close())
+}
+
+// writeCorruptCanonicalFixture leaves harp with a canonical transcript file
+// that EXISTS but cannot be read: a record carrying an unknown schema version,
+// which the reader refuses outright rather than guessing at.
+func writeCorruptCanonicalFixture(t *testing.T, harp string) {
+	t.Helper()
+	writeCanonicalFixture(t, harp, "codex", "about to be clobbered")
+	path, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte(`{"v":9999,"ts":"2026-01-01T00:00:00Z"}`+"\n"), 0o600))
+}
+
+// TestCanonicalFallbackSource_GetSession_NoLegacy_CorruptCanonicalSurfaces pins
+// U059-F10: the FIRST canonical read's error was discarded outright. For a
+// retired-scraper backend (legacy == nil) that turned "your transcript is
+// corrupt and I refuse to guess at it" into "there is no canonical transcript
+// for this session" — the one message that tells the user to stop looking.
+func TestCanonicalFallbackSource_GetSession_NoLegacy_CorruptCanonicalSurfaces(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-corrupt", "/proj", "backend-uuid-9")
+	writeCorruptCanonicalFixture(t, "harp-corrupt")
+
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	_, err := src.GetSession(ctx, "harp-corrupt")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema version", "the real cause must reach the caller")
+	assert.NotContains(t, err.Error(), "no canonical transcript",
+		"an unreadable transcript is not an absent one")
+}
+
+// TestCanonicalFallbackSource_GetSession_NoLegacy_AbsentCanonicalStaysAbsent is
+// the other half: a genuinely uncaptured session must still report absence, not
+// a transcript-read failure. Surfacing the first error unconditionally would
+// have turned every miss into a scary parse error.
+func TestCanonicalFallbackSource_GetSession_NoLegacy_AbsentCanonicalStaysAbsent(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-uncaptured", "/proj", "backend-uuid-10")
+
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	_, err := src.GetSession(ctx, "harp-uncaptured")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no canonical transcript")
 }
 
 // mintBoundHarp registers harp under projectDir in store with the given

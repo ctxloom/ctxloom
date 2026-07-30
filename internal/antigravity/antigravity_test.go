@@ -875,3 +875,27 @@ func TestAntigravityHookWriter_AbsentHooksFile_StillWrites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "pre.sh")
 }
+
+// TestAntigravityHookWriter_PreservesLargeNumbersInHooksFile pins that the
+// hooks.json rewrite is value-preserving: a number the user put beside the
+// hooks block must come back out as the same literal. A generic decode on the
+// way to the canonicaliser rounds anything past float64's exact range, which
+// silently rewrites the user's own file.
+func TestAntigravityHookWriter_PreservesLargeNumbersInHooksFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := filepath.Join("/project", AgentsDir, "hooks.json")
+	original := `{"timeoutMs": 1234567890123456789, "nested": {"id": 9223372036854775807}}`
+	require.NoError(t, fs.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
+
+	w := &AntigravityHookWriter{FS: fs}
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "./pre.sh", Matcher: "Bash"}}},
+	}, nil, nil, "/project"))
+
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	got := string(data)
+	assert.Contains(t, got, "1234567890123456789", "a preserved top-level number must survive the rewrite exactly")
+	assert.Contains(t, got, "9223372036854775807", "a nested preserved number must survive too")
+}

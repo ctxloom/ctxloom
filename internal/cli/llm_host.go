@@ -41,12 +41,7 @@ var llmHostCmd = &cobra.Command{
 			return fmt.Errorf("unknown backend: %s", backendName)
 		}
 
-		// standUpRunner reads llmServeLabel for the config lookup (shared with
-		// `llm serve`); host's own --label feeds the same seam.
-		if llmHostLabel != "" {
-			llmServeLabel = llmHostLabel
-		}
-		standup, err := standUpRunner(cmd, backend, backendName)
+		standup, err := standUpRunner(cmd, backend, backendName, llmHostLabel)
 		if err != nil {
 			return err
 		}
@@ -79,9 +74,8 @@ func waitForRunnerTermination(cmd *cobra.Command) {
 	}
 }
 
-// llmHostLabel is host's --label, the counterpart to `llm serve`'s
-// llmServeLabel; RunE copies it into llmServeLabel (the shared config-lookup
-// seam) before standup.
+// llmHostLabel is host's own --label, the counterpart to `llm serve`'s
+// llmServeLabel; RunE hands it to standUpRunner as that call's label.
 var llmHostLabel string
 
 func init() {

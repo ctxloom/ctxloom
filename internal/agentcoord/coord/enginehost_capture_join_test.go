@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +18,15 @@ import (
 // openFDPaths lists the paths this process currently holds open. Linux-only
 // (procfs); the test that uses it skips elsewhere rather than asserting
 // nothing.
+//
+// Every assertion over this census must name an EXACT path the calling test
+// owns. The census is process-global and this package's tests all run in one
+// binary, so a match on the transcript FILE NAME alone is a claim about every
+// goroutine in the process: a straggler from an earlier test that records an
+// event after its own HOME override was restored opens
+// <this test's HOME>/.ctxloom/sessions/<its own harp>/transcript.jsonl, whose
+// leaf is identical and whose lifetime no assertion here controls. That is a
+// statement about the suite's scheduling, not about the subject under test.
 func openFDPaths(t *testing.T) []string {
 	t.Helper()
 	const fdDir = "/proc/self/fd"
@@ -95,12 +103,11 @@ func TestEngineHost_CloseJoinsTranscriptCapture(t *testing.T) {
 	recs := readCanonicalTranscript(t, "child-harp-1")
 	assert.Len(t, recs, 7, "every event the run produced is already recorded")
 
-	// Close is idempotent and does not disturb what was captured.
+	// Close is idempotent: it neither disturbs what was captured nor reopens
+	// the recorder it already joined.
 	eh.Close()
 	after := readCanonicalTranscript(t, "child-harp-1")
 	assert.Len(t, after, 7)
-	for _, p := range openFDPaths(t) {
-		assert.False(t, strings.HasSuffix(p, paths.CanonicalTranscriptFileName),
-			"no transcript fd may outlive Close")
-	}
+	assert.NotContains(t, openFDPaths(t), transcriptPath,
+		"a second Close must not reopen the transcript it already released")
 }

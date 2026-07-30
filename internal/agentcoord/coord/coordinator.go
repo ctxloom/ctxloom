@@ -684,6 +684,15 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 			return inReplyTo, true, disposition, rerr
 		}
 	}
+	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces
+	// funnel through (agent_send's bare-MCP handler and the plane-2
+	// PeerSendRequest). It runs before any routing so a sender learns the
+	// vocabulary is wrong even when the recipient is also wrong, and AFTER the
+	// approval-reply interception, which documents that a reply's `kind` rides
+	// alongside the decision and is ignored.
+	if err := SenderMailKind(kind); err != nil {
+		return "", false, "", err
+	}
 	if caller.IsChild() {
 		return c.childSend(caller, to, kind, body, structured, inReplyTo)
 	}

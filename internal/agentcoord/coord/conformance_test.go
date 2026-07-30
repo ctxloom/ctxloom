@@ -215,10 +215,13 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	e := sp.engine(0)
 	for turn := 2; turn <= 4; turn++ {
 		gate <- struct{}{}
+		// The body arrives inside the provenance frame every mailbox delivery
+		// carries (frameCoordinatorDelivery), so ORDER is what this asserts:
+		// each turn carries its own follow-up and no later one.
 		want := fmt.Sprintf("follow-up %d", turn-1)
 		require.Eventually(t, func() bool {
 			texts := e.recordedTexts()
-			return len(texts) == turn && texts[turn-1] == want
+			return len(texts) == turn && strings.HasSuffix(texts[turn-1], want)
 		}, conformanceWait, 10*time.Millisecond, "turn %d should carry %q", turn, want)
 	}
 }
@@ -351,7 +354,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	gates[1] <- struct{}{}
 	require.Eventually(t, func() bool { return rosterState(c, second.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.AgentSend(ownerIdentity(), first.Harp, "answer", "42", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), first.Harp, KindResult, "42", nil, "")
 	require.NoError(t, err)
 	<-recvDone
 	gates[0] <- struct{}{}
@@ -394,7 +397,7 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond,
 		"a parked child must not block the queue")
 
-	disp, err := c.AgentSend(ownerIdentity(), first.Harp, "answer", "42", nil, "")
+	disp, err := c.AgentSend(ownerIdentity(), first.Harp, KindResult, "42", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disp, "waiting agent_recv")
 	select {
@@ -477,7 +480,9 @@ func TestInject_DeliveryModes(t *testing.T) {
 	gate <- struct{}{} // finish turn 1 → boundary drains the injection as turn 2
 	require.Eventually(t, func() bool {
 		texts := sp.engine(0).recordedTexts()
-		return len(texts) == 2 && texts[1] == "mid-turn note"
+		// Provenance-framed (frameCoordinatorDelivery): the injected body is the
+		// turn's content, the header names the user as its sender.
+		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, "", "mid-turn note")
 	}, conformanceWait, 10*time.Millisecond)
 
 	_, err = c.Inject("foreign-session-harp", "hello?")
@@ -518,8 +523,8 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 	gate <- struct{}{} // release the held turn so the child's turnGate goroutine doesn't leak past the test
 	require.Eventually(t, func() bool {
 		texts := sp.engine(0).recordedTexts()
-		return len(texts) == 2 && texts[1] == long
-	}, conformanceWait, 10*time.Millisecond, "the child itself receives the injection VERBATIM, undigested")
+		return len(texts) == 2 && strings.HasSuffix(texts[1], long)
+	}, conformanceWait, 10*time.Millisecond, "the child itself receives the injection VERBATIM (inside its provenance frame), undigested")
 }
 
 // TestInject_WakesIdleChildAsNewTurn pins the DeliveryNewTurn mode: injecting
@@ -541,7 +546,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		texts := sp.engine(0).recordedTexts()
-		return len(texts) == 2 && texts[1] == "wake up"
+		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, "", "wake up")
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The O3 mirror fires for every delivery mode, this one included.

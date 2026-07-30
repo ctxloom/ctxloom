@@ -43,7 +43,7 @@ var llmServeCmd = &cobra.Command{
 		// config, stand up the EngineHost + dial home + runner-local MCP +
 		// BindHome (llm_serve.go's former body, now shared with `llm host`).
 		// serve's distinction is the transport TAIL below: plugin.Serve.
-		standup, err := standUpRunner(cmd, backend, backendName)
+		standup, err := standUpRunner(cmd, backend, backendName, llmServeLabel)
 		if err != nil {
 			return err
 		}

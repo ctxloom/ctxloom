@@ -294,7 +294,7 @@ func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 
 	// A SECOND like-kind ask, on a new turn.
 	sp.chat(0).arm(commandExecRequest("perm-second"))
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "run another command", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "run another command", nil, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -373,7 +373,7 @@ func TestApproval_AcceptForSessionSurvivesRunIDChange(t *testing.T) {
 	// mints a genuinely fresh run_id for the same harp (one-shot's per-turn
 	// shape).
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{} }
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "run another command", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "run another command", nil, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 10*time.Millisecond,
@@ -391,7 +391,7 @@ func TestApproval_AcceptForSessionSurvivesRunIDChange(t *testing.T) {
 	// its channel is long since attached (it already round-tripped one turn
 	// to idle above).
 	sp.chat(1).arm(commandExecRequest("perm-second"))
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "run another command still", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "run another command still", nil, "")
 	require.NoError(t, err)
 
 	// The cache check is a coordinator-local, synchronous map lookup — a

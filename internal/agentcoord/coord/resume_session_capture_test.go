@@ -75,6 +75,6 @@ func TestHandleChildEvent_CapturesLegacySessionID_AndThreadsOnResume(t *testing.
 
 	require.Eventually(t, func() bool { return len(resumed.recordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
 	resumedFirst := resumed.recordedTexts()[0]
-	assert.Equal(t, "one more thing", resumedFirst,
-		"a native-id resume must not prepend a rendered-transcript replay to the first turn")
+	assert.Equal(t, frameCoordinatorDelivery(ownerIdentity().Harp, "", "one more thing"), resumedFirst,
+		"a native-id resume carries only the mail's provenance frame — never a rendered-transcript replay — on the first turn")
 }

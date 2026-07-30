@@ -12,6 +12,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -121,4 +123,201 @@ func TestRunnerMustRefuseNoConfigReachBack(t *testing.T) {
 		"no config but no hosted run (e.g. `llm serve` with no RunID) has nothing to refuse for")
 	assert.False(t, runnerMustRefuseNoConfigReachBack(&config.Config{}, hostedRun),
 		"a loaded config (however degraded) takes the normal serveRunnerMCP path instead")
+}
+
+// labelCapturingBackend is a Configurable agent.Backend double that records the
+// typed config standUpRunner resolved for it. It embeds the mock backend purely
+// to satisfy agent.Backend; only Configure matters here.
+type labelCapturingBackend struct {
+	*backends.Mock
+	got agent.BackendConfig
+}
+
+func (b *labelCapturingBackend) Configure(bc agent.BackendConfig) { b.got = bc }
+
+// twoMockLabelProject writes a project whose config declares two mock-typed LLM
+// labels with distinguishable models, so a label mix-up is visible in the
+// resolved config rather than silently harmless.
+func twoMockLabelProject(t *testing.T) {
+	t.Helper()
+	dir := testsupport.ProjectDir(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
+	body := "llm:\n  configs:\n    alpha:\n      type: mock\n      model: model-alpha\n    beta:\n      type: mock\n      model: model-beta\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte(body), 0o644))
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+}
+
+// TestStandUpRunner_ConfiguresFromTheLabelItWasGiven is the U037-F23 pin. `llm
+// host` and `llm turn` each used to copy their own --label into `llm serve`'s
+// package-global llmServeLabel, because standUpRunner read that global instead
+// of taking the label as an argument: three commands writing one mutable global
+// to pass an argument down one call. The label is now a parameter, and this pins
+// that the parameter is what selects the entry — nothing else can.
+//
+// No reach-back trio is set, so standUpRunner returns at its own "nothing to
+// dial" early exit immediately after the config/configure block under test: no
+// coordinator, no engine, no socket.
+func TestStandUpRunner_ConfiguresFromTheLabelItWasGiven(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t) // no CTXLOOM_COORD_* trio in the environment
+
+	for _, label := range []string{"alpha", "beta"} {
+		backend := &labelCapturingBackend{Mock: backends.NewMock()}
+		standup, err := func() (*runnerStandup, error) {
+			cmd, _ := testCmd()
+			return standUpRunner(cmd, backend, "mock", label)
+		}()
+		require.NoError(t, err)
+		require.NotNil(t, standup)
+
+		cfg, ok := backend.got.(*backends.MockConfig)
+		require.Truef(t, ok, "label %q must resolve a mock config, got %T", label, backend.got)
+		assert.Equal(t, "model-"+label, cfg.Model,
+			"the label passed to standUpRunner is what selects the entry")
+	}
+}
+
+// TestConsumeCoordinatorReachBack_ReadsThenScrubs is the characterization half
+// of U037-F19: the reach-back is read into the standup's own state and then
+// removed from the environment, so nothing the runner spawns can inherit it.
+func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
+	env := map[string]string{
+		coord.EnvCoordURL:         "tcp://127.0.0.1:1",
+		coord.EnvCoordCred:        "the-token",
+		coord.EnvRunID:            "run-7",
+		coord.EnvAgentCoordinator: "1",
+		coord.EnvCellWorkDir:      "/work/cell",
+		"CTXLOOM_SESSION_HARP":    "regal-rash-dash",
+	}
+	reach, err := consumeCoordinatorReachBack("mock",
+		func(k string) string { return env[k] },
+		func(k string) error { delete(env, k); return nil })
+
+	require.NoError(t, err)
+	assert.Equal(t, "tcp://127.0.0.1:1", reach.home.URL)
+	assert.Equal(t, "the-token", reach.home.Token)
+	assert.Equal(t, "run-7", reach.home.RunID)
+	assert.Equal(t, "mock", reach.home.Harness)
+	assert.Equal(t, "regal-rash-dash", reach.harp)
+	assert.Equal(t, "/work/cell", reach.cellWorkDir)
+	assert.False(t, reach.leaf, "a Coordinator-capable delegated child is not a leaf")
+
+	for _, k := range coordinatorEnvKeys {
+		assert.NotContainsf(t, env, k, "%s must not survive into the engine child's environment", k)
+	}
+}
+
+// TestConsumeCoordinatorReachBack_LeafGate pins the leaf classification, which
+// decides whether the coordinator-only MCP tools are served: a delegated child
+// (RunID set) that was not resolved Coordinator-capable is a leaf; the top-level
+// human session, which sets no RunID, never is.
+func TestConsumeCoordinatorReachBack_LeafGate(t *testing.T) {
+	leafFor := func(env map[string]string) bool {
+		reach, err := consumeCoordinatorReachBack("mock",
+			func(k string) string { return env[k] },
+			func(string) error { return nil })
+		require.NoError(t, err)
+		return reach.leaf
+	}
+	assert.True(t, leafFor(map[string]string{coord.EnvRunID: "run-7"}), "delegated child, not coordinator-capable")
+	assert.False(t, leafFor(map[string]string{coord.EnvRunID: "run-7", coord.EnvAgentCoordinator: "1"}))
+	assert.False(t, leafFor(map[string]string{}), "the human session is never gated")
+}
+
+// TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch is the U037-F19
+// fix: the scrub used to be `_ = os.Unsetenv(k)`, so a key that survived left
+// the coordinator credential in the environment the engine child inherits —
+// third-party code handed the token, with the runner reporting a clean standup.
+// It is now a refusal, and the refusal names every key that stuck.
+func TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch(t *testing.T) {
+	_, err := consumeCoordinatorReachBack("mock",
+		func(string) string { return "sensitive" },
+		func(k string) error {
+			if k == coord.EnvCoordCred {
+				return assert.AnError
+			}
+			return nil
+		})
+
+	require.Error(t, err, "an unscrubbed credential must abort the standup")
+	assert.Contains(t, err.Error(), coord.EnvCoordCred, "the refusal must name the key that survived")
+	assert.NotContains(t, err.Error(), "sensitive", "the refusal must not echo the credential value")
+}
+
+// TestExportRunnerMCPSocket pins U037-F19's other swallowed syscall. The export
+// used to be `_ = os.Setenv(...)`, so a failure left the endpoint listening and
+// unaddressable — the child's shim would find no socket and stand up a rogue
+// local coordinator nobody reads.
+func TestExportRunnerMCPSocket(t *testing.T) {
+	var gotKey, gotVal string
+	require.NoError(t, exportRunnerMCPSocket(func(k, v string) error {
+		gotKey, gotVal = k, v
+		return nil
+	}, "/run/ctxloom/local/mcp-1.sock"))
+	assert.Equal(t, coord.EnvMCPSocket, gotKey)
+	assert.Equal(t, "/run/ctxloom/local/mcp-1.sock", gotVal)
+
+	err := exportRunnerMCPSocket(func(string, string) error { return assert.AnError }, "/sock")
+	require.Error(t, err, "a failed export must be reported, not dropped")
+	assert.Contains(t, err.Error(), coord.EnvMCPSocket)
+}
+
+// The three tests below are the characterization set for U037-F20's split of
+// standUpRunner into named concerns. Behaviour is unchanged by definition, so no
+// test can discriminate the refactor (template §4, case 2: pure complexity
+// reduction) — their job is to be green before AND after, covering every arm the
+// split moves that is reachable without a live coordinator.
+//
+// The arms deliberately NOT covered here, and why: dial-home failure,
+// EngineHost creation, and serveRunnerMCP failure all need a real coordinator
+// endpoint (coord.NewHome retries with backoff), which is integration territory,
+// not a unit gate. The two fail-loud decisions those arms guard are pinned
+// directly instead — runnerMustRefuseNoConfigReachBack and
+// exportRunnerMCPSocket, above.
+
+// TestStandUpRunner_NoReachBackIsAQuietNoOp: with no coordinator trio in the
+// environment there is nothing to dial or host, and that is a success — a
+// top-level `llm serve`, or a `llm host` launched by hand.
+func TestStandUpRunner_NoReachBackIsAQuietNoOp(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t)
+
+	cmd, _ := testCmd()
+	standup, err := standUpRunner(cmd, backends.NewMock(), "mock", "")
+
+	require.NoError(t, err)
+	require.NotNil(t, standup)
+	assert.Nil(t, standup.home, "nothing was dialed")
+	assert.Nil(t, standup.engineHost, "no delegated run is hosted")
+	assert.Nil(t, standup.endpointClose, "no runner-local MCP endpoint was stood up")
+	standup.teardown() // must be safe on an all-nil standup
+}
+
+// TestStandUpRunner_ConfiguresEvenWithoutAReachBack: the config-load and
+// backend-configure concern runs before the reach-back decision, so an
+// unconnected runner is still configured from its label.
+func TestStandUpRunner_ConfiguresEvenWithoutAReachBack(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t)
+
+	backend := &labelCapturingBackend{Mock: backends.NewMock()}
+	cmd, _ := testCmd()
+	_, err := standUpRunner(cmd, backend, "mock", "beta")
+
+	require.NoError(t, err)
+	require.NotNil(t, backend.got, "the backend is configured regardless of reach-back")
+}
+
+// TestStandUpRunner_UnconfigurableBackendIsNotAnError: a backend that does not
+// implement backends.Configurable takes the same path with no config applied.
+func TestStandUpRunner_UnconfigurableBackendIsNotAnError(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t)
+
+	cmd, _ := testCmd()
+	standup, err := standUpRunner(cmd, backends.NewMock(), "mock", "beta")
+
+	require.NoError(t, err)
+	require.NotNil(t, standup)
 }

@@ -1310,3 +1310,77 @@ func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
 	assert.Equal(t, []string{"ltk evaluate --tool ctxloom inject-context"}, kept,
 		"a ctxloom-token hook is removed whatever its verb; another tool's hook is never ctxloom's to remove")
 }
+
+// TestSaveSettings_PreservesLargeIntegerUserSetting is the payload half of the
+// preservation invariant U032-F16 only covered on its error branch: a
+// user-authored number that DOES decode into `any` was not refused, it was
+// rewritten. 1234567890123456789 fits int64 but not float64's exact range, so
+// the round-trip through a generic decode returned it rounded and the writer
+// persisted the rounded value with a success exit code — the file the user
+// authored, silently altered.
+//
+// The assertion is on the bytes, both at the top level and inside the
+// permissions block, because the failure mode is a write that succeeds.
+func TestSaveSettings_PreservesLargeIntegerUserSetting(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	original := `{"awkwardNumber": 1234567890123456789,` +
+		`"nested": {"id": 9223372036854775807},` +
+		`"permissions": {"allow": ["Read"], "quota": 18446744073709551615}}`
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(original), 0644))
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+	got := string(data)
+	assert.Contains(t, got, "1234567890123456789", "the user's own number must survive the rewrite exactly")
+	assert.Contains(t, got, "9223372036854775807", "a number nested inside a preserved key must survive too")
+	assert.Contains(t, got, "18446744073709551615", "a permissions sibling's number must survive too")
+	assert.Contains(t, got, `"Read"`, "the surrounding allow list must be untouched")
+}
+
+// TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped closes the last
+// warn-and-continue in this file's read path. parseStatusLine warned and
+// returned nil while loadSettings deleted the key from the preserved map, so
+// the user's own statusLine — a value ctxloom could not read, which is exactly
+// when it must not be the one to decide — was gone from settings.json on the
+// next write: replaced by the managed HUD, or deleted outright when the HUD is
+// opted out. Same class as the hooks and permissions blocks, which already
+// refuse.
+//
+// Both writer configurations are covered because they lose the value by
+// different routes, and the assertion is on the FILE: a write that returns nil
+// having dropped the key is the failure mode.
+func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
+	// A shape a newer Claude Code could introduce: statusLine is still an
+	// object, but "command" is no longer a plain string.
+	const original = `{"env": {"A": "b"}, "statusLine": {"type": "command", "command": {"exec": "ccusage", "args": []}}}`
+
+	for _, tc := range []struct {
+		name     string
+		disabled bool
+	}{
+		{"ctxloom manages the statusline", false},
+		{"the statusline is opted out", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			settingsPath := filepath.Join("/project", ".claude", "settings.json")
+			require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
+			require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(original), 0644))
+
+			writer := &ClaudeCodeHookWriter{FS: fs, statusLineDisabled: tc.disabled}
+			err := writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project")
+			require.Error(t, err, "a statusLine ctxloom cannot read must abort the write, not be replaced or deleted")
+
+			data, readErr := afero.ReadFile(fs, settingsPath)
+			require.NoError(t, readErr)
+			assert.Contains(t, string(data), "ccusage",
+				"the user's own statusline must still be in the file")
+			assert.Contains(t, string(data), `"env"`, "the rest of the file must be untouched too")
+		})
+	}
+}

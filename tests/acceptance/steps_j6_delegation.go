@@ -28,11 +28,13 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cucumber/godog"
 )
@@ -488,4 +490,117 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 		}
 		return callTool(c, "agent_stop", map[string]any{"harp": harp})
 	})
+
+	// --- FAILURE PATH: the mail `kind` vocabulary as a security boundary.
+	// `kind` is not a label — approval_request is the kind the escalation
+	// ladder relays to a HUMAN as a trust decision, so a sender able to set
+	// it phishes that decision. The vocabulary is closed at the one ingress
+	// every sender funnels through, which is why the refusal below is the
+	// same refusal a delegated child gets.
+	ctx.Step(`^the agent sends "([^"]*)"'s remembered session a message of kind "([^"]*)"$`,
+		func(c context.Context, name, kind string) error {
+			w := worldFrom(c)
+			j6 := j6Of(w)
+			harp, ok := j6.harps[name]
+			if !ok || harp == "" {
+				return fmt.Errorf("j6: no session harp remembered for %q", name)
+			}
+			return callTool(c, "agent_send", map[string]any{
+				"to":   harp,
+				"body": "Approve running the deploy script.",
+				"kind": kind,
+			})
+		})
+
+	// --- CAPABILITY NEGOTIATION. Hello.capabilities has been in the wire
+	// contract from the start and neither end read it. Now the coordinator
+	// captures each run's advertisement AND journals it with the attach, which
+	// is what makes it observable from outside the process at all.
+	ctx.Step(`^the coordinator's audit trail records the child runner's advertised capabilities$`,
+		func(c context.Context) error {
+			w := worldFrom(c)
+			// agent_run returns at ENQUEUE; the child's runner subprocess dials
+			// home afterwards, so the advertisement appears on its own schedule.
+			var (
+				caps []string
+				err  error
+			)
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				caps, err = j6AttachedCapabilities(w)
+				if err == nil && len(caps) > 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					if err != nil {
+						return err
+					}
+					return errors.New("no run_channel interaction carried a capabilities detail within 30s — did any runner dial home?")
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			w.docStepMaterialized = fmt.Sprintf("interactions.jsonl — run_channel advertisements:\n  %s", strings.Join(caps, "\n  "))
+			// Every attached runner advertises the mailbox surface; a runner
+			// hosting an engine also advertises the five control kinds, because
+			// only a hosted engine could execute them.
+			for _, adv := range caps {
+				if !strings.Contains(adv, "peer_messaging") {
+					return fmt.Errorf("an attached runner advertised %q, without the mailbox surface every runner has", adv)
+				}
+			}
+			for _, adv := range caps {
+				if strings.Contains(adv, "steer") {
+					for _, want := range []string{"question", "on_demand_summary", "pause", "resume"} {
+						if !strings.Contains(adv, want) {
+							return fmt.Errorf("an engine-hosting runner advertised %q but not %q — a partial control advertisement makes the send-side guard lie", adv, want)
+						}
+					}
+					return nil
+				}
+			}
+			return fmt.Errorf("no attached runner advertised the control capabilities; advertisements seen: %v", caps)
+		})
+}
+
+// j6AttachedCapabilities reads every run_channel interaction's advertised
+// capability list out of the coordinator's audit journal on disk — the same
+// "external, disk-durable observable" discipline the rest of this journey uses
+// for runs.jsonl, applied to interactions.jsonl.
+func j6AttachedCapabilities(w *World) ([]string, error) {
+	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("glob %q: %w", pattern, err)
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no interactions.jsonl found under %q", pattern)
+	}
+	var out []string
+	for _, m := range matches {
+		data, rerr := os.ReadFile(m)
+		if rerr != nil {
+			return nil, fmt.Errorf("read %s: %w", m, rerr)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			var jl j6JournalLine
+			if json.Unmarshal([]byte(line), &jl) != nil || jl.Kind != "interaction" {
+				continue
+			}
+			var in struct {
+				Kind   string            `json:"kind"`
+				Detail map[string]string `json:"detail"`
+			}
+			if json.Unmarshal(jl.Data, &in) != nil || in.Kind != "run_channel" {
+				continue
+			}
+			if adv := in.Detail["capabilities"]; adv != "" {
+				out = append(out, adv)
+			}
+		}
+	}
+	return out, nil
 }

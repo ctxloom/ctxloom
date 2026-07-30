@@ -66,7 +66,7 @@ Examples:
   ctxloom command create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return createItem(args[0], args[1], ItemTypeCommand)
+		return createItem(cmd, args[0], args[1], ItemTypeCommand)
 	},
 }
 
@@ -81,7 +81,7 @@ Examples:
   ctxloom command delete my-bundle#commands/old-command`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return deleteItem(args[0], ItemTypeCommand)
+		return deleteItem(cmd, args[0], ItemTypeCommand)
 	},
 }
 
@@ -103,7 +103,7 @@ Examples:
   ctxloom command edit core#commands/code-review --no-distill`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(cmd.OutOrStdout(), args[0], ItemTypeCommand, commandEditNoDistill)
+		return editItem(cmd, args[0], ItemTypeCommand, commandEditNoDistill)
 	},
 }
 
@@ -121,7 +121,7 @@ Examples:
   ctxloom command distill go-tools#commands/testing --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return distillItem(args[0], ItemTypeCommand, commandDistillForce)
+		return distillItem(cmd, args[0], ItemTypeCommand, commandDistillForce)
 	},
 }
 

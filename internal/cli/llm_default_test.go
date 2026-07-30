@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -128,4 +129,37 @@ func TestRunLLMDefault_Set_UnknownLLM_Errors(t *testing.T) {
 
 	err := runLLMDefault(cmd, nil, cfg, []string{"not-a-real-llm"})
 	require.Error(t, err)
+}
+
+// TestIsKnownLLM_AgreesWithTheAdvertisedSet is the U037-F11 pin. `llm default
+// <name>` decided membership with its own predicate (backends.Exists ||
+// cfg.GetLLMEntry) and then built the rejection message from
+// operations.AvailableLLMNames — two definitions of "known LLM" with no
+// compiler help. A drift between them is a self-contradicting command: it
+// either rejects a name its own error message lists as available, or accepts
+// one the listing never mentions.
+//
+// The two sets were VERBATIM equivalent when this was written, so no parity
+// assertion here could be red; the test's job is to pin the equivalence
+// permanently, over the shapes that would break it — a builtin, the mock double
+// registered into the production table, a config-only label, a label whose
+// backend type is unknown, an empty name, and a plain typo.
+func TestIsKnownLLM_AgreesWithTheAdvertisedSet(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs: map[string]config.LLMConfig{
+				"my-claude": {Type: "claude-code", Body: map[string]interface{}{}},
+				"stale":     {Type: "gemini", Body: map[string]interface{}{}},
+			},
+		},
+	})
+
+	for _, name := range []string{
+		"claude-code", "antigravity", "codex", mockBackendName,
+		"my-claude", "stale", "nonexistent-plugin", "",
+	} {
+		advertised := slices.Contains(operations.AvailableLLMNames(cfg), name)
+		assert.Equalf(t, advertised, isKnownLLM(cfg, name),
+			"%q: the set `llm default` accepts must be the set it advertises", name)
+	}
 }

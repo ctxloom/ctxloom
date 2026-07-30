@@ -154,7 +154,7 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "second task", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "second task", nil, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -163,7 +163,7 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond, "the send must start a new turn on the idle child")
 	turn := sp.chat(0).recordedTexts()[1]
 	assert.Contains(t, turn, "second task")
-	assert.Contains(t, turn, "kind=task", "the kind survives as frame text (manly-grant (6))")
+	assert.Contains(t, turn, "kind="+KindMessage, "the kind survives as frame text, from the closed vocabulary (manly-grant (6))")
 	assert.Contains(t, turn, "coordinator-harp", "the sender survives as frame text")
 
 	// The consumption fact advanced the cursor: nothing left to deliver.

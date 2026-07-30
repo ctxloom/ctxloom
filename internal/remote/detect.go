@@ -69,6 +69,13 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 		return ForgeGitHub, "https://github.com", nil
 	}
 
+	// scp-style SSH ("git@host:owner/repo") is a spelling ParseRepoURL accepts
+	// and NormalizeURL rewrites, but url.Parse refuses it outright — its first
+	// path segment carries a colon — so the host is read off the string.
+	if host, ok := scpLikeHost(repoURL); ok {
+		return forgeForHost(host, "https://"+host)
+	}
+
 	u, err := url.Parse(repoURL)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid URL: %w", err)
@@ -83,6 +90,39 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 	// Any other host is consumed via the generic git adapter (clone + local
 	// read) against its own endpoint.
 	return ForgeGitGeneric, fmt.Sprintf("%s://%s", u.Scheme, u.Host), nil
+}
+
+// scpLikeHost returns the host of an scp-style SSH ref ("user@host:owner/repo")
+// and whether the input had that shape: an "@" followed later by a ":", no
+// scheme, and a dotted host. The host must be extracted textually because
+// url.Parse rejects the whole form.
+func scpLikeHost(repoURL string) (string, bool) {
+	if strings.Contains(repoURL, "://") {
+		return "", false
+	}
+	at := strings.Index(repoURL, "@")
+	if at < 0 {
+		return "", false
+	}
+	colon := strings.Index(repoURL[at:], ":")
+	if colon < 0 {
+		return "", false
+	}
+	host := strings.ToLower(repoURL[at+1 : at+colon])
+	if !strings.Contains(host, ".") {
+		return "", false
+	}
+	return host, true
+}
+
+// forgeForHost maps a resolved host to its adapter: github.com (with or without
+// the www. label) to the GitHub API adapter at the canonical endpoint, every
+// other host to the generic clone-backed adapter at base.
+func forgeForHost(host, base string) (ForgeType, string, error) {
+	if host == "github.com" || host == "www.github.com" {
+		return ForgeGitHub, "https://github.com", nil
+	}
+	return ForgeGitGeneric, base, nil
 }
 
 // ParseRepoURL extracts owner and repo name from a URL or shorthand.

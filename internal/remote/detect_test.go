@@ -30,6 +30,15 @@ func TestDetectForge(t *testing.T) {
 		{"self-hosted gitlab", "https://gitlab.company.com/owner/repo", ForgeGitGeneric, "https://gitlab.company.com", false},
 		{"self-hosted my-gitlab", "https://my-gitlab.internal.org/group/project", ForgeGitGeneric, "https://my-gitlab.internal.org", false},
 		{"unknown host", "https://unknown.host.com/owner/repo", ForgeGitGeneric, "https://unknown.host.com", false},
+
+		// scp-style SSH refs. url.Parse rejects them outright ("first path
+		// segment in URL cannot contain colon"), so the host has to be taken by
+		// hand — but ParseRepoURL documents and accepts exactly this form, and
+		// NormalizeURL rewrites it to https, so DetectForge refusing it made one
+		// package disagree with itself about which spellings name a repository.
+		{"scp ssh github", "git@github.com:owner/repo.git", ForgeGitHub, "https://github.com", false},
+		{"scp ssh github no suffix", "git@github.com:owner/repo", ForgeGitHub, "https://github.com", false},
+		{"scp ssh self-hosted", "git@gitlab.company.com:group/project.git", ForgeGitGeneric, "https://gitlab.company.com", false},
 	}
 
 	for _, tt := range tests {

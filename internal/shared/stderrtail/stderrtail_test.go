@@ -69,6 +69,53 @@ func TestRing_NilReceiverTailIsEmpty(t *testing.T) {
 	assert.Empty(t, r.Tail())
 }
 
+// BOUNDED means bounded in MEMORY, not merely in what Tail reports. A single
+// oversized write must never make the ring hold a backing array proportional
+// to that write: only the last max bytes of any write can survive the budget,
+// so the rest must never be copied in at all. This matters because the ring is
+// attached to a child's stderr through TeeStderr's io.MultiWriter, which passes
+// through whatever the caller writes — nothing in the contract promises the
+// 32 KB chunking os/exec happens to deliver today — and because re-slicing an
+// oversized buffer down to max keeps the oversized array alive for the ring's
+// entire life, so the cost is retained, not transient.
+// Note cap() alone cannot express this: re-slicing an oversized buffer down to
+// its last max bytes yields a slice whose cap READS as max while the oversized
+// backing array behind it stays alive. What actually distinguishes a bounded
+// ring is that an oversized write ALLOCATES NOTHING — the surviving bytes are
+// copied into the budget the ring already owns.
+func TestRing_OversizedWriteAllocatesNothing(t *testing.T) {
+	const budget = 8192
+	r := New(budget)
+	big := []byte(strings.Repeat("x", 4<<20)) // one 4 MiB line
+
+	allocs := testing.AllocsPerRun(10, func() { _, _ = r.Write(big) })
+	assert.Zero(t, allocs,
+		"an oversized write must copy only the last max bytes into the ring's own budget, never allocate proportionally to the write")
+
+	r.mu.Lock()
+	gotCap, gotLen := cap(r.buf), len(r.buf)
+	r.mu.Unlock()
+	assert.LessOrEqual(t, gotCap, budget,
+		"the retained allocation must be bounded by max, not by the largest single write")
+	assert.LessOrEqual(t, gotLen, budget)
+	assert.Len(t, r.Tail(), budget, "the last max bytes still survive")
+}
+
+// The bound holds across a SEQUENCE of oversized writes too — a child that
+// emits many huge lines must not ratchet the ring's footprint upward.
+func TestRing_RepeatedOversizedWritesStayWithinBudget(t *testing.T) {
+	const budget = 64
+	r := New(budget)
+	for i := 0; i < 16; i++ {
+		_, _ = r.Write([]byte(strings.Repeat("y", 1<<16)))
+	}
+	r.mu.Lock()
+	gotCap := cap(r.buf)
+	r.mu.Unlock()
+	assert.LessOrEqual(t, gotCap, budget)
+	assert.Equal(t, strings.Repeat("y", budget), r.Tail())
+}
+
 // Concurrency-safety is part of the contract, not an accident: the child's
 // stderr pump writes while a reaper reads Tail. Run this under -race.
 func TestRing_ConcurrentWritesAndReads(t *testing.T) {

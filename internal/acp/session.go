@@ -243,9 +243,17 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 			case msg.Terminal != nil:
 				sess.deliverTerminal(*msg.Terminal)
 			case msg.CancelTurn:
-				if turnDone != nil {
-					notifyCancel()
+				if turnDone == nil {
+					// Nothing to abandon, so no session/cancel goes out — but
+					// this is a real race for any client on the far side of
+					// the gRPC or ACP door (the turn ends in the instant
+					// between the user cancelling and the message landing),
+					// and a cancel that does nothing must not also say
+					// nothing.
+					warnf("acp: turn cancel ignored: no turn in flight (the turn had already finished when the cancel arrived)")
+					continue
 				}
+				notifyCancel()
 			default:
 				queued = append(queued, msg)
 			}

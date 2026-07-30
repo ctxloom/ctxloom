@@ -159,9 +159,9 @@ type ACP struct {
 	// construction path leaves it empty.
 	containerImage string
 
-	// shutdownGrace bounds how long spawnHostTransport's close() waits for
-	// the spawned agent to exit ON ITS OWN (after stdin EOF) before force-
-	// killing its process group. tidy-gush: claude-code-acp writes its own
+	// shutdownGrace bounds how long a transport's close() waits for the spawned
+	// agent to exit ON ITS OWN (after stdin EOF) before force-killing it — its
+	// process group on the host, the container itself under runtime:container. tidy-gush: claude-code-acp writes its own
 	// NATIVE session transcript asynchronously; a zero-grace immediate kill
 	// (the pre-fix behavior) raced that flush and truncated it — reproduced
 	// by bypassing ctxloom entirely and hitting the identical symptom
@@ -172,7 +172,10 @@ type ACP struct {
 }
 
 // DefaultShutdownGrace is how long a spawned ACP agent gets to exit on its
-// own after stdin closes before teardown force-kills its process group. Long
+// own after stdin closes before teardown force-kills its process group. The
+// container transport applies the same bound to the container's teardown
+// (isolation.AttachedContainer.ShutdownGrace, whose own default matches this
+// one). Long
 // enough to cover an async native-transcript flush (tidy-gush's manual
 // repro: "sleep a few seconds" before terminate let the flush complete
 // cleanly every time); short enough that a hung/misbehaving agent doesn't

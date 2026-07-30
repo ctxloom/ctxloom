@@ -131,6 +131,14 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		return nil, fmt.Errorf("acp: starting %q in container: %w", engine, err)
 	}
 
+	// The in-container engine needs the SAME post-stdin-EOF grace the host
+	// transport gives it (see shutdownGrace / DefaultShutdownGrace): the adapter
+	// flushes its native transcript asynchronously, and here the destructive act
+	// is a container removal that takes the filesystem holding that half-written
+	// transcript with it. Zero (every production path) leaves isolation's own
+	// default; the test seam's shorter value carries through.
+	ac.ShutdownGrace = b.shutdownGrace
+
 	return &transport{
 		stdin:  ac.Stdin,
 		stdout: ac.Stdout,

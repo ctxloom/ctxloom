@@ -1464,3 +1464,64 @@ func TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce(t *testing.T) {
 	p.Abort() // idempotent: Abort clears its cleanup, so no second teardown either
 	assert.Equal(t, 1, strings.Count(warnings.String(), residue))
 }
+
+// TestPrepareAgentChat_EmptyComposedContextIsAnnounced pins U083-F08. Both
+// delegated launch paths funnel through PrepareAgentChat, and it resolved the
+// lead context with no floor: req.Context, else rs.Context, else nothing at
+// all. leadContextIn then prepends "" — the child runs with ZERO ctxloom
+// bytes while agent_run reports a healthy spawn. That is this project's
+// signature failure mode (exit 0, success message, nothing delivered), and
+// the composed-context case is NOT covered by resolveAgentBinding's existing
+// "declares no profiles" warning: here profiles ARE declared and assembly
+// SUCCEEDED, producing nothing.
+func TestPrepareAgentChat_EmptyComposedContextIsAnnounced(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host",
+			Profiles: []string{"reviewer"}, Context: ""},
+		WorkDir: t.TempDir(),
+		Factory: func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err, "an empty context stays fault-tolerant: it warns, it does not refuse")
+	defer p.Abort()
+
+	out := warnings.String()
+	assert.Contains(t, out, "coder", "the warning names the agent")
+	assert.Contains(t, out, "reviewer", "…and the profiles that composed to nothing")
+}
+
+// TestPrepareAgentChat_ComposedContextPresentIsSilent is the other half: the
+// warning must fire on the EMPTY case only, or it is noise every spawn learns
+// to ignore.
+func TestPrepareAgentChat_ComposedContextPresentIsSilent(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host",
+			Context: "# composed context\n"},
+		WorkDir: t.TempDir(),
+		Factory: func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.NotContains(t, warnings.String(), "zero bytes")
+}
+
+// TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext pins that the
+// floor reads what is actually DELIVERED: a resume primes req.Context with a
+// rendered transcript, which is real ctxloom content even when the agent's
+// own composed context is empty.
+func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		Context:  "## resumed transcript\n",
+		WorkDir:  t.TempDir(),
+		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.NotContains(t, warnings.String(), "zero bytes")
+}

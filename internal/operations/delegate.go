@@ -228,6 +228,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	if p.contextText == "" {
 		p.contextText = rs.Context
 	}
+	warnOnEmptyLeadContext(rs, p.contextText)
 
 	// DIRTY-PARENT-TREE SPAWN HANDLING (see handleDirtyParentTree's doc): a
 	// worktree checkout only ever sees COMMITTED state, so a delegated child
@@ -311,6 +312,31 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		}
 	}
 	return p, nil
+}
+
+// warnOnEmptyLeadContext is the delegated child's zero-context floor. Both
+// launch paths funnel through PrepareAgentChat, and both deliver whatever it
+// resolved: the legacy Chat dial prepends it to the first turn (leadContextIn,
+// which prepends "" without comment), StartRun joins it ahead of the prompt.
+// Neither can tell "this agent composes nothing" from "ctxloom is working" —
+// the child simply runs with no ctxloom bytes at all while the spawn reports
+// success, which is this codebase's signature failure mode.
+//
+// Fault-tolerant by design (warn, never refuse): a legitimately context-free
+// agent must still launch. resolveAgentBinding already warns for an agent
+// declaring NO profiles; this covers the case it cannot see — profiles
+// declared, assembly SUCCEEDED, and the composed result is empty. Once per
+// distinct message, so a fan of ten children says it once.
+func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
+	if strings.TrimSpace(lead) != "" {
+		return
+	}
+	profiles := "none declared"
+	if len(rs.Profiles) > 0 {
+		profiles = strings.Join(rs.Profiles, ", ")
+	}
+	clidiag.WarnOnce("ctxloom", "agent_run: agent %q launches with ZERO bytes of ctxloom context (profiles: %s) — the child runs with no composed context at all; check the agent's profiles with `ctxloom agent show %s`",
+		rs.Name, profiles, rs.Name)
 }
 
 // resolveChatModel resolves a delegated child's model into the concrete,

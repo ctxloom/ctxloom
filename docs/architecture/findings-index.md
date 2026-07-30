@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,116** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 62 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 110 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,124** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 65 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 114 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 139 |
-| `open` | no commit names this ID | **841** |
+| `open` | no commit names this ID | **826** |
 
-**Totals: 2268 findings across 162 units — 1,116 resolved, 841 still open, 311 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,124 resolved, 826 still open, 318 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -331,9 +331,9 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 351 | 485 | 32 | 43 | 88 |
-| LOW | 871 | 415 | 330 | 20 | 59 | 47 |
+| HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
+| MED | 999 | 356 | 478 | 33 | 44 | 88 |
+| LOW | 871 | 417 | 323 | 22 | 62 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -771,7 +771,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U085-F02 | **RESOLVED** `3214b639` | **`manage.go:192-196, 70-79`** | SILENTNOOP | `ctxloom manage hooks uninstall --backend <typo>` reports `Status: "removed"` listing the typo'd backend while removing nothing. | U085.md |
 | U085-F03 | **RESOLVED** `d21a765d` | `profile_transfer.go:188-194` | SILENTNOOP | `SetProfileContent` accepts empty / whitespace-only / comment-only YAML as valid and overwrites the profile with zero bytes, returning `Status: "updated"`. Data loss through `ctxloom profile edit`. | U085.md |
 | U085-F04 | **RESOLVED** `d21a765d` | `profile_transfer.go:109-131` | SILENTNOOP | `ImportProfile` imports an empty or comment-only file as a valid profile (`Status: "imported"`), by the same yaml.v3 hole; `ExportProfile:72-83` likewise copies a 0-byte profile out without complaint. | U085.md |
-| U085-F05 | open | `profile_materialize.go:91-94, 145` | SILENTNOOP | An assembled context of `""` is never floored: materialize writes the whole native surface tree (settings, MCP, commands, skills) with **no context payload** and reports success. The artifact is me... | U085.md |
+| U085-F05 | **RESOLVED** `93c29d82` | `profile_materialize.go:91-94, 145` | SILENTNOOP | An assembled context of `""` is never floored: materialize writes the whole native surface tree (settings, MCP, commands, skills) with **no context payload** and reports success. The artifact is me... | U085.md |
 | U085-F06 | **RESOLVED** `6b4e275e` | **`oneshot.go:452-482`** | SILENTNOOP | Exit 0 with empty stdout is reported as a successful run: `Output: ""` propagates into `WeaveResult.Report`, `Part.Output` and the delegated child's assistant entry with no error anywhere. This is ... | U085.md |
 | U086-F07 | **RESOLVED** `d556ec56` | `remotes.go:827 (also :718)` | CORRECTNESS | A degenerate remote URL causes `os.RemoveAll` of **the entire clone cache root**, and both reachable call sites drop or downgrade the error so the user is told the remote was "added" | U086.md |
 | U086-F17 | **RESOLVED** `171755ea` | `resume.go:16, 41` | SILENTNOOP | A resume whose recorded transcript yields zero main-thread entries succeeds while priming **zero bytes** of history, and no call site notices | U086.md |
@@ -1509,14 +1509,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U085-F08 | **RESOLVED** `75c49ef0` | **`lockfile.go:275-506`** | DEAD | `CheckOutdated` and its entire helper chain — ~200 LOC and 5 types — have **zero production call sites**. | U085.md |
 | U085-F09 | **RESOLVED** `253f5649` | **`lockfile.go:174-270`** | DEAD | `InstallDependencies` (75 LOC) plus the `Puller` port and both DTOs are test-only. | U085.md |
 | U085-F10 | **RESOLVED** `4c0ceb8b` | **`profiles.go:508-523`** | CORRECTNESS | **Confirms routed item 12.** `profileLoader` discovers directories on `cfg.FS()` but constructs the loader **without** `profiles.WithFS(cfg.FS())`, so `NewLoader`'s default `afero.NewOsFs()` reads ... | U085.md |
-| U085-F11 | open | **`profiles.go:508 vs config/config.go:772`** | DUPLICATE | Two near-identical profile-loader factories, differing only in the missing `WithFS` (F10) and a fallback directory. A third partial (`profileLoaderFS`) lives in this same unit. | U085.md |
+| U085-F11 | **RESOLVED** `32606a59` | **`profiles.go:508 vs config/config.go:772`** | DUPLICATE | Two near-identical profile-loader factories, differing only in the missing `WithFS` (F10) and a fallback directory. A third partial (`profileLoaderFS`) lives in this same unit. | U085.md |
 | U085-F12 | **RESOLVED** `8620f4b1` | `mcp_servers.go:43-48, 159-163` | NOPAY | `ListMCPServers` and `GetMCPServer` **never read their `cfg` parameter** (nor `ctx`); they reload the config from disk and accept a *second* injection channel, `req.TestConfig`, to compensate. | U085.md |
-| U085-F13 | open | **`lockfile.go:410-416, 466-473`** | ERRHANDLING | `findOutdatedEntries` discards every per-entry failure with a bare `continue` and no warning, so a run in which *every* resolve failed reports `"All items are up to date"` — the most dangerous poss... | U085.md |
-| U085-F14 | open | **`profiles.go:352-355; profile_transfer.go:36-40`** | ERRHANDLING | `UpdateProfile` and `loadLocalProfile` flatten the loader's error to a bare `"profile %q not found"`, discarding both the `errs.ErrProfileNotFound` sentinel and the actionable detail (the remote-pu... | U085.md |
-| U085-F15 | open | `profile_materialize.go:85-86` | COUPLING | `MaterializeProfile` mutates the caller's shared `*config.Config` (`cfg.SetExecutableTrustGate`) and never restores it; the ordering requirement is connascence of execution order, acknowledged only... | U085.md |
-| U085-F16 | open | **`oneshot.go:80-81`** | ERRHANDLING | `RunOneshot` builds an `ExecutableTrustGate` and never calls `WarnWithheld()`, so an executable withheld from an isolated oneshot member is withheld **silently** — against the invariant this repo s... | U085.md |
-| U085-F17 | open | **`lockfile.go:51; oneshot.go:315; profile_materialize.go:57; profiles.go:343,101`** | COMPLEXITY | Five functions sit at or above the CI's CCN-10 gate: `LockDependencies` 18, `runResolvedAgent` 12, `MaterializeProfile` 11, `UpdateProfile` 11, `ListProfiles` 10. | U085.md |
-| U085-F25 | open | **`oneshot.go:416`** | CORRECTNESS | `agent.ParsePermissionMode`'s `ok` is discarded, so a **misspelled** permission posture is indistinguishable from an unset one and floors to `PermissionBypass` — the most permissive setting — for a... | U085.md |
+| U085-F13 | **REFUTED** `ef60e267` | **`lockfile.go:410-416, 466-473`** | ERRHANDLING | `findOutdatedEntries` discards every per-entry failure with a bare `continue` and no warning, so a run in which *every* resolve failed reports `"All items are up to date"` — the most dangerous poss... | U085.md |
+| U085-F14 | **RESOLVED** `a8cd4e8b` | **`profiles.go:352-355; profile_transfer.go:36-40`** | ERRHANDLING | `UpdateProfile` and `loadLocalProfile` flatten the loader's error to a bare `"profile %q not found"`, discarding both the `errs.ErrProfileNotFound` sentinel and the actionable detail (the remote-pu... | U085.md |
+| U085-F15 | **RESOLVED** `93c29d82` | `profile_materialize.go:85-86` | COUPLING | `MaterializeProfile` mutates the caller's shared `*config.Config` (`cfg.SetExecutableTrustGate`) and never restores it; the ordering requirement is connascence of execution order, acknowledged only... | U085.md |
+| U085-F16 | **RESOLVED** `768b2879` | **`oneshot.go:80-81`** | ERRHANDLING | `RunOneshot` builds an `ExecutableTrustGate` and never calls `WarnWithheld()`, so an executable withheld from an isolated oneshot member is withheld **silently** — against the invariant this repo s... | U085.md |
+| U085-F17 | **PARTIAL** `275aa9ee` | **`lockfile.go:51; oneshot.go:315; profile_materialize.go:57; profiles.go:343,101`** | COMPLEXITY | Five functions sit at or above the CI's CCN-10 gate: `LockDependencies` 18, `runResolvedAgent` 12, `MaterializeProfile` 11, `UpdateProfile` 11, `ListProfiles` 10. | U085.md |
+| U085-F25 | **RESOLVED** `768b2879` | **`oneshot.go:416`** | CORRECTNESS | `agent.ParsePermissionMode`'s `ok` is discarded, so a **misspelled** permission posture is indistinguishable from an unset one and floors to `PermissionBypass` — the most permissive setting — for a... | U085.md |
 | U086-F01 | **RESOLVED** `d89aeae5` | `remotes.go:335` | DEAD | `UpdateRemote` and its three types are completely unreferenced — not by CLI, not by MCP, not by tests | U086.md |
 | U086-F02 | **RESOLVED** `253f5649` | **`pull.go:77`** | DEAD | `PullItem` (+ `resolvePullItemPuller`, `bundleInstallation`, `parseRemoteItemType`, `PullItemRequest/Result`) has zero production callers | U086.md |
 | U086-F04 | **RESOLVED** `d89aeae5` | **`review.go:464`** | DEAD + CORRECTNESS | `AcceptReviewItems` is test-only **and its doc comment states a falsehood** — "It backs the porcelain's 'accept all remaining in bundle' action" | U086.md |
@@ -2459,14 +2459,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U084-F18 | open | `legacy_cleanup.go:35,79-88` | CORRECTNESS | The empty-directory prune only removes **one level**, and an unreadable bundles root is silently treated as "nothing to do". | U084.md |
 | U085-F18 | **RESOLVED** `cb92d8b4` | **`profiles.go:20-33`** | DEAD | `LocalProfileNameFromPath` is exported but test-only. | U085.md |
 | U085-F19 | **RESOLVED** `9f84aa35` | **`lockfile.go:456-458`** | TRIVIAL | `repoURLForEntry(_ string, entry remote.LockEntry, _ *remote.Registry) string { return entry.URL }` — two of three parameters are discarded and the body is one field access. The two call sites pass... | U085.md |
-| U085-F20 | open | **`lockfile.go:273`** | DUPLICATE | `operations.FetcherFactory` re-declares `remote.FetcherFactory` with an identical signature, forcing a pointless conversion. | U085.md |
+| U085-F20 | **REFUTED** `ef60e267` | **`lockfile.go:273`** | DUPLICATE | `operations.FetcherFactory` re-declares `remote.FetcherFactory` with an identical signature, forcing a pointless conversion. | U085.md |
 | U085-F21 | **RESOLVED** `9e8aed1d` | **`oneshot.go:50, 481`** | NOPAY | `RunOneshotResult.ExitCode` can only ever be `0` — yet it is published as part of the JSON schema, promising callers a signal it cannot carry. | U085.md |
-| U085-F22 | open | **`lockfile.go:261-267`** | ERRHANDLING | `InstallDependencies` returns `Status: "completed"` even when every single install failed; only the `Failed` count and `Errors` slice distinguish total failure from total success. | U085.md |
-| U085-F23 | open | `mcp_servers.go:128-133` | CORRECTNESS | An unrecognised `sort_by` silently leaves the servers in Go map-iteration order, so the same command emits differently-ordered JSON on successive runs. `ListProfiles:148-164` has the identical hole. | U085.md |
-| U085-F24 | open | **`oneshot.go:439`** | COUPLING | The verbosity scaling factor `16` is duplicated as a bare literal in two places; only one of them explains it. | U085.md |
-| U085-F26 | open | **`lockfile.go:165`** | CORRECTNESS | `dropConflicted` filters in place (`kept := pins[:0]`), mutating the caller's backing array; the callers' `pins` slice and the returned slice alias the same memory. | U085.md |
-| U085-F27 | open | `lockfile_hold.go:14, 26` | COUPLING | Both functions build `remote.NewLockfileManager(baseDir)` with no `WithLockfileFS` option, unlike every construction in `lockfile.go`, so this file is untestable against an injected filesystem and ... | U085.md |
-| U085-F28 | open | **`lockfile.go:120`** | CORRECTNESS | `lockfile.AddEntry` silently ignores any item type that is not `ItemTypeBundle`, so a non-bundle pin would vanish and `ItemCount` would under-report with no error. | U085.md |
+| U085-F22 | **REFUTED** `ef60e267` | **`lockfile.go:261-267`** | ERRHANDLING | `InstallDependencies` returns `Status: "completed"` even when every single install failed; only the `Failed` count and `Errors` slice distinguish total failure from total success. | U085.md |
+| U085-F23 | **PARTIAL** `04d45548` | `mcp_servers.go:128-133` | CORRECTNESS | An unrecognised `sort_by` silently leaves the servers in Go map-iteration order, so the same command emits differently-ordered JSON on successive runs. `ListProfiles:148-164` has the identical hole. | U085.md |
+| U085-F24 | **RESOLVED** `768b2879` | **`oneshot.go:439`** | COUPLING | The verbosity scaling factor `16` is duplicated as a bare literal in two places; only one of them explains it. | U085.md |
+| U085-F26 | **PARTIAL** `ef60e267` | **`lockfile.go:165`** | CORRECTNESS | `dropConflicted` filters in place (`kept := pins[:0]`), mutating the caller's backing array; the callers' `pins` slice and the returned slice alias the same memory. | U085.md |
+| U085-F27 | **RESOLVED** `c74bb9de` | `lockfile_hold.go:14, 26` | COUPLING | Both functions build `remote.NewLockfileManager(baseDir)` with no `WithLockfileFS` option, unlike every construction in `lockfile.go`, so this file is untestable against an injected filesystem and ... | U085.md |
+| U085-F28 | **REFUTED** `ef60e267` | **`lockfile.go:120`** | CORRECTNESS | `lockfile.AddEntry` silently ignores any item type that is not `ItemTypeBundle`, so a non-bundle pin would vanish and `ItemCount` would under-report with no error. | U085.md |
 | U086-F03 | **RESOLVED** `d89aeae5` | `remotes.go:271` | DEAD | `GetDefaultRemote` is test-only | U086.md |
 | U086-F10 | **RESOLVED** `18f57729` | `remotes.go:143,154,161,174` | ERRHANDLING | `AddRemote`'s four rollback paths all do `_ = registry.Remove(req.Name)` — a failed rollback leaves a half-registered remote and the user is told only about the *original* failure | U086.md |
 | U086-F11 | **RESOLVED** `4dc974ff` | `remotes.go:450` | CORRECTNESS | `var errs []string` shadows the imported package `errs`, which the same file uses at `:591` | U086.md |

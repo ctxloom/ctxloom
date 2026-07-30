@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,259** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,260** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 115 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 165 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **564** |
+| `open` | no commit names this ID | **563** |
 
-**Totals: 2268 findings across 162 units — 1,259 resolved, 564 still open, 445 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,260 resolved, 563 still open, 445 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 441 | 312 | 65 | 77 | 104 |
-| LOW | 871 | 461 | 240 | 35 | 80 | 55 |
+| LOW | 871 | 462 | 239 | 35 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1994,7 +1994,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U006-F03 | **RESOLVED** `0eb53a66` | **`main.go:30,38`** | NOPAY | The `MOCKENGINE_PERSONALITY` env channel has **zero users and zero tests in the repo**. A repo-wide search for the literal (all file types, excluding `.git`) returns four hits, all inside `cmd/mock... | U006.md |
 | U006-F04 | **RESOLVED** `0eb53a66` | **`main.go:30`** | NOPAY | `EnvPersonality` is exported from a `main` package, which cannot be imported, so the export can never be consumed. | U006.md |
 | U007-F13 | **RESOLVED** `5755145a` | **`commands.go:361-363`** | DEAD / TRIVIAL | `noteHiddenMatches` is a three-line pass-through whose only caller in the entire repo is its own test | U007.md |
-| U007-F15 | open | **`manage.go:163-172`** | ERRHANDLING | `manage status` silently skips any config it cannot stat or read (`if err != nil \ | U007.md |
+| U007-F15 | **RESOLVED** `ddadd94b` | **`manage.go:163-172`** | ERRHANDLING | `manage status` silently skips any config it cannot stat or read (`if err != nil \ | U007.md |
 | U007-F16 | open | **`run.go:137`** | ERRHANDLING | `pickTask` treats a stdin read *failure* as a user quit: `if !scanner.Scan() { return tasks.Task{}, false }` never consults `scanner.Err()`, and the caller prints "taskloom: cancelled" | U007.md |
 | U007-F17 | open | **`run.go:120`** | ERRHANDLING | `launchTaskAgent` returns `c.Run()` verbatim, so `ctxloom run`'s exit code collapses to taskloom's `os.Exit(1)` and the user sees a cobra-prefixed `Error: exit status N` on top of ctxloom's own output | U007.md |
 | U007-F18 | open | **`root.go:182 vs root.go:191`** | COUPLING | Two adjacent functions take the same pair of same-typed strings in **opposite** order — `noteTaskProject(projectID, projectDir)` delegates to `formatProjectLabel(dir, id)`. Connascence of position ... | U007.md |

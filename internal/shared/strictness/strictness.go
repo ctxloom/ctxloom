@@ -394,7 +394,7 @@ func Reset() {
 // on. fixit names the command or edit that resolves the fault ("" when the
 // message already says).
 func Fail(class Class, fixit, format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
+	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.Warn(prog, "%s", msg)
 	record(class, fixit, msg, false)
 }
@@ -404,7 +404,7 @@ func Fail(class Class, fixit, format string, args ...any) {
 // most once. For chokes that re-fire per subsystem (e.g. an unresolvable
 // profile parent hit by every loader build).
 func FailOnce(class Class, fixit, format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
+	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.WarnOnce(prog, "%s", msg)
 	record(class, fixit, msg, true)
 }
@@ -413,7 +413,23 @@ func FailOnce(class Class, fixit, format string, args ...any) {
 // already own their (richer) stderr reporting, e.g. the sync summary's
 // per-item failure breakdown. No-op in degraded mode.
 func Record(class Class, fixit, format string, args ...any) {
-	record(class, fixit, fmt.Sprintf(format, args...), false)
+	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), false)
+}
+
+// detailOr substitutes a statement of what is known for a message that
+// formatted to nothing. Every renderer of a Finding — FindingsError here,
+// cli.formatFindings, operations.isolationGateErr — writes the message into a
+// bullet unconditionally, so a blank message produces a bullet carrying a
+// fix-it and no statement of what broke: a loud failure with an empty payload,
+// which is exactly the shape this package exists to prevent. The class is the
+// only thing still known at that point, so it is what the substitute reports.
+// Applied at all three entry points rather than in record alone, so the
+// streamed warning line and the collected finding always agree.
+func detailOr(class Class, msg string) string {
+	if strings.TrimSpace(msg) == "" {
+		return fmt.Sprintf("unspecified %s failure: the choke reported no detail", class)
+	}
+	return msg
 }
 
 // record appends a finding in strict mode, honoring the FailOnce dedup set

@@ -2,6 +2,7 @@ package strictness
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -98,6 +99,44 @@ func TestFailOnce_RefiresAcrossCheckpoints(t *testing.T) {
 	// Within the second window the dedup still collapses repeats.
 	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
 	assert.Len(t, Since(mark2), 1, "within one window the recording dedup still applies")
+}
+
+// A finding whose message formats to nothing renders as a bare "  - " bullet
+// carrying a fix-it and no statement of what broke — the abort is loud but the
+// PAYLOAD is empty, which is this project's characteristic failure. The class
+// is the one thing still known at that point, so it is what the substitute has
+// to report. Asserted on the payload, never on the exit code.
+func TestFail_EmptyMessageStillSaysWhatBroke(t *testing.T) {
+	resetForTest(t)
+
+	mark := Checkpoint()
+	Fail(ClassConfig, "ctxloom manage config edit", "")
+
+	got := Since(mark)
+	require.Len(t, got, 1)
+	assert.NotEmpty(t, strings.TrimSpace(got[0].Message), "a finding must always say something")
+	assert.Contains(t, got[0].Message, string(ClassConfig), "the class is the only detail left to report")
+
+	err := FindingsError(mark)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "\n  - (fix:", "no bare bullet whose only content is the fix-it")
+}
+
+// The same guard covers the other two entry points, and a whitespace-only
+// message is as empty as "" once rendered into a bullet.
+func TestFailOnceAndRecord_BlankMessageStillSayWhatBroke(t *testing.T) {
+	resetForTest(t)
+
+	mark := Checkpoint()
+	FailOnce(ClassRef, "ctxloom remote pull", "")
+	Record(ClassSync, "", "   \n ")
+
+	got := Since(mark)
+	require.Len(t, got, 2)
+	for i, f := range got {
+		assert.NotEmpty(t, strings.TrimSpace(f.Message), "finding %d must say something", i)
+		assert.Contains(t, f.Message, string(f.Class))
+	}
 }
 
 // Record collects without printing — the variant for chokes that already own

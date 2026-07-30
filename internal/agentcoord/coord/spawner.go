@@ -407,22 +407,44 @@ func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) 
 	return entry.HarpName, nil
 }
 
-func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
-	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
+// prepareAgentChat is operations.PrepareAgentChat's production entry point,
+// indirected so a test can observe the request each launch path builds without a
+// real isolation prepare (mirroring loadConfig above).
+var prepareAgentChat = operations.PrepareAgentChat
+
+// chatRequest builds the AgentChatRequest fields BOTH launch paths share.
+//
+// It exists so a field cannot land on one path and be forgotten on the other:
+// Launch and StartEngine differ ONLY in the three legacy-dial fields Launch adds
+// after this returns, and the shared remainder — the resolved agent, the
+// workspace/dirty-tree axes, the permission posture, the trust gate, the two env
+// maps — is composed exactly once.
+func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]string) operations.AgentChatRequest {
+	return operations.AgentChatRequest{
 		Resolved:         plan.resolved,
-		Context:          contextText,
 		WorkDir:          s.projectDir,
 		Env:              env,
 		RunnerEnv:        runnerEnv,
 		Permissions:      plan.Perm,
-		MCPServers:       plan.MCPServers,
 		Gate:             s.gate.Gate(),
 		Verbosity:        childVerbosity(),
 		Factory:          s.factory,
 		Workspace:        plan.Workspace,
 		DirtyTreeHandler: plan.DirtyTreeHandler,
-		ResumeSessionID:  resumeSessionID,
-	})
+	}
+}
+
+func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
+	req := s.chatRequest(plan, env, runnerEnv)
+	// The three fields ONLY the legacy go-plugin Chat dial consumes, verified
+	// against PreparedAgentChat.StartEngine, which reads none of them: Context
+	// rides the first turn (StartRun has no first turn to ride), MCPServers is
+	// patched into the EngineSpawn from plan.MCPServers instead, and
+	// ResumeSessionID's StartRun counterpart is HarnessSpec.resume_session_id.
+	req.Context = contextText
+	req.MCPServers = plan.MCPServers
+	req.ResumeSessionID = resumeSessionID
+	prep, err := prepareAgentChat(ctx, s.cfg, req)
 	if err != nil {
 		return nil, err
 	}
@@ -456,18 +478,7 @@ type EngineSpawn struct {
 }
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
-	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
-		Resolved:         plan.resolved,
-		WorkDir:          s.projectDir,
-		Env:              env,
-		RunnerEnv:        runnerEnv,
-		Permissions:      plan.Perm,
-		Gate:             s.gate.Gate(),
-		Verbosity:        childVerbosity(),
-		Factory:          s.factory,
-		Workspace:        plan.Workspace,
-		DirtyTreeHandler: plan.DirtyTreeHandler,
-	})
+	prep, err := prepareAgentChat(ctx, s.cfg, s.chatRequest(plan, env, runnerEnv))
 	if err != nil {
 		return nil, err
 	}

@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// exportRenderWidth is the column budget the OFFLINE renderings use — the
+// txt export and the clipboard copy. It is deliberately not the viewer's
+// feed width: those bytes leave the overlay and are read wherever the user
+// pastes or opens them, so they wrap at a fixed, terminal-independent width,
+// and at ONE width so that saving and copying the same feed cannot disagree.
+const exportRenderWidth = 100
+
 // exportEntry is the NDJSON export DTO — snake_case mirroring the session
 // index / watch contract so frontend tooling reads one vocabulary.
 type exportEntry struct {
@@ -96,7 +103,7 @@ func exportTranscript(dir, harp, kind string, items []feedItem, now time.Time) (
 	case "ndjson":
 		data, err = transcriptNDJSON(items)
 	case "txt":
-		data = transcriptText(items, 100)
+		data = transcriptText(items, exportRenderWidth)
 	default:
 		return "", fmt.Errorf("unknown transcript export kind %q (supported: txt, ndjson)", kind)
 	}
@@ -128,14 +135,14 @@ func osc52Copy(text string) []byte {
 // pane is focused, the entire visible feed otherwise.
 func copyText(items []feedItem, cursor int, feedFocused bool) string {
 	if feedFocused && cursor >= 0 && cursor < len(items) {
-		return strings.Join(renderItem(items[cursor], 100, true), "\n")
+		return strings.Join(renderItem(items[cursor], exportRenderWidth, true), "\n")
 	}
 	var parts []string
 	for _, it := range items {
 		if it.role == "notice" {
 			continue
 		}
-		parts = append(parts, strings.Join(renderItem(it, 100, true), "\n"))
+		parts = append(parts, strings.Join(renderItem(it, exportRenderWidth, true), "\n"))
 	}
 	return strings.Join(parts, "\n")
 }

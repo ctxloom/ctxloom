@@ -125,6 +125,28 @@ rules:
 		}
 	})
 
+	// The other half of the @submodules discipline: check is the diagnostic
+	// surface, so a sentinel it cannot resolve is an error, never an "allow"
+	// reported over a rule that expanded to nothing.
+	t.Run("unresolvable @submodules errors (loud, unlike the hook)", func(t *testing.T) {
+		dir := t.TempDir()
+		subCfg := filepath.Join(dir, "rules.yaml")
+		if err := os.WriteFile(subCfg, []byte("version: 1\nrules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// .gitmodules exists but is a directory: unreadable, which
+		// scm.SubmodulePaths reports rather than calling it "no submodules".
+		if err := os.MkdirAll(filepath.Join(dir, ".gitmodules"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(dir)
+
+		var buf bytes.Buffer
+		if err := runCheck(&buf, "git status", subCfg, "", "json"); err == nil {
+			t.Errorf("an unresolvable @submodules sentinel must error, got %q", buf.String())
+		}
+	})
+
 	t.Run("broken config errors (loud, unlike the hook)", func(t *testing.T) {
 		broken := filepath.Join(t.TempDir(), "broken.yaml")
 		if err := os.WriteFile(broken, []byte("version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {

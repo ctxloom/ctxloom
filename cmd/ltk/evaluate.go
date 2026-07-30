@@ -132,24 +132,12 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 			"%s could not load its rules config and is denying everything it guards until the config is fixed: %v",
 			progName, err))
 	}
-	// Resolve the `@submodules` path sentinel against this repo's .gitmodules, so
-	// a rule can block edits inside every submodule without naming them.
-	// Failing to resolve the sentinel is NOT the same as "there are no
-	// submodules": an unreadable .gitmodules or a submodule path that is not a
-	// valid glob leaves the rule expanded to zero patterns, so a rule written to
-	// protect every submodule silently protects none and every edit sails
-	// through as an allow. Same discipline as the config-load branch above —
-	// deny until it is fixed rather than guard nothing quietly.
-	if wd, err := os.Getwd(); err == nil {
-		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
-		if err == nil {
-			err = cfg.ExpandSubmodules(subs)
-		}
-		if err != nil {
-			return failClosed(adapter, fmt.Sprintf(
-				"%s could not resolve the @submodules rule sentinel and is denying everything it guards until it is fixed: %v",
-				progName, err))
-		}
+	// Same discipline as the config-load branch above — deny until it is fixed
+	// rather than guard nothing quietly.
+	if err := expandSubmodules(cfg, os.Getwd); err != nil {
+		return failClosed(adapter, fmt.Sprintf(
+			"%s could not resolve the @submodules rule sentinel and is denying everything it guards until it is fixed: %v",
+			progName, err))
 	}
 	// Reading or decoding the hook payload could otherwise return a plain error
 	// → exit 1 → fail OPEN on both hosts (the same silent allow-all the --shell
@@ -212,6 +200,31 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 			progName, strings.Join(configSearch, ", ")))
 	}
 	return out, nil
+}
+
+// expandSubmodules resolves the `@submodules` path sentinel against this
+// repo's .gitmodules, so a rule can block edits inside every submodule without
+// naming them. getwd is os.Getwd in production and a stub in tests.
+//
+// EVERY step reports its failure, including getwd's. Failing to resolve the
+// sentinel is NOT the same as "there are no submodules": an unknown working
+// directory, an unreadable .gitmodules, or a submodule path that is not a
+// valid glob all leave a `path: ["@submodules"]` rule holding the literal
+// sentinel, which matches no real path — so a rule written to protect every
+// submodule protects none and every edit sails through as an allow. The
+// callers decide what to do about it (evaluate denies, check errors); what
+// they must not be handed is a nil error over an expansion that never
+// happened.
+func expandSubmodules(cfg *rules.Config, getwd func() (string, error)) error {
+	wd, err := getwd()
+	if err != nil {
+		return fmt.Errorf("determine the working directory: %w", err)
+	}
+	subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
+	if err != nil {
+		return err
+	}
+	return cfg.ExpandSubmodules(subs)
 }
 
 // detectEngineFromPayload tries every registered engine's Decode against

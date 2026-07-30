@@ -6,13 +6,11 @@ import (
 	"io"
 	"os"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/app"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
-	"github.com/ctxloom/ctxloom/internal/ltk/scm"
 	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -95,17 +93,12 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 		return fmt.Errorf("load rules config: %w", err)
 	}
 	// `check` is the diagnostic surface, not the guard: it may fail loudly. A
-	// .gitmodules that exists but cannot be read, or a submodule path that is
-	// not a valid glob, would otherwise leave a `path: ["@submodules"]` rule
-	// expanded to nothing and report the resulting non-decision as an "allow".
-	if wd, err := os.Getwd(); err == nil {
-		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
-		if err != nil {
-			return fmt.Errorf("resolve @submodules: %w", err)
-		}
-		if err := cfg.ExpandSubmodules(subs); err != nil {
-			return err
-		}
+	// working directory that cannot be determined, a .gitmodules that exists
+	// but cannot be read, or a submodule path that is not a valid glob would
+	// otherwise leave a `path: ["@submodules"]` rule expanded to nothing and
+	// report the resulting non-decision as an "allow".
+	if err := expandSubmodules(cfg, os.Getwd); err != nil {
+		return fmt.Errorf("resolve @submodules: %w", err)
 	}
 
 	a := app.New(cfg)

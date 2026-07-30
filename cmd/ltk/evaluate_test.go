@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
+	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
 // evaluate is the full decision path (decode → parse → rules → encode) minus
@@ -124,6 +126,54 @@ func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 			t.Errorf("want deny decision with exit 0, got %+v", out)
 		}
 	})
+}
+
+// A working directory that cannot be determined is not "this repo has no
+// submodules": it means the `@submodules` sentinel is never expanded, so a
+// rule written to block every submodule keeps the literal token in its path
+// list, matches no real path, and silently guards nothing. Both surfaces must
+// report it — evaluate by denying (the hook fails closed), check by erroring
+// (the diagnostic surface fails loud) — never by returning a clean allow over
+// an expansion that never happened.
+func TestExpandSubmodules_UnknownWorkingDirectoryIsReported(t *testing.T) {
+	cfg, err := rules.Parse([]byte("version: 1\nrules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := func() (string, error) { return "", errors.New("getwd: no such file or directory") }
+
+	if err := expandSubmodules(cfg, broken); err == nil {
+		t.Fatal("an unresolvable working directory was reported as a successful @submodules expansion")
+	}
+	// The sentinel is still sitting unexpanded in the rule — which is exactly
+	// why silence here is a guard that gates nothing.
+	if got := cfg.Rules[0].Match.Path; len(got) != 1 || got[0] != "@submodules" {
+		t.Fatalf("expected the sentinel left unexpanded, got %v", got)
+	}
+}
+
+// The hook surface turns that failure into a deny, not an allow.
+func TestEvaluateFailsClosedOnUnresolvableSubmodules(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "rules.yaml")
+	// .gitmodules present but unreadable as a file (it is a directory), which
+	// scm.SubmodulePaths reports rather than treating as "no submodules".
+	if err := os.WriteFile(cfgPath, []byte("version: 1\nrules:\n  - id: no-submodule-edits\n    match: { path: [\"@submodules\"] }\n    message: \"don't edit submodules\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".gitmodules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	out, err := evaluate("claude-code", cfgPath, "",
+		strings.NewReader(`{"tool_name":"Edit","tool_input":{"file_path":"vendor/x.go"}}`))
+	if err != nil {
+		t.Fatalf("an unresolvable sentinel must yield a decision, not an error (exit 1 fails open): %v", err)
+	}
+	if out.ExitCode != 0 || !strings.Contains(string(out.Stdout), `"deny"`) {
+		t.Fatalf("want a deny decision with exit 0, got %+v", out)
+	}
 }
 
 // An unknown --shell would otherwise hit ErrUnsupportedShell on every parse,

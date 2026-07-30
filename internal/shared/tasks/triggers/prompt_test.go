@@ -339,6 +339,27 @@ func TestBuildFollowupPrompt_EmptyBatchDoesNotPanic(t *testing.T) {
 	})
 }
 
+// CHARACTERIZATION (U128-F11): round 2 is a strictly poorer evidence pack than
+// the round it escalates from. Round 1 renders repo-global "what exists NOW"
+// evidence and a cross-reference of other tasks; FollowupBatch carries neither,
+// so the FINAL look at a trigger judges on less than the tentative one did.
+// This pins the current shape so the fix inverts it visibly.
+func TestBuildFollowupPrompt_LosesRound1GlobalEvidence(t *testing.T) {
+	repo := RepoState{
+		Dirs:           []string{"internal/signing"},
+		WorkingChanges: []string{"?? internal/signing/cli.go"},
+	}
+	other := []OtherTask{{HarpID: "other-task-id", Text: "ship the signing CLI", Status: "Done"}}
+
+	round1 := BuildPrompt(Batch{Tasks: []TaskInput{{HarpID: "a", Text: "t", Trigger: "x"}}, Repo: repo, OtherTasks: other})
+	require.Contains(t, round1, "=== Repository state right now ===")
+	require.Contains(t, round1, "other-task-id")
+
+	round2 := BuildFollowupPrompt(sampleFollowupBatch())
+	assert.NotContains(t, round2, "=== Repository state right now ===")
+	assert.NotContains(t, round2, "other-task-id")
+}
+
 func TestBuildFollowupPrompt_NoQueryResultsOmitsSection(t *testing.T) {
 	b := FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "a", Text: "t", Trigger: "x"}}}}
 	p := BuildFollowupPrompt(b)

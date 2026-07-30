@@ -71,12 +71,11 @@ func GetItemContent(_ context.Context, cfg *config.Config, req GetItemRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Bundle, err)
 	}
-	content, distilled, ok := itemContent(bundle, req.Kind, req.Name)
+	item, ok := lookupItem(bundle, req.Kind, req.Name)
 	if !ok {
 		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
 	}
-	noDistill, _, _ := itemDistillState(bundle, req.Kind, req.Name)
-	return &GetItemResult{Content: content, Distilled: distilled, NoDistill: noDistill}, nil
+	return &GetItemResult{Content: item.content, Distilled: item.distilled, NoDistill: item.noDistill}, nil
 }
 
 // AddItemRequest is the input for AddItem.
@@ -119,7 +118,7 @@ func AddItem(ctx context.Context, cfg *config.Config, req AddItemRequest) (*AddI
 	if err != nil {
 		return nil, err
 	}
-	if _, _, ok := itemContent(bundle, req.Kind, req.Name); ok {
+	if _, ok := lookupItem(bundle, req.Kind, req.Name); ok {
 		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemExists)
 	}
 
@@ -171,7 +170,7 @@ func DeleteItem(_ context.Context, cfg *config.Config, req DeleteItemRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	if _, _, ok := itemContent(bundle, req.Kind, req.Name); !ok {
+	if _, ok := lookupItem(bundle, req.Kind, req.Name); !ok {
 		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
 	}
 	switch req.Kind {
@@ -327,7 +326,7 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	if err != nil {
 		return nil, err
 	}
-	noDistill, needsDistill, ok := itemDistillState(bundle, req.Kind, req.Name)
+	item, ok := lookupItem(bundle, req.Kind, req.Name)
 	if !ok {
 		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
 	}
@@ -336,9 +335,9 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 		return &DistillItemResult{Status: "skipped", Reason: reason, Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}
 	}
 	switch {
-	case noDistill:
+	case item.noDistill:
 		return skip("no_distill"), nil
-	case !req.Force && !needsDistill:
+	case !req.Force && !item.needsDistill:
 		return skip("unchanged"), nil
 	case req.Distiller == nil:
 		return skip("no_distiller"), nil
@@ -354,7 +353,8 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
-	_, modelID := itemDistilled(bundle, req.Kind, req.Name)
+	distilled, _ := lookupItem(bundle, req.Kind, req.Name)
+	modelID := distilled.distilledBy
 	// distillFragments/distillPrompts warn-and-skip on a Distiller error: a
 	// failed re-distill leaves the stale previous DistilledBy intact and a
 	// first-time failure leaves it empty. Reporting either as a fresh
@@ -436,48 +436,45 @@ func SetBundleMCP(_ context.Context, cfg *config.Config, req SetBundleMCPRequest
 	return &SetBundleMCPResult{Status: "updated", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
 }
 
-// itemContent returns the raw and distilled content of a named item, and whether
-// it exists, for either kind.
-func itemContent(b *bundles.Bundle, kind ItemKind, name string) (content, distilled string, ok bool) {
+// itemFields is the read-side projection of a bundle item: every field the item
+// operations read, regardless of the kind they were asked about. Fragments and
+// commands are separate types with no common interface, so one struct is what
+// lets the read side be kind-agnostic.
+type itemFields struct {
+	content      string
+	distilled    string
+	distilledBy  string
+	noDistill    bool
+	needsDistill bool
+}
+
+// lookupItem projects a named item of either kind, reporting whether it exists.
+// It is the ONE place the read side switches on ItemKind: three separate
+// switches over the same two-kind vocabulary meant a new kind compiled cleanly
+// while silently answering "absent" on whichever of them was forgotten, and a
+// caller that wanted two field groups paid for two lookups of the same item.
+func lookupItem(b *bundles.Bundle, kind ItemKind, name string) (itemFields, bool) {
 	switch kind {
 	case ItemKindFragment:
 		if f, exists := b.Fragments[name]; exists {
-			return f.Content, f.Distilled, true
+			return itemFields{
+				content:      f.Content,
+				distilled:    f.Distilled,
+				distilledBy:  f.DistilledBy,
+				noDistill:    f.NoDistill,
+				needsDistill: f.NeedsDistill(),
+			}, true
 		}
 	case ItemKindCommand:
 		if p, exists := b.Commands[name]; exists {
-			return p.Content, p.Distilled, true
+			return itemFields{
+				content:      p.Content,
+				distilled:    p.Distilled,
+				distilledBy:  p.DistilledBy,
+				noDistill:    p.NoDistill,
+				needsDistill: p.NeedsDistill(),
+			}, true
 		}
 	}
-	return "", "", false
-}
-
-// itemDistillState reports an item's no_distill flag and whether its distilled
-// form is stale (content changed since last distill), plus whether it exists.
-func itemDistillState(b *bundles.Bundle, kind ItemKind, name string) (noDistill, needsDistill, ok bool) {
-	switch kind {
-	case ItemKindFragment:
-		if f, exists := b.Fragments[name]; exists {
-			return f.NoDistill, f.NeedsDistill(), true
-		}
-	case ItemKindCommand:
-		if p, exists := b.Commands[name]; exists {
-			return p.NoDistill, p.NeedsDistill(), true
-		}
-	}
-	return false, false, false
-}
-
-// itemDistilled returns an item's distilled content and the model that produced
-// it.
-func itemDistilled(b *bundles.Bundle, kind ItemKind, name string) (distilled, modelID string) {
-	switch kind {
-	case ItemKindFragment:
-		f := b.Fragments[name]
-		return f.Distilled, f.DistilledBy
-	case ItemKindCommand:
-		p := b.Commands[name]
-		return p.Distilled, p.DistilledBy
-	}
-	return "", ""
+	return itemFields{}, false
 }

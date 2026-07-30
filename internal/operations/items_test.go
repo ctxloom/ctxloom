@@ -375,3 +375,44 @@ func TestItemOps_InvalidKind(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid item kind")
 }
+
+// The item read side projects the SAME field group out of either kind. Three
+// helpers used to each re-derive that projection with its own kind switch, so
+// this pins what a single accessor has to preserve: content, distilled form,
+// the no_distill flag and the distill-staleness decision must all answer
+// identically for a fragment and a command, and a name that is absent must
+// answer "absent" from every read, not a zero value that reads as "present but
+// empty".
+func TestItemReads_SameProjectionForBothKinds(t *testing.T) {
+	for _, kind := range []ItemKind{ItemKindFragment, ItemKindCommand} {
+		t.Run(string(kind), func(t *testing.T) {
+			cfg := newItemTestBundle(t)
+			d := &recordingDistiller{returnValue: "DISTILLED", returnModel: "mock"}
+			_, err := AddItem(context.Background(), cfg, AddItemRequest{
+				Bundle: "b", Kind: kind, Name: "x", Content: "raw", Distiller: d,
+			})
+			require.NoError(t, err)
+
+			got, err := GetItemContent(context.Background(), cfg, GetItemRequest{Bundle: "b", Kind: kind, Name: "x"})
+			require.NoError(t, err)
+			assert.Equal(t, "raw", got.Content)
+			assert.Equal(t, "DISTILLED", got.Distilled)
+			assert.False(t, got.NoDistill)
+
+			// Freshly distilled: the staleness read must say "unchanged", and the
+			// model that produced it must be reported.
+			res, err := DistillItem(context.Background(), cfg, DistillItemRequest{
+				Bundle: "b", Kind: kind, Name: "x", Distiller: d,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "skipped", res.Status)
+			assert.Equal(t, "unchanged", res.Reason)
+
+			// An absent name is absent on every read path, for both kinds.
+			_, err = GetItemContent(context.Background(), cfg, GetItemRequest{Bundle: "b", Kind: kind, Name: "nope"})
+			require.ErrorIs(t, err, ErrItemNotFound)
+			_, err = DistillItem(context.Background(), cfg, DistillItemRequest{Bundle: "b", Kind: kind, Name: "nope"})
+			require.ErrorIs(t, err, ErrItemNotFound)
+		})
+	}
+}

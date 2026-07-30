@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -589,16 +590,26 @@ func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
 		}
 
 		var artifacts []*agentcoordpb.ArtifactProduced
+		// stampFailures collects everything plan auto-stamping could not
+		// deliver, so the answer can say so. A failure here still must not
+		// block the report — these files are not something the agent asked for
+		// THIS call — but "did not block" was implemented as "did not mention",
+		// and the caller then read journaled:true with an empty artifact list
+		// as a report that simply had no plans to stamp.
+		var stampFailures []string
 
 		// Automatic plan-stamping: session-dir *.plan.md files, best-effort
-		// per file exactly as before E1 — a read/upload glitch on an
-		// AUTO-DISCOVERED file warns and is skipped; it never blocks the
-		// report (these files are not something the agent explicitly asked
-		// for THIS call).
-		for _, cand := range stamper.planCandidates() {
+		// per file exactly as before E1.
+		cands, cerr := stamper.planCandidates()
+		if cerr != nil {
+			clidiag.Warn("ctxloom", "agent_report: plan discovery: %v", cerr)
+			stampFailures = append(stampFailures, fmt.Sprintf("plan discovery: %v", cerr))
+		}
+		for _, cand := range cands {
 			a, perr := stamper.publish(ctx, home, cand)
 			if perr != nil {
 				clidiag.Warn("ctxloom", "agent_report: plan stamp %s: %v", cand.absPath, perr)
+				stampFailures = append(stampFailures, fmt.Sprintf("%s: %v", cand.absPath, perr))
 				continue
 			}
 			if a != nil {
@@ -637,15 +648,35 @@ func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
 		if err := home.Report(ctx, &summary, artifacts); err != nil {
 			return nil, fmt.Errorf("agent_report: %w", err)
 		}
-		ids := make([]any, 0, len(artifacts))
-		for _, a := range artifacts {
-			ids = append(ids, a.GetArtifactId())
-		}
-		return &mcp.CallToolResult{StructuredContent: map[string]any{
-			"journaled":    true,
-			"artifact_ids": ids,
-		}}, nil
+		return reportResult(artifacts, stampFailures), nil
 	}
+}
+
+// reportResult projects agent_report's outcome onto the MCP result.
+//
+// journaled/artifact_ids are the tool's ADVERTISED structured shape (the
+// generated output schema in mcpschema) and stay exactly that. Plan-stamping
+// failures ride as TEXT content instead: they are per-call diagnostics rather
+// than part of the proto-canonical result, and text content is the same channel
+// coordinationResult already uses for a human-readable status. The agent
+// therefore learns that N plans went unstamped without the advertised schema
+// and the delivered payload drifting apart.
+func reportResult(artifacts []*agentcoordpb.ArtifactProduced, stampFailures []string) *mcp.CallToolResult {
+	ids := make([]any, 0, len(artifacts))
+	for _, a := range artifacts {
+		ids = append(ids, a.GetArtifactId())
+	}
+	out := &mcp.CallToolResult{StructuredContent: map[string]any{
+		"journaled":    true,
+		"artifact_ids": ids,
+	}}
+	if len(stampFailures) > 0 {
+		out.Content = []mcp.Content{&mcp.TextContent{
+			Text: fmt.Sprintf("report journaled, but %d plan artifact(s) were NOT stamped and are absent from artifact_ids:\n  %s",
+				len(stampFailures), strings.Join(stampFailures, "\n  ")),
+		}}
+	}
+	return out
 }
 
 // artifactPublishSizeCap bounds one file the runner reads and uploads on
@@ -680,17 +711,29 @@ type artifactStamper struct {
 // planCandidates lists the session dir's *.plan.md files as publish
 // candidates — unconditional on every report; publish decides per-file
 // whether content actually changed.
-func (p *artifactStamper) planCandidates() []artifactCandidate {
+//
+// Two "no candidates" outcomes are legitimate and return no error: a stamper
+// with no harp (docgen, tests — there is no session to stamp for) and a
+// session dir that does not exist yet (nothing has been authored). Anything
+// else — an unresolvable harp dir, an unreadable one — is a FAULT, and
+// returning it is the point: reporting nil for a directory that could not be
+// read makes "this session authored no plans" and "every plan this session
+// authored is unreachable" the same observation, and the report then answers
+// journaled:true with an empty artifact list either way.
+func (p *artifactStamper) planCandidates() ([]artifactCandidate, error) {
 	if p.harp == "" {
-		return nil
+		return nil, nil
 	}
 	dir, err := paths.HarpDir(p.harp)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("resolve session dir for %s: %w", p.harp, err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read session dir %s: %w", dir, err)
 	}
 	var out []artifactCandidate
 	for _, e := range entries {
@@ -705,7 +748,7 @@ func (p *artifactStamper) planCandidates() []artifactCandidate {
 			absPath:    filepath.Join(dir, e.Name()),
 		})
 	}
-	return out
+	return out, nil
 }
 
 // publish uploads one candidate IF its content changed since the last

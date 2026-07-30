@@ -36,6 +36,62 @@ func TestParseWorktreeList(t *testing.T) {
 	assert.True(t, got[2].Bare)
 }
 
+// TestParseLogEntries pins U053-F18's two behaviours across every shape the
+// --pretty=format output can take, so neither can be changed silently.
+//
+// The row's stated consequence — that a zero Date "flows into downstream
+// since-filtering" — does not hold: the since-window is applied by git itself
+// (`git log --since=…`, see LogSince), and no consumer filters on
+// LogEntry.Date. It is rendered (task_triggers_query, triggers/prompt) and
+// hashed into the verdict-cache fingerprint, and nothing else. What matters
+// instead is that an unparseable date must stay DETECTABLE rather than pass
+// for a real timestamp: time.Time{}.IsZero() is that signal, and a consumer
+// that wants to distinguish the two has it.
+func TestParseLogEntries(t *testing.T) {
+	sep := logFieldSep
+
+	t.Run("parses the ordinary three-field shape", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "add a thing")
+		require.Len(t, got, 1)
+		assert.Equal(t, "abc123", got[0].SHA)
+		assert.Equal(t, "add a thing", got[0].Subject)
+		assert.False(t, got[0].Date.IsZero())
+		assert.Equal(t, 2026, got[0].Date.UTC().Year())
+	})
+
+	t.Run("an empty subject is preserved, not treated as malformed", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep)
+		require.Len(t, got, 1, "git emits this for a commit with an empty subject line")
+		assert.Empty(t, got[0].Subject)
+	})
+
+	t.Run("a separator inside the subject stays in the subject", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "sub" + sep + "ject")
+		require.Len(t, got, 1, "SplitN(…, 3) keeps the remainder together — the commit is not lost")
+		assert.Equal(t, "sub"+sep+"ject", got[0].Subject)
+	})
+
+	t.Run("a line with too few fields is skipped, never half-parsed", func(t *testing.T) {
+		got := parseLogEntries("garbage-with-no-separators\nabc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "real")
+		require.Len(t, got, 1, "the malformed line must not produce an entry with a SHA-shaped subject")
+		assert.Equal(t, "abc123", got[0].SHA)
+	})
+
+	t.Run("an unparseable date keeps the commit and stays detectable", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "not-a-date" + sep + "real commit")
+		require.Len(t, got, 1, "a bad date must not discard the commit itself — the SHA and subject are still evidence")
+		assert.True(t, got[0].Date.IsZero(),
+			"an unknown date must remain distinguishable from a real one, never a plausible-looking substitute")
+		assert.Equal(t, "real commit", got[0].Subject)
+	})
+
+	t.Run("blank lines and CR line endings", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "one\r\n\n")
+		require.Len(t, got, 1)
+		assert.Equal(t, "one", got[0].Subject, "a CRLF terminator is not part of the subject")
+	})
+}
+
 // TestExecGit_Lifecycle exercises the real git-binary impl end-to-end in a temp
 // repo: add a detached worktree, list it, mark clean/dirty, common-dir resolution,
 // and remove. Skips cleanly when git is unavailable so the normal suite stays

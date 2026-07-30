@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,234** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,235** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 103 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 151 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 154 |
-| `open` | no commit names this ID | **626** |
+| `open` | no commit names this ID | **625** |
 
-**Totals: 2268 findings across 162 units — 1,234 resolved, 626 still open, 408 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,235 resolved, 625 still open, 408 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
 | MED | 999 | 424 | 352 | 57 | 69 | 97 |
-| LOW | 871 | 454 | 257 | 33 | 74 | 53 |
+| LOW | 871 | 455 | 256 | 33 | 74 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2809,7 +2809,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U154-F15 | **RESOLVED** `cac52a3e` `127539ad` | **`format.go:22`** | TRIVIAL | `fmt.Errorf` with no format verbs where `errors.New` is meant | U154.md |
 | U155-F03 | **REFUTED** `5e857241` | **`embed.go:52-54`** | NOPAY | `GetExampleConfig` has exactly one caller in the module, and it is a test | U155.md |
 | U155-F04 | open | **`embed.go:18-24 vs :29-35`** | CORRECTNESS | `GetPromptText` is exported but has **zero external callers** — only its own `Must*` wrapper. Exporting the fallible form invites a future caller to take the silent-empty path (F01) that the `Must*... | U155.md |
-| U155-F05 | open | **`embed.go:157, 185-187`** | DUPLICATE | Both `List*` functions hand-roll extension matching with index arithmetic instead of `strings.HasSuffix`/`strings.TrimSuffix`, in two near-identical loops that differ only in the extension and its ... | U155.md |
+| U155-F05 | **RESOLVED** `15d41dc2` | **`embed.go:157, 185-187`** | DUPLICATE | Both `List*` functions hand-roll extension matching with index arithmetic instead of `strings.HasSuffix`/`strings.TrimSuffix`, in two near-identical loops that differ only in the extension and its ... | U155.md |
 | U156-F03 | open | **`main.go:19-23`** | ERRHANDLING | `main` discards the error from `Execute()` and exits 1 with no message of its own. Cobra prints errors by default, so this is not usually silent — but the entrypoint has no guarantee of that (a `Si... | U156.md |
 | U156-F04 | open | **`main.go:40`** | CORRECTNESS | `ctxloomProduct()` calls `cli.NewDocMCPServer()`, which **panics** on two internal failure paths — so a bug in the runner MCP assembly surfaces as a panic from a function whose name and signature p... | U156.md |
 | U156-F05 | open | **`main.go:36-37`** | COUPLING | `Unhide: []string{"bundle"}` is a hand-maintained list keyed on a command's `Hidden` flag living in another package. A second command marked `Hidden: true` for the same "advanced but documented" re... | U156.md |

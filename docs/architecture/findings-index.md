@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,236** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 110 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 111 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 157 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 162 |
-| `open` | no commit names this ID | **603** |
+| `open` | no commit names this ID | **602** |
 
-**Totals: 2268 findings across 162 units — 1,236 resolved, 603 still open, 429 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,236 resolved, 602 still open, 430 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 425 | 339 | 62 | 72 | 101 |
-| LOW | 871 | 454 | 252 | 33 | 77 | 55 |
+| LOW | 871 | 454 | 251 | 34 | 77 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1982,7 +1982,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U002-F05 | **REFUTED** (cross-package/product decision; see wave-2 report) | **`main.go:37-43` vs docs`** | NOPAY | `CTXLOOM_VERBOSE` under-delivers against its documentation to a degree the docs themselves have had to paper over three separate times. It only raises the level of a logger read by 16 call sites in... | U002.md |
 | U003-F06 | **RESOLVED** `5e857241` | **`main.go:23`** | COUPLING | `schemaDir` is a path relative to the process CWD, so correctness depends on the invocation site's directory — connascence of execution context that nothing checks. Run from a subdirectory, the too... | U003.md |
 | U004-F04 | open | **`root.go:114`** | ERRHANDLING | `raw, _ := cmd.Flags().GetString("format")` discards the lookup error. The only way it fires is a missing or wrongly-typed flag — a programming error — but the resulting user-visible message is `un... | U004.md |
-| U005-F08 | open | `evaluate.go:79`, `check.go:64` | ERRHANDLING | Two swallowed errors, one of them inconsistent with the line above it. | U005.md |
+| U005-F08 | **PARTIAL** `a975a6b7` | `evaluate.go:79`, `check.go:64` | ERRHANDLING | Two swallowed errors, one of them inconsistent with the line above it. | U005.md |
 | U005-F12 | **RESOLVED** `24e4e92e` | `check.go:74-76` | TRIVIAL | Duplicate format validation: unreachable from the CLI. | U005.md |
 | U005-F13 | open | **`manage.go:196-202`** | CORRECTNESS | The `--force` backup is written at a hardcoded `0o644`, discarding the source's mode. A `0600` rules file is backed up world-readable. | U005.md |
 | U005-F14 | **RESOLVED** `24e4e92e` | `evaluate.go:298-299` | TRIVIAL | The built-in allow-all config is produced by **parsing a hardcoded YAML string at runtime**, and its (impossible) error is then reported by the caller as "could not load its rules config", naming n... | U005.md |

@@ -374,6 +374,10 @@ func (s *Server) HandleNotification(ctx context.Context, method string, params j
 	}
 	var n api.CancelNotification
 	if err := json.Unmarshal(params, &n); err != nil {
+		// A cancel is a user action with a visible consequence, so a frame
+		// that cannot be decoded must be at least as loud as an unrecognized
+		// method above: dropping it silently loses the cancel AND the reason.
+		clidiag.Warn("ctxloom", "acp agent: dropping an undecodable session/cancel notification: %v", err)
 		return
 	}
 	s.cancelTurn(n.SessionId)

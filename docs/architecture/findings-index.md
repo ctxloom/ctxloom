@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **918** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 33 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 67 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **932** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 34 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 70 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 121 |
-| `open` | no commit names this ID | **1,129** |
+| `open` | no commit names this ID | **1,111** |
 
-**Totals: 2268 findings across 162 units — 918 resolved, 1129 still open, 221 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 932 resolved, 1111 still open, 225 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 244 | 642 | 14 | 23 | 76 |
-| LOW | 871 | 324 | 461 | 9 | 36 | 41 |
+| MED | 999 | 251 | 631 | 15 | 26 | 76 |
+| LOW | 871 | 331 | 454 | 9 | 36 | 41 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1025,18 +1025,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U022-F14 | **RESOLVED** `806bdd08` | **`home.go:721-736`** | CORRECTNESS | `Report` can report failure for a report that was durably journaled, because the Ack it waits for is explicitly droppable. | U022.md |
 | U022-F17 | **PARTIAL** `aada967a` | `httpserver.go:180-247, 353-371` | CORRECTNESS | The doc claims "never opens anything LAN-visible"; on Linux the fallback binds the host's **primary outbound interface IP**, which is LAN-visible. | U022.md |
 | U022-F23 | **RESOLVED** `e1e12166` | `journal.go:140` | COMPLEXITY | `replay` reads the **entire** journal into memory with `io.ReadAll`, defeating the point of checkpointing whenever the snapshot is missing or stale. | U022.md |
-| U023-F04 | open | `launchgate.go:313-319` | ERRHANDLING | Budget exhaustion is announced **only** for `CauseLaunchFailed`. Under every other cause the coordinator stops re-arming in total silence and the parent's mail is stranded with no notice — in a fil... | U023.md |
-| U023-F05 | open | `mailbox.go:133-137` | CORRECTNESS | `deliverToPoll`'s delivery goroutine calls `onRoleUnpark`, which can **block on the execution-slot semaphore** (`children.go:1762`, `c.slots.acquire(c.baseCtx)`). The recv's documented bounded `wai... | U023.md |
-| U023-F06 | open | `mailbox.go:85-96`, `owner_run.go:165-180` | SILENTNOOP | Neither the mailbox nor `SendOwnedRunTurn` rejects an empty body: an empty `agent_send`/turn is journaled, "delivered", and reported successful while carrying zero payload. | U023.md |
+| U023-F04 | **RESOLVED** `c031c72c` | `launchgate.go:313-319` | ERRHANDLING | Budget exhaustion is announced **only** for `CauseLaunchFailed`. Under every other cause the coordinator stops re-arming in total silence and the parent's mail is stranded with no notice — in a fil... | U023.md |
+| U023-F05 | **REFUTED** `eab8e725` | `mailbox.go:133-137` | CORRECTNESS | `deliverToPoll`'s delivery goroutine calls `onRoleUnpark`, which can **block on the execution-slot semaphore** (`children.go:1762`, `c.slots.acquire(c.baseCtx)`). The recv's documented bounded `wai... | U023.md |
+| U023-F06 | **RESOLVED** `b8d9e043` | `mailbox.go:85-96`, `owner_run.go:165-180` | SILENTNOOP | Neither the mailbox nor `SendOwnedRunTurn` rejects an empty body: an empty `agent_send`/turn is journaled, "delivered", and reported successful while carrying zero payload. | U023.md |
 | U023-F07 | **RESOLVED** `515a95f4` | `reports.go:52` + `reports.go:115-136` | DEAD | `artifactFact.Seq` is journaled on every artifact manifest and read by nothing: artifacts get **no at-least-once dedupe** while summaries do, so a redelivered `ArtifactProduced` re-writes the record. | U023.md |
-| U023-F08 | open | `mailbox.go:286-292` | CORRECTNESS | A recv cancelled by its client (`ctx.Done()`) that *lost* the race to a concurrent delivery consumes the message and returns it to a caller that is gone. The id stays in `c.delivered` forever (proc... | U023.md |
-| U023-F09 | open | `ladder.go:126-131` | CORRECTNESS | `buildLadder` rejects a `role:` on `auto_accept`/`auto_decline` but **silently ignores** a `timeout:` on them. An operator writing `action: auto_accept` + `timeout: 5m` gets no error and no timeout... | U023.md |
-| U023-F18 | open | `owner_run.go:147-149` | ERRHANDLING | The `issueStartRun` error path returns without `c.failChild(rt, err)`, unlike the two error paths above it — contradicting the function's own doc ("On any launch/handshake failure the run is failed... | U023.md |
-| U023-F21 | open | **`publish.go:59-75`** | CORRECTNESS | Intra-batch duplicates are not deduped: the watermark `c.itemsF.maxSeq` is read inside the `Exec` closure but is not advanced as facts are appended, so two events with the same `(run_id, seq)` in *... | U023.md |
-| U023-F25 | open | `reports.go:208-216` + `reports.go:125-135` | CORRECTNESS | A producer-supplied non-zero `revision` is trusted unconditionally, and `apply` overwrites `byID[p.ArtifactID]` with no monotonicity check — a replayed or out-of-order artifact fact with a **lower*... | U023.md |
-| U023-F27 | open | `reports.go:194-196`, `reports.go:230-232` | ERRHANDLING | A journal failure warns and the report/artifact is **lost**. The comment claims "the report re-rides the next checkpoint" — I could find no mechanism that re-sends a failed summary, and `recordSumm... | U023.md |
-| U023-F30 | open | `owner_run.go:116-130` | CORRECTNESS | Two post-`enqueueRun` mutations are applied to `rt` *after* the run is already visible to concurrent goroutines, creating windows where a dialing runner or a racing terminal observes a half-built r... | U023.md |
-| U023-F34 | open | `launchgate.go:210-220` (with `coordinator.go:750-752`)` | CORRECTNESS | Likely cause of the reported "`agent_stop` refuses resumed children": under one-shot, a healthy child spends the gap between turns with an **ended** current run, so `AgentStop` takes the `rec.Ended... | U023.md |
+| U023-F08 | **RESOLVED** `eab8e725` | `mailbox.go:286-292` | CORRECTNESS | A recv cancelled by its client (`ctx.Done()`) that *lost* the race to a concurrent delivery consumes the message and returns it to a caller that is gone. The id stays in `c.delivered` forever (proc... | U023.md |
+| U023-F09 | **RESOLVED** `6ea50f6a` | `ladder.go:126-131` | CORRECTNESS | `buildLadder` rejects a `role:` on `auto_accept`/`auto_decline` but **silently ignores** a `timeout:` on them. An operator writing `action: auto_accept` + `timeout: 5m` gets no error and no timeout... | U023.md |
+| U023-F18 | **REFUTED** `36a681c0` | `owner_run.go:147-149` | ERRHANDLING | The `issueStartRun` error path returns without `c.failChild(rt, err)`, unlike the two error paths above it — contradicting the function's own doc ("On any launch/handshake failure the run is failed... | U023.md |
+| U023-F21 | **RESOLVED** `111c615d` | **`publish.go:59-75`** | CORRECTNESS | Intra-batch duplicates are not deduped: the watermark `c.itemsF.maxSeq` is read inside the `Exec` closure but is not advanced as facts are appended, so two events with the same `(run_id, seq)` in *... | U023.md |
+| U023-F25 | **RESOLVED** `05e9a83d` | `reports.go:208-216` + `reports.go:125-135` | CORRECTNESS | A producer-supplied non-zero `revision` is trusted unconditionally, and `apply` overwrites `byID[p.ArtifactID]` with no monotonicity check — a replayed or out-of-order artifact fact with a **lower*... | U023.md |
+| U023-F27 | **PARTIAL** `d5da69d3` | `reports.go:194-196`, `reports.go:230-232` | ERRHANDLING | A journal failure warns and the report/artifact is **lost**. The comment claims "the report re-rides the next checkpoint" — I could find no mechanism that re-sends a failed summary, and `recordSumm... | U023.md |
+| U023-F30 | **REFUTED** `36a681c0` | `owner_run.go:116-130` | CORRECTNESS | Two post-`enqueueRun` mutations are applied to `rt` *after* the run is already visible to concurrent goroutines, creating windows where a dialing runner or a racing terminal observes a half-built r... | U023.md |
+| U023-F34 | **RESOLVED** `c031c72c` | `launchgate.go:210-220` (with `coordinator.go:750-752`)` | CORRECTNESS | Likely cause of the reported "`agent_stop` refuses resumed children": under one-shot, a healthy child spends the gap between turns with an **ended** current run, so `AgentStop` takes the `rec.Ended... | U023.md |
 | U024-F06 | **RESOLVED** `d60f2e24` `56649bfc` | `runchannel.go:682-689` | SILENTNOOP | If `protojson.Marshal` of the caller's Struct fails, `structured` stays nil and the message is queued **without its structured payload**, reported as success. For a parent answering a relayed appro... | U024.md |
 | U024-F07 | **RESOLVED** `56649bfc` | `runchannel.go:436-449` | SILENTNOOP | `peerMessageProto` swallows two errors; either one delivers a `PeerMessage` with **no structured payload** — including for the escalation ladder's relayed `ApprovalRequest`, which the child then ca... | U024.md |
 | U024-F08 | open | `runchannel.go:603-610` | ERRHANDLING | `respond`'s drop message — "the runner reissues on reconnect" — is only true across a reconnect; on a live-but-slow channel the runner's request simply hangs to its own timeout. `respond` also runs... | U024.md |
@@ -2017,18 +2017,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U023-F10 | **RESOLVED** `72f7f6bf` | `launchgate.go:258-264` | TRIVIAL | `noteLaunchFailure`'s `int` return is discarded at its only call site. | U023.md |
 | U023-F11 | **RESOLVED** `44a1207b` | `launchgate.go:100-126` | DUPLICATE | `envLaunchInt` and `envLaunchDuration` are structurally identical: lookup → empty check → parse → positivity check → identical warning text. ~26 lines to express one rule twice. | U023.md |
 | U023-F12 | **RESOLVED** `8edd95f3` | `mailbox.go:49` | DEAD | `parkedPoll.role` is written at construction (`mailbox.go:262`) and never read. | U023.md |
-| U023-F13 | open | `launchgate.go:270-282` | CORRECTNESS | `launchBackoff(1)` returns `launchBackoffBase` **uncapped**: if an operator sets `CTXLOOM_LAUNCH_BACKOFF_MAX` below `..._BASE`, the first retry ignores the ceiling. | U023.md |
+| U023-F13 | **RESOLVED** `060b716a` | `launchgate.go:270-282` | CORRECTNESS | `launchBackoff(1)` returns `launchBackoffBase` **uncapped**: if an operator sets `CTXLOOM_LAUNCH_BACKOFF_MAX` below `..._BASE`, the first retry ignores the ceiling. | U023.md |
 | U023-F14 | open | `ladder.go` (whole file)` | COHESION | `ladder.go` is a self-contained value-domain module with zero `Coordinator` coupling, welded into a 1764-LOC-plus god-package. | U023.md |
 | U023-F15 | **RESOLVED** `8d5567a4` | **`liveness.go:182`** | NOPAY | `LivenessSnapshot` is exported but has no out-of-package caller; the brief lists `internal/cli` and `internal/cli/tui` as dependents and neither uses it. | U023.md |
 | U023-F16 | open | `mailbox.go:149` | COUPLING | `out := pending[:0]` filters in place into the backing array of `c.mailF.pendingFor(role)`'s result. It is safe **only** because `pendingFor` returns a copy (`folds.go:484-489`). That invariant liv... | U023.md |
-| U023-F19 | open | `owner_run.go:124-127` | ERRHANDLING | The error is wrapped with `"owner run: runner launch failed: %w"` for `failChild` and then the **raw, unwrapped** `err` is returned to the caller. The operator-facing path gets the less informative... | U023.md |
+| U023-F19 | **RESOLVED** `36a681c0` | `owner_run.go:124-127` | ERRHANDLING | The error is wrapped with `"owner run: runner launch failed: %w"` for `failChild` and then the **raw, unwrapped** `err` is returned to the caller. The operator-facing path gets the less informative... | U023.md |
 | U023-F20 | **RESOLVED** `72f7f6bf` | **`pidalive_unix.go:9`, `pidalive_windows.go:11`** | TRIVIAL | Two build-tagged files exist solely to wrap `pidalive.Alive` in a byte-identical one-line body. The build tags are pure ceremony — the platform split already lives in `internal/shared/pidalive`. | U023.md |
-| U023-F22 | open | **`publish.go:38-40`** | SILENTNOOP | `PublishEvents(nil)` returns a success response with an empty `CommittedSeqByRun` and no `Rejected` entries — indistinguishable from "committed everything". The gRPC entry (`publish.go:123`) passes... | U023.md |
-| U023-F23 | open | `reports.go:102`, `reports.go:117` | ERRHANDLING | `if fact.decode(&p) != nil { return }` — a malformed durable fact vanishes with no warning, no counter, no trace. Two occurrences. | U023.md |
-| U023-F26 | open | `reports.go:150-153` | CORRECTNESS | `text[:200]` truncates by bytes on a UTF-8 string and can split a multi-byte rune, emitting U+FFFD in roster output. | U023.md |
-| U023-F28 | open | `reports.go:237-245` | CORRECTNESS | `Artifacts` iterates a map and returns unordered results; any caller rendering a list gets a different order each call. | U023.md |
+| U023-F22 | **RESOLVED** `111c615d` | **`publish.go:38-40`** | SILENTNOOP | `PublishEvents(nil)` returns a success response with an empty `CommittedSeqByRun` and no `Rejected` entries — indistinguishable from "committed everything". The gRPC entry (`publish.go:123`) passes... | U023.md |
+| U023-F23 | **RESOLVED** `05e9a83d` | `reports.go:102`, `reports.go:117` | ERRHANDLING | `if fact.decode(&p) != nil { return }` — a malformed durable fact vanishes with no warning, no counter, no trace. Two occurrences. | U023.md |
+| U023-F26 | **RESOLVED** `05e9a83d` | `reports.go:150-153` | CORRECTNESS | `text[:200]` truncates by bytes on a UTF-8 string and can split a multi-byte rune, emitting U+FFFD in roster output. | U023.md |
+| U023-F28 | **RESOLVED** `05e9a83d` | `reports.go:237-245` | CORRECTNESS | `Artifacts` iterates a map and returns unordered results; any caller rendering a list gets a different order each call. | U023.md |
 | U023-F29 | **REFUTED** `41513737` | `reports.go:261-265` | DEAD | `LatestReport` is exported and has **no production caller** — test-only. `consumer.go:220` calls the unexported `latestSummary` directly. | U023.md |
-| U023-F31 | open | `owner_run.go:165-169` | CORRECTNESS | `SendOwnedRunTurn` accepts **any** live `runID`, not just an owner-owned one. Sending a turn to a delegated child's run id would enqueue self-addressed mail (`from == to == rt.harp`) that the child... | U023.md |
+| U023-F31 | **RESOLVED** `36a681c0` | `owner_run.go:165-169` | CORRECTNESS | `SendOwnedRunTurn` accepts **any** live `runID`, not just an owner-owned one. Sending a turn to a delegated child's run id would enqueue self-addressed mail (`from == to == rt.harp`) that the child... | U023.md |
 | U023-F32 | **RESOLVED** `72f7f6bf` | `launchgate.go:161-171` + `coordinator.go:332` | TRIVIAL | `launchGateLocked`'s `if c.launches == nil` branch is unreachable in production: `New` always does `launches: make(map[string]*launchState)`. | U023.md |
 | U023-F33 | open | `launchgate.go` (`c.launches`)` | COMPLEXITY | `c.launches` entries are created on demand and **never deleted** — including by `reapEndedRuns`, which bounds every *other* per-run projection (`children.go:1457`). A long-lived coordinator accumul... | U023.md |
 | U024-F14 | **RESOLVED** `515a95f4` | `runchannel.go:80, :122, :159` | DEAD | `runChan.credHash` is written and never read; the per-stream `hashToken(mdToken(...))` that fills it is dead work on every dial. | U024.md |

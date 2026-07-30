@@ -47,9 +47,17 @@ type containerAuth struct {
 	// forwarded name-only into the container via `docker/podman -e NAME`. The
 	// runtime reads each VALUE from the launcher's OWN environment (the container
 	// CLI ctxloom execs inherits os.Environ), so the secret value never lands in
-	// the long-lived `run` argv — /proc/<pid>/cmdline is world-readable, whereas
-	// the launcher's env (/proc/<pid>/environ) is owner-readable only. A value
-	// must NEVER be stored here.
+	// the long-lived `run` argv, which really is world-readable
+	// (/proc/<pid>/cmdline).
+	//
+	// The launcher's env (/proc/<pid>/environ) is mode 0400, so this does keep the
+	// value from OTHER USERS — but that is the weaker half of the story and this
+	// comment used to stop there. It is NOT protection from same-user processes
+	// (every agent and MCP server here runs as this user) nor from children that
+	// inherit the env. The name-only rule below is therefore the actual guarantee,
+	// not a stylistic preference: a value stored here would be written into argv,
+	// where owner-readability does not apply at all. A value must NEVER be stored
+	// here.
 	envPassthrough []string
 	mounts         []Mount // read-only credential mounts into the container HOME
 }

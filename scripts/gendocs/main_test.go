@@ -11,7 +11,11 @@ import (
 // conventions the checked-in pages were generated under. The generator behaviour
 // itself is tested in internal/docsgen.
 func TestCtxloomProduct(t *testing.T) {
-	p := ctxloomProduct()
+	p, closeMCP, err := ctxloomProduct()
+	if err != nil {
+		t.Fatalf("ctxloomProduct: %v", err)
+	}
+	t.Cleanup(closeMCP)
 
 	if p.Bin != "ctxloom" {
 		t.Errorf("Bin = %q, want ctxloom", p.Bin)

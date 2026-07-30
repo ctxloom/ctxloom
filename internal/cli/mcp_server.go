@@ -25,10 +25,11 @@ import (
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler. The
-// stdio server builds one per process (self identity from env); the
-// coordinator's HTTP endpoint builds one PER CREDENTIAL
-// (newCtxServerForIdentity) so every tool sees the caller's identity, never
-// the host process's env.
+// stdio server builds one per process, its identity read from the ambient env
+// (selfIdentityFromEnv). The runner-terminated surface builds one per runner
+// inside newRunnerMCPServer, its identity being that runner's own harp and
+// cell work dir — so a cell-local tool sees the CELL's identity, never the
+// serving process's env.
 type ctxServer struct {
 	cfg *config.Config
 	// self is the caller identity every identity-consuming tool uses: from
@@ -213,17 +214,33 @@ func (s *ctxServer) startup(ctx context.Context) error {
 // failure (startup must never abort on config errors — CLAUDE.md), and echoes
 // any accumulated config warnings to stderr.
 func loadStartupConfig() *config.Config {
-	cfg, err := config.Load()
+	return loadStartupConfigWith(config.Load)
+}
+
+// loadStartupConfigWith is loadStartupConfig over an injected loader. config.Load
+// degrades essentially every user-facing failure to a config.Warning rather than
+// an error, so the error branch below is otherwise unreachable from a fixture —
+// and unreachable code is exactly where a reporting defect survives.
+func loadStartupConfigWith(load func(...config.LoadOption) (*config.Config, error)) *config.Config {
+	cfg, err := load()
 	if err != nil {
-		clidiag.Warn("ctxloom", "failed to load config: %v", err)
-		cfg = config.NewFixture(config.Fixture{
-			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
-			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
-			Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
-		})
+		cfg = fallbackConfigForLoadFailure(err)
 	}
 	printConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg
+}
+
+// fallbackConfigForLoadFailure builds the minimal config a failed load degrades
+// to. The failure rides as the config's single Warning, which is the ONE report
+// of it: printConfigWarnings both prints that warning and records it as a
+// strictness finding, so warning about it here too would put the identical
+// sentence on stderr twice.
+func fallbackConfigForLoadFailure(err error) *config.Config {
+	return config.NewFixture(config.Fixture{
+		LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
+		Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
+		Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
+	})
 }
 
 // purgeLegacyBundles removes leftover extracted bundle YAML copies from the

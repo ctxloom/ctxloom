@@ -96,7 +96,7 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 	server.AddResource(&mcp.Resource{
 		URI:         resourceSessionsURI,
 		Name:        "sessions",
-		Description: "All harp-named sessions across every project. For the cwd-filtered view, use ctxloom://sessions/recent.",
+		Description: "All harp-named sessions across every project, most recently worked first. For the project-filtered view, use ctxloom://sessions/recent.",
 		MIMEType:    "application/yaml",
 	}, s.handleResourceSessionsAll)
 
@@ -158,24 +158,52 @@ separate ` + "`taskloom`" + ` binary and its MCP server (` + "`taskloom mcp`" + 
 - ` + "`ctxloom://remotes`" + ` — configured remotes; ` + "`ctxloom://remotes/{name}/contents`" + `
   lists a remote's bundles and profiles.
 - ` + "`ctxloom://mcp-servers`" + ` — configured MCP servers.
-- ` + "`ctxloom://sessions`" + ` — all recorded sessions for this project.
+- ` + "`ctxloom://sessions`" + ` — every recorded session across all projects,
+  most recently worked first.
 - ` + "`ctxloom://sessions/recent`" + ` — harp-named sessions for the current project,
   most recent first. Each row: harp_name, started_at, summary, session_id.
+  Capped at 25 rows; the payload also carries ` + "`total`" + ` (how many exist)
+  and ` + "`truncated`" + ` (whether the cap clipped it).
 `)
 	return resourceText(req.Params.URI, "text/markdown", body), nil
 }
 
+// resourceProjectDir is the project a resource handler answers for: the
+// caller's OWN identity when the server carries one, falling back to the
+// serving process's cwd when it does not (docgen, tests, any caller with no
+// cell to anchor to). The two differ exactly where it matters — a
+// workspace:worktree runner inherits the coordinator's cwd while its cell
+// lives in a per-agent worktree — so the identity has to win. A cwd that
+// cannot be resolved is an error, never an empty string standing in for "every
+// project" or "no project".
+func (s *ctxServer) resourceProjectDir() (string, error) {
+	if s.self.Project != "" {
+		return s.self.Project, nil
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	return wd, nil
+}
+
+// sessionsRecentCap bounds the recent-sessions body so a project with
+// thousands of sessions doesn't blow the client's context. 25 mirrors the
+// picker's max-after-`m` rough expansion; "recent" is by definition truncated.
+const sessionsRecentCap = 25
+
 func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	wd, _ := os.Getwd()
+	wd, err := s.resourceProjectDir()
+	if err != nil {
+		return nil, fmt.Errorf("session index: %w", err)
+	}
 	entries, err := operations.ListSessionsForProject(wd)
 	if err != nil {
 		return nil, fmt.Errorf("session index: %w", err)
 	}
-	// Cap the body so a project with thousands of sessions doesn't blow
-	// the client's context. 25 mirrors the picker's max-after-`m` rough
-	// expansion; "recent" is by definition truncated.
-	if len(entries) > 25 {
-		entries = entries[:25]
+	total := len(entries)
+	if len(entries) > sessionsRecentCap {
+		entries = entries[:sessionsRecentCap]
 	}
 	type row struct {
 		HarpName  string `yaml:"harp_name"`
@@ -192,7 +220,17 @@ func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.Rea
 			Summary:   e.Summary,
 		}
 	}
-	out, err := yaml.Marshal(map[string]any{"sessions": rows})
+	// total and truncated are always emitted, never omitted-when-false: a
+	// marker that only appears on truncation leaves its ABSENCE ambiguous
+	// between "nothing was clipped" and "an older server that never said". A
+	// client reading exactly sessionsRecentCap rows must be able to tell a
+	// complete answer from a clipped one, or "not in the list" and "past the
+	// cap" become the same observation and it stops looking.
+	out, err := yaml.Marshal(map[string]any{
+		"sessions":  rows,
+		"total":     total,
+		"truncated": total > len(rows),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal sessions: %w", err)
 	}
@@ -216,10 +254,14 @@ func listResource[Req, Res any](s *ctxServer, list func(context.Context, *config
 	}
 }
 
-// handleResourceSessionsAll returns every harp-named session in the index,
-// not project-filtered. Mirrors `ctxloom session list --all`.
+// handleResourceSessionsAll returns every harp-named session in the index, not
+// project-filtered, most-recently-worked first. Mirrors `ctxloom session list
+// --all`, and reads the same lister that command does so the parity is a fact
+// rather than a claim: the unsorted lister returns raw index order, which is
+// creation order, and for a session that keeps being resumed and worked that is
+// precisely backwards.
 func (s *ctxServer) handleResourceSessionsAll(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	entries, err := operations.ListSessions()
+	entries, err := operations.ListAllSessions()
 	if err != nil {
 		return nil, err
 	}

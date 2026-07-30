@@ -59,10 +59,13 @@ type Codex struct {
 	// where CODEX_HOME points. See resolveCodexProjectDir.
 	resolvedProjectDir string
 	// resolvedTrustAbsPath is the absolute WorkDir to pre-seed
-	// `[projects."<path>"] trust_level = "trusted"` for, set ONLY when
-	// resolveCodexProjectDir found an isolation-provided CODEX_HOME (an
-	// ephemeral, never-committed home safe to auto-trust) — "" for the
-	// in-tree/None path, which never pre-seeds trust.
+	// `[projects."<path>"] trust_level = "trusted"` for, set for BOTH
+	// EPHEMERAL axes resolveCodexProjectDir can land on — an isolation-provided
+	// CODEX_HOME and a container cell's own fresh $HOME (codexHomeSource's
+	// non-in-tree members). Each is a per-run home that is never committed, so
+	// a machine-specific absolute path baked into it is harmless. "" for the
+	// in-tree/None path, whose config.toml lives in the user's own tree and so
+	// never pre-seeds trust.
 	resolvedTrustAbsPath string
 	// credentialErr is set by Setup (ensureCodexCredentials) when this run's
 	// CODEX_HOME has no usable codex credentials AND Setup could not seed/
@@ -160,12 +163,16 @@ func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agen
 		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+ConfigDirName); stripped != home {
 			return stripped, codexHomeIsolationProvided
 		}
-		// An isolation-provided CODEX_HOME not in the expected "/.codex" shape
-		// (a caller override, or a future spec whose Subdir changes) — use it
-		// AS the project dir directly. cellScopedCodexHome will nest an extra
-		// ".codex" under it, which is at least self-consistent (Setup and
-		// Execute still agree) even if it doesn't match what the isolation
-		// layer intended.
+		// A CODEX_HOME not in the expected "/.codex" shape — a future spec whose
+		// Subdir changes, or (reachably) a user's own `env: {CODEX_HOME: ...}`,
+		// which rides llmEnvFor into this run's env. Use it AS the project dir
+		// directly: cellScopedCodexHome nests an extra ".codex" under it, which
+		// is at least self-consistent (Setup and Execute still agree) even
+		// though it is not the path that was asked for. Say so — the child gets
+		// a home the caller never named, and silently is the one way that must
+		// not happen.
+		clidiag.Warn("ctxloom", "%s=%q does not end in %q; codex will read %s instead — name the %s directory itself to be delivered into it",
+			CodexHomeEnv, home, string(filepath.Separator)+ConfigDirName, cellScopedCodexHome(home), ConfigDirName)
 		return home, codexHomeIsolationProvided
 	}
 	if cellKind == agent.CellKindProcessIsolated {
@@ -246,8 +253,30 @@ func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	// alone would never surface); Execute checks b.credentialErr FIRST and
 	// refuses to launch codex at all when set, instead of the historical
 	// silent 401/exit-0.
-	b.credentialErr = ensureCodexCredentials(dir, source)
+	b.credentialErr = ensureCodexCredentials(dir, source, resolveOpenAIAPIKey(req.Env, b.Env))
 	return b.LaunchBackend.Setup(ctx, req)
+}
+
+// openAIAPIKeyEnv is codex's envTrigger — the variable that authenticates codex
+// without any auth.json at all (internal/lm/isolation/auth.go's
+// credentialSeedSpecs["codex"] names the same one).
+const openAIAPIKeyEnv = "OPENAI_API_KEY"
+
+// resolveOpenAIAPIKey answers what the CHILD will see for OPENAI_API_KEY, in
+// BaseBackend.BuildEnv's own precedence: the run env (SetupRequest/
+// ExecuteRequest.Env) wins over the backend's configured env (CodexConfig.Env),
+// which wins over the ambient process env — the later assignment wins there, so
+// the first map that DECLARES the key owns the value, including when it
+// declares it empty. Reading only the ambient env would make a per-agent `env:`
+// key invisible to the credential gate and refuse a run that authenticates.
+func resolveOpenAIAPIKey(reqEnv, backendEnv map[string]string) string {
+	if v, ok := reqEnv[openAIAPIKeyEnv]; ok {
+		return v
+	}
+	if v, ok := backendEnv[openAIAPIKeyEnv]; ok {
+		return v
+	}
+	return os.Getenv(openAIAPIKeyEnv)
 }
 
 // ensureCodexCredentials makes sure the CODEX_HOME this run is about to use
@@ -270,12 +299,15 @@ func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 //     VERIFIES the mount landed rather than re-seeding.
 //
 // Either way, no usable credential (and no OPENAI_API_KEY override) returns
-// a clear, actionable error naming the fix.
-func ensureCodexCredentials(dir string, source codexHomeSource) error {
+// a clear, actionable error naming the fix. apiKey is the value the CHILD will
+// see for OPENAI_API_KEY (resolveOpenAIAPIKey), which is not necessarily this
+// process's own: a per-agent `env:` key authenticates the child just as well as
+// an ambient one.
+func ensureCodexCredentials(dir string, source codexHomeSource, apiKey string) error {
 	if source == codexHomeIsolationProvided {
 		return nil
 	}
-	if os.Getenv("OPENAI_API_KEY") != "" {
+	if apiKey != "" {
 		return nil // codex's envTrigger — auth rides the env, nothing to seed/verify
 	}
 	if source == codexHomeContainerFresh {

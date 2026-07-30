@@ -153,9 +153,23 @@ func (a *fakeAgent) requestPermission(sessionID string, options any) rpcMessage 
 // handed back.
 func (a *fakeAgent) serveHandshake(t *testing.T) string {
 	t.Helper()
+	return a.serveHandshakeAs(t, "", "")
+}
+
+// serveHandshakeAs is serveHandshake with a caller-chosen self-reported
+// agentInfo.name/version on the initialize response — the identity
+// applyModelQuirk (session.go) compares against a ModelDeliveryQuirk's
+// AgentName/AdapterVersions. Empty name/version omits agentInfo entirely
+// (serveHandshake's plain "every backend but claude" shape).
+func (a *fakeAgent) serveHandshakeAs(t *testing.T, name, version string) string {
+	t.Helper()
 	initReq := <-a.requests
 	require.Equal(t, "initialize", initReq.Method)
-	require.NoError(t, a.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+	initResult := map[string]any{"protocolVersion": 1}
+	if name != "" || version != "" {
+		initResult["agentInfo"] = map[string]any{"name": name, "version": version}
+	}
+	require.NoError(t, a.respond(initReq.ID, initResult))
 
 	newReq := <-a.requests
 	require.Equal(t, "session/new", newReq.Method)

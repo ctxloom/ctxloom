@@ -182,9 +182,20 @@ func (c *RepoCache) fetch(ctx context.Context, repoDir, repoURL string, forgeTyp
 // (credential helper, ssh-agent, ~/.ssh/config, per-host .gitconfig).
 //
 // The credential is delivered via the environment (GIT_CONFIG_COUNT/KEY/VALUE,
-// git >= 2.31) rather than `git -c …` on the command line so the base64 token is
-// not exposed to other local users through the world-readable process argv
-// (/proc/<pid>/cmdline, `ps auxww`); /proc/<pid>/environ is owner-readable only.
+// git >= 2.31) rather than `git -c …` on the command line, because process argv
+// really is world-readable (/proc/<pid>/cmdline, `ps auxww`) and would publish
+// the base64 token to every other user on the box. That part is a genuine win.
+//
+// It is NOT isolation, and this comment used to claim it was: "/proc/<pid>/environ
+// is owner-readable only" is true (mode 0400) and irrelevant to the threat model
+// that applies here. ctxloom runs agents, MCP servers and their dependencies as
+// THIS user, and any same-user process can read this env. The environment is also
+// INHERITED by everything git spawns — credential helpers, hooks, filters — which
+// argv is not.
+//
+// So the honest guarantee is narrower than it looks: env-vs-argv moves the token
+// from "readable by any local user" to "readable by any same-user process and any
+// git child". Do not cite owner-readability as a reason to widen what rides here.
 func (c *RepoCache) authEnv(cloneURL string, forgeType ForgeType) []string {
 	if forgeType != ForgeGitHub {
 		return nil

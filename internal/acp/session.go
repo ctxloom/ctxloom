@@ -468,16 +468,31 @@ func authMethodNames(methods []api.AuthMethod) string {
 // correct from the session's very first turn. This driver holds NO
 // engine-specific knowledge of its own: it fires ONLY when the connected
 // agent's self-reported identity (this call's initialize response) matches
-// AgentName/AdapterVersions exactly; every other combination (including a
-// nil ModelQuirk — every backend but claude today) is a silent no-op, and
-// the spec-standard delivery (--model argv, ModelConfigKey, ModelEnvVar) is
-// left to do the job alone.
+// AgentName/AdapterVersions exactly. A nil ModelQuirk (every backend but
+// claude today) or a name mismatch (a different agent entirely) is a silent
+// no-op — the spec-standard delivery (--model argv, ModelConfigKey,
+// ModelEnvVar) is left to do the job alone, as expected. A NAME match with a
+// VERSION miss is different: it means this IS the targeted agent, just at an
+// unverified version (e.g. after an adapter upgrade) — that combination
+// warns (see wasting-crinkle) instead of failing silently, since it is the
+// one no-op path that signals a broken expectation rather than business as
+// usual.
 func (b *ACP) applyModelQuirk(ctx context.Context, conn *jsonrpc.Conn, sessionID api.SessionId, info *api.Implementation, req agent.ChatRequest) error {
 	q := req.ModelQuirk
 	if q == nil || q.Method == "" || req.Model == "" {
 		return nil
 	}
-	if info == nil || info.Name != q.AgentName || !slices.Contains(q.AdapterVersions, info.Version) {
+	if info == nil || info.Name != q.AgentName {
+		return nil
+	}
+	if !slices.Contains(q.AdapterVersions, info.Version) {
+		// The connected agent IS the one this quirk targets — just not at a
+		// verified version. Every other no-op path (nil quirk, name
+		// mismatch) is unremarkable and stays silent; THIS one means a user
+		// upgraded claude-code-acp and silently lost model selection, this
+		// project's signature failure mode (see wasting-crinkle) — so it's
+		// the one case worth a warning.
+		warnf("model-delivery quirk %s: connected %s %s is not a verified version (only %v verified) — the requested model %q will NOT be applied via this quirk; relying on spec-standard delivery (--model argv, ModelConfigKey, ModelEnvVar) alone", q.Method, q.AgentName, info.Version, q.AdapterVersions, req.Model)
 		return nil
 	}
 	params := quirkSetModelParams{SessionId: sessionID, ModelId: req.Model}

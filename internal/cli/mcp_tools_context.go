@@ -31,7 +31,11 @@ type searchRemotesInput struct {
 	ItemType string `json:"item_type,omitempty" jsonschema:"Item type to search (currently only: bundle; profiles ship inside bundles)"`
 }
 
-func (s *ctxServer) registerContextTools(server *mcp.Server) {
+// registerContextTools wires the cell-local content tools and returns the
+// names it registered, so the runner's route-classification check reads the
+// registrations themselves rather than a hand-written copy of them. The stdio
+// server has no classification step and ignores the return.
+func (s *ctxServer) registerContextTools(server *mcp.Server) []string {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "assemble_context",
@@ -75,4 +79,6 @@ func (s *ctxServer) registerContextTools(server *mcp.Server) {
 			})
 			return nil, result, err
 		})
+
+	return []string{"assemble_context", "search_content", "search_library"}
 }

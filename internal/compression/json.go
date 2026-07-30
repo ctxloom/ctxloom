@@ -14,6 +14,11 @@ import (
 
 // JSONCompressor compresses JSON while preserving structure (keys, types).
 // It truncates long string values while keeping high-entropy identifiers.
+//
+// Structure, not layout: the document is decoded into Go values and re-encoded,
+// so object keys come back in SORTED order and a duplicate key resolves to its
+// last occurrence — RFC 8259's own reading, objects being unordered and
+// duplicate names undefined. Every key survives; only their order does not.
 type JSONCompressor struct {
 	// MaxValueLength is the maximum length for string values before truncation.
 	MaxValueLength int
@@ -188,14 +193,19 @@ func (c *JSONCompressor) calculateEntropy(s string) float64 {
 		return 0
 	}
 
-	// Count character frequencies
+	// Count character frequencies. The divisor is the RUNE count the loop
+	// actually counted, not the byte length: dividing rune frequencies by bytes
+	// makes the probabilities sum to less than 1 for any multibyte string, and
+	// understates its entropy by the bytes-per-rune factor.
 	freq := make(map[rune]int)
+	total := 0
 	for _, r := range s {
 		freq[r]++
+		total++
 	}
 
 	// Calculate entropy
-	length := float64(len(s))
+	length := float64(total)
 	var entropy float64
 	for _, count := range freq {
 		p := float64(count) / length

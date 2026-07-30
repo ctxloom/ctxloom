@@ -10,6 +10,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
@@ -17,15 +18,27 @@ import (
 )
 
 func main() {
-	if err := docsgen.NewCommand(ctxloomProduct()).Execute(); err != nil {
+	product, closeMCP, err := ctxloomProduct()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gendocs: %v\n", err)
+		os.Exit(1)
+	}
+	defer closeMCP()
+	if err := docsgen.NewCommand(product).Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
 // ctxloomProduct describes ctxloom to the generator: its cobra tree, its
 // documentation-time MCP server, and where each lives (cited in the generated
-// banners so a reader knows what to edit).
-func ctxloomProduct() *docsgen.Product {
+// banners so a reader knows what to edit). The returned closer releases the
+// MCP server's backing coord.Home, whose construction opens a gRPC client and
+// two background loops.
+func ctxloomProduct() (*docsgen.Product, func(), error) {
+	mcpServer, closeMCP, err := cli.NewDocMCPServer()
+	if err != nil {
+		return nil, nil, err
+	}
 	return &docsgen.Product{
 		Bin:       "ctxloom",
 		Root:      cli.GetRootCmd(),
@@ -37,7 +50,7 @@ func ctxloomProduct() *docsgen.Product {
 		Unhide:       []string{"bundle"},
 		ConfigSchema: "resources/schema/input/config-schema.json",
 
-		MCPServer: cli.NewDocMCPServer(),
+		MCPServer: mcpServer,
 		MCPSource: "internal/cli",
 		// The documented surface is the RUNNER-terminated one (NewDocMCPServer →
 		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
@@ -46,7 +59,7 @@ func ctxloomProduct() *docsgen.Product {
 		// registers a REDUCED agent surface with different schemas (see mcpIntro).
 		MCPCommand: "ctxloom run",
 		MCPIntro:   mcpIntro,
-	}
+	}, closeMCP, nil
 }
 
 // mcpIntro is the ctxloom MCP page's opening prose: which surface this is (the

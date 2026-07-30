@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -15,6 +16,7 @@ import (
 	api "github.com/coder/acp-go-sdk"
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // chatHarness wires the ACP client's StructuredChat driver to a fakeAgent over
@@ -1256,4 +1258,146 @@ func TestChat_TransportError(t *testing.T) {
 	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	_, ok := <-out
 	assert.False(t, ok, "out must be closed even on transport failure")
+}
+
+// testModelQuirk is a fake ModelDeliveryQuirk standing in for
+// claudeModelSelectionQuirk (internal/claude/chat.go), scoped to a fake
+// agent identity/version rather than the real claude-code-acp one so these
+// tests exercise applyModelQuirk's matching logic without depending on that
+// backend's exact strings.
+var testModelQuirk = &agent.ModelDeliveryQuirk{
+	Method:          "session/set_model",
+	AgentName:       "test-agent",
+	AdapterVersions: []string{"1.0.0"},
+}
+
+// TestChat_ModelQuirk_VersionMismatch_WarnsAndSkips pins wasting-crinkle's
+// fix: the connected agent IS the one the quirk targets (name matches) but
+// at a version nobody verified — this is the silent-no-op-turned-loud case.
+// Before the fix this path (like the other three below) returned nil with
+// no signal at all; a user who upgraded claude-code-acp past 0.16.2 would
+// silently lose model selection. It must now warn AND must not call the
+// quirk's method (session/prompt comes right after session/new — no
+// session/set_model in between).
+func TestChat_ModelQuirk_VersionMismatch_WarnsAndSkips(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{Model: "haiku", ModelQuirk: testModelQuirk})
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshakeAs(t, "test-agent", "1.2.3")
+		promptReq := <-h.fa.requests
+		require.Equal(t, "session/prompt", promptReq.Method, "an unverified version must not see the quirk's session/set_model call")
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hi"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	warned := warnings.String()
+	assert.Contains(t, warned, "1.2.3", "names the connected version")
+	assert.Contains(t, warned, "1.0.0", "names the version(s) the quirk covers")
+	assert.Contains(t, warned, "test-agent", "names the agent")
+	assert.Contains(t, warned, "haiku", "names the model that will not be applied")
+	assert.Contains(t, warned, "NOT", "states the consequence plainly")
+}
+
+// TestChat_ModelQuirk_VersionMatch_CallsMethodSilently is the control: an
+// EXACT AgentName+version match still fires the quirk's call, unchanged, and
+// stays silent — the fix must not touch the verified-version path at all.
+func TestChat_ModelQuirk_VersionMatch_CallsMethodSilently(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{Model: "haiku", ModelQuirk: testModelQuirk})
+	events := collect(h.out)
+
+	go func() {
+		sid := h.fa.serveHandshakeAs(t, "test-agent", "1.0.0")
+
+		quirkReq := <-h.fa.requests
+		require.Equal(t, "session/set_model", quirkReq.Method, "a verified exact match must still fire the quirk's call")
+		var params struct {
+			SessionId string `json:"sessionId"`
+			ModelId   string `json:"modelId"`
+		}
+		require.NoError(t, json.Unmarshal(quirkReq.Params, &params))
+		assert.Equal(t, sid, params.SessionId)
+		assert.Equal(t, "haiku", params.ModelId)
+		require.NoError(t, h.fa.respond(quirkReq.ID, map[string]any{}))
+
+		promptReq := <-h.fa.requests
+		require.Equal(t, "session/prompt", promptReq.Method)
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hi"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Empty(t, warnings.String(), "a verified version match is the expected, unremarkable path and must not warn")
+}
+
+// TestChat_ModelQuirk_Nil_SilentNoOp: a nil ModelQuirk (every backend but
+// claude today) is the ordinary case and must stay silent — only the
+// name-match/version-miss combination is evidence of a broken expectation.
+func TestChat_ModelQuirk_Nil_SilentNoOp(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{Model: "haiku"})
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		require.Equal(t, "session/prompt", promptReq.Method)
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hi"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Empty(t, warnings.String(), "nil ModelQuirk is the normal case for every non-claude backend and must stay silent")
+}
+
+// TestChat_ModelQuirk_NameMismatch_SilentNoOp: a connected agent whose
+// self-reported name does not match the quirk's AgentName is a DIFFERENT
+// agent entirely, not a version-upgrade case — it must stay silent even
+// though req.ModelQuirk is set and req.Model is non-empty.
+func TestChat_ModelQuirk_NameMismatch_SilentNoOp(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{Model: "haiku", ModelQuirk: testModelQuirk})
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshakeAs(t, "some-other-agent", "1.0.0")
+		promptReq := <-h.fa.requests
+		require.Equal(t, "session/prompt", promptReq.Method, "a different agent entirely must never see the quirk's call")
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hi"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Empty(t, warnings.String(), "a name mismatch means a different agent — must stay silent")
 }

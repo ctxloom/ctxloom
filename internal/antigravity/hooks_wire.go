@@ -1,6 +1,9 @@
 package antigravity
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // This file is the single source of truth for Antigravity's hook wire
 // protocol: the JSON agy writes to a PreToolUse hook's stdin and the decision
@@ -96,11 +99,16 @@ type HookDecision struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
-// DecodeHookPayload parses a hook stdin payload.
+// DecodeHookPayload parses a hook stdin payload. A decode failure is attributed
+// — it reaches a user only through a hook process whose sole diagnostic channel
+// is stderr, where a bare encoding/json message names neither the engine nor
+// the payload it came from.
 func DecodeHookPayload(data []byte) (HookPayload, error) {
 	var p HookPayload
-	err := json.Unmarshal(data, &p)
-	return p, err
+	if err := json.Unmarshal(data, &p); err != nil {
+		return p, fmt.Errorf("decoding antigravity hook payload (%d bytes on stdin): %w", len(data), err)
+	}
+	return p, nil
 }
 
 // EncodeDeny renders the deny decision agy expects on stdout.

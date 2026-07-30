@@ -35,7 +35,7 @@ import (
 type worktreeBase struct{ wt Worktree }
 
 // name identifies the worktree-in-container policy.
-func (worktreeBase) name() string { return "container-worktree" }
+func (worktreeBase) name() string { return PolicyNameContainerWorktree }
 
 // withState stamps the run's session identity onto the wrapped Worktree, homing
 // its ephemeral per-agent checkout scratch under the session dir (the double-stamp

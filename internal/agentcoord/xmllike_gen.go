@@ -66,6 +66,18 @@ func (x *SteerPendingReminder) XmlLike() string {
 	return b.String()
 }
 
+// XmlLike renders x as its injected <ctxloom-reminder> frame.
+func (x *UnpulledReminder) XmlLike() string {
+	var b strings.Builder
+	b.WriteString(`<ctxloom-reminder kind="unpulled"`)
+	xmlLikeAttr(&b, `age_seconds`, strconv.FormatUint(uint64(x.GetAgeSeconds()), 10))
+	xmlLikeAttr(&b, `urgency`, x.GetUrgency().String())
+	b.WriteString(">")
+	b.WriteString(`call agent_recv`)
+	b.WriteString(`</ctxloom-reminder>`)
+	return b.String()
+}
+
 // xmlLikeAttr appends one escaped attribute. Only enums and short numeric
 // scalars reach here (the generator refuses free text as an attribute), so the
 // escaping is belt over braces — the guarantee lives in the CODE rather than in

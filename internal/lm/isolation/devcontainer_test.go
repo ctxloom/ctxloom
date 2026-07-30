@@ -242,3 +242,76 @@ func TestResolveDevBase_OptOut(t *testing.T) {
 	_, err = resolveDevBase(root, false, "")
 	require.Error(t, err)
 }
+
+// TestStripJSONC_Characterization exercises every arm of the two JSONC
+// strippers at the ONE public seam above them (stripJSONC), including the
+// string-literal states — escapes, an escaped backslash before a closing
+// quote, delimiters and commas that appear INSIDE a string — and the
+// degenerate inputs (an unterminated string, an unterminated block comment,
+// a comment running to EOF).
+//
+// It is the behaviour-preservation pin for U063-F20/U063-F19: the two
+// strippers hand-rolled the same string-aware scanner, and both exceeded the
+// CCN gate. A pure de-duplication cannot make any test go red, so this covers
+// the arms first and must stay green on both sides of the collapse.
+func TestStripJSONC_Characterization(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain json untouched", `{"a":1}`, `{"a":1}`},
+		{"line comment collapses to a newline", "{\"a\":1} // tail", "{\"a\":1} \n"},
+		{"line comment at EOF with no newline", "// only", "\n"},
+		{"block comment vanishes", "{/* x */\"a\":1}", `{"a":1}`},
+		{"unterminated block comment eats the rest", "{\"a\":1/* x", `{"a":1`},
+		{"delimiters inside a string survive", `{"a":"// /* */ ,"}`, `{"a":"// /* */ ,"}`},
+		{"escaped quote does not end the string", `{"a":"x\"// y","b":1}`, `{"a":"x\"// y","b":1}`},
+		{"escaped backslash DOES end the string", `{"a":"x\\","b":1}`, `{"a":"x\\","b":1}`},
+		{"unterminated string is copied verbatim", `{"a":"x`, `{"a":"x`},
+		{"trailing comma before brace", `{"a":1,}`, `{"a":1}`},
+		{"trailing comma before bracket across whitespace", "[1, \n\t ]", "[1 \n\t ]"},
+		{"comma inside a string is kept", `{"a":"1,}"}`, `{"a":"1,}"}`},
+		{"non-trailing comma is kept", `{"a":1,"b":2}`, `{"a":1,"b":2}`},
+		// Comments strip FIRST, so a comma the comment separated from the
+		// brace becomes a trailing one and is dropped on the second pass.
+		{"comma separated from the brace by a comment still trails", "{\"a\":1, /* c */ }", "{\"a\":1  }"},
+		{"empty input", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, string(stripJSONC([]byte(tc.in))))
+		})
+	}
+}
+
+// TestResolveDevcontainerBase_UnparseableComposeFileNamesTheCause pins
+// U063-F18: decodeComposeFileList discarded the array-decode error, so a
+// dockerComposeFile of an unsupported JSON shape surfaced only as the generic
+// "could not parse dockerComposeFile" — the human was told the file is wrong
+// but never what about it was wrong.
+func TestResolveDevcontainerBase_UnparseableComposeFileNamesTheCause(t *testing.T) {
+	root := t.TempDir()
+	writeDevcontainer(t, root, `{"dockerComposeFile": 42, "service": "app"}`)
+
+	_, err := resolveDevcontainerBase(root, "")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not parse dockerComposeFile")
+	assert.Contains(t, err.Error(), "cannot unmarshal", "the decode cause must survive into the message")
+}
+
+// TestResolveDevcontainerBase_EmptyComposeFileNamesTheShape: a syntactically
+// valid but empty dockerComposeFile decodes without error, so there is no
+// decode cause to report — the message must still say what shape was needed
+// rather than trailing off after "could not parse".
+func TestResolveDevcontainerBase_EmptyComposeFileNamesTheShape(t *testing.T) {
+	root := t.TempDir()
+	writeDevcontainer(t, root, `{"dockerComposeFile": "", "service": "app"}`)
+
+	_, err := resolveDevcontainerBase(root, "")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not parse dockerComposeFile")
+	assert.Contains(t, err.Error(), "array of strings", "the message names the shapes the spec allows")
+}

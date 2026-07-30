@@ -1,6 +1,9 @@
 package isolation
 
 import (
+	"context"
+	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -123,4 +126,109 @@ func TestStartDirectRunner_StderrTailSurfacesOnExit(t *testing.T) {
 	require.Error(t, werr, "a non-zero exit is an error")
 	assert.Contains(t, werr.Error(), "RUNNER-BOOM-DIAGNOSTIC", "the stderr tail must surface in the exit error (Diagnose replacement)")
 	assert.Contains(t, werr.Error(), "exit status 7", "the underlying exit failure is still reported")
+}
+
+// TestStartDirectRunner_ContextIsNotTheTeardownHandle REFUTES U063-F17, which
+// claimed a cancelled context "does not tear down the runner container" and
+// pointed at startDirectRunner's use of exec.Command rather than
+// CommandContext. The mechanism is real — the context is deliberately not
+// bound to the process — but the consequence is not, and the proposed remedy
+// is actively harmful:
+//
+//   - `docker run` here is ATTACHED and carries no --rm, so killing the run
+//     CLI (all CommandContext does) leaves the CONTAINER running. It orphans
+//     exactly the resource the row wants reclaimed.
+//   - Teardown is Kill, which force-REMOVES the container by name first and
+//     only then signals our own CLI. Every production caller registers it up
+//     front (`defer runnerHandle.Kill()` in cli/run.go; run_owned.go hands
+//     h.Kill to the coordinator as the run's teardown), so a cancelled context
+//     unwinds the caller and Kill runs on the way out.
+//
+// This pins both halves: a cancelled context leaves the handle usable, and
+// Kill is what issues the remove. Binding the runner's lifetime to the context
+// turns it red.
+func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
+	var removed []string
+	orig := probeExec
+	probeExec = func(_ context.Context, _ string, args []string) (string, error) {
+		removed = append(removed, strings.Join(args, " "))
+		return "", nil
+	}
+	t.Cleanup(func() { probeExec = orig })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rt := scriptRuntime{
+		fakeRuntime: fakeRuntime{name: "docker", binary: "sh", available: true},
+		args:        []string{"-c", "sleep 0.4"},
+	}
+	c := NewContainer(rt, "img")
+	cw := newRunnerTestWorkspace()
+
+	h, err := c.StartRunner(ctx, "mock", "", 0, cw, nil)
+	require.NoError(t, err)
+
+	cancel()
+
+	// The run process must OUTLIVE the cancelled context. Binding it to ctx
+	// (exec.CommandContext) kills this CLI here — and killing an attached
+	// `docker run` that carries no --rm leaves the CONTAINER behind, orphaning
+	// the very resource the row wanted reclaimed. A clean exit proves the
+	// context is not the lifetime.
+	assert.NoError(t, h.Wait(), "the runner is not torn down by a cancelled context")
+	assert.Empty(t, removed, "and a cancelled context never reclaims the container either")
+
+	// Kill is the teardown, and it force-REMOVES by name before signalling our
+	// own CLI — which is why it, not the context, is what production defers.
+	require.NotNil(t, h.Kill, "the handle stays usable after the context is cancelled")
+	h.Kill()
+	require.Len(t, removed, 1, "Kill force-removes the container by name — this is the teardown")
+	assert.Equal(t, strings.Join(rt.RemoveArgs(h.Name), " "), removed[0])
+}
+
+// TestRemoveContainer_SurvivingContainerWarnsWithAManualRemove REFUTES
+// U063-F09, which claimed RunnerHandle.Kill being `func()` means "a container
+// that survives `rm -f` is only a stderr warning; the caller has no way to
+// know". The mechanism is true — Kill cannot return an error — but the
+// consequence assumes the caller is who needs to know, and no caller can act:
+// every production call site is a teardown defer on the way out of a run
+// (cli/run.go) or the func() the coordinator holds as a run's teardown
+// (run_owned.go), and both would discard an error. The party who CAN act is
+// the human, and the warning already names the container, the daemon's reason
+// and a copy-pasteable remove command.
+//
+// This pins that warning. Replacing it with a returned error every caller
+// drops turns it red.
+func TestRemoveContainer_SurvivingContainerWarnsWithAManualRemove(t *testing.T) {
+	buf := captureWarnings(t)
+	orig := probeExec
+	probeExec = func(context.Context, string, []string) (string, error) {
+		return "", errors.New("daemon is wedged")
+	}
+	t.Cleanup(func() { probeExec = orig })
+
+	removeContainer(context.Background(), Docker{}, "ctxloom-iso-member-7")
+
+	warning := buf.String()
+	assert.Contains(t, warning, "ctxloom-iso-member-7", "the surviving container is named")
+	assert.Contains(t, warning, "daemon is wedged", "the daemon's own reason survives")
+	assert.Contains(t, warning, "remove it manually", "the human is told what to do")
+	assert.Contains(t, warning, "rm", "and given the command to do it with")
+}
+
+// TestRemoveContainer_AlreadyGoneIsNotALeak: a racing --rm that reports the
+// container already gone is teardown SUCCESS, not a leak, so it must not draw
+// the warning above.
+func TestRemoveContainer_AlreadyGoneIsNotALeak(t *testing.T) {
+	buf := captureWarnings(t)
+	orig := probeExec
+	// removeReportsGone reads the daemon's stderr off an *exec.ExitError, so
+	// the already-gone race must be presented the way the real probeExec
+	// surfaces it.
+	probeExec = func(context.Context, string, []string) (string, error) {
+		return "", &exec.ExitError{Stderr: []byte("Error response from daemon: No such container: ctxloom-iso-x")}
+	}
+	t.Cleanup(func() { probeExec = orig })
+
+	removeContainer(context.Background(), Docker{}, "ctxloom-iso-x")
+	assert.Empty(t, buf.String(), "already-gone is teardown success")
 }

@@ -203,3 +203,48 @@ func TestOverlay_AbortBeforeRunIsSafe(t *testing.T) {
 	assert.Equal(t, "\x1b[21;1H", tty.String(),
 		"only the pre-abort-check panel-position write lands; the Program itself never runs")
 }
+
+// blockingQuitter stands in for a tea.Program whose event loop is not draining
+// its (unbuffered) message channel: Quit blocks, exactly as the real one does
+// between Run publishing the program and Run reaching the loop, and after the
+// loop has exited.
+type blockingQuitter struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingQuitter) Quit() {
+	close(b.entered)
+	<-b.release
+}
+
+// Abort must not hold the overlay's lock while Quit blocks. Run takes that same
+// lock immediately after p.Run returns, so an Abort parked inside Quit with the
+// lock held wedges the pair permanently — and Run is what restores the engine's
+// terminal. U044-F21.
+func TestOverlay_AbortDoesNotHoldTheLockWhileQuitBlocks(t *testing.T) {
+	f := newFakeSources(t.TempDir())
+	o := NewOverlay(context.Background(), f.sources(), 0x1d)
+	bq := &blockingQuitter{entered: make(chan struct{}), release: make(chan struct{})}
+	o.prog = bq
+	defer close(bq.release)
+
+	go o.Abort()
+	select {
+	case <-bq.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Abort never reached Quit")
+	}
+
+	free := make(chan struct{})
+	go func() {
+		o.mu.Lock()
+		o.mu.Unlock() //nolint:staticcheck // the probe is the acquisition itself
+		close(free)
+	}()
+	select {
+	case <-free:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Abort holds the overlay lock while blocked inside Quit; Run cannot finish and the terminal is never restored")
+	}
+}

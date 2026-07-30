@@ -3,6 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Role tags per the plan's §4a mockup: fixed-width prefixes so the feed
@@ -52,47 +55,15 @@ func renderItem(it feedItem, width int, expanded bool) []string {
 		indent = "  │ "
 	}
 	tag := roleTag(it)
-	body := width - len([]rune(indent)) - len([]rune(tag)) - 1
+	tagW := lipgloss.Width(tag)
+	body := width - lipgloss.Width(indent) - tagW - 1
 	if body < 8 {
 		body = 8
 	}
 	prefix := indent + tag + " "
-	cont := indent + strings.Repeat(" ", len([]rune(tag))+1)
+	cont := indent + strings.Repeat(" ", tagW+1)
 
-	var raw []string
-	switch it.role {
-	case "tool_use":
-		line := it.toolName
-		if in := compactOneLine(it.toolInput); in != "" {
-			line += " " + in
-		}
-		if expanded {
-			raw = append(raw, it.toolName)
-			raw = append(raw, splitLines(it.toolInput)...)
-		} else {
-			raw = []string{truncateLine(line, body)}
-		}
-	case "tool_result":
-		out := it.toolOutput
-		if out == "" {
-			out = it.text
-		}
-		lines := splitLines(out)
-		if expanded {
-			raw = append([]string{resultSummary(it, lines)}, lines...)
-		} else {
-			raw = []string{resultSummary(it, lines)}
-		}
-	case "thinking":
-		lines := splitLines(it.text)
-		if expanded || len(lines) <= 1 {
-			raw = lines
-		} else {
-			raw = []string{truncateLine(lines[0], body-2) + " …"}
-		}
-	default:
-		raw = splitLines(it.text)
-	}
+	raw := itemBodyLines(it, body, expanded)
 	if len(raw) == 0 {
 		raw = []string{""}
 	}
@@ -114,8 +85,45 @@ func renderItem(it feedItem, width int, expanded bool) []string {
 	return out
 }
 
-// resultSummary is the tool_result one-liner: ok/error plus a size cue.
-func resultSummary(it feedItem, lines []string) string {
+// itemBodyLines is the per-role body of a feed item, before the role tag and
+// the wrap are applied. body is the column budget one line has.
+func itemBodyLines(it feedItem, body int, expanded bool) []string {
+	switch it.role {
+	case "tool_use":
+		if expanded {
+			return append([]string{it.toolName}, splitLines(it.toolInput)...)
+		}
+		line := it.toolName
+		if in := compactOneLine(it.toolInput); in != "" {
+			line += " " + in
+		}
+		return []string{truncateLine(line, body)}
+	case "tool_result":
+		out := it.toolOutput
+		if out == "" {
+			out = it.text
+		}
+		lines := splitLines(out)
+		if expanded {
+			return append([]string{resultSummary(it, lines, true)}, lines...)
+		}
+		return []string{resultSummary(it, lines, false)}
+	case "thinking":
+		lines := splitLines(it.text)
+		if expanded || len(lines) <= 1 {
+			return lines
+		}
+		return []string{truncateLine(lines[0], body-2) + " …"}
+	default:
+		return splitLines(it.text)
+	}
+}
+
+// resultSummary is the tool_result one-liner: ok/error plus a size cue. The
+// "x expands" key hint belongs to the collapsed form only — the expanded form
+// already shows the body, and the same rendering is what the txt export and
+// the clipboard copy carry, where there is no key to press.
+func resultSummary(it feedItem, lines []string, expanded bool) string {
 	status := "ok"
 	if it.isError {
 		status = "error"
@@ -125,6 +133,8 @@ func resultSummary(it feedItem, lines []string) string {
 		return status
 	case len(lines) == 1:
 		return status + ": " + lines[0]
+	case expanded:
+		return fmt.Sprintf("%s (%d lines)", status, len(lines))
 	default:
 		return fmt.Sprintf("%s (%d lines) — x expands", status, len(lines))
 	}
@@ -143,29 +153,37 @@ func splitLines(s string) []string {
 	return strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 }
 
-// wrapLine hard-wraps by rune count (feed content is left as-is otherwise).
+// wrapLine hard-wraps to width COLUMNS (feed content is left as-is
+// otherwise). Feed content is whatever the engine emitted, so the budget is
+// counted in columns, not runes: a line of double-width text measured in runes
+// runs to twice the pane's width and spills across the divider.
 func wrapLine(s string, width int) []string {
 	if width < 1 {
 		width = 1
 	}
-	r := []rune(s)
-	if len(r) <= width {
-		return []string{s}
-	}
 	var out []string
-	for len(r) > width {
-		out = append(out, string(r[:width]))
-		r = r[width:]
+	for lipgloss.Width(s) > width {
+		head := truncateCells(s, width)
+		if head == "" {
+			// One rune is wider than the whole budget: emit it alone rather
+			// than fail to advance.
+			_, n := utf8.DecodeRuneInString(s)
+			head = s[:n]
+		}
+		out = append(out, head)
+		s = s[len(head):]
 	}
-	return append(out, string(r))
+	if s != "" || len(out) == 0 {
+		out = append(out, s)
+	}
+	return out
 }
 
 func truncateLine(s string, width int) string {
-	r := []rune(s)
-	if width < 1 || len(r) <= width {
+	if width < 1 || lipgloss.Width(s) <= width {
 		return s
 	}
-	return string(r[:width-1]) + "…"
+	return truncateCells(s, width-1) + "…"
 }
 
 // renderItems renders the whole feed plus a per-item first-line index (the

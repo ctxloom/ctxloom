@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,24 +80,35 @@ func TestConsumerService_WatchRuns_SnapshotThenLiveDeltaText(t *testing.T) {
 		}
 	}()
 
+	// conformanceWait is left where it is deliberately. The awaited condition
+	// costs 0.03-0.16s: 260 iterations under 30 CPU hogs and at GOMAXPROCS=1
+	// never exceeded 0.16s, so a 5s expiry is not a budget that wants raising —
+	// it is the whole process having stalled, and no number defends against
+	// that. What the expiry DID lack was any way to tell "nothing was
+	// published" from "the run published something else": `seen` is that, so
+	// the next occurrence is diagnosable from the failure line alone rather
+	// than from another triage cycle.
 	deadline := time.After(conformanceWait)
 	var sawDeltaText string
+	var seen []string
 	for sawDeltaText == "" {
 		select {
 		case f, ok := <-frames:
 			if !ok {
-				t.Fatal("WatchRuns stream ended before a delta event arrived")
+				t.Fatalf("WatchRuns stream ended before a delta event arrived (saw %d live events: %v)", len(seen), seen)
 			}
 			ev := f.GetEvent()
 			if ev == nil {
 				continue
 			}
+			seen = append(seen, fmt.Sprintf("%T", ev.GetPayload()))
 			assert.Equal(t, out.RunID, ev.GetRunId(), "every live event self-identifies its run")
 			if d := ev.GetMessageDelta(); d != nil && strings.Contains(d.GetText(), "echo:") {
 				sawDeltaText = d.GetText()
 			}
 		case <-deadline:
-			t.Fatal("timed out waiting for a live delta-text event")
+			t.Fatalf("timed out waiting for a live delta-text event; %d live events arrived on the watch stream: %v",
+				len(seen), seen)
 		}
 	}
 	assert.Contains(t, sawDeltaText, "do the thing", "the scripted engine echoes the turn text verbatim")

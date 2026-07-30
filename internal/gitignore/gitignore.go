@@ -33,18 +33,28 @@ var PrivateStatePatterns = []string{
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
 // during hook application: the per-file settings backups, the Antigravity
-// workspace directory, and the generated Codex project config. Scoped narrowly
-// so files a content repo may legitimately track (.claude/commands/*.md,
-// .mcp.json) stay the project's choice — .agents/ is ignored wholesale because
-// besides ctxloom's generated hooks.json/mcp_config.json/skills, agy itself
-// fills it with per-conversation subagent scratch that should never be
-// committed, while for Codex only config.toml is generated, so only that file
-// is ignored.
+// workspace directory, and Codex's project config plus the credential copy
+// that lands beside it.
 //
-// .codex/auth.json (U045-F01): internal/lm/isolation/auth.go's SeedCodexHome
-// actively copies the host's ~/.codex/auth.json here on every plain
-// (non-isolated) codex run — a live credential, not a config artifact, but it
-// must be kept out of the tree the exact same way.
+// GRANULARITY RULE. A directory is ignored WHOLESALE only when everything
+// under it is machine-written; anywhere a project's own files share the
+// directory, each ctxloom-written file is named individually so what a content
+// repo may legitimately track (.claude/commands/*.md, .mcp.json) stays the
+// project's choice.
+//
+//   - .agents/ qualifies wholesale: besides ctxloom's generated
+//     hooks.json/mcp_config.json/skills, agy fills it with per-conversation
+//     subagent scratch that must never be committed.
+//   - .codex/ does not, so its members are listed one by one: config.toml,
+//     which ctxloom generates, and auth.json, which
+//     internal/lm/isolation/auth.go's SeedCodexHome copies from the host's
+//     ~/.codex/auth.json on every plain (non-isolated) codex run. The latter
+//     is a live credential rather than a config artifact, but it has to be
+//     kept out of the tree exactly the same way.
+//
+// The rule is stated because it is per-entry and irreversible in one
+// direction: broadening an entry to its whole directory later un-tracks
+// whatever the project had committed there, silently.
 var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".agents/", ".codex/config.toml", ".codex/auth.json"}
 
 // WorktreeComment is the header under which the per-agent-worktree exclude block
@@ -93,20 +103,61 @@ var WorktreeArtifactPatterns = []string{
 	".opencode/",
 	"opencode.json",
 	".ctxloom-opencode-managed",
+	// The per-file settings backups hook application writes. They were
+	// ignored in the project .gitignore (TransientArtifactPatterns) but not
+	// hidden inside a per-agent worktree, where hook application writes them
+	// just the same: this set must COVER that one, which is asserted rather
+	// than merely documented (TestWorktreeArtifactPatterns_CoverTransientOnes).
+	"*.ctxloom.bak",
 }
 
-// SupersededPatterns are ignore rules written by older ctxloom versions that a
-// current ctxloom must actively RETIRE rather than merely stop writing. A
-// blanket .ctxloom/ rule predates version-controlled content moving INTO
-// .ctxloom/ (content/, plus config.yaml, remotes.yaml and lock.yaml alongside
-// it). Left in place it silently un-tracks the project's own content: `git add`
-// reports nothing, and a content repo publishes an empty tree while every
-// consumer's bundle refs fail to resolve. Ensure only ever appends, so no
-// amount of re-running it can undo this — retirement must be explicit.
+// SupersededPatterns are the canonical spellings of the ignore rule written by
+// older ctxloom versions that a current ctxloom must actively RETIRE rather
+// than merely stop writing. A blanket .ctxloom/ rule predates
+// version-controlled content moving INTO .ctxloom/ (content/, plus config.yaml,
+// remotes.yaml and lock.yaml alongside it). Left in place it silently un-tracks
+// the project's own content: `git add` reports nothing, and a content repo
+// publishes an empty tree while every consumer's bundle refs fail to resolve.
+// Ensure only ever appends, so no amount of re-running it can undo this —
+// retirement must be explicit.
 //
-// Only the BLANKET forms belong here. The granular .ctxloom/<subdir>/ patterns
-// in PrivateStatePatterns are current and must never be matched.
+// This list is what ctxloom itself ever WROTE. Retirement matches on effect,
+// not on this list (see isSupersededBlanket): a project's rule may have been
+// hand-edited into any of the several spellings git treats identically, and
+// each of them breaks the project the same way.
 var SupersededPatterns = []string{".ctxloom", ".ctxloom/", "/.ctxloom", "/.ctxloom/"}
+
+// isSupersededBlanket reports whether an ignore line excludes the WHOLE
+// .ctxloom directory, in any of the spellings git treats as equivalent —
+// anchored or not (`/.ctxloom`, `**/.ctxloom`), directory-suffixed or not, and
+// with a trailing `/*` or `/**` wildcard.
+//
+// Only BLANKET forms match. The granular .ctxloom/<subdir>/ patterns in
+// PrivateStatePatterns are current and must never be retired, nor may a
+// comment or a user's own re-include (`!`) line be mistaken for a rule.
+func isSupersededBlanket(line string) bool {
+	s := strings.TrimSpace(line)
+	if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "!") {
+		return false
+	}
+	s = strings.TrimSuffix(s, "/**")
+	s = strings.TrimSuffix(s, "/*")
+	s = strings.TrimSuffix(s, "/")
+	s = strings.TrimPrefix(s, "**/")
+	s = strings.TrimPrefix(s, "/")
+	return s == ".ctxloom"
+}
+
+// exactlyOneOf returns a line matcher for a fixed pattern set, matched by
+// trimmed-line equality — the retirement rule for blocks ctxloom wrote itself
+// and can therefore match verbatim.
+func exactlyOneOf(patterns []string) func(string) bool {
+	set := make(map[string]bool, len(patterns))
+	for _, p := range patterns {
+		set[p] = true
+	}
+	return func(line string) bool { return set[strings.TrimSpace(line)] }
+}
 
 // supersededComments are ctxloom-authored headers that head nothing once their
 // patterns are retired. Scoped to headers ctxloom itself wrote — a user's own
@@ -118,7 +169,7 @@ var supersededComments = []string{"# ctxloom local files"}
 // the file changed. An absent file is a no-op, not an error. Callers that
 // write the private-state block should retire first, then Ensure.
 func RetireSupersededFile(path string) (bool, error) {
-	return retireBlock(path, supersededComments, SupersededPatterns)
+	return retireBlock(path, supersededComments, isSupersededBlanket)
 }
 
 // RetireWorktreeConfigBlock removes the WorktreeComment header and any
@@ -133,14 +184,14 @@ func RetireSupersededFile(path string) (bool, error) {
 // dirty/untracked noise for every OTHER worktree (including the developer's
 // own main checkout) the moment it is gone.
 func RetireWorktreeConfigBlock(path string) (bool, error) {
-	return retireBlock(path, []string{WorktreeComment}, WorktreeArtifactPatterns)
+	return retireBlock(path, []string{WorktreeComment}, exactlyOneOf(WorktreeArtifactPatterns))
 }
 
-// retireBlock is RetireSupersededFile's mechanism, generalized: remove any
-// line matching one of patterns from the file at path, along with an
-// orphaned header (one of headers) left immediately above a removed run. An
-// absent file is a no-op, not an error.
-func retireBlock(path string, headers, patterns []string) (bool, error) {
+// retireBlock is RetireSupersededFile's mechanism, generalized: remove every
+// line retire reports, from the file at path, along with an orphaned header
+// (one of headers) left immediately above a removed run. An absent file is a
+// no-op, not an error.
+func retireBlock(path string, headers []string, retire func(string) bool) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -149,43 +200,75 @@ func retireBlock(path string, headers, patterns []string) (bool, error) {
 		return false, err
 	}
 
-	retiredSet := make(map[string]bool, len(patterns))
-	for _, p := range patterns {
-		retiredSet[p] = true
-	}
-	orphanHeader := make(map[string]bool, len(headers))
-	for _, h := range headers {
-		orphanHeader[h] = true
-	}
-
-	lines := strings.Split(string(content), "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if retiredSet[trimmed] {
-			// Drop a ctxloom-authored header immediately above it, which would
-			// otherwise be left heading nothing.
-			for len(kept) > 0 {
-				last := strings.TrimSpace(kept[len(kept)-1])
-				if orphanHeader[last] {
-					kept = kept[:len(kept)-1]
-					continue
-				}
-				break
-			}
-			continue
-		}
-		kept = append(kept, line)
-	}
+	isOrphanHeader := exactlyOneOf(headers)
+	kept := keepLines(strings.Split(string(content), "\n"), retire, isOrphanHeader)
 
 	updated := strings.Join(kept, "\n")
 	if updated == string(content) {
 		return false, nil
 	}
-	if err := os.WriteFile(path, []byte(updated), 0644); err != nil {
+	if err := replaceFile(path, []byte(updated)); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// replaceFile overwrites path with data ATOMICALLY, keeping the file's
+// existing mode.
+//
+// The file being rewritten here is USER-AUTHORED — a project's .gitignore, or
+// a repo's .git/info/exclude — and it is rewritten by removing lines from it.
+// A plain truncate-then-write loses all of it if the process dies in between,
+// which for the migration path is the worst possible moment: Ensure has
+// already decided the blanket rule must go and has nothing to restore it
+// from. Staging beside the target and renaming makes the replacement a single
+// step for any reader, and preserves the ORIGINAL mode rather than handing
+// the user's file whatever the umask says.
+func replaceFile(path string, data []byte) error {
+	mode := os.FileMode(0644)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+
+	// Same directory, so the rename is within one filesystem.
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".ctxloom-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op once the rename succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	// Close is checked, not deferred-and-discarded: it is where a write that
+	// never reached disk surfaces (U054-F04 made the same point for appends).
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("gitignore: writing %s: %w", path, err)
+	}
+	return os.Rename(tmpName, path)
+}
+
+// keepLines returns lines with every retired line dropped, along with any
+// ctxloom-authored header left immediately above a removed run — which would
+// otherwise be left heading nothing.
+func keepLines(lines []string, retire, isOrphanHeader func(string) bool) []string {
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if !retire(line) {
+			kept = append(kept, line)
+			continue
+		}
+		for len(kept) > 0 && isOrphanHeader(kept[len(kept)-1]) {
+			kept = kept[:len(kept)-1]
+		}
+	}
+	return kept
 }
 
 // Ensure appends the given patterns to projectDir/.gitignore under a single
@@ -241,7 +324,40 @@ func EnsureFile(path, comment string, patterns ...string) error {
 	if len(missing) == 0 {
 		return nil
 	}
+	warnOverriddenNegations(path, content, missing)
 	return appendBlock(path, content, comment, missing)
+}
+
+// warnOverriddenNegations reports patterns being appended that will silently
+// take precedence over a re-include (`!`) line the user already wrote.
+//
+// .gitignore is LAST-MATCH-WINS and this package only ever APPENDS, so a
+// pattern written at the end of the file beats every earlier line — including
+// a deliberate negation of the very path being ignored. Reordering is not
+// available as a remedy: git cannot re-include a path whose parent DIRECTORY
+// is excluded at all, so for a directory pattern the user's negation is dead
+// however the file is ordered. What is available is not doing it silently —
+// their line is still sitting there looking effective.
+//
+// Only negations the appended pattern actually shadows are reported: the
+// same path, or anything beneath it when the pattern names a directory.
+func warnOverriddenNegations(path string, content []byte, appended []string) {
+	for line := range strings.SplitSeq(string(content), "\n") {
+		neg := strings.TrimSpace(line)
+		if !strings.HasPrefix(neg, "!") {
+			continue
+		}
+		target := strings.TrimPrefix(neg, "!")
+		for _, p := range appended {
+			shadowed := target == p || (strings.HasSuffix(p, "/") && strings.HasPrefix(target, p))
+			if !shadowed {
+				continue
+			}
+			clidiag.Warn("ctxloom",
+				"%s already contains %q, but ctxloom just appended %q below it. .gitignore is last-match-wins, so the ctxloom rule now takes precedence and your re-include no longer has any effect (git also cannot re-include a path whose parent directory is excluded, so moving the lines will not restore it). Your line was left untouched — remove or rework it if you meant to keep that path tracked.",
+				path, neg, p)
+		}
+	}
 }
 
 // missingPatterns returns the patterns not already present in content, matched

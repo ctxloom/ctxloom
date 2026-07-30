@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -146,21 +145,44 @@ func confirmSignerAdd(cmd *cobra.Command, principal string, key operations.Signe
 	if assumeYes || !isInteractiveTerminal() {
 		return true
 	}
+	return promptSignerAdd(cmd, principal, key, namespaces)
+}
+
+// promptSignerAdd renders the consequence block and reads the answer. It is
+// split out of confirmSignerAdd — whose only other job is the --yes/no-TTY
+// gate — because the gate made the prompt untestable: in any test process
+// isInteractiveTerminal() is false, so every existing test took the skip path
+// and the most consequential text in the product had nothing asserting it is
+// shown at all (U042-F25). It writes to cmd.ErrOrStderr() rather than
+// os.Stderr for the same reason; in production those are the same descriptor.
+func promptSignerAdd(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) bool {
 	consequence := signerConsequenceText(namespaces)
-	fmt.Fprintf(os.Stderr, "\nTrust %s as a %s?\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
+	fmt.Fprintf(cmd.ErrOrStderr(), "\nTrust %s as a %s?\n\n  %s  (%s)\n\n  %s\n  Verify this fingerprint out of band before you continue.\n\n",
 		principal, signerRoleWord(namespaces), key.Fingerprint, key.PublicKey.Type(), consequence)
 	yes, err := promptYesNo("  [y/N] ")
 	return err == nil && yes
+}
+
+// hasPublishNamespace reports whether a grant includes the publish namespace —
+// the one conditional every publish-vs-review distinction in the confirmation
+// turns on (U042-F12). signerRoleWord and signerConsequenceText each used to
+// open-code this scan, so no test between them could catch the two disagreeing;
+// they now share this single answer.
+func hasPublishNamespace(namespaces []string) bool {
+	for _, ns := range namespaces {
+		if ns == signing.NamespacePublish {
+			return true
+		}
+	}
+	return false
 }
 
 // signerRoleWord picks the noun for the confirmation header: PUBLISHER when
 // publish is among the trusted namespaces (the broadest, most dangerous
 // grant — content AND executables, unreviewed), REVIEWER otherwise.
 func signerRoleWord(namespaces []string) string {
-	for _, ns := range namespaces {
-		if ns == signing.NamespacePublish {
-			return "PUBLISHER"
-		}
+	if hasPublishNamespace(namespaces) {
+		return "PUBLISHER"
 	}
 	return "REVIEWER"
 }
@@ -170,11 +192,9 @@ func signerRoleWord(namespaces []string) string {
 // requires (§7.2) — a publish grant and a delegated-review grant are
 // different dangers and must not share one sentence.
 func signerConsequenceText(namespaces []string) string {
-	for _, ns := range namespaces {
-		if ns == signing.NamespacePublish {
-			return "Everything this signer ever publishes — text AND executables (MCP servers,\n" +
-				"  hooks), now and in every future update — will reach your agent WITHOUT REVIEW."
-		}
+	if hasPublishNamespace(namespaces) {
+		return "Everything this signer ever publishes — text AND executables (MCP servers,\n" +
+			"  hooks), now and in every future update — will reach your agent WITHOUT REVIEW."
 	}
 	return "Everything this signer ever approves reaches your agent unreviewed —\n" +
 		"  you are delegating your review decisions to them, forever."

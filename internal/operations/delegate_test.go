@@ -449,6 +449,34 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
+// TestHandleDirtyParentTree_IsDirtyErrorIsInspected pins the second of the two
+// production IsDirty call sites against U053-F06, which claimed a caller
+// writing `dirty, _ := IsDirty(…)` would silently receive the UNSAFE zero
+// value. No such caller exists: isolation's unsafeToRemove is fail-closed
+// (TestWorktree_TeardownAbortsOnUnknownIgnoredContentState pins that), and
+// this gate is deliberately best-effort — a git failure (no binary, a workDir
+// that is not a repo, which several test doubles pass) must never block the
+// spawn, matching how the isolation chain's own git checks degrade.
+//
+// What must NOT happen either way is the error going uninspected: this pins
+// that an IsDirty error yields the no-op outcome BY DECISION, so a future
+// `dirty, _ :=` — which would reach the same outcome by accident, and reach a
+// wrong one the moment this gate's policy changes — is a visible change here.
+func TestHandleDirtyParentTree_IsDirtyErrorIsInspected(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{
+		DirtyErr: assert.AnError,
+		// Configured dirty AND with changes: were the error ignored, the
+		// "fail" handler below would refuse the spawn instead of no-opping.
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: []string{" M internal/foo.go"},
+	}
+	cfg := config.NewFixture(config.Fixture{})
+	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	require.NoError(t, err, "an unreadable dirty state degrades to a no-op gate; it must never block the spawn")
+	assert.Equal(t, dirtyTreeOutcome{}, outcome, "and must not carry a snapshot built on state it could not read")
+}
+
 // ----- fail -----
 
 // TestHandleDirtyParentTree_Fail_RefusesAndNamesEverything is the crux case:

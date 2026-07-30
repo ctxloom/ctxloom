@@ -348,6 +348,7 @@ func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testi
 	})
 }
 
+<<<<<<< HEAD
 // TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution is U064-F07's
 // pinning test. The row claimed an explicit runtime preference that is unknown
 // or unavailable is silently replaced by auto-detection, so "a user who
@@ -386,4 +387,126 @@ func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) 
 		assert.Empty(t, prefer,
 			"the run path must probe with auto-detect; a preference expressed here would be silently substituted by SelectRuntime's fall-through, which only selectBuildRuntime guards against")
 	}
+=======
+// TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins U063-F13: the
+// predicate every "did we keep the container boundary?" check funnels through
+// must agree with what each policy actually calls itself. It used to match on
+// its own copies of the two name literals, so a rename on either base would
+// have silently reclassified a container run as an unsandboxed one — the
+// prepareChain warning downgraded to a generic degrade line, and the run path
+// reporting a satisfied container request as dropped. Asserting against the
+// policies' OWN Name() keeps the agreement checkable no matter where the
+// strings live.
+func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
+	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
+
+	assert.True(t, IsContainerPolicyName(NewContainer(rt, "img").Name()),
+		"the host-base container policy is container-backed")
+	assert.True(t, IsContainerPolicyName(NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil).Name()),
+		"the worktree-base container policy is container-backed")
+	assert.True(t, IsContainerPolicyName(Container{}.Name()),
+		"a bare Container (nil base) still reports a container-backed name")
+
+	assert.False(t, IsContainerPolicyName(None{}.Name()), "the host policy is not a container boundary")
+	assert.False(t, IsContainerPolicyName(NewWorktree(nil, "claude-code").Name()),
+		"a host worktree is a workspace boundary, never a container one")
+	assert.False(t, IsContainerPolicyName(""), "an empty name is never a container boundary")
+}
+
+// TestNonePrepareWorkspace_CannotFail REFUTES U063-F15, which flagged
+// prepareChain's trailing `ws, _ := None{}.PrepareWorkspace(...)` as discarding
+// "the one place a total failure would be invisible". None.PrepareWorkspace
+// returns a literal nil error on every path — the discard is statically
+// unreachable, not merely unlikely — and there is no lower tier to degrade
+// into, so handling it could only produce an unreachable branch. The row's own
+// remedy is therefore not implementable: there is nothing an error path could
+// do that returning the project dir does not already do.
+//
+// That "None never fails" is the whole fault-tolerance floor the Policy
+// contract rests on (chainFor always terminates in None; prepareChain's
+// trailing call is the defensive fallback for an empty or all-failing chain).
+// So pin the property instead: if None ever grows a failure mode, this goes
+// red and the discard must be revisited.
+func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
+	ctx := context.Background()
+	for _, dir := range []string{"", "/proj", "/does/not/exist", "\x00not-a-path"} {
+		ws, err := None{}.PrepareWorkspace(ctx, dir, "agent-a")
+		require.NoError(t, err, "None is the fault-tolerant floor: it never fails to prepare (dir %q)", dir)
+		require.NotNil(t, ws)
+		assert.Equal(t, dir, ws.Dir())
+		assert.NoError(t, ws.Cleanup(), "and its teardown is a noop that never fails")
+	}
+
+	// The same holds through the seam prepareChain actually reaches it by: an
+	// all-failing chain still yields a workspace rather than a nil one.
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	policy, ws := prepareChain(cancelled, []Policy{failingPolicy{name: "worktree"}}, "/proj", "agent-a")
+	assert.Equal(t, None{}.Name(), policy.Name())
+	require.NotNil(t, ws)
+	assert.Equal(t, "/proj", ws.Dir())
+}
+
+// TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently REFUTES
+// U063-F11, which called ImageConfig's zero value "self-contradictory"
+// (NoDevcontainerBase false says auto-detect ON while AppRoot "" forces it OFF)
+// and asked for a diagnostic. Both halves are wrong:
+//
+//   - It is not a contradiction but a DOCUMENTED equivalence, stated at both
+//     sites — ImageConfig.AppRoot's own field doc ('"" disables auto-detection
+//     (same effect as NoDevcontainerBase)') and resolveDevBase's ("an empty
+//     appRoot ... means 'no auto-detect', never an error").
+//   - There is nothing to diagnose. An empty AppRoot means no project root is
+//     known, so there is no directory to resolve .devcontainer/devcontainer.json
+//     AGAINST; detection is impossible rather than skipped. The zero value
+//     arises for callers that legitimately never learned a root, and warning on
+//     every one of them would be noise on a path that has no alternative.
+//     Where a config-load failure IS the cause, the CLI already names the gap
+//     (containerCheckConfigGap in cli/container_cmd.go).
+//
+// Pinning the silence, so re-introducing the requested diagnostic goes red.
+func TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently(t *testing.T) {
+	buf := captureWarnings(t)
+
+	stage, err := resolveDevBase("", ImageConfig{}.NoDevcontainerBase, "")
+	require.NoError(t, err, "an unknown project root is never an error")
+	assert.Nil(t, stage, "and never resolves a base")
+
+	optedOut, err := resolveDevBase("/some/root", true, "")
+	require.NoError(t, err)
+	assert.Nil(t, optedOut)
+	assert.Empty(t, buf.String(),
+		"an empty AppRoot is the documented equivalent of the explicit opt-out — no root means nothing to detect against, so there is nothing to report")
+}
+
+// TestImageOverrideAndBaseImageAreOppositeConcepts PARTIALLY refutes
+// U063-F07, which claimed ImageConfig and ImageBuildOptions "duplicate 6 of the
+// same concepts under different names". Five are genuinely the same and share
+// their names exactly (BaseContainerfile, AppRoot, NoDevcontainerBase,
+// DevcontainerService, Engines). The sixth pairing the row implies —
+// ImageConfig.Image against ImageBuildOptions.BaseImage — is not a rename of
+// one concept but two OPPOSITE ones, which is why they were never unified:
+//
+//   - ImageConfig.Image is a prebuilt override, run AS-IS and NEVER built: it
+//     suppresses the local recipe entirely (engineInstall is cleared) so an
+//     absent override degrades rather than triggering a build.
+//   - ImageBuildOptions.BaseImage is a base to BUILD ONTO: it produces an
+//     overlay build source that layers ctxloom on top.
+//
+// A shared type that merged them would let a user's run-as-is image be built
+// onto, or a build base be launched unbuilt. Pinning the divergence.
+func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
+	rt := fakeRuntime{name: "docker", binary: "false", available: true}
+
+	c := containerFor(rt, "kiro", ImageConfig{Image: "my-registry/my-kiro:v2"})
+	assert.Equal(t, "my-registry/my-kiro:v2", c.image, "the override IS the image, verbatim")
+	sources, _, _ := c.containerBuildSources("")
+	assert.Empty(t, sources, "an isolation_images override has NO build recipe — the user owns its lifecycle")
+
+	overlay := buildSources(containerProfileFor("kiro"), buildSourcesOptions{baseOverride: "my-registry/my-kiro:v2"})
+	require.Len(t, overlay, 1, "the same string as a BaseImage is a base to build onto, not an image to run")
+	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-kiro:v2\n")
+	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",
+		"a build base gets ctxloom layered onto it; a run-as-is override never would")
+>>>>>>> release/0.7
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,7 +60,11 @@ const attachWaitDelay = time.Second
 // removes the container, so `docker logs` afterwards has nothing to read.
 func (a *AttachedContainer) StderrTail() string { return a.stderr.Tail() }
 
-// Close tears the container down. Safe to call once.
+// Close tears the container down. Safe to call once. A non-nil error means the
+// CONTAINER failed — it exited nonzero on its own inside the shutdown grace. A
+// teardown that had to force-remove and kill a container which ignored stdin EOF
+// is an ordinary shutdown and reports nil: the wait error there describes the
+// kill this teardown performed, not anything the caller can act on.
 func (a *AttachedContainer) Close() error {
 	grace := a.ShutdownGrace
 	if grace <= 0 {
@@ -75,9 +81,15 @@ func (a *AttachedContainer) Close() error {
 // for nothing — but a caller speaking its OWN stdio protocol (RunAttached's
 // whole reason to exist) needs a live bidirectional stdin or the container
 // sees EOF immediately and the engine's read loop exits before ever seeing a
-// request. Args always start with "run" (every Runtime.RunArgs
-// implementation here does), so element 1 is always a safe insertion point.
+// request. A container runtime's args start with "run", so element 1 is the
+// insertion point — but NOT every Runtime renders a run argv at all: Host
+// launches no container and returns nil, so an empty argv has no insertion
+// point and is returned untouched (RunAttached refuses such a runtime before
+// it ever gets here).
 func interactiveRunArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
 	out := make([]string, 0, len(args)+1)
 	out = append(out, args[0], "-i")
 	return append(out, args[1:]...)
@@ -97,8 +109,50 @@ func interactiveRunArgs(args []string) []string {
 // teardown SUCCESS, not a leak (removeReportsGone) — only a genuine failure
 // to confirm removal is surfaced, loudly, since the live container would
 // otherwise hold this session's workspace mounts invisibly.
-func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContainer, error) {
-	cmd := exec.CommandContext(ctx, rt.Binary(), interactiveRunArgs(rt.RunArgs(spec))...)
+//
+// spawnEnv is the value-carrying env channel — the attached-transport
+// counterpart of LaunchSpec.SpawnEnv on the go-plugin path. Each key crosses as
+// a bare-name `-e NAME` on the run argv while its VALUE is stamped onto the
+// `run` process's own environment, so a secret never lands in an argv that stays
+// world-readable (/proc/<pid>/cmdline) for the container's whole lifetime.
+// Callers with an arbitrary KEY→VALUE env to deliver use this; spec.Env stays
+// for the non-secret KEY=VAL forms (TERM, git identity) and for bare names whose
+// values are already in this process's environment.
+func RunAttached(ctx context.Context, rt Runtime, spec RunSpec, spawnEnv map[string]string) (*AttachedContainer, error) {
+	env := os.Environ()
+	// Per-spawn env values ride the `run` PROCESS env; the spec carries only
+	// their bare NAMES, which renderRunSpec emits as `-e NAME` for the runtime to
+	// forward. Same split newContainerRunner makes for the go-plugin transport
+	// and for the same reason: a `-e KEY=VAL` would put the value in the `run`
+	// process's argv, which is world-readable for the container's whole lifetime
+	// via /proc/<pid>/cmdline.
+	if len(spawnEnv) > 0 {
+		names := make([]string, 0, len(spawnEnv))
+		kv := make([]string, 0, len(spawnEnv))
+		for k, v := range spawnEnv {
+			names = append(names, k)
+			kv = append(kv, k+"="+v)
+		}
+		sort.Strings(names)
+		sort.Strings(kv)
+		spec.Env = append(append([]string(nil), spec.Env...), names...)
+		env = append(env, kv...)
+	}
+	// Host (and any runtime that launches no container) renders no run argv at
+	// all. Refusing here names the actual problem; without it the empty argv
+	// reached interactiveRunArgs' index, or — past that — exec'd the runtime
+	// binary bare.
+	runArgs := rt.RunArgs(spec)
+	if len(runArgs) == 0 {
+		return nil, fmt.Errorf("container attach: runtime %q cannot start a container (it renders no run argv)", rt.Name())
+	}
+	cmd := exec.CommandContext(ctx, rt.Binary(), interactiveRunArgs(runArgs)...)
+	// Explicit, not inherited-by-omission: every bare-name `-e NAME` in the spec
+	// — the scoped auth passthrough above all (containerAuth.envPassthrough) —
+	// resolves its VALUE from the environment of this `run` process, so leaving
+	// it out would silently drop the credential the container was launched to
+	// use. The dependency is stated here rather than living in a nil field.
+	cmd.Env = env
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("container attach: stdin pipe: %w", err)
@@ -143,8 +197,10 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContai
 			// (see DefaultShutdownGrace): everything below this select is
 			// destructive, and the async transcript flush it would race is
 			// unrecoverable once the container is removed.
+			exitedOnItsOwn := false
 			select {
 			case <-processDone:
+				exitedOnItsOwn = true
 			case <-time.After(grace):
 			}
 			if name != "" && rt.Binary() != "" {
@@ -160,6 +216,16 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContai
 				_ = cmd.Process.Kill()
 			}
 			<-processDone
+			if !exitedOnItsOwn {
+				// The grace expired, so everything above this point was teardown
+				// destroying the container on purpose. cmd.Wait then reports the
+				// removal/kill we performed ("signal: killed", or the client's
+				// nonzero exit after `rm -f` pulled the container out from under
+				// it) — an error we CAUSED, not one the caller can act on. Only
+				// the loud, unresolvable case is surfaced, by the remove warning
+				// above.
+				return nil
+			}
 			return waitErr
 		},
 	}, nil

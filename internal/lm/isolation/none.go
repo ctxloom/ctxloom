@@ -2,9 +2,16 @@ package isolation
 
 import (
 	"context"
+	"fmt"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
+
+// startHostRunner is StartRunner's seam onto the bare self-invoked host runner
+// spawn, a package var so the launch-failure path is unit-testable without
+// actually forking a `ctxloom llm host` subprocess. Mirrors the
+// selectRuntimeProbe / sharedFSCheck seams.
+var startHostRunner = pb.StartHostRunner
 
 // envCellWorkDir duplicates agentcoord/coord.EnvCellWorkDir's value
 // ("CTXLOOM_CELL_WORKDIR") as a literal rather than importing it: that
@@ -47,6 +54,19 @@ func (None) PrepareWorkspace(_ context.Context, projectDir, _ string) (Workspace
 // SAME directory the shim's cwd (=RunOptions.WorkDir) derives its own key
 // from — see coord.EnvCellWorkDir's doc for the full mismatch this closes.
 func (None) SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error) {
+	env := spawnEnvWithCellWorkDir(spawnEnv, ws)
+	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: env})
+}
+
+// spawnEnvWithCellWorkDir copies the caller's per-spawn env and stamps the
+// prepared workspace's directory under EnvCellWorkDir — the single assembly
+// BOTH host spawn halves (SpawnClient's plugin subprocess and StartRunner's
+// runner subprocess) use, so the discovery marker they key off can never
+// differ between them. The caller's map is copied, never mutated: it is the
+// run's shared reach-back env and a per-spawn stamp must not leak across
+// concurrent spawns. A nil workspace, or one with no directory, stamps
+// nothing — an empty marker key discovers nothing.
+func spawnEnvWithCellWorkDir(spawnEnv map[string]string, ws Workspace) map[string]string {
 	env := make(map[string]string, len(spawnEnv)+1)
 	for k, v := range spawnEnv {
 		env[k] = v
@@ -56,7 +76,7 @@ func (None) SpawnClient(backendName, label string, verbosity int, ws Workspace, 
 			env[envCellWorkDir] = dir
 		}
 	}
-	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: env})
+	return env
 }
 
 // StartRunner launches the bare self-invoked `ctxloom llm host <backend>`
@@ -68,22 +88,14 @@ func (None) SpawnClient(backendName, label string, verbosity int, ws Workspace, 
 // verbosity is ambient (the runner reads CTXLOOM_VERBOSE), so it does not ride
 // the argv. Readiness is the coordinator's awaitRunner, not observed here.
 func (None) StartRunner(_ context.Context, backendName, label string, _ int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
-	env := make(map[string]string, len(spawnEnv)+1)
-	for k, v := range spawnEnv {
-		env[k] = v
-	}
-	if ws != nil {
-		if dir := ws.Dir(); dir != "" {
-			env[envCellWorkDir] = dir
-		}
-	}
+	env := spawnEnvWithCellWorkDir(spawnEnv, ws)
 	args := []string{"llm", "host", backendName}
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	hr, err := pb.StartHostRunner(args, env)
+	hr, err := startHostRunner(args, env)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("start host runner for backend %q (label %q): %w", backendName, label, err)
 	}
 	return &RunnerHandle{Name: "", Kill: hr.Kill, Wait: hr.Wait, StderrTail: hr.StderrTail}, nil
 }

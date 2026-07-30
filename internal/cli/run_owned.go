@@ -37,18 +37,6 @@ type ownedRunSession struct {
 	cancel  func()
 }
 
-// selectsOwnedRunContainer reports whether a top-level built-in run takes the
-// Phase 2a-B Transport 2 / EngineHost arm: a container policy that is either
-// --structured (a turn REPL) or a --print oneshot. Interactive container runs
-// take Part A's docker-exec arm; host/worktree runs of any mode stay on
-// SpawnClient + go-plugin (they never had the mauve-state problem this fixes).
-func selectsOwnedRunContainer(policyName string, mode pb.ExecutionMode, structured bool) bool {
-	if !isolation.IsContainerPolicyName(policyName) {
-		return false
-	}
-	return structured || mode == pb.ExecutionMode_ONESHOT
-}
-
 // startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
 // event stream, then mint the owner-owned run and spawn its runner via the
 // StartRunner keepalive-with-run-id primitive (the runner runs `ctxloom llm

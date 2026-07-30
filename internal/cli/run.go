@@ -1124,14 +1124,15 @@ Examples:
 		// arm stay on SpawnClient + goplugin below. The observation/injection
 		// wrap sits ABOVE the seam (untouched) — the Launcher just receives
 		// the already-wrapped streams.
-		if selectsDockerExecInteractive(policy.Name(), mode, runStructured) {
+		switch runTransport(policy.Name(), mode, runStructured) {
+		case armDockerExecInteractive:
 			handle, launcher, lerr := startContainerInteractive(ctx, policy, ws, req, backendName, label, runVerbosity, activeHarp, runnerSpawnEnv)
 			if lerr != nil {
 				return fmt.Errorf("failed to start container interactive turn: %w", lerr)
 			}
 			runnerHandle = handle
 			interactiveLauncher = launcher
-		} else if selectsOwnedRunContainer(policy.Name(), mode, runStructured) {
+		case armOwnedRunContainer:
 			// Phase 2a-B: structured/oneshot container → owner-owned run on
 			// Transport 2. Launched through the SAME StartRunner primitive
 			// (an `llm host` runner WITH the run-id trio → EngineHost); the
@@ -1149,7 +1150,7 @@ Examples:
 			if oerr != nil {
 				return fmt.Errorf("failed to start container structured/oneshot run: %w", oerr)
 			}
-		} else {
+		case armGoPlugin:
 			// Spawn through the policy, carrying the resolved label so serve
 			// configures exactly this entry (not the first map-ordered entry of the
 			// same type).
@@ -1414,14 +1415,40 @@ func stampHostTerminalEnv(req *pb.RunStart) {
 	}
 }
 
-// selectsDockerExecInteractive reports whether a top-level built-in run takes
-// the Phase 2a-A docker-exec interactive arm — a container policy, INTERACTIVE
-// mode, and NOT --structured — instead of SpawnClient + the go-plugin Launcher.
-// Every other combination (host/worktree interactive, any oneshot, any
-// structured) stays on the go-plugin path: structured/oneshot container is
-// Part B, and host/worktree never had the mauve-state problem this fixes.
-func selectsDockerExecInteractive(policyName string, mode pb.ExecutionMode, structured bool) bool {
-	return isolation.IsContainerPolicyName(policyName) && mode == pb.ExecutionMode_INTERACTIVE && !structured
+// runTransportArm is the transport a top-level built-in run drives its engine
+// over. The three arms are exhaustive and mutually exclusive over the three
+// inputs runTransport takes, and naming the go-plugin arm is half the point:
+// as an unnamed `else` no single place stated the whole decision, so a fourth
+// input combination could only be reasoned about by reading two predicates in
+// two files and inferring what neither covered.
+//
+//   - armGoPlugin: SpawnClient + go-plugin. Every host/worktree run of any
+//     mode; none of them had the mauve-state problem the container arms fix.
+//   - armDockerExecInteractive: Phase 2a-A. The interactive turn runs via
+//     `docker exec` against a StartRunner keepalive container.
+//   - armOwnedRunContainer: Phase 2a-B. An owner-owned run watched over the
+//     in-process coordinator; the container dials out on Transport 2 and opens
+//     no in-container listener.
+type runTransportArm int
+
+const (
+	armGoPlugin runTransportArm = iota
+	armDockerExecInteractive
+	armOwnedRunContainer
+)
+
+// runTransport decides a run's transport arm. Only a container policy ever
+// leaves the go-plugin arm, so a container policy NEVER reaches SpawnClient and
+// a host/worktree policy ALWAYS does — a leak either way is the regression this
+// decision exists to prevent.
+func runTransport(policyName string, mode pb.ExecutionMode, structured bool) runTransportArm {
+	if !isolation.IsContainerPolicyName(policyName) {
+		return armGoPlugin
+	}
+	if structured || mode == pb.ExecutionMode_ONESHOT {
+		return armOwnedRunContainer
+	}
+	return armDockerExecInteractive
 }
 
 // startContainerInteractive is the Phase 2a-A docker-exec arm: it launches the

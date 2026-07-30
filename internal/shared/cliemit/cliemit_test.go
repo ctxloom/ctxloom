@@ -173,3 +173,45 @@ func TestResolve_NonStringFormatFlagIsAWiringError(t *testing.T) {
 		t.Fatalf("the error must name the offending command, got %v", err)
 	}
 }
+
+// U104-F08: Resolve reads cmd.Flags(), and cobra merges a PARENT's persistent
+// flags into a child's flag set during ParseFlags, inside Execute. So Resolve
+// is only correct once execution has begun; called earlier against a
+// subcommand it cannot see the root's --format and answers text. That
+// ordering requirement is now stated on Resolve's doc, and this pins it so the
+// prose stays true: both halves are measured, not asserted.
+func TestResolve_OnlySeesInheritedFormatOnceExecutionHasBegun(t *testing.T) {
+	newTree := func(runE func(*cobra.Command, []string) error) (*cobra.Command, *cobra.Command) {
+		root := &cobra.Command{Use: "root", SilenceUsage: true, SilenceErrors: true}
+		root.PersistentFlags().String("format", "text", "")
+		sub := &cobra.Command{Use: "sub", RunE: runE}
+		root.AddCommand(sub)
+		root.SetArgs([]string{"sub", "--format", "json"})
+		return root, sub
+	}
+
+	// BEFORE Execute: the persistent flag has not been merged into sub's own
+	// flag set, so there is no --format to read and text is the answer.
+	_, sub := newTree(func(*cobra.Command, []string) error { return nil })
+	early, err := Resolve(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if early != clifmt.FormatText {
+		t.Fatalf("pre-parse Resolve should answer text, got %q", early)
+	}
+
+	// INSIDE RunE: the merge has happened and the user's value is visible.
+	var inside clifmt.Format
+	root, _ := newTree(func(c *cobra.Command, _ []string) error {
+		var rerr error
+		inside, rerr = Resolve(c)
+		return rerr
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if inside != clifmt.FormatJSON {
+		t.Fatalf("Resolve inside RunE must see the inherited --format, got %q", inside)
+	}
+}

@@ -42,6 +42,12 @@ func Emit(cmd *cobra.Command, data any, text func() error) error {
 // treated as text; any other unrecognized value is an error wrapping
 // clifmt.ErrUnsupportedFormat.
 //
+// ORDERING (connascence of execution): Resolve reads cmd.Flags(), and cobra
+// merges a parent's PERSISTENT flags into a child's flag set during
+// ParseFlags, inside Execute. Call Resolve from RunE/PersistentPreRunE, or
+// from Execute's own error tail against the root that OWNS the flag. Called
+// earlier against a subcommand it sees no --format and answers text.
+//
 // Two causes of "cannot read --format" are deliberately NOT the same. An
 // ABSENT flag is the affordance above: it lets a command be driven without a
 // root, and turning it into an error breaks that contract at 30-plus call

@@ -595,6 +595,48 @@ func TestChat_CancelTurnKeepsConversation(t *testing.T) {
 	assert.Equal(t, []string{"still here"}, texts)
 }
 
+// U012-F17: a CancelTurn that arrives with no turn in flight used to be
+// dropped on the floor — no session/cancel, no event, no diagnostic. That is
+// a genuine race for any client driving this over the gRPC or ACP door: the
+// turn completes in the instant between the user pressing cancel and the
+// message arriving, and the user is left with a cancel that did nothing and no
+// way to tell it did nothing. Cancelling nothing must still SAY so.
+func TestChat_CancelTurnWithNoTurnInFlightIsReported(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		// One prompt only: the stray cancel must NOT produce a session/cancel
+		// notification, since there is no turn for the agent to abandon.
+		promptReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{CancelTurn: true}
+	// The loop is single-threaded, so a message accepted after the cancel
+	// proves the cancel was already processed.
+	h.in <- agent.ChatMessage{Text: "still fine"}
+	close(h.in)
+
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Contains(t, warnings.String(), "no turn in flight",
+		"a cancel with nothing to cancel must be reported, not silently dropped")
+
+	select {
+	case n := <-h.fa.notifications:
+		t.Fatalf("a stray cancel must not reach the agent as %s — there is no turn to abandon", n.Method)
+	default:
+	}
+}
+
 // TestChat_QueuedMessageMidTurn: a text message arriving while a turn is in
 // flight queues and runs as the next turn (the input loop no longer blocks
 // inside the prompt).

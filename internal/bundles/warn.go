@@ -17,35 +17,50 @@ import (
 // diagnostics, so suppressing repeats after the first is safe.
 type bundleWarner struct {
 	mu   sync.Mutex
-	seen map[string]struct{}
+	seen map[warnKey]struct{}
 	out  io.Writer
 }
 
+// warnKey namespaces a warner's dedup set by warning KIND as a separate field,
+// not as a prefix on the name. The two kinds key on different things — a bundle
+// ref and a fragment name — and a shared string keyspace makes a ref that
+// happens to spell another kind's key silence it.
+type warnKey struct {
+	kind string
+	name string
+}
+
 func newBundleWarner(out io.Writer) *bundleWarner {
-	return &bundleWarner{seen: make(map[string]struct{}), out: out}
+	return &bundleWarner{seen: make(map[warnKey]struct{}), out: out}
+}
+
+// first reports whether this (kind, name) has not been warned about yet, and
+// records it. Callers hold no lock; this takes it.
+func (b *bundleWarner) first(kind, name string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := warnKey{kind: kind, name: name}
+	if _, ok := b.seen[key]; ok {
+		return false
+	}
+	b.seen[key] = struct{}{}
+	return true
 }
 
 // unresolved warns that ref did not resolve, once per ref for this warner's life.
 func (b *bundleWarner) unresolved(ref string, err error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if _, ok := b.seen[ref]; ok {
+	if !b.first("unresolved", ref) {
 		return
 	}
-	b.seen[ref] = struct{}{}
 	clidiag.Fwarn(b.out, "ctxloom", "skipping unresolved bundle %q: %v", ref, err)
 }
 
 // ambiguous warns that a bare fragment ask matched several bundles, once per
 // name for this warner's life.
 func (b *bundleWarner) ambiguous(name string, matches []string, chosen string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	key := "ambiguous:" + name
-	if _, ok := b.seen[key]; ok {
+	if !b.first("ambiguous", name) {
 		return
 	}
-	b.seen[key] = struct{}{}
 	clidiag.Fwarn(b.out, "ctxloom", "fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly",
 		name, strings.Join(matches, ", "), chosen)
 }

@@ -74,3 +74,31 @@ func TestRunAttached_CloseIsBoundedWhenTheContainerIgnoresEOF(t *testing.T) {
 		t.Fatal("Close must be bounded by the grace period, not wait on a container that ignores stdin EOF")
 	}
 }
+
+// TestRunAttached_RuntimeThatLaunchesNoContainer is U062-F04's regression.
+// interactiveRunArgs indexed args[0] under a comment claiming "Args always start
+// with 'run' (every Runtime.RunArgs implementation here does)". That invariant is
+// FALSE: Host.RunArgs returns nil — Host launches no container at all — and so
+// does any Runtime stub. RunAttached is exported and takes a Runtime, so an empty
+// argv reached the index and panicked with index-out-of-range instead of telling
+// the caller its runtime cannot start a container.
+func TestRunAttached_RuntimeThatLaunchesNoContainer(t *testing.T) {
+	assert.Empty(t, interactiveRunArgs(nil), "an empty argv has no insertion point; never index into it")
+
+	require.NotPanics(t, func() {
+		_, err := RunAttached(context.Background(), Host{}, RunSpec{})
+		require.Error(t, err, "a runtime that renders no run argv must be refused, not indexed into")
+		assert.Contains(t, err.Error(), "cannot start a container")
+	})
+}
+
+// TestInteractiveRunArgs_InsertsAfterRun pins the positive shape the fix must not
+// disturb: `-i` lands immediately after the leading "run" verb, keeping stdin
+// open for a caller speaking its own stdio protocol, with every other argument in
+// its original order.
+func TestInteractiveRunArgs_InsertsAfterRun(t *testing.T) {
+	assert.Equal(t,
+		[]string{"run", "-i", "--rm", "--name", "c", "img"},
+		interactiveRunArgs([]string{"run", "--rm", "--name", "c", "img"}))
+	assert.Equal(t, []string{"run", "-i"}, interactiveRunArgs([]string{"run"}))
+}

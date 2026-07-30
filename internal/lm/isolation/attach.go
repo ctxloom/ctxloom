@@ -75,9 +75,15 @@ func (a *AttachedContainer) Close() error {
 // for nothing — but a caller speaking its OWN stdio protocol (RunAttached's
 // whole reason to exist) needs a live bidirectional stdin or the container
 // sees EOF immediately and the engine's read loop exits before ever seeing a
-// request. Args always start with "run" (every Runtime.RunArgs
-// implementation here does), so element 1 is always a safe insertion point.
+// request. A container runtime's args start with "run", so element 1 is the
+// insertion point — but NOT every Runtime renders a run argv at all: Host
+// launches no container and returns nil, so an empty argv has no insertion
+// point and is returned untouched (RunAttached refuses such a runtime before
+// it ever gets here).
 func interactiveRunArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
 	out := make([]string, 0, len(args)+1)
 	out = append(out, args[0], "-i")
 	return append(out, args[1:]...)
@@ -98,7 +104,15 @@ func interactiveRunArgs(args []string) []string {
 // to confirm removal is surfaced, loudly, since the live container would
 // otherwise hold this session's workspace mounts invisibly.
 func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContainer, error) {
-	cmd := exec.CommandContext(ctx, rt.Binary(), interactiveRunArgs(rt.RunArgs(spec))...)
+	// Host (and any runtime that launches no container) renders no run argv at
+	// all. Refusing here names the actual problem; without it the empty argv
+	// reached interactiveRunArgs' index, or — past that — exec'd the runtime
+	// binary bare.
+	runArgs := rt.RunArgs(spec)
+	if len(runArgs) == 0 {
+		return nil, fmt.Errorf("container attach: runtime %q cannot start a container (it renders no run argv)", rt.Name())
+	}
+	cmd := exec.CommandContext(ctx, rt.Binary(), interactiveRunArgs(runArgs)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("container attach: stdin pipe: %w", err)

@@ -58,24 +58,29 @@ func (s *Server) getClientFs() api.FileSystemCapabilities {
 // serve" subprocess) relay fs/read_text_file and fs/write_text_file to the
 // real connected editor via the Server's own connection.
 type fsUpstreamListener struct {
-	ln       net.Listener
-	addr     string
-	cancel   context.CancelFunc
-	closed   atomic.Bool
-	sockPath string
+	ln     net.Listener
+	addr   string
+	cancel context.CancelFunc
+	closed atomic.Bool
+	// dir is the private temp directory startFsUpstream created to hold the
+	// socket. It belongs to this listener alone, so Close owns removing the
+	// whole directory — removing only the socket inside it leaks an empty
+	// directory into TMPDIR for every session that ever offered fs chaining.
+	dir string
 }
 
 // Addr is the unix socket path a session's OpenRequest.FsUpstreamAddr carries.
 func (f *fsUpstreamListener) Addr() string { return f.addr }
 
-// Close stops accepting and removes the socket file (idempotent).
+// Close stops accepting and removes the private temp directory holding the
+// socket (idempotent).
 func (f *fsUpstreamListener) Close() error {
 	if f == nil || f.closed.Swap(true) {
 		return nil
 	}
 	f.cancel()
 	err := f.ln.Close()
-	_ = os.Remove(f.sockPath)
+	_ = os.RemoveAll(f.dir)
 	return err
 }
 
@@ -104,7 +109,7 @@ func (s *Server) startFsUpstream() *fsUpstreamListener {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	f := &fsUpstreamListener{ln: ln, addr: sockPath, cancel: cancel, sockPath: sockPath}
+	f := &fsUpstreamListener{ln: ln, addr: sockPath, cancel: cancel, dir: dir}
 	go s.acceptFsUpstream(ctx, f)
 	return f
 }

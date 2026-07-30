@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,158** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 75 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 124 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 125 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **766** |
+| `open` | no commit names this ID | **765** |
 
-**Totals: 2268 findings across 162 units — 1,158 resolved, 766 still open, 344 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,158 resolved, 765 still open, 345 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 376 | 438 | 41 | 53 | 91 |
+| MED | 999 | 376 | 437 | 41 | 54 | 91 |
 | LOW | 871 | 432 | 302 | 24 | 63 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1725,7 +1725,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U104-F06 | open | `cliemit.go:30-33` → `pkg/clifmt/text.go:42-46` | SILENTNOOP | `Emit` with a nil text closure over an **empty scalar slice** writes zero bytes and returns nil, while the same value under `--format json` writes `[]` — so "nothing to show" is indistinguishable f... | U104.md |
 | U104-F07 | open | `internal/cli/format.go:11-31` and `cmd/harp/root.go:108-116` | DUPLICATE | Four format vocabularies now coexist for one user-facing flag, and one of them is a third independent `resolveFormat` implementation with different empty-value semantics. | U104.md |
 | U105-F01 | **RESOLVED** `732918df` | `cliversion.go:23-35` | DEAD | `Render` has zero production call sites; it is kept alive solely by its own test file. It duplicates `clifmt.Render`, which is what every real version command actually calls. | U105.md |
-| U105-F02 | open | `cliversion.go:25-27` | SILENTNOOP | The `text`/`""` branch of `Render` prints a bare newline for an unstamped `Version` and returns nil. Empty in, zero-payload out, exit 0. | U105.md |
+| U105-F02 | **REFUTED** `25e2565e` | `cliversion.go:25-27` | SILENTNOOP | The `text`/`""` branch of `Render` prints a bare newline for an unstamped `Version` and returns nil. Empty in, zero-payload out, exit 0. | U105.md |
 | U105-F03 | **RESOLVED** `36cdc8f3` | `cliversion.go:14-18` vs `internal/config/companions.go:152-166` | COUPLING | The package doc claims `Info` is "the single source of truth rather than being re-declared per binary", but the *reader* of the contract does not use it. `companionVersion` re-implements the decode... | U105.md |
 | U106-F01 | **RESOLVED** `cac52a3e` `127539ad` | `sorted_keys.go:9-16` | NOPAY | `SortedKeys` is a strictly worse re-implementation of `slices.Sorted(maps.Keys(m))`: it is restricted to `~string` keys for no reason, and uses the reflect-based `sort.Slice` instead of the generic... | U106.md |
 | U106-F02 | open | `set.go:31` (doc) vs `set.go:49,54` and `internal/operations/items.go:223` | CORRECTNESS | The doc "The zero value is not usable" is false for reads and understates the risk for writes. `Has`/`Items`/`Clone` work fine on a nil `Set`; `Add`/`AddAll` panic. A caller in the tree already dec... | U106.md |

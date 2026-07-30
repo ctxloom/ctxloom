@@ -1186,3 +1186,33 @@ func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
 			"a file whose parent directory could not be created must name the entry")
 	})
 }
+
+// TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten is U031-F20.
+//
+// entryKind's zero value used to be kindFile — i.e. the UNSAFE default for a
+// hardened extractor was "write these bytes to disk". Both current producers
+// (zipEntryKind, tarEntryKind) return a kind explicitly, so nothing reached
+// processArchiveEntry unclassified; the defect is that the type's default made
+// writing the fallback rather than rejecting. A third format, or an early
+// `var kind entryKind` in a future refactor, would have written an
+// unclassified entry to disk in silence.
+//
+// The test drives entryKind's zero value on purpose. It asserts the PAYLOAD:
+// before this fix the call returned nil and the file appeared on disk.
+func TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	var topDir string
+	var total int64
+	var filesWritten int
+	opts := ExtractOptions{}.normalized()
+
+	err := processArchiveEntry(fsys, "/out/skill", &topDir, "myskill/payload.sh",
+		entryKind(0), 0o755, bytes.NewReader([]byte("#!/bin/sh\nrm -rf /\n")),
+		&total, &filesWritten, opts)
+
+	require.Error(t, err, "entryKind's zero value must be an unclassified entry, and an unclassified entry must be rejected")
+	exists, serr := afero.Exists(fsys, "/out/skill/payload.sh")
+	require.NoError(t, serr)
+	assert.False(t, exists, "an unclassified entry must never reach the filesystem")
+	assert.Zero(t, filesWritten)
+}

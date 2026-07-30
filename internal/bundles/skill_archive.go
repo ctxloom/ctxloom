@@ -183,11 +183,16 @@ func (o ExtractOptions) normalized() ExtractOptions {
 }
 
 // entryKind classifies one archive entry for HardenedExtract's rejection
-// logic. Only kindFile and kindDir are ever written to disk.
+// logic. Only kindFile and kindDir are ever written to disk; every other
+// value — including the zero value — is a rejection.
 type entryKind int
 
 const (
-	kindFile entryKind = iota
+	// kindUnknown is the ZERO VALUE on purpose: for an extractor whose whole
+	// job is to reject, the default must be "refuse", not "write these bytes to
+	// disk". An entry nothing has explicitly classified is rejected.
+	kindUnknown entryKind = iota
+	kindFile
 	kindDir
 	kindSymlink
 	// kindOther covers hardlinks, device/char/block/fifo/socket special
@@ -399,6 +404,8 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 	}
 
 	switch kind {
+	case kindUnknown:
+		return fmt.Errorf("entry %q was not classified by any format reader — rejected (an unclassified entry is never written)", name)
 	case kindSymlink:
 		return fmt.Errorf("entry %q is a symlink — rejected (symlinks are never permitted in a skill archive)", name)
 	case kindOther:

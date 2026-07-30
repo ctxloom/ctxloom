@@ -634,20 +634,12 @@ type seedFile struct {
 // isolation-home descriptor (per-engine-isolation-home plan §6): every
 // entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever
 // credential-seed behaviour HonoursVarForCreds selects. antigravity has NO
-// entry here — but NOT because it has no lever at all (that claim was
-// FALSE and has been corrected): agy reads $HOME directly for its whole
-// config/session-state tree — a full .gemini/ tree DOES relocate with it,
-// measured by chmod-000-crashes-agy on a fake HOME. What it does NOT
-// relocate is CREDENTIALS: agy authenticates through an OS-session-scoped
-// D-Bus Secret Service keyring that HOME does not gate at all (measured
-// with `env -i` + an empty fake HOME — still authenticated via keyring).
-// credentialSeedSpecs exists to copy CREDENTIAL material into a scoped
-// subdir a HonoursVarForCreds engine's isolation var points at; antigravity
-// has no such var (HOME itself is the only lever, and HOME does not carry
-// credentials), so it does not fit this registry's shape at all — it is
-// handled by the SEPARATE curatedHomeSpecs registry (curatedhome.go) instead,
-// which overrides HOME wholesale and is explicit that only config/session
-// state — never auth — moves with it.
+// entry here: this registry copies CREDENTIAL material into a scoped subdir
+// that an engine's own isolation var points at, and antigravity has no such
+// var — HOME itself is its only lever, and HOME does not carry its
+// credentials. It is handled by the SEPARATE curatedHomeSpecs registry
+// (curatedhome.go), whose package doc holds the measurements behind that
+// split and is the ONE place they are written down.
 //
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+

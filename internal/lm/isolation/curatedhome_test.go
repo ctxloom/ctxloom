@@ -369,3 +369,29 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 		})
 	}
 }
+
+// TestIsolationRegistries_AreDisjoint is U062-F14's pin. The antigravity
+// measurement narrative — HOME relocates config/session state, the D-Bus keyring
+// escapes it, `agy -p` ignores the launch cwd — was written out in full in this
+// file's package doc AND retold in auth.go's credentialSeedSpecs doc, two
+// independently-driftable copies of one measurement. auth.go now states only the
+// DECISION and points here for the evidence.
+//
+// Nothing executable can be red on a comment, so what is pinned is the invariant
+// that corrected prose asserts: the two registries are mutually exclusive, and
+// antigravity is on the curated-HOME side of the split. PrepareWorkspace consults
+// curatedHomeSpecs FIRST, so an engine in both would have its scoped-var lever
+// silently shadowed by a blanket HOME override — the split is load-bearing, not
+// bookkeeping.
+func TestIsolationRegistries_AreDisjoint(t *testing.T) {
+	for name := range curatedHomeSpecs {
+		_, alsoSeeded := credentialSeedSpecs[name]
+		assert.False(t, alsoSeeded,
+			"%q is in BOTH registries; curatedHomeSpecs is consulted first and would shadow its scoped-var lever", name)
+	}
+
+	_, curated := curatedHomeSpecs["antigravity"]
+	assert.True(t, curated, "antigravity's only lever is HOME itself — it belongs to the curated-HOME registry")
+	_, seeded := credentialSeedSpecs["antigravity"]
+	assert.False(t, seeded, "antigravity has no scoped isolation var for credentials to be seeded into")
+}

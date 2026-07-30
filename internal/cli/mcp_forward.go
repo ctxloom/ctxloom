@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -30,11 +31,9 @@ import (
 // Windows Docker Desktop) it bridges the runner's unix socket onto a host-
 // loopback TCP port instead (a bind-mounted unix socket file is not a live
 // endpoint across the Docker Desktop VM boundary) and encodes that as
-// "tcp://host:port". reachBackTCPPrefix is duplicated from that file's
-// identical constant — same import-cycle reason mcpSocketEnvVar/EnvMCPSocket
-// is duplicated between internal/acp and agentcoord/coord (see its doc):
-// keep both literals in sync by hand.
-const reachBackTCPPrefix = "tcp://"
+// "tcp://host:port". The marker is READ from the package that WRITES it, so
+// the two sides cannot drift.
+const reachBackTCPPrefix = acp.ReachBackTCPPrefix
 
 // dialReachBackSocket dials socketPath as either a unix socket (the default —
 // any absolute filesystem path) or, when it carries the reachBackTCPPrefix

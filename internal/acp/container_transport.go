@@ -18,7 +18,10 @@ import (
 // pulls in internal/operations -> internal/lm/backends -> this package
 // (backends registers acp.NewACP()), so importing it here would cycle. See
 // internal/agentcoord/coord/identity.go's EnvMCPSocket doc for the canonical
-// source of truth on this variable's meaning and lifecycle.
+// source of truth on this variable's meaning and lifecycle. The copy is BOUND
+// to that original by constants_binding_test.go, an external test package that
+// is not in the cycle — a rename on either side fails there rather than
+// silently leaving a containerized engine with no MCP surface.
 const mcpSocketEnvVar = "CTXLOOM_MCP_SOCKET"
 
 // containerProfileBackend maps ACPConfig.AgentEngine's kiro/claude/codex/agy
@@ -222,18 +225,18 @@ func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isola
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("acp: reach-back TCP bridge for %s: %w", mcpSocketEnvVar, err)
 	}
-	addr := fmt.Sprintf("%s%s:%d", reachBackTCPPrefix, reachBackDialHost(rt), bridge.port)
+	addr := fmt.Sprintf("%s%s:%d", ReachBackTCPPrefix, reachBackDialHost(rt), bridge.port)
 	return []string{mcpSocketEnvVar + "=" + addr}, nil, bridge.Close, nil
 }
 
-// reachBackTCPPrefix marks a CTXLOOM_MCP_SOCKET value as the off-Linux TCP
-// form (host:port to dial) rather than the default unix socket path (which
-// is always an absolute filesystem path and so never collides with this
-// prefix). Duplicated as a literal in internal/cli/mcp_forward.go — the far
-// side that dials this value — for the SAME import-cycle reason
-// mcpSocketEnvVar above is duplicated rather than imported from
-// agentcoord/coord: keep both literals in sync by hand.
-const reachBackTCPPrefix = "tcp://"
+// ReachBackTCPPrefix marks a CTXLOOM_MCP_SOCKET value as the off-Linux TCP
+// form (host:port to dial) rather than the default unix socket path (which is
+// always an absolute filesystem path and so never collides with this prefix).
+// Exported because the far side that DIALS this value (internal/cli's
+// mcp_forward.go) must agree with it exactly, and that direction imports
+// cleanly — unlike mcpSocketEnvVar above, whose canonical home sits ABOVE this
+// package in the import graph, this constant's producer is here.
+const ReachBackTCPPrefix = "tcp://"
 
 // reachBackDialHost is the DNS name Docker/Podman Desktop resolve, from
 // INSIDE a container, to the host's own network stack (loopback included) —

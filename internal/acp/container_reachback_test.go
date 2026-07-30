@@ -109,7 +109,7 @@ func TestContainerReachBackEnv_NonLinux_BridgesToTCP(t *testing.T) {
 		assert.Nil(t, mounts, "no bind mount off Linux — the fallback replaces it")
 		require.Len(t, env, 1)
 
-		addr, ok := strings.CutPrefix(env[0], mcpSocketEnvVar+"="+reachBackTCPPrefix)
+		addr, ok := strings.CutPrefix(env[0], mcpSocketEnvVar+"="+ReachBackTCPPrefix)
 		require.True(t, ok, "env value %q must carry the tcp:// form", env[0])
 		host, portStr, serr := net.SplitHostPort(addr)
 		require.NoError(t, serr)

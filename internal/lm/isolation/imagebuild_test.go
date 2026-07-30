@@ -694,6 +694,58 @@ func forceProvenance(t *testing.T) {
 	})
 }
 
+// clearProvenanceCache empties the process-global provenance memo WITHOUT
+// seeding it, so the next computation runs against whatever resolveSelfExe is
+// installed at that moment. forceProvenance's inverse: it exists because
+// seeding first and breaking resolveSelfExe afterwards builds a state
+// production can never reach (production resolves the digest lazily, through
+// the SAME seam the build path later uses), which is how an unreachable
+// branch can look covered.
+func clearProvenanceCache(t *testing.T) {
+	t.Helper()
+	provenanceOnce = sync.Once{}
+	provenanceCached = ""
+	t.Cleanup(func() {
+		provenanceOnce = sync.Once{}
+		provenanceCached = ""
+	})
+}
+
+// TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins U063-F23: the
+// staleness gate must not FAIL OPEN. When the wanted provenance digest cannot
+// be computed at all — an unresolvable host binary, an unreadable base
+// Containerfile — imageStale answers "not stale", and accepting that as
+// "current" let ANY present image, however old, satisfy a container request
+// with no warning and no finding. It also made the unbuildable-stale finding
+// (TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding) unreachable
+// in production: an unresolvable binary is exactly what empties the digest, so
+// the gate returned before that branch could ever run.
+func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
+	resetStrictness(t)
+	clearProvenanceCache(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-docker")
+	writeInspectOKBuildFailScript(t, script, `{"ctxloom.provenance":"whatever-was-baked"}`)
+
+	orig := resolveSelfExe
+	resolveSelfExe = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { resolveSelfExe = orig })
+
+	c := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-unverifiable-provenance-test:latest",
+		profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
+	}
+	require.NoError(t, c.ensureImage(context.Background()),
+		"an unverifiable image still launches — this must never take the container axis down")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1,
+		"a present image whose provenance cannot be computed must not pass silently as current")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].FixIt, "--degraded")
+}
+
 // TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins site 4: a PRESENT
 // but STALE image whose refresh build fails still LAUNCHES the stale image
 // (ensureImage returns nil — the container axis is never taken down), but in

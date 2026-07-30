@@ -699,8 +699,14 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		// never inspected or rebuilt — the user owns that image's lifecycle.
 		return nil
 	}
+	// A present image is accepted as current only when its provenance can
+	// actually be VERIFIED. An unresolvable host binary or an unreadable base
+	// Containerfile yields an empty wanted digest, and "cannot tell" must not
+	// read as "current": that accepted any present image, however old, and it
+	// put the unresolvable-binary case — which is precisely what empties the
+	// digest — beyond the reach of the fail-loud branch below.
 	wantProvenance := c.provenanceFor(devBase)
-	if present && !imageStale(c.imageLabels(ctx), wantProvenance) {
+	if present && wantProvenance != "" && !imageStale(c.imageLabels(ctx), wantProvenance) {
 		return nil
 	}
 	if len(sources) == 0 {

@@ -183,47 +183,12 @@ func (p *PreparedAgentChat) MCPCommandOverride() string { return p.mcpCommandOve
 // own findings log (bumpy-tree).
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
-	// GAP 2: the caller's per-agent_run workspace choice overrides the
-	// project default; empty (no override supplied) falls back to
-	// cfg.GetWorkspace().
-	//
-	// DELEGATED-CHILD DEFAULT (this is the one place that default is
-	// decided — internal/cli/run.go's top-level `ctxloom run` axes are a
-	// separate call site untouched by this function): when NEITHER the
-	// caller NOR the project config says anything explicit, a delegated
-	// child now defaults to its OWN worktree instead of inheriting the
-	// none/shared-checkout default the top-level run still uses. An
-	// explicit choice at either level — a per-call Workspace or a project
-	// `workspace:` setting, "none" or "worktree" — always wins; this only
-	// fills the silence.
-	//
-	// This is a WORKSPACE-axis (file-level) change only. It narrows a
-	// delegated child's blast radius on the PROJECT CHECKOUT — it does NOT
-	// isolate the engine's global config/credential/conversation store,
-	// which some engines keep outside any per-agent config-home env lever
-	// entirely (see EnvWorkspace's doc and the antigravity fail-loud gate
-	// in isolation.go). Do not read a worktree default as "delegated
-	// children are now sandboxed from the user's engine state" — they are
-	// not.
-	workspace := cfg.GetWorkspace()
-	if req.Workspace != "" {
-		workspace = req.Workspace
-	} else if workspace == "" {
-		workspace = string(isolation.WorkspaceWorktree)
-	}
-	chatDialTimeout := req.ChatDialTimeout
-	if chatDialTimeout <= 0 {
-		chatDialTimeout = defaultChatDialTimeout
-	}
 	p := &PreparedAgentChat{
-		cfg:         cfg,
-		req:         req,
-		contextText: req.Context,
-		axes: isolation.Axes{
-			Workspace: isolation.WorkspaceAxis(workspace),
-			Runtime:   isolation.RuntimeAxis(rs.Runtime),
-		},
-		chatDialTimeout: chatDialTimeout,
+		cfg:             cfg,
+		req:             req,
+		contextText:     req.Context,
+		axes:            delegatedAxes(cfg, req),
+		chatDialTimeout: resolveChatDialTimeout(req),
 	}
 	if p.contextText == "" {
 		p.contextText = rs.Context
@@ -239,19 +204,9 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	// a SPAWN-time decision, not a per-turn one. "copy" defers actual file
 	// reproduction until the worktree exists (pendingCopy, applied below,
 	// chat path only — see its doc).
-	var gitClient git.Git
-	var pendingCopy *copySnapshot
-	if p.axes.Workspace == isolation.WorkspaceWorktree {
-		gitClient = req.Git
-		if gitClient == nil {
-			gitClient = git.NewExec()
-		}
-		handler := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
-		outcome, err := handleDirtyParentTree(ctx, cfg, gitClient, req.WorkDir, rs.Name, handler)
-		if err != nil {
-			return nil, err
-		}
-		pendingCopy = outcome.copy
+	gitClient, pendingCopy, err := decideDirtyParentTree(ctx, cfg, req, p.axes)
+	if err != nil {
+		return nil, err
 	}
 
 	if _, ok := backends.Get(rs.Backend).(agent.StructuredChat); !ok {
@@ -270,39 +225,8 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	p.starter = req.Starter
 	p.workDir = req.WorkDir
 	if p.factory == nil {
-		mark := strictness.Checkpoint()
-		policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), req.WorkDir, rs.Name, isolation.SessionStateFromEnv(req.Env))
-		found := strictness.Since(mark)
-		strictness.Close(mark)
-		p.workDir = ws.Dir()
-		p.workspaceEnv = isolation.WorkspaceEnv(ws)
-		p.cleanup = func() { _ = ws.Cleanup() }
-		if gerr := isolationGateErr(found); gerr != nil {
-			p.Abort()
+		if gerr := p.bindIsolatedSpawn(ctx, cfg); gerr != nil {
 			return nil, gerr
-		}
-		p.factory = isolation.FactoryForWorkspace(policy, ws, req.RunnerEnv)
-		// The StartRun spawn half (StartEngine) rides the docker-direct /
-		// bare-host runner starter, NOT the go-plugin factory above (which
-		// stays for the legacy Chat path, Start). A test-supplied req.Starter
-		// wins, exactly as req.Factory does for the Chat path.
-		if p.starter == nil {
-			p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, req.Verbosity, req.RunnerEnv)
-		}
-		// U098-F04: plan.MCPServers (req.MCPServers) was composed by the
-		// caller BEFORE this policy was known — coord/spawner.go's
-		// childMCPServers resolves it once at Resolve time, and the
-		// top-level `ctxloom run` path stamps its own override earlier still
-		// (cli/run.go's MCPCommandOverrideForPolicy call). Patch the
-		// auto-registered ctxloom entry's Command now that the real policy
-		// is in hand, so a runtime:container child's structured chat gets
-		// the in-container path instead of the host self-exec path baked in
-		// at composition time. p.mcpCommandOverride is also exposed via
-		// MCPCommandOverride() for StartEngine's caller (coord/spawner.go),
-		// which builds its own MCPServers copy outside of Start/p.req.
-		p.mcpCommandOverride = MCPCommandOverrideForPolicy(policy)
-		if p.mcpCommandOverride != "" {
-			p.req.MCPServers = agent.PatchManagedCommand(p.req.MCPServers, p.mcpCommandOverride)
 		}
 	}
 	if pendingCopy != nil {
@@ -337,6 +261,122 @@ func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
 	}
 	clidiag.WarnOnce("ctxloom", "agent_run: agent %q launches with ZERO bytes of ctxloom context (profiles: %s) — the child runs with no composed context at all; check the agent's profiles with `ctxloom agent show %s`",
 		rs.Name, profiles, rs.Name)
+}
+
+// delegatedAxes resolves the isolation axes one delegated child launches on.
+//
+// GAP 2: the caller's per-agent_run workspace choice overrides the project
+// default; empty (no override supplied) falls back to cfg.GetWorkspace().
+//
+// DELEGATED-CHILD DEFAULT (this is the one place that default is decided —
+// internal/cli/run.go's top-level `ctxloom run` axes are a separate call site
+// untouched by this function): when NEITHER the caller NOR the project config
+// says anything explicit, a delegated child defaults to its OWN worktree
+// instead of inheriting the none/shared-checkout default the top-level run
+// still uses. An explicit choice at either level — a per-call Workspace or a
+// project `workspace:` setting, "none" or "worktree" — always wins; this only
+// fills the silence.
+//
+// This is a WORKSPACE-axis (file-level) default only. It narrows a delegated
+// child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
+// engine's global config/credential/conversation store, which some engines
+// keep outside any per-agent config-home env lever entirely (see
+// EnvWorkspace's doc and the antigravity fail-loud gate in isolation.go). Do
+// not read a worktree default as "delegated children are now sandboxed from
+// the user's engine state" — they are not.
+//
+// The RUNTIME axis carries the agent's own resolved choice through untouched:
+// it is an agent trait, not an invocation one.
+func delegatedAxes(cfg *config.Config, req AgentChatRequest) isolation.Axes {
+	workspace := cfg.GetWorkspace()
+	if req.Workspace != "" {
+		workspace = req.Workspace
+	} else if workspace == "" {
+		workspace = string(isolation.WorkspaceWorktree)
+	}
+	return isolation.Axes{
+		Workspace: isolation.WorkspaceAxis(workspace),
+		Runtime:   isolation.RuntimeAxis(req.Resolved.Runtime),
+	}
+}
+
+// resolveChatDialTimeout applies the package default to an unset per-request
+// budget — see AgentChatRequest.ChatDialTimeout and Start's doc. Never zero.
+func resolveChatDialTimeout(req AgentChatRequest) time.Duration {
+	if req.ChatDialTimeout <= 0 {
+		return defaultChatDialTimeout
+	}
+	return req.ChatDialTimeout
+}
+
+// decideDirtyParentTree runs the DIRTY-PARENT-TREE SPAWN HANDLING decision
+// (see handleDirtyParentTree's doc): a worktree checkout only ever sees
+// COMMITTED state, so a delegated child spawned into one while the parent tree
+// carries uncommitted changes needs an explicit decision — commit, copy,
+// proceed stale, or refuse. Decided ONCE per spawn, for BOTH the
+// structured-chat path and the oneshot fallback (both derive from the same
+// axes resolution) — never per turn. "copy" defers actual file reproduction
+// until the worktree exists, so it returns the captured snapshot plus the git
+// client that captured it, for applyCopySnapshot to use later.
+func decideDirtyParentTree(ctx context.Context, cfg *config.Config, req AgentChatRequest, axes isolation.Axes) (git.Git, *copySnapshot, error) {
+	if axes.Workspace != isolation.WorkspaceWorktree {
+		return nil, nil, nil
+	}
+	gitClient := req.Git
+	if gitClient == nil {
+		gitClient = git.NewExec()
+	}
+	handler := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
+	outcome, err := handleDirtyParentTree(ctx, cfg, gitClient, req.WorkDir, req.Resolved.Name, handler)
+	if err != nil {
+		return nil, nil, err
+	}
+	return gitClient, outcome.copy, nil
+}
+
+// bindIsolatedSpawn runs the checkpoint→isolation.Prepare→gate window and
+// binds everything the resolved policy decides: the workspace directory and
+// its env, the teardown, BOTH spawn halves, and the MCP command override. It
+// runs only when no caller-supplied Factory has already replaced isolation
+// wholesale. A gate finding tears the prepared workspace back down before
+// returning.
+func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.Config) error {
+	rs := p.req.Resolved
+	mark := strictness.Checkpoint()
+	policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), p.req.WorkDir, rs.Name, isolation.SessionStateFromEnv(p.req.Env))
+	found := strictness.Since(mark)
+	strictness.Close(mark)
+	p.workDir = ws.Dir()
+	p.workspaceEnv = isolation.WorkspaceEnv(ws)
+	p.cleanup = func() { _ = ws.Cleanup() }
+	if gerr := isolationGateErr(found); gerr != nil {
+		p.Abort()
+		return gerr
+	}
+	p.factory = isolation.FactoryForWorkspace(policy, ws, p.req.RunnerEnv)
+	// The StartRun spawn half (StartEngine) rides the docker-direct /
+	// bare-host runner starter, NOT the go-plugin factory above (which stays
+	// for the legacy Chat path, Start). A test-supplied req.Starter wins,
+	// exactly as req.Factory does for the Chat path.
+	if p.starter == nil {
+		p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, p.req.Verbosity, p.req.RunnerEnv)
+	}
+	// U098-F04: plan.MCPServers (req.MCPServers) was composed by the caller
+	// BEFORE this policy was known — coord/spawner.go's childMCPServers
+	// resolves it once at Resolve time, and the top-level `ctxloom run` path
+	// stamps its own override earlier still (cli/run.go's
+	// MCPCommandOverrideForPolicy call). Patch the auto-registered ctxloom
+	// entry's Command now that the real policy is in hand, so a
+	// runtime:container child's structured chat gets the in-container path
+	// instead of the host self-exec path baked in at composition time.
+	// p.mcpCommandOverride is also exposed via MCPCommandOverride() for
+	// StartEngine's caller (coord/spawner.go), which builds its own
+	// MCPServers copy outside of Start/p.req.
+	p.mcpCommandOverride = MCPCommandOverrideForPolicy(policy)
+	if p.mcpCommandOverride != "" {
+		p.req.MCPServers = agent.PatchManagedCommand(p.req.MCPServers, p.mcpCommandOverride)
+	}
+	return nil
 }
 
 // resolveChatModel resolves a delegated child's model into the concrete,

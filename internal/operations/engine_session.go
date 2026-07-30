@@ -988,6 +988,39 @@ func listingFailed(err error) nameListing {
 // approval in real time.
 const sessionPermissionsLine = "every tool call is forwarded to your editor for a real-time approval decision (this session never auto-bypasses)"
 
+// sessionIsolationLine renders the init summary's leading fact: the session's
+// resolved posture on BOTH isolation axes. It is the summary's one genuinely
+// branching value — three postures (neither axis, runtime only, workspace
+// only or both) whose wording the rest of the block just embeds — so it is
+// composed here rather than inline, where it was the only reason the
+// surrounding function had to be read as a whole.
+//
+// See buildSessionInitSummary's doc for WHY this leads the block, and why the
+// container posture renders the mount as an explicit host -> container
+// mapping rather than asserting the two paths equal in prose.
+func sessionIsolationLine(in sessionInitSummaryInputs) string {
+	isolatedWorktree := in.aw != nil && in.aw.announce != ""
+	isolatedContainer := in.runtimeAxis == agent.RuntimeContainer
+	if !isolatedWorktree && !isolatedContainer {
+		return fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
+	}
+
+	runtimeDesc := "RUNTIME: a HOST process (no container)"
+	if isolatedContainer {
+		imgDesc := "an auto-selected image"
+		if image := IsolationImageConfig(in.cfg, in.backendName).Image; image != "" {
+			imgDesc = "image " + image
+		}
+		runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — NOT running directly on your host", imgDesc)
+	}
+
+	workspaceDesc := fmt.Sprintf("WORKSPACE mounted identically: host %s -> container %s (no worktree)", in.workDir, in.workDir)
+	if isolatedWorktree {
+		workspaceDesc = fmt.Sprintf("WORKSPACE "+worktreeIsolationProse, in.aw.dir)
+	}
+	return runtimeDesc + "; " + workspaceDesc
+}
+
 // buildSessionInitSummary composes ISO4's at-connect SESSION INITIALIZATION
 // SUMMARY: the one artifact answering "what did ctxloom assemble on my
 // behalf for this session?" — carried as the single string on
@@ -1061,34 +1094,6 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 		agentDesc = fmt.Sprintf("agent %q (engine %s)", in.currentAgent, in.label)
 	}
 
-	isolatedWorktree := in.aw != nil && in.aw.announce != ""
-	isolatedContainer := in.runtimeAxis == agent.RuntimeContainer
-
-	var isolationDesc string
-	switch {
-	case !isolatedWorktree && !isolatedContainer:
-		isolationDesc = fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
-	default:
-		var runtimeDesc, workspaceDesc string
-		if isolatedContainer {
-			imgDesc := "an auto-selected image"
-			if image := IsolationImageConfig(in.cfg, in.backendName).Image; image != "" {
-				imgDesc = "image " + image
-			}
-			runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — NOT running directly on your host", imgDesc)
-		} else {
-			runtimeDesc = "RUNTIME: a HOST process (no container)"
-		}
-		if isolatedWorktree {
-			workspaceDesc = fmt.Sprintf("WORKSPACE "+worktreeIsolationProse, in.aw.dir)
-		} else {
-			// Same-path mount (ISO1 Invariant 1) rendered as an explicit
-			// host -> container mapping — see the doc comment above.
-			workspaceDesc = fmt.Sprintf("WORKSPACE mounted identically: host %s -> container %s (no worktree)", in.workDir, in.workDir)
-		}
-		isolationDesc = runtimeDesc + "; " + workspaceDesc
-	}
-
 	profilesDesc := "none"
 	if len(in.profiles) > 0 {
 		profilesDesc = "[" + strings.Join(in.profiles, ", ") + "]"
@@ -1100,7 +1105,7 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 
 	lines := []string{
 		"ctxloom: session initialization summary",
-		"  isolation : " + isolationDesc,
+		"  isolation : " + sessionIsolationLine(in),
 		"  agent     : " + agentDesc,
 		"  model     : " + modelDesc,
 		"  profiles  : " + profilesDesc,

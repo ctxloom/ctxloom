@@ -347,7 +347,16 @@ func (w *depWalker) recurseParent(parentRef string) {
 		w.markUnexpanded(parentRef, errors.New("not a bundle-profile reference (<url>@bundles/x#profiles/y) — top-level @profiles/ parents are retired"))
 		return
 	}
+	w.recurseBundleProfile(bundleRef, profName)
+}
 
+// recurseBundleProfile pins a bundle-profile parent's underlying BUNDLE, then
+// reads the named profile out of that bundle at the resolved commit and walks
+// its own closure. Split from recurseParent so the local/remote dispatch above
+// reads as the two-way choice it is, with the remote half's fetch-parse-lookup
+// chain — four distinct ways to end up with an unexpanded subtree — kept
+// whole and by itself.
+func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	rec := w.record(bundleRef, remote.ItemTypeBundle)
 	if rec == nil {
 		return

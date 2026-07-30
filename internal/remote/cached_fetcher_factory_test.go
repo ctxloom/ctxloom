@@ -89,6 +89,25 @@ func TestCachedFetcher_SearchReposUsesAPI(t *testing.T) {
 	assert.Equal(t, ForgeGitHub, cf.Forge())
 }
 
+// TestCachedFetcher_SearchReposUnsupportedForGenericGit pins that "this forge
+// has no search index" is not delivered as "your query matched nothing".
+//
+// U093-F18: the generic git adapter returned (nil, nil), which any caller reads
+// as an empty result set. There is no filesystem or clone equivalent of a
+// forge-wide search — the adapter is handed one known URL and cannot enumerate
+// a host — so the honest answer is an error, not silence.
+func TestCachedFetcher_SearchReposUnsupportedForGenericGit(t *testing.T) {
+	cache := NewRepoCache(filepath.Join(t.TempDir(), "cache"), AuthConfig{})
+	fetcher, err := NewCachedFetcherFactory(cache)("https://git.company.example/owner/repo", AuthConfig{})
+	require.NoError(t, err)
+	require.Equal(t, ForgeGitGeneric, fetcher.Forge())
+
+	repos, err := fetcher.SearchRepos(context.Background(), "anything", 10)
+	require.Error(t, err, "unsupported must not be reported as zero results")
+	assert.Empty(t, repos)
+	assert.ErrorIs(t, err, ErrSearchUnsupported)
+}
+
 func TestCachedFetcher_EnsureRefUnshallowsForTags(t *testing.T) {
 	tmpDir := t.TempDir()
 

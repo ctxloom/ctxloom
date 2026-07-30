@@ -149,9 +149,17 @@ func TestSignerConsequenceText_PublishWinsInAMixedGrant(t *testing.T) {
 // the deprecated command starts behaving differently from the one users are
 // being told to switch to. That is what this pins.
 func TestDeprecatedAliasFlagsMatchTheirRealHome(t *testing.T) {
+	// Only the command's OWN flags: cobra merges a parent's persistent flags
+	// into Flags() lazily, the first time the command is executed, so an
+	// unfiltered comparison would depend on which tests ran earlier in the
+	// process. "help" is cobra's own injected flag for the same reason.
 	describe := func(c *cobra.Command) map[string]string {
+		inherited := c.InheritedFlags()
 		out := map[string]string{}
 		c.Flags().VisitAll(func(f *pflag.Flag) {
+			if f.Name == "help" || inherited.Lookup(f.Name) != nil {
+				return
+			}
 			out[f.Name] = fmt.Sprintf("shorthand=%q default=%q usage=%q annotations=%v",
 				f.Shorthand, f.DefValue, f.Usage, f.Annotations)
 		})

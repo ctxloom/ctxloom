@@ -306,6 +306,7 @@ func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 			cmd := &cobra.Command{}
 			cmd.SetContext(ctx)
 			cmd.SetOut(io.Discard)
+			cmd.Flags().String("source", "auto", "") // as the real command registers it
 
 			err := runSessionWatch(cmd, []string{harp})
 			require.Error(t, err, "a retired scraper's by-location watch must fail loudly, not hang or stream nothing silently")
@@ -326,6 +327,7 @@ func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetOut(io.Discard)
+	cmd.Flags().String("source", "auto", "") // as the real command registers it
 
 	err = runSessionWatch(cmd, []string{entry.HarpName})
 	require.Error(t, err)
@@ -341,6 +343,7 @@ func TestRunSessionWatch_UnknownBackend(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetOut(io.Discard)
+	cmd.Flags().String("source", "auto", "") // as the real command registers it
 
 	err := runSessionWatch(cmd, []string{harp})
 	require.Error(t, err)

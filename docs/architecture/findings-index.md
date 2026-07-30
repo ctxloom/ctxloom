@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,210** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 97 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 154 |
-| `open` | no commit names this ID | **659** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 155 |
+| `open` | no commit names this ID | **658** |
 
-**Totals: 2268 findings across 162 units — 1,210 resolved, 659 still open, 399 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,210 resolved, 658 still open, 400 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 409 | 372 | 55 | 67 | 96 |
+| MED | 999 | 409 | 371 | 55 | 67 | 97 |
 | LOW | 871 | 445 | 273 | 28 | 73 | 52 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1841,7 +1841,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U133-F05 | open | **`mcp.go:50`** | ERRHANDLING | `if src == nil \ | U133.md |
 | U133-F10 | open | **`mcp.go:10-17`** | COUPLING | `MCPServer` can only express a stdio (command) server, so no config-, profile-, or bundle-declared MCP server can be an HTTP/SSE one — even though the codebase supports remote MCP end-to-end throug... | U133.md |
 | U134-F05 | **ESCALATED** `ec7ee6d0` | `payload.go:146,157` | CORRECTNESS | The countersign frame is **not injective** if `Ref` can contain a newline, and nothing anywhere validates that it cannot. The doc's "fixed framing, not a canonicalization" claim rests on an unenfor... | U134.md |
-| U134-F06 | open | `payload.go:175,192,206` | NOPAY | The three trap-proof wrappers — the API whose entire justification is that a caller *cannot* pass a ref where none belongs — have **zero production callers**. The only production writer hand-builds... | U134.md |
+| U134-F06 | **ESCALATED** `pending` | `payload.go:175,192,206` | NOPAY | The three trap-proof wrappers — the API whose entire justification is that a caller *cannot* pass a ref where none belongs — have **zero production callers**. The only production writer hand-builds... | U134.md |
 | U134-F07 | open | `payload.go:56` | CORRECTNESS | **Confirms the preimage-instability finding from the signing side.** `ExecPreimageContract` declares a versioned canonicalization contract, but this package contains no builder, no canonicalizer, n... | U134.md |
 | U134-F08 | open | `countersign_verify.go:42-63` | ERRHANDLING | `VerifyCountersignature` collapses six distinct failure modes into `("", false)` with **zero diagnostics**, so a legitimately corrupted record on disk is indistinguishable from an absent one and th... | U134.md |
 | U134-F09 | open | `payload.go:146,175` | SILENTNOOP | An "approval of nothing" is constructible and signable: `ApproveCountersignPayload(kind, ref, form, nil)` produces a valid frame with `len: 0`, and `Sign` will sign it (F01). | U134.md |

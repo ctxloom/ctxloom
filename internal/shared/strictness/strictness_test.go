@@ -2,6 +2,7 @@ package strictness
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -177,6 +178,47 @@ func TestSince_StaleMarkIsNil(t *testing.T) {
 	mark := Checkpoint()
 	Reset()
 	assert.Nil(t, Since(mark))
+}
+
+// mu co-guards the MODE and the COLLECTION on purpose: record's degraded check
+// and its append are ONE critical section, so entering degraded mode is
+// linearizable with respect to recording — once SetDegraded(true) returns, no
+// further finding can ever be collected. The mode is not "unrelated to the
+// collection"; it is the predicate that gates it. Moving degraded onto its own
+// lock or an atomic.Bool loses exactly this: a recorder that read the flag
+// before the flip can still be queued on mu and appends after, so the escape
+// hatch would no longer mean what it says. Pinned so the tidy-up is not
+// applied without noticing what it costs.
+func TestSetDegraded_IsLinearizableWithRecording(t *testing.T) {
+	resetForTest(t)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					Record(ClassSync, "", "racing finding")
+				}
+			}
+		}()
+	}
+	for len(All()) < 200 { // the recorders are demonstrably running
+		runtime.Gosched()
+	}
+
+	SetDegraded(true)
+	atFlip := len(All())
+	close(stop)
+	wg.Wait()
+
+	assert.Equal(t, atFlip, len(All()),
+		"nothing may be collected after SetDegraded(true) returns — record's mode check and its append are one critical section under mu")
 }
 
 // goroutineID's ParseInt cannot fail, so its swallowed error is a dead branch:

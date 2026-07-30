@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -22,6 +23,14 @@ type acpCoordinator struct {
 }
 
 func newACPCoordinator() *acpCoordinator { return &acpCoordinator{} }
+
+// acpCoordinator is handed to operations.OpenEngineSession as an
+// operations.EngineSessionCoordinator (acp_cmd.go), and its two methods live in
+// different files here: SessionEnv below, WatchChildren in acp_children.go.
+// This states the binding AT THE TYPE, so a signature change on either side
+// names acpCoordinator and the missing method instead of only failing at
+// whichever call site happens to pass it.
+var _ operations.EngineSessionCoordinator = (*acpCoordinator)(nil)
 
 // SessionEnv returns the coordinator reach-back pair (EnvCoordURL,
 // EnvCoordCred) for one ACP session's

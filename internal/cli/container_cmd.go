@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -96,42 +97,88 @@ instead, set isolation_images in config — those are run as-is and never built.
 			backend, _ = operations.ResolveBackend(cfg, "")
 		}
 
-		// The config knobs apply when the corresponding flag doesn't override
-		// them, so the explicit build and the on-the-fly build resolve the
-		// same base/engine set.
-		opts := isolation.ImageBuildOptions{
-			BaseImage:         containerBuildBaseImage,
-			BaseContainerfile: containerBuildBaseContainerfile,
-			Runtime:           containerBuildRuntime,
-			KeepCache:         containerBuildKeepCache,
-			Output:            os.Stdout,
+		if cerr != nil {
+			cfg = nil
 		}
-		if cerr == nil {
-			img := operations.IsolationImageConfig(cfg, backend)
-			if opts.BaseContainerfile == "" {
-				opts.BaseContainerfile = img.BaseContainerfile
-			}
-			opts.AppRoot = img.AppRoot
-			opts.NoDevcontainerBase = img.NoDevcontainerBase
-			opts.DevcontainerService = img.DevcontainerService
-			opts.Engines = img.Engines
-		}
-		if containerBuildNoDevcontainerBase {
-			opts.NoDevcontainerBase = true
-		}
-		if containerBuildDevcontainerService != "" {
-			opts.DevcontainerService = containerBuildDevcontainerService
-		}
-		if len(containerBuildEngines) > 0 {
-			opts.Engines = containerBuildEngines
-		}
+		opts := containerBuildOptions(containerBuildFlagValues{
+			BaseImage:           containerBuildBaseImage,
+			BaseContainerfile:   containerBuildBaseContainerfile,
+			Runtime:             containerBuildRuntime,
+			DevcontainerService: containerBuildDevcontainerService,
+			Engines:             containerBuildEngines,
+			NoDevcontainerBase:  containerBuildNoDevcontainerBase,
+			KeepCache:           containerBuildKeepCache,
+		}, cfg, backend, cmd.ErrOrStderr())
+		opts.Output = os.Stdout
 		image, err := isolation.BuildAgentImage(cmd.Context(), backend, opts)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Built %s for backend %s\n", image, backend)
+		fmt.Fprintf(cmd.OutOrStdout(), "Built %s for backend %s\n", image, backend)
 		return nil
 	},
+}
+
+// containerBuildFlagValues carries `container build`'s own flag state into
+// containerBuildOptions, so the flag-over-config precedence is resolvable —
+// and testable — without a cobra command or a container runtime.
+type containerBuildFlagValues struct {
+	BaseImage           string
+	BaseContainerfile   string
+	Runtime             string
+	DevcontainerService string
+	Engines             []string
+	NoDevcontainerBase  bool
+	KeepCache           bool
+}
+
+// containerBuildOptions resolves the build options from flags plus config: a
+// config knob applies only where the corresponding flag didn't pick a value,
+// so the explicit build and the on-the-fly build resolve the same base/engine
+// set. A nil cfg (config unavailable) resolves from flags alone.
+//
+// Two invariants live here:
+//
+//   - BaseImage and BaseContainerfile are mutually exclusive
+//     (isolation.BuildAgentImage rejects the pair outright), so a config base
+//     Containerfile is inherited only when NEITHER flag chose a base. An
+//     explicit --base-image must never be turned into a hard failure by a
+//     project default the user did not name on this command line.
+//   - a config isolation_images entry for this backend is run AS-IS and never
+//     built (isolation.containerFor), so whatever this command builds is not
+//     the image a run will use. That is reported on warn, because building an
+//     image nothing will run is otherwise indistinguishable from success.
+func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, backend string, warn io.Writer) isolation.ImageBuildOptions {
+	opts := isolation.ImageBuildOptions{
+		BaseImage:         flags.BaseImage,
+		BaseContainerfile: flags.BaseContainerfile,
+		Runtime:           flags.Runtime,
+		KeepCache:         flags.KeepCache,
+	}
+	if cfg != nil {
+		img := operations.IsolationImageConfig(cfg, backend)
+		if opts.BaseImage == "" && opts.BaseContainerfile == "" {
+			opts.BaseContainerfile = img.BaseContainerfile
+		}
+		opts.AppRoot = img.AppRoot
+		opts.NoDevcontainerBase = img.NoDevcontainerBase
+		opts.DevcontainerService = img.DevcontainerService
+		opts.Engines = img.Engines
+		if img.Image != "" {
+			clidiag.Fwarn(warn, "ctxloom", "config isolation_images pins %s for backend %s: that image is run AS-IS and never built, so a %s agent will NOT use the image this build produces (unset isolation_images for %s to run what you build)",
+				img.Image, backend, backend, backend)
+		}
+	}
+	if flags.NoDevcontainerBase {
+		opts.NoDevcontainerBase = true
+	}
+	if flags.DevcontainerService != "" {
+		opts.DevcontainerService = flags.DevcontainerService
+	}
+	if len(flags.Engines) > 0 {
+		opts.Engines = flags.Engines
+	}
+	return opts
 }
 
 // containerProvenanceCmd prints the content digest of the ctxloom + companion
@@ -278,7 +325,9 @@ existing file at the target is adopted, never overwritten (--force overwrites).`
 // containerCheckCmd reports whether `runtime: container` agents can actually
 // launch here: in-container detection, runtime reachability, image presence,
 // and the shared-filesystem probe (the docker-outside-of-docker detector).
-// Diagnostic only — always exits 0, never builds or changes anything.
+// Diagnostic only — no probe outcome ever fails the command, and nothing is
+// built or changed. USAGE errors still exit non-zero: an unknown backend
+// argument, or a --format value this build cannot render (emit()).
 var containerCheckCmd = &cobra.Command{
 	Use:   "check [backend]",
 	Short: "Diagnose container capability (runtime, image, shared filesystem)",
@@ -291,11 +340,14 @@ var containerCheckCmd = &cobra.Command{
     that detects docker-outside-of-docker, where bind mounts silently
     resolve against the WRONG filesystem and launches hang
 
-Diagnostic only: always exits 0 and never builds images or changes state.
+Diagnostic only: no probe outcome fails the command, and nothing is built or
+changed — read the report, not the exit code. A usage error is still an error
+(an unknown backend argument, or a --format this build cannot render).
 Run it inside a dev container to learn whether to enable docker-in-docker
 or keep agents on 'runtime: host'.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, cerr := GetConfig()
 		var backend string
 		if len(args) == 1 {
 			backend = args[0]
@@ -303,22 +355,47 @@ or keep agents on 'runtime: host'.`,
 				sort.Strings(names)
 				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 			}
-		} else if cfg, err := GetConfig(); err == nil {
+		} else if cerr == nil {
 			backend, _ = operations.ResolveBackend(cfg, "")
 		}
 		img := isolation.ImageConfig{}
-		if cfg, err := GetConfig(); err == nil {
+		if cerr == nil {
 			img = operations.IsolationImageConfig(cfg, backend)
 		}
-		d := isolation.Diagnose(cmd.Context(), backend, img)
+		d := containerCheckConfigGap(isolation.Diagnose(cmd.Context(), backend, img), len(args) == 1, cerr)
 		return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
 	},
+}
+
+// containerCheckConfigGap folds an unloadable config into the diagnosis as
+// guidance. Without it the command reports on whatever it could still probe
+// and says nothing about the config: with no backend argument the backend stays
+// EMPTY, so the report describes no engine at all, and with one given the
+// project's isolation_images override is never consulted. A diagnostic that
+// silently narrows its own scope is worse than one that names the gap.
+func containerCheckConfigGap(d isolation.Diagnosis, backendGiven bool, cerr error) isolation.Diagnosis {
+	if cerr == nil {
+		return d
+	}
+	if backendGiven {
+		d.Guidance = append(d.Guidance, fmt.Sprintf(
+			"the config did not load (%v), so this project's isolation_images override was not consulted — the image line above reflects the default tag only", cerr))
+		return d
+	}
+	d.Guidance = append(d.Guidance, fmt.Sprintf(
+		"the config did not load (%v), so no default backend could be resolved and no engine's image was checked — name one explicitly: `ctxloom container check <backend>`", cerr))
+	return d
 }
 
 // renderContainerCheck writes the human-readable diagnosis. Extracted from
 // RunE so the formatting is testable with an injected report.
 func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) error {
 	w := iox.NewErrWriter(out)
+	if backend == "" {
+		// An unresolved backend is a real state here (no argument plus an
+		// unloadable config); an empty parenthesis reads as a rendering bug.
+		backend = "(unresolved)"
+	}
 	w.Printf("Container capability (backend: %s)\n", backend)
 	if d.InContainer {
 		w.Printf("  in a container:  yes (%s)\n", strings.Join(d.Markers, ", "))

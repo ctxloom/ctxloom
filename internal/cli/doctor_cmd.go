@@ -79,13 +79,34 @@ var doctorEngineBinaries = map[string]string{
 // outcome the old map's absence produced, but derived from the SAME source
 // of truth as the Chat() gate instead of a second copy of it.
 
+// doctorStatus is one check's verdict, and there are exactly three of them. It
+// is a named type rather than a bare string because the value set IS the
+// contract: it is shared with the "ctxloom-doctor" Agent Skill and with every
+// consumer of `doctor --format json`, and it was previously written as a free
+// literal at more than twenty sites with the legal values recorded only in a
+// trailing comment — where a typo ("WARN", "warning") would render, marshal and
+// pass review while silently reading as neither ok nor warn to anything that
+// matches on the value. The underlying type stays string, so the JSON wire shape
+// is unchanged.
+type doctorStatus string
+
+const (
+	// doctorOK: the check's subject is in the state setup intends.
+	doctorOK doctorStatus = "ok"
+	// doctorWarn: this command's fail-loud signal. doctor never fails the
+	// process, so a warn is how a real problem is reported.
+	doctorWarn doctorStatus = "warn"
+	// doctorInfo: reported for context, not a verdict — nothing to fix.
+	doctorInfo doctorStatus = "info"
+)
+
 // doctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
 // vocabulary this command shares with the "ctxloom-doctor" Agent Skill, so a
 // human or an LLM reading either surface sees one language.
 type doctorCheck struct {
-	Marker string `json:"marker"`
-	Status string `json:"status"` // "ok" | "warn" | "info"
-	Detail string `json:"detail"`
+	Marker string       `json:"marker"`
+	Status doctorStatus `json:"status"`
+	Detail string       `json:"detail"`
 }
 
 // doctorReport is `ctxloom doctor`'s structured result.
@@ -110,8 +131,9 @@ var doctorCmd = &cobra.Command{
 	Long: `Run ctxloom's deterministic setup checks — this IS the init-as-skill setup
 skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
 .ctxloom marker + config validity; required binaries on PATH (git, each
-configured engine's own client, a container runtime, and — recommended, not
-required — ssh/ssh-keygen); whether the ACP adapter binary (claude-code-acp/
+configured engine's own client, a container runtime when this project runs
+'runtime: container' agents, and — recommended, not required — ssh/ssh-keygen);
+whether the ACP adapter binary (claude-code-acp/
 codex-acp) each configured claude-code/codex engine needs for HOST-runtime
 structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
@@ -138,9 +160,10 @@ no agents/profiles/hooks/trust checks, so it reads clean on a project that
 hasn't been set up yet. This is the mode init's PRIME and the setup skill's
 phase 1 use, before there's anything else to check.
 
-Diagnostic only: always exits 0, never blocks or changes anything. A "warn"
-status IS this command's fail-loud signal — read the report, don't grep the
-exit code.`,
+Diagnostic only: no check outcome ever fails the command, and nothing is
+blocked or changed. A "warn" status IS this command's fail-loud signal — read
+the report, don't grep the exit code. A usage error is still an error (e.g. a
+--format value this build cannot render).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -196,41 +219,63 @@ func doctorConfiguredEngines(cfg *config.Config) []string {
 	return out
 }
 
+// doctorContainerRuntimeRequired reports whether a container runtime is a HARD
+// dependency for THIS project. It is one only when something would actually try
+// to launch a container: the project's `runtime:` default is container, or at
+// least one configured agent declares `runtime: container`. The effective axis
+// is resolved exactly as operations.ResolveAgent resolves it (agents.go: the
+// agent's own choice wins, else the project default, else host), so doctor and
+// the launcher cannot disagree about what this project runs.
+//
+// Everywhere else a container runtime is a convenience: a host-runtime project
+// never touches one, and calling it "required" there manufactures a warn on a
+// perfectly healthy machine — the fastest way to teach a user to ignore doctor.
+func doctorContainerRuntimeRequired(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	projectDefault := cfg.GetRuntime()
+	if projectDefault == agent.RuntimeContainer {
+		return true
+	}
+	for _, a := range cfg.GetConfiguredAgents() {
+		runtime := a.Runtime
+		if runtime == "" {
+			runtime = projectDefault
+		}
+		if runtime == agent.RuntimeContainer {
+			return true
+		}
+	}
+	return false
+}
+
 // doctorCheckDeps probes PATH for git (worktree isolation + remote clone/
-// pull + init/manage install's own clone), each configured engine's native
-// client, and a reachable container runtime — all genuinely REQUIRED — plus
-// ssh/ssh-keygen, which are RECOMMENDED but not required (see
-// doctorDepBinariesRecommended's doc for why: ctxloom never execs either;
-// signing is pure Go). The two buckets are reported separately so "missing"
-// never conflates an optional convenience with a real hard dependency.
+// pull + init/manage install's own clone) and each configured engine's native
+// client — both genuinely REQUIRED — plus ssh/ssh-keygen, which are RECOMMENDED
+// but not required (see doctorDepBinariesRecommended's doc for why: ctxloom
+// never execs either; signing is pure Go). A container runtime lands in
+// whichever bucket THIS project's configuration puts it in
+// (doctorContainerRuntimeRequired). The two buckets are reported separately so
+// "missing" never conflates an optional convenience with a real hard
+// dependency.
 func doctorCheckDeps(cfg *config.Config) doctorCheck {
-	var missingRequired []string
-	for _, bin := range doctorDepBinariesRequired {
-		if _, err := exec.LookPath(bin); err != nil {
-			missingRequired = append(missingRequired, bin)
-		}
-	}
-	var missingRecommended []string
-	for _, bin := range doctorDepBinariesRecommended {
-		if _, err := exec.LookPath(bin); err != nil {
-			missingRecommended = append(missingRecommended, bin)
-		}
-	}
-	for _, engine := range doctorConfiguredEngines(cfg) {
-		bin, ok := doctorEngineBinaries[engine]
-		if !ok {
-			continue
-		}
-		if _, err := exec.LookPath(bin); err != nil {
-			missingRequired = append(missingRequired, fmt.Sprintf("%s (%s)", bin, engine))
-		}
-	}
+	const marker = "DOCTOR-CHECK-DEPS-a1"
+	missingRequired := doctorMissingFromPath(doctorDepBinariesRequired)
+	missingRequired = append(missingRequired, doctorMissingEngineClients(cfg)...)
+	missingRecommended := doctorMissingFromPath(doctorDepBinariesRecommended)
 	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
-		missingRequired = append(missingRequired, "docker/podman (container runtime)")
+		if doctorContainerRuntimeRequired(cfg) {
+			missingRequired = append(missingRequired,
+				"docker/podman (container runtime — this project runs container agents)")
+		} else {
+			missingRecommended = append(missingRecommended,
+				"docker/podman (container runtime — needed only to run `runtime: container` agents, which this project configures none of)")
+		}
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "ok",
-			Detail: "git, every configured engine's client, and a container runtime are all on PATH (required); ssh and ssh-keygen are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either)"}
+		return doctorCheck{Marker: marker, Status: doctorOK,
+			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either; a container runtime is required only for `runtime: container` agents)"}
 	}
 	sort.Strings(missingRequired)
 	sort.Strings(missingRecommended)
@@ -241,7 +286,37 @@ func doctorCheckDeps(cfg *config.Config) doctorCheck {
 	if len(missingRecommended) > 0 {
 		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn", Detail: strings.Join(parts, "; ")}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: strings.Join(parts, "; ")}
+}
+
+// doctorMissingFromPath returns the subset of bins that does not resolve on
+// PATH, in the order given (the caller sorts).
+func doctorMissingFromPath(bins []string) []string {
+	var missing []string
+	for _, bin := range bins {
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	return missing
+}
+
+// doctorMissingEngineClients returns "<binary> (<engine>)" for every CONFIGURED
+// engine whose native client is not on PATH. Engines with no external client
+// binary (none listed in doctorEngineBinaries) are skipped rather than reported
+// as missing.
+func doctorMissingEngineClients(cfg *config.Config) []string {
+	var missing []string
+	for _, engine := range doctorConfiguredEngines(cfg) {
+		bin, ok := doctorEngineBinaries[engine]
+		if !ok {
+			continue
+		}
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, fmt.Sprintf("%s (%s)", bin, engine))
+		}
+	}
+	return missing
 }
 
 // doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
@@ -274,9 +349,9 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 	}
 	ok, detail := signKeyResolutionDetail(ctx, discoverer, explicit)
 	if ok {
-		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: detail}
 	}
-	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
 }
 
 // signKeyResolutionDetail runs internal/signing/agentkey's real resolution
@@ -378,9 +453,9 @@ func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) doctor
 	const marker = "DOCTOR-CHECK-GITIDENT-l2"
 	ok, detail := gitIdentityDetail(ctx, gitConfig)
 	if ok {
-		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: detail}
 	}
-	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
 }
 
 // gitIdentityDetail runs gitConfig for user.name and user.email and renders
@@ -392,14 +467,7 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 	email, emailOK, emailErr := gitConfig(ctx, "", "user.email")
 
 	if nameErr != nil || emailErr != nil {
-		var errs []string
-		if nameErr != nil {
-			errs = append(errs, nameErr.Error())
-		}
-		if emailErr != nil {
-			errs = append(errs, emailErr.Error())
-		}
-		return false, "reading git identity failed: " + strings.Join(errs, "; ")
+		return false, "reading git identity failed: " + joinErrors("; ", nameErr, emailErr)
 	}
 
 	nameSet := nameOK && strings.TrimSpace(name) != ""
@@ -407,9 +475,25 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 	if nameSet && emailSet {
 		return true, fmt.Sprintf("git identity resolves: %s <%s>", name, email)
 	}
+	return false, gitIdentityGapDetail(nameSet, emailSet)
+}
 
-	var missing []string
-	var fixes []string
+// joinErrors renders the non-nil errors' messages joined by sep.
+func joinErrors(sep string, errs ...error) string {
+	var msgs []string
+	for _, err := range errs {
+		if err != nil {
+			msgs = append(msgs, err.Error())
+		}
+	}
+	return strings.Join(msgs, sep)
+}
+
+// gitIdentityGapDetail names which halves of git's commit identity are unset
+// and the exact command that sets each — misattributed commits are the danger,
+// so the fix has to be in the message.
+func gitIdentityGapDetail(nameSet, emailSet bool) string {
+	var missing, fixes []string
 	if !nameSet {
 		missing = append(missing, "user.name")
 		fixes = append(fixes, `git config --global user.name "Your Name"`)
@@ -418,7 +502,7 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 		missing = append(missing, "user.email")
 		fixes = append(fixes, "git config --global user.email you@example.com")
 	}
-	return false, fmt.Sprintf(
+	return fmt.Sprintf(
 		"git commit identity not fully set (missing: %s) — agents ctxloom launches commit their own work inside isolated worktrees, and without an explicit identity a commit fails or git silently mis-attributes it to whatever the OS account derives; set it: %s",
 		strings.Join(missing, ", "), strings.Join(fixes, "; "))
 }
@@ -453,9 +537,9 @@ func doctorCheckACPAdapter(cfg *config.Config) doctorCheck {
 	const marker = "DOCTOR-CHECK-ACPADAPTER-m3"
 	ok, detail := acpAdapterDetail(doctorConfiguredEngines(cfg))
 	if ok {
-		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: detail}
 	}
-	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
 }
 
 // acpAdapterDetail checks, for every engine in configuredEngines whose
@@ -507,11 +591,11 @@ func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
 // setup.
 func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
-		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	configuredAgents := cfg.GetConfiguredAgents()
 	if len(configuredAgents) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn",
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn,
 			Detail: "no agents configured (run `/ctxloom-init` phase 5, or `ctxloom agent set <name> ...`)"}
 	}
 	names := make([]string, 0, len(configuredAgents))
@@ -526,10 +610,10 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) do
 		}
 	}
 	if len(failed) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "ok",
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorOK,
 			Detail: fmt.Sprintf("%d agent(s) resolve cleanly: %s", len(names), strings.Join(names, ", "))}
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: strings.Join(failed, "; ")}
+	return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn, Detail: strings.Join(failed, "; ")}
 }
 
 // doctorCheckVersion is deliberately best-effort/skill-guided: there is no
@@ -537,7 +621,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) do
 // this reports the running version and defers comparison to the
 // ctxloom-doctor skill (or a human) rather than faking a currency verdict.
 func doctorCheckVersion() doctorCheck {
-	return doctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: "info",
+	return doctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: doctorInfo,
 		Detail: fmt.Sprintf("running %s; comparing against the newest remote tag is best-effort/skill-guided (no --check-version yet)", Version)}
 }
 
@@ -549,57 +633,85 @@ func doctorCheckVersion() doctorCheck {
 // store carries (operations.ListSigners — always includes the embedded root,
 // so a healthy store is never reported as empty).
 func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
+	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
-		return doctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	var parts []string
-	status := "ok"
+	status := doctorOK
+	hooks, hooksOK := doctorHooksWiringDetail(ctx, cfg)
+	trust, trustOK := doctorTrustStoreDetail(operations.ListSigners(cfg, nil))
+	if !hooksOK || !trustOK {
+		status = doctorWarn
+	}
+	return doctorCheck{Marker: marker, Status: status, Detail: strings.Join([]string{hooks, trust}, "; ")}
+}
+
+// doctorHooksWiringDetail reports hooks + MCP registration for every backend a
+// configured agent resolves to, reading operations.HarnessStatus (the SAME read
+// `ctxloom manage status` exposes). ok=false is the caller's warn signal.
+func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail string, ok bool) {
 	configured := doctorConfiguredEngines(cfg)
-	switch {
-	case len(configured) == 0:
-		parts = append(parts, "hooks/MCP: no engine is configured to check")
-	default:
-		result, err := operations.HarnessStatus(ctx, cfg, operations.HarnessStatusRequest{})
-		if err != nil {
-			parts = append(parts, "hooks/MCP: "+err.Error())
-			status = "warn"
-		} else {
-			byBackend := make(map[string]operations.BackendWiring, len(result.Backends))
-			for _, b := range result.Backends {
-				byBackend[b.Backend] = b
-			}
-			var present, missing []string
-			for _, name := range configured {
-				b, ok := byBackend[name]
-				if !ok || !b.SettingsExists || !b.HooksPresent {
-					missing = append(missing, name)
-					continue
-				}
-				present = append(present, name)
-			}
-			sort.Strings(present)
-			sort.Strings(missing)
-			if len(missing) > 0 {
-				parts = append(parts, "hooks/MCP NOT registered for: "+strings.Join(missing, ", ")+" (run `ctxloom manage install`)")
-				status = "warn"
-			} else {
-				parts = append(parts, "hooks/MCP registered for: "+strings.Join(present, ", "))
-			}
-		}
+	if len(configured) == 0 {
+		return "hooks/MCP: no engine is configured to check", true
 	}
-	signers, err := operations.ListSigners(cfg, nil)
+	result, err := operations.HarnessStatus(ctx, cfg, operations.HarnessStatusRequest{})
 	if err != nil {
-		parts = append(parts, "trust store: "+err.Error())
-	} else {
-		active := 0
-		for _, s := range signers {
-			if !s.Suppressed {
-				active++
-			}
-		}
-		parts = append(parts, fmt.Sprintf("trust store: %d active signer(s)", active))
+		return "hooks/MCP: " + err.Error(), false
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: status, Detail: strings.Join(parts, "; ")}
+	byBackend := make(map[string]operations.BackendWiring, len(result.Backends))
+	for _, b := range result.Backends {
+		byBackend[b.Backend] = b
+	}
+	var present, missing []string
+	for _, name := range configured {
+		if b, found := byBackend[name]; !found || !b.SettingsExists || !b.HooksPresent {
+			missing = append(missing, name)
+			continue
+		}
+		present = append(present, name)
+	}
+	sort.Strings(present)
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		return "hooks/MCP NOT registered for: " + strings.Join(missing, ", ") + " (run `ctxloom manage install`)", false
+	}
+	return "hooks/MCP registered for: " + strings.Join(present, ", "), true
+}
+
+// doctorTrustStoreDetail reports how much trust the store actually grants, from
+// operations.ListSigners' (listing, error) pair.
+//
+// An UNREADABLE row is the case worth being careful about: ListSigners is
+// deliberately tolerant, so a store it could not open, could not parse, or
+// whose lines the parser dropped comes back as SignerListing rows with
+// Unreadable set (operations/signer.go's listFromPath) — never as an error.
+// Those rows grant no trust, so counting them as active signers reports MORE
+// trust than the machine has, and reporting "ok" beside them tells the user
+// their trust store is fine when part of it was silently skipped.
+//
+// The error arm is kept because the signature carries one, but note that
+// ListSigners returns `out, nil` unconditionally today: it is defensive, not
+// reachable, and no test can drive it through this function.
+func doctorTrustStoreDetail(signers []operations.SignerListing, err error) (detail string, ok bool) {
+	if err != nil {
+		return "trust store: " + err.Error(), false
+	}
+	active := 0
+	var unreadable []string
+	for _, s := range signers {
+		switch {
+		case s.Unreadable != "":
+			unreadable = append(unreadable, fmt.Sprintf("%s (%s)", s.Path, s.Unreadable))
+		case !s.Suppressed:
+			active++
+		}
+	}
+	if len(unreadable) > 0 {
+		sort.Strings(unreadable)
+		return fmt.Sprintf("trust store: %d active signer(s), and %d entr(y/ies) that could not be read and grant NO trust: %s",
+			active, len(unreadable), strings.Join(unreadable, "; ")), false
+	}
+	return fmt.Sprintf("trust store: %d active signer(s)", active), true
 }
 
 // ===== init-as-skill Phase 6 postcondition checks (plan.md §8.2) =====
@@ -637,14 +749,14 @@ func doctorAppDir(cfg *config.Config) string {
 func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	appDir := doctorAppDir(cfg)
 	if appDir == "" {
-		return doctorCheck{Marker: marker, Status: "warn",
+		return doctorCheck{Marker: marker, Status: doctorWarn,
 			Detail: "no .ctxloom marker directory found (run `ctxloom manage install` or `ctxloom init`)"}
 	}
-	return doctorCheck{Marker: marker, Status: "ok", Detail: "marker present, config valid: " + appDir}
+	return doctorCheck{Marker: marker, Status: doctorOK, Detail: "marker present, config valid: " + appDir}
 }
 
 // doctorCheckSetupLockAndAssembly verifies the two "seeded deps are actually
@@ -658,25 +770,25 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-DEPS-h8"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	var parts []string
-	status := "ok"
+	status := doctorOK
 	if appDir := doctorAppDir(cfg); appDir == "" {
 		parts = append(parts, "lockfile: no .ctxloom directory to check")
-		status = "warn"
+		status = doctorWarn
 	} else {
 		lf, err := remote.NewLockfileManager(appDir).Load()
 		if err != nil {
 			parts = append(parts, "lockfile: "+err.Error())
-			status = "warn"
+			status = doctorWarn
 		} else {
 			parts = append(parts, fmt.Sprintf("lockfile: %d entries parse cleanly", len(lf.AllEntries())))
 		}
 	}
 	if _, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{}); err != nil {
 		parts = append(parts, "context assembly: "+err.Error())
-		status = "warn"
+		status = doctorWarn
 	} else {
 		parts = append(parts, "context assembly: succeeds for the configured default profile(s)")
 	}
@@ -694,14 +806,14 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-COMPANIONS-i9"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	if config.CompanionsDisabled() {
-		return doctorCheck{Marker: marker, Status: "info", Detail: "companion probing disabled (--no-companions)"}
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "companion probing disabled (--no-companions)"}
 	}
 	bins := config.DiscoverCompanions()
 	if len(bins) == 0 {
-		return doctorCheck{Marker: marker, Status: "info", Detail: "no companions discovered"}
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no companions discovered"}
 	}
 	var present []string
 	for _, st := range config.ProbeCompanions() {
@@ -714,7 +826,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if len(present) > 0 {
 		presentDetail = strings.Join(present, ", ")
 	}
-	return doctorCheck{Marker: marker, Status: "ok", Detail: fmt.Sprintf(
+	return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
 		"discovered: %s; on PATH: %s; loadout verified: %d",
 		strings.Join(bins, ", "), presentDetail, len(loadouts))}
 }
@@ -727,7 +839,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 // "info" so the gap is VISIBLE in the postcondition report instead of
 // silently missing.
 func doctorCheckSetupAuthPing() doctorCheck {
-	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: "info",
+	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: doctorInfo,
 		Detail: "no auth-ping surface exists in this build yet (deferred; verify by launching the engine's own CLI)"}
 }
 

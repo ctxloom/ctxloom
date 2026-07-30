@@ -164,15 +164,18 @@ func TestOutputFormatOf_MarksFormatWasHonored(t *testing.T) {
 	assert.True(t, formatWasHonored)
 }
 
-// TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly is the end-to-end pin:
-// `config show` is a real, currently-unwired command (format_coverage_test.go's
-// formatDebtAllowlist: "config.go: runConfigShow must route through emit()
-// instead of calling renderConfigYAML directly" — owned by a different flow
-// batch, not touched here) — exactly U104-F01's "accepted and silently
-// ignored on dozens of commands" shape. Before this guard it printed human
-// YAML text and exited 0 regardless of --format json; now it must refuse
-// loudly instead of lying about having honored the flag.
-func TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
+// TestUnwiredCommand_FormatJSONErrorsLoudly is the end-to-end pin: `config
+// init` is a real, currently-unwired command (format_coverage_test.go's
+// formatDebtAllowlist: "config.go: runConfigInit must route through emit()
+// instead of a bare fmt.Fprintf" — owned by a different flow batch, not touched
+// here) — exactly U104-F01's "accepted and silently ignored on dozens of
+// commands" shape. An unwired command must refuse loudly instead of exiting 0
+// while lying about having honored the flag.
+//
+// It drives `config init` rather than `config show`: U035-F07 wired show/get
+// through emit(), so they no longer exhibit the shape this guard exists to
+// catch.
+func TestUnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 	testsupport.ProjectDir(t)
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
@@ -180,7 +183,7 @@ func TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
-	rootCmd.SetArgs([]string{"config", "show", "--format", "json"})
+	rootCmd.SetArgs([]string{"config", "init", "--format", "json"})
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
@@ -192,10 +195,10 @@ func TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not support it yet")
 }
 
-// TestConfigShow_UnwiredCommand_DefaultTextStillWorks is the negative
-// control: the same unwired command with NO --format (defaults to text) must
-// keep working exactly as before — the guard only gates non-text formats.
-func TestConfigShow_UnwiredCommand_DefaultTextStillWorks(t *testing.T) {
+// TestUnwiredCommand_DefaultTextStillWorks is the negative control: the same
+// unwired command with NO --format (defaults to text) must keep working exactly
+// as before — the guard only gates non-text formats.
+func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 	testsupport.ProjectDir(t)
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
@@ -208,7 +211,7 @@ func TestConfigShow_UnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 	// default between Execute() calls sharing the same *cobra.Command tree,
 	// so an earlier test in this binary leaving it at "json" would otherwise
 	// leak into this one (test-order hazard, not a product bug).
-	rootCmd.SetArgs([]string{"config", "show", "--format", "text"})
+	rootCmd.SetArgs([]string{"config", "init", "--format", "text"})
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)

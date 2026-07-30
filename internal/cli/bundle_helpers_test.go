@@ -7,6 +7,7 @@
 package cli
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -268,4 +269,17 @@ func TestValidateExplicitLLM(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no-such-label")
 	})
+}
+
+// TestPrintPushReminder_WritesToTheGivenWriter pins U035-F17 for the
+// edit-flow reminder: it printed straight to os.Stdout, so neither this
+// package's cobra output-capture tests nor an embedding frontend could see or
+// redirect it.
+func TestPrintPushReminder_WritesToTheGivenWriter(t *testing.T) {
+	var buf bytes.Buffer
+	printPushReminder(&buf, "mybundle")
+
+	out := buf.String()
+	assert.Contains(t, out, "Bundle modified. To publish changes:")
+	assert.Contains(t, out, "ctxloom bundle push mybundle [remote]")
 }

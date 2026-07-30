@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"testing"
@@ -713,5 +714,43 @@ func TestClaudeCode_BuildArgs_EveryPromptShapeIsTerminated(t *testing.T) {
 					"perm=%v model=%q cell=%v", perm, model, cell)
 			}
 		}
+	}
+}
+
+// TestMinimalSettings_NeverDegradesToEmptyObject is the pin behind U032-F15's
+// refutation. The row reads minimalSettings's `return "{}"` as a swallowed
+// marshal error that drops permissions.defaultMode: bypassPermissions, which
+// would leave a headless distill run blocking on a permission prompt nobody can
+// answer. The branch cannot be reached: the value handed to json.Marshal is a
+// fixed graph of string / bool / int / []string / map[string]any — no channel,
+// func, NaN/Inf float, or cycle, the only things encoding/json refuses — and the
+// one caller-supplied part is a plain string, which never fails to marshal
+// (invalid UTF-8 is replaced with U+FFFD, not rejected).
+//
+// So this asserts the PAYLOAD for adversarial model strings instead: valid JSON
+// carrying the bypass. It is the pin that bites the change which WOULD make the
+// row true — adding an unmarshalable value to that map — because the bypass
+// would then be missing from the output.
+func TestMinimalSettings_NeverDegradesToEmptyObject(t *testing.T) {
+	for _, model := range []string{
+		"",
+		"claude-opus-4-8",
+		"\xff\xfe not utf-8",
+		`quote"and}brace`,
+		"\x00control",
+	} {
+		out := minimalSettings(model)
+		require.NotEqual(t, "{}", out, "model %q must not degrade the isolation settings to an empty object", model)
+
+		var decoded struct {
+			Permissions struct {
+				DefaultMode string `json:"defaultMode"`
+			} `json:"permissions"`
+			Hooks *map[string]any `json:"hooks"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(out), &decoded), "minimalSettings must always emit valid JSON")
+		assert.Equal(t, "bypassPermissions", decoded.Permissions.DefaultMode,
+			"a headless distill run has nobody to answer a permission prompt")
+		require.NotNil(t, decoded.Hooks, "hooks must be overridden, not left to the user's settings")
 	}
 }

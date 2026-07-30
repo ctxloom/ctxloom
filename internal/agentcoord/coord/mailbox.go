@@ -158,6 +158,14 @@ func (c *Coordinator) deliverToPoll(role string, msg Message) bool {
 
 // undeliveredLocked lists the role's pending messages minus the runtime
 // delivery ledger (delivered-but-unacked). Caller holds c.mu.
+//
+// The filter builds its OWN slice rather than compacting in place. Compacting
+// into what the fold handed back only works while mailFold.pendingFor returns a
+// copy — an invariant that lives in another file, guards a mutation of the
+// fold's live queue, and would fail silently if pendingFor were ever made to
+// return its backing array (U023-F16). The message count here is a mailbox
+// depth, not a hot loop; a fold whose state the read path can corrupt is not
+// worth the saved allocation.
 func (c *Coordinator) undeliveredLocked(role string) []Message {
 	reserved := make(map[string]bool, len(c.delivered[role]))
 	for _, id := range c.delivered[role] {
@@ -165,7 +173,7 @@ func (c *Coordinator) undeliveredLocked(role string) []Message {
 	}
 	var pending []Message
 	c.mail.View(func() { pending = c.mailF.pendingFor(role) })
-	out := pending[:0]
+	out := make([]Message, 0, len(pending))
 	for _, m := range pending {
 		if !reserved[m.ID] {
 			out = append(out, m)

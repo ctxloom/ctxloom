@@ -6,15 +6,20 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // fixtureConfig returns a Config populated with a sentinel value in every
@@ -127,4 +132,153 @@ func TestRenderConfigYAML_OmitsRuntimeOnlyFields(t *testing.T) {
 		assert.NotContains(t, out, leak,
 			"config show leaked runtime-only field %q:\n%s", leak, out)
 	}
+}
+
+// TestConfigFileExists_DistinguishesAbsentFromUnknown pins U035-F15's core:
+// os.Stat has three outcomes, and only two of them are a boolean.
+func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("present", func(t *testing.T) {
+		path := filepath.Join(dir, "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("version: 6\n"), 0o644))
+		exists, err := configFileExists(path)
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("genuinely absent", func(t *testing.T) {
+		exists, err := configFileExists(filepath.Join(dir, "nope", "config.yaml"))
+		require.NoError(t, err, "a missing parent is still just 'absent'")
+		assert.False(t, exists)
+	})
+
+	t.Run("inconclusive stat is reported, not guessed", func(t *testing.T) {
+		// A regular file used as a directory component: ENOTDIR, which is
+		// neither "exists" nor fs.ErrNotExist.
+		blocker := filepath.Join(dir, "not-a-dir")
+		require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+		exists, err := configFileExists(filepath.Join(blocker, "config.yaml"))
+		require.Error(t, err, "an unanswerable stat must not be reported as 'absent'")
+		assert.False(t, exists)
+		assert.Contains(t, err.Error(), "cannot determine whether")
+	})
+}
+
+// TestRunConfigEdit_InconclusiveStatDoesNotLaunchTheEditor is U035-F15's
+// reachable half: `os.IsNotExist(err)` alone let every OTHER stat failure fall
+// straight through to $EDITOR, so `config edit` opened an editor on a path it
+// had just failed to read — and, with the editor exiting 0, reported success.
+func TestRunConfigEdit_InconclusiveStatDoesNotLaunchTheEditor(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	// .ctxloom as a FILE makes <cwd>/.ctxloom/config.yaml unstattable (ENOTDIR).
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom"), []byte("not a directory"), 0o644))
+	// A no-op "editor" that exits 0: if the guard leaks, the command returns nil.
+	t.Setenv("VISUAL", "true")
+	t.Setenv("EDITOR", "true")
+
+	err := runConfigEdit(&cobra.Command{}, nil)
+
+	require.Error(t, err, "config edit must not launch an editor on a path it could not stat")
+	assert.Contains(t, err.Error(), "cannot determine whether")
+}
+
+// TestRunConfigInit_InconclusiveStatIsReportedByTheGuard is U035-F15's write
+// half: `if err == nil` treated every stat failure as "no config here", so the
+// one thing config init promises — never overwriting an existing config.yaml —
+// rested on the downstream writer happening to fail too. The guard now reports
+// the unanswerable stat itself.
+func TestRunConfigInit_InconclusiveStatIsReportedByTheGuard(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom"), []byte("not a directory"), 0o644))
+
+	err := runConfigInit(&cobra.Command{}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot determine whether",
+		"the refusal must come from the exists-check, not from a later write that happened to fail")
+}
+
+// TestRunConfigInit_WritesTheScaffoldPayload is the characterization test for
+// U035-F16 (context.Background() -> cmd.Context()). The ctx swap is not
+// observable: operations.InitializeProject's signature is
+// `InitializeProject(_ context.Context, ...)` — it DISCARDS the context
+// entirely (init.go), so no cancellation test can discriminate the two, and
+// the row's claim that `config init` cannot be interrupted holds for the
+// callee, not the caller. What this pins instead is the payload: config init
+// writes a real config.yaml AND remotes.yaml, so the command remains exercised
+// end to end through the context it is given.
+func TestRunConfigInit_WritesTheScaffoldPayload(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	require.NoError(t, runConfigInit(cmd, nil))
+
+	data, err := os.ReadFile(filepath.Join(dir, ".ctxloom", "config.yaml"))
+	require.NoError(t, err, "config init must write config.yaml")
+	assert.NotEmpty(t, data, "an empty config.yaml is the silent no-op this project keeps shipping")
+	remotes, err := os.ReadFile(filepath.Join(dir, ".ctxloom", "remotes.yaml"))
+	require.NoError(t, err, "config init also writes remotes.yaml (documented in configInitLong)")
+	assert.NotEmpty(t, remotes)
+
+	// Second run refuses rather than clobbering what it just wrote.
+	require.Error(t, runConfigInit(cmd, nil))
+}
+
+// TestConfigShowGet_HonorEveryFormatWithARealPayload is U035-F07's pin. The
+// row's SILENTNOOP framing is refuted — U104-F01's PersistentPostRunE guard
+// already turns `config show --format json` into a loud exit-1 refusal (see
+// format_test.go's TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly) rather
+// than a silent YAML-instead-of-JSON lie — but the underlying gap was real, and
+// this is what paying it down has to deliver: EVERY format carries the actual
+// configuration, never an empty envelope. Config's fields are unexported and it
+// renders via MarshalYAML, so the naive `emit(cmd, cfg, ...)` wiring would emit
+// "{}" for json/toml and exit 0: a textbook silent no-op.
+func TestConfigShowGet_HonorEveryFormatWithARealPayload(t *testing.T) {
+	for _, format := range []string{"text", "json", "yaml", "toml", "markdown"} {
+		t.Run(format, func(t *testing.T) {
+			cmd, buf := formatCmd(format)
+			payload, err := configPayload(fixtureConfig())
+			require.NoError(t, err)
+			require.NoError(t, emit(cmd, payload, func() error { return renderConfigYAML(fixtureConfig(), cmd.OutOrStdout()) }))
+
+			out := buf.String()
+			require.NotEmpty(t, out, "%s rendered zero bytes", format)
+			assert.Contains(t, out, "8000", "%s must carry the compaction_chunks sentinel, not an empty envelope", format)
+			assert.Contains(t, out, "gemini-3-pro", "%s must carry the llm sentinel", format)
+		})
+	}
+}
+
+// TestConfigPayload_SectionKeysStaySnakeCase pins that `config get`'s payload
+// keeps the yaml spelling in every encoding: the section structs carry yaml
+// tags only, so a json/toml encoder reading them directly would rename every
+// key to its Go field name.
+func TestConfigPayload_SectionKeysStaySnakeCase(t *testing.T) {
+	section, err := resolveConfigSection(fixtureConfig(), "config")
+	require.NoError(t, err)
+	payload, err := configPayload(section)
+	require.NoError(t, err)
+
+	m, ok := payload.(map[string]any)
+	require.True(t, ok, "a section payload must be a plain map, got %T", payload)
+	assert.Contains(t, m, "compaction_chunks")
+	assert.NotContains(t, m, "CompactionChunks")
+}
+
+// TestConfigInitWritesItsSuccessLineToTheCommandWriter pins U035-F17 for
+// `config init`: the "Wrote <path>" line went to os.Stdout via a bare
+// fmt.Printf, so it was invisible to this package's cobra output-capture tests
+// and unredirectable by any embedding frontend.
+func TestConfigInitWritesItsSuccessLineToTheCommandWriter(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	require.NoError(t, runConfigInit(cmd, nil))
+
+	assert.Contains(t, buf.String(), "Wrote ")
+	assert.Contains(t, buf.String(), filepath.Join(dir, ".ctxloom", "config.yaml"))
 }

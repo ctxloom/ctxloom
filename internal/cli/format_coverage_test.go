@@ -116,6 +116,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- exercised: the chokepoint itself + this task's stragglers ---
 	"version":     {extraArgs: noExtraArgs},
 	"llm list":    {extraArgs: noExtraArgs},
+	"config show": {extraArgs: noExtraArgs},
+	"config get":  {extraArgs: func(string) []string { return []string{"config"} }},
 	"llm default": {extraArgs: noExtraArgs}, // show path; set is exercised directly in llm_default_test.go
 
 	"bundle list": {extraArgs: noExtraArgs},
@@ -283,12 +285,10 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage statusline install":   {skip: "installer: writes real statusline config"},
 	"manage statusline uninstall": {skip: "installer: removes real statusline config"},
 	"manage gitignore install":    {skip: "installer: writes .gitignore entries"},
-	"manage config show":          {skip: "deprecated alias for `config show`; not wired to emit() yet", formatDebt: true},
-	"manage config get":           {skip: "deprecated alias for `config get`; not wired to emit() yet", formatDebt: true},
+	"manage config show":          {skip: "deprecated alias for `config show`; shares runConfigShow, which IS wired to emit() (U035-F07)"},
+	"manage config get":           {skip: "deprecated alias for `config get`; shares runConfigGet, which IS wired to emit() (U035-F07)"},
 	"manage config edit":          {skip: "deprecated alias for `config edit`; not wired to emit() yet; also opens an editor", formatDebt: true},
 	"manage config init":          {skip: "deprecated alias for `config init`; not wired to emit() yet; also an installer", formatDebt: true},
-	"config show":                 {skip: "not wired to emit() yet (real home of deprecated `manage config show`, plan Decision 6)", formatDebt: true},
-	"config get":                  {skip: "not wired to emit() yet (real home of deprecated `manage config get`)", formatDebt: true},
 	"config edit":                 {skip: "not wired to emit() yet; also opens an editor (real home of deprecated `manage config edit`)", formatDebt: true},
 	"config init":                 {skip: "not wired to emit() yet; also an installer (real home of deprecated `manage config init`)", formatDebt: true},
 
@@ -464,12 +464,11 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 // rendering; brave-mango/sick-shawl/known-bleep/clean-pony own the commands).
 var formatDebtAllowlist = map[string]string{
 	// --- config surface (config.go; manage.go's deprecated aliases share the same RunEs) ---
-	"config show":        "config.go: runConfigShow must route through emit() instead of calling renderConfigYAML directly",
-	"config get":         "config.go: runConfigGet must route through emit() instead of calling renderConfigSection directly",
+	// `config show`/`config get` (and their two aliases) were paid down by
+	// U035-F07: both RunEs route through emit() over a yaml-round-tripped
+	// payload, so all five encodings carry the real configuration.
 	"config edit":        "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
-	"config init":        "config.go: runConfigInit must route through emit() instead of a bare fmt.Printf",
-	"manage config show": "deprecated alias of `config show`; shares runConfigShow — paid down by the same fix",
-	"manage config get":  "deprecated alias of `config get`; shares runConfigGet — paid down by the same fix",
+	"config init":        "config.go: runConfigInit must route through emit() instead of a bare fmt.Fprintf",
 	"manage config edit": "deprecated alias of `config edit`; shares runConfigEdit — paid down by the same fix",
 	"manage config init": "deprecated alias of `config init`; shares runConfigInit — paid down by the same fix",
 

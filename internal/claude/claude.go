@@ -288,12 +288,7 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 
 	// Extract statusLine separately
 	if slRaw, ok := raw["statusLine"]; ok {
-		var sl claudeCodeStatusLine
-		if err := json.Unmarshal(slRaw, &sl); err != nil {
-			agent.Warn("failed to parse statusLine in settings.json: %v", err)
-		} else {
-			settings.StatusLine = &sl
-		}
+		settings.StatusLine = parseStatusLine(slRaw)
 		delete(raw, "statusLine")
 	}
 
@@ -309,20 +304,10 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// allow/ask/defaultMode/additionalDirectories rules being dropped from
 	// the file — silently, with no .corrupt backup, on a SECURITY surface.
 	if permRaw, ok := raw["permissions"]; ok {
-		var permMap map[string]json.RawMessage
-		if err := json.Unmarshal(permRaw, &permMap); err != nil {
-			return nil, w.corruptSettings(path, data, "permissions", err, "to avoid dropping existing permission rules")
+		perm, err := w.parsePermissions(path, data, permRaw)
+		if err != nil {
+			return nil, err
 		}
-		perm := &claudeCodePermissions{}
-		if denyRaw, ok := permMap["deny"]; ok {
-			var deny []string
-			if err := json.Unmarshal(denyRaw, &deny); err != nil {
-				return nil, w.corruptSettings(path, data, "permissions.deny", err, "to avoid dropping existing permission rules")
-			}
-			perm.Deny = deny
-			delete(permMap, "deny")
-		}
-		perm.Other = permMap
 		settings.Permissions = perm
 		delete(raw, "permissions")
 	}
@@ -341,6 +326,43 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	return settings, nil
 }
 
+// parseStatusLine decodes the statusLine block, or nil when it cannot be read.
+// A statusLine is a single slot ctxloom either manages or leaves alone, so an
+// unreadable one degrades to "the user has none this code can recognize" and
+// ensureStatusLine decides from there — unlike the permissions block below,
+// whose unreadable siblings are refused outright because they are the user's
+// own security rules.
+func parseStatusLine(raw json.RawMessage) *claudeCodeStatusLine {
+	var sl claudeCodeStatusLine
+	if err := json.Unmarshal(raw, &sl); err != nil {
+		agent.Warn("failed to parse statusLine in settings.json: %v", err)
+		return nil
+	}
+	return &sl
+}
+
+// parsePermissions splits the permissions block into the ctxloom-managed Deny
+// list and the verbatim siblings (allow, ask, defaultMode, …) that must
+// round-trip untouched. Anything it cannot read is refused, not dropped: see
+// loadSettings' own comment for the data loss that caused.
+func (w *ClaudeCodeHookWriter) parsePermissions(path string, data []byte, raw json.RawMessage) (*claudeCodePermissions, error) {
+	var permMap map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &permMap); err != nil {
+		return nil, w.corruptSettings(path, data, "permissions", err, "to avoid dropping existing permission rules")
+	}
+	perm := &claudeCodePermissions{}
+	if denyRaw, ok := permMap["deny"]; ok {
+		var deny []string
+		if err := json.Unmarshal(denyRaw, &deny); err != nil {
+			return nil, w.corruptSettings(path, data, "permissions.deny", err, "to avoid dropping existing permission rules")
+		}
+		perm.Deny = deny
+		delete(permMap, "deny")
+	}
+	perm.Other = permMap
+	return perm, nil
+}
+
 // corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
 // doc): back the original bytes up, then return an error so the caller aborts
 // before touching the file. Every partial-parse failure in loadSettings and
@@ -350,6 +372,42 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 // destroying user data behind it.
 func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what string, cause error, consequence string) error {
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
+}
+
+// permissionsOutput renders the permissions block for re-emission: the
+// preserved sibling keys first, then the ctxloom-managed Deny list layered on
+// top — the same shape as saveSettings' top-level output map. A sibling that
+// cannot be re-encoded refuses the whole write (preserveFailure); dropping one
+// silently would delete the user's own allow/ask/defaultMode rules.
+func permissionsOutput(path string, perm *claudeCodePermissions) (map[string]interface{}, error) {
+	out := make(map[string]interface{})
+	for k, v := range perm.Other {
+		var val interface{}
+		if err := json.Unmarshal(v, &val); err != nil {
+			return nil, preserveFailure(path, "permissions."+k, err)
+		}
+		out[k] = val
+	}
+	if len(perm.Deny) > 0 {
+		out["deny"] = perm.Deny
+	}
+	return out, nil
+}
+
+// preserveFailure refuses a write that could not carry a preserved field
+// through. Every key in settings.json is user-authored unless ctxloom manages
+// it by name, so emitting the document without one is silent data loss on the
+// user's own file — and for a permissions.* sibling, silent data loss on a
+// security surface. Returning here leaves the file exactly as it was, the same
+// stance loadSettings takes on a block it cannot parse.
+//
+// The bytes always ARE valid JSON (they were lifted out of a document that
+// parsed), but valid JSON is not always decodable into `any`: a number outside
+// float64's range is the reachable case, and the value has to survive it.
+func preserveFailure(path, key string, cause error) error {
+	return fmt.Errorf("refusing to write %s: cannot re-encode the existing %q setting: %w "+
+		"(it would be dropped from the file; edit that value by hand to a form ctxloom can preserve)",
+		path, key, cause)
 }
 
 // saveSettings writes settings back to settings.json.
@@ -364,8 +422,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	for k, v := range settings.Other {
 		var val interface{}
 		if err := json.Unmarshal(v, &val); err != nil {
-			agent.Warn("failed to preserve setting %q: %v", k, err)
-			continue // Skip corrupted field
+			return preserveFailure(path, k, err)
 		}
 		output[k] = val
 	}
@@ -384,17 +441,9 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	// the typed Deny list layered on top — same shape as the top-level output
 	// map above (preserved fields, then ctxloom-managed ones).
 	if settings.Permissions != nil {
-		permOut := make(map[string]interface{})
-		for k, v := range settings.Permissions.Other {
-			var val interface{}
-			if err := json.Unmarshal(v, &val); err != nil {
-				agent.Warn("failed to preserve permissions.%s: %v", k, err)
-				continue
-			}
-			permOut[k] = val
-		}
-		if len(settings.Permissions.Deny) > 0 {
-			permOut["deny"] = settings.Permissions.Deny
+		permOut, err := permissionsOutput(path, settings.Permissions)
+		if err != nil {
+			return err
 		}
 		if len(permOut) > 0 {
 			output["permissions"] = permOut
@@ -465,6 +514,17 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 // This file supports ${CLAUDE_PROJECT_DIR} variable expansion.
 func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
 	mcpPath := w.MCPConfigPath(projectDir)
+
+	// Ensure the target directory exists, as writeSettingsFile does for
+	// .claude/. .mcp.json sits directly in projectDir, so this writer used to
+	// depend on someone else having created it — and for an out-of-cwd delivery
+	// that someone was whichever surface happened to be delivered first. When
+	// the context surface delivered nothing (no context configured), the
+	// per-session scratch directory was never created and this write failed with
+	// a bare ENOENT about a temp file.
+	if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create MCP config directory: %w", err)
+	}
 
 	// Load existing MCP config
 	mcpConfig, err := w.loadMCPConfig(mcpPath)
@@ -559,8 +619,17 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 	}
 }
 
-// removeCtxloomHooks removes all ctxloom-managed hooks from settings.
-// It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context".
+// removeCtxloomHooks removes all ctxloom-managed hooks from settings, pruning
+// any matcher it empties.
+//
+// Identity is the command's leading EXECUTABLE TOKEN resolving to `ctxloom`
+// (agent.IsManaged) — path-, quote- and VERB-agnostic. Two consequences follow
+// from that and neither is a substring match on the command line: every
+// `ctxloom <anything>` hook is removed, not only the inject-context callback, so
+// the callback's subcommand can move without orphaning old installs; and a
+// command that merely mentions ctxloom somewhere in its arguments is another
+// tool's hook and is left alone.
+//
 // The SCM field is checked for in-memory hooks but is not serialized to JSON
 // (Claude Code uses strict schema validation that rejects unknown fields).
 func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) {
@@ -744,6 +813,21 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 	}
 }
 
+// configExists answers "is this config file there?" without guessing.
+// afero.Exists reports (false, err) for a path it could not STAT — a permission
+// wall on the directory, an I/O failure — and reading that as "absent" makes
+// every caller below lie: an uninstall becomes a silent no-op that reports
+// success while ctxloom's hooks stay installed, and a status report claims
+// nothing is installed over live config. Absent is only absent when the
+// filesystem says so; a missing file is still (false, nil).
+func configExists(fs afero.Fs, path string) (bool, error) {
+	exists, err := afero.Exists(fs, path)
+	if err != nil {
+		return false, fmt.Errorf("cannot determine whether %s exists: %w", path, err)
+	}
+	return exists, nil
+}
+
 // RemoveSettings implements SettingsWriter for Claude Code: it clears
 // ctxloom-managed hooks and statusline from settings.json and ctxloom-marked
 // servers from .mcp.json, touching neither file when it does not already exist.
@@ -762,7 +846,10 @@ func (w *ClaudeCodeHookWriter) RemoveSettings(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
-	exists, _ := afero.Exists(fs, settingsPath)
+	exists, err := configExists(fs, settingsPath)
+	if err != nil {
+		return err
+	}
 	if !exists {
 		return nil
 	}
@@ -784,7 +871,10 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
 	fs := w.getFS()
 	mcpPath := w.MCPConfigPath(projectDir)
-	exists, _ := afero.Exists(fs, mcpPath)
+	exists, err := configExists(fs, mcpPath)
+	if err != nil {
+		return err
+	}
 	if !exists {
 		return nil
 	}
@@ -806,7 +896,11 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 	var status agent.SettingsStatus
 
 	settingsPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, settingsPath); exists {
+	settingsExists, err := configExists(fs, settingsPath)
+	if err != nil {
+		return status, err
+	}
+	if settingsExists {
 		status.SettingsExists = true
 		settings, err := w.loadSettings(settingsPath)
 		if err != nil {
@@ -817,7 +911,11 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 	}
 
 	mcpPath := w.MCPConfigPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
+	mcpExists, err := configExists(fs, mcpPath)
+	if err != nil {
+		return status, err
+	}
+	if mcpExists {
 		mcpConfig, err := w.loadMCPConfig(mcpPath)
 		if err != nil {
 			return status, fmt.Errorf("failed to load existing .mcp.json: %w", err)

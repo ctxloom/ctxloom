@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -673,8 +674,31 @@ func TestTeaKeyName_NamesEveryPrefixParsePrefixKeyAdmits(t *testing.T) {
 
 func TestPadCell_PadsShortAndTruncatesLongWithEllipsis(t *testing.T) {
 	assert.Equal(t, "hi   ", padCell("hi", 5), "short strings are space-padded to width")
-	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 runes plus an ellipsis")
+	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 cells plus an ellipsis")
 	assert.Equal(t, "", padCell("anything", 0), "a non-positive width truncates to empty")
+}
+
+// padCell frames COLUMNS: the pane divider has to land on the same column on
+// every row or the panel visibly shears. Rune counting gets that wrong in both
+// directions over the material this overlay actually renders — a CJK or emoji
+// rune from an engine transcript occupies two columns, and lipgloss's own SGR
+// escapes (the selected roster row is styled before it is framed) occupy none.
+// U044-F07.
+func TestPadCell_FramesDisplayCellsNotRunes(t *testing.T) {
+	assert.Equal(t, 10, lipgloss.Width(padCell("日本語", 10)),
+		"a double-width rune costs two columns, not one")
+
+	// Written literally rather than through lipgloss: the renderer emits no
+	// escapes when it detects no colour profile, which is exactly the case
+	// under `go test`, so styling the string here would not exercise anything.
+	styled := "\x1b[7m selected \x1b[0m"
+	got := padCell(styled, 20)
+	assert.Equal(t, 20, lipgloss.Width(got), "escape sequences cost no columns")
+	assert.Contains(t, got, "selected", "and must not be truncated away")
+
+	got = padCell("日本語テスト", 7)
+	assert.Equal(t, 7, lipgloss.Width(got), "truncation lands on the column budget too")
+	assert.True(t, strings.HasSuffix(got, "…"), "and is marked: %q", got)
 }
 
 func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {

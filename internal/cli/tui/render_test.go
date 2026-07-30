@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -90,6 +92,26 @@ func TestRenderItem_WrapsLongLines(t *testing.T) {
 	assert.Greater(t, len(lines), 1, "long content wraps instead of truncating")
 	joined := strings.Join(lines, "")
 	assert.Equal(t, 100, strings.Count(joined, "a"), "no content lost to wrapping")
+}
+
+// Wrapping is what keeps a feed line inside the feed pane; measured in runes
+// it lets a line of double-width content run to twice the pane's width and
+// spill across the divider. U044-F07.
+func TestWrapLine_WrapsOnDisplayCells(t *testing.T) {
+	src := strings.Repeat("日", 10) // 10 runes, 20 columns
+	lines := wrapLine(src, 6)
+	require.NotEmpty(t, lines)
+	for i, l := range lines {
+		assert.LessOrEqual(t, lipgloss.Width(l), 6, "line %d: %q", i, l)
+	}
+	assert.Equal(t, src, strings.Join(lines, ""), "no content is lost to wrapping")
+}
+
+// A rune wider than the whole budget must still make progress rather than
+// wrap forever.
+func TestWrapLine_ARuneWiderThanTheBudgetStillAdvances(t *testing.T) {
+	lines := wrapLine("日本", 1)
+	assert.Equal(t, []string{"日", "本"}, lines)
 }
 
 func TestRenderItems_CursorGutterAndIndex(t *testing.T) {

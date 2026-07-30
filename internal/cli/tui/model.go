@@ -725,16 +725,36 @@ func (m Model) rosterLines(height int) []string {
 	return lines
 }
 
-// padCell rune-pads/truncates s to exactly w cells (single-width content).
+// padCell pads/truncates s to exactly w terminal COLUMNS. Columns, not runes:
+// the material framed here is engine transcript content, which carries
+// double-width runes, and lipgloss-styled roster rows, whose SGR escapes are
+// runes that occupy no column at all. Either one shears the pane divider off
+// its column when counted as runes.
 func padCell(s string, w int) string {
-	r := []rune(s)
-	if len(r) > w {
-		if w < 1 {
-			return ""
-		}
-		return string(r[:w-1]) + "…"
+	if w < 1 {
+		return ""
 	}
-	return s + strings.Repeat(" ", w-len(r))
+	if n := lipgloss.Width(s); n <= w {
+		return s + strings.Repeat(" ", w-n)
+	}
+	t := truncateCells(s, w-1) + "…"
+	return t + strings.Repeat(" ", w-lipgloss.Width(t))
+}
+
+// truncateCells returns the longest prefix of s occupying at most w columns.
+func truncateCells(s string, w int) string {
+	if w < 1 {
+		return ""
+	}
+	used := 0
+	for i, r := range s {
+		rw := lipgloss.Width(string(r))
+		if used+rw > w {
+			return s[:i]
+		}
+		used += rw
+	}
+	return s
 }
 
 func splitPad(s string, h int) []string {

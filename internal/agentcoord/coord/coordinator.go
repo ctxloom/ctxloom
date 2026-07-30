@@ -269,7 +269,7 @@ func New(opts Options) (*Coordinator, error) {
 	if stateDir == "" {
 		key := opts.ProjectKey
 		if key == "" {
-			key = filepath.Base(opts.ProjectDir) + "-" + hashToken(opts.ProjectDir)[:12]
+			key = pathDerivedProjectKey(opts.ProjectDir)
 		}
 		dir, err := stateDirForProject(key)
 		if err != nil {

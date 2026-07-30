@@ -187,8 +187,10 @@ func (s *ctxServer) registerAgentTools(server *mcp.Server) {
 }
 
 // delegation resolves the agent-tool backend, standing the coordinator up
-// lazily for a bare `ctxloom mcp` (the run/acp hosts inject theirs via
-// newCtxServerForIdentity).
+// lazily. Only a bare, externally-launched `ctxloom mcp` ever gets here: a
+// run/acp-hosted session's stdio shim forwards to the runner instead
+// (mcp_forward.go), and the runner serves the agent tools as plane-2 frames
+// through coordinationHandler, which never touches this state.
 func (s *ctxServer) delegation() (*agentDelegation, error) {
 	s.agentsMu.Lock()
 	defer s.agentsMu.Unlock()

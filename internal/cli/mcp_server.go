@@ -25,10 +25,11 @@ import (
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler. The
-// stdio server builds one per process (self identity from env); the
-// coordinator's HTTP endpoint builds one PER CREDENTIAL
-// (newCtxServerForIdentity) so every tool sees the caller's identity, never
-// the host process's env.
+// stdio server builds one per process, its identity read from the ambient env
+// (selfIdentityFromEnv). The runner-terminated surface builds one per runner
+// inside newRunnerMCPServer, its identity being that runner's own harp and
+// cell work dir — so a cell-local tool sees the CELL's identity, never the
+// serving process's env.
 type ctxServer struct {
 	cfg *config.Config
 	// self is the caller identity every identity-consuming tool uses: from

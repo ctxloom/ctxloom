@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestNewChatDriver_TargetDelegation pins the embedding contract the target
@@ -210,4 +212,28 @@ func TestChatArgv_ReasoningConfigKey(t *testing.T) {
 	// A key with no resolved value never renders `-c key=""`.
 	drv4 := NewChatDriver(ACPConfig{Command: "codex-acp", ReasoningConfigKey: "model_reasoning_effort"})
 	assert.Empty(t, drv4.chatArgv(agent.ChatRequest{}))
+}
+
+// wrongConfig is any other backend's config, standing in for a mis-wired
+// registry entry handing this backend a config it cannot read.
+type wrongConfig struct{}
+
+func (wrongConfig) BackendType() string { return "not-acp" }
+
+// TestConfigure_WrongConfigTypeWarns pins the fail-loud on a config type this
+// backend cannot read. Returning silently leaves the driver with no command and
+// no BinaryPath, and the failure then surfaces a whole session later as an
+// unexplained empty-binary spawn — naming the type here is the difference
+// between one line and a debugging session.
+func TestConfigure_WrongConfigTypeWarns(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	b := NewACP()
+	b.Configure(wrongConfig{})
+
+	assert.Empty(t, b.BinaryPath, "an unreadable config configures nothing — that part is unchanged")
+	assert.Contains(t, warnings.String(), "acp", "the warning names the backend")
+	assert.Contains(t, warnings.String(), "not-acp", "and the config type it was handed")
 }

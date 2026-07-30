@@ -234,6 +234,11 @@ func NewACP() *ACP {
 func (b *ACP) Configure(cfg agent.BackendConfig) {
 	c, ok := cfg.(*ACPConfig)
 	if !ok {
+		// Never silently: with no ACPConfig applied this backend keeps an empty
+		// command AND an empty BinaryPath, and the mis-wiring only surfaces a
+		// whole session later as a spawn of "" — a symptom that names neither
+		// the cause nor the config that caused it.
+		warnf("acp: ignoring a %q config this backend cannot read (want *acp.ACPConfig) — the acp backend is left unconfigured and cannot spawn an agent", cfg.BackendType())
 		return
 	}
 	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)

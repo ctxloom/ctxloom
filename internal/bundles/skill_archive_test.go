@@ -1535,7 +1535,7 @@ func (f *lstatErrFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
 	if strings.Contains(filepath.ToSlash(name), f.failOn) {
 		return nil, false, fmt.Errorf("simulated lstat failure")
 	}
-	fi, err := f.Fs.Stat(name)
+	fi, err := f.Stat(name)
 	return fi, false, err
 }
 

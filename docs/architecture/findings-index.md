@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,261** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 116 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 165 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 166 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **561** |
+| `open` | no commit names this ID | **560** |
 
-**Totals: 2268 findings across 162 units — 1,261 resolved, 561 still open, 446 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,261 resolved, 560 still open, 447 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 441 | 312 | 65 | 77 | 104 |
+| MED | 999 | 441 | 311 | 65 | 78 | 104 |
 | LOW | 871 | 463 | 237 | 36 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -997,7 +997,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U007-F10 | open | **`commands.go:163, mcp_tools.go:182, scope.go:209, mcp_resources.go:107`** | COMPLEXITY | Four owned functions sit at or above the project's own enforcing gate (CCN 20 / 17 / 14 / 10 against `just complexity-check`, "fail if any function exceeds CCN 10 — used by the CI lint job", justfi... | U007.md |
 | U007-F11 | **RESOLVED** `eab90467` | `(absent from cmd/taskloom)` | DEAD / NOPAY | The fatal harp-collision error tells the user to "run `Store.Repair()`", but this CLI — the only place a user could run anything — exposes no `repair` command and no `task_repair` tool, so the name... | U007.md |
 | U007-F12 | **ESCALATED** `75a1557c` | `(absent from cmd/taskloom)` | DEAD / NOPAY | Task deletion is unreachable: no `taskloom remove` subcommand and no `task_remove` MCP tool exist, although `Store.Remove`, an `opRemove` fold branch and a tombstone rule are all implemented and ma... | U007.md |
-| U007-F14 | open | `loadout.yaml:70-72` | CORRECTNESS | This loadout ships `pre_tool_fallback: true` on `ctxloom hook session-bind` with a comment promising the bind lands on PreToolUse for Antigravity — but the flag has no proto field and is dropped on... | U007.md |
+| U007-F14 | **REFUTED** `853cf274` | `loadout.yaml:70-72` | CORRECTNESS | This loadout ships `pre_tool_fallback: true` on `ctxloom hook session-bind` with a comment promising the bind lands on PreToolUse for Antigravity — but the flag has no proto field and is dropped on... | U007.md |
 | U008-F01 | **RESOLVED** `1ca317d0` | **`watch.go:77-102`** | DUPLICATE | The entire watch loop is a **line-for-line copy** of `internal/cli/plan_watch.go:87-112` — same `var timer *time.Timer; var timerC <-chan time.Time`, same four-arm select in the same order, same `t... | U008.md |
 | U008-F02 | open | **`watch.go:41-103`** | CORRECTNESS | `taskloom watch` **silently ignores the `--format` flag** and always emits JSONL. `cmd/taskloom/format.go:11` registers `--format` as a *persistent* flag on `rootCmd`, so `taskloom watch --format y... | U008.md |
 | U008-F03 | open | **`watch.go:83-86`** | CORRECTNESS | A long-lived stream command **exits 0 with no diagnostic when its watcher dies**. `case _, ok := <-w.Events(): if !ok { return nil }` treats a closed events channel as a clean shutdown, but `intern... | U008.md |

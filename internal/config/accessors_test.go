@@ -138,11 +138,11 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 	})
 }
 
-// mcpCloneParityCases are the shapes an MCPServer deep copy has to get right:
+// mcpCloneShapeCases are the shapes an MCPServer deep copy has to get right:
 // the nil/empty distinction on both containers (yaml `omitempty` renders those
-// differently, so collapsing one into the other changes persisted bytes) and a
+// differently, so flattening one into the other changes persisted bytes) and a
 // populated value.
-var mcpCloneParityCases = []struct {
+var mcpCloneShapeCases = []struct {
 	name string
 	in   wire.MCPServer
 }{
@@ -155,23 +155,21 @@ var mcpCloneParityCases = []struct {
 	}},
 }
 
-// TestCloneMCPServer_Parity is the parity gate across BOTH deep-copy
-// implementations of wire.MCPServer — this package's own and wire's — before
-// one is deleted. Equality alone is not enough: the nil-vs-empty container
-// distinction and the non-aliasing property are the two things a divergent
-// copy silently gets wrong.
-func TestCloneMCPServer_Parity(t *testing.T) {
-	for _, tc := range mcpCloneParityCases {
+// TestCloneMCPServer_PreservesShape pins that the deep copy every MCP accessor
+// in this package hands out is field-for-field the value it copied, INCLUDING
+// each container's nil-vs-empty state.
+func TestCloneMCPServer_PreservesShape(t *testing.T) {
+	for _, tc := range mcpCloneShapeCases {
 		t.Run(tc.name, func(t *testing.T) {
-			local, shared := cloneMCPServer(tc.in), wire.CloneMCPServer(tc.in)
-			if local.Args == nil != (shared.Args == nil) {
-				t.Fatalf("Args nil-ness diverges: local nil=%v shared nil=%v", local.Args == nil, shared.Args == nil)
+			got := wire.CloneMCPServer(tc.in)
+			if (got.Args == nil) != (tc.in.Args == nil) {
+				t.Fatalf("Args nil-ness changed: in nil=%v out nil=%v", tc.in.Args == nil, got.Args == nil)
 			}
-			if local.Env == nil != (shared.Env == nil) {
-				t.Fatalf("Env nil-ness diverges: local nil=%v shared nil=%v", local.Env == nil, shared.Env == nil)
+			if (got.Env == nil) != (tc.in.Env == nil) {
+				t.Fatalf("Env nil-ness changed: in nil=%v out nil=%v", tc.in.Env == nil, got.Env == nil)
 			}
-			if !reflect.DeepEqual(local, shared) {
-				t.Fatalf("clones diverge:\n local=%#v\nshared=%#v", local, shared)
+			if !reflect.DeepEqual(got, tc.in) {
+				t.Fatalf("clone differs from source:\n in=%#v\nout=%#v", tc.in, got)
 			}
 		})
 	}

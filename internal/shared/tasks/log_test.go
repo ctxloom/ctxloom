@@ -807,3 +807,38 @@ func TestAppend_RejectedEventLeavesAReadableStore(t *testing.T) {
 		t.Fatalf("want the one real task, got %+v", got)
 	}
 }
+
+// TestFold_BlankIdentityAddIsCharacterizedNotRejected records what the READER
+// does today with an `add` line carrying no harp and no text: it mints a task
+// with a blank id and blank text rather than failing. This is characterization,
+// not endorsement (U120-F04). The write seam now refuses to create such a line
+// (see TestAppend_RejectsAnEventTheFoldCouldNeverRead), so the only source is a
+// hand-edited or foreign log — and making the READER reject it is a
+// persisted-format decision, not a sweep's call: it would convert a file that
+// loads today into one that never loads again, which is precisely the
+// permanently-unreadable-store failure U120-F01 existed to remove. If that
+// decision is ever taken, this test is the one to invert.
+func TestFold_BlankIdentityAddIsCharacterizedNotRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"beta","text":"real work","status":"To Do","ts":"2026-01-01T00:00:01Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("the reader is deliberately lenient here; a fold error means the decision changed without inverting this test: %v", err)
+	}
+	ids := make([]string, 0, len(got))
+	for _, task := range got {
+		ids = append(ids, task.HarpID)
+	}
+	if !slices.Contains(ids, "") {
+		t.Fatalf("blank-identity add is no longer folded into a task; ids = %v", ids)
+	}
+	if !slices.Contains(ids, "beta") {
+		t.Fatalf("the real task must still fold; ids = %v", ids)
+	}
+}

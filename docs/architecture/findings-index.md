@@ -20,13 +20,40 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **887** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **895** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 63 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 115 |
-| `open` | no commit names this ID | **1,173** |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 64 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 120 |
+| `open` | no commit names this ID | **1,159** |
 
-**Totals: 2268 findings across 162 units — 887 resolved, 1173 still open, 208 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 895 resolved, 1159 still open, 214 adjudicated without a fix.**
+
+Updated again 2026-07-29 by the `wave7/netneg-authoring` batch: all 14
+net-negative rows of the AUTHORING flow adjudicated (U030-F14, U035-F08,
+U036-F15, U046-F05/F12, U047-F13, U048-F04/F05/F06/F14, U049-F20/F23,
+U050-F06, U107-F04). 8 RESOLVED, 1 REFUTED, 5 ESCALATED. TWO of the 8 were
+ALREADY FIXED under a DIFFERENT id and never re-marked: U050-F06 by U096-F02
+@ `f16b4588` (the raw-schema walker `configSchemaDocument`/`knownKeysAt` is
+gone; only its obituary comment remains), and U049-F20 by the U049-F03 class
+gate @ `73c86ad1` — verified by ADDING a configDoc-only field and watching
+`TestArch_ConfigSave_PersistsEveryConfigDocField` fail on it, so the
+four-declaration quadruple can no longer drift silently even though the
+declarations themselves remain (embedding `configDoc` in `Fixture` is not
+open to us: promoted fields cannot appear in composite literals, and
+`Fixture{...}` literals are the constructor every caller uses). The
+DUPLICATE label again hid the worse defect. `U046-F12` was filed as three
+near-clone extractor pairs; the parity test across them found that
+tree-sitter-rust tags a function's return type with the FIELD name
+`return_type` while leaving the node its own type, so the kind-keyed lookup
+in `rustSigParts` never matched and EVERY distilled Rust signature — nested
+and top-level alike — lost its `-> T`, on top of impl-block methods
+silently dropping `async`/`unsafe`/`where`. `U035-F08`'s parity test went
+red on the alias's `--pr` help text, which had drifted from the canonical
+command's. U048-F14 is REFUTED: `SetExecutableTrustGate` has five
+production callers, and the "mutates an instance `Load()` may be sharing"
+hazard is unrealized at all 17 call sites of the genuinely test-only pair —
+every one owns a `NewFixture`-built or literal `*Config`, which by
+Fixture's documented contract never enters the ambient memo.
 
 Updated again 2026-07-29 by the `wave6/netneg-delegation` batch: all 20
 net-negative rows of the DELEGATION flow adjudicated (U016-F11/F12/F13/F14/
@@ -278,8 +305,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 227 | 670 | 11 | 20 | 71 |
-| LOW | 871 | 310 | 477 | 9 | 35 | 40 |
+| MED | 999 | 232 | 661 | 11 | 20 | 75 |
+| LOW | 871 | 313 | 472 | 9 | 36 | 41 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1062,7 +1089,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U035-F05 | open | `doctor_cmd.go:590-601` | ERRHANDLING | `doctorCheckHooksTrust` appends `operations.ListSigners`' error text to the detail string but **never sets `status = "warn"`**. A doctor run whose trust store fails to load can report `DOCTOR-CHECK... | U035.md |
 | U035-F06 | open | `distiller.go:26-45` | ERRHANDLING | `newLLMDistillerForLabel` has **three silent `return nil` paths** — empty label, `loadDistillPrompt()` error (discarded entirely), unresolved backend. The operations layer then stores raw, undistil... | U035.md |
 | U035-F07 | open | **`config.go:40-72`, `format_coverage_test.go:256-259`** | SILENTNOOP | `config show`/`config get` **ignore the global `--format` flag entirely** — they always write YAML. `--format`'s own help text advertises "json, yaml, toml, text, or markdown" (`format.go:63`), so ... | U035.md |
-| U035-F08 | open | `command_cmd.go:130-172` vs `bundle_transfer.go:12-44` | DUPLICATE | `command push` is a full second copy of `bundle push`: four parallel flag vars (`commandPushPR/Message/Sign/NoSign` vs `bundlePush*`), four duplicate `Flags()` registrations, and an identical arg-u... | U035.md |
+| U035-F08 | **RESOLVED** `6e3ab795` | `command_cmd.go:130-172` vs `bundle_transfer.go:12-44` | DUPLICATE | `command push` is a full second copy of `bundle push`: four parallel flag vars (`commandPushPR/Message/Sign/NoSign` vs `bundlePush*`), four duplicate `Flags()` registrations, and an identical arg-u... | U035.md |
 | U035-F09 | open | `doctor_cmd.go:206`, `:551`, `:390`, `bundle_view.go:116` | COMPLEXITY | Four functions in this unit exceed the project's declared cyclomatic gate: `doctorCheckDeps` CCN 14, `doctorCheckHooksTrust` 13, `renderBundleViewItem` 12, `gitIdentityDetail` 11. CI declares the g... | U035.md |
 | U036-F03 | open | `hook_inject_context.go:100-103, 211-220` | CORRECTNESS | When the context file is missing under a **chunked** hook set, `ChunkContext("")` returns `nil`, every part is out of range, and each `part>1` invocation still calls `agent.AwaitTurn`, which blocks... | U036.md |
 | U036-F05 | open | **`init.go:618, 659-666`** | CORRECTNESS | `--engine` is read then **discarded** on the re-init path: `engineFromExistingConfig` returns the config's engine whenever one is set, so `ctxloom init --engine codex` in an existing project silent... | U036.md |
@@ -1158,13 +1185,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U045-F09 | open | **`enginecli.go:45-49`** | COUPLING | The declared "SINGLE source of the names codex reads" is contradicted by literals in three files — including one the comment explicitly names as a consumer | U045.md |
 | U045-F10 | **RESOLVED** `0e94c0c8` | **`backend.go:30`** | NOPAY | `CodexConfig.Model` is decoded from YAML and read by nothing — the model actually reaches the run through `config.Body["model"]` | U045.md |
 | U046-F03 | **RESOLVED** `c5dc5bdf` | `code_treesitter.go:63-68`, `:122-150` | DEAD | `detectLanguage`, `languageSignature`, `languageSignatures` and `matches` (34 lines) are unreachable in production. `Router.CompressWithType` (`router.go:26-28`) calls `Compress` **only** when `Can... | U046.md |
-| U046-F05 | open | `router.go:33-38` | DUPLICATE / CORRECTNESS | The no-compressor fallback hand-builds a verbatim `Result` that duplicates `verbatimResult` (`compressor.go:65`) but **omits `ModelID`**. Every other degrade path in the package tags its output; th... | U046.md |
+| U046-F05 | **RESOLVED** `cdbbac20` | `router.go:33-38` | DUPLICATE / CORRECTNESS | The no-compressor fallback hand-builds a verbatim `Result` that duplicates `verbatimResult` (`compressor.go:65`) but **omits `ModelID`**. Every other degrade path in the package tags its output; th... | U046.md |
 | U046-F06 | **RESOLVED** `c5dc5bdf` | `compressor.go:43-56`, `json.go:88-135`, `code_go.go:23`, `code_java.go:13`, `code_javascript.go:21`, `code_python.go:14`, `code_rust.go:26`, `code_treesitter.go:86-90,201` | NOPAY / DEAD | `Result.OriginalSize`, `CompressedSize`, `PreservedElements`, `CompressedElements` are **write-only in production**; the whole `compressStats` machinery (~50 lines) and a `preserved *[]string` out-... | U046.md |
 | U046-F07 | open | `json.go:72` | CORRECTNESS | The JSON compressor **reorders object keys and collapses duplicate keys**, unremarked. `json.MarshalIndent` over a `map[string]any` emits keys in sorted order, so an order-sensitive JSON-ish docume... | U046.md |
 | U046-F08 | **ESCALATED** `c5dc5bdf` | `json.go:227-279` | NOPAY / CORRECTNESS | The high-entropy heuristic, as tuned, classifies **ordinary English prose** as high-entropy and preserves it — so `MaxValueLength` truncation, the compressor's only string-shrinking mechanism, almo... | U046.md |
 | U046-F09 | open | `compressor.go:15`, `code_treesitter.go:72-82`, `router.go:25` | ERRHANDLING | The `error` return on `Compressor.Compress` is structurally always nil in all three implementations, and the two real errors the package produces are **created and immediately discarded** with no l... | U046.md |
 | U046-F11 | open | `code_python.go:182-206`, `code_java.go:90-112`, `code_rust.go:123-136` | SILENTNOOP | The class/impl body extractors silently drop declaration kinds they do not enumerate, with no marker in the output and no entry in `CompressedElements`. Python class bodies keep only `function_defi... | U046.md |
-| U046-F12 | open | `code_python.go:114` vs `:208`; `code_rust.go:59` vs `:138`; `code_java.go:114` vs `:138` | DUPLICATE | Three near-clone pairs of signature extractors, each pair differing only in indentation/terminator: `extractPythonFunc`/`extractPythonFuncSignatureOnly` (~90 % identical switch), `extractRustFunc`/... | U046.md |
+| U046-F12 | **RESOLVED** `c8f21924` | `code_python.go:114` vs `:208`; `code_rust.go:59` vs `:138`; `code_java.go:114` vs `:138` | DUPLICATE | Three near-clone pairs of signature extractors, each pair differing only in indentation/terminator: `extractPythonFunc`/`extractPythonFuncSignatureOnly` (~90 % identical switch), `extractRustFunc`/... | U046.md |
 | U046-F19 | open | `code_treesitter_guards_test.go:243-255` | CORRECTNESS | The package's own guard test **pins the F02 defect as correct behaviour**. `"garbage code never panics and never errors"` feeds junk (including `""` and `strings.Repeat("???", 100)`) to `Compress(c... | U046.md |
 | U047-F02 | open | `internal/config/accessors.go:213-232` | CORRECTNESS | `cloneProfile` misses `Profile.DenyTools`, so `GetProfileDefinitions()` / `GetProfilesConfig()` hand back a slice that aliases the shared `Config`'s storage — a hole in the copy-on-read guarantee t... | U047.md |
 | U047-F03 | **RESOLVED** `3240c53b` | `internal/config/accessors.go:3-48` | NOPAY | The 46-line header comment — the file's entire justification — describes a migration state that no longer exists, and actively misleads a future reader about what is safe to do. | U047.md |
@@ -1172,9 +1199,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U047-F06 | **RESOLVED** `3240c53b` | `internal/config/accessors.go:284, 287, 390, 393, 397` | DEAD | Five accessors have zero production call sites. `GetSource`, `GetVersion`, `GetEditor`, `GetUI` have **zero call sites anywhere in the repo**; `GetIsolationImages` is **test-only**. | U047.md |
 | U047-F11 | open | `internal/config/companions.go:72-120` | COMPLEXITY | `BuiltinCompanionBins` is CCN 13 against a CI gate of 10, and three quarters of that complexity is the same "set → sorted slice" idiom written out three times. | U047.md |
 | U047-F12 | open | `internal/config/companions.go:94` | CORRECTNESS | `BuiltinCompanionBins` parses embedded bundle YAML with a raw `yaml.Unmarshal` instead of `bundles.ParseBundle`, so it silently skips the schema migrations every other bundle reader gets. | U047.md |
-| U048-F04 | open | **`config.go:958-961, 977-980`** | ERRHANDLING / DUPLICATE | `ProfileRemoteResolver` and `ProfileRemoteURLResolver` are near-verbatim duplicates that each swallow `remote.NewRegistry`'s error and return nil, silently downgrading every profile's bundle refs t... | U048.md |
-| U048-F05 | open | **`config.go:772-789 vs `internal/operations/profiles.go:507-522`** | DUPLICATE / CORRECTNESS | `operations.profileLoader` is a copy of `GetProfileLoader` that **omits `profiles.WithFS(c.fs)`**. It passes `cfg.FS()` to `GetProfileDirs` (discovery) but not to the loader (reads), so under an in... | U048.md |
-| U048-F06 | open | **`config.go:1037→1103→1106→1515→1554`** | COMPLEXITY / NOPAY | The ambient memo's "cheap identity" is not cheap: every `Load()` — **including a memo hit** — calls `ambientStamp` → `findAppDir`, which walks every ancestor of cwd doing an `fs.Stat` per level *pl... | U048.md |
+| U048-F04 | **ESCALATED** `f0eb8dc0` | **`config.go:958-961, 977-980`** | ERRHANDLING / DUPLICATE | `ProfileRemoteResolver` and `ProfileRemoteURLResolver` are near-verbatim duplicates that each swallow `remote.NewRegistry`'s error and return nil, silently downgrading every profile's bundle refs t... | U048.md |
+| U048-F05 | **ESCALATED** `f0eb8dc0` | **`config.go:772-789 vs `internal/operations/profiles.go:507-522`** | DUPLICATE / CORRECTNESS | `operations.profileLoader` is a copy of `GetProfileLoader` that **omits `profiles.WithFS(c.fs)`**. It passes `cfg.FS()` to `GetProfileDirs` (discovery) but not to the loader (reads), so under an in... | U048.md |
+| U048-F06 | **ESCALATED** `f0eb8dc0` | **`config.go:1037→1103→1106→1515→1554`** | COMPLEXITY / NOPAY | The ambient memo's "cheap identity" is not cheap: every `Load()` — **including a memo hit** — calls `ambientStamp` → `findAppDir`, which walks every ancestor of cwd doing an `fs.Stat` per level *pl... | U048.md |
 | U048-F07 | open | **`config.go:1636,1661,1677-1707`** | COMPLEXITY | `GetBundleDirs` — by its own doc "called many times per process (every loader build)" — runs a full `afero.Walk` of `cache/bundles` with a `ReadFile` + `yaml.Unmarshal` per YAML on **every** call. ... | U048.md |
 | U048-F08 | open | **`config.go:71-287`** | COHESION | `Config` is at least three types: the persisted document (21 fields, 20 value readers), a resolved-workspace handle (`appPaths/appRoot/appDir/fs/injectedFS/source`), and a content-loader factory (`... | U048.md |
 | U048-F09 | open | **`config.go:20-33`** | COUPLING | Dependency direction: `internal/config` — which every other package imports — itself imports `internal/bundles`, `internal/remote`, `internal/profiles`, `internal/signing`, `internal/agents`, `inte... | U048.md |
@@ -1192,11 +1219,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U049-F17 | open | `config_bundles.go:671, :717` | ERRHANDLING | A hook or MCP server whose content preimage cannot be built is withheld by a bare `continue` — `perr` is captured and never reported, so a user's configured executable silently disappears from the ... | U049.md |
 | U049-F18 | open | `config_migrate.go:322-324` | ERRHANDLING | The v3→v4 migration deletes the user-set `binary_path`, `trust_workspace` and `approval_mode` keys without a lossy-migration warning, unlike the v2→v3 migration in the same file | U049.md |
 | U049-F19 | open | `config_types.go:94` | SILENTNOOP | A null/empty YAML scalar in a `fragments:` list produces `FragmentRef{Name: ""}` — an empty-named fragment that flows through the whole resolver and yields nothing, with no error | U049.md |
-| U049-F20 | open | `fixture.go:18` | DUPLICATE | Every persisted config field must be declared in **four** hand-maintained places — `Config`, `configDoc`, `Fixture`, `applyConfigSections` — and this quadruple is the demonstrated root cause of thr... | U049.md |
+| U049-F20 | **RESOLVED** `73c86ad1` | `fixture.go:18` | DUPLICATE | Every persisted config field must be declared in **four** hand-maintained places — `Config`, `configDoc`, `Fixture`, `applyConfigSections` — and this quadruple is the demonstrated root cause of thr... | U049.md |
 | U050-F03 | open | `trustroot.go:173-181` | CORRECTNESS / ERRHANDLING | `readPrincipalLines` never checks `sc.Err()`. A read error or a line over `bufio.Scanner`'s 64 KiB token limit truncates the suppression set silently — and this degradation is fail-**open**: a prin... | U050.md |
 | U050-F04 | open | `unknown_keys.go:75-84` | CORRECTNESS | `classifyValidationError` does not deduplicate by (instance location, key), and its `other` flag misfires on `anyOf` branch noise. One typo inside an `llm.configs.<label>` block produces **7 identi... | U050.md |
 | U050-F05 | open | `unknown_keys.go:200-216` | CORRECTNESS | `knownKeysAt`'s raw JSON-pointer walk asserts `node[seg].(map[string]any)` for every segment, so any **array** segment (`anyOf/0`, `oneOf/1`, `allOf/0`) aborts the walk. Result: the `llm.configs.*`... | U050.md |
-| U050-F06 | open | `unknown_keys.go:164-227` | DUPLICATE / COUPLING | `configSchemaDocument` + `knownKeysAt` are a second, weaker, independently-cached parse and walk of the same config schema that `internal/schema` already compiles and walks. Two schema representati... | U050.md |
+| U050-F06 | **RESOLVED** `f16b4588` | `unknown_keys.go:164-227` | DUPLICATE / COUPLING | `configSchemaDocument` + `knownKeysAt` are a second, weaker, independently-cached parse and walk of the same config schema that `internal/schema` already compiles and walks. Two schema representati... | U050.md |
 | U050-F07 | open | `warnings.go:5-8`; `cli/startup_helpers.go:52` | CORRECTNESS | `warnings.go`'s stated contract — "All four kinds are fatal-class in strict mode" — and `printConfigWarnings`' doc — "`ctxloom run` / `ctxloom mcp` / `ctxloom acp` abort on the recorded findings" —... | U050.md |
 | U050-F13 | open | `trustroot.go:215,218-220` | ERRHANDLING | Trust-root degradations are reported with a bare `clidiag.Warn` and never recorded as a strictness finding, even though `strictness.ClassTrust` exists and is documented as "a corrupt/unreadable tru... | U050.md |
 | U051-F03 | **ESCALATED** (gn/vital-deaf-stunt) | **`config.go:137`, `command.go:32`, `config.go:220`** | COMPLEXITY | Three production functions exceed the repo's CI complexity gate; the gate must currently be failing (or is not reaching this package). | U051.md |
@@ -1613,7 +1640,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U106-F02 | open | `set.go:31` (doc) vs `set.go:49,54` and `internal/operations/items.go:223` | CORRECTNESS | The doc "The zero value is not usable" is false for reads and understates the risk for writes. `Has`/`Items`/`Clone` work fine on a nil `Set`; `Add`/`AddAll` panic. A caller in the tree already dec... | U106.md |
 | U106-F03 | **REFUTED** `67c5c7fe` | `set.go:35,49,54,68,77` | NOPAY | Five of `Set`'s seven functions are single-expression or single-loop wrappers over a map operation or a stdlib call, adding no invariant. `NewSet` is `make`. `Add` is `s[v]=struct{}{}`. `Items` is ... | U106.md |
 | U107-F03 | open | `cli.go:30-34` | CORRECTNESS | The package doc on `NewCommand` states a fact about the system that is **false**, and it is the kind of false that invites someone to delete the `sig` seam as speculative. | U107.md |
-| U107-F04 | open | `cli.go:82` | NOPAY | `Emit` hardcodes `signer` to `""`, so the envelope's advisory `signer` field is **never populated by any production caller**, and no code anywhere reads it. The parameter and the struct field are w... | U107.md |
+| U107-F04 | **ESCALATED** `f0eb8dc0` | `cli.go:82` | NOPAY | `Emit` hardcodes `signer` to `""`, so the envelope's advisory `signer` field is **never populated by any production caller**, and no code anywhere reads it. The parameter and the struct field are w... | U107.md |
 | U108-F03 | **RESOLVED** `ce9649c1` | `confload.go:249-265` + `:222-243` | ERRHANDLING | Four distinct states — layer not configured, file missing, file empty, file comment-only — all collapse to `(nil, nil)`, so `Load` cannot tell "you have no config" from "your config is being ignored". | U108.md |
 | U108-F04 | open | **`overlay.go:96,110-111`** | ERRHANDLING | `GetStringArray`'s error is interpreted as exactly one cause ("no flag registered") when it has two, and the other cause silently discards **every** CLI override. | U108.md |
 | U108-F05 | open | **`overlay.go:287-290`** | COUPLING | The unknown-key outcome is discharged as a direct stderr write from inside a library, reproducing in miniature the exact bug the package doc says `--config-set` was created to eliminate. | U108.md |
@@ -2020,7 +2047,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U029-F21 | **RESOLVED** `f0c5d073` | **`package-wide`** | NOPAY | Comment-to-code ratio is extreme and, per F16/F17/F18, the prose is where the rot is | U029.md |
 | U030-F12 | open | **`bundles.go:791-800, 820-826`** | CORRECTNESS | `detectLegacySkillsKey` reads a root `name:` key to name the offending bundle, but `Bundle.Name` is `yaml:"-"` — the schema has no `name:` key, so `bundleName` is almost always `""` and the error r... | U030.md |
 | U030-F13 | **RESOLVED** `24e4e92e` | `loader_content.go:636-641` | TRIVIAL | `wholeBundleForExpansion` is a redundant wrapper: both branches are equivalent to `l.bundleAtVersion(ref, "")`. When `version == ""` it returns `l.Load(ref)`; `bundleAtVersion(ref, "")` with no ver... | U030.md |
-| U030-F14 | open | `loader.go:383-393 vs 487-497` | DUPLICATE | The nine-field `BundleInfo` construction appears twice, once inline in `List` for seeded bundles and once in `loadBundleInfo`. `loadBundleInfo` is otherwise a pure pass-through to `LoadFile`. Neith... | U030.md |
+| U030-F14 | **ESCALATED** `f0eb8dc0` | `loader.go:383-393 vs 487-497` | DUPLICATE | The nine-field `BundleInfo` construction appears twice, once inline in `List` for seeded bundles and once in `loadBundleInfo`. `loadBundleInfo` is otherwise a pure pass-through to `LoadFile`. Neith... | U030.md |
 | U030-F15 | open | `loader_skills.go:125-128` | ERRHANDLING | A malformed manifest mode silently defaults to `0644`, downgrading a `0755` script. The exec bit is documented as load-bearing ("must survive tree → archive → extract → materialize", bundles.go:319... | U030.md |
 | U030-F16 | open | `loader_skills.go:90-92` | ERRHANDLING | The `entry.ContentPayload()` failure path is the only withhold in `skillContent` with **no** `clidiag.Warn` — every other one (dir resolve, manifest mismatch, parse, file read) warns. | U030.md |
 | U030-F17 | open | `loader_content.go:578` | CORRECTNESS | Stale doc: the inline comment says the targeted-ref grammar is `bundle{:\ | U030.md |
@@ -2073,7 +2100,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U036-F12 | open | **`init.go:196, 225-227`** | CORRECTNESS | `readCleanLine` drops every non-ASCII byte, so a UTF-8 repo name or path typed at an init prompt is silently mangled rather than rejected. | U036.md |
 | U036-F13 | **RESOLVED** `52fb5d6c` | `hook_inject_context.go:27` | DEAD | `HookInput` is a one-use alias. | U036.md |
 | U036-F14 | open | **`init.go:353`** | CORRECTNESS | `append(primary, secondary...)` may write into `primary`'s backing array. Safe **only** because `getAvailableEngines` happens to return `cap==len` slices today; a `make([]string, 0, N)` refactor th... | U036.md |
-| U036-F15 | open | **`init.go:511-516 vs agent.go:201-203`** | DUPLICATE | Two near-identical setup-prompt resolvers: `discoverySessionPrompt(cfg)` guards `cfg==nil`; `runSetupPromptCmd` inlines `GetConfig()` + `ResolveSetupPrompt`. Same intent, two bodies. | U036.md |
+| U036-F15 | **RESOLVED** `3b27eef4` | **`init.go:511-516 vs agent.go:201-203`** | DUPLICATE | Two near-identical setup-prompt resolvers: `discoverySessionPrompt(cfg)` guards `cfg==nil`; `runSetupPromptCmd` inlines `GetConfig()` + `ResolveSetupPrompt`. Same intent, two bodies. | U036.md |
 | U036-F16 | **RESOLVED** `08611eba` | **`init.go:497`** | DEAD | Orphaned doc comment for a function that no longer exists: `// generateConfig creates a config.yaml with the selected engine and options.` followed by a blank line and an unrelated function. | U036.md |
 | U036-F17 | **RESOLVED** `0e5a5973` | **`init.go:112, 154, hook_inject_context.go:201`** | TRIVIAL | Three inline candidates. `bindInitFlags` has one caller and a **stale** rationale ("shared with `manage init`" — `manage_test.go:43` asserts `manage init` was deleted). `newInitPrompts` is a one-li... | U036.md |
 | U036-F18 | **RESOLVED** `5791eeeb` | `fragment.go:137-158, 172-203` | NOPAY | `fragment search` and `fragment push` are Deprecated shims that duplicate `search --type fragment` and `bundle push` — carrying ~55 lines of help text and 5 flags each. The project's standing rule ... | U036.md |
@@ -2167,12 +2194,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U047-F08 | open | `internal/config/agents.go:70-77` | COMPLEXITY | `Agent(name)` re-runs the full two-source merge — including a filesystem walk and a YAML parse of every `.ctxloom/agents/*.yaml` — on every single lookup, and re-emits the shadowing warning each time. | U047.md |
 | U047-F09 | open | `internal/config/agents.go:45-48` | ERRHANDLING | A directory-scan failure is warned and then the nil result is used as if it were a successful empty scan; the caller receives a merged set that is silently missing every on-disk agent. | U047.md |
 | U047-F10 | **RESOLVED** `5fdf8767` | `internal/config/companions.go:273-321` | TRIVIAL | `ProbeCompanionLoadouts` — the most important exported function in the file — has **no doc comment**; its intended 18-line doc is glued to the `companionsDisabled` var block instead. | U047.md |
-| U047-F13 | open | `internal/config/accessors.go:120-124` | DUPLICATE | `config.cloneMCPServer` is a verbatim reimplementation of `wire.cloneMCPServer`, in the package that owns the type. | U047.md |
+| U047-F13 | **RESOLVED** `d6a8cae0` | `internal/config/accessors.go:120-124` | DUPLICATE | `config.cloneMCPServer` is a verbatim reimplementation of `wire.cloneMCPServer`, in the package that owns the type. | U047.md |
 | U047-F14 | open | `internal/config/companions.go:31-43, 198, 203, 257` | CORRECTNESS | The exec/PATH seams are unsynchronised package vars that are **read from goroutines** while the exported `Set*ForTesting` helpers write them without a lock. | U047.md |
 | U048-F11 | **RESOLVED** `f012188f` | **`config.go:573-586, 609`** | NOPAY | `GetEditorCommand`'s doc comment is glued to the front of `IsolationImageFor`'s, so `go doc` attributes the editor-resolution policy to the isolation-image accessor, and `GetEditorCommand` (609) ha... | U048.md |
 | U048-F12 | **RESOLVED** `f012188f` | **`config.go:1997-2006`** | DEAD | `SourceName` is test-only. | U048.md |
 | U048-F13 | **PARTIAL** `f012188f` | **`config.go:647-650, 721-724`** | DEAD | `ProfileDefinition` is test-only; `GetDefaultLLMModel` has no non-test caller outside this package. | U048.md |
-| U048-F14 | open | **`config.go:489, 1802, 2029`** | DEAD / COUPLING | Three exported mutators exist solely for tests, and two of them (`SetFS`, `DisableCompanionProbe`) mutate an instance `Load()` may be sharing with every other holder — contradicting the whole "ever... | U048.md |
+| U048-F14 | **REFUTED** `8b9db2fe` | **`config.go:489, 1802, 2029`** | DEAD / COUPLING | Three exported mutators exist solely for tests, and two of them (`SetFS`, `DisableCompanionProbe`) mutate an instance `Load()` may be sharing with every other holder — contradicting the whole "ever... | U048.md |
 | U048-F15 | **RESOLVED** `f012188f` | **`config.go:1038, 1043, 1061, 1070`** | NOPAY | `ambientErr` is write-only state: it is stored and reset but never returned, and the `ambientErr == nil` guard is redundant because `loadUncached` returns `(nil, err)` on failure, so `ambientCfg !=... | U048.md |
 | U048-F16 | **RESOLVED** `12f375ce` | **`config.go:480-482, 943-948, 1051-1053`** | TRIVIAL | Three single-expression pass-throughs. `CurrentOverrides` (`return confload.ProcessOverrides()`) has no caller outside this package; `lockfileFSOptions` has exactly one call site; `LoadFresh` is a ... | U048.md |
 | U048-F18 | open | **`config.go:1211-1221`** | CORRECTNESS | `ParseConfig` pre-populates both `lm.Configs` and `profiles.Definitions` (1212-1213) but re-guards only `lm.Configs` after unmarshal (1218-1220). An explicit `profiles: null` in the document leaves... | U048.md |
@@ -2181,7 +2208,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U048-F22 | open | **`config.go:334-356, 393-398`** | CORRECTNESS | `toDoc` copies map/slice fields (`agents`, `isolationImages`, `isolationEngines`, `lm.Configs`, `profiles.Definitions`) **by reference**, and `MarshalYAML` is exported, so the one public path out o... | U048.md |
 | U049-F21 | **RESOLVED** `c3891cc6` | `config_resolve.go:74-120` | TRIVIAL | Six of the seven `profileBuilder.addX` methods are the identical three-line ordered-set insert over six `(Set, []string)` field pairs | U049.md |
 | U049-F22 | **RESOLVED** `c3891cc6` | `config_resolve.go:163` | TRIVIAL | `profileBuilder.mergeMCP` is a pure one-line pass-through to `wire.MergeMCPConfig` with one call site, no invariant, and no interface to satisfy | U049.md |
-| U049-F23 | open | `config_manager.go:78` | DUPLICATE | `DefaultManager()` is exactly `NewManager()` — two exported constructors, 24 lines of doc, one behaviour | U049.md |
+| U049-F23 | **RESOLVED** `506fdab1` | `config_manager.go:78` | DUPLICATE | `DefaultManager()` is exactly `NewManager()` — two exported constructors, 24 lines of doc, one behaviour | U049.md |
 | U049-F24 | open | **`home.go:17`** | COUPLING | `HomeConfigDir` is a `paths`-shaped function living in `config`; its own doc says it matches "the other `Home*Path` helpers in `internal/paths`" | U049.md |
 | U049-F25 | open | `config_migrate.go:152` | COMPLEXITY | Five functions in `config_migrate.go` exceed the project's CI cyclomatic gate of 10, one by 3× | U049.md |
 | U050-F08 | open | `warnings.go:5-8` | CORRECTNESS | The type doc says "All **four** kinds are fatal-class in strict mode"; there are five (`read`, `parse`, `validate`, `unknown-key`, `migration-lossy`). The count was not updated when `WarnKindUnknow... | U050.md |

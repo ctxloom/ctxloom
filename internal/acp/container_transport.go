@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
 )
 
 // mcpSocketEnvVar duplicates agentcoord/coord.EnvMCPSocket's value
@@ -233,18 +234,9 @@ func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isola
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("acp: reach-back TCP bridge for %s: %w", mcpSocketEnvVar, err)
 	}
-	addr := fmt.Sprintf("%s%s:%d", ReachBackTCPPrefix, reachBackDialHost(rt), bridge.port)
+	addr := fmt.Sprintf("%s%s:%d", mcpsocket.TCPPrefix, reachBackDialHost(rt), bridge.port)
 	return []string{mcpSocketEnvVar + "=" + addr}, nil, bridge.Close, nil
 }
-
-// ReachBackTCPPrefix marks a CTXLOOM_MCP_SOCKET value as the off-Linux TCP
-// form (host:port to dial) rather than the default unix socket path (which is
-// always an absolute filesystem path and so never collides with this prefix).
-// Exported because the far side that DIALS this value (internal/cli's
-// mcp_forward.go) must agree with it exactly, and that direction imports
-// cleanly — unlike mcpSocketEnvVar above, whose canonical home sits ABOVE this
-// package in the import graph, this constant's producer is here.
-const ReachBackTCPPrefix = "tcp://"
 
 // reachBackDialHost is the DNS name Docker/Podman Desktop resolve, from
 // INSIDE a container, to the host's own network stack (loopback included) —

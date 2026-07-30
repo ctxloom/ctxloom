@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
 )
 
 // FORWARD MODE (agentcoord B1.6, runner-terminated MCP): when a `ctxloom mcp`
@@ -31,17 +31,18 @@ import (
 // Windows Docker Desktop) it bridges the runner's unix socket onto a host-
 // loopback TCP port instead (a bind-mounted unix socket file is not a live
 // endpoint across the Docker Desktop VM boundary) and encodes that as
-// "tcp://host:port". The marker is READ from the package that WRITES it, so
-// the two sides cannot drift.
-const reachBackTCPPrefix = acp.ReachBackTCPPrefix
+// "tcp://host:port". Both ends read that marker from the same shared leaf
+// (internal/shared/mcpsocket) so they cannot drift — and from a LEAF, not from
+// internal/acp itself: a CLI frontend must never import the ACP client (the
+// one-door invariant, internal/acptest's no-import test).
 
 // dialReachBackSocket dials socketPath as either a unix socket (the default —
-// any absolute filesystem path) or, when it carries the reachBackTCPPrefix
+// any absolute filesystem path) or, when it carries the mcpsocket.TCPPrefix
 // marker, a TCP host:port — the off-Linux ACP reach-back fallback. Factored
 // out of runMCPForward's transport so the dial decision is independently
 // unit-testable without driving a full stdio server.
 func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, error) {
-	if addr, ok := strings.CutPrefix(socketPath, reachBackTCPPrefix); ok {
+	if addr, ok := strings.CutPrefix(socketPath, mcpsocket.TCPPrefix); ok {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	}
 	return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)

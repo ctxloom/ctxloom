@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
 )
 
 // TestContainerReachBackEnv_NoSocket_ReturnsNothing pins the existing no-op
@@ -109,7 +110,7 @@ func TestContainerReachBackEnv_NonLinux_BridgesToTCP(t *testing.T) {
 		assert.Nil(t, mounts, "no bind mount off Linux — the fallback replaces it")
 		require.Len(t, env, 1)
 
-		addr, ok := strings.CutPrefix(env[0], mcpSocketEnvVar+"="+ReachBackTCPPrefix)
+		addr, ok := strings.CutPrefix(env[0], mcpSocketEnvVar+"="+mcpsocket.TCPPrefix)
 		require.True(t, ok, "env value %q must carry the tcp:// form", env[0])
 		host, portStr, serr := net.SplitHostPort(addr)
 		require.NoError(t, serr)

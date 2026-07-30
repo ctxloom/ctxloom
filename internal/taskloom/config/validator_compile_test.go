@@ -54,3 +54,59 @@ func TestLoad_ValidationFailureReturnsZeroConfig(t *testing.T) {
 	assert.Equal(t, Config{}, cfg,
 		"a rejected config must not escape alongside its rejection")
 }
+
+// TestNewValidator_CompilesOncePerProcess pins that the embedded config
+// schema is compiled once, not once per call.
+//
+// Every taskloom command resolved the config twice, and each resolution
+// compiled the schema twice (loadRaw and Load), for four JSON Schema compiles
+// on the startup path of a CLI that mostly does one small thing and exits.
+// The schema is baked into the binary and cannot change while the process
+// runs, so the compile has exactly one possible outcome; identity of the
+// returned validator is the observable form of "it was not recompiled".
+func TestNewValidator_CompilesOncePerProcess(t *testing.T) {
+	a, err := newValidator()
+	require.NoError(t, err)
+	b, err := newValidator()
+	require.NoError(t, err)
+	assert.Same(t, a, b, "the embedded schema must be compiled once per process, not once per call")
+}
+
+// TestConfigResolveMode_MatchesPackageResolveMode pins that splitting the
+// flag-vs-config half out of ResolveMode kept the two answers identical
+// across every arm of the precedence chain — the property that makes
+// taskContextSingle's single Load a pure de-duplication and not a change of
+// behaviour.
+func TestConfigResolveMode_MatchesPackageResolveMode(t *testing.T) {
+	cases := []struct {
+		name, body, flag string
+	}{
+		{"unset everywhere", "", ""},
+		{"config home", "homing: home\n", ""},
+		{"config repo", "homing: repo\n", ""},
+		{"flag beats config", "homing: home\n", "repo"},
+		{"invalid flag", "homing: home\n", "nonsense"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			project := taskstest.ProjectDir(t)
+			if tc.body != "" {
+				writeConfig(t, project, tc.body)
+			}
+
+			wantMode, wantErr := ResolveMode(project, nil, tc.flag)
+
+			cfg, err := Load(project, nil)
+			require.NoError(t, err)
+			gotMode, gotErr := cfg.ResolveMode(tc.flag)
+
+			assert.Equal(t, wantMode, gotMode)
+			if wantErr != nil {
+				require.Error(t, gotErr)
+				assert.Equal(t, wantErr.Error(), gotErr.Error())
+				return
+			}
+			assert.NoError(t, gotErr)
+		})
+	}
+}

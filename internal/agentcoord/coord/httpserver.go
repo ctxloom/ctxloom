@@ -95,6 +95,16 @@ func (c *Coordinator) Serve() error {
 	s.httpSrv = &http.Server{Handler: s.handler, Protocols: protocols}
 
 	ep := s.loadEndpoint()
+	// D1: mint the consumer-class watch credential fresh for this process
+	// and persist it into endpoint.json ALONGSIDE the ports it's saved
+	// with — the file is a viewer's one discovery point for both. Minted
+	// BEFORE anything is bound so that every step which can fail runs while
+	// there is nothing to unwind: a Serve that returns an error must leave no
+	// listener and no serving goroutine behind, and c.srv is only assigned at
+	// the end, so anything left bound here would never be closed.
+	if _, err := c.consumerCreds.mint(); err != nil {
+		return fmt.Errorf("coord: mint consumer credential: %w", err)
+	}
 	ln, err := bindPreferring("127.0.0.1", ep.LoopbackPort)
 	if err != nil {
 		return fmt.Errorf("coord: bind loopback listener: %w", err)
@@ -102,12 +112,6 @@ func (c *Coordinator) Serve() error {
 	s.loopback = ln
 	s.loopURL = discover.LoopbackURL(ln.Addr().(*net.TCPAddr).Port)
 	go func() { _ = s.httpSrv.Serve(ln) }()
-	// D1: mint the consumer-class watch credential fresh for this process
-	// and persist it into endpoint.json ALONGSIDE the ports it's saved
-	// with — the file is a viewer's one discovery point for both.
-	if _, err := c.consumerCreds.mint(); err != nil {
-		return fmt.Errorf("coord: mint consumer credential: %w", err)
-	}
 	s.saveEndpoint()
 
 	c.srv = s
@@ -129,21 +133,42 @@ func (s *coordServing) endpointPath() string {
 	return filepath.Join(s.c.stateDir, discover.FileName)
 }
 
+// loadEndpoint reads the recorded endpoint state. An ABSENT file is the
+// ordinary first start and says nothing; a file that does not decode is
+// reported, because silently falling back to the zero state re-picks every port
+// ephemerally — the stable re-bindable endpoint an adopted container
+// RunnerChannel re-Hellos against is gone, and from the outside that is
+// indistinguishable from a first-ever start.
 func (s *coordServing) loadEndpoint() endpointState {
 	var ep endpointState
-	if raw, err := os.ReadFile(s.endpointPath()); err == nil {
-		_ = json.Unmarshal(raw, &ep)
+	raw, err := os.ReadFile(s.endpointPath())
+	if err != nil {
+		return ep
+	}
+	if uerr := json.Unmarshal(raw, &ep); uerr != nil {
+		clidiag.Warn("ctxloom", "coordinator: %s does not decode (%v): re-binding on fresh ports, so a relaunched endpoint will not match the recorded one", discover.FileName, uerr)
+		return endpointState{}
 	}
 	return ep
 }
 
+// saveEndpoint persists the bound ports and the consumer credential.
 func (s *coordServing) saveEndpoint() {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.saveEndpointLocked()
+}
+
+// saveEndpointLocked is saveEndpoint with s.mu already held — the form callers
+// inside a locked section use. Splitting it makes the lock discipline explicit
+// instead of leaving it to a `go` keyword whose real job was dodging
+// re-entrancy: dispatching the write also meant the file lagged the return of
+// the very call whose value a container child is about to discover.
+func (s *coordServing) saveEndpointLocked() {
 	ep := endpointState{WidePort: s.widePort}
 	if s.loopback != nil {
 		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
 	}
-	s.mu.Unlock()
 	ep.ConsumerCred = s.c.consumerCreds.token()
 	raw, _ := json.Marshal(ep)
 	if err := os.WriteFile(s.endpointPath(), raw, 0o600); err != nil {
@@ -181,15 +206,27 @@ func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
 	return c.srv.ensureWide()
 }
 
-// ensureWide resolves the container-reachable URL once and returns it. On
-// Docker Desktop / Podman Machine GOOS targets (darwin, windows) the
-// container runs inside a VM whose networking installs a magic hostname
-// that already routes to the host's loopback interface — the coordinator
-// advertises that hostname against the EXISTING loopback listener and never
-// opens anything LAN-visible (R10 stays satisfied for the platforms that
-// were the whole point of this seam). On Linux — no VM hop, no magic
-// hostname — it falls back to the proven bridge-gateway/primary-outbound-IP
-// listeners, unchanged.
+// ensureWide resolves the container-reachable URL once and returns it, and it
+// is the ONE place the coordinator ever listens past loopback.
+//
+// On Docker Desktop / Podman Machine GOOS targets (darwin, windows) the
+// container runs inside a VM whose networking installs a magic hostname that
+// already routes to the host's loopback interface — the coordinator advertises
+// that hostname against the EXISTING loopback listener and binds nothing new
+// at all.
+//
+// On Linux — no VM hop, no magic hostname — it binds the bridge-gateway and
+// primary-outbound-interface addresses. Those are ROUTABLE host addresses: on a
+// rootless/slirp setup the primary outbound IP is the machine's LAN address, so
+// this listener is reachable from the LAN, not only from the container. What
+// bounds the exposure is not the address but three things that hold together:
+// it is never the wildcard 0.0.0.0, it is opened only once a container run
+// actually needs it (a host-only session never binds it), and every gRPC stream
+// and request on it authenticates against a per-run credential.
+//
+// R10 ("never 0.0.0.0") is satisfied everywhere. "Nothing LAN-visible" holds on
+// darwin/windows and does NOT hold on Linux — the LAN-visible bind is the cost
+// of reaching a rootless container, deliberately paid.
 func (s *coordServing) ensureWide() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -249,7 +286,7 @@ func (s *coordServing) ensureWide() (string, error) {
 	s.widePort = port
 	// Advertise the FIRST bound candidate (bridge gateway preferred).
 	s.wideURL = fmt.Sprintf("http://%s%s", net.JoinHostPort(boundIPs[0], fmt.Sprint(port)), MCPPath)
-	go s.saveEndpoint()
+	s.saveEndpointLocked()
 	return s.wideURL, nil
 }
 
@@ -335,16 +372,21 @@ func preferredContainerRuntime() string {
 
 // containerReachIPs collects candidate host IPs a container can dial,
 // most specific first: each detected container runtime's default bridge
-// gateway, then the host's primary outbound interface IP.
+// gateway, then the host's primary outbound interface IP. Every candidate must
+// PARSE as an address: the gateway probes are text/template expressions the
+// runtime evaluates, and a runtime that renames a field, errors mid-render, or
+// prints a diagnostic on stdout answers with prose, not an address — none of
+// which may become something the coordinator binds and advertises.
 func containerReachIPs() []string {
 	var out []string
 	seen := map[string]bool{}
-	add := func(ip string) {
-		ip = strings.TrimSpace(ip)
-		if ip != "" && ip != "<no value>" && !seen[ip] {
-			seen[ip] = true
-			out = append(out, ip)
+	add := func(raw string) {
+		ip := strings.TrimSpace(raw)
+		if net.ParseIP(ip) == nil || seen[ip] {
+			return
 		}
+		seen[ip] = true
+		out = append(out, ip)
 	}
 	for _, probe := range [][]string{
 		{"docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"},

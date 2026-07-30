@@ -62,6 +62,18 @@ func TestNew_NonPositiveMaxUsesTheDefaultBudget(t *testing.T) {
 	assert.Equal(t, "still recorded", neg.Tail())
 }
 
+// "The standard tail budget" has exactly ONE name and one value. Consumers
+// (internal/acp, internal/lm/grpc, internal/lm/isolation, internal/vpio/dockerexec)
+// pass DefaultBytes directly rather than re-aliasing it to a private per-package
+// constant that is never given a different value — an alias adds a name and
+// removes nothing, and four names for one budget is how they silently drift
+// apart. Pinned so a change to the value is a deliberate, visible edit.
+func TestDefaultBytes_IsTheOneStandardTailBudget(t *testing.T) {
+	assert.Equal(t, 8192, DefaultBytes)
+	assert.Equal(t, DefaultBytes, New(0).max, "New's non-positive fallback resolves to the same budget")
+	assert.Equal(t, DefaultBytes, New(DefaultBytes).max)
+}
+
 // Tail on a nil Ring answers "nothing" instead of panicking: the reaper path
 // runs while a launch is failing, when the ring may never have been built.
 func TestRing_NilReceiverTailIsEmpty(t *testing.T) {

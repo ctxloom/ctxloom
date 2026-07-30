@@ -14,16 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
-// directRunnerStderrTailBytes bounds the stderr ring a docker-direct runner
-// keeps for its failure diagnostics (the go-plugin Diagnose replacement).
-//
-// `docker run` here is ATTACHED (no -d), so this ring is fed by the
-// CONTAINER's own stderr AS IT STREAMS — the in-container `ctxloom llm host`
-// runner's stderr, and through it the engine adapter's. That streaming is
-// what makes the capture survive teardown: Kill force-removes the container,
-// and `docker logs` after a force-remove is too late.
-const directRunnerStderrTailBytes = stderrtail.DefaultBytes
-
 // StartRunner launches the engine runner INSIDE a container via a plain
 // docker/podman `run` — the queer-shrug Phase 1 spawn half that removes
 // go-plugin from the delegated container spawn. The in-container command is
@@ -126,7 +116,12 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		sort.Strings(kv)
 		cmd.Env = append(os.Environ(), kv...)
 	}
-	ring := stderrtail.New(directRunnerStderrTailBytes)
+	// `docker run` here is ATTACHED (no -d), so this ring is fed by the
+	// CONTAINER's own stderr AS IT STREAMS — the in-container `ctxloom llm
+	// host` runner's stderr, and through it the engine adapter's. That
+	// streaming is what makes the capture survive teardown: Kill force-removes
+	// the container, and `docker logs` after a force-remove is too late.
+	ring := stderrtail.New(stderrtail.DefaultBytes)
 	cmd.Stderr = ring
 	cmd.WaitDelay = runnerWaitDelay
 	// No stdin (keeps `docker run` off the host terminal); the container's

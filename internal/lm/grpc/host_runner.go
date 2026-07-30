@@ -12,12 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
-// hostRunnerStderrTailBytes bounds the stderr ring buffer a directly-launched
-// host runner keeps for its failure diagnostics — enough to carry a panic
-// trace or a config error, small enough to never grow unbounded across a long
-// run.
-const hostRunnerStderrTailBytes = stderrtail.DefaultBytes
-
 // HostRunner is a directly-launched, BARE (non-go-plugin) host runner
 // subprocess — the StartRunner host path. Unlike NewSelfInvokingClient* it
 // completes NO go-plugin handshake: the process is `ctxloom <args…>` (e.g.
@@ -77,7 +71,7 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 	// Fresh session leader so killSession has a safe, scoped teardown boundary
 	// (the same reason dialLLMConnection sets it — see realLLMConnection.Kill).
 	isolateRunner(cmd)
-	ring := stderrtail.New(hostRunnerStderrTailBytes)
+	ring := stderrtail.New(stderrtail.DefaultBytes)
 	cmd.Stderr = ring
 	cmd.WaitDelay = hostRunnerWaitDelay
 	if err := cmd.Start(); err != nil {

@@ -265,3 +265,44 @@ func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
 			"containerName(%q) must embed exactly sanitizeAgentID(%q)=%q", id, id, sanitizeAgentID(id))
 	}
 }
+
+// TestContainer_NilBaseIsUnreachable is U062-F17's pin. The row claimed Name()
+// nil-guards a base that PrepareWorkspace "would panic on" — the guard in the
+// harmless method, absent from the dangerous one. MEASURED here, both halves of
+// that are wrong:
+//
+//  1. every production construction path sets a non-nil base, so nothing can
+//     reach PrepareWorkspace with one missing;
+//  2. the only value that HAS a nil base — a bare test-built Container{} — never
+//     reaches c.base.prepareBase at all. prepareContainerScratch runs first and
+//     returns on the nil runtime, and even past that the zero profile's nil
+//     resolveAuth would fire before the base is touched. Name()'s guard exists
+//     because Name() IS called on such bare values; PrepareWorkspace is not.
+//
+// Adding a nil-base guard to PrepareWorkspace would be dead defensive code. This
+// pins the property that makes it dead, so it fails if a constructor ever stops
+// setting a base or the gate order changes to reach the base first.
+func TestContainer_NilBaseIsUnreachable(t *testing.T) {
+	rt := fakeRuntime{name: "docker", available: true}
+	for name, c := range map[string]Container{
+		"NewContainer":              NewContainer(rt, "img"),
+		"NewContainerFor":           NewContainerFor(rt, "claude-code"),
+		"containerFor":              containerFor(rt, "claude-code", ImageConfig{}),
+		"NewContainerWorktree":      NewContainerWorktree(rt, "img", nil),
+		"NewContainerWorktreeFor":   NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil),
+		"WithSessionState":          NewContainerFor(rt, "").WithSessionState(SessionState{Harp: "h"}),
+		"WithImage":                 NewContainerFor(rt, "").WithImage("other"),
+		"WithSessionState/worktree": NewContainerWorktreeFor(rt, "", ImageConfig{}, nil).WithSessionState(SessionState{Harp: "h"}),
+	} {
+		assert.NotNil(t, c.base, "%s must yield a container with a workspace base", name)
+	}
+
+	// The one nil-base value there is never reaches the base: the gate returns
+	// first, and no panic escapes.
+	require.NotPanics(t, func() {
+		_, err := Container{}.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot launch",
+			"a bare Container{} stops at the runtime gate, long before the base")
+	})
+}

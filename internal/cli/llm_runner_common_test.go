@@ -177,3 +177,88 @@ func TestStandUpRunner_ConfiguresFromTheLabelItWasGiven(t *testing.T) {
 			"the label passed to standUpRunner is what selects the entry")
 	}
 }
+
+// TestConsumeCoordinatorReachBack_ReadsThenScrubs is the characterization half
+// of U037-F19: the reach-back is read into the standup's own state and then
+// removed from the environment, so nothing the runner spawns can inherit it.
+func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
+	env := map[string]string{
+		coord.EnvCoordURL:         "tcp://127.0.0.1:1",
+		coord.EnvCoordCred:        "the-token",
+		coord.EnvRunID:            "run-7",
+		coord.EnvAgentCoordinator: "1",
+		coord.EnvCellWorkDir:      "/work/cell",
+		"CTXLOOM_SESSION_HARP":    "regal-rash-dash",
+	}
+	reach, err := consumeCoordinatorReachBack("mock",
+		func(k string) string { return env[k] },
+		func(k string) error { delete(env, k); return nil })
+
+	require.NoError(t, err)
+	assert.Equal(t, "tcp://127.0.0.1:1", reach.home.URL)
+	assert.Equal(t, "the-token", reach.home.Token)
+	assert.Equal(t, "run-7", reach.home.RunID)
+	assert.Equal(t, "mock", reach.home.Harness)
+	assert.Equal(t, "regal-rash-dash", reach.harp)
+	assert.Equal(t, "/work/cell", reach.cellWorkDir)
+	assert.False(t, reach.leaf, "a Coordinator-capable delegated child is not a leaf")
+
+	for _, k := range coordinatorEnvKeys {
+		assert.NotContainsf(t, env, k, "%s must not survive into the engine child's environment", k)
+	}
+}
+
+// TestConsumeCoordinatorReachBack_LeafGate pins the leaf classification, which
+// decides whether the coordinator-only MCP tools are served: a delegated child
+// (RunID set) that was not resolved Coordinator-capable is a leaf; the top-level
+// human session, which sets no RunID, never is.
+func TestConsumeCoordinatorReachBack_LeafGate(t *testing.T) {
+	leafFor := func(env map[string]string) bool {
+		reach, err := consumeCoordinatorReachBack("mock",
+			func(k string) string { return env[k] },
+			func(string) error { return nil })
+		require.NoError(t, err)
+		return reach.leaf
+	}
+	assert.True(t, leafFor(map[string]string{coord.EnvRunID: "run-7"}), "delegated child, not coordinator-capable")
+	assert.False(t, leafFor(map[string]string{coord.EnvRunID: "run-7", coord.EnvAgentCoordinator: "1"}))
+	assert.False(t, leafFor(map[string]string{}), "the human session is never gated")
+}
+
+// TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch is the U037-F19
+// fix: the scrub used to be `_ = os.Unsetenv(k)`, so a key that survived left
+// the coordinator credential in the environment the engine child inherits —
+// third-party code handed the token, with the runner reporting a clean standup.
+// It is now a refusal, and the refusal names every key that stuck.
+func TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch(t *testing.T) {
+	_, err := consumeCoordinatorReachBack("mock",
+		func(string) string { return "sensitive" },
+		func(k string) error {
+			if k == coord.EnvCoordCred {
+				return assert.AnError
+			}
+			return nil
+		})
+
+	require.Error(t, err, "an unscrubbed credential must abort the standup")
+	assert.Contains(t, err.Error(), coord.EnvCoordCred, "the refusal must name the key that survived")
+	assert.NotContains(t, err.Error(), "sensitive", "the refusal must not echo the credential value")
+}
+
+// TestExportRunnerMCPSocket pins U037-F19's other swallowed syscall. The export
+// used to be `_ = os.Setenv(...)`, so a failure left the endpoint listening and
+// unaddressable — the child's shim would find no socket and stand up a rogue
+// local coordinator nobody reads.
+func TestExportRunnerMCPSocket(t *testing.T) {
+	var gotKey, gotVal string
+	require.NoError(t, exportRunnerMCPSocket(func(k, v string) error {
+		gotKey, gotVal = k, v
+		return nil
+	}, "/run/ctxloom/local/mcp-1.sock"))
+	assert.Equal(t, coord.EnvMCPSocket, gotKey)
+	assert.Equal(t, "/run/ctxloom/local/mcp-1.sock", gotVal)
+
+	err := exportRunnerMCPSocket(func(string, string) error { return assert.AnError }, "/sock")
+	require.Error(t, err, "a failed export must be reported, not dropped")
+	assert.Contains(t, err.Error(), coord.EnvMCPSocket)
+}

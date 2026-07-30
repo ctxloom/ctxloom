@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -24,10 +25,6 @@ type runnerStandup struct {
 	endpointClose func()
 }
 
-// label is the config label whose LLM entry configures the backend, passed by
-// whichever command owns the standup — each has its own --label flag, and a
-// parameter is what keeps the three from sharing one mutable package global.
-//
 // standUpRunner performs the runner standup shared by `llm serve` and `llm
 // host` (queer-shrug §4.3): consume + scrub the coordinator reach-back trio,
 // load + apply the backend config, stand up the EngineHost for a delegated
@@ -36,32 +33,16 @@ type runnerStandup struct {
 // (plugin.Serve vs a lifecycle block, which each caller owns). It returns the
 // standup on success, or a FATAL error (a hosted run whose MCP endpoint failed
 // — never launch its engine with no reach-back) after closing home itself.
+//
+// label is the config label whose LLM entry configures the backend, passed by
+// whichever command owns the standup — each has its own --label flag, and a
+// parameter is what keeps the three from sharing one mutable package global.
 func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label string) (*runnerStandup, error) {
-	// RUNNER-TERMINATED MCP: the per-spawn seam stamps the coordinator trio
-	// onto THIS process's env. Consume it FIRST and scrub it — the runner is
-	// the ONE credential holder; the harness and its subprocesses must never
-	// inherit it.
-	homeCfg := coord.HomeConfig{
-		URL:     os.Getenv(coord.EnvCoordURL),
-		Token:   os.Getenv(coord.EnvCoordCred),
-		RunID:   os.Getenv(coord.EnvRunID),
-		Harness: backendName,
-		Version: Version,
+	reach, rerr := consumeCoordinatorReachBack(backendName, os.Getenv, os.Unsetenv)
+	if rerr != nil {
+		return nil, rerr
 	}
-	harp := os.Getenv("CTXLOOM_SESSION_HARP")
-	coordinatorCapable := os.Getenv(coord.EnvAgentCoordinator) == "1"
-	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
-	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
-	// where serveRunnerMCP falls back to the runner's own os.Getwd().
-	cellWorkDir := os.Getenv(coord.EnvCellWorkDir)
-	for _, k := range []string{coord.EnvCoordURL, coord.EnvCoordCred, coord.EnvRunID, coord.EnvAgentCoordinator, coord.EnvCellWorkDir} {
-		_ = os.Unsetenv(k)
-	}
-
-	// A LEAF delegated child (RunID set) not resolved Coordinator-capable must
-	// not receive the coordinator-only MCP tools. The top-level human session
-	// never sets RunID, so the human is never gated.
-	leaf := homeCfg.RunID != "" && !coordinatorCapable
+	homeCfg := reach.home
 
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
@@ -105,7 +86,18 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 
 	switch {
 	case cfg != nil:
-		endpoint, merr := serveRunnerMCP(cfg, harp, h, leaf, cellWorkDir)
+		endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, reach.leaf, reach.cellWorkDir)
+		if merr == nil {
+			// The child's shim keys off CTXLOOM_MCP_SOCKET in THIS process's env
+			// (every engine spawn path builds the harness env over os.Environ), so
+			// a failed export leaves the endpoint standing and unreachable — the
+			// same end state as no endpoint at all, and treated as the same
+			// failure below rather than swallowed.
+			merr = exportRunnerMCPSocket(os.Setenv, endpoint.socketPath)
+			if merr != nil {
+				endpoint.close()
+			}
+		}
 		switch {
 		case merr != nil && standup.engineHost != nil:
 			// FAIL LOUD (icy-value): a runner that HOSTS a delegated run must
@@ -118,9 +110,6 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 			clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
 		default:
 			standup.endpointClose = endpoint.close
-			// Exported into THIS process env: every engine spawn path builds
-			// the harness env over os.Environ.
-			_ = os.Setenv(coord.EnvMCPSocket, endpoint.socketPath)
 		}
 	case runnerMustRefuseNoConfigReachBack(cfg, standup.engineHost):
 		// U037-F05: config.Load failed (cfg == nil), so there is no
@@ -140,6 +129,89 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 		standup.engineHost.BindHome(h)
 	}
 	return standup, nil
+}
+
+// coordinatorReachBack is the per-spawn coordinator credential set a runner
+// consumes from its own environment: the dial-home config, the session harp, the
+// prepared cell workspace dir, and whether this runner is a LEAF (a delegated
+// child that was not resolved Coordinator-capable, so it must not be served the
+// coordinator-only MCP tools; the top-level human session never sets a RunID, so
+// the human is never gated).
+type coordinatorReachBack struct {
+	home coord.HomeConfig
+	harp string
+	leaf bool
+	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
+	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
+	// where serveRunnerMCP falls back to the runner's own os.Getwd().
+	cellWorkDir string
+}
+
+// coordinatorEnvKeys is the reach-back set the per-spawn seam stamps onto a
+// runner's environment. Every one of them must be GONE from this process before
+// it spawns anything.
+var coordinatorEnvKeys = []string{
+	coord.EnvCoordURL,
+	coord.EnvCoordCred,
+	coord.EnvRunID,
+	coord.EnvAgentCoordinator,
+	coord.EnvCellWorkDir,
+}
+
+// consumeCoordinatorReachBack reads the coordinator reach-back out of the
+// environment and SCRUBS it: the runner is the ONE credential holder, and the
+// harness and every subprocess it spawns inherit this process's environment.
+//
+// A key that survives the scrub is a fatal error, not a warning. The engine is
+// third-party code; leaving the coordinator credential in the environment it
+// inherits is the isolation failing open, and there is no partial success to
+// report — either the token is gone or it is handed over.
+//
+// getenv/unset are parameters because the failure they guard cannot be provoked
+// through the real syscalls: on unix syscall.Unsetenv always reports success, so
+// the branch is reachable only under test and on Windows. Injecting them is what
+// makes the invariant testable at all.
+func consumeCoordinatorReachBack(backendName string, getenv func(string) string, unset func(string) error) (coordinatorReachBack, error) {
+	reach := coordinatorReachBack{
+		home: coord.HomeConfig{
+			URL:     getenv(coord.EnvCoordURL),
+			Token:   getenv(coord.EnvCoordCred),
+			RunID:   getenv(coord.EnvRunID),
+			Harness: backendName,
+			Version: Version,
+		},
+		harp:        getenv("CTXLOOM_SESSION_HARP"),
+		cellWorkDir: getenv(coord.EnvCellWorkDir),
+	}
+	reach.leaf = reach.home.RunID != "" && getenv(coord.EnvAgentCoordinator) != "1"
+
+	var unscrubbed []string
+	for _, k := range coordinatorEnvKeys {
+		if err := unset(k); err != nil {
+			unscrubbed = append(unscrubbed, fmt.Sprintf("%s (%v)", k, err))
+		}
+	}
+	if len(unscrubbed) > 0 {
+		return coordinatorReachBack{}, fmt.Errorf("refusing to launch: the coordinator reach-back could not be scrubbed from this runner's environment, so the engine child would inherit the coordinator credential: %s", strings.Join(unscrubbed, ", "))
+	}
+	return reach, nil
+}
+
+// exportRunnerMCPSocket publishes the runner-local MCP socket path into THIS
+// process's environment, which is where the engine child's shim reads it from
+// (every engine spawn path builds the harness env over os.Environ). A failure
+// here leaves the endpoint listening with nobody able to address it, so it is
+// reported rather than dropped — the caller treats it exactly like an endpoint
+// that never came up.
+//
+// set is a parameter for the same reason consumeCoordinatorReachBack's unset is:
+// os.Setenv cannot fail for this constant key and a NUL-free socket path, so the
+// error branch is otherwise untestable.
+func exportRunnerMCPSocket(set func(string, string) error, socketPath string) error {
+	if err := set(coord.EnvMCPSocket, socketPath); err != nil {
+		return fmt.Errorf("export %s=%s (the engine child's shim reads the socket from this env): %w", coord.EnvMCPSocket, socketPath, err)
+	}
+	return nil
 }
 
 // runnerMustRefuseNoConfigReachBack reports whether standUpRunner must

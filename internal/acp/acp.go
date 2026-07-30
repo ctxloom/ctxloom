@@ -484,23 +484,8 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 	// (the worker reparents to PPID=1 but stays in the same process group);
 	// see procgroup_unix.go/procgroup_windows.go.
 	setpgid(cmd)
-	stdin, err := cmd.StdinPipe()
+	stdin, stdout, ring, err := startHostStdio(cmd)
 	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	// Tee rather than replace: stderr passthrough is an existing operator
-	// diagnostic (and, inside a container, the run process's only log), so
-	// capture is ADDITIVE. Before this the adapter's stderr was INHERITED
-	// only — which is why a containerized child's dying words reached the
-	// container's stdout and nowhere the coordinator could ever read them,
-	// with the container force-removed moments later.
-	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)
-	cmd.Stderr = sink
-	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 
@@ -547,6 +532,33 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 			return waitErr
 		},
 	}, nil
+}
+
+// startHostStdio wires cmd's stdio for a JSON-RPC conversation and starts it:
+// piped stdin/stdout, plus a stderr TEE — rather than replace — because stderr
+// passthrough is an existing operator diagnostic (and, inside a container, the
+// run process's only log), so capture is ADDITIVE. Before that tee the adapter's
+// stderr was INHERITED only, which is why a containerized child's dying words
+// reached the container's stdout and nowhere the coordinator could ever read
+// them, with the container force-removed moments later.
+//
+// It is a seam so the failure paths — which cannot be provoked through
+// spawnHostTransport, whose Cmd it builds itself — are exercisable.
+func startHostStdio(cmd *exec.Cmd) (io.WriteCloser, io.Reader, *stderrtail.Ring, error) {
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)
+	cmd.Stderr = sink
+	if err := cmd.Start(); err != nil {
+		return nil, nil, nil, err
+	}
+	return stdin, stdout, ring, nil
 }
 
 // spawnEnv builds the spawned agent's environment: the inherited base minus

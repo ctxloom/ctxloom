@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -236,4 +239,64 @@ func TestConfigure_WrongConfigTypeWarns(t *testing.T) {
 	assert.Empty(t, b.BinaryPath, "an unreadable config configures nothing — that part is unchanged")
 	assert.Contains(t, warnings.String(), "acp", "the warning names the backend")
 	assert.Contains(t, warnings.String(), "not-acp", "and the config type it was handed")
+}
+
+// TestStartHostStdio_ReleasesPipesWhenStdoutWiringFails: the pipes belong to
+// THIS side until the process starts. os/exec releases the parent ends of the
+// pipes it created only from inside a Start that failed, and Start never runs on
+// this path — so an abandoned Cmd must have both ends of the stdin pipe it
+// already made released here, or every attempt burns two file descriptors until
+// the finalizer happens to run. The realistic trigger is os.Pipe failing under
+// fd exhaustion, precisely when leaking two more is least affordable.
+func TestStartHostStdio_ReleasesPipesWhenStdoutWiringFails(t *testing.T) {
+	const attempts = 8
+
+	before := openFDCount(t)
+	for range attempts {
+		cmd := exec.Command("true")
+		cmd.Stdout = io.Discard // makes StdoutPipe fail deterministically
+
+		stdin, stdout, ring, err := startHostStdio(cmd)
+		require.Error(t, err, "stdout wiring must fail for this test to mean anything")
+		assert.Nil(t, stdin, "no half-wired transport is handed back")
+		assert.Nil(t, stdout)
+		assert.Nil(t, ring)
+	}
+	after := openFDCount(t)
+
+	// A margin of 2 absorbs unrelated fd churn in the test process without
+	// absorbing the leak itself, which is 2 descriptors PER attempt.
+	assert.LessOrEqual(t, after, before+2,
+		"%d abandoned wirings must not accumulate descriptors (grew by %d)", attempts, after-before)
+}
+
+// TestStartHostStdio_StartFailureIsOSExecsCleanup pins the guarantee this file
+// relies on rather than duplicating: when Start itself fails, os/exec closes the
+// parent ends of every pipe it created (Cmd.Start's deferred
+// closeDescriptors(parentIOPipes) on the !started path). If a future toolchain
+// stopped doing that, this fails and the cleanup belongs here instead.
+func TestStartHostStdio_StartFailureIsOSExecsCleanup(t *testing.T) {
+	const attempts = 8
+	missing := filepath.Join(t.TempDir(), "no-such-acp-binary")
+
+	before := openFDCount(t)
+	for range attempts {
+		_, _, _, err := startHostStdio(exec.Command(missing))
+		require.Error(t, err, "the binary does not exist, so Start must fail")
+	}
+	after := openFDCount(t)
+
+	assert.LessOrEqual(t, after, before+2,
+		"os/exec must release the pipes of a Cmd that failed to start (grew by %d)", after-before)
+}
+
+// openFDCount counts this process's open file descriptors. Linux-only
+// (/proc/self/fd); the fd-accounting assertions skip elsewhere.
+func openFDCount(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Skipf("no /proc/self/fd on this platform: %v", err)
+	}
+	return len(entries)
 }

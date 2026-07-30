@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,186** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 87 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 136 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **709** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 151 |
+| `open` | no commit names this ID | **708** |
 
-**Totals: 2268 findings across 162 units — 1,186 resolved, 709 still open, 373 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,186 resolved, 708 still open, 374 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 393 | 406 | 47 | 58 | 95 |
+| MED | 999 | 393 | 405 | 47 | 58 | 96 |
 | LOW | 871 | 442 | 278 | 30 | 70 | 51 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1792,7 +1792,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U122-F03 | **RESOLVED** `7a7afc18` | `:765` | ERRHANDLING | `cwdID, _ := projectid.ReadMarker(tc.WorkDir)` discards the error from the one function written specifically to reject a hostile marker — so the "you are acting on the wrong project" warning silent... | U122.md |
 | U122-F04 | **RESOLVED** `de65b23d` | `:737-809` | COMPLEXITY | `resolveTaskStore` is CCN 22 (CI gate: 10), 73 lines, and does six separable things | U122.md |
 | U122-F05 | **RESOLVED** `02f1f9fe` | `:386-401` | CORRECTNESS | Scalar collapse decides "same value, leave it alone" by comparing **raw strings**, though it decides target identity by **parsing**. Two spellings of one value therefore produce a spurious untag+ta... | U122.md |
-| U122-F11 | open | `whole file` | COHESION | The package is two packages: store/project resolution (~200 lines, 6 functions, 1 type) and task operations (~500 lines, 15 functions, 5 types). The only edge between them is `resolveTaskStore`'s r... | U122.md |
+| U122-F11 | **ESCALATED** `PENDING03` | `whole file` | COHESION | The package is two packages: store/project resolution (~200 lines, 6 functions, 1 type) and task operations (~500 lines, 15 functions, 5 types). The only edge between them is `resolveTaskStore`'s r... | U122.md |
 | U123-F01 | **RESOLVED** `7f6ce1dc` | **`paths.go:22`, `paths.go:29`** | DUPLICATE | **The `internal/paths` split is NOT forced — it is drift.** Neither a Go import cycle nor the taskloom binary split prevents this package from importing `internal/paths`. This answers the cross-che... | U123.md |
 | U123-F02 | **RESOLVED** `78751323` | **`paths.go:29` vs `internal/paths/paths.go:100`** | COUPLING | `IndexFileName` is *coincidental value equality, not a shared concept* — consolidating the two into one constant would create connascence of meaning between two unrelated files. | U123.md |
 | U123-F03 | open | **`paths.go:174`** | SILENTNOOP | `ProjectMarkerPath("")` silently returns the cwd-relative `.ctxloom/project-id` instead of failing — the exact hazard `TasksLogPath` explicitly guards against 48 lines earlier. | U123.md |

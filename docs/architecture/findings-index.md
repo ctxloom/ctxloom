@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,030** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 39 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 82 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 130 |
-| `open` | no commit names this ID | **987** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,038** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 40 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 86 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
+| `open` | no commit names this ID | **971** |
 
-**Totals: 2268 findings across 162 units — 1,030 resolved, 987 still open, 251 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,038 resolved, 971 still open, 259 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 299 | 572 | 17 | 30 | 81 |
-| LOW | 871 | 381 | 389 | 12 | 44 | 45 |
+| MED | 999 | 304 | 564 | 17 | 32 | 82 |
+| LOW | 871 | 384 | 381 | 13 | 46 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1173,15 +1173,15 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F20 | **REFUTED** `7b4382f9` | `run_owned.go (whole file)` | NOPAY | The entire Phase 2a-B host path — 283 lines including the unit's most complex function — has **zero** tests | U041.md |
 | U041-F22 | open | `run_owned.go:61` | COMPLEXITY | `startContainerOwnedRun` takes **14** positional parameters, three of which are `string` in a row | U041.md |
 | U041-F23 | **RESOLVED** `f4f8eb25` | **`run.go:1366-1368 + run_owned.go:46-51 + run.go:1137`** | DUPLICATE + COUPLING | The transport-arm decision is spread across two files as two predicates plus an implicit `else`, over the same three inputs | U041.md |
-| U042-F05 | open | `session_watch.go:155-173, 107-121` | ERRHANDLING | Every write error on the text `session watch` path is silently discarded: `writeWatchText` builds an `iox.ErrWriter` and never calls `Err()`, and `streamWatchEvents` ignores its (absent) return. A ... | U042.md |
-| U042-F06 | open | `session_cmd.go:146, 170; session_query.go:126` | DUPLICATE | Three functions independently implement the same two-step essence resolution (harp-dir first, then legacy `<sessionsDir>/<sessionID>.md`), kept in sync only by comments. | U042.md |
-| U042-F07 | open | `session_full.go:31-35` | DUPLICATE | `newSessionFullRow` resolves each session's essence **twice by two different mechanisms** — `newSessionRow` → `sessionEssenceInfo(appDir)` for the path, then `readSessionEssence` (which re-does the... | U042.md |
-| U042-F08 | open | **`search.go:132, 257-263, 292-302, 308-329`** | COUPLING | `search`'s five output functions write to process-global stdout via `fmt.Printf`/`fmt.Println` instead of `cmd.OutOrStdout()`, breaking the package's own emit/cmd-writer convention. `cobra`'s `SetO... | U042.md |
-| U042-F09 | open | **`sign.go:203-209; signer.go:411-435`** | COUPLING | Seven package-global flag variables are each bound into **two** different cobra commands (`signCmd`/`bundleSignCmd`, `signerAddCmd`/`trustSignerAddCmd`). pflag stores the same address in both flag ... | U042.md |
-| U042-F10 | open | **`sign.go:119-172`** | COMPLEXITY | `runSign` is CCN 12, above the CCN-10 gate the brief and `justfile:793` state CI enforces, with no `//nolint` and no exclusion for `internal/cli` in `.golangci.yml`. | U042.md |
+| U042-F05 | **REFUTED** `696c5f3f` | `session_watch.go:155-173, 107-121` | ERRHANDLING | Every write error on the text `session watch` path is silently discarded: `writeWatchText` builds an `iox.ErrWriter` and never calls `Err()`, and `streamWatchEvents` ignores its (absent) return. A ... | U042.md |
+| U042-F06 | **RESOLVED** `ba297344` | `session_cmd.go:146, 170; session_query.go:126` | DUPLICATE | Three functions independently implement the same two-step essence resolution (harp-dir first, then legacy `<sessionsDir>/<sessionID>.md`), kept in sync only by comments. | U042.md |
+| U042-F07 | **RESOLVED** `ba297344` | `session_full.go:31-35` | DUPLICATE | `newSessionFullRow` resolves each session's essence **twice by two different mechanisms** — `newSessionRow` → `sessionEssenceInfo(appDir)` for the path, then `readSessionEssence` (which re-does the... | U042.md |
+| U042-F08 | **RESOLVED** `751bdad6` | **`search.go:132, 257-263, 292-302, 308-329`** | COUPLING | `search`'s five output functions write to process-global stdout via `fmt.Printf`/`fmt.Println` instead of `cmd.OutOrStdout()`, breaking the package's own emit/cmd-writer convention. `cobra`'s `SetO... | U042.md |
+| U042-F09 | **REFUTED** `c9d76b94` | **`sign.go:203-209; signer.go:411-435`** | COUPLING | Seven package-global flag variables are each bound into **two** different cobra commands (`signCmd`/`bundleSignCmd`, `signerAddCmd`/`trustSignerAddCmd`). pflag stores the same address in both flag ... | U042.md |
+| U042-F10 | **ESCALATED** `PENDING` | **`sign.go:119-172`** | COMPLEXITY | `runSign` is CCN 12, above the CCN-10 gate the brief and `justfile:793` state CI enforces, with no `//nolint` and no exclusion for `internal/cli` in `.golangci.yml`. | U042.md |
 | U042-F11 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`signer.go:29-44, 73-80, 183-188, 267-273, 307-314, 402-418; sign.go:54-61, 201-204`** | NOPAY | The deprecated top-level `signer *` and `sign` alias trees cost ~110 lines across two files — 5 duplicate `*cobra.Command` values, 5 deprecation constants, 6 duplicated flag registrations, and one ... | U042.md |
-| U042-F17 | open | `session_cmd.go:268-281` | SILENTNOOP | `emitHarpMarker` writes zero bytes and reports nothing when `harp == ""` — the SessionStart hook exits 0 having injected no harp self-id marker. Since the marker is the documented index-independent... | U042.md |
-| U042-F20 | open | `session_cmd.go (whole file, 611 lines)` | COHESION | `session_cmd.go` is four unrelated things in one file: (a) the `session` command tree; (b) the essence/compaction helper cluster that four *other* files depend on; (c) the `hook session-bind` machi... | U042.md |
+| U042-F17 | **RESOLVED** `71200c49` | `session_cmd.go:268-281` | SILENTNOOP | `emitHarpMarker` writes zero bytes and reports nothing when `harp == ""` — the SessionStart hook exits 0 having injected no harp self-id marker. Since the marker is the documented index-independent... | U042.md |
+| U042-F20 | **RESOLVED** `552f6a71` | `session_cmd.go (whole file, 611 lines)` | COHESION | `session_cmd.go` is four unrelated things in one file: (a) the `session` command tree; (b) the essence/compaction helper cluster that four *other* files depend on; (c) the `hook session-bind` machi... | U042.md |
 | U042-F26 | **RESOLVED** `5cd9bf90` | **`sign.go:140-145`** | SILENTNOOP | `ctxloom sign --all` over a project whose bundle dirs resolve to an empty/absent location prints "no local bundles to sign" and exits **0** — signing nothing looks the same as having nothing to sig... | U042.md |
 | U043-F04 | open | `util_config_write.go:299` | CORRECTNESS | The backup filename has 1-second resolution, so two calls within the same second silently overwrite the earlier backup — directly contradicting the doc's central promise. | U043.md |
 | U043-F05 | **RESOLVED** `749b1a85` | `weave.go:203-218` | SILENTNOOP | `saveParts` (a) returns `nil` after writing zero files when `parts` is empty, and (b) silently overwrites when two parts sanitize to the same filename — losing one member's entire output. | U043.md |
@@ -2173,18 +2173,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F19 | open | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
 | U041-F21 | open | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
 | U041-F24 | **RESOLVED** `c482871e` | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |
-| U042-F12 | open | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
-| U042-F13 | open | `session_cmd.go:183-187` | DUPLICATE | `fileExists` is triplicated across three packages with a near-identical doc comment. | U042.md |
+| U042-F12 | **ESCALATED** `PENDING` | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
+| U042-F13 | **PARTIAL** `26a08ce7` | `session_cmd.go:183-187` | DUPLICATE | `fileExists` is triplicated across three packages with a near-identical doc comment. | U042.md |
 | U042-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`search.go:167-171`** | TRIVIAL | `resolveSearchTypes`'s `case "profile"` returns literally the same expression as the preceding case. | U042.md |
-| U042-F15 | open | **`search.go:309-321`** | COMPLEXITY | Five magic numbers govern one table: format widths `%-8s/%-12s/%-20s`, tag truncation at 20→17, name truncation at 18→15. The name column is 20 wide but truncates at 18; the two thresholds are unex... | U042.md |
-| U042-F16 | open | `run_terminal_ui.go:169-180` | ERRHANDLING | Four distinct failures (`paths.HarpDir`, `os.MkdirAll`, `os.OpenFile`, plus the empty-harp case) all return the same silent `noop`. The user is never told the diagnostics log could not be created —... | U042.md |
-| U042-F18 | open | **`sign.go:141-145 vs 147`** | CORRECTNESS | The zero-target path emits `signCmdResult{}` (nil slice → `"signed": null`), while the normal path emits an initialised slice (`"signed": []`). A JSON consumer must handle both. | U042.md |
-| U042-F19 | open | `session_watch.go:84` | ERRHANDLING | `sourceFlag, _ := cmd.Flags().GetString("source")` discards the lookup error, and the flag is registered in a *different file's* `init` (`session_watch.go:76`) from the `AddCommand` (`session_cmd.g... | U042.md |
+| U042-F15 | **RESOLVED** `f4e3e547` | **`search.go:309-321`** | COMPLEXITY | Five magic numbers govern one table: format widths `%-8s/%-12s/%-20s`, tag truncation at 20→17, name truncation at 18→15. The name column is 20 wide but truncates at 18; the two thresholds are unex... | U042.md |
+| U042-F16 | **RESOLVED** `0a1165d0` | `run_terminal_ui.go:169-180` | ERRHANDLING | Four distinct failures (`paths.HarpDir`, `os.MkdirAll`, `os.OpenFile`, plus the empty-harp case) all return the same silent `noop`. The user is never told the diagnostics log could not be created —... | U042.md |
+| U042-F18 | **REFUTED** `c9d76b94` | **`sign.go:141-145 vs 147`** | CORRECTNESS | The zero-target path emits `signCmdResult{}` (nil slice → `"signed": null`), while the normal path emits an initialised slice (`"signed": []`). A JSON consumer must handle both. | U042.md |
+| U042-F19 | **RESOLVED** `696c5f3f` | `session_watch.go:84` | ERRHANDLING | `sourceFlag, _ := cmd.Flags().GetString("source")` discards the lookup error, and the flag is registered in a *different file's* `init` (`session_watch.go:76`) from the `AddCommand` (`session_cmd.g... | U042.md |
 | U042-F21 | **RESOLVED** `a1171b9b` | `session_cmd.go:97-105` | NOPAY | `SessionEssence` is exported but named nowhere outside its own construction — not by another package, not by a test. | U042.md |
-| U042-F22 | open | `run_terminal_ui.go:116-122` | ERRHANDLING | `ExportDir` returns a non-empty path alongside a non-nil error: `return dir, os.MkdirAll(dir, 0o755)`. A caller that checks the path before the error gets a directory that does not exist. | U042.md |
+| U042-F22 | **REFUTED** `0a1165d0` | `run_terminal_ui.go:116-122` | ERRHANDLING | `ExportDir` returns a non-empty path alongside a non-nil error: `return dir, os.MkdirAll(dir, 0o755)`. A caller that checks the path before the error gets a directory that does not exist. | U042.md |
 | U042-F23 | **RESOLVED** `24e4e92e` | `run_terminal_ui.go:136-146` | TRIVIAL | `surroundRoster` declares an `error` return that is provably always `nil` on both paths, forcing every caller into a dead `if err != nil`. | U042.md |
 | U042-F24 | **RESOLVED** `24e4e92e` | `session_cmd.go:477-482` | TRIVIAL | `compactionModelFor` has exactly **one** production call site, so its stated rationale — "Shared so every distill path resolves it identically" — is not realised; `compactEntry` is already the sing... | U042.md |
-| U042-F25 | open | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
+| U042-F25 | **ESCALATED** `PENDING` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
 | U043-F10 | open | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
 | U043-F11 | open | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
 | U043-F12 | open | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |

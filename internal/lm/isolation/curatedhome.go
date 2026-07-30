@@ -60,9 +60,25 @@ import (
 // makes reachable inside a curated scratch HOME. This is an allowlist, not
 // a convenience default — extend it only when something CONCRETE breaks
 // needing a new entry, never speculatively. Deliberately excluded:
-// ~/.netrc, ~/.npmrc, ~/.gnupg — each carries plaintext tokens/keys of its
-// own, and widening the allowlist to include them would widen exactly the
-// blast radius this containment exists to limit.
+// ~/.netrc, ~/.npmrc, ~/.gnupg — nothing has been shown to need them, and an
+// entry nobody needs is one more thing to keep correct.
+//
+// MINIMALISM, NOT CONTAINMENT — the distinction matters, because reading this
+// list as a confidentiality boundary makes it look self-contradictory (it
+// admits all of ~/.ssh, every private key, while excluding ~/.netrc for
+// carrying secrets). A curated HOME is only ever set as the HOME env var of a
+// HOST process running as the SAME UID with no namespace of its own
+// (worktreeWorkspace.Env — the container path never uses it, see
+// container_worktree.go). That process can open ~/.netrc by absolute path
+// whether or not this list mentions it, so omitting an entry withholds nothing
+// and including one grants nothing that was not already reachable. What the
+// list actually decides is what the engine finds where it EXPECTS it, once
+// $HOME has moved out from under it.
+//
+// This is also why ~/.ssh being here is not a leak: reachability is unchanged
+// either way, and provisionCuratedHome SYMLINKS rather than copies, so no key
+// material is ever duplicated into the scratch tree (see its doc — that is the
+// property that would matter, and it is the one that is pinned).
 var curatedHomeAllowlist = []string{".gitconfig", ".ssh"}
 
 // curatedHomeSpec registers one engine whose ONLY host isolation lever is

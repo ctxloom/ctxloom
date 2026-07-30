@@ -58,7 +58,11 @@ const attachWaitDelay = time.Second
 // removes the container, so `docker logs` afterwards has nothing to read.
 func (a *AttachedContainer) StderrTail() string { return a.stderr.Tail() }
 
-// Close tears the container down. Safe to call once.
+// Close tears the container down. Safe to call once. A non-nil error means the
+// CONTAINER failed — it exited nonzero on its own inside the shutdown grace. A
+// teardown that had to force-remove and kill a container which ignored stdin EOF
+// is an ordinary shutdown and reports nil: the wait error there describes the
+// kill this teardown performed, not anything the caller can act on.
 func (a *AttachedContainer) Close() error {
 	grace := a.ShutdownGrace
 	if grace <= 0 {
@@ -157,8 +161,10 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContai
 			// (see DefaultShutdownGrace): everything below this select is
 			// destructive, and the async transcript flush it would race is
 			// unrecoverable once the container is removed.
+			exitedOnItsOwn := false
 			select {
 			case <-processDone:
+				exitedOnItsOwn = true
 			case <-time.After(grace):
 			}
 			if name != "" && rt.Binary() != "" {
@@ -174,6 +180,16 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContai
 				_ = cmd.Process.Kill()
 			}
 			<-processDone
+			if !exitedOnItsOwn {
+				// The grace expired, so everything above this point was teardown
+				// destroying the container on purpose. cmd.Wait then reports the
+				// removal/kill we performed ("signal: killed", or the client's
+				// nonzero exit after `rm -f` pulled the container out from under
+				// it) — an error we CAUSED, not one the caller can act on. Only
+				// the loud, unresolvable case is surfaced, by the remove warning
+				// above.
+				return nil
+			}
 			return waitErr
 		},
 	}, nil

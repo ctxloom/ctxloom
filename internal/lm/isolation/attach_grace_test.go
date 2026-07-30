@@ -102,3 +102,49 @@ func TestInteractiveRunArgs_InsertsAfterRun(t *testing.T) {
 		interactiveRunArgs([]string{"run", "--rm", "--name", "c", "img"}))
 	assert.Equal(t, []string{"run", "-i"}, interactiveRunArgs([]string{"run"}))
 }
+
+// attachExitScript writes a stub "container runtime" that reads stdin to EOF and
+// then exits with the given status — an engine that ends its own conversation
+// badly, as opposed to one teardown had to destroy.
+func attachExitScript(t *testing.T, status int) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "fake-exiting-runtime")
+	body := fmt.Sprintf("#!/bin/sh\ncat >/dev/null\nexit %d\n", status)
+	require.NoError(t, os.WriteFile(script, []byte(body), 0o755))
+	return script
+}
+
+// TestRunAttached_CloseIsCleanWhenTeardownForcedIt is U062-F05's regression.
+// Close's whole destructive tail — force-remove the container, kill the `run`
+// client — is teardown doing its job on a container that did not take the hint
+// from stdin EOF. cmd.Wait then reports "signal: killed", which Close returned
+// verbatim, so the caller could not tell an ordinary bounded teardown from a
+// real failure and every such shutdown looked broken. An error we caused is not
+// an error to report.
+func TestRunAttached_CloseIsCleanWhenTeardownForcedIt(t *testing.T) {
+	script := attachScript(t, "100", filepath.Join(t.TempDir(), "never"))
+
+	rt := attachRuntime{fakeRuntime{name: "docker", binary: script, available: true}}
+	ac, err := RunAttached(context.Background(), rt, RunSpec{})
+	require.NoError(t, err)
+	ac.ShutdownGrace = 50 * time.Millisecond
+
+	assert.NoError(t, ac.Close(),
+		"a container teardown force-killed is a normal shutdown, not a failure the caller must react to")
+}
+
+// TestRunAttached_CloseReportsAContainerThatDiedOnItsOwn is the other half: the
+// suppression above must be scoped to the kill WE performed. A container that
+// exits badly by itself, inside the grace window, is a real failure and its
+// status must still reach the caller — that exit code is often the only evidence
+// of why an engine adapter died.
+func TestRunAttached_CloseReportsAContainerThatDiedOnItsOwn(t *testing.T) {
+	rt := attachRuntime{fakeRuntime{name: "docker", binary: attachExitScript(t, 3), available: true}}
+	ac, err := RunAttached(context.Background(), rt, RunSpec{})
+	require.NoError(t, err)
+	ac.ShutdownGrace = 5 * time.Second
+
+	err = ac.Close()
+	require.Error(t, err, "a container that exited nonzero on its own is a real failure")
+	assert.Contains(t, err.Error(), "exit status 3")
+}

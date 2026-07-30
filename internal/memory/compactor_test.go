@@ -18,6 +18,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -205,6 +206,24 @@ func TestCompactor_ChunkText_NoTrailingOverlapDuplicate(t *testing.T) {
 		assert.False(t, strings.HasSuffix(chunks[i-1], chunks[i]),
 			"chunk %d is a pure-overlap duplicate of the tail of chunk %d", i, i-1)
 	}
+}
+
+// chunkText asks textutil.TruncateBytes for an INTEGER rune-boundary offset and
+// throws the string away. That reads as wasteful — the claim on record is that
+// it "allocates and copies up to n bytes" — and it does not: a Go string slice
+// shares the backing array with its source, so TruncateBytes re-slices and
+// never copies. This pins the property, so a future rewrite of TruncateBytes
+// that DOES copy (a []byte round trip, a strings.Builder) shows up here as the
+// per-chunk cost it would be, on text sized in hundreds of kilobytes (U129-F03).
+func TestCompactor_ChunkText_RuneBoundaryOffsetDoesNotCopy(t *testing.T) {
+	remaining := strings.Repeat("alpha b\u00e9ta gamma ", 20000) // ~440 KB, multibyte
+
+	allocs := testing.AllocsPerRun(100, func() {
+		// The exact idiom at both chunkText call sites.
+		_ = len(textutil.TruncateBytes(remaining, 100000))
+		_ = len(textutil.TruncateBytes(remaining, 98000))
+	})
+	assert.Zero(t, allocs, "computing a rune-boundary offset must not allocate")
 }
 
 func TestDistilledSession_RoundTrip(t *testing.T) {

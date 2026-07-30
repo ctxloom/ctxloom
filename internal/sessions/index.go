@@ -199,6 +199,12 @@ func (m *Manager) CommitUpgrade() error {
 		return nil
 	}
 
+	// Stages fired, so a rewrite is about to land over a non-empty index.
+	// Nothing to write is not a successful write: an empty payload would
+	// truncate the session index while this reports the upgrade as committed.
+	if len(upgraded) == 0 {
+		return fmt.Errorf("pending upgrade for %s carries no content; refusing to truncate it", m.path)
+	}
 	if err := iox.WriteFileAtomic(m.path, upgraded, 0o644); err != nil {
 		return err
 	}

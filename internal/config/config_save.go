@@ -55,6 +55,13 @@ func (c *Config) commitPendingUpgrade(p *upgrade.Pending) error {
 	if p == nil {
 		return nil
 	}
+	// Nothing to write is not a successful write. The caller has just asked the
+	// user to consent to a REWRITE, so returning nil says that rewrite landed —
+	// while an empty payload lands as a zero-byte config.yaml over a file that
+	// was valid until this moment.
+	if len(p.Data) == 0 {
+		return fmt.Errorf("pending upgrade for %s carries no content; refusing to truncate it", p.Path)
+	}
 	if err := iox.WriteFileAtomicFs(c.getFS(), p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
 	}

@@ -48,6 +48,54 @@ func TestMCPRegistrar_ConfigPath_CodexHome(t *testing.T) {
 		"project scope ignores CODEX_HOME")
 }
 
+// TestMCPRegistrar_UninstallParityWithSettingsWriter is the parity test across
+// the TWO writers of .codex/config.toml's [mcp_servers] table: MCPRegistrar
+// (byte-level, taskloom manage) and CodexHookWriter's removeManagedMCP
+// (whole-file, ctxloom's own reconcile). Removing the last server must leave
+// the SAME shape either way — an empty `[mcp_servers]` stanza from one and a
+// deleted key from the other is one file described two ways.
+func TestMCPRegistrar_UninstallParityWithSettingsWriter(t *testing.T) {
+	// The ctxloom server is the one BOTH writers own — removeManagedMCP only
+	// ever removes ctxloom's own entries, so it is the only name on which the
+	// two can be compared at all.
+	const oneServer = `[mcp_servers]
+[mcp_servers.ctxloom]
+args = ['mcp']
+command = 'ctxloom'
+`
+	viaRegistrar, err := (MCPRegistrar{}).Uninstall([]byte(oneServer), "ctxloom")
+	require.NoError(t, err)
+
+	cfg := map[string]any{"mcp_servers": map[string]any{
+		"ctxloom": map[string]any{"command": "ctxloom", "args": []any{"mcp"}},
+	}}
+	removeManagedMCP(cfg)
+	_, viaWriter := cfg["mcp_servers"]
+
+	assert.False(t, viaWriter, "the settings writer deletes an emptied mcp_servers key")
+	assert.NotContains(t, string(viaRegistrar), "mcp_servers",
+		"the registrar must agree: no empty [mcp_servers] stanza left behind")
+}
+
+// TestMCPRegistrar_UninstallAbsentIsByteForByteNoop pins agent.MCPRegistrar's
+// own contract — "removing a server that is not present is a no-op". A TOML
+// round-trip is not a no-op: it drops every comment, and a config.toml holding
+// only comments round-trips to ZERO BYTES, which taskloom manage then writes
+// over the user's file while reporting success.
+func TestMCPRegistrar_UninstallAbsentIsByteForByteNoop(t *testing.T) {
+	for _, tc := range []struct{ name, config string }{
+		{"comments only", "# codex config\n# model = 'gpt-5'\n"},
+		{"foreign keys and comments", "# keep me\nmodel = 'gpt-5'\n"},
+		{"other servers only", "[mcp_servers]\n[mcp_servers.ctxloom]\ncommand = 'ctxloom'\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := (MCPRegistrar{}).Uninstall([]byte(tc.config), "taskloom")
+			require.NoError(t, err)
+			assert.Equal(t, tc.config, string(out), "nothing to remove: the bytes are returned untouched")
+		})
+	}
+}
+
 func TestMCPRegistrar_InstallPreservesForeignTables(t *testing.T) {
 	existing := `[hooks]
 [[hooks.SessionStart]]

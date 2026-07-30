@@ -68,13 +68,31 @@ func (MCPRegistrar) Install(config []byte, name string, server wire.MCPServer) (
 }
 
 // Uninstall removes the named server from the config bytes.
+//
+// A server that is not there is a BYTE-FOR-BYTE no-op, not a round-trip: this
+// document model drops every comment, so re-marshalling a file nothing was
+// removed from silently rewrites it — and a config.toml holding only comments
+// re-marshals to ZERO BYTES, which the caller writes over the user's file
+// while reporting a successful removal.
+//
+// Emptying the table deletes the key, so the two writers of this file agree
+// about emptiness: removeManagedMCP (settings.go) drops an emptied
+// [mcp_servers] rather than leaving the bare stanza behind.
 func (MCPRegistrar) Uninstall(config []byte, name string) ([]byte, error) {
 	doc, err := mcpTOMLDoc(config)
 	if err != nil {
 		return nil, err
 	}
-	if servers, ok := doc["mcp_servers"].(map[string]any); ok {
-		delete(servers, name)
+	servers, ok := doc["mcp_servers"].(map[string]any)
+	if !ok {
+		return config, nil
+	}
+	if _, present := servers[name]; !present {
+		return config, nil
+	}
+	delete(servers, name)
+	if len(servers) == 0 {
+		delete(doc, "mcp_servers")
 	}
 	return toml.Marshal(doc)
 }

@@ -280,7 +280,13 @@ func TestResolveCodexProjectDir_IsolationProvided_StripsCodexSuffix(t *testing.T
 // override) — used AS the project dir directly rather than dropped, so
 // Setup and Execute still agree even on an unexpected shape.
 func TestResolveCodexProjectDir_IsolationProvided_UnexpectedShape(t *testing.T) {
-	dir, source := resolveCodexProjectDir(map[string]string{"CODEX_HOME": "/custom/home"}, "/proj", agent.CellKindShared)
+	var dir string
+	var source codexHomeSource
+	// The shape is announced (see _UnexpectedShape_IsAnnounced); capture the
+	// warning so it does not ride this package's test output.
+	captureStderr(t, func() {
+		dir, source = resolveCodexProjectDir(map[string]string{"CODEX_HOME": "/custom/home"}, "/proj", agent.CellKindShared)
+	})
 	assert.Equal(t, "/custom/home", dir)
 	assert.Equal(t, codexHomeIsolationProvided, source)
 }

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,161** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,162** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 78 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 128 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **756** |
+| `open` | no commit names this ID | **755** |
 
-**Totals: 2268 findings across 162 units — 1,161 resolved, 756 still open, 351 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,162 resolved, 755 still open, 351 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 378 | 431 | 43 | 56 | 91 |
+| MED | 999 | 379 | 430 | 43 | 56 | 91 |
 | LOW | 871 | 432 | 301 | 24 | 64 | 50 |
 | (unparsed) | 22 | 1 | 18 | 1 | 2 | 0 |
 
@@ -1769,7 +1769,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U116-F05 | open | `ptyrunner_goleak_test.go:16-62` vs `ptyrunner.go:104,165-208` | CORRECTNESS | **The goroutine-leak test is stale and verifies nothing about the goroutine it names.** Its doc describes a version of `RunInteractive` that read the process-global `os.Stdin`; the current signatur... | U116.md |
 | U116-F06 | open | `ptyrunner.go:104-254` | COMPLEXITY | `RunInteractive` is CCN 15 against a CI gate that fails above 10, with no `nolint` and no exclusion. Either the gate is not running or it is failing. | U116.md |
 | U116-F07 | open | `ptyrunner.go:113` | ERRHANDLING | `cmd.Args[1:]` panics on a hand-constructed `*exec.Cmd` with a nil `Args`, and silently discards `cmd.Args[0]` — so a caller deliberately setting a different argv[0] from `cmd.Path` gets it dropped... | U116.md |
-| U117-F02 | open | **`shellenv.go:147-151`** | ERRHANDLING | **The probe subprocess's stderr is discarded**, so when the login shell fails there is no way to learn why. The returned error carries only the exit status. This repo built a package for precisely ... | U117.md |
+| U117-F02 | **RESOLVED** `509a4e40` | **`shellenv.go:147-151`** | ERRHANDLING | **The probe subprocess's stderr is discarded**, so when the login shell fails there is no way to learn why. The returned error carries only the exit status. This repo built a package for precisely ... | U117.md |
 | U117-F03 | **REFUTED** `19711a87` | **`shellenv.go:41-43`, `:135-153`** | SILENTNOOP | `probeLoginShellPath` returns `("", nil)` — success with an empty payload — when the shell runs but prints nothing, and the cache blesses that as a valid outcome for the process lifetime. Guarded t... | U117.md |
 | U117-F04 | **PARTIAL** `d3689180` | `internal/shared/shellenv/shellenv.go:14` vs `internal/ltk/shellenv/shellenv.go:4` | DUPLICATE | **Two different packages in this module are both named `shellenv`, both take `$SHELL` as input, and both classify shells by basename — and neither knows about the other.** `loginShellArgs` hand-rol... | U117.md |
 | U118-F02 | open | `internal/vpio/dockerexec/dockerexec.go:261,273` | SILENTNOOP | The duplicate omits **both** safety guards the original has, and one of them is a latent zero-payload trap: `newTailRing` has no `max <= 0` guard, and `tail()` has no nil-receiver guard. | U118.md |

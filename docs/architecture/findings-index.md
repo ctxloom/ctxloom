@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,278** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,279** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 122 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **535** |
+| `open` | no commit names this ID | **534** |
 
-**Totals: 2268 findings across 162 units — 1,278 resolved, 535 still open, 455 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,279 resolved, 534 still open, 455 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 451 | 297 | 68 | 79 | 104 |
-| LOW | 871 | 470 | 226 | 39 | 81 | 55 |
+| LOW | 871 | 471 | 225 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2015,7 +2015,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U011-F15 | **RESOLVED** `60a1e136` | **`mapping.go:105–111`** | ERRHANDLING | `rawOnlyEvent` drops the frame on a marshal failure with no diagnostic, whereas the analogous decode failures in `session.go:781,793,835` all `warnf("acp: dropping malformed …")`. Inconsistent with... | U011.md |
 | U011-F16 | **RESOLVED** `202e824f` | **`mapping.go:464–477`** | CORRECTNESS | `toolContentText` handles `Content` and `Diff` but not `Terminal`, while its structural twin `toolContentToIR` (:449) does. A tool result whose content is terminal-only flattens to `""`, which at :... | U011.md |
 | U011-F17 | **PARTIAL** `ac233164` | `procgroup_windows.go:18–23` | NOPAY | The Windows `killProcessGroup` is documented as knowingly leaking the double-forked worker that the unix version exists to reap; nothing warns the operator. Whether ctxloom claims Windows support a... | U011.md |
-| U012-F13 | open | **`session.go:675–684`** | CORRECTNESS | `mediaBlockDetail` reports the base64 character count as a byte count, overstating real size by ~33% in a message the model reads | U012.md |
+| U012-F13 | **RESOLVED** `7d57e44b` | **`session.go:675–684`** | CORRECTNESS | `mediaBlockDetail` reports the base64 character count as a byte count, overstating real size by ~33% in a message the model reads | U012.md |
 | U012-F14 | **RESOLVED** `72f7f6bf` | **`session.go:1227–1232`** | TRIVIAL | `stampTime` is a single `if` with one caller and no invariant of its own | U012.md |
 | U012-F15 | open | **`session.go:246 vs acp.go:546`** | COUPLING | Two different `spawnEnv`s in one package — a method on `*ACP` (model overlay) and a package function (strip + overlay) — with unrelated semantics | U012.md |
 | U012-F16 | open | **`session.go:305, 105`** | COMPLEXITY | `setup` returns five unlabelled values `(api.SessionId, engineCapabilities, []api.SessionConfigOption, []agent.MCPStatus, error)`, and each of its five error paths must repeat all of them | U012.md |

@@ -113,9 +113,10 @@ func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCo
 // pre-seed (white-dawn §2.2A): when trustAbsPath is non-empty, it appends
 // `[projects."<trustAbsPath>"] trust_level = "trusted"` to the written
 // config.toml so codex does not re-prompt for trust the FIRST time it reads a
-// config.toml it has never seen before (an isolation-provided, per-run
-// CODEX_HOME — see internal/codex/backend.go's resolveCodexProjectDir). Safe
-// ONLY there: the file is ephemeral and never committed, so a
+// config.toml it has never seen before (either EPHEMERAL home — an
+// isolation-provided per-run CODEX_HOME, or a container cell's own fresh
+// $HOME; see internal/codex/backend.go's resolveCodexProjectDir). Safe ONLY
+// there: the file is ephemeral and never committed, so a
 // machine-specific absolute path baked in is harmless — unlike the in-tree
 // materialize/apply path, which never passes trustAbsPath and stays exactly
 // as WriteSettings behaved before this method existed (the trust key that

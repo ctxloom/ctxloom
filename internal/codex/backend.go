@@ -59,10 +59,13 @@ type Codex struct {
 	// where CODEX_HOME points. See resolveCodexProjectDir.
 	resolvedProjectDir string
 	// resolvedTrustAbsPath is the absolute WorkDir to pre-seed
-	// `[projects."<path>"] trust_level = "trusted"` for, set ONLY when
-	// resolveCodexProjectDir found an isolation-provided CODEX_HOME (an
-	// ephemeral, never-committed home safe to auto-trust) — "" for the
-	// in-tree/None path, which never pre-seeds trust.
+	// `[projects."<path>"] trust_level = "trusted"` for, set for BOTH
+	// EPHEMERAL axes resolveCodexProjectDir can land on — an isolation-provided
+	// CODEX_HOME and a container cell's own fresh $HOME (codexHomeSource's
+	// non-in-tree members). Each is a per-run home that is never committed, so
+	// a machine-specific absolute path baked into it is harmless. "" for the
+	// in-tree/None path, whose config.toml lives in the user's own tree and so
+	// never pre-seeds trust.
 	resolvedTrustAbsPath string
 	// credentialErr is set by Setup (ensureCodexCredentials) when this run's
 	// CODEX_HOME has no usable codex credentials AND Setup could not seed/

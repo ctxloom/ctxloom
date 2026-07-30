@@ -262,3 +262,65 @@ func drainToClose(events <-chan agent.ChatEvent) (answer, completion bool) {
 	}
 	return answer, completion
 }
+
+// TestOpenHarnessEngine_IgnoresEverythingButTheResumedHarp pins U001-F06's
+// refutation: the L1 harness reads exactly ONE field of the OpenRequest and
+// populates exactly the protocol-level fields of the EngineChat. That is the
+// design this binary's package doc states — "it never touches ctxloom config,
+// credentials, or a real LLM" — not an oversight, and honoring the rest would
+// require the harness to fabricate ctxloom config it deliberately has none of.
+//
+// The surfaces left unset are not untested; each has a named in-process test in
+// internal/acpagent, which is where a fake with no protocol boundary belongs:
+//
+//	Modes          TestServe_SessionModes
+//	Commands       TestServe_AvailableCommandsUpdate (+ the commands_test.go set)
+//	LLMs           TestServe_AdvertisesLLMs
+//	WatchChildren  TestServe_ChildUpdatePush, ..._NilIsANoop
+//	InitSummary    TestServe_Announcement*, incl. ..._AbsentWhenUnset, which pins
+//	               that an unset summary emits NO frame — the exact arrangement
+//	               this harness relies on
+//	MCPServers     TestServe_McpServersPassThrough
+//	FsUpstreamAddr internal/acpagent/fsupstream_test.go
+//
+// This test is red the moment the harness starts deriving session furniture
+// from the request, which is what re-opens the question.
+func TestOpenHarnessEngine_IgnoresEverythingButTheResumedHarp(t *testing.T) {
+	full := operations.OpenRequest{
+		Cwd:             t.TempDir(),
+		Profile:         "some-profile",
+		MCPServers:      []agent.ChatMCPServer{{Name: "srv", Command: "true"}},
+		FsUpstreamAddr:  "/tmp/does-not-exist.sock",
+		ForwardTerminal: true,
+	}
+	chat, err := openHarnessEngine(context.Background(), full)
+	if err != nil {
+		t.Fatalf("openHarnessEngine: %v", err)
+	}
+	defer chat.Close()
+
+	if chat.Context != "" {
+		t.Errorf("Context = %q, want none: this harness tests the protocol layer, not context assembly", chat.Context)
+	}
+	if chat.Modes != nil {
+		t.Errorf("Modes = %+v, want nil", chat.Modes)
+	}
+	if chat.Commands != nil {
+		t.Errorf("Commands = %+v, want nil", chat.Commands)
+	}
+	if chat.LLMs != nil {
+		t.Errorf("LLMs = %+v, want nil", chat.LLMs)
+	}
+	if chat.AssembleMode != nil {
+		t.Error("AssembleMode set: mode switching re-assembles ctxloom context, which this harness has none of")
+	}
+	if chat.WatchChildren != nil {
+		t.Error("WatchChildren set: the harness hosts no coordinator")
+	}
+	if chat.InitSummary != "" {
+		t.Errorf("InitSummary = %q, want empty (TestServe_AnnouncementAbsentWhenUnset pins that this emits no frame)", chat.InitSummary)
+	}
+	if len(chat.Replay) != 0 {
+		t.Errorf("Replay = %+v, want none for a non-resumed request", chat.Replay)
+	}
+}

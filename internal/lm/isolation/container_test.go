@@ -242,3 +242,26 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 	})
 }
+
+// TestContainerName_AgreesWithSanitizeAgentID pins the SHARED sanitization
+// behaviour the container-name builder and the path/email segment builder must
+// keep in common: both render an agent id through containerNameSafe, trim the
+// separator characters, and fall back to "agent" when nothing survives. The two
+// bodies were byte-identical, so no parity test could ever be red against them —
+// this instead fixes the behaviour ACROSS the seam, so collapsing one onto the
+// other is provably behaviour-preserving and a later divergence fails here.
+func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
+	for _, id := range []string{
+		"m",
+		"code review/aspect:sec",
+		"///",
+		"",
+		"-._weird-._",
+		"UPPER_lower.9",
+		"a b\tc\nd",
+	} {
+		assert.True(t,
+			strings.HasPrefix(containerName(id), "ctxloom-iso-"+sanitizeAgentID(id)+"-"),
+			"containerName(%q) must embed exactly sanitizeAgentID(%q)=%q", id, id, sanitizeAgentID(id))
+	}
+}

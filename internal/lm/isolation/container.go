@@ -992,12 +992,7 @@ var containerNameSafe = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
 // containerName builds a unique, teardown-targetable container name from the
 // agent id plus a random suffix (concurrent members must not collide).
 func containerName(agentID string) string {
-	id := containerNameSafe.ReplaceAllString(agentID, "-")
-	id = strings.Trim(id, "-._")
-	if id == "" {
-		id = "agent"
-	}
-	return fmt.Sprintf("ctxloom-iso-%s-%s", id, randToken())
+	return fmt.Sprintf("ctxloom-iso-%s-%s", sanitizeAgentID(agentID), randToken())
 }
 
 // randToken returns a short random hex token for uniqueness. On the (astronomically

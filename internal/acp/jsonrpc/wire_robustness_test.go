@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // lockedBuffer captures the frames a Conn writes without racing the read loop,
@@ -54,6 +56,27 @@ func notifyRecorder(ch chan<- string) *mockHandler {
 	}}
 }
 
+// captureWarnings redirects clidiag's process-wide warning sink for the test
+// and returns an accessor for what the codec wrote there. The read loop warns
+// from its own goroutine, hence the locked buffer.
+func captureWarnings(t *testing.T) func() string {
+	t.Helper()
+	buf := &lockedBuffer{}
+	restore := clidiag.SetSink(buf)
+	t.Cleanup(restore)
+	return buf.String
+}
+
+// waitDone fails the test if the read loop has not finished with the script.
+func waitDone(t *testing.T, c *Conn) {
+	t.Helper()
+	select {
+	case <-c.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("read loop never reached EOF")
+	}
+}
+
 // TestRouteResponse_DuplicateResponseDoesNotWedgeTheReadLoop pins U013-F04: a
 // peer that sends two responses for one id must not be able to park the read
 // loop forever. routeResponse ran `ch <- m` on the read-loop goroutine against
@@ -90,4 +113,27 @@ func TestRouteResponse_DuplicateResponseDoesNotWedgeTheReadLoop(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("read loop never reached EOF after a duplicate response")
 	}
+}
+
+// TestRouteResponse_NullIDErrorIsSurfaced pins U013-F05: JSON-RPC 2.0 mandates
+// `"id": null` on an error the peer cannot attribute to a request — a Parse
+// error (-32700) or an Invalid Request (-32600), i.e. exactly the cases where
+// the peer could not read what WE sent. Unmarshalling JSON null into an int64
+// is a documented no-op in encoding/json, so the frame used to route as id 0 —
+// an id this codec never allocates, since ids start at 1 — and the peer's
+// report was reduced to "dropping response for unknown id 0", with the code
+// and message thrown away. The one diagnostic that says our own output was
+// unreadable must not be the one we discard.
+func TestRouteResponse_NullIDErrorIsSurfaced(t *testing.T) {
+	warnings := captureWarnings(t)
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}`,
+	}, &mockHandler{})
+	conn.Start(context.Background())
+	waitDone(t, conn)
+
+	got := warnings()
+	assert.Contains(t, got, "-32700", "the peer's error code must survive")
+	assert.Contains(t, got, "Parse error", "the peer's error message must survive")
+	assert.NotContains(t, got, "unknown id 0", "a null id is not id 0")
 }

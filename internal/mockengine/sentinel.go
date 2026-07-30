@@ -47,9 +47,16 @@ type Outcome struct {
 // Dispatch resolves a prompt (and the controlling environment) to an Outcome.
 // Prompt-embedded sentinels decide first; explicit env knobs override, because a
 // test that owns the child's env is making a deliberate, unambiguous request.
-func Dispatch(prompt string, getenv func(string) string) Outcome {
-	if getenv == nil {
-		getenv = func(string) string { return "" }
+//
+// lookup is the TWO-VALUE environment reader, for the same reason ObserveEnv
+// takes one: an override SET TO THE EMPTY STRING is a request for an empty
+// engine reply, and the one-value form cannot tell that from an unset variable.
+// A zero-byte reply is the shape ctxloom's characteristic bug produces, so the
+// knob that lets a test prove ctxloom surfaces one rather than papering over it
+// must be expressible.
+func Dispatch(prompt string, lookup func(string) (string, bool)) Outcome {
+	if lookup == nil {
+		lookup = func(string) (string, bool) { return "", false }
 	}
 
 	out := Outcome{ExitCode: 0, Response: "mock-engine: ok"}
@@ -62,10 +69,10 @@ func Dispatch(prompt string, getenv func(string) string) Outcome {
 		out.Response = "mock-engine: " + echoPayload(prompt)
 	}
 
-	if v := getenv(EnvResponse); v != "" {
+	if v, ok := lookup(EnvResponse); ok {
 		out.Response = v
 	}
-	if v := getenv(EnvExitCode); v != "" {
+	if v, ok := lookup(EnvExitCode); ok && strings.TrimSpace(v) != "" {
 		if code, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
 			out.ExitCode = code
 		}

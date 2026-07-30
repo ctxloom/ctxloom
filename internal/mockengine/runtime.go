@@ -21,14 +21,15 @@ type Runtime struct {
 	Argv agent.ParsedArgv
 	// Res resolves probe roots (cwd/home/env).
 	Res Resolver
-	// Getenv reads the controlling environment (sentinel knobs, report file).
+	// Getenv reads the controlling environment where presence alone carries no
+	// meaning — today, the report-file path.
 	Getenv func(string) string
-	// LookupEnv is the TWO-VALUE reader used for the declared env-contract
-	// observation (os.LookupEnv in production). It exists separately from
-	// Getenv because that half of the contract turns on the difference between
-	// an unset variable and one set to the empty string, which the one-value
-	// form cannot express — and "set to nothing" is exactly what a delivery
-	// that ran and passed nothing looks like.
+	// LookupEnv is the TWO-VALUE reader used wherever "unset" and "set to the
+	// empty string" are different requests: the declared env-contract
+	// observation, and the sentinel override knobs. It exists separately from
+	// Getenv because the one-value form cannot express that difference — and
+	// "set to nothing" is exactly what a delivery that ran and passed nothing,
+	// or an engine reply of zero bytes, looks like. os.LookupEnv in production.
 	LookupEnv func(string) (string, bool)
 	// Stdin is the child's stdin — the oneshot prompt channel.
 	Stdin io.Reader
@@ -98,7 +99,7 @@ func (r *Runtime) Run() int {
 		return 1
 	}
 
-	outcome := Dispatch(string(prompt), r.getenv)
+	outcome := Dispatch(string(prompt), r.lookupenv)
 
 	if err := r.render(len(prompt), outcome); err != nil {
 		fmt.Fprintf(r.stderr(), "mock-engine: render error: %v\n", err)

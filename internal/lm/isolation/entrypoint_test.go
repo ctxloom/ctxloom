@@ -26,7 +26,7 @@ func entrypointRun(t *testing.T, shims map[string]string, env []string, args ...
 	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "entrypoint.sh")
-	require.NoError(t, os.WriteFile(script, containerfiles.Entrypoint, 0o755))
+	require.NoError(t, os.WriteFile(script, containerfiles.Entrypoint(), 0o755))
 	shimDir := filepath.Join(dir, "bin")
 	require.NoError(t, os.Mkdir(shimDir, 0o755))
 	for name, body := range shims {

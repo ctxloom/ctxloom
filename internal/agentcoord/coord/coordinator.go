@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
@@ -211,7 +212,12 @@ type Coordinator struct {
 	// goroutine racing that teardown is this package's worst flake class.
 	tracked trackedGroup
 
-	srv *coordServing // listeners (httpserver.go); nil until Serve
+	// srv is the listener set (httpserver.go), nil until Serve. ATOMIC, not
+	// mu-guarded: Serve publishes it while the spawn path (ReachURL, building
+	// a child's env) and Close read it from other goroutines, and those
+	// readers must not have to take the coordinator's big lock — nor can they
+	// be allowed to observe a half-published coordServing.
+	srv atomic.Pointer[coordServing]
 
 	// execGaugeHook, if set (tests only), is sampled synchronously every time
 	// a run's §6a state durably transitions (setState, terminateRun): it
@@ -239,76 +245,26 @@ type Coordinator struct {
 // orchestration core. Listeners come up separately via Serve (httpserver.go)
 // so tests can run the core without ports.
 func New(opts Options) (*Coordinator, error) {
-	now := opts.Clock
-	if now == nil {
-		now = time.Now
+	claim, err := acquireStateDir(opts)
+	if err != nil {
+		return nil, err
 	}
-	turnCap := opts.TurnCap
-	if turnCap <= 0 {
-		turnCap = agentTurnCap
-	}
-	endedRunTail := opts.EndedRunTail
-	if endedRunTail <= 0 {
-		endedRunTail = defaultEndedRunTail
-	}
-	endedRunMaxAge := opts.EndedRunMaxAge
-	if endedRunMaxAge <= 0 {
-		endedRunMaxAge = defaultEndedRunMaxAge
-	}
-	runnerAwaitTimeout := opts.RunnerAwaitTimeout
-	if runnerAwaitTimeout <= 0 {
-		runnerAwaitTimeout = defaultRunnerAwaitTimeout
-	}
-	// The launch-retry budget has no Options field (deliberately — it is an
-	// operator/env tunable, not a per-call test seam): resolved once, here,
-	// from the environment (resolveLaunchTunables), never per attempt.
-	maxLaunchAttempts, launchBackoffBase, launchBackoffMax := resolveLaunchTunables()
-	stateDir := opts.StateDir
-	var release func()
-	ephemeral := false
-	if stateDir == "" {
-		key := opts.ProjectKey
-		if key == "" {
-			key = filepath.Base(opts.ProjectDir) + "-" + hashToken(opts.ProjectDir)[:12]
-		}
-		dir, err := stateDirForProject(key)
-		if err != nil {
-			return nil, err
-		}
-		rel, err := claimOwner(dir)
-		if err != nil {
-			// Another live session-owning process holds this project's
-			// journals: single writer per journal holds across processes,
-			// so this coordinator runs on an ephemeral state dir (no
-			// adoption; its own state dies with it). Warned, not fatal —
-			// concurrent sessions in one project are legitimate.
-			clidiag.Warn("ctxloom", "coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
-			tmp, terr := os.MkdirTemp("", "ctxloom-coord-")
-			if terr != nil {
-				return nil, fmt.Errorf("coord: ephemeral state dir: %w", terr)
-			}
-			dir = tmp
-			ephemeral = true
-		} else {
-			release = rel
-		}
-		stateDir = dir
-	}
+	t := resolveTunables(opts)
 
 	c := &Coordinator{
 		projectDir:         opts.ProjectDir,
-		stateDir:           stateDir,
-		ephemeral:          ephemeral,
-		now:                now,
-		releaseOwner:       release,
+		stateDir:           claim.dir,
+		ephemeral:          claim.ephemeral,
+		now:                t.now,
+		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
-		slots:              newTurnSlots(turnCap),
-		endedRunTail:       endedRunTail,
-		endedRunMaxAge:     endedRunMaxAge,
-		runnerAwaitTimeout: runnerAwaitTimeout,
-		maxLaunchAttempts:  maxLaunchAttempts,
-		launchBackoffBase:  launchBackoffBase,
-		launchBackoffMax:   launchBackoffMax,
+		slots:              newTurnSlots(t.turnCap),
+		endedRunTail:       t.endedRunTail,
+		endedRunMaxAge:     t.endedRunMaxAge,
+		runnerAwaitTimeout: t.runnerAwaitTimeout,
+		maxLaunchAttempts:  t.maxLaunchAttempts,
+		launchBackoffBase:  t.launchBackoffBase,
+		launchBackoffMax:   t.launchBackoffMax,
 		watch:              newWatchHub(),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
@@ -324,54 +280,13 @@ func New(opts Options) (*Coordinator, error) {
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		if opts.Cfg == nil {
-			c.closePartial()
-			return nil, errors.New("coord: Options.Cfg is required without an injected Spawner")
+			return nil, c.abortNew(errors.New("coord: Options.Cfg is required without an injected Spawner"))
 		}
 		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Factory)
 	}
-
-	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
-	runs, err := openStore(filepath.Join(stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
-	if err != nil {
-		c.closePartial()
-		return nil, err
+	if err := c.openJournals(); err != nil {
+		return nil, c.abortNew(err)
 	}
-	c.runs = runs
-	c.mailF = newMailFold()
-	mail, err := openStore(filepath.Join(stateDir, "mailbox.jsonl"), c.mailF)
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.mail = mail
-	c.itemsF = newItemsFold()
-	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
-	// common case is none, a fresh project) seeds the fold and replay
-	// starts at its offset instead of byte 0 — openStoreFromOffset falls
-	// back to a full replay by itself if the offset is stale (journal.go).
-	itemsOffset := int64(0)
-	if snap, ok := loadItemsSnapshot(stateDir); ok {
-		c.itemsF.restore(snap)
-		itemsOffset = snap.Offset
-	}
-	items, err := openStoreFromOffset(filepath.Join(stateDir, "items.jsonl"), itemsOffset, c.itemsF)
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.items = items
-	auditJ, err := openStore(filepath.Join(stateDir, "interactions.jsonl"))
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.auditJ = auditJ
-	artifacts, err := newArtifactStore(stateDir)
-	if err != nil {
-		c.closePartial()
-		return nil, err
-	}
-	c.artifacts = artifacts
 
 	c.adopt()
 	c.goTracked(c.runnerWatchdog)
@@ -382,6 +297,153 @@ func New(opts Options) (*Coordinator, error) {
 	// progress, and only ever warns.
 	c.goTracked(c.livenessWatchdog)
 	return c, nil
+}
+
+// abortNew unwinds a coordinator New never returned: cancel the base context,
+// release the journals and the owner lock (closePartial), and REMOVE an
+// ephemeral state dir this call itself created. Returns err unchanged so every
+// failure path reads `return nil, c.abortNew(err)`.
+//
+// The ephemeral removal is the part that mattered: the fallback mints a fresh
+// os.MkdirTemp dir, and a New that then failed left it behind with nobody
+// holding a reference to it — one stranded 0700 directory per attempt, since
+// nothing else knows the name.
+func (c *Coordinator) abortNew(err error) error {
+	c.cancel()
+	c.closePartial()
+	if c.ephemeral {
+		_ = os.RemoveAll(c.stateDir)
+	}
+	return err
+}
+
+// tunables is New's resolved configuration: every Options fallback applied
+// ONCE, at construction, so no hot path re-derives one.
+type tunables struct {
+	now                func() time.Time
+	turnCap            int
+	endedRunTail       int
+	endedRunMaxAge     time.Duration
+	runnerAwaitTimeout time.Duration
+	maxLaunchAttempts  int
+	launchBackoffBase  time.Duration
+	launchBackoffMax   time.Duration
+}
+
+// resolveTunables applies each Options field's documented fallback.
+func resolveTunables(opts Options) tunables {
+	t := tunables{
+		now:                opts.Clock,
+		turnCap:            opts.TurnCap,
+		endedRunTail:       opts.EndedRunTail,
+		endedRunMaxAge:     opts.EndedRunMaxAge,
+		runnerAwaitTimeout: opts.RunnerAwaitTimeout,
+	}
+	if t.now == nil {
+		t.now = time.Now
+	}
+	if t.turnCap <= 0 {
+		t.turnCap = agentTurnCap
+	}
+	if t.endedRunTail <= 0 {
+		t.endedRunTail = defaultEndedRunTail
+	}
+	if t.endedRunMaxAge <= 0 {
+		t.endedRunMaxAge = defaultEndedRunMaxAge
+	}
+	if t.runnerAwaitTimeout <= 0 {
+		t.runnerAwaitTimeout = defaultRunnerAwaitTimeout
+	}
+	// The launch-retry budget has no Options field (deliberately — it is an
+	// operator/env tunable, not a per-call test seam): resolved once, here,
+	// from the environment (resolveLaunchTunables), never per attempt.
+	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables()
+	return t
+}
+
+// stateDirClaim is an acquired state dir plus how it was acquired: release
+// frees the exclusive-owner lock (nil when there is none), and ephemeral marks
+// a per-process dir whose contents die with this coordinator.
+type stateDirClaim struct {
+	dir       string
+	release   func()
+	ephemeral bool
+}
+
+// acquireStateDir resolves and claims the coordinator's state dir: an explicit
+// Options.StateDir verbatim (tests), otherwise the project's durable dir under
+// its exclusive-owner lock, otherwise an ephemeral fallback.
+func acquireStateDir(opts Options) (stateDirClaim, error) {
+	if opts.StateDir != "" {
+		return stateDirClaim{dir: opts.StateDir}, nil
+	}
+	key := opts.ProjectKey
+	if key == "" {
+		key = pathDerivedProjectKey(opts.ProjectDir)
+	}
+	dir, err := stateDirForProject(key)
+	if err != nil {
+		return stateDirClaim{}, err
+	}
+	release, err := claimOwner(dir)
+	if err == nil {
+		return stateDirClaim{dir: dir, release: release}, nil
+	}
+	// Another live session-owning process holds this project's journals:
+	// single writer per journal holds across processes, so this coordinator
+	// runs on an ephemeral state dir (no adoption; its own state dies with
+	// it). Warned, not fatal — concurrent sessions in one project are
+	// legitimate.
+	clidiag.Warn("ctxloom", "coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
+	tmp, terr := os.MkdirTemp("", "ctxloom-coord-")
+	if terr != nil {
+		return stateDirClaim{}, fmt.Errorf("coord: ephemeral state dir: %w", terr)
+	}
+	return stateDirClaim{dir: tmp, ephemeral: true}, nil
+}
+
+// openJournals builds the folds and opens every journal (plus the artifact
+// blob store) in the claimed state dir. On failure the caller aborts; each
+// store opened so far is closed by closePartial.
+func (c *Coordinator) openJournals() error {
+	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
+	if err != nil {
+		return err
+	}
+	c.runs = runs
+	c.mailF = newMailFold()
+	mail, err := openStore(filepath.Join(c.stateDir, "mailbox.jsonl"), c.mailF)
+	if err != nil {
+		return err
+	}
+	c.mail = mail
+	c.itemsF = newItemsFold()
+	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
+	// common case is none, a fresh project) seeds the fold and replay
+	// starts at its offset instead of byte 0 — openStoreFromOffset falls
+	// back to a full replay by itself if the offset is stale (journal.go).
+	itemsOffset := int64(0)
+	if snap, ok := loadItemsSnapshot(c.stateDir); ok {
+		c.itemsF.restore(snap)
+		itemsOffset = snap.Offset
+	}
+	items, err := openStoreFromOffset(filepath.Join(c.stateDir, "items.jsonl"), itemsOffset, c.itemsF)
+	if err != nil {
+		return err
+	}
+	c.items = items
+	auditJ, err := openStore(filepath.Join(c.stateDir, "interactions.jsonl"))
+	if err != nil {
+		return err
+	}
+	c.auditJ = auditJ
+	artifacts, err := newArtifactStore(c.stateDir)
+	if err != nil {
+		return err
+	}
+	c.artifacts = artifacts
+	return nil
 }
 
 // goTracked runs fn on a new goroutine Close() joins (waitTracked) before
@@ -482,8 +544,8 @@ func (c *Coordinator) Close() {
 				closeFn()
 			}
 		}
-		if c.srv != nil {
-			c.srv.close()
+		if srv := c.srv.Load(); srv != nil {
+			srv.close()
 		}
 		c.waitTracked()
 		c.closePartial()
@@ -494,18 +556,29 @@ func (c *Coordinator) Close() {
 }
 
 // closePartial releases what New acquired so far (also Close's tail).
+//
+// A journal that fails to CLOSE is warned about, naming it: Store.Close closes
+// the file handle, so this is the last moment an ENOSPC/EIO on the final flush
+// can be observed at all — and such a failure retracts the durability the
+// coordinator already claimed to every command it answered. Teardown proceeds
+// regardless (there is nothing left to retry) and Close reports no error to
+// its caller, so the warning is the whole signal.
 func (c *Coordinator) closePartial() {
-	if c.runs != nil {
-		_ = c.runs.Close()
+	var errs []error
+	shut := func(name string, s *Store) {
+		if s == nil {
+			return
+		}
+		if err := s.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
 	}
-	if c.mail != nil {
-		_ = c.mail.Close()
-	}
-	if c.items != nil {
-		_ = c.items.Close()
-	}
-	if c.auditJ != nil {
-		_ = c.auditJ.Close()
+	shut("runs.jsonl", c.runs)
+	shut("mailbox.jsonl", c.mail)
+	shut("items.jsonl", c.items)
+	shut("interactions.jsonl", c.auditJ)
+	if len(errs) > 0 {
+		clidiag.Warn("ctxloom", "coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}
 	if c.releaseOwner != nil {
 		c.releaseOwner()
@@ -612,32 +685,45 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 		}
 	}
 	if caller.IsChild() {
-		parent := ""
-		c.runs.View(func() {
-			if r := c.runsF.currentRun(caller.Harp); r != nil {
-				parent = r.ParentHarp
-			}
-		})
-		if parent == "" {
-			return "", false, "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
-		}
-		if to != ParentAddress && to != parent {
-			return "", false, "", ErrPeerRouting
-		}
-		c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-		// NO DOUBLE DELIVERY (blunt-whiff): this child reported to its
-		// parent in its own words, so the automatic turn-boundary bridge
-		// (children.go's bridgeTurnResult) must not report the same turn
-		// again. Marked here — the one place a child→parent send is
-		// accepted — rather than at either call site.
-		c.noteChildReported(caller.Harp)
-		id, completed, qerr := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
-		if qerr != nil {
-			return "", false, "", qerr
-		}
-		return id, completed, "sent to the coordinator", nil
+		return c.childSend(caller, to, kind, body, structured, inReplyTo)
 	}
+	return c.ownerSend(caller, to, kind, body, structured, inReplyTo)
+}
 
+// childSend is peerSend's HUB-AND-SPOKE half: a delegated child addresses only
+// its own parent, resolved from journaled lineage — by ParentAddress or by the
+// parent's own harp, nothing else.
+func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, string, error) {
+	parent := ""
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(caller.Harp); r != nil {
+			parent = r.ParentHarp
+		}
+	})
+	if parent == "" {
+		return "", false, "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
+	}
+	if to != ParentAddress && to != parent {
+		return "", false, "", ErrPeerRouting
+	}
+	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
+	// NO DOUBLE DELIVERY (blunt-whiff): this child reported to its parent in
+	// its own words, so the automatic turn-boundary bridge (children.go's
+	// bridgeTurnResult) must not report the same turn again. Marked here — the
+	// one place a child→parent send is accepted — rather than at either call
+	// site.
+	c.noteChildReported(caller.Harp)
+	id, completed, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
+	if err != nil {
+		return "", false, "", err
+	}
+	return id, completed, "sent to the coordinator", nil
+}
+
+// ownerSend is peerSend's other half: the session owner addressing one of its
+// own children by harp. The disposition names the §6a state the delivery
+// observed (deliveryDisposition).
+func (c *Coordinator) ownerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, string, error) {
 	if to == ParentAddress {
 		return "", false, "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
@@ -647,7 +733,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 		return "", false, "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
-	msgID, delivered, err = c.queueMailPayload(caller.Harp, to, kind, body, structured, inReplyTo)
+	msgID, delivered, err := c.queueMailPayload(caller.Harp, to, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", false, "", err
 	}

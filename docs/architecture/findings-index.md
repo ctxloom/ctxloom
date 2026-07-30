@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,278** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,279** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 122 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 169 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **534** |
+| `open` | no commit names this ID | **533** |
 
-**Totals: 2268 findings across 162 units — 1,278 resolved, 534 still open, 456 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,279 resolved, 533 still open, 456 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 451 | 297 | 68 | 79 | 104 |
+| MED | 999 | 452 | 296 | 68 | 79 | 104 |
 | LOW | 871 | 470 | 225 | 39 | 82 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1664,7 +1664,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U095-F10 | **ESCALATED** (gn/vital-deaf-stunt) | **`search.go:33-39, :73-101, :131`** | CORRECTNESS | Multiple `tag:` clauses are folded into one `TagQuery`, so the **last** clause's operator and any `NOT` apply to every tag; and a clause with only operators (`tag:NOT`) yields zero tags, which make... | U095.md |
 | U095-F11 | **ESCALATED** (gn/vital-deaf-stunt) | `repo_cache.go:16-31` | CORRECTNESS | The clone-directory lock is a process-local `sync.Map`, but the failure it documents (concurrent `RemoveAll`+clone corrupting a directory) occurs across processes too — and this project routinely r... | U095.md |
 | U095-F12 | **RESOLVED** `6b12fb65` | `repo_cache.go:273-284 vs :258-264` | CORRECTNESS | The cache key drops `.`/`..` segments and does **not** lowercase the host, while `cloneHost` (used for the auth header) **does** lowercase. Result: distinct URLs share one clone directory, and a mi... | U095.md |
-| U096-F04 | open | **`schema.go:105`** | CORRECTNESS | `schemaChild` handles no array keyword (`items`, `prefixItems`), so `KnownPath` returns false for every path that crosses an array. | U096.md |
+| U096-F04 | **RESOLVED** `d156fb83` | **`schema.go:105`** | CORRECTNESS | `schemaChild` handles no array keyword (`items`, `prefixItems`), so `KnownPath` returns false for every path that crosses an array. | U096.md |
 | U096-F05 | open | **`schema.go:118`; `config-schema.json:605`** | CORRECTNESS | `AdditionalProperties` is a `nil \ | U096.md |
 | U096-F08 | **RESOLVED** `e479306b` | `cmd/validate/main.go:20-45` | SILENTNOOP | The pre-build schema gate **exits 0 having validated nothing**, and on CI it always does. | U096.md |
 | U096-F12 | open | **`schema.go:52`** | SILENTNOOP | `ValidateBytes` never checks for empty input; empty-file rejection is inherited from the schema's root `"type"`, not enforced here — so it is a property of the two embedded schemas, not of the API. | U096.md |

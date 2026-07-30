@@ -329,3 +329,44 @@ func TestProbeLoginShellPath_FailureCarriesTheShellsStderr(t *testing.T) {
 		"the shell's own diagnosis is the only thing that names the broken startup file")
 	assert.Contains(t, err.Error(), "127", "the exit status must survive alongside it")
 }
+
+// TestResolve_SkipsAFileTheCurrentUserCannotExecute pins U117-F05.
+// isExecutableFile tested RAW MODE BITS (Mode()&0o111 != 0), which asks "does
+// SOMEBODY have an execute bit here?", not "can THIS process exec it?".
+// exec.LookPath's Unix implementation asks the second question, via an
+// effective-uid access check, so the two disagree on a file whose owner bit
+// is clear and whose group/other bits are set (0o011): the mode-bit test
+// accepts it, the kernel refuses it.
+//
+// The consequence is not a cosmetic divergence. lookPathIn returns the FIRST
+// accepting directory, so one unexecutable shim early in the login-shell PATH
+// shadowed the real binary further down, and the engine launch failed with
+// EACCES on a path ctxloom had just chosen — worse than the ENOENT this whole
+// package exists to prevent, because it looks like the binary was found.
+func TestResolve_SkipsAFileTheCurrentUserCannotExecute(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the execute permission check entirely")
+	}
+	const bin = "shadowed-fake-engine-binary"
+
+	shadowDir := t.TempDir()
+	shadow := filepath.Join(shadowDir, bin)
+	require.NoError(t, os.WriteFile(shadow, []byte("#!/bin/sh\n"), 0o644))
+	// Group and other may execute; the OWNER may not. POSIX consults the owner
+	// bits alone when euid matches, so this process cannot exec it despite
+	// Mode()&0o111 being non-zero.
+	require.NoError(t, os.Chmod(shadow, 0o011))
+
+	realDir := t.TempDir()
+	real := filepath.Join(realDir, bin)
+	require.NoError(t, os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755))
+
+	withFakeShellProbe(t, shadowDir+string(filepath.ListSeparator)+realDir)
+
+	got, err := Resolve(bin)
+	require.NoError(t, err)
+	assert.Equal(t, real, got, "an unexecutable file must not shadow the executable one behind it")
+}

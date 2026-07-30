@@ -111,16 +111,22 @@ func lookPathIn(name, pathEnv string) (string, error) {
 	return "", fmt.Errorf("%s: not found in login-shell PATH", name)
 }
 
-// isExecutableFile reports whether path exists, is a regular file, and has
-// at least one executable bit set — exec.LookPath's own criterion for a PATH
-// hit, applied here against a directory drawn from the login-shell probe
-// rather than os.Getenv("PATH").
+// isExecutableFile reports whether path exists, is a regular file, and is
+// executable BY THIS PROCESS — exec.LookPath's own criterion for a PATH hit,
+// applied here against a directory drawn from the login-shell probe rather
+// than os.Getenv("PATH").
+//
+// "By this process" is the load-bearing half. lookPathIn returns the first
+// accepting directory, so accepting a file the current user cannot exec lets
+// it SHADOW the real binary further down the PATH, and the launch then fails
+// with EACCES on a path ctxloom itself chose — a worse outcome than the ENOENT
+// this package exists to prevent, because it looks like a successful find.
 func isExecutableFile(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		return false
 	}
-	return info.Mode()&0o111 != 0
+	return currentUserCanExecute(path)
 }
 
 // loginShellPath returns the login shell's PATH, probed at most once per

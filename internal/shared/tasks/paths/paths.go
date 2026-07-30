@@ -167,7 +167,14 @@ func ValidateProjectID(id string) error {
 }
 
 // ProjectMarkerPath returns <projectDir>/.ctxloom/project-id — the in-tree
-// marker carrying the project's stable project-id.
-func ProjectMarkerPath(projectDir string) string {
-	return filepath.Join(projectDir, AppDirName, projectMarkerFileName)
+// marker carrying the project's stable project-id. An empty projectDir errors
+// rather than resolving against the process's cwd, exactly as
+// RepoTasksLogPath does: a cwd-relative ".ctxloom/project-id" is the REAL
+// marker of whatever tree the process happens to sit in, so silently
+// resolving it reads or overwrites another project's identity.
+func ProjectMarkerPath(projectDir string) (string, error) {
+	if projectDir == "" {
+		return "", fmt.Errorf("project marker: no project directory resolved")
+	}
+	return filepath.Join(projectDir, AppDirName, projectMarkerFileName), nil
 }

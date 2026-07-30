@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
@@ -548,4 +549,24 @@ func TestGRPCClient_Run_PartialOutputThenNoExitCode_IsAnError(t *testing.T) {
 	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, &stdout, io.Discard, nil)
 	require.Error(t, err)
 	assert.Equal(t, "half a run\n", stdout.String(), "output seen before the truncation is still delivered")
+}
+
+// TestContainerRunnerFunc_IsADefinedType pins U059-F19: ContainerRunnerFunc was
+// a type ALIAS, so it named go-plugin's runner signature without introducing a
+// type at all — every unrelated three-argument function of the same shape was
+// silently the same type, and the name existed only in the source text. As a
+// defined type it is a real type identity, and it stays assignable to
+// go-plugin's own ClientConfig.RunnerFunc field (an unnamed func type).
+func TestContainerRunnerFunc_IsADefinedType(t *testing.T) {
+	var f ContainerRunnerFunc
+	typ := reflect.TypeOf(&f).Elem()
+	assert.Equal(t, "ContainerRunnerFunc", typ.Name(),
+		"an alias reports an empty type name — the contract must be a defined type")
+
+	// Assignability to go-plugin's field is the constraint the defined type must
+	// not break: ClientConfig.RunnerFunc is an unnamed func type, so this
+	// compiles only while the underlying signatures still match exactly.
+	cfg := plugin.ClientConfig{}
+	cfg.RunnerFunc = f
+	assert.Nil(t, cfg.RunnerFunc)
 }

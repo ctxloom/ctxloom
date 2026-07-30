@@ -130,6 +130,29 @@ func (s *fakeStream) Context() context.Context { return context.Background() }
 func (s *fakeStream) SendMsg(m any) error      { return nil }
 func (s *fakeStream) RecvMsg(m any) error      { return nil }
 
+// TestVerbosityToHclogLevel_MappingMatchesItsDoc pins the verbosity->level
+// ladder the doc comment on verbosityToHclogLevel states. U059-F14 reported the
+// doc and the code disagreeing (the doc claimed 1=Warn, 2=Info, 3+=Debug/Trace
+// while the code returned Info/Debug/Trace); the code is the intended ladder, so
+// this table is what stops the two drifting apart again in either direction.
+func TestVerbosityToHclogLevel_MappingMatchesItsDoc(t *testing.T) {
+	for _, tc := range []struct {
+		verbosity int
+		want      hclog.Level
+	}{
+		{-1, hclog.Error},
+		{0, hclog.Error},
+		{1, hclog.Info},
+		{2, hclog.Debug},
+		{3, hclog.Trace},
+		{9, hclog.Trace},
+	} {
+		assert.Equal(t, tc.want, verbosityToHclogLevel(tc.verbosity), "verbosity %d", tc.verbosity)
+	}
+	assert.NotEqual(t, hclog.Warn, verbosityToHclogLevel(1),
+		"hclog.Warn is not a rung on this ladder — verbosity 1 is Info")
+}
+
 func TestGRPCClient_Info_Delegates(t *testing.T) {
 	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "test", Version: "1.2.3"}}
 	c := &GRPCClient{client: fake}

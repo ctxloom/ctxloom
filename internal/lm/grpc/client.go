@@ -166,8 +166,10 @@ type LLMRunner struct {
 	*GRPCClient
 }
 
-// verbosityToHclogLevel converts verbosity count to hclog level.
-// 0 = Error (discard most), 1 = Warn, 2 = Info, 3+ = Debug/Trace
+// verbosityToHclogLevel converts verbosity count to hclog level:
+// 0 = Error, 1 = Info, 2 = Debug, 3+ = Trace. Each -v widens the ladder by a
+// full level; hclog.Warn is deliberately not a rung, and at 0 newPluginLogger
+// discards the output entirely regardless of level.
 func verbosityToHclogLevel(verbosity int) hclog.Level {
 	switch {
 	case verbosity >= 3:

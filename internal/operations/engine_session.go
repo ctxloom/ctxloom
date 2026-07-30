@@ -51,6 +51,29 @@ type EngineSessionCoordinator interface {
 	WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func())
 }
 
+// noEngineSessionCoordinator is the nil coordinator: a frontend that hosts no
+// runtime coordinator at all passes nil, and OpenEngineSession substitutes
+// this. Its answers are exactly the ones the interface already documents for
+// "no coordinator stood up" — no reach-back trio, no child-update watch — so
+// the degraded path is the SAME one a live-but-unstood-up coordinator takes,
+// rather than a second one reached by a nil check at each call.
+type noEngineSessionCoordinator struct{}
+
+func (noEngineSessionCoordinator) SessionEnv(*config.Config, string, string) map[string]string {
+	return nil
+}
+
+func (noEngineSessionCoordinator) WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func()) {
+	return nil
+}
+
+// assignSession is OpenEngineSession's seam onto AssignSession (a package
+// var, like newACPEngineClient below): minting a harp touches the real
+// session store, and the DEGRADE this opener takes when it fails — three
+// facilities silently off for the rest of the session — is otherwise
+// undrivable from a test.
+var assignSession = AssignSession
+
 // newACPEngineClient is OpenEngineSession's seam onto
 // pb.NewSelfInvokingClientForLabelEnv — a package var, mirroring oneshot.go's
 // prepareIsolation seam style, so a test can drive the WHOLE opener
@@ -71,12 +94,19 @@ var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv
 // the recorded harp's history: the entries replay to the ACP client, and a
 // rendered transcript primes the fresh engine via the first-turn lead block.
 //
+// acpCoord may be nil: a frontend that hosts no runtime coordinator gets the
+// same degraded behaviour as one whose coordinator never stood up (no
+// delegation reach-back, no child-update push) rather than a panic.
+//
 // ISO2 (WORKSPACE axis): flagWorkspace is the session-level --workspace
 // override (isolation.WorkspaceAxis values "none"|"worktree", mirroring
 // `ctxloom run`'s flag), honored ONLY for a session bound to an EXPLICIT
 // flagAgent — never the plain `ctxloom acp` entry — see prepareACPWorkspace's
 // doc for why and how that gate is drawn.
 func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride, flagWorkspace string) (*EngineChat, error) {
+	if acpCoord == nil {
+		acpCoord = noEngineSessionCoordinator{}
+	}
 	var (
 		cfg             *config.Config
 		profile         string
@@ -256,8 +286,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 		replay = entries
 		contextText = JoinLeadBlocks(contextText, RenderResumedTranscript(harp, replay))
-	} else if entry, aerr := AssignSession(req.Cwd, backendName); aerr != nil {
-		clidiag.Warn("ctxloom", "acp agent: session accounting unavailable; session will not be resumable: %v", aerr)
+	} else if entry, aerr := assignSession(req.Cwd, backendName); aerr != nil {
+		// The harp is the load-bearing identifier for THREE separate
+		// facilities, and every one of them is off for the rest of this
+		// session (see the `if harp != ""` guards below and the closeOnce
+		// tail). Naming only the first left the other two to be discovered
+		// as unexplained absences mid-session.
+		clidiag.Warn("ctxloom", "acp agent: session accounting unavailable (%v) — this session is NOT recorded and cannot be resumed, the engine and its hooks run WITHOUT CTXLOOM_SESSION_HARP, and delegation reach-back is off (no agent_run from this session)", aerr)
 	} else {
 		harp = entry.HarpName
 	}
@@ -712,6 +747,15 @@ func loadConfigForDir(dir string) (*config.Config, error) {
 // deliberately chose this agent's own entry".
 func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace string) isolation.WorkspaceAxis {
 	if flagAgent == "" || currentAgent != flagAgent {
+		// The posture rule is deliberate; the SILENCE was not. A user who
+		// typed an explicit --workspace and got the shared checkout anyway
+		// holds exactly the belief this opener's summary exists to correct —
+		// so name the discarded value and what would honor it. The project's
+		// `workspace:` default being ignored here is the documented posture
+		// rather than a discarded request, so it earns no warning.
+		if flagWorkspace != "" {
+			clidiag.Warn("ctxloom", "acp agent: --workspace %q is IGNORED for a session with no explicit --agent — this session runs against the shared project checkout, not an isolated worktree (worktree-under-ACP applies only to a deliberately-bound `ctxloom acp server --agent <name>` entry)", flagWorkspace)
+		}
 		return isolation.WorkspaceAxis("")
 	}
 	ws := flagWorkspace
@@ -944,6 +988,39 @@ func listingFailed(err error) nameListing {
 // approval in real time.
 const sessionPermissionsLine = "every tool call is forwarded to your editor for a real-time approval decision (this session never auto-bypasses)"
 
+// sessionIsolationLine renders the init summary's leading fact: the session's
+// resolved posture on BOTH isolation axes. It is the summary's one genuinely
+// branching value — three postures (neither axis, runtime only, workspace
+// only or both) whose wording the rest of the block just embeds — so it is
+// composed here rather than inline, where it was the only reason the
+// surrounding function had to be read as a whole.
+//
+// See buildSessionInitSummary's doc for WHY this leads the block, and why the
+// container posture renders the mount as an explicit host -> container
+// mapping rather than asserting the two paths equal in prose.
+func sessionIsolationLine(in sessionInitSummaryInputs) string {
+	isolatedWorktree := in.aw != nil && in.aw.announce != ""
+	isolatedContainer := in.runtimeAxis == agent.RuntimeContainer
+	if !isolatedWorktree && !isolatedContainer {
+		return fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
+	}
+
+	runtimeDesc := "RUNTIME: a HOST process (no container)"
+	if isolatedContainer {
+		imgDesc := "an auto-selected image"
+		if image := IsolationImageConfig(in.cfg, in.backendName).Image; image != "" {
+			imgDesc = "image " + image
+		}
+		runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — NOT running directly on your host", imgDesc)
+	}
+
+	workspaceDesc := fmt.Sprintf("WORKSPACE mounted identically: host %s -> container %s (no worktree)", in.workDir, in.workDir)
+	if isolatedWorktree {
+		workspaceDesc = fmt.Sprintf("WORKSPACE "+worktreeIsolationProse, in.aw.dir)
+	}
+	return runtimeDesc + "; " + workspaceDesc
+}
+
 // buildSessionInitSummary composes ISO4's at-connect SESSION INITIALIZATION
 // SUMMARY: the one artifact answering "what did ctxloom assemble on my
 // behalf for this session?" — carried as the single string on
@@ -1017,34 +1094,6 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 		agentDesc = fmt.Sprintf("agent %q (engine %s)", in.currentAgent, in.label)
 	}
 
-	isolatedWorktree := in.aw != nil && in.aw.announce != ""
-	isolatedContainer := in.runtimeAxis == agent.RuntimeContainer
-
-	var isolationDesc string
-	switch {
-	case !isolatedWorktree && !isolatedContainer:
-		isolationDesc = fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
-	default:
-		var runtimeDesc, workspaceDesc string
-		if isolatedContainer {
-			imgDesc := "an auto-selected image"
-			if image := IsolationImageConfig(in.cfg, in.backendName).Image; image != "" {
-				imgDesc = "image " + image
-			}
-			runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — NOT running directly on your host", imgDesc)
-		} else {
-			runtimeDesc = "RUNTIME: a HOST process (no container)"
-		}
-		if isolatedWorktree {
-			workspaceDesc = fmt.Sprintf("WORKSPACE "+worktreeIsolationProse, in.aw.dir)
-		} else {
-			// Same-path mount (ISO1 Invariant 1) rendered as an explicit
-			// host -> container mapping — see the doc comment above.
-			workspaceDesc = fmt.Sprintf("WORKSPACE mounted identically: host %s -> container %s (no worktree)", in.workDir, in.workDir)
-		}
-		isolationDesc = runtimeDesc + "; " + workspaceDesc
-	}
-
 	profilesDesc := "none"
 	if len(in.profiles) > 0 {
 		profilesDesc = "[" + strings.Join(in.profiles, ", ") + "]"
@@ -1056,7 +1105,7 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 
 	lines := []string{
 		"ctxloom: session initialization summary",
-		"  isolation : " + isolationDesc,
+		"  isolation : " + sessionIsolationLine(in),
 		"  agent     : " + agentDesc,
 		"  model     : " + modelDesc,
 		"  profiles  : " + profilesDesc,

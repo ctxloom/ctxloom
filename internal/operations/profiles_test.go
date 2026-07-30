@@ -826,3 +826,53 @@ func TestDeleteProfile_NotFound(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+// TestProfileLoader_HonoursTheInjectedFSLikeItsTwin is U083-F10's parity
+// test, run across BOTH implementations of the same factory. config's
+// GetProfileLoader and operations' profileLoader build the same
+// profiles.Loader from the same config, and GetProfileLoader's own doc names
+// operations.profileLoader as the sibling that must "wire the exact same
+// seed... so the two never disagree about which profiles exist".
+//
+// They disagreed. profileLoader discovered profile DIRECTORIES through the
+// injected filesystem (GetProfileDirs takes cfg.FS()) and then read profile
+// CONTENT from the real OS filesystem, because it never passed
+// profiles.WithFS — the exact inversion GetProfileDirs' own doc warns about
+// ("discovery must follow the SAME filesystem the Loader reads: statting the
+// real disk unconditionally made every injected fs a lie"). Every caller of
+// FlattenDependencies, ListProfiles, ShowProfile and DeleteProfile inherited
+// it: on an injected fs the directory is found and every profile in it is
+// invisible.
+func TestProfileLoader_HonoursTheInjectedFSLikeItsTwin(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	profileDir := paths.ProfilesPath(testBaseDir)
+	require.NoError(t, fs.MkdirAll(profileDir, 0o755))
+	require.NoError(t, afero.WriteFile(fs, profileDir+"/reviewer.yaml",
+		[]byte("bundles:\n  - ctxloom:local@bundles/demo\n"), 0o644))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg.SetFS(fs)
+
+	twin, terr := cfg.GetProfileLoader().Load("reviewer")
+	require.NoError(t, terr, "the canonical twin reads the injected fs")
+	require.NotNil(t, twin)
+
+	got, err := profileLoader(cfg).Load("reviewer")
+	require.NoError(t, err, "and so must this one — it already DISCOVERED the directory through that same fs")
+	require.NotNil(t, got)
+	assert.Equal(t, twin.Name, got.Name)
+	assert.Equal(t, twin.Bundles, got.Bundles)
+
+	names := func(ps []*profiles.Profile) []string {
+		out := make([]string, 0, len(ps))
+		for _, p := range ps {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+	twinList, terr := cfg.GetProfileLoader().List()
+	require.NoError(t, terr)
+	gotList, lerr := profileLoader(cfg).List()
+	require.NoError(t, lerr)
+	assert.Equal(t, names(twinList), names(gotList), "the two factories must enumerate the same profiles")
+}

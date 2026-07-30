@@ -611,7 +611,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	interactive := isInteractiveTerminal() && !initNonInteractive
 	selectedEngine := initEngine
 	if alreadyExists {
-		selectedEngine = engineFromExistingConfig(selectedEngine)
+		selectedEngine = engineForExistingDir(selectedEngine)
 		// U036-F04: --remote/--forge were silently ignored here — the only
 		// consumer of initRemotes/initForge (addPersonalRemotes) lived
 		// exclusively inside setupNewCtxloomDir's fresh-init branch below,
@@ -657,15 +657,20 @@ func ctxloomDirExists(appDir string) bool {
 	return err == nil && info.IsDir()
 }
 
-// engineFromExistingConfig returns the engine recorded in an existing config,
-// falling back to current when the config is unreadable or names none.
-func engineFromExistingConfig(current string) string {
-	if cfg, err := config.Load(); err == nil {
-		if backend := cfg.GetDefaultLLM(); backend != "" {
-			return backend
-		}
+// engineForExistingDir resolves which engine a RE-INIT (a .ctxloom that
+// already exists) targets. An explicit selection wins: --engine is a flag typed
+// on THIS invocation, so a value stored in the config may not override it —
+// doing so read the flag and then discarded it, with nothing said. Otherwise the
+// engine recorded in the existing config applies, and if that is unreadable or
+// names none the choice falls through to pickDefaultEngine.
+func engineForExistingDir(selected string) string {
+	if selected != "" {
+		return selected
 	}
-	return current
+	if cfg, err := config.Load(); err == nil {
+		return cfg.GetDefaultLLM()
+	}
+	return ""
 }
 
 // pickDefaultEngine resolves the engine to use: an explicit selection wins;
@@ -923,7 +928,7 @@ func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler 
 // the bare, memoized config.Load() in the SAME process, and a stat check has
 // only mtime+size granularity to key on — theoretically indistinguishable
 // from the pre-write state on a filesystem coarse enough, or if a PRIOR
-// config.Load() in this same init run (e.g. engineFromExistingConfig probing
+// config.Load() in this same init run (e.g. engineForExistingDir probing
 // for a pre-existing config before this write happens) already memoized a
 // "missing" stamp whose invalidation this write's own stat SHOULD, but need
 // not provably, trigger. Invalidate() removes that dependency: the very next

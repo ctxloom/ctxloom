@@ -256,3 +256,28 @@ func TestPromptAllEngines_LeavesTheCallersSliceAlone(t *testing.T) {
 	assert.Equal(t, []string{"claude-code", "SENTINEL-1", "SENTINEL-2"}, backing,
 		"the combined menu must not be built through the caller's backing array")
 }
+
+// TestEngineForExistingDir (U036-F05) pins the engine precedence on the
+// RE-INIT path. `ctxloom init --engine codex` in a project whose config names
+// another engine used to launch the CONFIG's engine: the resolver consulted the
+// stored value first and returned it whenever it was set, so the flag the user
+// typed on this invocation was read and then discarded — a flag silently
+// overridden by a stored default, with no message saying so. An explicit
+// selection wins; the recorded engine is the fallback; neither present leaves
+// the choice to pickDefaultEngine.
+func TestEngineForExistingDir(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
+		[]byte("version: 5\nllm:\n  claude-code:\n    type: claude-code\nllm_defaults:\n  primary: claude-code\n"), 0o644))
+	t.Chdir(dir)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+
+	require.Equal(t, "claude-code", engineForExistingDir(""),
+		"with no flag, the engine recorded in the existing config is used")
+	assert.Equal(t, "codex", engineForExistingDir("codex"),
+		"an explicit --engine must win over the engine recorded in the config")
+}

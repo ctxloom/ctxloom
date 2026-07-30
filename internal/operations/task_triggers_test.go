@@ -573,6 +573,55 @@ func TestEvaluateTriggers_EscalatesAndSettlesInRoundTwo(t *testing.T) {
 	assert.Contains(t, client.gotReqs[1].Prompt.Content, "exists")
 }
 
+// A needs-investigation verdict whose EVERY query was refused looks, from the
+// outside, exactly like one that asked for nothing: no escalation call, the
+// verdict left as-is. They are not the same event — the second is a model
+// asking for shapes outside the whitelist, or paths that escape the repo — and
+// the counts are the only thing that tells them apart (U128-F12).
+func TestEvaluateTriggers_RefusedQueriesAreCountedNotSwallowed(t *testing.T) {
+	tc := newTaskContext(t, "proj-refused-queries")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
+	require.NoError(t, err)
+
+	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
+		`"queries":[{"type":"shell_exec","path":"internal/foo"},{"type":"path_exists","path":"/etc/passwd"},{"type":"grep"}]}]`
+	client := &fullFakeClient{out: round1}
+	factory, calls := countingClientFactory(client)
+
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		Factory:     factory,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), calls.Load(), "nothing survived sanitizing, so there is no round 2")
+	assert.Equal(t, 3, res.QueriesRejected, "every refused query is counted")
+	assert.Equal(t, 1, res.TasksRefusedEveryQuery, "the task had all of its queries refused")
+	assert.False(t, res.Degraded, "a refused query is not a call or parse failure")
+	assert.Equal(t, 0, res.Omitted, "a refused query is not a dropped task")
+	require.Len(t, res.Verdicts, 1)
+	assert.Equal(t, triggers.NeedsInvestigation, res.Verdicts[0].Outcome, "the verdict is still left for a human")
+}
+
+// The other side of the same gate: a model that asked for nothing has nothing
+// refused, so the counts stay at zero and cannot be read as a fault.
+func TestEvaluateTriggers_NoQueriesAskedCountsNoRefusals(t *testing.T) {
+	tc := newTaskContext(t, "proj-no-queries-asked")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
+	require.NoError(t, err)
+
+	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure"}]`}
+	factory, _ := countingClientFactory(client)
+
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		Factory:     factory,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.QueriesRejected)
+	assert.Equal(t, 0, res.TasksRefusedEveryQuery)
+}
+
 // A round-1 needs-investigation with NO queries has nothing for round 2 to
 // execute — it must NOT trigger an escalation call, and stays
 // needs-investigation for a human to look at directly.

@@ -243,3 +243,60 @@ func TestLoginShellArgs_ClassifiesRobustly(t *testing.T) {
 		})
 	}
 }
+
+// TestProbeLoginShellPath_SilentShellIsAnError pins U117-F03's subject. The
+// row claims probeLoginShellPath returns ("", nil) -- success with an empty
+// payload -- when the shell runs but prints nothing, and that the cache then
+// blesses that for the process lifetime.
+//
+// That is what a bare `echo "$PATH"` capture did. Since the probe was fenced,
+// a shell that prints nothing produces neither sentinel, so extractFencedPath
+// refuses and the probe fails LOUDLY, naming the likely cause. A shell that
+// prints its startup noise and no PATH fails the same way.
+func TestProbeLoginShellPath_SilentShellIsAnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	cases := map[string]string{
+		"prints nothing at all": "",
+		"prints only a banner":  "printf 'Welcome to your shell\\n'",
+	}
+	for name, script := range cases {
+		t.Run(name, func(t *testing.T) {
+			orig := execCommandContext
+			execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+				return exec.CommandContext(ctx, "/bin/sh", "-c", script)
+			}
+			resetCacheForTest()
+			t.Cleanup(func() {
+				execCommandContext = orig
+				resetCacheForTest()
+			})
+
+			got, err := probeLoginShellPath()
+			require.Error(t, err, "a probe that recovered no PATH must not report success")
+			assert.Empty(t, got)
+			assert.Contains(t, err.Error(), "begin marker not found")
+		})
+	}
+}
+
+// TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError pins the second
+// half of U117-F03: the one ("", nil) outcome that CAN still occur is a shell
+// whose PATH is genuinely empty, and Resolve must treat that as "resolved to
+// nothing" rather than searching an empty PATH and inventing a different
+// failure. The caller keeps exec.LookPath's own error, naming the binary.
+func TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	withFakeShellProbe(t, "") // sentinels present, PATH between them empty
+
+	path, err := loginShellPath()
+	require.NoError(t, err, "an empty PATH between the sentinels is a resolved-to-nothing outcome, not a failure")
+	assert.Empty(t, path)
+
+	_, err = Resolve("definitely-does-not-exist-anywhere-xyz")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "definitely-does-not-exist-anywhere-xyz")
+}

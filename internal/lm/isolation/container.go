@@ -353,8 +353,17 @@ func (c Container) WithSessionState(state SessionState) Container {
 // Exposed as a narrow, explicit override (not a general profile mutator) so
 // production callers (NewContainerFor/containerFor) are unaffected: only a
 // caller that deliberately wants this specific mismatch reaches for it.
+//
+// The image is USER-OWNED, so the profile's local-build recipe is dropped with
+// it — the same pairing containerFor makes for an isolation_images override, and
+// for the same two reasons: ctxloom must not rebuild a tag the caller supplied,
+// and runAsIs() must report true so checkRunAsIsIdentity's pre-start contract
+// check actually runs on it. A wrong-identity container LAUNCHES cleanly and
+// then root-owns every file it writes into the mounted project, so that check is
+// the only signal there is.
 func (c Container) WithImage(image string) Container {
 	c.image = image
+	c.profile.engineInstall = nil
 	return c
 }
 

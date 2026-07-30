@@ -336,3 +336,27 @@ func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
 }
+
+// TestContainer_WithImageRunsAsIs is U062-F12's regression. A caller-supplied
+// image is USER-OWNED: nothing ctxloom authored — the identity-remap entrypoint
+// included — is guaranteed to be in it, so it must be run AS-IS (never locally
+// rebuilt) and it must face checkRunAsIsIdentity's pre-start contract check, the
+// one signal there is before a wrong-identity container root-owns every file it
+// writes into the mounted project.
+//
+// containerFor already did that for an isolation_images override by clearing the
+// profile's build recipe. WithImage — the override internal/acp's container
+// transport uses for a per-agent container_image — swapped the image and left
+// the recipe in place, so runAsIs() stayed false, the identity check never ran,
+// and ensureImage would try to BUILD the user's tag locally when absent. The two
+// override paths must agree.
+func TestContainer_WithImageRunsAsIs(t *testing.T) {
+	rt := fakeRuntime{name: "docker", available: true}
+
+	assert.True(t, NewContainerFor(rt, "claude-code").WithImage("user/agent:1").runAsIs(),
+		"a caller-supplied image is user-owned: run as-is, so the identity contract is actually checked")
+	assert.True(t, containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"}).runAsIs(),
+		"the isolation_images override path already agreed")
+	assert.False(t, NewContainerFor(rt, "claude-code").runAsIs(),
+		"without an override the profile's own recipe still builds the agent image")
+}

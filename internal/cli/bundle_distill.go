@@ -257,20 +257,27 @@ func printDistillSummary(w io.Writer, totalItems, totalFiles, totalSkipped int, 
 var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 
 // loadDistillPrompt loads the distillation prompt from bundles.
-func loadDistillPrompt() (string, error) {
+//
+// It cannot fail: every unavailable source (no config, no `distill` command in
+// any trusted bundle, an empty one) falls back to the embedded default prompt,
+// so there is always a usable prompt and never an error to report. It returns
+// no error rather than a permanently-nil one, so no caller has to decide what
+// to do about a failure that cannot happen (U035-F06: the discarded error was
+// one of three "silent return nil" paths in newLLMDistillerForLabel).
+func loadDistillPrompt() string {
 	cfg, err := config.Load()
 	if err != nil {
-		return defaultDistillPrompt, nil
+		return defaultDistillPrompt
 	}
 
 	// Try to load "distill" prompt from bundles
 	prompt, err := operations.GetCommand(context.Background(), cfg, operations.GetCommandRequest{Name: "distill"})
 	if err == nil && prompt.Content != "" {
-		return strings.TrimSpace(prompt.Content), nil
+		return strings.TrimSpace(prompt.Content)
 	}
 
 	// Use default prompt
-	return defaultDistillPrompt, nil
+	return defaultDistillPrompt
 }
 
 // buildSiblingContext creates context about sibling items in a bundle.

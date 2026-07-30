@@ -354,10 +354,12 @@ func TestContextDelivery_DistinctHarpsDistinctScratch(t *testing.T) {
 // The payload half is the companion below: nothing about this may make an
 // ordinary delivery quieter.
 func TestSetup_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	work := t.TempDir()
 	backend := NewClaudeCode()
 	err := backend.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   t.TempDir(),
+		WorkDir:   work,
 		Env:       map[string]string{sessionHarpEnv: "witty-plain-crate"},
 		Fragments: []*agent.Fragment{{Name: "rules", Content: ""}, {Name: "style", Content: "   \n\t "}},
 		Managed:   &agent.ManagedConfig{},
@@ -366,8 +368,8 @@ func TestSetup_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
 	require.Error(t, err, "two configured fragments delivering zero bytes must fail the launch, not launch context-less")
 	assert.ErrorIs(t, err, agent.ErrNoContext,
 		"the same fact must produce the same error as the raw-cache path, so callers can recognize it")
-	assert.Empty(t, backend.surfaces.Context.Path(),
-		"no framed context file may be left behind by a refused setup")
+	assertNoSyspromptUnder(t, home)
+	assertNoSyspromptUnder(t, work)
 }
 
 // TestSetup_NoFragmentsIsNotAnError keeps the guard above from becoming a new

@@ -97,7 +97,15 @@ Output format (JSON to stdout):
 		// and we wait our turn so the N parallel chunk hooks complete — and
 		// thus inject — in order (see backends.AwaitTurn).
 		content, part, total := selectChunk(content, injectContextPart, injectContextTotal)
-		if total > 1 {
+		// Ordering only matters for a part that HAS a chunk to emit. An
+		// out-of-range part (missing context file, or a file that shrank since
+		// the hooks were written) emits nothing, so joining the rendezvous
+		// would spend up to ContextRendezvousTimeout of session-startup
+		// latency ordering nothing at all. Skipping cannot break the chain for
+		// the parts that do have content: chunks are contiguous from part 1,
+		// so an empty part is never followed by a content-bearing one, and the
+		// rendezvous only ever waits on the immediate predecessor.
+		if total > 1 && content != "" {
 			agent.AwaitTurn(hookInput.SessionID, part, total)
 		}
 

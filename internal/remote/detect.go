@@ -69,6 +69,13 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 		return ForgeGitHub, "https://github.com", nil
 	}
 
+	// scp-style SSH ("git@host:owner/repo") is a spelling ParseRepoURL accepts
+	// and NormalizeURL rewrites, but url.Parse refuses it outright — its first
+	// path segment carries a colon — so the host is read off the string.
+	if host, ok := scpLikeHost(repoURL); ok {
+		return forgeForHost(host, "https://"+host)
+	}
+
 	u, err := url.Parse(repoURL)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid URL: %w", err)
@@ -76,13 +83,57 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 
 	host := strings.ToLower(u.Hostname())
 
-	if host == "github.com" || host == "www.github.com" {
-		return ForgeGitHub, "https://github.com", nil
+	// No authority component: url.Parse put the whole string in Path, so
+	// joining Scheme and Host yields the literal "://", an endpoint that names
+	// nothing. Two shapes land here — a host-qualified string with no scheme
+	// ("example.com/owner/repo"), whose host is the first path segment; and a
+	// path-addressed transport ("file:///srv/repo.git"), which has no host at
+	// all and whose endpoint is the URL itself.
+	if host == "" {
+		seg, _, _ := strings.Cut(u.Path, "/")
+		seg = strings.ToLower(seg)
+		if u.Scheme == "" && strings.Contains(seg, ".") {
+			return forgeForHost(seg, "https://"+seg)
+		}
+		return ForgeGitGeneric, repoURL, nil
 	}
 
 	// Any other host is consumed via the generic git adapter (clone + local
 	// read) against its own endpoint.
-	return ForgeGitGeneric, fmt.Sprintf("%s://%s", u.Scheme, u.Host), nil
+	return forgeForHost(host, fmt.Sprintf("%s://%s", u.Scheme, u.Host))
+}
+
+// scpLikeHost returns the host of an scp-style SSH ref ("user@host:owner/repo")
+// and whether the input had that shape: an "@" followed later by a ":", no
+// scheme, and a dotted host. The host must be extracted textually because
+// url.Parse rejects the whole form.
+func scpLikeHost(repoURL string) (string, bool) {
+	if strings.Contains(repoURL, "://") {
+		return "", false
+	}
+	at := strings.Index(repoURL, "@")
+	if at < 0 {
+		return "", false
+	}
+	colon := strings.Index(repoURL[at:], ":")
+	if colon < 0 {
+		return "", false
+	}
+	host := strings.ToLower(repoURL[at+1 : at+colon])
+	if !strings.Contains(host, ".") {
+		return "", false
+	}
+	return host, true
+}
+
+// forgeForHost maps a resolved host to its adapter: github.com (with or without
+// the www. label) to the GitHub API adapter at the canonical endpoint, every
+// other host to the generic clone-backed adapter at base.
+func forgeForHost(host, base string) (ForgeType, string, error) {
+	if host == "github.com" || host == "www.github.com" {
+		return ForgeGitHub, "https://github.com", nil
+	}
+	return ForgeGitGeneric, base, nil
 }
 
 // ParseRepoURL extracts owner and repo name from a URL or shorthand.
@@ -90,11 +141,15 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 //   - "alice/ctxloom" (shorthand)
 //   - "https://github.com/alice/ctxloom"
 //   - "git@github.com:alice/ctxloom.git"
+//
+// Both returned segments are non-empty on success: "alice/" and "/ctxloom" name
+// no repository, and a caller handed "" would build a request path with a hole
+// in it.
 func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	// Handle shorthand notation
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
 		parts := strings.Split(repoURL, "/")
-		if len(parts) == 2 {
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 			return parts[0], parts[1], nil
 		}
 		return "", "", fmt.Errorf("invalid shorthand format, expected 'owner/repo': %s", repoURL)
@@ -110,7 +165,7 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 		path := repoURL[idx+1:]
 		path = strings.TrimSuffix(path, ".git")
 		parts := strings.Split(path, "/")
-		if len(parts) >= 2 {
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
 			return parts[0], parts[1], nil
 		}
 		return "", "", fmt.Errorf("invalid SSH URL path: %s", repoURL)
@@ -126,7 +181,7 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	path = strings.TrimSuffix(path, ".git")
 	parts := strings.Split(path, "/")
 
-	if len(parts) < 2 {
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("URL path must contain owner/repo: %s", repoURL)
 	}
 

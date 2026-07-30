@@ -162,14 +162,17 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}, nil
 }
 
-// dropConflicted removes every pin whose identity is in conflicts — used by the
-// startup auto-lock to degrade past a conflict rather than block the session.
+// dropConflicted returns the pins whose identity is NOT in conflicts — used by
+// the startup auto-lock to degrade past a conflict rather than block the
+// session. The result owns its own backing array: filtering into pins[:0] would
+// alias and overwrite the caller's slice, so the argument would no longer
+// describe the pre-filter closure.
 func dropConflicted(pins []PinnedRef, conflicts []DependencyConflict) []PinnedRef {
 	bad := make(map[string]struct{}, len(conflicts))
 	for _, c := range conflicts {
 		bad[c.Item] = struct{}{}
 	}
-	kept := pins[:0]
+	kept := make([]PinnedRef, 0, len(pins))
 	for _, p := range pins {
 		if _, isBad := bad[p.Identity]; !isBad {
 			kept = append(kept, p)

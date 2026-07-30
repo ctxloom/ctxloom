@@ -545,3 +545,35 @@ func TestFormatCoverage_DebtAllowlistTracksRegistry(t *testing.T) {
 		}
 	}
 }
+
+// U104-F03 claimed the registry misattributes `bundle hold`, `bundle unhold`
+// and `bundle mcp edit` as FIXTURE gaps, hiding them from the "not wired to
+// emit() yet" follow-up list, while `bundle move` is correctly attributed.
+// The underlying facts still hold — those three RunEs contain zero emit()
+// calls and bundle_move.go's contains one — but the register's proposed
+// remedy (move the three lines into the not-wired skip block) was rejected in
+// favour of a better one: formatDebt is a SEPARATE axis from skip's reason,
+// so a command can be both fixture-gated AND format debt without either fact
+// erasing the other. See formatCoverageEntry.formatDebt's doc.
+//
+// This pins that separation for the four commands the row names, so a future
+// edit cannot quietly re-collapse the two axes and lose the debt again.
+func TestFormatCoverage_FixtureSkipAndFormatDebtAreSeparateAxes(t *testing.T) {
+	debtByFixtureSkip := []string{"bundle hold", "bundle unhold", "bundle mcp edit"}
+	for _, path := range debtByFixtureSkip {
+		entry, ok := formatCoverageRegistry[path]
+		require.True(t, ok, "%q must stay registered", path)
+		assert.NotEmpty(t, entry.skip, "%q is skipped for fixture cost", path)
+		assert.True(t, entry.formatDebt,
+			"%q never routes through emit(), so a fixture-cost skip must not also absolve it of format debt", path)
+		assert.Contains(t, formatDebtAllowlist, path,
+			"%q must name its required fix in the follow-up ledger", path)
+	}
+
+	move, ok := formatCoverageRegistry["bundle move"]
+	require.True(t, ok)
+	assert.NotEmpty(t, move.skip, "`bundle move` shares the fixture-cost skip shape")
+	assert.False(t, move.formatDebt,
+		"`bundle move` DOES call emit(); the same skip shape must not imply debt")
+	assert.NotContains(t, formatDebtAllowlist, "bundle move")
+}

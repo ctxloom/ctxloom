@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -37,6 +38,30 @@ type MaterializeProfileResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+// resolveMaterializeTarget validates the request and resolves the backend whose
+// native surfaces will be written. "" and the "claude" alias both mean
+// claude-code; anything unregistered is an error, as is a missing config,
+// target or profile set.
+func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest) (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("config is required")
+	}
+	if req.Target == "" {
+		return "", fmt.Errorf("target dir is required")
+	}
+	if len(req.Profiles) == 0 {
+		return "", fmt.Errorf("at least one profile is required")
+	}
+	backend := req.Backend
+	if backend == "" || backend == "claude" {
+		backend = DefaultMaterializeBackend
+	}
+	if !backends.Exists(backend) {
+		return "", fmt.Errorf("unknown backend %q", backend)
+	}
+	return backend, nil
+}
+
 // MaterializeProfile writes the assembled profile(s) into Target as the backend's
 // native files, OVERWRITING each managed surface every run (the export is the
 // source of truth for the target's managed files):
@@ -55,21 +80,9 @@ type MaterializeProfileResult struct {
 // ("partial success is success"). Bad arguments and a failed context assembly
 // (the core payload) stay hard errors regardless of mode.
 func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("config is required")
-	}
-	if req.Target == "" {
-		return nil, fmt.Errorf("target dir is required")
-	}
-	if len(req.Profiles) == 0 {
-		return nil, fmt.Errorf("at least one profile is required")
-	}
-	backend := req.Backend
-	if backend == "" || backend == "claude" {
-		backend = DefaultMaterializeBackend
-	}
-	if !backends.Exists(backend) {
-		return nil, fmt.Errorf("unknown backend %q", backend)
+	backend, err := resolveMaterializeTarget(cfg, req)
+	if err != nil {
+		return nil, err
 	}
 	fs := getFS(req.FS)
 	// The target is ours to create: materialize's whole point is standing up a
@@ -82,8 +95,12 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 
 	// Gate the executable surfaces (bundle MCP / hooks / command exports) at their
 	// own choke, exactly as ApplyHooks does. Set before resolving any of them.
+	// Scoped to THIS call: cfg belongs to the caller, and a gate left installed
+	// on it silently governs every later consumer of that config.
 	execGate := NewExecutableTrustGate(cfg)
+	callersGate := cfg.ExecutableTrustGate()
 	cfg.SetExecutableTrustGate(execGate.Gate())
+	defer cfg.SetExecutableTrustGate(callersGate)
 
 	// context is the one HARD-error surface: an explicit profile set makes
 	// resolution failures fatal (the caller named these profiles), and the
@@ -91,6 +108,14 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: req.Profiles})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
+	}
+	// An assembly that RESOLVED but carries nothing is a failed assembly too.
+	// The caller NAMED these profiles, and a target built from an empty payload
+	// gets no native context file at all while the result still reports the
+	// context surface as written — a success message over zero delivered bytes.
+	if strings.TrimSpace(asm.Context) == "" {
+		return nil, fmt.Errorf("empty context: profile set %v assembled to nothing — refusing to materialize %s into %s (check the profile's fragments/bundles resolve, and that none are withheld pending review)",
+			req.Profiles, backend, req.Target)
 	}
 
 	// Build the backend's OWN SurfaceSet from the assembled pieces and deliver

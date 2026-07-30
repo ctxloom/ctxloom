@@ -15,10 +15,9 @@ import (
 // WRITE now rides the surfaces × cells seam — see BuildSurfaces + agent.Select.)
 type SettingsOption = agent.SettingsOption
 
-// WithStatusLineDisabled is not re-exported here (U057-F12 deleted it): it had
-// zero qualified external callers (backends.WithStatusLineDisabled), unlike
-// WithSettingsFS below. Use agent.WithStatusLineDisabled directly if a caller
-// ever needs it.
+// WithSettingsFS is the only option this facade re-exports, because the
+// filesystem seam is the only thing SettingsOptions carries: statusline policy
+// rides DeliverSettings on the surfaces seam.
 var WithSettingsFS = agent.WithSettingsFS
 
 // GetSettingsWriter returns a settings writer for the named backend, or nil if

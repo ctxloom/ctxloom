@@ -142,3 +142,27 @@ func TestLoadFile_DedupesPendingUpgradesByPath(t *testing.T) {
 	require.Len(t, pending, 1, "repeated loads of one legacy file must record one pending upgrade")
 	assert.Equal(t, "/profiles/personal/legacy.yaml", pending[0].Path)
 }
+
+// TestLoad_SeededProfileIsSharedAndFsProfileIsNot pins the ownership asymmetry
+// the Load doc now states: a seeded profile is the ONE shared instance (it is a
+// reference with no file to re-read), while a filesystem profile is parsed
+// afresh per call. The asymmetry is safe only because every write path refuses a
+// seeded profile before mutating; this pin fixes the contract in place so a
+// caller cannot discover it by corrupting the seed (U091-F09).
+func TestLoad_SeededProfileIsSharedAndFsProfileIsNot(t *testing.T) {
+	loader, seeded, fs := seedTestProfile(t)
+	require.NoError(t, afero.WriteFile(fs, "/profiles/local.yaml",
+		[]byte("bundles:\n  - go-development\n"), 0o644))
+
+	firstSeeded, err := loader.Load(seeded.Name)
+	require.NoError(t, err)
+	secondSeeded, err := loader.Load(seeded.Name)
+	require.NoError(t, err)
+	assert.Same(t, firstSeeded, secondSeeded, "a seeded profile is the one shared instance")
+
+	firstLocal, err := loader.Load("local")
+	require.NoError(t, err)
+	secondLocal, err := loader.Load("local")
+	require.NoError(t, err)
+	assert.NotSame(t, firstLocal, secondLocal, "a filesystem profile is parsed afresh per call")
+}

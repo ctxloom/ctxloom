@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,164** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,165** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 76 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 128 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 146 |
-| `open` | no commit names this ID | **754** |
+| `open` | no commit names this ID | **753** |
 
-**Totals: 2268 findings across 162 units — 1,164 resolved, 754 still open, 350 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,165 resolved, 753 still open, 350 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -334,7 +334,7 @@ which also asserts each row's columns sum to its section size.
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 378 | 430 | 42 | 57 | 92 |
 | LOW | 871 | 435 | 299 | 24 | 63 | 50 |
-| (unparsed) | 22 | 1 | 19 | 0 | 2 | 0 |
+| (unparsed) | 22 | 2 | 18 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,
@@ -2867,7 +2867,7 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 | U117-F07 | open | `shellenv.go:74`, `:79`, `:84` | LOW | TRIVIAL | `exec.LookPath(name)` is called twice on every failure path — once to try, once to regenerate the error that was already produced and discarded. `LookPath` stats every directory in `PATH`, so the s... | U117.md |
 | U117-F08 | open | `shellenv.go:38`, `:51`, `:56` | LOW | COUPLING | Two mutable package-level variables (`execCommandContext`, `shellPathCache`) plus a reset hook mean tests in this package can never run in parallel, and `Resolve`'s result depends on process history. | U117.md |
 | U118-F04 | **RESOLVED** `c7511cc0` | `stderrtail.go:64-67` | LOW | CORRECTNESS | A single large `Write` transiently allocates proportional to that write's size before truncating, so the ring's peak memory is bounded by the largest single write, not by `max`. A child that emits ... | U118.md |
-| U118-F05 | open | `stderrtail.go:39` and `internal/acp/acp.go:393`, `internal/lm/isolation/direct_runner.go:25`, `internal/lm/grpc/host_runner.go:19` | LOW | TRIVIAL | Three of the four consumers re-alias `DefaultBytes` to a private per-package constant that is never given a different value, so "the standard tail budget" now has four names. | U118.md |
+| U118-F05 | **RESOLVED** `321c1793` | `stderrtail.go:39` and `internal/acp/acp.go:393`, `internal/lm/isolation/direct_runner.go:25`, `internal/lm/grpc/host_runner.go:19` | LOW | TRIVIAL | Three of the four consumers re-alias `DefaultBytes` to a private per-package constant that is never given a different value, so "the standard tail budget" now has four names. | U118.md |
 | U129-F05 | open | `textutil.go:22-29` | LOW | CORRECTNESS | For input that is not valid UTF-8, the strip loop can consume the entire prefix and return `""` — a zero-payload success — and it does so one byte per iteration, O(k) in the invalid-run length. | U129.md |
 | U129-F06 | open | `textutil.go:1-2` | LOW | COHESION | The package is named and documented as a grab-bag ("small string helpers shared across ctxloom packages") while containing exactly one function with one clear invariant. Grab-bag names are how unre... | U129.md |
 | U130-F04 | open | `tokens.go:13` | LOW | CORRECTNESS | Integer division makes `Estimate` return `0` for any text of 1-3 bytes. A non-empty string estimated at zero tokens is a latent trap for any caller that gates on the result. | U130.md |

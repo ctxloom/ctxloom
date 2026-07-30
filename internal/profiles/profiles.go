@@ -517,6 +517,18 @@ func (l *Loader) List() ([]*Profile, error) {
 // canonical key (lockfiles and the seed map both use that shape), and a URL
 // ref with no seed entry falls back to its local materialized name (e.g.
 // "github.com/owner/repo/name") for the fs lookup.
+//
+// # Ownership
+//
+// A returned profile is READ-ONLY to the caller. The two sources differ in
+// what that costs to violate, so it is stated rather than left to be
+// discovered: a filesystem profile is parsed afresh on every call, while a
+// SEEDED (bundle-shipped) profile is the one shared instance every reader in
+// this run receives — it is a reference with no local file, so there is
+// nothing to re-read it from. Mutating one would corrupt the seed for every
+// later reader and then evaporate on the next pull, which is why every write
+// path (Save, Delete, and operations' edit/import flows) refuses a seeded
+// profile BEFORE mutating anything rather than at the moment of writing.
 func (l *Loader) Load(name string) (*Profile, error) {
 	// Seeded remote profiles win over any fs lookup.
 	if p, ok := l.lookupSeeded(name); ok {

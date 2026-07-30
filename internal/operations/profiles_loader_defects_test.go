@@ -65,3 +65,38 @@ func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
 	}
 	assert.Equal(t, []string{"alpha"}, names, "the profile written to the injected filesystem must be listed")
 }
+
+// TestUpdateProfile_LeavesTheSharedSeedUntouched is the consequence half of the
+// seeded-profile ownership contract: Load hands back the ONE shared instance of a
+// bundle-shipped profile, so an edit that reached the mutation step would corrupt
+// it for every later reader in the same run. The guard refuses first; this pin
+// asserts the seed's own fields afterwards, not merely that an error came back
+// (U091-F09).
+func TestUpdateProfile_LeavesTheSharedSeedUntouched(t *testing.T) {
+	const key = "https://github.com/owner/repo@bundles/tools#profiles/dev"
+	seeded := &profiles.Profile{
+		Name:        key,
+		Path:        profiles.SeededProfilePathPrefix + key + "@abc1234",
+		Description: "shipped upstream",
+		Bundles:     []string{"https://github.com/owner/repo@bundles/tools"},
+	}
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
+	cfg.SetFS(fs)
+	loader := profiles.NewLoader([]string{"/app/profiles"}, profiles.WithFS(fs),
+		profiles.WithSeededProfiles(map[string]*profiles.Profile{key: seeded}))
+
+	newDesc := "edited locally"
+	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
+		Name:        key,
+		Description: &newDesc,
+		AddBundles:  []string{"sneaky"},
+		Loader:      loader,
+	})
+	require.Error(t, err)
+
+	assert.Equal(t, "shipped upstream", seeded.Description, "the shared seed must be unmodified")
+	assert.Equal(t, []string{"https://github.com/owner/repo@bundles/tools"}, seeded.Bundles)
+}

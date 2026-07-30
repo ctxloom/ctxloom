@@ -930,7 +930,11 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		if err != nil {
 			return "", fmt.Errorf("base containerfile: %w", err)
 		}
-		content, err := os.ReadFile(abs)
+		// Through the accessor, not a second hand-rolled read: content() is
+		// the ONE place a base stage's bytes are resolved, so the tag this
+		// derives can never be keyed off a different notion of "the base's
+		// content" than composedIdentity's.
+		content, err := base.content()
 		if err != nil {
 			return "", fmt.Errorf("base containerfile: %w", err)
 		}

@@ -992,3 +992,88 @@ func TestBuildAgentImage_Characterization(t *testing.T) {
 		assert.Contains(t, err.Error(), "build")
 	})
 }
+
+// TestEnsureImage_FlightKeyDiscriminatesByRuntime completes the pin on
+// U063-F06's subject, the ensureImage single-flight key. The claim text is
+// TRUNCATED in the findings index — a literal '|' in the quoted key
+// (`runtime.Binary() + "` … ) ends the table cell — so only the key's
+// composition is legible, with no defect stated. Read against the code the
+// visible fragment is simply accurate.
+//
+// TestEnsureImage_ParallelCallersShareOneBuild already pins the tag half of
+// that key (dedup for one tag; a different tag is its own flight). This pins
+// the RUNTIME half: the same tag under two different runtime binaries is two
+// images in two different daemons, so it must be two flights, never one
+// caller silently inheriting the other daemon's outcome.
+func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
+	withFakeSelfExe(t)
+	t.Setenv("PATH", t.TempDir())
+
+	dir := t.TempDir()
+	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	_, provenance, ok := composedIdentity(profile, "", nil, nil)
+	require.True(t, ok)
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
+
+	newRuntime := func(name string) (Runtime, string) {
+		log := filepath.Join(dir, name+".log")
+		script := filepath.Join(dir, "fake-"+name)
+		writeFakeRuntimeScript(t, script, log, t.TempDir(), labels)
+		return fakeRuntime{name: name, binary: script, available: true}, log
+	}
+
+	dockerRT, dockerLog := newRuntime("docker")
+	podmanRT, podmanLog := newRuntime("podman")
+
+	image := "ctxloom-agent-flightkey-test:latest"
+	require.NoError(t, (Container{runtime: dockerRT, image: image, profile: profile}).ensureImage(context.Background()))
+	require.NoError(t, (Container{runtime: podmanRT, image: image, profile: profile}).ensureImage(context.Background()))
+
+	assert.Len(t, buildInvocations(t, dockerLog), 2, "the first daemon builds base + agent stage")
+	assert.Len(t, buildInvocations(t, podmanLog), 2,
+		"the same tag in a DIFFERENT daemon is a different image and must build there too")
+}
+
+// TestBaseContentKeysBothTags PARTIALLY refutes U063-F10, which observed that
+// buildBaseImage reads the base Containerfile a SECOND time after
+// composedIdentity's read and concluded the tag is derived from a read the
+// rest of the build may not share. The two reads are real. The consequence is
+// not: BOTH tags are content-keyed off the same bytes, so a file that changes
+// between the reads cannot produce a wrongly-labelled image anyone launches —
+// the next resolution computes a DIFFERENT agent tag, which is simply absent
+// and therefore built, and a provenance mismatch forces exactly one rebuild.
+// The divergence is self-correcting by construction rather than latent.
+//
+// The genuine residue was that buildBaseImage re-implemented the read instead
+// of using baseStage.content(); that is now routed through the accessor. This
+// pins the property that makes the consequence false.
+func TestBaseContentKeysBothTags(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Containerfile.base")
+	require.NoError(t, os.WriteFile(path, []byte("FROM debian:13\n"), 0o644))
+
+	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	stage := userBaseStage(path)
+
+	firstContent, err := stage.content()
+	require.NoError(t, err)
+	firstAgentTag, firstProvenance, ok := composedIdentity(profile, path, nil, nil)
+	require.True(t, ok)
+	firstBaseTag := baseImageTagFor(firstContent)
+
+	require.NoError(t, os.WriteFile(path, []byte("FROM debian:12\n"), 0o644))
+
+	secondContent, err := stage.content()
+	require.NoError(t, err)
+	secondAgentTag, secondProvenance, ok := composedIdentity(profile, path, nil, nil)
+	require.True(t, ok)
+
+	assert.NotEqual(t, firstBaseTag, baseImageTagFor(secondContent),
+		"the base tag tracks the base file's content")
+	assert.NotEqual(t, firstAgentTag, secondAgentTag,
+		"so does the composed agent tag — an edit lands on a fresh, absent tag rather than reusing a stale one")
+	if firstProvenance != "" {
+		assert.NotEqual(t, firstProvenance, secondProvenance,
+			"and the provenance label, so a mismatched image is flagged stale exactly once")
+	}
+}

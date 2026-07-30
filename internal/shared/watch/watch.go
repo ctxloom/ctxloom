@@ -87,6 +87,18 @@ func (w *Watcher) Events() <-chan Event { return w.events }
 // Errors delivers watch errors (one is buffered) so a consumer can surface them.
 func (w *Watcher) Errors() <-chan error { return w.errs }
 
+// stopped reports whether Close has been called, so a consumer can tell a
+// caller-requested shutdown from the watcher dying underneath it — the event
+// channel closes either way.
+func (w *Watcher) stopped() bool {
+	select {
+	case <-w.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Close stops watching and releases the underlying resources.
 func (w *Watcher) Close() error {
 	close(w.done)

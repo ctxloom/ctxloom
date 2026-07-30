@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -24,7 +25,16 @@ func Stream(ctx context.Context, w *Watcher, debounce time.Duration, emit func()
 			return nil
 		case _, ok := <-w.Events():
 			if !ok {
-				return nil
+				// The event channel closes for two very different reasons.
+				// A caller-requested Close is a clean end. Anything else is
+				// the underlying watcher dying, after which this stream can
+				// never deliver another event — and returning nil there
+				// reports a successful, complete watch to a subscriber that
+				// will now wait forever.
+				if w.stopped() {
+					return nil
+				}
+				return errors.New("watch: the filesystem watcher stopped delivering events; no further changes can be reported")
 			}
 			if timer == nil {
 				timer = time.NewTimer(debounce)

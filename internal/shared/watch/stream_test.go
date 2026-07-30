@@ -63,3 +63,55 @@ func TestStream_ReturnsTheEmitError(t *testing.T) {
 	got := Stream(context.Background(), w, time.Millisecond, func() error { return want })
 	assert.ErrorIs(t, got, want)
 }
+
+// A long-lived stream command must not report a CLEAN shutdown when its
+// watcher died underneath it. Stream treated a closed event channel as
+// "return nil", so `taskloom watch` / `ctxloom plan watch` exited 0 with no
+// diagnostic while a subscriber went on waiting for events that could never
+// arrive again. Only a deliberate Close is a clean end.
+func TestStream_WatcherDeathIsAnErrorNotACleanExit(t *testing.T) {
+	dir := t.TempDir()
+	w, err := New(dir, false, nil)
+	require.NoError(t, err)
+	defer func() { _ = w.Close() }()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Stream(context.Background(), w, time.Millisecond, func() error { return nil })
+	}()
+
+	// Kill the UNDERLYING fsnotify watcher without going through w.Close(),
+	// which is exactly what a watcher dying on its own looks like: the event
+	// channel closes while nobody asked for a shutdown.
+	require.NoError(t, w.fsw.Close())
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "a dead watcher reported as exit 0 is a false clean shutdown")
+		assert.Contains(t, err.Error(), "watch", "the diagnostic must name what stopped")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stream did not return after its watcher died")
+	}
+}
+
+// A deliberate Close is still a clean end: the caller asked for it, so the
+// stream must not manufacture a failure out of its own shutdown.
+func TestStream_DeliberateCloseIsStillACleanExit(t *testing.T) {
+	dir := t.TempDir()
+	w, err := New(dir, false, nil)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Stream(context.Background(), w, time.Millisecond, func() error { return nil })
+	}()
+
+	require.NoError(t, w.Close())
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "a caller-requested Close is a clean shutdown")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stream did not return after Close")
+	}
+}

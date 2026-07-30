@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
@@ -1028,4 +1029,35 @@ func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
 		assert.Empty(t, strings.TrimSpace(stderr),
 			"no session accounting is the documented construction, not a fault to warn about")
 	})
+}
+
+// TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern is U065-F05's pin, and
+// the row is REFUTED. The claim is that excludeConfigFromMerge "reports success
+// having written zero bytes when handed an empty pattern list", because
+// gitignore.EnsureFile returns nil before opening the file when len(patterns)
+// is zero. That early return is real, but this call site can never reach it:
+// the argument is gitignore.WorktreeArtifactPatterns, a package-level literal,
+// and no caller can substitute one. What is pinned here is therefore the
+// PAYLOAD -- the exclude block that hides per-agent config from a merge-back
+// actually lands, pattern for pattern -- so the claimed silent no-op becomes a
+// red test the moment the pattern set could ever be empty.
+func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
+	require.NotEmpty(t, gitignore.WorktreeArtifactPatterns,
+		"an empty pattern set is what would make EnsureFile a silent no-op here")
+
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	NewWorktree(f, "").excludeConfigFromMerge(context.Background(), "/proj")
+
+	raw, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
+	require.NoError(t, err, "the exclude file must exist")
+	require.NotEmpty(t, raw, "zero bytes written is exactly the failure this asserts against")
+
+	written := map[string]bool{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		written[strings.TrimSpace(line)] = true
+	}
+	for _, pat := range gitignore.WorktreeArtifactPatterns {
+		assert.True(t, written[pat], "the exclude block carries %q", pat)
+	}
 }

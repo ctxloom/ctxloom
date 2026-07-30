@@ -977,6 +977,29 @@ message CoordinatorRequest {
   string request_id = 1;
   google.protobuf.Duration timeout = 2;
 
+  // What this request NEEDS the receiving run to be able to do, declared by
+  // the sender in the SAME vocabulary Hello.capabilities advertises.
+  //
+  // It exists for ONE consumer: the coordinator's own DRAIN SEAM. A request
+  // outlives the channel it was queued on — it is reissued with its original
+  // request_id when the role next attaches — and the run that attaches may not
+  // be the run that was addressed (a crash without a terminal, or a resume,
+  // brings up a run whose Hello can advertise differently). Re-checking this
+  // declared set against the FRESHLY advertised one before the request is
+  // handed over is what keeps a request enqueued under run N from being
+  // delivered to a run N+1 that cannot execute it.
+  //
+  // It is DECLARED, not derived, so the seam stays TAXONOMY-AGNOSTIC: the check
+  // is a set containment (declared ⊆ advertised) with no kind→capability table
+  // to keep in sync with the `kind` oneof below.
+  //
+  // IT IS NOT A SECURITY BOUNDARY, and nothing may treat it as one. The
+  // receiver's own backstop keys on the ACTUAL oneof arm, never on this field,
+  // so a request that declares less than it carries is still refused by the
+  // runner on the kind it really is. Under-declaring buys nothing; this field
+  // is only ever a reason to STOP delivery early, never a reason to allow it.
+  repeated string required_capabilities = 3;
+
   // 12 is held for state_snapshot, deferred with the shared-state
   // family; the rev-5 design file is the source of record.
   reserved 12;

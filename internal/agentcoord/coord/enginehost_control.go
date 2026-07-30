@@ -1,0 +1,223 @@
+package coord
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/transcript"
+)
+
+// The EXECUTOR half of plane 2's down direction: the engine host runs one
+// coordinator-initiated control request against the hosted engine.
+//
+// DELIVERY IS REMINDER + PULL. The injected turn carries no untrusted bytes: it
+// is a generated <ctxloom-reminder> frame and nothing else. The instruction
+// body is parked in the runner's own recv buffer and the agent PULLS it with
+// agent_recv, in the same turn (tool results arrive mid-turn, so this is one
+// turn, not two). That keeps the frame unforgeable by construction — a body
+// containing something that looks like a header is never interpolated into a
+// turn — and it keeps ONE copy of the body, in one place, with one lifecycle.
+
+// turnTag attributes one locally-originated turn to what asked for it. The zero
+// value means "ordinary": the briefing, or coordinator mail.
+type turnTag struct {
+	kind  string // "" (briefing/mail) | "steer" | "question" | "summarize"
+	reqID string // the CoordinatorRequest's correlating id, when kind != ""
+}
+
+// enqueueTurn is the ONE funnel onto eh.in for every locally-originated turn —
+// the briefing's successor sends, coordinator mail, and each control verb.
+//
+// It does three things that must happen together: it waits for the briefing to
+// have gone first (U021-F01 — a turn that overtakes the briefing makes the
+// child's first turn something other than its task), it pushes tag onto the
+// turn-attribution FIFO in the same order the sends land, and it records the
+// user turn in the canonical transcript once the engine has actually taken it.
+//
+// The lock is held ACROSS the send. That serializes turn enqueues, which is the
+// point: the FIFO's order is only meaningful if it is the order the engine
+// receives. A send that can never complete is bounded by ctx and by the run's
+// own ctx, so the lock is released when the run dies.
+func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string) error {
+	eh.mu.Lock()
+	in := eh.in
+	rec := eh.rec
+	runCtx := eh.runCtx
+	briefed := eh.briefed
+	eh.mu.Unlock()
+	if in == nil || runCtx == nil {
+		return errors.New("engine host: no run has started, so there is no turn stream to enqueue onto")
+	}
+	select {
+	case <-briefed:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-runCtx.Done():
+		return runCtx.Err()
+	}
+
+	eh.enqueueMu.Lock()
+	defer eh.enqueueMu.Unlock()
+	eh.mu.Lock()
+	eh.pendingTags = append(eh.pendingTags, tag)
+	eh.mu.Unlock()
+
+	select {
+	case in <- agent.ChatMessage{Text: text}:
+		transcript.RecordUserText(rec, text)
+		return nil
+	case <-ctx.Done():
+		eh.dropQueuedTag()
+		return ctx.Err()
+	case <-runCtx.Done():
+		eh.dropQueuedTag()
+		return runCtx.Err()
+	}
+}
+
+// dropQueuedTag removes the tag this call pushed when its send never landed.
+// Safe because enqueueMu makes this goroutine the only pusher, so the tail is
+// ours; adapt only ever pops the head, and it pops only after a send completed.
+func (eh *EngineHost) dropQueuedTag() {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	if n := len(eh.pendingTags); n > 0 {
+		eh.pendingTags = eh.pendingTags[:n-1]
+	}
+}
+
+// beginTurn pops the FIFO at a turn start and marks the engine busy.
+func (eh *EngineHost) beginTurn() {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	eh.inTurn = true
+	if len(eh.pendingTags) > 0 {
+		eh.currentTag = eh.pendingTags[0]
+		eh.pendingTags = eh.pendingTags[1:]
+		return
+	}
+	// A turn nothing local enqueued (an engine that continues on its own).
+	// Untagged, never mis-attributed to a waiting control verb.
+	eh.currentTag = turnTag{}
+}
+
+// endTurn marks the engine idle at a turn boundary.
+func (eh *EngineHost) endTurn() {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	eh.inTurn = false
+	eh.currentTag = turnTag{}
+}
+
+// HandleControl executes ONE coordinator-initiated control request against the
+// hosted engine. Registered on Home by BindHome.
+//
+// It refuses everything before startRun: there is no turn stream to enqueue
+// onto, and answering FAILED_PRECONDITION is honest where silently succeeding
+// would not be.
+func (eh *EngineHost) HandleControl(ctx context.Context, req *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse {
+	eh.mu.Lock()
+	started := eh.started
+	home := eh.home
+	eh.mu.Unlock()
+	if !started || home == nil {
+		return &agentcoordpb.AgentResponse{Status: statusErr(codes.FailedPrecondition,
+			"no run has started on this runner yet, so there is nothing to control")}
+	}
+	switch kind := req.GetKind().(type) {
+	case *agentcoordpb.CoordinatorRequest_Steer:
+		return eh.handleSteer(ctx, home, req.GetRequestId(), kind.Steer)
+	default:
+		// Home's backstop already refused every kind this runner did not
+		// advertise, so reaching here means an advertised kind with no arm —
+		// a wiring bug, reported as one.
+		return &agentcoordpb.AgentResponse{Status: statusErr(codes.Unimplemented,
+			"this engine host has no executor for that control request kind")}
+	}
+}
+
+// steerBodyID derives the parked body's message id from the request id, so a
+// reissued request cannot park a second copy: ParkControlPayload dedupes on
+// message id exactly as the mailbox path does.
+func steerBodyID(reqID string) string { return "steer-" + reqID }
+
+// handleSteer executes a steer: park the body, then inject the reminder.
+//
+// The ORDER is load-bearing. The body is parked FIRST so that an agent which
+// calls agent_recv immediately on seeing the reminder finds it there; injecting
+// the reminder first opens a window where the pull returns nothing and the
+// instruction reads as a phantom.
+//
+// `applied` is decided at ENQUEUE time by whether the engine was mid-turn:
+// idle means the reminder starts a new turn NOW (APPLIED_IMMEDIATE — latency,
+// never interruption: no engine surface ctxloom drives supports genuine
+// mid-turn injection), busy means the driver queues it to the next boundary
+// (APPLIED_NEXT_TURN).
+func (eh *EngineHost) handleSteer(ctx context.Context, home engineHome, reqID string, steer *agentcoordpb.SteerRequest) *agentcoordpb.AgentResponse {
+	text := steer.GetText()
+	if text == "" {
+		// Empty input must fail, not succeed having written nothing.
+		return &agentcoordpb.AgentResponse{Status: statusErr(codes.InvalidArgument, "steer: text is empty")}
+	}
+	from := steerSender(steer.GetMetadata())
+
+	structured, err := structpb.NewStruct(map[string]any{
+		"request_id": reqID,
+		"control":    "steer",
+	})
+	if err != nil {
+		return &agentcoordpb.AgentResponse{Status: statusErr(codes.Internal, fmt.Sprintf("steer: build payload: %v", err))}
+	}
+	home.ParkControlPayload(&agentcoordpb.PeerMessage{
+		MessageId:   steerBodyID(reqID),
+		FromAgentId: from,
+		Text:        text,
+		Structured:  structured,
+		Kind:        agentcoordpb.MessageKind_MESSAGE_KIND_STEER,
+	})
+
+	eh.mu.Lock()
+	busy := eh.inTurn
+	eh.mu.Unlock()
+
+	if err := eh.enqueueTurn(ctx, turnTag{kind: "steer", reqID: reqID}, (&agentcoordpb.SteerPendingReminder{}).XmlLike()); err != nil {
+		// The reminder never landed. The body stays parked in a run that is
+		// ending or has stopped taking turns; say the steer was REJECTED
+		// rather than report a queue that does not exist.
+		return &agentcoordpb.AgentResponse{
+			Status: statusErr(codes.FailedPrecondition, fmt.Sprintf("steer: the engine took no turn: %v", err)),
+			Kind: &agentcoordpb.AgentResponse_Steer{Steer: &agentcoordpb.SteerResult{
+				Applied: agentcoordpb.SteerResult_APPLIED_REJECTED,
+			}},
+		}
+	}
+
+	applied := agentcoordpb.SteerResult_APPLIED_IMMEDIATE
+	if busy {
+		applied = agentcoordpb.SteerResult_APPLIED_NEXT_TURN
+	}
+	return &agentcoordpb.AgentResponse{
+		Status: okStatus(""),
+		Kind:   &agentcoordpb.AgentResponse_Steer{Steer: &agentcoordpb.SteerResult{Applied: applied}},
+	}
+}
+
+// steerSender reads the initiator identity the coordinator attached to the
+// request. It is metadata the COORDINATOR wrote, never something the steering
+// party self-asserted — the initiator is derived from the authenticated call,
+// not carried in a payload.
+func steerSender(meta *structpb.Struct) string {
+	if meta == nil {
+		return UserSender
+	}
+	if v, ok := meta.GetFields()["from"]; ok && v.GetStringValue() != "" {
+		return v.GetStringValue()
+	}
+	return UserSender
+}

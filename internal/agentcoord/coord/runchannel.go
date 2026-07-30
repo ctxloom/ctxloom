@@ -203,6 +203,12 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 		"run_id":       id.RunID,
 		"capabilities": strings.Join(hello.GetCapabilities(), ","),
 	})
+	// THE DRAIN SEAM. Outstanding down requests are re-validated against THIS
+	// Hello's advertisement before any of them is handed over, then the
+	// survivors are reissued with their original ids. It runs before the mail
+	// drain below because a rejected request must become unconsumed — and
+	// therefore fallback-routable — as early as possible.
+	c.redrainDownRequests(ch)
 	// A migrated child's queued mail drains the moment its channel attaches
 	// (fresh spawn: the pre-engine window; reconnect: unconsumed
 	// redelivery — at-least-once, deduped runner-side on message_id).
@@ -269,7 +275,7 @@ func (c *Coordinator) handleAgentFrame(ch *runChan, frame *agentcoordpb.AgentFra
 	case *agentcoordpb.AgentFrame_Hello:
 		// Duplicate hello on a live stream: tolerated.
 	case *agentcoordpb.AgentFrame_Response:
-		// No coordinator-initiated requests exist in the B window.
+		c.handleAgentResponse(ch, kind.Response)
 	}
 }
 

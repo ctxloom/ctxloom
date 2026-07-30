@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
+
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -68,6 +68,20 @@ type Home struct {
 	// preserved — a crash between notice and hand-off re-delivers).
 	turnQ       chan *agentcoordpb.PeerMessage
 	turnPending map[string]bool
+
+	// ctrlHandler executes coordinator-initiated plane-2 control requests
+	// (SetRequestHandler; EngineHost.BindHome registers itself). Nil means this
+	// runner hosts no engine, and the Request arm answers UNIMPLEMENTED —
+	// which is now a deliberate no-engine fallback rather than a window marker.
+	ctrlHandler func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse
+	// inflightCtrl is the RESPONDER-side idempotency mirror of the
+	// coordinator's reqTrack, keyed by request_id: a reissue that arrives
+	// after a reconnect re-sends the SAME cached answer, and one that arrives
+	// while the original dispatch is still running is joined to it rather than
+	// starting a second execution. A control request consumes a child TURN, so
+	// a double dispatch is not a wasted round trip — it is a second turn the
+	// human never asked for.
+	inflightCtrl map[string]*inflightCtrl
 
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
@@ -168,15 +182,16 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	}
 	hctx, cancel := context.WithCancel(ctx)
 	h := &Home{
-		cfg:         cfg,
-		ctx:         hctx,
-		cancel:      cancel,
-		conn:        conn,
-		ackCh:       make(chan struct{}),
-		pending:     make(map[string]*homeReq),
-		consumed:    make(map[string]bool),
-		turnPending: make(map[string]bool),
-		linkDone:    make(chan struct{}),
+		cfg:          cfg,
+		ctx:          hctx,
+		cancel:       cancel,
+		conn:         conn,
+		ackCh:        make(chan struct{}),
+		pending:      make(map[string]*homeReq),
+		consumed:     make(map[string]bool),
+		turnPending:  make(map[string]bool),
+		inflightCtrl: make(map[string]*inflightCtrl),
+		linkDone:     make(chan struct{}),
 	}
 	h.goTracked(h.runnerChannelLoop)
 	h.goTracked(h.runChannelLoop)
@@ -357,11 +372,7 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 			h.deliverNotice(pm)
 		}
 	case *agentcoordpb.CoordinatorFrame_Request:
-		// No coordinator-initiated requests are served in the B window.
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Response{Response: &agentcoordpb.AgentResponse{
-			RequestId: kind.Request.GetRequestId(),
-			Status:    statusErr(codes.Unimplemented, "not offered in this window"),
-		}}})
+		h.serveCoordinatorRequest(kind.Request)
 	case *agentcoordpb.CoordinatorFrame_HelloAck:
 		// Duplicate ack on a live stream; ignore.
 	}

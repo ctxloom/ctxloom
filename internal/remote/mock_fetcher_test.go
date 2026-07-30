@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 func TestNewMockFetcher(t *testing.T) {
@@ -224,15 +226,21 @@ func TestMockFetcher_ResolveRef(t *testing.T) {
 		}
 	})
 
-	t.Run("ref not in map uses default", func(t *testing.T) {
+	// U093-F20: an unseeded ref must NOT resolve. The old default synthesised
+	// "<ref>000000", so a test that forgot to seed still got a SHA and a nil
+	// error back — a plausible fake where a failure belonged.
+	t.Run("ref not in map does not resolve", func(t *testing.T) {
 		mock := NewMockFetcher()
 		sha, err := mock.ResolveRef(ctx, "owner", "repo", "main")
 
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("expected an unseeded ref to fail, got a resolved SHA")
 		}
-		if sha != "main000000" {
-			t.Errorf("sha = %q, want %q", sha, "main000000")
+		if !errors.Is(err, errs.ErrRemoteContentNotFound) {
+			t.Errorf("err = %v, want it to wrap errs.ErrRemoteContentNotFound", err)
+		}
+		if sha != "" {
+			t.Errorf("sha = %q, want empty", sha)
 		}
 	})
 
@@ -313,15 +321,18 @@ func TestMockFetcher_ValidateRepo(t *testing.T) {
 		}
 	})
 
-	t.Run("default is valid", func(t *testing.T) {
+	// U093-F20: a repo nobody marked valid is not valid. ValidRepos IS the
+	// answer, so its zero value is the honest default; asserting true for an
+	// unseeded repo described a repository the fixture never set up.
+	t.Run("unseeded repo is not valid", func(t *testing.T) {
 		mock := NewMockFetcher()
 		valid, err := mock.ValidateRepo(ctx, "unknown", "repo")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !valid {
-			t.Error("expected default to be valid")
+		if valid {
+			t.Error("expected an unseeded repo to be reported invalid")
 		}
 	})
 

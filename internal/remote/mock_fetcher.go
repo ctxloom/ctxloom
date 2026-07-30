@@ -191,8 +191,14 @@ func (m *MockFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (
 	if sha, ok := m.Refs[ref]; ok {
 		return sha, nil
 	}
-	// Default: return ref with suffix to indicate it was "resolved"
-	return ref + "000000", nil
+	// An unseeded ref does not resolve. Synthesising "<ref>000000" made the
+	// most decision-relevant method in this double answer SUCCESS to a question
+	// the test never set up: a caller that pins whatever comes back records a
+	// SHA that no fixture ever chose, and the assertion that it pinned "the
+	// right thing" passes without anything having been resolved. Wrap the same
+	// sentinel the production fetchers do, so absence stays distinguishable
+	// from breakage.
+	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
 
 func (m *MockFetcher) SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error) {
@@ -219,8 +225,11 @@ func (m *MockFetcher) ValidateRepo(ctx context.Context, owner, repo string) (boo
 	if valid, ok := m.ValidRepos[key]; ok {
 		return valid, nil
 	}
-	// Default to true for ease of testing
-	return true, nil
+	// A repo nobody marked valid is not valid. Defaulting to true asserted a
+	// property of a repository the fixture never described, so a test that
+	// forgot WithValidRepo still took the happy path — ValidRepos IS the
+	// answer, and its zero value is the honest one.
+	return false, nil
 }
 
 func (m *MockFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {

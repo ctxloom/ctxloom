@@ -20,13 +20,35 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,116** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 62 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 110 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 139 |
-| `open` | no commit names this ID | **841** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,122** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 66 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 113 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 141 |
+| `open` | no commit names this ID | **826** |
 
-**Totals: 2268 findings across 162 units — 1,116 resolved, 841 still open, 311 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,122 resolved, 826 still open, 320 adjudicated without a fix.**
+
+Updated again 2026-07-30 by the `wave36/u091` batch: all 15 remaining U091
+rows (the profiles loader/store) adjudicated — 6 RESOLVED, 4 PARTIAL, 3
+REFUTED, 2 ESCALATED. The reachable data-loss row was U091-F06: `Loader.Exists`
+answered "does this parse" rather than "is this stored", so a profile with a
+YAML syntax error read as absent and `profile create` wrote a new one straight
+over it, reporting success. U091-F22's named half was ctxloom's signature
+silent no-op — `operations.profileLoader` discovered its directories through
+`cfg.FS()` and then built a loader with no `WithFS`, so an injected filesystem
+yielded a discovered-but-empty directory and an error-free empty listing. Three
+rows were refuted on measurement rather than opinion: U091-F14's
+`filepath.Rel` cannot fail because `afero.Walk` derives every path from the dir
+by `Join`; U091-F16's "ledger shares no field with storage or the seed" is
+false twice over (`CommitUpgrade` writes through `l.fs`, and the retired-parent
+rewrite is discovered from `l.seeded`); and U091-F20's proposed `:skills/`
+marker was APPLIED and measured — it makes the profile splitter diverge from
+`bundles.expandBundleRef`, which discards non-fragment selectors anyway, so the
+remedy buys nothing and introduces drift. Two rows whose true mechanism had an
+overstated consequence: U091-F18's raw-vs-canonical `visited` key costs a
+duplicate resolution, not a missed cycle (the second spelling is caught one
+frame later), and U091-F09's shared seeded `*Profile` is already guarded by an
+in-tree DECISION at `operations.UpdateProfile`.
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +354,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 351 | 485 | 32 | 43 | 88 |
-| LOW | 871 | 415 | 330 | 20 | 59 | 47 |
+| MED | 999 | 356 | 476 | 34 | 43 | 90 |
+| LOW | 871 | 416 | 324 | 22 | 62 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1571,16 +1593,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U090-F14 | **RESOLVED** `714614b8` | **`paths.go:158-168, 108, 317 vs `internal/shared/plans/plans.go:19-20,41-46`** | DUPLICATE | `internal/shared/plans` re-declares this package's sessions-dir and plan-extension vocabulary and re-implements `HomeSessionsDir` — while *already importing* a `paths` package (the tasks one). Two ... | U090.md |
 | U090-F15 | open | **`paths.go:11 vs `internal/shared/tasks/paths/paths.go:22,29`** | COUPLING | There are **two** packages named `paths` in this module, each declaring its own `AppDirName = ".ctxloom"` and its own `IndexFileName = "index.yaml"`. Connascence of *value* across package boundarie... | U090.md |
 | U091-F03 | **RESOLVED** `159e370c` | **`profiles.go:76`** | DEAD | `ParseProfile` is unreachable — 0 references repo-wide including tests | U091.md |
-| U091-F04 | open | **`profiles.go:544-549`** | DUPLICATE | `isRemoteProfileRef` is a byte-for-byte reimplementation of `remote.IsCanonicalRef` — same four prefixes, same order — in a file that already imports `remote` and already calls `remote.IsCanonicalR... | U091.md |
-| U091-F05 | open | **`memstore.go:50, memstore.go:79`** | ERRHANDLING | `MemStore.Load`/`Delete` return bare `fmt.Errorf("profile %q not found", name)` while the sibling `*Loader` wraps `errs.ErrProfileNotFound` (profiles.go:511, 539). `errors.Is(err, errs.ErrProfileNo... | U091.md |
-| U091-F06 | open | **`profiles.go:552-555`** | ERRHANDLING | `Loader.Exists` collapses *every* failure to "does not exist" — a profile with malformed YAML, or one on an unreadable path, reports `Exists == false` | U091.md |
-| U091-F07 | open | **`profiles.go:441-443, 446-449, 459`** | SILENTNOOP / ERRHANDLING | `List` degrades to an empty, error-free result on three separate swallowed errors: `afero.DirExists` failure (`if err != nil \ | U091.md |
+| U091-F04 | **RESOLVED** `8fed60ae` | **`profiles.go:544-549`** | DUPLICATE | `isRemoteProfileRef` is a byte-for-byte reimplementation of `remote.IsCanonicalRef` — same four prefixes, same order — in a file that already imports `remote` and already calls `remote.IsCanonicalR... | U091.md |
+| U091-F05 | **RESOLVED** `237f0cb1` | **`memstore.go:50, memstore.go:79`** | ERRHANDLING | `MemStore.Load`/`Delete` return bare `fmt.Errorf("profile %q not found", name)` while the sibling `*Loader` wraps `errs.ErrProfileNotFound` (profiles.go:511, 539). `errors.Is(err, errs.ErrProfileNo... | U091.md |
+| U091-F06 | **RESOLVED** `9fefbea1` | **`profiles.go:552-555`** | ERRHANDLING | `Loader.Exists` collapses *every* failure to "does not exist" — a profile with malformed YAML, or one on an unreadable path, reports `Exists == false` | U091.md |
+| U091-F07 | **RESOLVED** `ef159860` | **`profiles.go:441-443, 446-449, 459`** | SILENTNOOP / ERRHANDLING | `List` degrades to an empty, error-free result on three separate swallowed errors: `afero.DirExists` failure (`if err != nil \ | U091.md |
 | U091-F08 | **RESOLVED** `e28fa43e` | **`profiles.go:636-647`** | SILENTNOOP | `Save` accepts a profile with no content and writes `"{}\n"`, reporting success — the writer treats empty as authoritative | U091.md |
-| U091-F09 | open | **`profiles.go:501-503, 435-438`** | COUPLING | `Load`/`List` return the **shared, mutable** `*Profile` out of `l.seeded` for a seeded profile, but a freshly-allocated one for a filesystem profile. The ownership contract is asymmetric and docume... | U091.md |
-| U091-F10 | open | **`profiles.go:780-829`** | COUPLING | The resolver reports "an unresolvable parent is fatal in strict mode" via a **process-global, goroutine-keyed side channel** (`strictness.FailOnce`) rather than its return value, so the promise hol... | U091.md |
-| U091-F12 | open | **`upgrade.go:251-256`** | CORRECTNESS | `canonicalize` treats the first `/`-separated segment of *any* non-canonical bundle ref as a remote alias, with no check that it isn't a local subdirectory bundle. `bundles.ValidateBundleName` (bun... | U091.md |
-| U091-F21 | open | **`memstore.go:64-72 vs profiles.go:619`** | COUPLING | `MemStore.Save` accepts any non-empty name; `Loader.Save` rejects `#` and path traversal via `validateProfileName`. The two `Store` adapters therefore disagree on what a valid profile name is, and ... | U091.md |
-| U091-F22 | open | **`profiles.go:261 (consumers: config.go:772, operations/profiles.go:508, operations/profile_transfer.go:19, cli/profile.go:170)`** | DUPLICATE / CORRECTNESS | **Routed finding confirmed, and it is worse than reported.** There are *four* profile-loader factories with three different capability sets. `operations.profileLoader:508` passes `cfg.FS()` to `Get... | U091.md |
+| U091-F09 | **PARTIAL** `f4f0b06a` | **`profiles.go:501-503, 435-438`** | COUPLING | `Load`/`List` return the **shared, mutable** `*Profile` out of `l.seeded` for a seeded profile, but a freshly-allocated one for a filesystem profile. The ownership contract is asymmetric and docume... | U091.md |
+| U091-F10 | **ESCALATED** `7c2d599f` | **`profiles.go:780-829`** | COUPLING | The resolver reports "an unresolvable parent is fatal in strict mode" via a **process-global, goroutine-keyed side channel** (`strictness.FailOnce`) rather than its return value, so the promise hol... | U091.md |
+| U091-F12 | **ESCALATED** `7c2d599f` | **`upgrade.go:251-256`** | CORRECTNESS | `canonicalize` treats the first `/`-separated segment of *any* non-canonical bundle ref as a remote alias, with no check that it isn't a local subdirectory bundle. `bundles.ValidateBundleName` (bun... | U091.md |
+| U091-F21 | **RESOLVED** `237f0cb1` | **`memstore.go:64-72 vs profiles.go:619`** | COUPLING | `MemStore.Save` accepts any non-empty name; `Loader.Save` rejects `#` and path traversal via `validateProfileName`. The two `Store` adapters therefore disagree on what a valid profile name is, and ... | U091.md |
+| U091-F22 | **PARTIAL** `820bc9a9` | **`profiles.go:261 (consumers: config.go:772, operations/profiles.go:508, operations/profile_transfer.go:19, cli/profile.go:170)`** | DUPLICATE / CORRECTNESS | **Routed finding confirmed, and it is worse than reported.** There are *four* profile-loader factories with three different capability sets. `operations.profileLoader:508` passes `cfg.FS()` to `Get... | U091.md |
 | U092-F04 | open | **`worktree.go:61-64, taskstore.go:38`** | ERRHANDLING | **A permission error on `.git` is silently classified as "not a worktree"**, in a function that deliberately surfaces the permission error on the very next line. The asymmetry fails *open* for both... | U092.md |
 | U092-F05 | open | `projectroot.go:43` | COUPLING | **`resolve` mixes two filesystems**: it stats on the injected `afero.Fs` but resolves relative paths against the real process cwd via `filepath.Abs`. The doc comment claims the opposite. | U092.md |
 | U092-F06 | open | **`worktree.go:59 (via `config/config.go:1556`)`** | COMPLEXITY | **`DetectWorktree` is called once per cwd ancestor on every `config.Load`**, each call costing 1–3 filesystem syscalls, with no memoization anywhere. From a deep worktree that is 8–12 stats per loa... | U092.md |
@@ -2515,14 +2537,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U090-F12 | open | **`paths.go:358`** | CORRECTNESS | `ApprovalsPath`'s doc says the approvals dir sits "next to allowed_signers.yaml". That file does not exist — `AllowedSignersFileName` is `"allowed_signers"` with **no extension**, and the constant'... | U090.md |
 | U090-F16 | open | **`paths.go:146 vs `internal/sessions/index.go:332`** | COUPLING | `CanonicalTranscriptFileName` has **zero production users** — the one place that writes a file by that name uses a bare literal, and for a *different* file (a symlink one directory up from the cano... | U090.md |
 | U091-F11 | **RESOLVED** `350fca25` | **`profiles.go:721-723`** | TRIVIAL | `toLocalProfileName` is the identity function — `return name` — carrying 8 lines of historical comment and 1 line of code | U091.md |
-| U091-F13 | open | **`profiles.go:401-403`** | ERRHANDLING | `CommitUpgrade(nil)` returns `nil` — reports success for a write that never happened; `p.Data` is written with no length guard, so a zero-length `Data` would truncate the user's profile file to not... | U091.md |
-| U091-F14 | open | **`profiles.go:459`** | ERRHANDLING | `relPath, _ := filepath.Rel(dir, path)` — on failure `relPath` is `""`, producing a profile whose `Name` is the empty string, which then sorts first and shadows nothing | U091.md |
+| U091-F13 | **RESOLVED** `8fdbcb0a` | **`profiles.go:401-403`** | ERRHANDLING | `CommitUpgrade(nil)` returns `nil` — reports success for a write that never happened; `p.Data` is written with no length guard, so a zero-length `Data` would truncate the user's profile file to not... | U091.md |
+| U091-F14 | **REFUTED** `ef159860` | **`profiles.go:459`** | ERRHANDLING | `relPath, _ := filepath.Rel(dir, path)` — on failure `relPath` is `""`, producing a profile whose `Name` is the empty string, which then sorts first and shadows nothing | U091.md |
 | U091-F15 | **REFUTED** `159e370c` | `memstore.go (whole file, 84 lines)` | NOPAY | `MemStore` is test-only yet compiled into every shipped binary; `MemStore.Seed` (memstore.go:24) has **zero** references repo-wide, including tests | U091.md |
-| U091-F16 | open | **`profiles.go:231-255`** | COHESION | `Loader` carries a schema-upgrade ledger (`pending`, `pendingPaths`, `PendingUpgrades`, `CommitUpgrade`) that shares no field with storage, resolution, or the seed registry, and has exactly one pro... | U091.md |
+| U091-F16 | **REFUTED** `d6a14fd0` | **`profiles.go:231-255`** | COHESION | `Loader` carries a schema-upgrade ledger (`pending`, `pendingPaths`, `PendingUpgrades`, `CommitUpgrade`) that shares no field with storage, resolution, or the seed registry, and has exactly one pro... | U091.md |
 | U091-F17 | **RESOLVED** `159e370c` | **`profiles.go:435-438`** | NOPAY | The `seen[name] = true` bookkeeping for seeded profiles in `List` can never fire: seed keys always contain `#profiles/` (they are built by `remote.BundleProfileRef`), and the fs branch keys `seen` ... | U091.md |
-| U091-F18 | open | **`profiles.go:730-746`** | CORRECTNESS | `ResolveProfile` seeds `visited` with the caller's raw `name`, while every recursive step uses `canonicalProfileName(parent)`. A profile referenced by its `<alias>/<bundle>#profiles/<n>` spelling t... | U091.md |
-| U091-F19 | open | **`profiles.go:231 vs memstore.go:13, store.go:12-26`** | COUPLING | The `Source`/`Store` port declares no concurrency contract, yet `*MemStore` is mutex-guarded on every method and `*Loader` has no synchronisation at all while mutating `l.pending`/`l.pendingPaths` ... | U091.md |
-| U091-F20 | open | **`upgrade.go:286`** | CORRECTNESS | `splitBundleSelector`'s legacy-`:`-marker list is `{":fragments/", ":commands/", ":mcp"}` — it omits `":skills/"`. A legacy alias ref `alias/bundle:skills/x` is not split, so `canonicalize` treats ... | U091.md |
+| U091-F18 | **PARTIAL** `5b4ff181` | **`profiles.go:730-746`** | CORRECTNESS | `ResolveProfile` seeds `visited` with the caller's raw `name`, while every recursive step uses `canonicalProfileName(parent)`. A profile referenced by its `<alias>/<bundle>#profiles/<n>` spelling t... | U091.md |
+| U091-F19 | **PARTIAL** `b8fbd652` | **`profiles.go:231 vs memstore.go:13, store.go:12-26`** | COUPLING | The `Source`/`Store` port declares no concurrency contract, yet `*MemStore` is mutex-guarded on every method and `*Loader` has no synchronisation at all while mutating `l.pending`/`l.pendingPaths` ... | U091.md |
+| U091-F20 | **REFUTED** `7c2d599f` | **`upgrade.go:286`** | CORRECTNESS | `splitBundleSelector`'s legacy-`:`-marker list is `{":fragments/", ":commands/", ":mcp"}` — it omits `":skills/"`. A legacy alias ref `alias/bundle:skills/x` is not split, so `canonicalize` treats ... | U091.md |
 | U092-F08 | open | `projectroot.go:27, 63-66` | ERRHANDLING | **`warnOnce` is process-global and never resets**, so only the first invalid `CTXLOOM_ROOT` in a process is ever reported. In a long-lived server process (`ctxloom mcp` / `acp` / the coordinator) w... | U092.md |
 | U092-F09 | **RESOLVED** `2976b043` | `projectroot.go:98-106` | NOPAY | **`RootFromFallback` recomputes the entire chain to answer a boolean `WorkDir` already knew**, including a second `os.LookupEnv`+`fs.Stat` and a second full go-git repository open. Two of its three... | U092.md |
 | U092-F10 | open | `projectroot.go:1-10` | COHESION | **The package doc describes one of the package's three responsibilities.** A reader cannot discover the worktree classifier or the task-store redirect from it. | U092.md |

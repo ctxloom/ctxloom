@@ -565,6 +565,58 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 // asserted — roster windowing around the selection (model.go:616's
 // rosterLines), padCell truncation (:643), and header/follow title states.
 
+// The overlay paints over a LIVE engine session: the controller clears and
+// holds exactly totalHeight rows beneath the cursor and nothing else. A View
+// that returns more lines than that — or a line wider than the terminal, which
+// the terminal then wraps onto another row — writes over the engine's own
+// output, and nothing puts it back. The invariant must therefore hold at every
+// geometry, not just the comfortable ones. U044-F06.
+func TestModel_ViewFitsItsGeometryExactly(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "perky-same-chevy", Agent: "developer", Engine: "claude-code", State: "live"},
+		RosterRow{Harp: "swift-elm-fox", Agent: "finder", State: "executing", Depth: 1},
+	)
+	for _, geo := range []termui.OverlayGeometry{
+		{Cols: 100, Rows: 30, PanelRows: 10},
+		{Cols: 100, Rows: 30, PanelRows: 3},
+		{Cols: 100, Rows: 30, PanelRows: 2},
+		{Cols: 100, Rows: 30, PanelRows: 1},
+		{Cols: 40, Rows: 12, PanelRows: 4},
+		{Cols: 24, Rows: 8, PanelRows: 5},
+		{Cols: 10, Rows: 6, PanelRows: 3},
+	} {
+		name := fmt.Sprintf("%dx%d", geo.Cols, geo.PanelRows)
+		m := NewModel(context.Background(), f.sources(), geo, 0x1d, nil)
+		m, cmd := step(t, m, rosterMsg{rows: f.rows})
+		require.NotNil(t, cmd, name)
+		m, _ = step(t, m, cmd())
+		m = pushEntry(t, m, f, entryEv("assistant", strings.Repeat("wide output ", 12)))
+
+		lines := strings.Split(m.View(), "\n")
+		assert.Len(t, lines, geo.PanelRows, "%s: View owns exactly PanelRows rows", name)
+		for i, l := range lines {
+			assert.LessOrEqual(t, len([]rune(stripSGR(l))), geo.Cols,
+				"%s: line %d overflows the terminal and wraps onto a row the overlay does not own", name, i)
+		}
+	}
+}
+
+// stripSGR removes the SGR escapes lipgloss may add, so a test can measure the
+// cells a line actually occupies.
+func stripSGR(s string) string {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			return s
+		}
+		j := strings.IndexByte(s[i:], 'm')
+		if j < 0 {
+			return s
+		}
+		s = s[:i] + s[i+j+1:]
+	}
+}
+
 func TestPadCell_PadsShortAndTruncatesLongWithEllipsis(t *testing.T) {
 	assert.Equal(t, "hi   ", padCell("hi", 5), "short strings are space-padded to width")
 	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 runes plus an ellipsis")

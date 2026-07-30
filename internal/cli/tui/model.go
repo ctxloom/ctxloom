@@ -613,9 +613,20 @@ var (
 	styleDim      = lipgloss.NewStyle().Faint(true)
 )
 
-// View renders exactly totalHeight lines: header, roster│feed content, hints.
+// View renders exactly totalHeight lines of at most geo.Cols cells: header,
+// roster│feed content, hints. The overlay paints over a live engine session
+// and the controller has cleared exactly that many rows for it, so an extra
+// line — or a line the terminal wraps because it is too wide — lands on a row
+// nothing will repaint. The budget therefore governs: the content rows take
+// what the header and hints leave, and both of those are dropped in turn
+// rather than allowed to overflow.
 func (m Model) View() string {
-	contentH := m.contentHeight()
+	total := m.totalHeight()
+	if total < 1 {
+		return ""
+	}
+	cols := m.geo.Cols
+	contentH := max(total-2, 0)
 	feedW := m.feedWidth()
 
 	title := "feed: —"
@@ -644,30 +655,31 @@ func (m Model) View() string {
 	rosterLines := m.rosterLines(contentH)
 	feedLines := splitPad(m.vp.View(), contentH)
 
-	var b strings.Builder
-	b.WriteString(styleHeader.Render(header))
-	b.WriteByte('\n')
+	out := make([]string, 0, total)
+	out = append(out, styleHeader.Render(padCell(header, cols)))
 	for i := 0; i < contentH; i++ {
-		b.WriteString(padCell(rosterLines[i], rosterPaneWidth))
-		b.WriteString("│")
-		b.WriteString(padCell(feedLines[i], feedW))
-		b.WriteByte('\n')
+		row := padCell(rosterLines[i], rosterPaneWidth) + "│" + padCell(feedLines[i], feedW)
+		out = append(out, padCell(row, cols))
 	}
 	if m.injecting {
 		// The inject line replaces the hints while open: explicit target, the
 		// text so far, and its own key hints. Deliberately not dimmed — it is
 		// the focused input.
-		b.WriteString(padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", m.geo.Cols))
-		return b.String()
+		out = append(out, padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", cols))
+	} else {
+		hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
+			strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
+		if note := m.hintNote(); note != "" {
+			hints += "  ─ " + note
+		}
+		out = append(out, styleDim.Render(padCell(hints, cols)))
 	}
-	hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
-		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
-	note := m.hintNote()
-	if note != "" {
-		hints += "  ─ " + note
+	// One row of budget buys the header; the hint line is what a two-row panel
+	// gives up last.
+	if len(out) > total {
+		out = out[:total]
 	}
-	b.WriteString(styleDim.Render(padCell(hints, m.geo.Cols)))
-	return b.String()
+	return strings.Join(out, "\n")
 }
 
 func (m Model) selectedRow() RosterRow {

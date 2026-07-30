@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -165,25 +167,36 @@ func newInitPromptsFrom(r io.Reader) *initPrompts {
 	return p
 }
 
-// readCleanLine reads a line and strips terminal escape sequences and control chars.
-// This handles focus events (^[[I, ^[[O), cursor movements, etc.
+// readCleanLine reads a line and strips terminal escape sequences and
+// non-printing characters. This handles focus events (^[[I, ^[[O), cursor
+// movements, etc.
+//
+// It filters rune-wise, not byte-wise: the values typed at these prompts are
+// repo names and filesystem paths, which are legitimately non-ASCII, so
+// printable text in any script survives verbatim. A byte that is not valid
+// UTF-8 is dropped like any other non-printing byte.
 func (p *initPrompts) readCleanLine() (string, error) {
 	input, err := p.reader.ReadString('\n')
 	if err != nil {
 		return "", err
 	}
 
-	// Strip CSI escape sequences, keep only printable ASCII.
+	// Strip CSI escape sequences, keep only printable characters.
 	var clean strings.Builder
 	for i := 0; i < len(input); {
 		if isCSIStart(input, i) {
 			i = skipCSISequence(input, i)
 			continue
 		}
-		if isPrintableASCII(input[i]) {
-			clean.WriteByte(input[i])
+		r, size := utf8.DecodeRuneInString(input[i:])
+		if r == utf8.RuneError && size <= 1 {
+			i++ // not decodable as UTF-8 — drop the byte
+			continue
 		}
-		i++
+		if unicode.IsPrint(r) {
+			clean.WriteRune(r)
+		}
+		i += size
 	}
 
 	return strings.TrimSpace(clean.String()), nil
@@ -206,11 +219,6 @@ func skipCSISequence(input string, i int) int {
 		}
 	}
 	return i
-}
-
-// isPrintableASCII reports whether b is a printable ASCII byte.
-func isPrintableASCII(b byte) bool {
-	return b >= 0x20 && b <= 0x7e
 }
 
 // primaryEngines are shown first in the selection menu (curated list).

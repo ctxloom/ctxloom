@@ -200,3 +200,34 @@ func TestSetupPromptDoors_EmitTheSameBody(t *testing.T) {
 	assert.Equal(t, discoverySessionPrompt(cfg)+"\n", out.String(),
 		"`init prompt` and the discovery session must emit the same setup body")
 }
+
+// TestReadCleanLine (U036-F12) pins what init's prompt reader keeps and what it
+// throws away. It exists to strip terminal noise — CSI escapes from focus
+// events, cursor reports, stray control bytes — from a line the user typed, and
+// the two things it takes are repo names and filesystem paths, both of which
+// are legitimately non-ASCII. Dropping every byte above 0x7e mangled such an
+// entry silently: `ctxloom init` would then register a remote or path the user
+// never typed instead of rejecting it or echoing it back.
+func TestReadCleanLine(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"plain_ascii", "me/ctxloom-profiles\n", "me/ctxloom-profiles"},
+		{"trims_surrounding_space", "  me/repo  \n", "me/repo"},
+		{"utf8_accents_survive", "me/ctxloom-prófiles\n", "me/ctxloom-prófiles"},
+		{"non_latin_script_survives", "私のリポジトリ\n", "私のリポジトリ"},
+		{"emoji_survives", "me/repo-🚀\n", "me/repo-🚀"},
+		{"strips_focus_events", "\x1b[Ime/repo\x1b[O\n", "me/repo"},
+		{"strips_cursor_report", "me\x1b[12;3R/repo\n", "me/repo"},
+		{"strips_bare_control_bytes", "me\x07/repo\x00\n", "me/repo"},
+		{"drops_invalid_utf8_bytes", "me/\xffrepo\n", "me/repo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newInitPromptsFrom(strings.NewReader(tc.in))
+			got, err := p.readCleanLine()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

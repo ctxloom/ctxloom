@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -96,35 +97,19 @@ instead, set isolation_images in config — those are run as-is and never built.
 			backend, _ = operations.ResolveBackend(cfg, "")
 		}
 
-		// The config knobs apply when the corresponding flag doesn't override
-		// them, so the explicit build and the on-the-fly build resolve the
-		// same base/engine set.
-		opts := isolation.ImageBuildOptions{
-			BaseImage:         containerBuildBaseImage,
-			BaseContainerfile: containerBuildBaseContainerfile,
-			Runtime:           containerBuildRuntime,
-			KeepCache:         containerBuildKeepCache,
-			Output:            os.Stdout,
+		if cerr != nil {
+			cfg = nil
 		}
-		if cerr == nil {
-			img := operations.IsolationImageConfig(cfg, backend)
-			if opts.BaseContainerfile == "" {
-				opts.BaseContainerfile = img.BaseContainerfile
-			}
-			opts.AppRoot = img.AppRoot
-			opts.NoDevcontainerBase = img.NoDevcontainerBase
-			opts.DevcontainerService = img.DevcontainerService
-			opts.Engines = img.Engines
-		}
-		if containerBuildNoDevcontainerBase {
-			opts.NoDevcontainerBase = true
-		}
-		if containerBuildDevcontainerService != "" {
-			opts.DevcontainerService = containerBuildDevcontainerService
-		}
-		if len(containerBuildEngines) > 0 {
-			opts.Engines = containerBuildEngines
-		}
+		opts := containerBuildOptions(containerBuildFlagValues{
+			BaseImage:           containerBuildBaseImage,
+			BaseContainerfile:   containerBuildBaseContainerfile,
+			Runtime:             containerBuildRuntime,
+			DevcontainerService: containerBuildDevcontainerService,
+			Engines:             containerBuildEngines,
+			NoDevcontainerBase:  containerBuildNoDevcontainerBase,
+			KeepCache:           containerBuildKeepCache,
+		}, cfg, backend, cmd.ErrOrStderr())
+		opts.Output = os.Stdout
 		image, err := isolation.BuildAgentImage(cmd.Context(), backend, opts)
 		if err != nil {
 			return err
@@ -132,6 +117,68 @@ instead, set isolation_images in config — those are run as-is and never built.
 		fmt.Printf("Built %s for backend %s\n", image, backend)
 		return nil
 	},
+}
+
+// containerBuildFlagValues carries `container build`'s own flag state into
+// containerBuildOptions, so the flag-over-config precedence is resolvable —
+// and testable — without a cobra command or a container runtime.
+type containerBuildFlagValues struct {
+	BaseImage           string
+	BaseContainerfile   string
+	Runtime             string
+	DevcontainerService string
+	Engines             []string
+	NoDevcontainerBase  bool
+	KeepCache           bool
+}
+
+// containerBuildOptions resolves the build options from flags plus config: a
+// config knob applies only where the corresponding flag didn't pick a value,
+// so the explicit build and the on-the-fly build resolve the same base/engine
+// set. A nil cfg (config unavailable) resolves from flags alone.
+//
+// Two invariants live here:
+//
+//   - BaseImage and BaseContainerfile are mutually exclusive
+//     (isolation.BuildAgentImage rejects the pair outright), so a config base
+//     Containerfile is inherited only when NEITHER flag chose a base. An
+//     explicit --base-image must never be turned into a hard failure by a
+//     project default the user did not name on this command line.
+//   - a config isolation_images entry for this backend is run AS-IS and never
+//     built (isolation.containerFor), so whatever this command builds is not
+//     the image a run will use. That is reported on warn, because building an
+//     image nothing will run is otherwise indistinguishable from success.
+func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, backend string, warn io.Writer) isolation.ImageBuildOptions {
+	opts := isolation.ImageBuildOptions{
+		BaseImage:         flags.BaseImage,
+		BaseContainerfile: flags.BaseContainerfile,
+		Runtime:           flags.Runtime,
+		KeepCache:         flags.KeepCache,
+	}
+	if cfg != nil {
+		img := operations.IsolationImageConfig(cfg, backend)
+		if opts.BaseImage == "" && opts.BaseContainerfile == "" {
+			opts.BaseContainerfile = img.BaseContainerfile
+		}
+		opts.AppRoot = img.AppRoot
+		opts.NoDevcontainerBase = img.NoDevcontainerBase
+		opts.DevcontainerService = img.DevcontainerService
+		opts.Engines = img.Engines
+		if img.Image != "" {
+			clidiag.Fwarn(warn, "ctxloom", "config isolation_images pins %s for backend %s: that image is run AS-IS and never built, so a %s agent will NOT use the image this build produces (unset isolation_images for %s to run what you build)",
+				img.Image, backend, backend, backend)
+		}
+	}
+	if flags.NoDevcontainerBase {
+		opts.NoDevcontainerBase = true
+	}
+	if flags.DevcontainerService != "" {
+		opts.DevcontainerService = flags.DevcontainerService
+	}
+	if len(flags.Engines) > 0 {
+		opts.Engines = flags.Engines
+	}
+	return opts
 }
 
 // containerProvenanceCmd prints the content digest of the ctxloom + companion

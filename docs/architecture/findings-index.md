@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,183** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,184** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **87** |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | **137** |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **713** |
+| `open` | no commit names this ID | **712** |
 
-**Totals: 2268 findings across 162 units — 1,183 resolved, 713 still open, 372 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,184 resolved, 712 still open, 372 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 392 | 407 | 46 | 60 | 94 |
-| LOW | 871 | 440 | 281 | 31 | 69 | 50 |
+| LOW | 871 | 441 | 280 | 31 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2692,7 +2692,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U125-F11 | **PARTIAL** `3e680d17` | **`registry.go:265-273`** | CORRECTNESS | `cleanPath` silently changes comparison key when `EvalSymlinks` fails, so a transient permissions or mount problem makes a live tree compare *unequal to itself*, which `Resolve` reads as "not regis... | U125.md |
 | U126-F03 | open | `tagschema.go:129-134` | CORRECTNESS | `add`'s "last wins" silently overwrites a duplicate `facet`+`target` declaration, so a config with two conflicting declarations for one target is indistinguishable from a config with one | U126.md |
 | U126-F05 | **REFUTED** `848aa14e` | `formula.go:96-99` | TRIVIAL | `Eval`'s non-`float64` branch is four lines the author documents as unreachable | U126.md |
-| U126-F08 | open | `tagschema.go:64-73`, `:83` | COUPLING | The eight facet constants form an implicit enum with no validation: `add` accepts **any** `tagma.<anything>` namespace as a facet and stores it, so `tagma.arty:"triage:kind"=scalar` (typo) parses c... | U126.md |
+| U126-F08 | **RESOLVED** `74ab5535` | `tagschema.go:64-73`, `:83` | COUPLING | The eight facet constants form an implicit enum with no validation: `add` accepts **any** `tagma.<anything>` namespace as a facet and stores it, so `tagma.arty:"triage:kind"=scalar` (typo) parses c... | U126.md |
 | U127-F05 | open | `taskstest.go:87` | ERRHANDLING | `ChangeDir`'s cleanup swallows the restore error, so a failed cwd restore silently leaks into **every subsequent test in the binary** | U127.md |
 | U127-F07 | open | `taskstest.go:1-8`, `:17-19` | CORRECTNESS | The package doc and `EnvKeys`' doc both scope this package to "the task store", but 52 callers use `Isolate` as general-purpose test isolation — the narrow scope in the doc is what makes the narrow... | U127.md |
 | U128-F06 | **REFUTED** `8ca2a0bd` | `verdict.go:28, query.go:29` | DEAD | `Outcomes()` and `QueryTypes()` have **zero** production callers — both are test-only. | U128.md |

@@ -114,6 +114,16 @@ func NewKiro() *Kiro {
 func (b *Kiro) Configure(cfg agent.BackendConfig) {
 	c, ok := cfg.(*KiroConfig)
 	if !ok {
+		// Never silently: with no KiroConfig applied, EVERY override (binary
+		// path, args, env, effort, agent, agent-engine) is dropped and the run
+		// launches on defaults — a mis-wiring that would otherwise surface a
+		// whole session later, naming neither the cause nor the config that
+		// caused it. Nil is the same class and must not panic while saying so.
+		declared := "<nil>"
+		if cfg != nil {
+			declared = cfg.BackendType()
+		}
+		clidiag.Warn("ctxloom", "kiro: ignoring a %q config this backend cannot read (want *kiro.KiroConfig) — the kiro backend is left unconfigured and every override in it is dropped", declared)
 		return
 	}
 	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)

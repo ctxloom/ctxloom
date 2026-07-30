@@ -116,6 +116,48 @@ func TestKiro_ConfigureIgnoresForeignConfig(t *testing.T) {
 	assert.Equal(t, defaultAgentName, b.agentName)
 }
 
+// foreignConfig is a BackendConfig this backend cannot read — the mis-wiring
+// shape Configure's type assertion guards against.
+type foreignConfig struct{}
+
+func (foreignConfig) BackendType() string { return "not-kiro" }
+
+// TestKiro_ConfigureForeignConfigIsWarned pins U055-F11: a config Configure
+// cannot read drops EVERY override (binary path, args, env, effort, agent,
+// agent-engine) and the run then launches on defaults. Staying silent about
+// that surfaces the mis-wiring a whole session later as a launch that ignored
+// the user's config, naming neither the cause nor the config that caused it —
+// the same reason internal/acp's Configure warns on its own foreign-config arm.
+// A nil config is the same class and must not panic while saying so.
+func TestKiro_ConfigureForeignConfigIsWarned(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cfg  agent.BackendConfig
+		want string
+	}{
+		{"foreign typed config", foreignConfig{}, "not-kiro"},
+		{"nil config", nil, "<nil>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+			orig := os.Stderr
+			os.Stderr = w
+
+			b := NewKiro()
+			b.Configure(tt.cfg)
+			_ = w.Close()
+			os.Stderr = orig
+
+			out, err := io.ReadAll(r)
+			require.NoError(t, err)
+			assert.Contains(t, string(out), tt.want,
+				"a config this backend cannot read must be reported, not silently dropped")
+			assert.Equal(t, "kiro-cli", b.BinaryPath, "no override may be applied from an unreadable config")
+		})
+	}
+}
+
 // TestKiro_Execute_RefusesEmptyOneshotPrompt pins the headless-turn invariant
 // the shared ACP-shaped path already enforces (agent.RunOneshotTurn: "an empty
 // prompt now refuses before the engine is ever invoked"). kiro's exec-style

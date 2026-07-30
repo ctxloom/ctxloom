@@ -802,68 +802,22 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 	if tc.HomingMode == paths.ModeRepo {
 		return resolveRepoHomedStore(tc)
 	}
-	proj.ID = tc.ProjectID
 	pm, pmErr := projectid.Open("")
-	if proj.ID == "" {
-		if pmErr != nil {
-			return nil, proj, "", fmt.Errorf("open project registry: %w", pmErr)
-		}
-		res, rerr := pm.Resolve(tc.WorkDir)
-		if rerr != nil {
-			return nil, proj, "", fmt.Errorf("resolve project id: %w", rerr)
-		}
-		proj.ID = res.ProjectID
-		warning = res.Warning
-	}
-	// Best-effort: name the registered root for the id so frontends can show
-	// where the store lives. A registry miss leaves Dir empty — never fatal.
-	if pmErr == nil {
-		if e, lerr := pm.ResolveByID(proj.ID); lerr == nil && e != nil {
-			proj.Dir = e.Path
-		}
-		// A pinned project-id silently wins over the working directory. When
-		// the cwd demonstrably belongs to a DIFFERENT project (its marker or
-		// registry entry says so), say it — this is exactly how tasks end up
-		// filed under the wrong project from a session that cd'd elsewhere.
-		if tc.ProjectID != "" && tc.WorkDir != "" {
-			// ReadMarker's error is the one signal that the tree's own marker
-			// was REFUSED (crafted to escape the tasks directory, or
-			// unreadable) rather than simply absent. Discarding it made those
-			// two states indistinguishable, so the check fell through to the
-			// registry and, finding nothing, stayed silent about a marker
-			// someone had planted. The pin still wins — this is a diagnostic,
-			// not a refusal.
-			cwdID, merr := projectid.ReadMarker(tc.WorkDir)
-			if merr != nil {
-				warning = appendNote(warning, fmt.Sprintf(
-					"acting on pinned project %s; %s carries a project marker that was refused (%v), so it could not be checked against the pin",
-					proj.ID, tc.WorkDir, merr))
-			}
-			if cwdID == "" {
-				if e, lerr := pm.ResolveByPath(tc.WorkDir); lerr == nil && e != nil {
-					cwdID = e.ProjectID
-				}
-			}
-			if cwdID != "" && cwdID != proj.ID {
-				warning = appendNote(warning, fmt.Sprintf(
-					"acting on pinned project %s, but %s belongs to project %s — pass --project %s to target it",
-					proj.ID, tc.WorkDir, cwdID, cwdID))
-			}
-		}
+	proj, warning, err = resolveProjectFor(tc, pm, pmErr)
+	if err != nil {
+		return nil, proj, "", err
 	}
 	logPath, err := paths.HomeTasksLogPath(proj.ID)
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}
-	// The resolution above ended in agreement (no pin-vs-cwd mismatch, or none
-	// to check) — that's exactly the case the note above never covers. But
-	// "resolved cleanly" and "has a task log" are different facts: a project-id
-	// can resolve normally to an id whose jsonl was simply never written (a
-	// fresh id adopted over a stale one, a lost/rebuilt registry, ...). Opened
-	// via tasks.OpenLog below with no existence check, that reads back as a
-	// plain empty project — "(no tasks)" — even when a DIFFERENT id also
-	// registered at this same path already has a real backlog sitting right
-	// there. Say so instead of staying silent; see missingLogSiblingNote.
+	// "Resolved cleanly" and "has a task log" are different facts: a
+	// project-id can resolve normally to an id whose jsonl was simply never
+	// written (a fresh id adopted over a stale one, a lost/rebuilt registry,
+	// ...). Opened via tasks.OpenLog below with no existence check, that
+	// reads back as a plain empty project — "(no tasks)" — even when a
+	// DIFFERENT id also registered at this same path already has a real
+	// backlog sitting right there. Say so instead of staying silent.
 	if pmErr == nil && tc.WorkDir != "" {
 		warning = appendNote(warning, missingLogSiblingNote(pm, tc.WorkDir, proj.ID, logPath))
 	}
@@ -872,6 +826,69 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 		return nil, proj, warning, err
 	}
 	return store, proj, warning, nil
+}
+
+// resolveProjectFor answers WHICH project a home-homed operation acts on: the
+// id pinned in tc (exported by `ctxloom run`) or a live registry resolution,
+// plus the registered root to display and any note the frontend should
+// surface. pmErr is the registry's own open failure, carried in rather than
+// re-derived: it is fatal only when the id has to be resolved live, and
+// merely disables the advisory lookups otherwise.
+func resolveProjectFor(tc TaskContext, pm *projectid.Manager, pmErr error) (proj projectIdentity, warning string, err error) {
+	proj.ID = tc.ProjectID
+	if proj.ID == "" {
+		if pmErr != nil {
+			return proj, "", fmt.Errorf("open project registry: %w", pmErr)
+		}
+		res, rerr := pm.Resolve(tc.WorkDir)
+		if rerr != nil {
+			return proj, "", fmt.Errorf("resolve project id: %w", rerr)
+		}
+		proj.ID = res.ProjectID
+		warning = res.Warning
+	}
+	if pmErr != nil {
+		return proj, warning, nil
+	}
+	// Best-effort: name the registered root for the id so frontends can show
+	// where the store lives. A registry miss leaves Dir empty — never fatal.
+	if e, lerr := pm.ResolveByID(proj.ID); lerr == nil && e != nil {
+		proj.Dir = e.Path
+	}
+	return proj, appendNote(warning, pinMismatchNote(tc, pm, proj.ID)), nil
+}
+
+// pinMismatchNote reports when a pinned project-id silently wins over a
+// working directory that demonstrably belongs to a DIFFERENT project — its
+// own marker or its registry entry says so. This is exactly how tasks end up
+// filed under the wrong project from a session that cd'd elsewhere. "" when
+// there is no pin, no working directory, or no disagreement.
+func pinMismatchNote(tc TaskContext, pm *projectid.Manager, resolvedID string) string {
+	if tc.ProjectID == "" || tc.WorkDir == "" {
+		return ""
+	}
+	// ReadMarker's error is the one signal that the tree's own marker was
+	// REFUSED (crafted to escape the tasks directory, or unreadable) rather
+	// than simply absent; the two states must not read alike. The pin still
+	// wins — this is a diagnostic, not a refusal.
+	note := ""
+	cwdID, merr := projectid.ReadMarker(tc.WorkDir)
+	if merr != nil {
+		note = fmt.Sprintf(
+			"acting on pinned project %s; %s carries a project marker that was refused (%v), so it could not be checked against the pin",
+			resolvedID, tc.WorkDir, merr)
+	}
+	if cwdID == "" {
+		if e, lerr := pm.ResolveByPath(tc.WorkDir); lerr == nil && e != nil {
+			cwdID = e.ProjectID
+		}
+	}
+	if cwdID == "" || cwdID == resolvedID {
+		return note
+	}
+	return appendNote(note, fmt.Sprintf(
+		"acting on pinned project %s, but %s belongs to project %s — pass --project %s to target it",
+		resolvedID, tc.WorkDir, cwdID, cwdID))
 }
 
 // appendNote joins a resolution note onto the warning a frontend will

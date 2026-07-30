@@ -550,57 +550,85 @@ func doctorCheckVersion() doctorCheck {
 // store carries (operations.ListSigners — always includes the embedded root,
 // so a healthy store is never reported as empty).
 func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
+	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
-		return doctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
-	var parts []string
 	status := "ok"
+	hooks, hooksOK := doctorHooksWiringDetail(ctx, cfg)
+	trust, trustOK := doctorTrustStoreDetail(operations.ListSigners(cfg, nil))
+	if !hooksOK || !trustOK {
+		status = "warn"
+	}
+	return doctorCheck{Marker: marker, Status: status, Detail: strings.Join([]string{hooks, trust}, "; ")}
+}
+
+// doctorHooksWiringDetail reports hooks + MCP registration for every backend a
+// configured agent resolves to, reading operations.HarnessStatus (the SAME read
+// `ctxloom manage status` exposes). ok=false is the caller's warn signal.
+func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail string, ok bool) {
 	configured := doctorConfiguredEngines(cfg)
-	switch {
-	case len(configured) == 0:
-		parts = append(parts, "hooks/MCP: no engine is configured to check")
-	default:
-		result, err := operations.HarnessStatus(ctx, cfg, operations.HarnessStatusRequest{})
-		if err != nil {
-			parts = append(parts, "hooks/MCP: "+err.Error())
-			status = "warn"
-		} else {
-			byBackend := make(map[string]operations.BackendWiring, len(result.Backends))
-			for _, b := range result.Backends {
-				byBackend[b.Backend] = b
-			}
-			var present, missing []string
-			for _, name := range configured {
-				b, ok := byBackend[name]
-				if !ok || !b.SettingsExists || !b.HooksPresent {
-					missing = append(missing, name)
-					continue
-				}
-				present = append(present, name)
-			}
-			sort.Strings(present)
-			sort.Strings(missing)
-			if len(missing) > 0 {
-				parts = append(parts, "hooks/MCP NOT registered for: "+strings.Join(missing, ", ")+" (run `ctxloom manage install`)")
-				status = "warn"
-			} else {
-				parts = append(parts, "hooks/MCP registered for: "+strings.Join(present, ", "))
-			}
-		}
+	if len(configured) == 0 {
+		return "hooks/MCP: no engine is configured to check", true
 	}
-	signers, err := operations.ListSigners(cfg, nil)
+	result, err := operations.HarnessStatus(ctx, cfg, operations.HarnessStatusRequest{})
 	if err != nil {
-		parts = append(parts, "trust store: "+err.Error())
-	} else {
-		active := 0
-		for _, s := range signers {
-			if !s.Suppressed {
-				active++
-			}
-		}
-		parts = append(parts, fmt.Sprintf("trust store: %d active signer(s)", active))
+		return "hooks/MCP: " + err.Error(), false
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: status, Detail: strings.Join(parts, "; ")}
+	byBackend := make(map[string]operations.BackendWiring, len(result.Backends))
+	for _, b := range result.Backends {
+		byBackend[b.Backend] = b
+	}
+	var present, missing []string
+	for _, name := range configured {
+		if b, found := byBackend[name]; !found || !b.SettingsExists || !b.HooksPresent {
+			missing = append(missing, name)
+			continue
+		}
+		present = append(present, name)
+	}
+	sort.Strings(present)
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		return "hooks/MCP NOT registered for: " + strings.Join(missing, ", ") + " (run `ctxloom manage install`)", false
+	}
+	return "hooks/MCP registered for: " + strings.Join(present, ", "), true
+}
+
+// doctorTrustStoreDetail reports how much trust the store actually grants, from
+// operations.ListSigners' (listing, error) pair.
+//
+// An UNREADABLE row is the case worth being careful about: ListSigners is
+// deliberately tolerant, so a store it could not open, could not parse, or
+// whose lines the parser dropped comes back as SignerListing rows with
+// Unreadable set (operations/signer.go's listFromPath) — never as an error.
+// Those rows grant no trust, so counting them as active signers reports MORE
+// trust than the machine has, and reporting "ok" beside them tells the user
+// their trust store is fine when part of it was silently skipped.
+//
+// The error arm is kept because the signature carries one, but note that
+// ListSigners returns `out, nil` unconditionally today: it is defensive, not
+// reachable, and no test can drive it through this function.
+func doctorTrustStoreDetail(signers []operations.SignerListing, err error) (detail string, ok bool) {
+	if err != nil {
+		return "trust store: " + err.Error(), false
+	}
+	active := 0
+	var unreadable []string
+	for _, s := range signers {
+		switch {
+		case s.Unreadable != "":
+			unreadable = append(unreadable, fmt.Sprintf("%s (%s)", s.Path, s.Unreadable))
+		case !s.Suppressed:
+			active++
+		}
+	}
+	if len(unreadable) > 0 {
+		sort.Strings(unreadable)
+		return fmt.Sprintf("trust store: %d active signer(s), and %d entr(y/ies) that could not be read and grant NO trust: %s",
+			active, len(unreadable), strings.Join(unreadable, "; ")), false
+	}
+	return fmt.Sprintf("trust store: %d active signer(s)", active), true
 }
 
 // ===== init-as-skill Phase 6 postcondition checks (plan.md §8.2) =====

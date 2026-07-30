@@ -799,3 +799,68 @@ func hashTree(t *testing.T, root string) map[string]string {
 	require.NoError(t, err)
 	return out
 }
+
+// --- U035-F05: the trust half of DOCTOR-CHECK-HOOKS-TRUST-d4 ---
+
+// TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive is
+// U035-F05's real defect. The row claims doctorCheckHooksTrust appends
+// ListSigners' ERROR text without setting warn; that mechanism is refuted —
+// operations.ListSigners returns `out, nil` unconditionally (signer.go), so the
+// error arm is unreachable. The IMPACT it describes was real by another route:
+// a store ListSigners could not read comes back as SignerListing rows with
+// Unreadable set, the old count treated every non-Suppressed row as an active
+// signer, and the status stayed "ok" — reporting more trust than the machine
+// has, and calling it healthy.
+func TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive(t *testing.T) {
+	detail, ok := doctorTrustStoreDetail([]operations.SignerListing{
+		{Source: "embedded", Path: "(compiled-in)"},
+		{Source: "embedded", Path: "(compiled-in)", Suppressed: true},
+		{Source: "project", Path: "/p/.ctxloom/allowed_signers", Unreadable: "line 2 is not a usable entry"},
+	}, nil)
+
+	assert.False(t, ok, "a store that could not be fully read is not an 'ok' trust store")
+	assert.Contains(t, detail, "1 active signer(s)",
+		"an unreadable row grants no trust and must not inflate the count")
+	assert.Contains(t, detail, "/p/.ctxloom/allowed_signers", "the gap must name the file")
+	assert.Contains(t, detail, "grant NO trust")
+}
+
+func TestDoctorTrustStoreDetail_HealthyStore(t *testing.T) {
+	detail, ok := doctorTrustStoreDetail([]operations.SignerListing{
+		{Source: "embedded", Path: "(compiled-in)"},
+		{Source: "project", Path: "/p/.ctxloom/allowed_signers"},
+	}, nil)
+
+	assert.True(t, ok)
+	assert.Equal(t, "trust store: 2 active signer(s)", detail)
+}
+
+func TestDoctorTrustStoreDetail_ErrorArmWarns(t *testing.T) {
+	// Defensive only: ListSigners cannot currently return an error (it ends in
+	// `return out, nil`), so this arm is unreachable in production. It is still
+	// pinned, because the old code appended the error text and left the status
+	// at "ok" — the exact shape U035-F05 named.
+	detail, ok := doctorTrustStoreDetail(nil, assert.AnError)
+	assert.False(t, ok)
+	assert.Contains(t, detail, assert.AnError.Error())
+}
+
+// TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore drives the
+// whole check against a REAL malformed allowed_signers file, so the wiring
+// (not just the helper) is pinned: a line with no key field is a parse error
+// ListSigners surfaces as an Unreadable row.
+func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing.T) {
+	testsupport.Isolate(t) // keep the developer's ~/.ctxloom store out of the listing
+	appDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "allowed_signers"),
+		[]byte("this-line-has-no-key-field\n"), 0o644))
+	// No configured agents: the hooks half short-circuits, isolating the trust half.
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
+
+	assert.Equal(t, "warn", check.Status,
+		"a trust store the loader could not fully read must not report ok")
+	assert.Contains(t, check.Detail, "grant NO trust")
+	assert.Contains(t, check.Detail, appDir)
+}

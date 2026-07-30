@@ -26,7 +26,7 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
 | `open` | no commit names this ID | **1,043** |
 
-**Totals: 2268 findings across 162 units — 985 resolved, 1,043 still open, 114 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 985 resolved, 1,043 still open, 240 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,

@@ -54,3 +54,22 @@ func TestGetCurrentSessionViaGetSession_NoSessionsErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no sessions found")
 }
+
+// U102-F18: "this project has no history" and "the history could not be read"
+// are different facts, and a bare fmt.Errorf gave a caller no way to tell them
+// apart except by matching the message text. The empty-history case must be
+// recognisable with errors.Is; a real list failure must NOT be, so a caller
+// that treats absence as normal cannot accidentally swallow a fault.
+func TestGetCurrentSessionViaGetSession_NoSessionsIsASentinel(t *testing.T) {
+	getSession := func(workDir, id string) (*Session, error) { return nil, nil }
+
+	empty := func(string) ([]SessionMeta, error) { return nil, nil }
+	_, err := GetCurrentSessionViaGetSession("/work", empty, getSession)
+	assert.ErrorIs(t, err, ErrNoSessions, "honest absence must be discriminable without string matching")
+
+	boom := errors.New("history store unreadable")
+	failing := func(string) ([]SessionMeta, error) { return nil, boom }
+	_, err = GetCurrentSessionViaGetSession("/work", failing, getSession)
+	assert.NotErrorIs(t, err, ErrNoSessions, "a read failure must never read as honest absence")
+	assert.ErrorIs(t, err, boom)
+}

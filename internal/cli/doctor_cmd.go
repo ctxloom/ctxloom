@@ -79,13 +79,34 @@ var doctorEngineBinaries = map[string]string{
 // outcome the old map's absence produced, but derived from the SAME source
 // of truth as the Chat() gate instead of a second copy of it.
 
+// doctorStatus is one check's verdict, and there are exactly three of them. It
+// is a named type rather than a bare string because the value set IS the
+// contract: it is shared with the "ctxloom-doctor" Agent Skill and with every
+// consumer of `doctor --format json`, and it was previously written as a free
+// literal at more than twenty sites with the legal values recorded only in a
+// trailing comment — where a typo ("WARN", "warning") would render, marshal and
+// pass review while silently reading as neither ok nor warn to anything that
+// matches on the value. The underlying type stays string, so the JSON wire shape
+// is unchanged.
+type doctorStatus string
+
+const (
+	// doctorOK: the check's subject is in the state setup intends.
+	doctorOK doctorStatus = "ok"
+	// doctorWarn: this command's fail-loud signal. doctor never fails the
+	// process, so a warn is how a real problem is reported.
+	doctorWarn doctorStatus = "warn"
+	// doctorInfo: reported for context, not a verdict — nothing to fix.
+	doctorInfo doctorStatus = "info"
+)
+
 // doctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
 // vocabulary this command shares with the "ctxloom-doctor" Agent Skill, so a
 // human or an LLM reading either surface sees one language.
 type doctorCheck struct {
-	Marker string `json:"marker"`
-	Status string `json:"status"` // "ok" | "warn" | "info"
-	Detail string `json:"detail"`
+	Marker string       `json:"marker"`
+	Status doctorStatus `json:"status"`
+	Detail string       `json:"detail"`
 }
 
 // doctorReport is `ctxloom doctor`'s structured result.
@@ -270,7 +291,7 @@ func doctorCheckDeps(cfg *config.Config) doctorCheck {
 		}
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "ok",
+		return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: doctorOK,
 			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either; a container runtime is required only for `runtime: container` agents)"}
 	}
 	sort.Strings(missingRequired)
@@ -282,7 +303,7 @@ func doctorCheckDeps(cfg *config.Config) doctorCheck {
 	if len(missingRecommended) > 0 {
 		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn", Detail: strings.Join(parts, "; ")}
+	return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: doctorWarn, Detail: strings.Join(parts, "; ")}
 }
 
 // doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
@@ -315,9 +336,9 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 	}
 	ok, detail := signKeyResolutionDetail(ctx, discoverer, explicit)
 	if ok {
-		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: detail}
 	}
-	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
 }
 
 // signKeyResolutionDetail runs internal/signing/agentkey's real resolution
@@ -419,9 +440,9 @@ func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) doctor
 	const marker = "DOCTOR-CHECK-GITIDENT-l2"
 	ok, detail := gitIdentityDetail(ctx, gitConfig)
 	if ok {
-		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: detail}
 	}
-	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
 }
 
 // gitIdentityDetail runs gitConfig for user.name and user.email and renders
@@ -494,9 +515,9 @@ func doctorCheckACPAdapter(cfg *config.Config) doctorCheck {
 	const marker = "DOCTOR-CHECK-ACPADAPTER-m3"
 	ok, detail := acpAdapterDetail(doctorConfiguredEngines(cfg))
 	if ok {
-		return doctorCheck{Marker: marker, Status: "ok", Detail: detail}
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: detail}
 	}
-	return doctorCheck{Marker: marker, Status: "warn", Detail: detail}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
 }
 
 // acpAdapterDetail checks, for every engine in configuredEngines whose
@@ -548,11 +569,11 @@ func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
 // setup.
 func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
-		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	configuredAgents := cfg.GetConfiguredAgents()
 	if len(configuredAgents) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn",
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn,
 			Detail: "no agents configured (run `/ctxloom-init` phase 5, or `ctxloom agent set <name> ...`)"}
 	}
 	names := make([]string, 0, len(configuredAgents))
@@ -567,10 +588,10 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) do
 		}
 	}
 	if len(failed) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "ok",
+		return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorOK,
 			Detail: fmt.Sprintf("%d agent(s) resolve cleanly: %s", len(names), strings.Join(names, ", "))}
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: strings.Join(failed, "; ")}
+	return doctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: doctorWarn, Detail: strings.Join(failed, "; ")}
 }
 
 // doctorCheckVersion is deliberately best-effort/skill-guided: there is no
@@ -578,7 +599,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) do
 // this reports the running version and defers comparison to the
 // ctxloom-doctor skill (or a human) rather than faking a currency verdict.
 func doctorCheckVersion() doctorCheck {
-	return doctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: "info",
+	return doctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: doctorInfo,
 		Detail: fmt.Sprintf("running %s; comparing against the newest remote tag is best-effort/skill-guided (no --check-version yet)", Version)}
 }
 
@@ -592,13 +613,13 @@ func doctorCheckVersion() doctorCheck {
 func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	status := "ok"
+	status := doctorOK
 	hooks, hooksOK := doctorHooksWiringDetail(ctx, cfg)
 	trust, trustOK := doctorTrustStoreDetail(operations.ListSigners(cfg, nil))
 	if !hooksOK || !trustOK {
-		status = "warn"
+		status = doctorWarn
 	}
 	return doctorCheck{Marker: marker, Status: status, Detail: strings.Join([]string{hooks, trust}, "; ")}
 }
@@ -706,14 +727,14 @@ func doctorAppDir(cfg *config.Config) string {
 func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-MARKER-e5"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	appDir := doctorAppDir(cfg)
 	if appDir == "" {
-		return doctorCheck{Marker: marker, Status: "warn",
+		return doctorCheck{Marker: marker, Status: doctorWarn,
 			Detail: "no .ctxloom marker directory found (run `ctxloom manage install` or `ctxloom init`)"}
 	}
-	return doctorCheck{Marker: marker, Status: "ok", Detail: "marker present, config valid: " + appDir}
+	return doctorCheck{Marker: marker, Status: doctorOK, Detail: "marker present, config valid: " + appDir}
 }
 
 // doctorCheckSetupLockAndAssembly verifies the two "seeded deps are actually
@@ -727,25 +748,25 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-DEPS-h8"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	var parts []string
-	status := "ok"
+	status := doctorOK
 	if appDir := doctorAppDir(cfg); appDir == "" {
 		parts = append(parts, "lockfile: no .ctxloom directory to check")
-		status = "warn"
+		status = doctorWarn
 	} else {
 		lf, err := remote.NewLockfileManager(appDir).Load()
 		if err != nil {
 			parts = append(parts, "lockfile: "+err.Error())
-			status = "warn"
+			status = doctorWarn
 		} else {
 			parts = append(parts, fmt.Sprintf("lockfile: %d entries parse cleanly", len(lf.AllEntries())))
 		}
 	}
 	if _, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{}); err != nil {
 		parts = append(parts, "context assembly: "+err.Error())
-		status = "warn"
+		status = doctorWarn
 	} else {
 		parts = append(parts, "context assembly: succeeds for the configured default profile(s)")
 	}
@@ -763,14 +784,14 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	const marker = "DOCTOR-CHECK-SETUP-COMPANIONS-i9"
 	if cfgErr != nil {
-		return doctorCheck{Marker: marker, Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	if config.CompanionsDisabled() {
-		return doctorCheck{Marker: marker, Status: "info", Detail: "companion probing disabled (--no-companions)"}
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "companion probing disabled (--no-companions)"}
 	}
 	bins := config.DiscoverCompanions()
 	if len(bins) == 0 {
-		return doctorCheck{Marker: marker, Status: "info", Detail: "no companions discovered"}
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no companions discovered"}
 	}
 	var present []string
 	for _, st := range config.ProbeCompanions() {
@@ -783,7 +804,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if len(present) > 0 {
 		presentDetail = strings.Join(present, ", ")
 	}
-	return doctorCheck{Marker: marker, Status: "ok", Detail: fmt.Sprintf(
+	return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
 		"discovered: %s; on PATH: %s; loadout verified: %d",
 		strings.Join(bins, ", "), presentDetail, len(loadouts))}
 }
@@ -796,7 +817,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 // "info" so the gap is VISIBLE in the postcondition report instead of
 // silently missing.
 func doctorCheckSetupAuthPing() doctorCheck {
-	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: "info",
+	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: doctorInfo,
 		Detail: "no auth-ping surface exists in this build yet (deferred; verify by launching the engine's own CLI)"}
 }
 

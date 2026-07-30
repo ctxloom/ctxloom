@@ -101,19 +101,19 @@ func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend stri
 func TestDoctorCheckSetupMarker_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupMarker(cfg, nil)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, cfg.GetAppPaths()[0])
 }
 
 func TestDoctorCheckSetupMarker_WrongState_NoMarkerDir(t *testing.T) {
 	check := doctorCheckSetupMarker(&config.Config{}, nil)
-	assert.Equal(t, "warn", check.Status, "an empty AppPaths must fail loud, not silently pass")
+	assert.Equal(t, doctorWarn, check.Status, "an empty AppPaths must fail loud, not silently pass")
 	assert.Contains(t, check.Detail, "no .ctxloom marker directory found")
 }
 
 func TestDoctorCheckSetupMarker_WrongState_ConfigLoadError(t *testing.T) {
 	check := doctorCheckSetupMarker(nil, assert.AnError)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "config did not load")
 }
 
@@ -130,7 +130,7 @@ func TestDoctorCheckDeps_RightState_GitPresentIsEnumeratedInOK(t *testing.T) {
 	// than a PATH lookup, so this may still warn about the container runtime
 	// on some hosts; what this test pins down is that git is bucketed with
 	// the OTHER always-checked deps, never silently skipped.
-	if check.Status == "ok" {
+	if check.Status == doctorOK {
 		assert.Contains(t, check.Detail, "git")
 	} else {
 		assert.NotContains(t, check.Detail, "git", "git IS on PATH here, so it must not appear in a missing list")
@@ -144,7 +144,7 @@ func TestDoctorCheckDeps_WrongState_GitMissing(t *testing.T) {
 	}
 	t.Setenv("PATH", dir) // deliberately no git on this PATH
 	check := doctorCheckDeps(&config.Config{})
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "git", "a missing git must be named, not silently absorbed into a generic failure")
 	assert.Contains(t, check.Detail, "required", "a missing git must be reported in the REQUIRED bucket, not lumped with recommended")
 }
@@ -167,7 +167,7 @@ func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t 
 	}
 	t.Setenv("PATH", dir) // deliberately no ssh-keygen
 	check := doctorCheckDeps(&config.Config{})
-	if check.Status == "ok" {
+	if check.Status == doctorOK {
 		// A host without a real docker/podman daemon can still warn on the
 		// container runtime alone; skip only if ssh-keygen genuinely wasn't
 		// flagged at all, which would itself be the bug this test guards.
@@ -189,7 +189,7 @@ func TestDoctorCheckDeps_RightState_AllPresent_DoesNotClaimSigningNeedsThem(t *t
 	}
 	t.Setenv("PATH", dir)
 	check := doctorCheckDeps(&config.Config{})
-	if check.Status != "ok" {
+	if check.Status != doctorOK {
 		t.Skip("container runtime unexpectedly unavailable on this host; the all-present ok Detail wording is exercised only on the ok path")
 	}
 	assert.NotContains(t, check.Detail, "for signing", "must not claim signing needs ssh/ssh-keygen — it's pure Go and never execs either")
@@ -225,7 +225,7 @@ func signKeyDiscoverer(t *testing.T, comments ...string) (*agentkey.Discoverer, 
 func TestDoctorCheckSignKey_RightState_SoleIdentityResolves(t *testing.T) {
 	disc, signers := signKeyDiscoverer(t, "ben@abbitt.me")
 	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "ssh-agent (sole identity)", "must name the SAME Source agentkey.Discovered reports")
 	assert.Contains(t, check.Detail, ssh.FingerprintSHA256(signers[0].PublicKey()), "must name the resolved key's fingerprint")
 }
@@ -233,7 +233,7 @@ func TestDoctorCheckSignKey_RightState_SoleIdentityResolves(t *testing.T) {
 func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
 	disc, _ := signKeyDiscoverer(t) // empty agent, no git config, no explicit key
 	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "no signing key resolves")
 	assert.Contains(t, check.Detail, "ctxloom review", "must lead with approve — a missing key blocks ordinary review, not just publishing")
 	assert.Contains(t, check.Detail, "ctxloom sign", "must also name the publishing feature this gap affects")
@@ -249,7 +249,7 @@ func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
 func TestDoctorCheckSignKey_WrongState_Ambiguous(t *testing.T) {
 	disc, _ := signKeyDiscoverer(t, "one@example.com", "two@example.com")
 	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "ambiguous", "must name the specific ambiguous-choice situation, not generic absence")
 	assert.Contains(t, check.Detail, "one@example.com")
 	assert.Contains(t, check.Detail, "two@example.com")
@@ -264,7 +264,7 @@ func TestDoctorCheckSignKey_ConfiguredSignKeyDisambiguates(t *testing.T) {
 	disc, signers := signKeyDiscoverer(t, "other@example.com", "ben@abbitt.me")
 	cfg := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{Sign: &config.SignConfig{Key: "ben@abbitt.me"}}})
 	check := doctorCheckSignKey(context.Background(), cfg, disc)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	// The comment-matched signer is the second one added.
 	assert.Contains(t, check.Detail, ssh.FingerprintSHA256(signers[1].PublicKey()))
 }
@@ -289,14 +289,14 @@ func fakeGitConfig(values map[string]string) gitConfigFunc {
 func TestDoctorCheckGitIdentity_RightState_BothSet(t *testing.T) {
 	gc := fakeGitConfig(map[string]string{"user.name": "Ben", "user.email": "ben@abbitt.me"})
 	check := doctorCheckGitIdentity(context.Background(), gc)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "Ben <ben@abbitt.me>", "must name the resolved identity")
 }
 
 func TestDoctorCheckGitIdentity_WrongState_NameUnset(t *testing.T) {
 	gc := fakeGitConfig(map[string]string{"user.email": "ben@abbitt.me"})
 	check := doctorCheckGitIdentity(context.Background(), gc)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "user.name", "must name which field is missing")
 	assert.NotContains(t, check.Detail, "git config --global user.email", "must not falsely also offer an email fix")
 	assert.Contains(t, check.Detail, "git config --global user.name", "must give the actionable fix")
@@ -305,7 +305,7 @@ func TestDoctorCheckGitIdentity_WrongState_NameUnset(t *testing.T) {
 func TestDoctorCheckGitIdentity_WrongState_EmailUnset(t *testing.T) {
 	gc := fakeGitConfig(map[string]string{"user.name": "Ben"})
 	check := doctorCheckGitIdentity(context.Background(), gc)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "user.email", "must name which field is missing")
 	assert.Contains(t, check.Detail, "git config --global user.email", "must give the actionable fix")
 }
@@ -313,7 +313,7 @@ func TestDoctorCheckGitIdentity_WrongState_EmailUnset(t *testing.T) {
 func TestDoctorCheckGitIdentity_WrongState_BothUnset(t *testing.T) {
 	gc := fakeGitConfig(map[string]string{})
 	check := doctorCheckGitIdentity(context.Background(), gc)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "user.name")
 	assert.Contains(t, check.Detail, "user.email")
 }
@@ -324,7 +324,7 @@ func TestDoctorCheckGitIdentity_WrongState_BothUnset(t *testing.T) {
 func TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset(t *testing.T) {
 	gc := fakeGitConfig(map[string]string{"user.name": "  ", "user.email": "ben@abbitt.me"})
 	check := doctorCheckGitIdentity(context.Background(), gc)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "user.name")
 }
 
@@ -342,7 +342,7 @@ func TestDoctorCheckACPAdapter_RightState_AdapterPresent(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 
 	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "claude-code")
 }
 
@@ -352,7 +352,7 @@ func TestDoctorCheckACPAdapter_WrongState_AdapterMissingForConfiguredEngine(t *t
 	_, cfg := setupProject(t, "claude-code")
 
 	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, claude.ClaudeACPAdapter, "must name the missing adapter binary")
 	assert.Contains(t, check.Detail, "claude-code", "must name the engine it's missing for")
 	assert.Contains(t, check.Detail, "npm install -g @zed-industries/"+claude.ClaudeACPAdapter, "must give the exact install command")
@@ -366,7 +366,7 @@ func TestDoctorCheckACPAdapter_WrongState_CodexAdapterMissing(t *testing.T) {
 	_, cfg := setupProject(t, "codex")
 
 	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, codex.CodexACPAdapter)
 	assert.Contains(t, check.Detail, "codex")
 	assert.Contains(t, check.Detail, "npm install -g @zed-industries/"+codex.CodexACPAdapter)
@@ -381,7 +381,7 @@ func TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone(t *testing.T)
 	_, cfg := setupProject(t, "kiro")
 
 	check := doctorCheckACPAdapter(cfg)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "natively")
 }
 
@@ -390,7 +390,7 @@ func TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone(t *testing.T)
 func TestDoctorCheckAgents_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckAgents(context.Background(), cfg, nil)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "default")
 }
 
@@ -401,7 +401,7 @@ func TestDoctorCheckAgents_WrongState_EmptyRoster(t *testing.T) {
 	cfg = config.NewFixture(f)
 
 	check := doctorCheckAgents(context.Background(), cfg, nil)
-	assert.Equal(t, "warn", check.Status, "an empty roster is an incomplete setup postcondition, not a neutral fact")
+	assert.Equal(t, doctorWarn, check.Status, "an empty roster is an incomplete setup postcondition, not a neutral fact")
 	assert.Contains(t, check.Detail, "no agents configured")
 }
 
@@ -413,7 +413,7 @@ func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
 	}
 	cfg = config.NewFixture(f)
 	check := doctorCheckAgents(context.Background(), cfg, nil)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "broken")
 }
 
@@ -422,7 +422,7 @@ func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
 func TestDoctorCheckSetupLockAndAssembly_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "lockfile: 0 entries parse cleanly")
 	assert.Contains(t, check.Detail, "context assembly: succeeds")
 }
@@ -433,7 +433,7 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_CorruptLockfile(t *testing.T
 	require.NoError(t, os.WriteFile(lockPath, []byte("not: [valid: yaml: at: all"), 0644))
 
 	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "lockfile:")
 }
 
@@ -445,7 +445,7 @@ func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
 	t.Chdir(root) // HarnessStatus's default WorkDir path resolves off cwd
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
-	assert.Equal(t, "ok", check.Status)
+	assert.Equal(t, doctorOK, check.Status)
 	assert.Contains(t, check.Detail, "hooks/MCP registered for: claude-code")
 }
 
@@ -454,7 +454,7 @@ func TestDoctorCheckHooksTrust_WrongState_NotInstalled(t *testing.T) {
 	t.Chdir(root) // no ApplyHooks call: hooks were never installed
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "NOT registered")
 	assert.Contains(t, check.Detail, "claude-code")
 }
@@ -465,7 +465,7 @@ func TestDoctorCheckHooksTrust_NoEnginesConfigured(t *testing.T) {
 	f.Agents = map[string]agents.Agent{}
 	cfg = config.NewFixture(f)
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
-	assert.Equal(t, "ok", check.Status, "nothing configured to check hooks for is not itself a failure")
+	assert.Equal(t, doctorOK, check.Status, "nothing configured to check hooks for is not itself a failure")
 	assert.Contains(t, check.Detail, "no engine is configured to check")
 }
 
@@ -474,12 +474,12 @@ func TestDoctorCheckHooksTrust_NoEnginesConfigured(t *testing.T) {
 func TestDoctorCheckSetupCompanions_NeverWarns(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupCompanions(cfg, nil)
-	assert.NotEqual(t, "warn", check.Status, "companions are optional add-ons, never a doctor failure")
+	assert.NotEqual(t, doctorWarn, check.Status, "companions are optional add-ons, never a doctor failure")
 }
 
 func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {
 	check := doctorCheckSetupAuthPing()
-	assert.Equal(t, "info", check.Status)
+	assert.Equal(t, doctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "no auth-ping surface")
 }
 
@@ -727,7 +727,7 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 	markers := make([]string, 0, len(report.Checks))
 	for _, c := range report.Checks {
 		require.NotEmpty(t, c.Marker)
-		require.Contains(t, []string{"ok", "warn", "info"}, c.Status)
+		require.Contains(t, []doctorStatus{doctorOK, doctorWarn, doctorInfo}, c.Status)
 		markers = append(markers, c.Marker)
 	}
 	sort.Strings(markers)
@@ -860,7 +860,7 @@ func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
 
-	assert.Equal(t, "warn", check.Status,
+	assert.Equal(t, doctorWarn, check.Status,
 		"a trust store the loader could not fully read must not report ok")
 	assert.Contains(t, check.Detail, "grant NO trust")
 	assert.Contains(t, check.Detail, appDir)
@@ -916,7 +916,7 @@ func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *te
 		Agents: map[string]agents.Agent{"a": {Engine: "claude-code", Runtime: "host"}},
 	}))
 
-	assert.Equal(t, "warn", check.Status, "a missing recommended dep still warns")
+	assert.Equal(t, doctorWarn, check.Status, "a missing recommended dep still warns")
 	assert.Contains(t, check.Detail, "container runtime")
 	assert.NotContains(t, check.Detail, "missing (required)",
 		"a host-only project has NOTHING required missing here:\n%s", check.Detail)
@@ -936,9 +936,31 @@ func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
 		Agents: map[string]agents.Agent{"a": {Engine: "claude-code", Runtime: "container"}},
 	}))
 
-	assert.Equal(t, "warn", check.Status)
+	assert.Equal(t, doctorWarn, check.Status)
 	required, _, _ := strings.Cut(check.Detail, "; missing (recommended")
 	assert.Contains(t, required, "missing (required)")
 	assert.Contains(t, required, "container runtime",
 		"a project that runs container agents genuinely needs one:\n%s", check.Detail)
+}
+
+// TestDoctorStatus_WireValuesAreUnchanged pins U035-F12's constraint: the three
+// statuses are the vocabulary the "ctxloom-doctor" Agent Skill and every
+// `doctor --format json` consumer read, so naming the type must not have moved a
+// single byte on the wire.
+func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
+	assert.Equal(t, "ok", string(doctorOK))
+	assert.Equal(t, "warn", string(doctorWarn))
+	assert.Equal(t, "info", string(doctorInfo))
+
+	data, err := json.Marshal(doctorCheck{Marker: "M", Status: doctorWarn, Detail: "d"})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"marker":"M","status":"warn","detail":"d"}`, string(data),
+		"a named string type must marshal exactly as the literal did")
+
+	var buf bytes.Buffer
+	require.NoError(t, renderDoctorReport(&buf, doctorReport{Checks: []doctorCheck{
+		{Marker: "DOCTOR-CHECK-X", Status: doctorInfo, Detail: "d"},
+	}}))
+	assert.Contains(t, buf.String(), "DOCTOR-CHECK-X [info] d",
+		"the human line must render the status the same way too")
 }

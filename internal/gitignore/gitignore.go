@@ -101,18 +101,53 @@ var WorktreeArtifactPatterns = []string{
 	"*.ctxloom.bak",
 }
 
-// SupersededPatterns are ignore rules written by older ctxloom versions that a
-// current ctxloom must actively RETIRE rather than merely stop writing. A
-// blanket .ctxloom/ rule predates version-controlled content moving INTO
-// .ctxloom/ (content/, plus config.yaml, remotes.yaml and lock.yaml alongside
-// it). Left in place it silently un-tracks the project's own content: `git add`
-// reports nothing, and a content repo publishes an empty tree while every
-// consumer's bundle refs fail to resolve. Ensure only ever appends, so no
-// amount of re-running it can undo this — retirement must be explicit.
+// SupersededPatterns are the canonical spellings of the ignore rule written by
+// older ctxloom versions that a current ctxloom must actively RETIRE rather
+// than merely stop writing. A blanket .ctxloom/ rule predates
+// version-controlled content moving INTO .ctxloom/ (content/, plus config.yaml,
+// remotes.yaml and lock.yaml alongside it). Left in place it silently un-tracks
+// the project's own content: `git add` reports nothing, and a content repo
+// publishes an empty tree while every consumer's bundle refs fail to resolve.
+// Ensure only ever appends, so no amount of re-running it can undo this —
+// retirement must be explicit.
 //
-// Only the BLANKET forms belong here. The granular .ctxloom/<subdir>/ patterns
-// in PrivateStatePatterns are current and must never be matched.
+// This list is what ctxloom itself ever WROTE. Retirement matches on effect,
+// not on this list (see isSupersededBlanket): a project's rule may have been
+// hand-edited into any of the several spellings git treats identically, and
+// each of them breaks the project the same way.
 var SupersededPatterns = []string{".ctxloom", ".ctxloom/", "/.ctxloom", "/.ctxloom/"}
+
+// isSupersededBlanket reports whether an ignore line excludes the WHOLE
+// .ctxloom directory, in any of the spellings git treats as equivalent —
+// anchored or not (`/.ctxloom`, `**/.ctxloom`), directory-suffixed or not, and
+// with a trailing `/*` or `/**` wildcard.
+//
+// Only BLANKET forms match. The granular .ctxloom/<subdir>/ patterns in
+// PrivateStatePatterns are current and must never be retired, nor may a
+// comment or a user's own re-include (`!`) line be mistaken for a rule.
+func isSupersededBlanket(line string) bool {
+	s := strings.TrimSpace(line)
+	if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "!") {
+		return false
+	}
+	s = strings.TrimSuffix(s, "/**")
+	s = strings.TrimSuffix(s, "/*")
+	s = strings.TrimSuffix(s, "/")
+	s = strings.TrimPrefix(s, "**/")
+	s = strings.TrimPrefix(s, "/")
+	return s == ".ctxloom"
+}
+
+// exactlyOneOf returns a line matcher for a fixed pattern set, matched by
+// trimmed-line equality — the retirement rule for blocks ctxloom wrote itself
+// and can therefore match verbatim.
+func exactlyOneOf(patterns []string) func(string) bool {
+	set := make(map[string]bool, len(patterns))
+	for _, p := range patterns {
+		set[p] = true
+	}
+	return func(line string) bool { return set[strings.TrimSpace(line)] }
+}
 
 // supersededComments are ctxloom-authored headers that head nothing once their
 // patterns are retired. Scoped to headers ctxloom itself wrote — a user's own
@@ -124,7 +159,7 @@ var supersededComments = []string{"# ctxloom local files"}
 // the file changed. An absent file is a no-op, not an error. Callers that
 // write the private-state block should retire first, then Ensure.
 func RetireSupersededFile(path string) (bool, error) {
-	return retireBlock(path, supersededComments, SupersededPatterns)
+	return retireBlock(path, supersededComments, isSupersededBlanket)
 }
 
 // RetireWorktreeConfigBlock removes the WorktreeComment header and any
@@ -139,14 +174,14 @@ func RetireSupersededFile(path string) (bool, error) {
 // dirty/untracked noise for every OTHER worktree (including the developer's
 // own main checkout) the moment it is gone.
 func RetireWorktreeConfigBlock(path string) (bool, error) {
-	return retireBlock(path, []string{WorktreeComment}, WorktreeArtifactPatterns)
+	return retireBlock(path, []string{WorktreeComment}, exactlyOneOf(WorktreeArtifactPatterns))
 }
 
-// retireBlock is RetireSupersededFile's mechanism, generalized: remove any
-// line matching one of patterns from the file at path, along with an
-// orphaned header (one of headers) left immediately above a removed run. An
-// absent file is a no-op, not an error.
-func retireBlock(path string, headers, patterns []string) (bool, error) {
+// retireBlock is RetireSupersededFile's mechanism, generalized: remove every
+// line retire reports, from the file at path, along with an orphaned header
+// (one of headers) left immediately above a removed run. An absent file is a
+// no-op, not an error.
+func retireBlock(path string, headers []string, retire func(string) bool) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -155,34 +190,8 @@ func retireBlock(path string, headers, patterns []string) (bool, error) {
 		return false, err
 	}
 
-	retiredSet := make(map[string]bool, len(patterns))
-	for _, p := range patterns {
-		retiredSet[p] = true
-	}
-	orphanHeader := make(map[string]bool, len(headers))
-	for _, h := range headers {
-		orphanHeader[h] = true
-	}
-
-	lines := strings.Split(string(content), "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if retiredSet[trimmed] {
-			// Drop a ctxloom-authored header immediately above it, which would
-			// otherwise be left heading nothing.
-			for len(kept) > 0 {
-				last := strings.TrimSpace(kept[len(kept)-1])
-				if orphanHeader[last] {
-					kept = kept[:len(kept)-1]
-					continue
-				}
-				break
-			}
-			continue
-		}
-		kept = append(kept, line)
-	}
+	isOrphanHeader := exactlyOneOf(headers)
+	kept := keepLines(strings.Split(string(content), "\n"), retire, isOrphanHeader)
 
 	updated := strings.Join(kept, "\n")
 	if updated == string(content) {
@@ -192,6 +201,23 @@ func retireBlock(path string, headers, patterns []string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// keepLines returns lines with every retired line dropped, along with any
+// ctxloom-authored header left immediately above a removed run — which would
+// otherwise be left heading nothing.
+func keepLines(lines []string, retire, isOrphanHeader func(string) bool) []string {
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if !retire(line) {
+			kept = append(kept, line)
+			continue
+		}
+		for len(kept) > 0 && isOrphanHeader(kept[len(kept)-1]) {
+			kept = kept[:len(kept)-1]
+		}
+	}
+	return kept
 }
 
 // Ensure appends the given patterns to projectDir/.gitignore under a single

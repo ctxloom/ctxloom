@@ -285,6 +285,59 @@ func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 	assert.Contains(t, got, "# OS files", "unrelated user comments must survive")
 }
 
+// TestRetireSuperseded_RetiresEveryBlanketSpelling pins U054-F07. Retirement
+// matched four literal spellings, but a blanket .ctxloom exclusion has more
+// than four ways to be written and every one of them has the same effect: the
+// project's own .ctxloom/content/ becomes invisible to git, `git add` reports
+// nothing, and a content repo publishes an empty tree while every consumer's
+// bundle refs fail to resolve. A spelling the migration does not recognise is
+// a project it silently leaves broken — and Ensure only ever APPENDS, so no
+// amount of re-running repairs it.
+func TestRetireSuperseded_RetiresEveryBlanketSpelling(t *testing.T) {
+	for _, blanket := range []string{
+		".ctxloom", ".ctxloom/", "/.ctxloom", "/.ctxloom/",
+		".ctxloom/*", ".ctxloom/**", "/.ctxloom/*", "/.ctxloom/**",
+		"**/.ctxloom/", "**/.ctxloom",
+		"  .ctxloom/  ",
+	} {
+		t.Run(blanket, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			require.NoError(t, os.WriteFile(path, []byte("# OS files\n.DS_Store\n"+blanket+"\n"), 0644))
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			assert.True(t, changed, "%q blanket-excludes .ctxloom/content/ and must be retired", blanket)
+			assert.NotContains(t, readGitignore(t, dir), ".ctxloom")
+			assert.Contains(t, readGitignore(t, dir), ".DS_Store", "unrelated user entries survive")
+		})
+	}
+}
+
+// TestRetireSuperseded_LeavesNonBlanketLinesAlone is the over-matching guard
+// for the broadened matcher: current granular rules, a user's own re-include,
+// and a comment mentioning the path must all survive untouched.
+func TestRetireSuperseded_LeavesNonBlanketLinesAlone(t *testing.T) {
+	for _, keep := range []string{
+		".ctxloom/cache/", ".ctxloom/sessions/", ".ctxloom/project-id",
+		".ctxloom/content/drafts/", ".ctxloomer/", ".ctxloom-opencode-managed",
+		"!.ctxloom/", "!/.ctxloom/**",
+		"# .ctxloom/",
+	} {
+		t.Run(keep, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			original := keep + "\n"
+			require.NoError(t, os.WriteFile(path, []byte(original), 0644))
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			assert.False(t, changed, "%q is not a blanket .ctxloom exclusion", keep)
+			assert.Equal(t, original, readGitignore(t, dir))
+		})
+	}
+}
+
 // TestRetireSuperseded_PreservesGranularRules guards against over-matching: the
 // current granular private-state patterns are all prefixed .ctxloom/ and must
 // NOT be mistaken for the blanket rule.

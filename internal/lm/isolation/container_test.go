@@ -360,3 +360,27 @@ func TestContainer_WithImageRunsAsIs(t *testing.T) {
 	assert.False(t, NewContainerFor(rt, "claude-code").runAsIs(),
 		"without an override the profile's own recipe still builds the agent image")
 }
+
+// TestContainer_GitdirMirrorMountUnreadableGit is U062-F08's regression. The
+// guard was `if err != nil || info.IsDir()` — one branch for two opposite facts.
+// "no .git" and "a .git directory" genuinely need no mirror, but an UNREADABLE
+// .git means we could not tell which case we are in, and answering "no mirror
+// needed" hands the container a checkout whose git cannot resolve the repo. The
+// container axis's whole degrade contract is fatal-unless-degraded on a lost
+// boundary, so this must error out of PrepareWorkspace, never resolve silently.
+func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory permissions; cannot make .git unstattable")
+	}
+	proj := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".git"),
+		[]byte("gitdir: /repo/.git/worktrees/x\n"), 0o644))
+	require.NoError(t, os.Chmod(proj, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(proj, 0o755) })
+
+	_, ok, err := gitdirMirrorMount(context.Background(),
+		fakeRuntime{name: "docker", available: true}, &git.Fake{CommonDirValue: "/repo/.git"}, proj)
+	require.Error(t, err, "an unreadable .git must fail the workspace, not silently yield no mirror")
+	assert.False(t, ok)
+	assert.Contains(t, err.Error(), ".git")
+}

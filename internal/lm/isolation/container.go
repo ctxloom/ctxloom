@@ -540,8 +540,19 @@ func (hostBase) prepareBase(ctx context.Context, rt Runtime, projectDir, _, scra
 // already (a normal main-repo checkout), or there is no repo to mirror. It reuses
 // the same identical-path mirror the worktree base builds (gitCommonDirMount).
 func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir string) (Mount, bool, error) {
-	info, err := os.Stat(filepath.Join(projectDir, ".git"))
-	if err != nil || info.IsDir() {
+	gitPath := filepath.Join(projectDir, ".git")
+	info, err := os.Stat(gitPath)
+	// ABSENT is a real "no mirror needed" (no repo to mirror). An unreadable .git
+	// is not: it means we could not tell a pointer file from a directory, and
+	// answering "no mirror needed" launches a container whose git cannot resolve
+	// the repo. Fail the workspace so the chain degrades loudly instead.
+	if errors.Is(err, os.ErrNotExist) {
+		return Mount{}, false, nil
+	}
+	if err != nil {
+		return Mount{}, false, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
+	}
+	if info.IsDir() {
 		return Mount{}, false, nil
 	}
 	m, err := gitCommonDirMount(ctx, rt, g, projectDir)

@@ -1324,3 +1324,191 @@ func TestImportSkillArchive_UnrestorableTreeSaysWhereItIs(t *testing.T) {
 	require.NoError(t, rerr, "the surviving copy must not be cleaned up out from under the user")
 	assert.Equal(t, "the good tree\n", string(got))
 }
+
+// -----------------------------------------------------------------------------
+// U031-F21 — direct unit tests for the three confinement helpers
+// -----------------------------------------------------------------------------
+//
+// tarEntryKind, symlinkEscapesRoot and resolveSymlinkChain each carry part of
+// HardenedExtract's confinement guarantee, and each was previously reachable
+// only through a full extraction. That is not enough for security-load-bearing
+// code: an escape branch exercised only incidentally is an escape branch whose
+// boundaries nobody has stated. These tests pin the classification table and
+// the resolution semantics directly, so a change in either is caught here
+// rather than by whichever end-to-end fixture happens to notice.
+//
+// The symlink tests use a REAL filesystem on purpose: afero.MemMapFs cannot
+// represent a symlink at all (its LstatIfPossible always reports ok=false), so
+// a MemMapFs test of these two functions would assert nothing.
+
+// TestTarEntryKind pins tar's typeflag classification exhaustively — including
+// that every typeflag the codec does not specifically recognize falls to
+// kindOther (reject), never to a writable kind.
+func TestTarEntryKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		typeflag byte
+		want     entryKind
+	}{
+		{"regular file", tar.TypeReg, kindFile},
+		{"directory", tar.TypeDir, kindDir},
+		{"symlink", tar.TypeSymlink, kindSymlink},
+		{"hardlink", tar.TypeLink, kindOther},
+		{"char device", tar.TypeChar, kindOther},
+		{"block device", tar.TypeBlock, kindOther},
+		{"fifo", tar.TypeFifo, kindOther},
+		{"pax extended header", tar.TypeXHeader, kindOther},
+		{"pax global header", tar.TypeXGlobalHeader, kindOther},
+		{"gnu sparse", tar.TypeGNUSparse, kindOther},
+		{"gnu long name", tar.TypeGNULongName, kindOther},
+		// The deprecated TypeRegA ('\x00'): Go's tar reader normalizes it to
+		// TypeReg before we ever see it, so reaching this function with it
+		// means something unexpected happened — fail closed.
+		{"deprecated TypeRegA is not silently treated as a regular file", 0x00, kindOther},
+		{"an entirely unknown typeflag", 'Q', kindOther},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tarEntryKind(&tar.Header{Typeflag: tt.typeflag}))
+		})
+	}
+}
+
+// osFsRoot returns a real OsFs plus a symlink-free absolute root directory, so
+// filepath.Rel arithmetic in the functions under test is not confused by a
+// symlinked temp dir.
+func osFsRoot(t *testing.T) (afero.Fs, string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return afero.NewOsFs(), root
+}
+
+func TestSymlinkEscapesRoot(t *testing.T) {
+	t.Run("an ordinary nested path does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		require.NoError(t, fsys.MkdirAll(filepath.Join(root, "skill", "scripts"), 0o755))
+
+		escapes, err := symlinkEscapesRoot(fsys, root, filepath.Join(root, "skill", "scripts", "run.sh"))
+		require.NoError(t, err)
+		assert.False(t, escapes)
+	})
+
+	t.Run("target equal to root does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		escapes, err := symlinkEscapesRoot(fsys, root, root)
+		require.NoError(t, err)
+		assert.False(t, escapes, "rel == \".\" is the root itself, which is confined by definition")
+	})
+
+	t.Run("a not-yet-created path does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		escapes, err := symlinkEscapesRoot(fsys, root, filepath.Join(root, "nope", "deeper", "file.txt"))
+		require.NoError(t, err)
+		assert.False(t, escapes, "HardenedExtract is about to create these; nothing along the path can already be a symlink")
+	})
+
+	t.Run("an ancestor symlink pointing OUTSIDE root escapes", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		outside := filepath.Join(root, "outside")
+		inside := filepath.Join(root, "dest")
+		require.NoError(t, fsys.MkdirAll(outside, 0o755))
+		require.NoError(t, fsys.MkdirAll(inside, 0o755))
+		linker, ok := fsys.(afero.Linker)
+		require.True(t, ok)
+		require.NoError(t, linker.SymlinkIfPossible(outside, filepath.Join(inside, "escape")))
+
+		escapes, err := symlinkEscapesRoot(fsys, inside, filepath.Join(inside, "escape", "pwned"))
+		require.NoError(t, err)
+		assert.True(t, escapes, "a pre-existing ancestor symlink out of the extraction root must be caught")
+	})
+
+	t.Run("an ancestor symlink pointing INSIDE root does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		require.NoError(t, fsys.MkdirAll(filepath.Join(root, "real"), 0o755))
+		linker, ok := fsys.(afero.Linker)
+		require.True(t, ok)
+		require.NoError(t, linker.SymlinkIfPossible(filepath.Join(root, "real"), filepath.Join(root, "alias")))
+
+		escapes, err := symlinkEscapesRoot(fsys, root, filepath.Join(root, "alias", "file.txt"))
+		require.NoError(t, err)
+		assert.False(t, escapes, "a symlink that resolves back inside the root is confined")
+	})
+
+	t.Run("a filesystem that cannot represent symlinks has nothing to check", func(t *testing.T) {
+		escapes, err := symlinkEscapesRoot(afero.NewMemMapFs(), "/out", "/out/skill/file.txt")
+		require.NoError(t, err)
+		assert.False(t, escapes, "MemMapFs is not an afero.Lstater, so no symlink escape can exist there")
+	})
+}
+
+func TestResolveSymlinkChain(t *testing.T) {
+	newFs := func(t *testing.T) (afero.Fs, afero.Lstater, afero.Linker, string) {
+		t.Helper()
+		fsys, root := osFsRoot(t)
+		lstater, ok := fsys.(afero.Lstater)
+		require.True(t, ok)
+		linker, ok := fsys.(afero.Linker)
+		require.True(t, ok)
+		return fsys, lstater, linker, root
+	}
+
+	t.Run("a regular file resolves to itself", func(t *testing.T) {
+		fsys, lstater, _, root := newFs(t)
+		p := filepath.Join(root, "plain.txt")
+		require.NoError(t, afero.WriteFile(fsys, p, []byte("x"), 0o644))
+
+		got, err := resolveSymlinkChain(fsys, lstater, p)
+		require.NoError(t, err)
+		assert.Equal(t, p, got)
+	})
+
+	t.Run("a path that does not exist resolves to itself", func(t *testing.T) {
+		fsys, lstater, _, root := newFs(t)
+		p := filepath.Join(root, "not-created-yet.txt")
+
+		got, err := resolveSymlinkChain(fsys, lstater, p)
+		require.NoError(t, err)
+		assert.Equal(t, p, got, "a component HardenedExtract is about to create is not an error")
+	})
+
+	t.Run("a multi-hop chain resolves to its final target", func(t *testing.T) {
+		fsys, lstater, linker, root := newFs(t)
+		final := filepath.Join(root, "final.txt")
+		require.NoError(t, afero.WriteFile(fsys, final, []byte("x"), 0o644))
+		require.NoError(t, linker.SymlinkIfPossible(final, filepath.Join(root, "hop2")))
+		require.NoError(t, linker.SymlinkIfPossible(filepath.Join(root, "hop2"), filepath.Join(root, "hop1")))
+
+		got, err := resolveSymlinkChain(fsys, lstater, filepath.Join(root, "hop1"))
+		require.NoError(t, err)
+		assert.Equal(t, final, got, "every hop must be followed, not just the first")
+	})
+
+	t.Run("a relative link target resolves against the symlink's own directory", func(t *testing.T) {
+		fsys, lstater, linker, root := newFs(t)
+		require.NoError(t, fsys.MkdirAll(filepath.Join(root, "sub"), 0o755))
+		target := filepath.Join(root, "sub", "target.txt")
+		require.NoError(t, afero.WriteFile(fsys, target, []byte("x"), 0o644))
+		// "target.txt" is relative: it must resolve inside root/sub, NOT
+		// against the process working directory.
+		require.NoError(t, linker.SymlinkIfPossible("target.txt", filepath.Join(root, "sub", "link")))
+
+		got, err := resolveSymlinkChain(fsys, lstater, filepath.Join(root, "sub", "link"))
+		require.NoError(t, err)
+		assert.Equal(t, target, got)
+	})
+
+	t.Run("a symlink loop is bounded, not hung", func(t *testing.T) {
+		_, lstater, linker, root := newFs(t)
+		fsys := afero.NewOsFs()
+		a := filepath.Join(root, "a")
+		b := filepath.Join(root, "b")
+		require.NoError(t, linker.SymlinkIfPossible(b, a))
+		require.NoError(t, linker.SymlinkIfPossible(a, b))
+
+		_, err := resolveSymlinkChain(fsys, lstater, a)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink chain too deep",
+			"a planted loop must be rejected by the depth cap, mirroring the OS's own ELOOP")
+	})
+}

@@ -428,3 +428,34 @@ func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), defaultURL+"@bundles/ai-developer#profiles/developer")
 }
+
+// TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections pins which
+// selectors the legacy ':' grammar had. The list is exactly the sections that
+// existed while ':' was the separator -- fragments, commands, mcp -- and it is
+// deliberately identical to bundles.expandBundleRef's, which this splitter
+// mirrors. Skills are NOT among them and must not be added: the skills item kind
+// postdates the ':' grammar entirely, so no profile on disk can carry
+// "<bundle>:skills/<name>", and adding the marker here alone would split a
+// selector the bundle expander still cannot (U091-F20).
+func TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections(t *testing.T) {
+	tests := []struct {
+		name     string
+		ref      string
+		wantBase string
+		wantItem string
+	}{
+		{"legacy fragments", "personal/git:fragments/x", "personal/git", "#fragments/x"},
+		{"legacy commands", "personal/git:commands/x", "personal/git", "#commands/x"},
+		{"legacy mcp", "personal/git:mcp", "personal/git", "#mcp"},
+		{"canonical skills selector", "personal/git#skills/x", "personal/git", "#skills/x"},
+		{"colon-spelled skills is not a legacy selector", "personal/git:skills/x", "personal/git:skills/x", ""},
+		{"no selector", "personal/git", "personal/git", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, item := splitBundleSelector(tt.ref)
+			assert.Equal(t, tt.wantBase, base)
+			assert.Equal(t, tt.wantItem, item)
+		})
+	}
+}

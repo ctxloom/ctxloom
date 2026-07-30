@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **985** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **995** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 38 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 76 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,043** |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 77 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 130 |
+| `open` | no commit names this ID | **1,028** |
 
-**Totals: 2268 findings across 162 units — 985 resolved, 1,043 still open, 240 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 995 resolved, 1,028 still open, 245 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 277 | 599 | 16 | 27 | 80 |
-| LOW | 871 | 358 | 418 | 12 | 41 | 42 |
+| MED | 999 | 282 | 593 | 16 | 27 | 81 |
+| LOW | 871 | 363 | 409 | 12 | 42 | 45 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1039,12 +1039,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U023-F34 | **RESOLVED** `c031c72c` | `launchgate.go:210-220` (with `coordinator.go:750-752`)` | CORRECTNESS | Likely cause of the reported "`agent_stop` refuses resumed children": under one-shot, a healthy child spends the gap between turns with an **ended** current run, so `AgentStop` takes the `rec.Ended... | U023.md |
 | U024-F06 | **RESOLVED** `d60f2e24` `56649bfc` | `runchannel.go:682-689` | SILENTNOOP | If `protojson.Marshal` of the caller's Struct fails, `structured` stays nil and the message is queued **without its structured payload**, reported as success. For a parent answering a relayed appro... | U024.md |
 | U024-F07 | **RESOLVED** `56649bfc` | `runchannel.go:436-449` | SILENTNOOP | `peerMessageProto` swallows two errors; either one delivers a `PeerMessage` with **no structured payload** — including for the escalation ladder's relayed `ApprovalRequest`, which the child then ca... | U024.md |
-| U024-F08 | open | `runchannel.go:603-610` | ERRHANDLING | `respond`'s drop message — "the runner reissues on reconnect" — is only true across a reconnect; on a live-but-slow channel the runner's request simply hangs to its own timeout. `respond` also runs... | U024.md |
-| U024-F09 | open | `runchannel.go:223-232 vs 513-527` | CORRECTNESS | The recv goroutine outlives `RunChannel`'s return, so a frame already in flight when a channel is severed is still dispatched: `handleCustomEvent` can run `onRolePark`/`onTurnIdle` for a run that h... | U024.md |
-| U024-F10 | open | `statedir.go:65-70` | ERRHANDLING | `claimOwner` ignores the lock file's write and close errors, so a zero-byte `owner.pid` can exist for a **live** owner; the next claimant's `strconv.Atoi("")` fails, the lock is treated as stale, r... | U024.md |
-| U024-F11 | open | `spawner.go:410-424 vs 458-469` | COUPLING | `Launch` and `StartEngine` construct `operations.AgentChatRequest` twice with different field subsets (`Context`, `MCPServers`, `ResumeSessionID` only on `Launch`). A new field that both paths need... | U024.md |
-| U024-F12 | open | `spawner.go:515` | COUPLING | The `ExecutableTrustGate` is per-spawner and **cumulative for the process**, so `WarnWithheld()` reprints every item withheld since startup on every spawn, cross-attributing one child's withheld it... | U024.md |
-| U024-F13 | open | `spawner.go:510-516` | SILENTNOOP | `childMCPServers` can compose **nil** — a child with no ctxloom MCP server, i.e. no `agent_send`/`agent_recv`/`agent_report`. It launches, burns tokens, and can never report back; nothing warns. | U024.md |
+| U024-F08 | **RESOLVED** `10221209` | `runchannel.go:603-610` | ERRHANDLING | `respond`'s drop message — "the runner reissues on reconnect" — is only true across a reconnect; on a live-but-slow channel the runner's request simply hangs to its own timeout. `respond` also runs... | U024.md |
+| U024-F09 | **RESOLVED** `cb58a94c` | `runchannel.go:223-232 vs 513-527` | CORRECTNESS | The recv goroutine outlives `RunChannel`'s return, so a frame already in flight when a channel is severed is still dispatched: `handleCustomEvent` can run `onRolePark`/`onTurnIdle` for a run that h... | U024.md |
+| U024-F10 | **RESOLVED** `25168dee` | `statedir.go:65-70` | ERRHANDLING | `claimOwner` ignores the lock file's write and close errors, so a zero-byte `owner.pid` can exist for a **live** owner; the next claimant's `strconv.Atoi("")` fails, the lock is treated as stale, r... | U024.md |
+| U024-F11 | **RESOLVED** `c2f9f6ca` | `spawner.go:410-424 vs 458-469` | COUPLING | `Launch` and `StartEngine` construct `operations.AgentChatRequest` twice with different field subsets (`Context`, `MCPServers`, `ResumeSessionID` only on `Launch`). A new field that both paths need... | U024.md |
+| U024-F12 | **ESCALATED** `PENDING` | `spawner.go:515` | COUPLING | The `ExecutableTrustGate` is per-spawner and **cumulative for the process**, so `WarnWithheld()` reprints every item withheld since startup on every spawn, cross-attributing one child's withheld it... | U024.md |
+| U024-F13 | **RESOLVED** `3e05cfe6` | `spawner.go:510-516` | SILENTNOOP | `childMCPServers` can compose **nil** — a child with no ctxloom MCP server, i.e. no `agent_send`/`agent_recv`/`agent_report`. It launches, burns tokens, and can never report back; nothing warns. | U024.md |
 | U025-F01 | **RESOLVED** `6268c492` | `discover.go:29`, `:34`, `:46-49`, `:74` | DUPLICATE | Four separate declarations are hand-mirrored from `coord` with no compiler link: the state-dir name, the MCP path, the JSON shape, and the URL format string. The header documents the duplication bu... | U025.md |
 | U025-F03 | open | `discover.go:62` | CORRECTNESS | The sort comparator calls `os.Stat` on every comparison, which is both O(n log n) syscalls and — more seriously — an **inconsistent comparator** if any `endpoint.json` is rewritten while the sort r... | U025.md |
 | U026-F02 | open | `binding.go:135–150` vs `internal/cli/mcp_runner.go:607–610` | COUPLING | `agent_report`'s output schema is a hand-written Go map literal that mirrors a *second* hand-written Go map literal in another package. Nothing gates the mirror — this is precisely the drift patter... | U026.md |
@@ -2018,9 +2018,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U023-F11 | **RESOLVED** `44a1207b` | `launchgate.go:100-126` | DUPLICATE | `envLaunchInt` and `envLaunchDuration` are structurally identical: lookup → empty check → parse → positivity check → identical warning text. ~26 lines to express one rule twice. | U023.md |
 | U023-F12 | **RESOLVED** `8edd95f3` | `mailbox.go:49` | DEAD | `parkedPoll.role` is written at construction (`mailbox.go:262`) and never read. | U023.md |
 | U023-F13 | **RESOLVED** `060b716a` | `launchgate.go:270-282` | CORRECTNESS | `launchBackoff(1)` returns `launchBackoffBase` **uncapped**: if an operator sets `CTXLOOM_LAUNCH_BACKOFF_MAX` below `..._BASE`, the first retry ignores the ceiling. | U023.md |
-| U023-F14 | open | `ladder.go` (whole file)` | COHESION | `ladder.go` is a self-contained value-domain module with zero `Coordinator` coupling, welded into a 1764-LOC-plus god-package. | U023.md |
+| U023-F14 | **ESCALATED** `PENDING` | `ladder.go` (whole file)` | COHESION | `ladder.go` is a self-contained value-domain module with zero `Coordinator` coupling, welded into a 1764-LOC-plus god-package. | U023.md |
 | U023-F15 | **RESOLVED** `8d5567a4` | **`liveness.go:182`** | NOPAY | `LivenessSnapshot` is exported but has no out-of-package caller; the brief lists `internal/cli` and `internal/cli/tui` as dependents and neither uses it. | U023.md |
-| U023-F16 | open | `mailbox.go:149` | COUPLING | `out := pending[:0]` filters in place into the backing array of `c.mailF.pendingFor(role)`'s result. It is safe **only** because `pendingFor` returns a copy (`folds.go:484-489`). That invariant liv... | U023.md |
+| U023-F16 | **RESOLVED** `450ef911` | `mailbox.go:149` | COUPLING | `out := pending[:0]` filters in place into the backing array of `c.mailF.pendingFor(role)`'s result. It is safe **only** because `pendingFor` returns a copy (`folds.go:484-489`). That invariant liv... | U023.md |
 | U023-F19 | **RESOLVED** `36a681c0` | `owner_run.go:124-127` | ERRHANDLING | The error is wrapped with `"owner run: runner launch failed: %w"` for `failChild` and then the **raw, unwrapped** `err` is returned to the caller. The operator-facing path gets the less informative... | U023.md |
 | U023-F20 | **RESOLVED** `72f7f6bf` | **`pidalive_unix.go:9`, `pidalive_windows.go:11`** | TRIVIAL | Two build-tagged files exist solely to wrap `pidalive.Alive` in a byte-identical one-line body. The build tags are pure ceremony — the platform split already lives in `internal/shared/pidalive`. | U023.md |
 | U023-F22 | **RESOLVED** `111c615d` | **`publish.go:38-40`** | SILENTNOOP | `PublishEvents(nil)` returns a success response with an empty `CommittedSeqByRun` and no `Rejected` entries — indistinguishable from "committed everything". The gRPC entry (`publish.go:123`) passes... | U023.md |
@@ -2030,18 +2030,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U023-F29 | **REFUTED** `41513737` | `reports.go:261-265` | DEAD | `LatestReport` is exported and has **no production caller** — test-only. `consumer.go:220` calls the unexported `latestSummary` directly. | U023.md |
 | U023-F31 | **RESOLVED** `36a681c0` | `owner_run.go:165-169` | CORRECTNESS | `SendOwnedRunTurn` accepts **any** live `runID`, not just an owner-owned one. Sending a turn to a delegated child's run id would enqueue self-addressed mail (`from == to == rt.harp`) that the child... | U023.md |
 | U023-F32 | **RESOLVED** `72f7f6bf` | `launchgate.go:161-171` + `coordinator.go:332` | TRIVIAL | `launchGateLocked`'s `if c.launches == nil` branch is unreachable in production: `New` always does `launches: make(map[string]*launchState)`. | U023.md |
-| U023-F33 | open | `launchgate.go` (`c.launches`)` | COMPLEXITY | `c.launches` entries are created on demand and **never deleted** — including by `reapEndedRuns`, which bounds every *other* per-run projection (`children.go:1457`). A long-lived coordinator accumul... | U023.md |
+| U023-F33 | **REFUTED** `daab6851` | `launchgate.go` (`c.launches`)` | COMPLEXITY | `c.launches` entries are created on demand and **never deleted** — including by `reapEndedRuns`, which bounds every *other* per-run projection (`children.go:1457`). A long-lived coordinator accumul... | U023.md |
 | U024-F14 | **RESOLVED** `515a95f4` | `runchannel.go:80, :122, :159` | DEAD | `runChan.credHash` is written and never read; the per-stream `hashToken(mdToken(...))` that fills it is dead work on every dial. | U024.md |
 | U024-F15 | **RESOLVED** `bd050f8b` | `spawner.go:580` | DEAD | `strictnessCheckpoint` is test-only. | U024.md |
 | U024-F16 | **RESOLVED** `72f7f6bf` | `runchannel.go:456-461, :761-766` | TRIVIAL | `unreserveRuntime` is a pure pass-through (its `len(ids)==0` guard is already handled by `unreserve`, mailbox.go:195-213) and `orHost` is a one-expression helper with a single call site. | U024.md |
 | U024-F17 | **RESOLVED** `92b70262` | `spawner.go:524-533` | DUPLICATE | `mcpServerNames` duplicates `operations.mcpServerNamesFor` (internal/operations/engine_session.go:446-456) — same nil-guard, same projection; only the `sort` differs. | U024.md |
-| U024-F18 | open | `statedir.go:44-50` | CORRECTNESS | `sanitizeKey` maps separators but not a **bare `"."` or a `.`-only key**, so a project key of `"."` resolves `stateDirForProject` to `~/.ctxloom/coord` itself — journals for every project in one di... | U024.md |
-| U024-F19 | open | `spawner.go:317-328 vs :409-469` | COUPLING | Split-brain config: the agent *definition* comes from a freshly re-read config, while everything that launches it (`PrepareAgentChat`, the trust gate, `childMCPServers`) uses the startup snapshot `... | U024.md |
-| U024-F20 | open | `runchannel.go:70-72` | COUPLING | `c.custom` is written without `c.mu` and read concurrently by every child's dispatch goroutine (`serveCustom`); correctness rests entirely on the unenforced convention "called once at hosting setup... | U024.md |
-| U024-F21 | open | `runchannel.go:332-336, :358-368, :871-886` | ERRHANDLING | Malformed `ctxloom/*` custom events no-op silently: an empty/absent `message_ids`, a missing `session_id`, a non-string list element. The `harness_session` case matters most — a missing id means th... | U024.md |
-| U024-F22 | open | `runchannel.go (whole file, 901 lines)` | COHESION | The file holds two responsibilities: stream/frame plumbing (`RunChannel`…`clearReqTrack`, ~530 lines) and the plane-2 **verb implementations** (`servePeerSend`…`serveCustom`, ~180 lines) which are ... | U024.md |
+| U024-F18 | **RESOLVED** `21aac084` | `statedir.go:44-50` | CORRECTNESS | `sanitizeKey` maps separators but not a **bare `"."` or a `.`-only key**, so a project key of `"."` resolves `stateDirForProject` to `~/.ctxloom/coord` itself — journals for every project in one di... | U024.md |
+| U024-F19 | **ESCALATED** `PENDING` | `spawner.go:317-328 vs :409-469` | COUPLING | Split-brain config: the agent *definition* comes from a freshly re-read config, while everything that launches it (`PrepareAgentChat`, the trust gate, `childMCPServers`) uses the startup snapshot `... | U024.md |
+| U024-F20 | **RESOLVED** `8ac6e9f7` | `runchannel.go:70-72` | COUPLING | `c.custom` is written without `c.mu` and read concurrently by every child's dispatch goroutine (`serveCustom`); correctness rests entirely on the unenforced convention "called once at hosting setup... | U024.md |
+| U024-F21 | **RESOLVED** `eed7f5b2` | `runchannel.go:332-336, :358-368, :871-886` | ERRHANDLING | Malformed `ctxloom/*` custom events no-op silently: an empty/absent `message_ids`, a missing `session_id`, a non-string list element. The `harness_session` case matters most — a missing id means th... | U024.md |
+| U024-F22 | **ESCALATED** `PENDING` | `runchannel.go (whole file, 901 lines)` | COHESION | The file holds two responsibilities: stream/frame plumbing (`RunChannel`…`clearReqTrack`, ~530 lines) and the plane-2 **verb implementations** (`servePeerSend`…`serveCustom`, ~180 lines) which are ... | U024.md |
 | U024-F23 | **RESOLVED** `cb1658be` | `runnerlink.go:149-195` | DUPLICATE | The `mu`/`wg`/`closing` + `goTracked`/`waitTracked` + close-budget idiom is duplicated four times across the package family (`Coordinator`, `Home`, `EngineHost`, `RunnerLink`), each with its own bu... | U024.md |
-| U024-F24 | open | `spawner.go:102-119` | CORRECTNESS | `ResumeMode`'s doc contradicts the code: it says one-shot is "not yet executed", "today's only behavior" is persistent, and one-shot is "(v0.8, Slice 4)" — while `Resolve` (:361-375) and `oneShotSu... | U024.md |
+| U024-F24 | **RESOLVED** `2095a6b8` | `spawner.go:102-119` | CORRECTNESS | `ResumeMode`'s doc contradicts the code: it says one-shot is "not yet executed", "today's only behavior" is persistent, and one-shot is "(v0.8, Slice 4)" — while `Resolve` (:361-375) and `oneShotSu... | U024.md |
 | U024-F25 | **RESOLVED** `6253b193` | `runnerlink.go:108-141` | DUPLICATE | The three-line unwind `cancel(); _ = conn.Close(); return nil, fmt.Errorf(...)` appears four times in `DialRunner`. | U024.md |
 | U025-F04 | open | `discover.go:38-41` | CORRECTNESS | `Endpoint` carries a bearer credential in a plain exported `string` field with no redaction affordance, so any `%v`/`%+v` of an `Endpoint` (or a slice of them) prints a live token. | U025.md |
 | U025-F05 | **RESOLVED** `72f7f6bf` | `discover.go:58`, `:63` | TRIVIAL | Inconsistent nil-vs-empty return: the `UserHomeDir` failure path returns a `nil` slice, every other path returns a non-nil `make(…, 0, n)` slice. | U025.md |

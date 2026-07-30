@@ -26,11 +26,27 @@ var resourcesFS embed.FS
 // hand-escaped Go string literals. The trailing newline is trimmed so callers
 // get the same shape regardless of the file's final newline.
 func GetPromptText(name string) (string, error) {
-	b, err := resourcesFS.ReadFile("prompts/" + name + ".md")
+	return getPromptText(resourcesFS, name)
+}
+
+// getPromptText is GetPromptText over an injected filesystem, so the
+// present-but-empty case can be exercised: the embedded FS is fixed at build
+// time and cannot be made to hold one.
+func getPromptText(fsys fs.FS, name string) (string, error) {
+	b, err := fs.ReadFile(fsys, "prompts/"+name+".md")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(string(b), "\n"), nil
+	text := strings.TrimRight(string(b), "\n")
+	if strings.TrimSpace(text) == "" {
+		// A present-but-empty prompt file is a build defect, not a prompt
+		// with nothing to say: returning ("", nil) wired a zero-length system
+		// prompt into a live session with no signal anywhere, and let
+		// MustGetPromptText ship exactly the empty prompt its own doc
+		// promises to panic over.
+		return "", fmt.Errorf("resources: embedded prompt %q is empty", name)
+	}
+	return text, nil
 }
 
 // MustGetPromptText is GetPromptText for package-level initialization, where a
@@ -176,6 +192,16 @@ func listEmbeddedNames(fsys fs.FS, dir, ext string) ([]string, error) {
 			continue
 		}
 		names = append(names, strings.TrimSuffix(n, ext))
+	}
+	if len(names) == 0 {
+		// These directories are embedded at BUILD time, so zero names never
+		// means "the user has none" — it means the binary shipped without
+		// content it is supposed to carry (an emptied directory, or files
+		// that no longer match ext). Returning (nil, nil) made that
+		// indistinguishable from a legitimately empty set at every caller,
+		// all of which warn and degrade on an error and did nothing at all
+		// on the silent nil.
+		return nil, fmt.Errorf("resources: embedded %s/ holds no %s files", dir, ext)
 	}
 	return names, nil
 }

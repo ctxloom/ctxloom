@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,166** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 76 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 77 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 128 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 146 |
-| `open` | no commit names this ID | **752** |
+| `open` | no commit names this ID | **751** |
 
-**Totals: 2268 findings across 162 units — 1,166 resolved, 752 still open, 350 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,166 resolved, 751 still open, 351 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 379 | 429 | 42 | 57 | 92 |
+| MED | 999 | 379 | 428 | 43 | 57 | 92 |
 | LOW | 871 | 435 | 299 | 24 | 63 | 50 |
 | (unparsed) | 22 | 2 | 18 | 0 | 2 | 0 |
 
@@ -1776,7 +1776,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U118-F03 | **REFUTED** `5edcc976` | `stderrtail.go:41-79` vs `internal/termui/ring.go:6-54` | DUPLICATE | A **third** live implementation of the same contract — bounded, drop-oldest, `Write` always succeeds, both named `Ring`. Unlike F01 this is not a verbatim copy: the implementation and the consumpti... | U118.md |
 | U119-F02 | **RESOLVED** `7b7ac2ee` | `strictness.go:270` | CORRECTNESS | `Close(inner)` on a goroutine that also holds an **outer** live `Mark` silently detaches the outer mark: the map entry is deleted, so the goroutine's next `record` builds a *new* window, and `Since... | U119.md |
 | U119-F03 | **ESCALATED** `2164010b` | `strictness.go:96`, `:255`, `:258` | NOPAY | The process-wide `findings` slice is appended on **every** production `record` (under `mu`) but is read by **nothing in production** — it backs only `All()` (0 prod call sites) and `Reset()` (0 pro... | U119.md |
-| U119-F04 | open | `strictness.go:364`, `:299` | SILENTNOOP | `record` accepts an empty `msg` with no guard, and `FindingsError` emits it as a bare `"\n - "`. A choke that formats to empty text aborts startup with exit 3 and **zero bytes of diagnosis** — the ... | U119.md |
+| U119-F04 | **PARTIAL** `0a7fd43a` | `strictness.go:364`, `:299` | SILENTNOOP | `record` accepts an empty `msg` with no guard, and `FindingsError` emits it as a bare `"\n - "`. A choke that formats to empty text aborts startup with exit 3 and **zero bytes of diagnosis** — the ... | U119.md |
 | U119-F05 | open | `strictness.go:165` | ERRHANDLING | `goroutineID` discards `strconv.ParseInt`'s error (`id, _ :=`). On failure it returns **0** — and every affected goroutine returns 0, collapsing them into one shared window. That is exactly the cro... | U119.md |
 | U120-F02 | **PARTIAL** `8f2264d8` | **`store.go:60, 110, 116, 143`** | DEAD | Four exported `Store` methods have zero production call sites. `Store.Remove` being among them means **task deletion is not reachable from any shipped surface** — yet a whole `opRemove` fold branch... | U120.md |
 | U120-F03 | open | `log.go:220-247` | CORRECTNESS | `apply` **silently discards** `status`/`text`/`tag`/`untag` events addressed to an unknown harp — directly contradicting `fold`'s own stated invariant that "a reader must never silently drop a reco... | U120.md |

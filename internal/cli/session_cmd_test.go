@@ -433,3 +433,21 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 	assert.Contains(t, diag.String(), essencePath,
 		"an essence that EXISTS but cannot be read must be reported, not silently reported as never-distilled")
 }
+
+// TestFileExists pins this package's copy of the "existing regular file"
+// predicate. Three packages carry a verbatim copy of it — internal/cli
+// (fileExists), internal/lm/isolation (fileExists) and internal/codex
+// (codexFileExists) — so no parity test between them can be red (wave-brief §4
+// DUPLICATE, verbatim case). Each is pinned separately instead, with the same
+// three cases, so that the behaviour any future collapse must preserve is
+// stated, and so that a divergence introduced in one of the three shows up
+// where it happens.
+func TestFileExists(t *testing.T) {
+	dir := t.TempDir()
+	regular := filepath.Join(dir, "essence.md")
+	require.NoError(t, os.WriteFile(regular, []byte("x"), 0o644))
+
+	assert.True(t, fileExists(regular), "an existing regular file exists")
+	assert.False(t, fileExists(dir), "a DIRECTORY is not a file — the whole point of the IsDir check")
+	assert.False(t, fileExists(filepath.Join(dir, "absent.md")), "a missing path does not exist")
+}

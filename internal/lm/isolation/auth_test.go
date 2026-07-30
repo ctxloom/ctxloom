@@ -752,3 +752,16 @@ func TestCredentialSeedSpecs_AntigravityNotRegistered(t *testing.T) {
 	_, ok := credentialSeedSpecs["antigravity"]
 	assert.False(t, ok, "antigravity has no config-home lever — its container auth mount is built directly, not via this registry")
 }
+
+// TestFileExists pins this package's copy of the "existing regular file"
+// predicate; see internal/cli's TestFileExists for why all three verbatim
+// copies are pinned separately rather than compared to each other.
+func TestFileExists(t *testing.T) {
+	dir := t.TempDir()
+	regular := filepath.Join(dir, "credentials.json")
+	require.NoError(t, os.WriteFile(regular, []byte("{}"), 0o600))
+
+	assert.True(t, fileExists(regular), "an existing regular file exists")
+	assert.False(t, fileExists(dir), "a DIRECTORY is not a file — a credential mount source must not pass this")
+	assert.False(t, fileExists(filepath.Join(dir, "absent.json")), "a missing path does not exist")
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -502,4 +503,17 @@ func TestCodex_Execute_RefusesToLaunchOnCredentialFailure(t *testing.T) {
 func TestCodex_CellCodexHomeEnv_SkipsSetup(t *testing.T) {
 	b := NewCodex()
 	assert.Nil(t, b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj", SkipSetup: true}))
+}
+
+// TestCodexFileExists pins this package's copy of the "existing regular file"
+// predicate; see internal/cli's TestFileExists for why all three verbatim
+// copies are pinned separately rather than compared to each other.
+func TestCodexFileExists(t *testing.T) {
+	dir := t.TempDir()
+	regular := filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(regular, []byte(""), 0o644))
+
+	assert.True(t, codexFileExists(regular), "an existing regular file exists")
+	assert.False(t, codexFileExists(dir), "a DIRECTORY is not a file")
+	assert.False(t, codexFileExists(filepath.Join(dir, "absent.toml")), "a missing path does not exist")
 }

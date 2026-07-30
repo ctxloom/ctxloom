@@ -333,8 +333,8 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 378 | 430 | 42 | 57 | 92 |
-| LOW | 871 | 436 | 298 | 24 | 63 | 50 |
-| (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
+| LOW | 871 | 435 | 299 | 24 | 63 | 50 |
+| (unparsed) | 22 | 1 | 19 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,

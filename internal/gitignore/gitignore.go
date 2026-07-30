@@ -33,18 +33,28 @@ var PrivateStatePatterns = []string{
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
 // during hook application: the per-file settings backups, the Antigravity
-// workspace directory, and the generated Codex project config. Scoped narrowly
-// so files a content repo may legitimately track (.claude/commands/*.md,
-// .mcp.json) stay the project's choice — .agents/ is ignored wholesale because
-// besides ctxloom's generated hooks.json/mcp_config.json/skills, agy itself
-// fills it with per-conversation subagent scratch that should never be
-// committed, while for Codex only config.toml is generated, so only that file
-// is ignored.
+// workspace directory, and Codex's project config plus the credential copy
+// that lands beside it.
 //
-// .codex/auth.json (U045-F01): internal/lm/isolation/auth.go's SeedCodexHome
-// actively copies the host's ~/.codex/auth.json here on every plain
-// (non-isolated) codex run — a live credential, not a config artifact, but it
-// must be kept out of the tree the exact same way.
+// GRANULARITY RULE. A directory is ignored WHOLESALE only when everything
+// under it is machine-written; anywhere a project's own files share the
+// directory, each ctxloom-written file is named individually so what a content
+// repo may legitimately track (.claude/commands/*.md, .mcp.json) stays the
+// project's choice.
+//
+//   - .agents/ qualifies wholesale: besides ctxloom's generated
+//     hooks.json/mcp_config.json/skills, agy fills it with per-conversation
+//     subagent scratch that must never be committed.
+//   - .codex/ does not, so its members are listed one by one: config.toml,
+//     which ctxloom generates, and auth.json, which
+//     internal/lm/isolation/auth.go's SeedCodexHome copies from the host's
+//     ~/.codex/auth.json on every plain (non-isolated) codex run. The latter
+//     is a live credential rather than a config artifact, but it has to be
+//     kept out of the tree exactly the same way.
+//
+// The rule is stated because it is per-entry and irreversible in one
+// direction: broadening an entry to its whole directory later un-tracks
+// whatever the project had committed there, silently.
 var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".agents/", ".codex/config.toml", ".codex/auth.json"}
 
 // WorktreeComment is the header under which the per-agent-worktree exclude block

@@ -186,6 +186,23 @@ func TestTransientArtifactPatterns_IgnoreCodexCredential(t *testing.T) {
 		"a per-agent worktree fan-out member must also keep the credential out of merge-back")
 }
 
+// TestArtifactPatterns_GranularityRule pins U054-F09. The file-granular vs
+// directory-granular choice is made per entry, and broadening one to its whole
+// directory is irreversible in one direction: it un-tracks whatever the
+// project had already committed there, silently. .codex/ holds a user's own
+// files alongside the two ctxloom writes, so it must stay named file by file
+// — the same reasoning .agents/ fails, which is why THAT one is wholesale.
+func TestArtifactPatterns_GranularityRule(t *testing.T) {
+	for _, set := range [][]string{TransientArtifactPatterns, WorktreeArtifactPatterns} {
+		assert.NotContains(t, set, ".codex/",
+			"a project's own .codex files must not be swept up; name the ctxloom-written ones individually")
+		assert.Contains(t, set, ".codex/config.toml")
+		assert.Contains(t, set, ".codex/auth.json")
+		assert.Contains(t, set, ".agents/",
+			"everything under .agents/ is machine-written, so it is ignored wholesale")
+	}
+}
+
 // TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins U080-F09:
 // WorktreeArtifactPatterns is documented as "the FULL written set across all
 // engines", but opencode's own written artifacts (.opencode/ command+skill+

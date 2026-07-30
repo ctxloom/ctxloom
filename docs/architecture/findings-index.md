@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,116** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 62 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 110 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,125** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 66 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 113 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 139 |
-| `open` | no commit names this ID | **841** |
+| `open` | no commit names this ID | **825** |
 
-**Totals: 2268 findings across 162 units — 1,116 resolved, 841 still open, 311 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,125 resolved, 825 still open, 318 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 351 | 485 | 32 | 43 | 88 |
-| LOW | 871 | 415 | 330 | 20 | 59 | 47 |
+| MED | 999 | 357 | 473 | 35 | 46 | 88 |
+| LOW | 871 | 418 | 326 | 21 | 59 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -512,6 +512,42 @@ at ~305 functions — it was done because the function did too much. Recounted
 (`just test-pkg ./tests/docs/ -tags arch`): RESOLVED 1075->1078, ESCALATED
 136->133, MED resolved 324->325, MED escalated 84->83, LOW resolved 401->403,
 LOW escalated 48->46.
+
+Updated again 2026-07-30 by the `wave32/u067-u079` batch: all 16 remaining
+U067 (ltk engine adapters) and U079 (mockengine) rows adjudicated — 9 RESOLVED,
+4 PARTIAL, 3 REFUTED, 0 ESCALATED. The three REFUTED all failed on the same
+axis: the arrangement the row calls a defect is a DECISION the tree already
+records. **U067-F05**'s "two interfaces under one name" split exists and is
+named (`Adapter` = runtime, `Engine` = Adapter + the five management methods);
+**U067-F06**'s Detect tie is documented at both scoring sites with `--engine` as
+the override; **U079-F12**'s "opposite nil policies" are two readers of two
+concepts, and applying the row's own remedy — pointing `Resolver.getenv` at
+`os.Getenv` — re-opens U079-F04, the walk adopting the developer's own
+`CODEX_HOME`. All four PARTIALs share the other recurring shape, a true
+MECHANISM with an unreachable CONSEQUENCE: **U067-F07** had one of its five
+claimed duplicate pairs left to collapse (`Encode`, onto `encodeDecision`) and
+four that were already shared delegators; **U067-F11**'s two name-matching
+disciplines really do sit in one expression list, but they agree over the whole
+gated set and every name they can disagree on is marked `ToolUngated` and denied
+before `Request.Shell` is read; **U079-F09**'s `Validate()` really is never
+called at runtime, but it is test-only BY DECISION and every impersonable
+declaration is validated by its backend's anti-drift test; **U079-F14**'s
+container tests really do hand-write the vendor argv, and cannot do otherwise
+(`buildArgs` is unexported everywhere, no exported API returns a spawn argv),
+but the DRIVER is bound to the same declaration in both directions by
+`TestEngineCLI_BuildArgsFlagsAreDeclared` / `…EveryDeclaredFlagIsEmitted`, so
+driver drift fails at the driver. Each PARTIAL and REFUTED ships the pin that
+keeps it settled. The 9 fixes are ordinary loud-failure work: an empty `--bin`
+that installed a hook which can never exec while printing success (U067-F09), an
+uninstall that reported "no matching hook found" for a settings file it could
+not read (U067-F08), a report emission that exited 0 having written zero
+evidence (U079-F20), a fault-injection knob whose typo'd value silently became
+"success" (U079-F10), an intentionally empty engine reply that could not be
+requested at all (U079-F11), and a `DiscoveryDigest` that hashed "ctxloom never
+passed `--settings`" identically to "ctxloom passed it and wrote nothing there"
+(U079-F08). Recounted (`just test-pkg ./tests/docs/ -tags arch`): RESOLVED
+1116->1125, PARTIAL 62->66, REFUTED 110->113, open 841->825, MED resolved
+351->357, LOW resolved 415->418.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -1408,11 +1444,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U066-F05 | open | `app.go:85, 151, 183` | ERRHANDLING | **Inconsistent nil discipline on `a.Config`** within one type. `denyOnUnanalyzable` guards `a.Config != nil`; `resolveShell` and `decide` dereference it unguarded. | U066.md |
 | U066-F06 | open | `app.go:164-171 vs app.go:199-206` | DUPLICATE | The `rules.Decision` → `engine.Response` mapping is written out **twice, field for field**. Six fields, both copies identical. A seventh field added to `Decision` will compile fine while being sile... | U066.md |
 | U067-F04 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`engine.go:78`** | DEAD | **`Output.ExitCode` only ever holds `0`**, making `os.Exit(out.ExitCode)` at `cmd/ltk/evaluate.go:82` unreachable. Worse, a nonzero exit would be actively *wrong* for both engines. | U067.md |
-| U067-F05 | open | **`engine.go:98-117`** | COHESION | **`Engine` is two interfaces under one name.** The eight methods partition disjointly by caller — `{Name, Decode, Encode}` = runtime, `{Detect, SettingsPath, HookCommand, Install, Uninstall}` = man... | U067.md |
-| U067-F06 | open | **`engine.go:121-123 + antigravity.go:102-110 + claudecode.go:139-144`** | CORRECTNESS | **`Detect` picks Claude Code over an actually-installed Antigravity hook.** Both score 2 for their strong marker, and ties go to whoever is first in `engines()` — Claude. So a project with a bare `... | U067.md |
-| U067-F07 | open | **`claudecode.go:29,78-87,203-210 vs antigravity.go:27,59-68,138-146`** | DUPLICATE | **Five method pairs are structurally identical**, differing only in a package-level constant. `Encode` is line-for-line the same modulo the `EncodeDeny` symbol; `Install`/`Uninstall` differ only by... | U067.md |
-| U067-F08 | open | **`claudecode.go:263-272`** | ERRHANDLING | **Uninstall is silent where Install errors, on the same malformed input.** A settings file whose `hooks` is not an object (or whose `PreToolUse` is not an array) makes `Install` fail with a precise... | U067.md |
-| U067-F09 | open | **`claudecode.go:157-163, antigravity.go:125-134`** | SILENTNOOP | **`HookCommand("")` produces a syntactically valid, permanently non-functional hook command**, and `install` then reports success. | U067.md |
+| U067-F05 | **REFUTED** `c3da05c5` | **`engine.go:98-117`** | COHESION | **`Engine` is two interfaces under one name.** The eight methods partition disjointly by caller — `{Name, Decode, Encode}` = runtime, `{Detect, SettingsPath, HookCommand, Install, Uninstall}` = man... | U067.md |
+| U067-F06 | **REFUTED** `c3da05c5` | **`engine.go:121-123 + antigravity.go:102-110 + claudecode.go:139-144`** | CORRECTNESS | **`Detect` picks Claude Code over an actually-installed Antigravity hook.** Both score 2 for their strong marker, and ties go to whoever is first in `engines()` — Claude. So a project with a bare `... | U067.md |
+| U067-F07 | **PARTIAL** `1590cc73` `ec2a8274` | **`claudecode.go:29,78-87,203-210 vs antigravity.go:27,59-68,138-146`** | DUPLICATE | **Five method pairs are structurally identical**, differing only in a package-level constant. `Encode` is line-for-line the same modulo the `EncodeDeny` symbol; `Install`/`Uninstall` differ only by... | U067.md |
+| U067-F08 | **RESOLVED** `05cf2db0` | **`claudecode.go:263-272`** | ERRHANDLING | **Uninstall is silent where Install errors, on the same malformed input.** A settings file whose `hooks` is not an object (or whose `PreToolUse` is not an array) makes `Install` fail with a precise... | U067.md |
+| U067-F09 | **RESOLVED** `8e4cdb78` | **`claudecode.go:157-163, antigravity.go:125-134`** | SILENTNOOP | **`HookCommand("")` produces a syntactically valid, permanently non-functional hook command**, and `install` then reports success. | U067.md |
 | U068-F04 | open | `wrap.go:5,112,339` | CORRECTNESS | `path.Base` (slash-only) is used to take argv[0]'s basename, so a Windows-style invocation escapes wrapper expansion entirely | U068.md |
 | U068-F05 | open | `wrap.go:37` vs `shellenv.go:18-31` | COUPLING / CORRECTNESS | The wrapper-program list and the dialect list have diverged: several programs ltk recognises as *shells* are not recognised as *wrappers*, so their `-c` body is never re-parsed | U068.md |
 | U068-F06 | open | `wrap.go:377,380` | CORRECTNESS | `env -S` / `--split-string` is an **interpreter** wrapper misclassified as an option to step over, so its inner command is never analysed | U068.md |
@@ -1451,14 +1487,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U078-F18 | open | `compactor.go:825-862, :462-488, :896-915` | DUPLICATE | Three functions in this unit have acknowledged copies elsewhere in the repo, each drifting independently. | U078.md |
 | U079-F06 | **RESOLVED** `1609048f` | `discovery.go:131-134` | ERRHANDLING | Every `os.Stat` failure is flattened into `Present=false`, so "unobservable" (EACCES, ENOTDIR, ELOOP, a broken mount) reads exactly like "not delivered" — in the record whose whole job is to distin... | U079.md |
 | U079-F07 | **RESOLVED** `1609048f` | `discovery.go:166`, `:176-181` | ERRHANDLING | `hashDir` discards the walk error entirely and, per file, emits an `EntryRecord` with `Size 0` and an **empty** `SHA256` when the read fails — an unreadable file becomes an entry that looks like a ... | U079.md |
-| U079-F08 | open | `report.go:125-135` | CORRECTNESS | `canonicalRendering` excludes `Note`, so a probe that could not be **resolved** hashes identically to a probe that resolved and found **nothing** — the `DiscoveryDigest`, the one value tests are to... | U079.md |
-| U079-F09 | open | `discovery.go:78`, `cmd/mockengine/main.go:98` | ERRHANDLING | A self-inconsistent L1 declaration degrades **silently** into `present:false` rows instead of failing loudly: `EngineCLI.Validate()` — which exists exactly to catch this — is never called on the mo... | U079.md |
-| U079-F10 | open | `sentinel.go:68-72` | ERRHANDLING | A malformed `CTXLOOM_MOCK_EXIT_CODE` is silently ignored, so the mock's own fault-injection channel degrades to "success" on a typo. | U079.md |
-| U079-F11 | open | `sentinel.go:65-67` | SILENTNOOP | An intentionally **empty** engine response cannot be requested, so the one knob that would let a test prove ctxloom surfaces a zero-byte reply is unreachable — in the codebase whose characteristic ... | U079.md |
-| U079-F12 | open | **`runtime.go:36-41` vs `discovery.go:26-31`** | COUPLING | Two environment readers for one concept, with **opposite** nil policies, one of which silently changes what the probes see. | U079.md |
+| U079-F08 | **RESOLVED** `2dce165b` | `report.go:125-135` | CORRECTNESS | `canonicalRendering` excludes `Note`, so a probe that could not be **resolved** hashes identically to a probe that resolved and found **nothing** — the `DiscoveryDigest`, the one value tests are to... | U079.md |
+| U079-F09 | **PARTIAL** `4b82ee81` | `discovery.go:78`, `cmd/mockengine/main.go:98` | ERRHANDLING | A self-inconsistent L1 declaration degrades **silently** into `present:false` rows instead of failing loudly: `EngineCLI.Validate()` — which exists exactly to catch this — is never called on the mo... | U079.md |
+| U079-F10 | **RESOLVED** `61407a72` | `sentinel.go:68-72` | ERRHANDLING | A malformed `CTXLOOM_MOCK_EXIT_CODE` is silently ignored, so the mock's own fault-injection channel degrades to "success" on a typo. | U079.md |
+| U079-F11 | **RESOLVED** `c383c39f` | `sentinel.go:65-67` | SILENTNOOP | An intentionally **empty** engine response cannot be requested, so the one knob that would let a test prove ctxloom surfaces a zero-byte reply is unreachable — in the codebase whose characteristic ... | U079.md |
+| U079-F12 | **REFUTED** `0edcad27` | **`runtime.go:36-41` vs `discovery.go:26-31`** | COUPLING | Two environment readers for one concept, with **opposite** nil policies, one of which silently changes what the probes see. | U079.md |
 | U079-F13 | **RESOLVED** `c23e7478` | **`runtime.go:112-114`, `cmd/mockengine/main.go:63-69`** | NOPAY | The interactive surface is unreachable dead weight: `--surface` has no caller anywhere, `main.go` hard-codes oneshot, and no test constructs an interactive `EngineCLI` — so `render`'s `default` arm... | U079.md |
-| U079-F14 | open | `container_docker_integration_test.go:136`, `:299` | CORRECTNESS | The container test **hand-writes** the vendor argv, so the mock constrains the *declaration*, not the *driver* — the drift the package doc says a fake must never permit. | U079.md |
-| U079-F20 | open | **`runtime.go:87-99`** | SILENTNOOP | Report emission failures do not affect the exit code: the instrument can exit **0** having delivered zero evidence. | U079.md |
+| U079-F14 | **PARTIAL** `9209f675` | `container_docker_integration_test.go:136`, `:299` | CORRECTNESS | The container test **hand-writes** the vendor argv, so the mock constrains the *declaration*, not the *driver* — the drift the package doc says a fake must never permit. | U079.md |
+| U079-F20 | **RESOLVED** `238ffb05` | **`runtime.go:87-99`** | SILENTNOOP | Report emission failures do not affect the exit code: the instrument can exit **0** having delivered zero evidence. | U079.md |
 | U080-F04 | **RESOLVED** `a34db6d0` | **`settings.go:308-310 + 590 + 617`** | CORRECTNESS | A non-object `mcp` value makes `stripManagedMCP` silently strip nothing, after which `removeMCP`/`RemoveSettings` clear the ledger anyway — permanently orphaning ctxloom-registered MCP servers with... | U080.md |
 | U080-F05 | **REFUTED** (already extracted into agent.RunOneshotTurn; cf U080-F01) | **`backend.go:149-198 vs internal/acp/execute.go:38-94`** | DUPLICATE | `Opencode.Execute`'s body is a near-verbatim copy of `ACP.Execute` — ~50 lines including the identical buffered-channel sizing, the identical drain switch, the identical verbosity thresholds, and t... | U080.md |
 | U080-F06 | **ESCALATED** (gn/vital-deaf-stunt) | **`chat.go:48-131 vs interactive.go:50-126`** | DUPLICATE | The transient-overlay lifecycle (snapshot → managed config → context → opencode.json → commands → skills → run → LIFO revert) is written twice, ~45 lines each, with the two copies differing only in... | U080.md |
@@ -2368,8 +2404,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U065-F17 | open | **`worktree.go:203`** | COUPLING | The mutual exclusivity of `credentialSeedSpecs` and `curatedHomeSpecs` is load-bearing (a backend in both is silently shadowed by the `curatedHomeSpecs`-first check) but exists only as prose in thr... | U065.md |
 | U066-F07 | **RESOLVED** `12f375ce` | `app.go:154-159` | TRIVIAL | `panicOutcomeVerb` is a two-branch string constant selector with one call site, existing only to fill a `%s`. It satisfies no interface and is not a testing seam (`denyOnUnanalyzable` right above i... | U066.md |
 | U066-F08 | open | `app.go:27-35 + `cmd/ltk/evaluate.go:151-152`, `cmd/ltk/check.go:89-90` | COUPLING | **Connascence of order:** `ForceShell` and `HostShell` are unreachable from `New` and must be assigned by every caller before `Decide`. Both current callers do it; a third that forgets silently par... | U066.md |
-| U067-F10 | open | **`claudecode.go:341-363`** | COHESION | **`childMap` and `childSlice` have inconsistent contracts** — one stores the created value back into the parent map, the other does not. Both call sites paper over it with a redundant write. | U067.md |
-| U067-F11 | open | **`claudecode.go:65-73 vs :122-124`** | COUPLING | **`Decode` uses two different name-matching disciplines for the same tool name in the same expression list.** `ccShellForTool` substring-matches; `claudeGatesTool` exact-matches. `agShellForTool` (... | U067.md |
+| U067-F10 | **RESOLVED** `5363e93b` | **`claudecode.go:341-363`** | COHESION | **`childMap` and `childSlice` have inconsistent contracts** — one stores the created value back into the parent map, the other does not. Both call sites paper over it with a redundant write. | U067.md |
+| U067-F11 | **PARTIAL** `d309f932` | **`claudecode.go:65-73 vs :122-124`** | COUPLING | **`Decode` uses two different name-matching disciplines for the same tool name in the same expression list.** `ccShellForTool` substring-matches; `claudeGatesTool` exact-matches. `agShellForTool` (... | U067.md |
 | U068-F09 | open | `wrap.go:67-69`, `app.go:194-196` | CORRECTNESS | `truncated` measures the nesting depth of *any* nested script, not of unexpanded *wrappers*, so a benign 8-deep command substitution is denied with the reason "possible evasion" | U068.md |
 | U068-F10 | **RESOLVED** `e7cc46fb` | `wrap.go:112,115,269,339,342` | TRIVIAL / DUPLICATE | Double case-folding, and a hand-rolled `slices.ContainsFunc` | U068.md |
 | U068-F11 | **RESOLVED** `b7a7ab39` | `wrap.go:335` | NOPAY | `prefixWrapped`'s `ir.Shell` parameter is unused and documented as speculative | U068.md |
@@ -2418,8 +2454,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U078-F19 | **RESOLVED** `569bdbb0` | `resources/prompts/session-distill.md:46-48, compactor.go:219-221, :665-666` | NOPAY | The distill prompt's "## Plan Blocks" section instructs the model about `[plan-block #N — Label, preserved below]` markers that the compactor no longer emits. | U078.md |
 | U079-F15 | **RESOLVED** `57d79810` | `report.go:153` | DEAD | `Report.Record` is test-only. | U079.md |
 | U079-F16 | **RESOLVED** `3b0cf2d9` | `report.go:174-177` | DEAD | `ExtractReport` is test-only, and its doc names a caller that does not exist. | U079.md |
-| U079-F17 | open | `report.go:104-110` | CORRECTNESS | `head` is documented as returning a "printable prefix" but does no printability filtering and slices at a fixed byte offset, so it can split a UTF-8 rune and can carry raw control bytes from a bina... | U079.md |
-| U079-F18 | open | **`runtime.go:69-71` vs `:90`, `:93`, `:113`** | ERRHANDLING | Inconsistent nil-writer handling: `Stdin` is guarded, `Stdout`/`Stderr` are not, so a partially-constructed `Runtime` panics rather than degrading. | U079.md |
+| U079-F17 | **RESOLVED** `79051563` | `report.go:104-110` | CORRECTNESS | `head` is documented as returning a "printable prefix" but does no printability filtering and slices at a fixed byte offset, so it can split a UTF-8 rune and can carry raw control bytes from a bina... | U079.md |
+| U079-F18 | **RESOLVED** `79e36810` | **`runtime.go:69-71` vs `:90`, `:93`, `:113`** | ERRHANDLING | Inconsistent nil-writer handling: `Stdin` is guarded, `Stdout`/`Stderr` are not, so a partially-constructed `Runtime` panics rather than degrading. | U079.md |
 | U079-F19 | **RESOLVED** `ee0b7ef4` | `report.go:139` | TRIVIAL | `BuildReport(engine, surface string, …)` discards `agent.CLISurface`'s type and creates two adjacent same-typed parameters — connascence of position for no gain. | U079.md |
 | U080-F08 | **RESOLVED** `6e623b37` | **`chat.go:161-163`** | DEAD / TRIVIAL | `writeModelConfig` is test-only and is a single-expression pass-through. | U080.md |
 | U080-F14 | **RESOLVED** `7fd5b6c9` (documentation-only; the marshal discard is safe) | **`settings.go:157-174`** | ERRHANDLING | The `readOnly` branch is the only one in `applyManaged` that swallows errors, in two places, inconsistently with its four siblings. | U080.md |

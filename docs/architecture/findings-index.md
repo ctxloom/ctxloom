@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,177** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,178** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 85 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **723** |
+| `open` | no commit names this ID | **722** |
 
-**Totals: 2268 findings across 162 units — 1,177 resolved, 723 still open, 368 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,178 resolved, 722 still open, 368 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 387 | 413 | 47 | 58 | 94 |
+| MED | 999 | 388 | 412 | 47 | 58 | 94 |
 | LOW | 871 | 439 | 285 | 28 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1782,7 +1782,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U120-F03 | open | `log.go:220-247` | CORRECTNESS | `apply` **silently discards** `status`/`text`/`tag`/`untag` events addressed to an unknown harp — directly contradicting `fold`'s own stated invariant that "a reader must never silently drop a reco... | U120.md |
 | U120-F04 | **PARTIAL** `a439d368` | `log.go:204-216` | CORRECTNESS | `apply` opAdd accepts an empty `ev.Task` and an empty `ev.Text`, minting a task with a blank harp and blank text. | U120.md |
 | U120-F06 | **PARTIAL** `30308c54` | `log.go:306-329` | SILENTNOOP | `append` validates nothing about the event it writes: a zero-value `Event` is written successfully and then makes every future `fold` fail with "record has no op field". | U120.md |
-| U120-F07 | open | `log.go:314-328` | CORRECTNESS | `append` fsyncs the file but never the parent directory, so the doc's promise ("a power loss must not drop a just-confirmed event", log.go:325-327) does not hold for the first event written to a ne... | U120.md |
+| U120-F07 | **RESOLVED** `e5caa040` | `log.go:314-328` | CORRECTNESS | `append` fsyncs the file but never the parent directory, so the doc's promise ("a power loss must not drop a just-confirmed event", log.go:325-327) does not hold for the first event written to a ne... | U120.md |
 | U120-F12 | open | `task.go:157-311, type_comparator.go` | COHESION | `task.go` holds two unrelated concerns: the `Task` domain value type + status taxonomy, and a ~155-line tagma query-engine adapter (`ErrTagQuery`, `filterTasks`, `presenceNamespace`, `typeConfigIte... | U120.md |
 | U120-F17 | open | `log.go:180, task.go:194` | COMPLEXITY | Two owned functions exceed the CCN ≤ 10 gate that CI declares as blocking, with no `nolint` and no `continue-on-error`. | U120.md |
 | U121-F02 | open | `lint.go:197-211`, `lint.go:126-132` | CORRECTNESS | `groupByTarget` does not dedupe values, so two *different raw tag strings* that parse to the *same* (target, value) produce a **false scalar violation** reading `"triage:kind carries 2 distinct val... | U121.md |

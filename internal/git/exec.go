@@ -146,6 +146,11 @@ const (
 // directory that EXISTS, and it is precisely the case commit history cannot
 // reveal — the bug that made an "does package X exist" trigger evaluate as
 // not-fired while the package sat in the working tree.
+//
+// Every ANCESTOR of a listed file is inventoried, not just its immediate
+// parent: a package whose content all lives in subdirectories exists just as
+// much as one holding files directly, and an existence-style trigger asking
+// about it must not read its absence as proof it was never created.
 func (execGit) RepoDirs(ctx context.Context, dir string, maxDirs int) ([]string, error) {
 	if maxDirs <= 0 {
 		maxDirs = defaultRepoDirsMax
@@ -164,11 +169,15 @@ func (execGit) RepoDirs(ctx context.Context, dir string, maxDirs int) ([]string,
 		if f == "" {
 			continue
 		}
-		d := filepath.ToSlash(filepath.Dir(f))
-		if d == "." {
-			continue // repo-root files carry no directory to inventory
+		// Walk up to the repo root. Stopping at the first already-recorded
+		// ancestor is safe: a directory only ever enters the set together
+		// with all of its own ancestors.
+		for d := parentDir(filepath.ToSlash(f)); d != ""; d = parentDir(d) {
+			if _, ok := seen[d]; ok {
+				break
+			}
+			seen[d] = struct{}{}
 		}
-		seen[d] = struct{}{}
 	}
 	dirs := make([]string, 0, len(seen))
 	for d := range seen {
@@ -179,6 +188,18 @@ func (execGit) RepoDirs(ctx context.Context, dir string, maxDirs int) ([]string,
 		dirs = dirs[:maxDirs]
 	}
 	return dirs, nil
+}
+
+// parentDir returns p's parent directory for a slash-separated, repo-relative
+// git path, or "" once there is none left (a repo-root entry carries no
+// directory to inventory). Deliberately not path.Dir: that returns "." for a
+// root entry, which is not a directory this inventory reports.
+func parentDir(p string) string {
+	i := strings.LastIndex(p, "/")
+	if i <= 0 {
+		return ""
+	}
+	return p[:i]
 }
 
 // WorkingChanges returns the porcelain working-tree status, bounded.

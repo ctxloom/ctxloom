@@ -150,6 +150,40 @@ func TestExecGit_RepoDirsAndWorkingChanges(t *testing.T) {
 	assert.Len(t, capped, 1, "the inventory is bounded")
 }
 
+// TestExecGit_RepoDirs_IncludesAncestors pins U053-F09. The inventory answers
+// existence-style triggers ("once package X exists"), and a directory whose
+// content all lives in SUBdirectories is still a directory that exists: with
+// only internal/signing/keys/pem.go in the repo, "internal/signing" and
+// "internal" must both be inventoried. Recording only each file's IMMEDIATE
+// parent under-reports exactly the question this evidence was written to
+// answer, and the model reads the absence as proof the package does not exist.
+func TestExecGit_RepoDirs_IncludesAncestors(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping exec git integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	commit(t, repo, "internal/signing/keys/pem.go", "package keys", "add nested tracked pkg")
+	// Untracked and equally nested — the same claim must hold for work that
+	// lives in no commit.
+	require.NoError(t, writeFile(filepath.Join(repo, "internal/fresh/deep/nested/b.go"), "package nested"))
+
+	dirs, err := g.RepoDirs(ctx, repo, 0)
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		"internal", "internal/signing", "internal/signing/keys",
+		"internal/fresh", "internal/fresh/deep", "internal/fresh/deep/nested",
+	} {
+		assert.Contains(t, dirs, want, "every ancestor directory exists and must be inventoried")
+	}
+	assert.NotContains(t, dirs, ".", "the repo root is not a directory entry")
+	assert.NotContains(t, dirs, "", "no empty entry")
+	assert.IsNonDecreasing(t, dirs, "the inventory stays sorted")
+}
+
 // TestExecGit_LogSince exercises the real git-binary impl: a since-bound
 // window excludes the seed commit, each returned entry carries its changed
 // files, and maxEntries caps the result even when more commits qualify.

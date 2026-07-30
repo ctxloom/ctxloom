@@ -140,8 +140,16 @@ func buildLadder(agentName string, raw []agents.EscalationRung, perm agent.Permi
 		rung := LadderRung{Action: LadderAction(r.Action)}
 		switch rung.Action {
 		case ActionAutoAccept, ActionAutoDecline:
+			// Both fields are meaningless on a rung that resolves the request
+			// immediately, and both are refused for the same reason: a rung
+			// that cannot honour what the operator wrote must say so rather
+			// than build a ladder that silently differs from the config.
 			if r.Role != "" {
 				return nil, fmt.Errorf("agent %q escalation[%d]: role is not meaningful for action %q", agentName, i, r.Action)
+			}
+			if r.Timeout != "" {
+				return nil, fmt.Errorf("agent %q escalation[%d]: timeout is not meaningful for action %q — it resolves the request immediately; a timeout only bounds %q/%q",
+					agentName, i, r.Action, ActionRelayToRole, ActionSurfaceToHuman)
 			}
 		case ActionRelayToRole, ActionSurfaceToHuman:
 			role := r.Role

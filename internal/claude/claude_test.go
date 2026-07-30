@@ -1135,3 +1135,178 @@ func TestClaudeCodeHookWriter_AbsentMCPConfig_StillWrites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "ctxloom-added")
 }
+
+// TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped pins the invariant
+// U032-F16 got backwards: saveSettings's "skip corrupted field" branch is NOT
+// unreachable. settings.Other holds json.RawMessage slices lifted out of a
+// document that parsed, so the bytes are always VALID JSON — but valid JSON is
+// not the same as decodable into `any`: a number outside float64's range
+// (`1e1000`) parses fine and then fails to unmarshal. The old warn+continue
+// therefore deleted a real, user-authored key from settings.json on the way
+// past, silently, on the same file whose loadSettings was hardened precisely
+// because "a warning is not a guard".
+//
+// The payload assertion is on the FILE: a write that returns nil having
+// dropped the key is the failure mode, so asserting the error alone would not
+// catch a regression that writes and then errors.
+func TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	original := `{"awkwardNumber": 1e1000, "env": {"A": "b"}}`
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(original), 0644))
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	err := writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project")
+	require.Error(t, err, "a setting ctxloom cannot re-encode must abort the write, not be dropped from it")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "awkwardNumber",
+		"the user's own setting must still be in the file — dropping it is silent data loss")
+}
+
+// TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped is the
+// permissions-block twin of the above, and the worse half: the dropped sibling
+// keys there are allow/ask/defaultMode — a SECURITY surface. loadSettings
+// already refuses to proceed when it cannot PARSE that block; the write path
+// must not quietly discard what the read path went to that trouble to keep.
+func TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	original := `{"permissions": {"allow": ["Read"], "awkwardNumber": 1e1000}}`
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(original), 0644))
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	err := writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project")
+	require.Error(t, err, "a permissions sibling ctxloom cannot re-encode must abort the write")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "awkwardNumber",
+		"the user's own permissions rule must still be in the file")
+	assert.Contains(t, string(data), "Read", "the surrounding allow list must be untouched too")
+}
+
+// denyStatFs fails Stat — and therefore afero.Exists — for the named paths
+// with a non-IsNotExist error: the EACCES-on-the-parent-directory case, which
+// afero.Exists reports as (false, err). Absent and unreadable are different
+// answers and the writer must not conflate them.
+type denyStatFs struct {
+	afero.Fs
+	deny map[string]error
+}
+
+func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
+	if err, ok := f.deny[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Stat(name)
+}
+
+// TestRemoveSettings_SettingsStatErrorIsLoud pins U032-F19 for the uninstall
+// path: an unreadable settings.json must NOT be reported as "nothing to
+// remove". Swallowing the stat error makes RemoveSettings a silent no-op that
+// exits 0 while ctxloom's hooks and statusline stay installed — the user is
+// told the uninstall succeeded and it did nothing.
+func TestRemoveSettings_SettingsStatErrorIsLoud(t *testing.T) {
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, settingsPath, []byte(`{"hooks":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{settingsPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	require.Error(t, writer.RemoveSettings("/project"),
+		"an unreadable settings.json must fail the uninstall, not be treated as absent")
+}
+
+// TestRemoveSettings_MCPStatErrorIsLoud is the .mcp.json half of the same
+// contract (settings.json is absent here, which is the one legitimate way to
+// have nothing to remove).
+func TestRemoveSettings_MCPStatErrorIsLoud(t *testing.T) {
+	mcpPath := filepath.Join("/project", ".mcp.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, mcpPath, []byte(`{"mcpServers":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{mcpPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	require.Error(t, writer.RemoveSettings("/project"),
+		"an unreadable .mcp.json must fail the uninstall, not be treated as absent")
+}
+
+// TestStatus_SettingsStatErrorIsLoud pins the reporting half: Status is what
+// `ctxloom` tells the user about their own installation, so answering "not
+// installed" because the file could not be STATTED is a confident lie that
+// invites a redundant install over live config.
+func TestStatus_SettingsStatErrorIsLoud(t *testing.T) {
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, settingsPath, []byte(`{"hooks":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{settingsPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	status, err := writer.Status("/project")
+	require.Error(t, err, "an unreadable settings.json must be reported, not rendered as not-installed")
+	assert.False(t, status.SettingsExists, "no claim about a file that could not be read")
+}
+
+// TestStatus_MCPStatErrorIsLoud is the .mcp.json half of the reporting
+// contract.
+func TestStatus_MCPStatErrorIsLoud(t *testing.T) {
+	mcpPath := filepath.Join("/project", ".mcp.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, mcpPath, []byte(`{"mcpServers":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{mcpPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	_, err := writer.Status("/project")
+	require.Error(t, err, "an unreadable .mcp.json must be reported, not rendered as not-installed")
+}
+
+// TestStatus_AbsentFilesAreNotAnError keeps the loud stat errors above from
+// being satisfied the lazy way. A project with no settings.json and no
+// .mcp.json is the ordinary not-installed answer and must stay silent.
+func TestStatus_AbsentFilesAreNotAnError(t *testing.T) {
+	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
+	status, err := writer.Status("/project")
+	require.NoError(t, err)
+	assert.False(t, status.SettingsExists)
+	assert.False(t, status.MCPPresent)
+}
+
+// TestRemoveSettings_AbsentFilesAreNotAnError is the uninstall twin of the
+// above: removing what was never installed stays a clean no-op.
+func TestRemoveSettings_AbsentFilesAreNotAnError(t *testing.T) {
+	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
+	require.NoError(t, writer.RemoveSettings("/project"))
+}
+
+// TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext pins the detection
+// rule removeCtxloomHooks actually implements, the one U032-F22's doc comment
+// denied: identity is the leading executable token resolving to `ctxloom`, so
+// a managed hook is removed whatever its VERB, while a hook belonging to another
+// tool survives even when "ctxloom" appears in its arguments. Nothing pinned the
+// verb-agnostic half before — the existing coverage all used inject-context
+// commands, which the wrong doc happened to describe correctly.
+func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
+	settings := &claudeCodeSettings{Hooks: map[string][]claudeCodeHookMatcher{
+		"PreToolUse": {{Hooks: []claudeCodeHook{
+			// A ctxloom callback with a verb that is not inject-context.
+			{Type: "command", Command: `"/opt/bin/ctxloom" hook evaluate-triggers`},
+			// A sibling tool's hook that merely mentions ctxloom in its args.
+			{Type: "command", Command: "ltk evaluate --tool ctxloom inject-context"},
+		}}},
+	}}
+
+	(&ClaudeCodeHookWriter{}).removeCtxloomHooks(settings)
+
+	var kept []string
+	for _, m := range settings.Hooks["PreToolUse"] {
+		for _, h := range m.Hooks {
+			kept = append(kept, h.Command)
+		}
+	}
+	assert.Equal(t, []string{"ltk evaluate --tool ctxloom inject-context"}, kept,
+		"a ctxloom-token hook is removed whatever its verb; another tool's hook is never ctxloom's to remove")
+}

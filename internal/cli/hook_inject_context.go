@@ -53,18 +53,23 @@ Output format (JSON to stdout):
 	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		hash := args[0]
-
-		// Always output valid JSON, even on errors.
-		// This ensures Claude doesn't hang waiting for output.
+	RunE: func(cmd *cobra.Command, args []string) (err error) {
+		// Always output valid JSON, even on errors, so the host never hangs
+		// waiting for output — but a panic still exits NON-ZERO: a panicking
+		// hook has delivered zero context, and exit 0 would make that
+		// indistinguishable from "ctxloom had nothing to inject". Registered
+		// before the first statement that can panic (the args read below), so
+		// the whole body is covered.
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: panic: %v\n", r)
 				// Output empty JSON on panic
 				fmt.Println("{}")
+				err = fmt.Errorf("inject-context hook panicked: %v", r)
 			}
 		}()
+
+		hash := args[0]
 
 		// Read hook input from stdin (Claude passes session context here)
 		var hookInput claude.SessionStartPayload
@@ -92,7 +97,15 @@ Output format (JSON to stdout):
 		// and we wait our turn so the N parallel chunk hooks complete — and
 		// thus inject — in order (see backends.AwaitTurn).
 		content, part, total := selectChunk(content, injectContextPart, injectContextTotal)
-		if total > 1 {
+		// Ordering only matters for a part that HAS a chunk to emit. An
+		// out-of-range part (missing context file, or a file that shrank since
+		// the hooks were written) emits nothing, so joining the rendezvous
+		// would spend up to ContextRendezvousTimeout of session-startup
+		// latency ordering nothing at all. Skipping cannot break the chain for
+		// the parts that do have content: chunks are contiguous from part 1,
+		// so an empty part is never followed by a content-bearing one, and the
+		// rendezvous only ever waits on the immediate predecessor.
+		if total > 1 && content != "" {
 			agent.AwaitTurn(hookInput.SessionID, part, total)
 		}
 

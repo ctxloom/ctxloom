@@ -7,10 +7,26 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/procsec"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 func main() {
+	// Deny same-uid inspection of THIS process's /proc entry, first and for
+	// every ctxloom process without exception. The exec-time environment is
+	// already snapshotted in /proc/<pid>/environ by the time main runs and
+	// os.Unsetenv cannot scrub it, so the window in which a credential stamped
+	// there by the spawning seam is readable by a same-uid peer lasts until
+	// this call lands — hence before any other startup work, and hence no
+	// per-command allowlist: any ctxloom process can be the one holding the
+	// coordinator credential.
+	//
+	// Reports through clidiag (inside HardenAtStartup) rather than zap because
+	// this runs BEFORE zap.ReplaceGlobals below; a warning handed to the
+	// not-yet-installed global logger would be dropped, and a bypass nobody
+	// hears is indistinguishable from hardening that silently failed.
+	procsec.HardenAtStartup("ctxloom")
+
 	// Degraded mode from the environment, read BEFORE dispatch so the
 	// pre-cobra window (config discovery, projectroot) already runs in the
 	// right mode. CTXLOOM_DEGRADED=1 is the hook/generated-registration

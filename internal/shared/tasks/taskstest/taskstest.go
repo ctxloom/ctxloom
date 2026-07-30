@@ -73,6 +73,11 @@ var EnvKeys = []string{
 	"CTXLOOM_LAUNCH_MAX_ATTEMPTS",
 	"CTXLOOM_LAUNCH_BACKOFF_BASE",
 	"CTXLOOM_LAUNCH_BACKOFF_MAX",
+	// procsec.EnvAllowProcessInspection, read at the top of main() to skip
+	// same-uid /proc hardening for debugging. An ambient value would leave every
+	// test process's environ peer-readable, so a test asserting the hardened
+	// state would pass or fail on the developer's shell rather than the code.
+	"CTXLOOM_ALLOW_PROCESS_INSPECTION",
 	// Not production state: a CI-only knob read by
 	// internal/testsupport/dockergate to turn "docker unreachable" from a
 	// skip into a failure. Listed because TestEnvKeysCoversProductionReads

@@ -250,8 +250,13 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		return fmt.Errorf("backend lifecycle does not expose the merged hooks/MCP state (GetHooks/GetMCP) needed to deliver surfaces")
 	}
 
+	assembled, err := assembleSurfaceContext(req.Fragments)
+	if err != nil {
+		return err
+	}
+
 	inputs := SurfaceInputs{
-		Context:            assembleDedupedContext(req.Fragments),
+		Context:            assembled,
 		Fragments:          req.Fragments,
 		MCP:                mcp,
 		BundleMCP:          req.Managed.BundleMCP,
@@ -273,6 +278,27 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	set := d.Build(inputs, isolatedDir)
 
 	return b.deliverSet(set, req)
+}
+
+// assembleSurfaceContext assembles the context a surface-delivering backend
+// hands to its context surface, and refuses an empty result the caller did not
+// ask for. No fragments legitimately assembles to nothing — that project
+// configured no context — but fragments that all resolve to zero bytes is a
+// different fact: the user asked for context and would get none, with no file
+// written, no launch flag emitted and nothing said about it.
+//
+// The raw-cache path already refuses exactly this input (WriteContextFile
+// returns ErrNoContext, and Provide propagates it), so the same error here is
+// what stops the surface path from being the one delivery that launches a
+// context-less session and reports success. Callers that genuinely tolerate an
+// empty assembly can test errors.Is(err, ErrNoContext) — the point is that they
+// have to say so.
+func assembleSurfaceContext(fragments []*Fragment) (string, error) {
+	assembled := assembleDedupedContext(fragments)
+	if assembled == "" && len(fragments) > 0 {
+		return "", fmt.Errorf("%w: %d fragment(s) produced zero bytes", ErrNoContext, len(fragments))
+	}
+	return assembled, nil
 }
 
 // deliverSet delivers every surface of set through the cell named by

@@ -4,15 +4,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -345,4 +349,92 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 	t.Run("no .ctxloom → silent, never blocks", func(t *testing.T) {
 		assert.Empty(t, agentSetupNudge(t.TempDir(), 1))
 	})
+}
+
+// TestHookInjectContext_PanicIsNotSuccess (U036-F20) pins that a PANICKING
+// inject-context hook fails loud instead of reporting success with no context.
+// The recovery's job is to keep the host from hanging (it still writes the
+// empty `{}` envelope to stdout), not to convert a crash into a clean exit: a
+// hook that panics has delivered zero context, and exit 0 makes that
+// indistinguishable from "ctxloom had nothing to inject" — this project's
+// signature silent-no-op shape.
+//
+// The panic is induced through the real production path with no test seam: the
+// hook dereferences args[0], so an empty args slice panics inside the body the
+// recovery covers. (Cobra's ExactArgs(1) makes that unreachable via the CLI;
+// the point is that the recovery, whatever panics under it, must report.)
+func TestHookInjectContext_PanicIsNotSuccess(t *testing.T) {
+	var runErr error
+	var stderr string
+	stdout := captureStdout(t, func() {
+		stderr = captureStderr(t, func() {
+			runErr = hookInjectContextCmd.RunE(&cobra.Command{}, nil)
+		})
+	})
+
+	require.Error(t, runErr,
+		"a panicking hook must return an error so the process exits non-zero")
+	assert.Equal(t, "{}\n", stdout,
+		"the fallback empty envelope must still reach stdout so the host never hangs")
+	assert.Contains(t, stderr, "panic:",
+		"the panic must stay diagnosable on stderr")
+}
+
+// stdinFromString replaces os.Stdin with a real *os.File holding s for the
+// duration of the test. The inject-context hook reads the host's payload
+// straight off os.Stdin, so driving it end to end needs a file, not a Reader.
+func stdinFromString(t *testing.T, s string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stdin.json")
+	require.NoError(t, os.WriteFile(path, []byte(s), 0o600))
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	orig := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() {
+		os.Stdin = orig
+		_ = f.Close()
+	})
+}
+
+// TestHookInjectContext_MissingContextSkipsRendezvous (U036-F03) pins that a
+// chunk invocation with NOTHING to emit does not join the ordering rendezvous.
+//
+// When the context file is missing, ChunkContext("") yields no chunks, so every
+// part is out of range and emits empty content — yet each part>1 still queued on
+// agent.AwaitTurn, waiting the full ContextRendezvousTimeout for a predecessor
+// marker that never appears. That is up to 5 s of session-startup latency spent
+// ordering nothing. Ordering only matters when there IS a chunk to order.
+//
+// Asserted structurally (no rendezvous directory is created for this session)
+// and by cost (the call returns far inside the timeout), plus the payload: the
+// hook still emits the empty envelope.
+func TestHookInjectContext_MissingContextSkipsRendezvous(t *testing.T) {
+	sessionID := "u036f03-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	stdinFromString(t, `{"session_id":"`+sessionID+`","source":"startup"}`)
+
+	origProject, origPart, origTotal := injectContextProject, injectContextPart, injectContextTotal
+	injectContextProject, injectContextPart, injectContextTotal = t.TempDir(), 2, 2
+	t.Cleanup(func() {
+		injectContextProject, injectContextPart, injectContextTotal = origProject, origPart, origTotal
+	})
+
+	var warnings strings.Builder
+	t.Cleanup(clidiag.SetSink(&warnings))
+
+	var runErr error
+	start := time.Now()
+	out := captureStdout(t, func() {
+		runErr = hookInjectContextCmd.RunE(&cobra.Command{}, []string{"nosuchcontexthash"})
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, runErr)
+	assert.Equal(t, "{}\n", out, "nothing to inject must still emit the empty envelope")
+	assert.Contains(t, warnings.String(), "failed to read context file",
+		"the missing context file must stay diagnosable")
+	assert.NoDirExists(t, filepath.Join(os.TempDir(), "ctxloom-rdv-"+sessionID),
+		"a part with no chunk to emit must not join the ordering rendezvous")
+	assert.Less(t, elapsed, agent.ContextRendezvousTimeout/2,
+		"a part with no chunk to emit must not wait for a predecessor")
 }

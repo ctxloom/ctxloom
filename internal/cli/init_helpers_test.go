@@ -1,12 +1,20 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // pickDefaultEngine is the shared fallback used wherever runInit needs a
@@ -137,4 +145,50 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	if !strings.Contains(string(cfg), "antigravity") {
 		t.Errorf("second write should have overwritten engine to antigravity; got:\n%s", cfg)
 	}
+}
+
+// TestApplyInitHooks_EmptyBackendListIsNotSuccess (U036-F07) pins the PAYLOAD
+// of init's hook-apply report. `Applied hooks for: []` is this project's
+// signature silent no-op: a success sentence whose payload is empty. Registering
+// zero backends means no engine settings surface was written at all, so nothing
+// will ever reach ctxloom's MCP server or context hook — the one outcome init
+// must not report as done.
+func TestApplyInitHooks_EmptyBackendListIsNotSuccess(t *testing.T) {
+	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
+
+	orig := applyHooksFn
+	applyHooksFn = func(context.Context, *config.Config, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
+		return &operations.ApplyHooksResult{Status: "ok", Backends: nil}, nil
+	}
+	t.Cleanup(func() { applyHooksFn = orig })
+
+	var warnings strings.Builder
+	t.Cleanup(clidiag.SetSink(&warnings))
+
+	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
+
+	assert.NotContains(t, out, "Applied hooks for",
+		"an apply that touched no backend must not print a success line")
+	assert.Contains(t, warnings.String(), "no backends",
+		"an apply that touched no backend must say so on the diagnostic channel")
+}
+
+// TestApplyInitHooks_ReportsTheBackendsItWrote is the counterpart: a real
+// payload still gets the success line, unchanged.
+func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
+	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
+
+	orig := applyHooksFn
+	applyHooksFn = func(context.Context, *config.Config, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
+		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"claude-code", "codex"}}, nil
+	}
+	t.Cleanup(func() { applyHooksFn = orig })
+
+	var warnings strings.Builder
+	t.Cleanup(clidiag.SetSink(&warnings))
+
+	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
+
+	assert.Contains(t, out, "Applied hooks for: [claude-code codex]")
+	assert.Empty(t, warnings.String())
 }

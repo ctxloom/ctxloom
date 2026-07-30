@@ -371,3 +371,33 @@ var (
 	// SharedRealization), so it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}
 )
+
+// flagArgs returns the out-of-cwd launch flags for the surfaces this run
+// actually delivered: --append-system-prompt-file, --mcp-config and --settings,
+// each paired with the path its surface recorded. A surface reports "" (or is
+// absent from a zero-value set, before Setup) when it delivered nothing, and
+// contributes no flag at all — claude must not be handed a flag naming a file
+// that was never written.
+//
+// Order is fixed (context, MCP, settings) because argv order is observable: a
+// VARIADIC claude flag landing last before a positional swallows it (see
+// buildArgs' prompt terminator).
+func (s Surfaces) flagArgs() []string {
+	var args []string
+	if s.Context != nil {
+		if p := s.Context.Path(); p != "" {
+			args = append(args, flagAppendSystemFile, p)
+		}
+	}
+	if s.MCP != nil {
+		if p := s.MCP.Path(); p != "" {
+			args = append(args, flagMCPConfig, p)
+		}
+	}
+	if s.Settings != nil {
+		if p := s.Settings.Path(); p != "" {
+			args = append(args, flagSettings, p)
+		}
+	}
+	return args
+}

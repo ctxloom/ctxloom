@@ -141,11 +141,15 @@ func forgeForHost(host, base string) (ForgeType, string, error) {
 //   - "alice/ctxloom" (shorthand)
 //   - "https://github.com/alice/ctxloom"
 //   - "git@github.com:alice/ctxloom.git"
+//
+// Both returned segments are non-empty on success: "alice/" and "/ctxloom" name
+// no repository, and a caller handed "" would build a request path with a hole
+// in it.
 func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	// Handle shorthand notation
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
 		parts := strings.Split(repoURL, "/")
-		if len(parts) == 2 {
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 			return parts[0], parts[1], nil
 		}
 		return "", "", fmt.Errorf("invalid shorthand format, expected 'owner/repo': %s", repoURL)
@@ -161,7 +165,7 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 		path := repoURL[idx+1:]
 		path = strings.TrimSuffix(path, ".git")
 		parts := strings.Split(path, "/")
-		if len(parts) >= 2 {
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
 			return parts[0], parts[1], nil
 		}
 		return "", "", fmt.Errorf("invalid SSH URL path: %s", repoURL)
@@ -177,7 +181,7 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	path = strings.TrimSuffix(path, ".git")
 	parts := strings.Split(path, "/")
 
-	if len(parts) < 2 {
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("URL path must contain owner/repo: %s", repoURL)
 	}
 

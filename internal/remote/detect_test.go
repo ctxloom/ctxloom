@@ -96,6 +96,16 @@ func TestParseRepoURL(t *testing.T) {
 		{"empty path", "https://github.com/", "", "", true},
 		{"single segment", "https://github.com/owner", "", "", true},
 		{"invalid ssh no colon", "git@github.comownerrepo", "", "", true},
+
+		// An empty owner or repo segment is not a repository. Reporting success
+		// hands the caller "" and it goes on to build /repos//<repo> (or
+		// /repos/<owner>/) and blame the forge for the 404.
+		{"shorthand empty repo", "alice/", "", "", true},
+		{"shorthand empty owner", "/repo", "", "", true},
+		{"shorthand both empty", "/", "", "", true},
+		{"ssh empty repo", "git@github.com:alice/", "", "", true},
+		{"ssh empty owner", "git@github.com:/repo", "", "", true},
+		{"https empty owner", "https://github.com//repo", "", "", true},
 	}
 
 	for _, tt := range tests {

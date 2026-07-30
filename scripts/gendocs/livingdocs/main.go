@@ -38,6 +38,12 @@ func narrationPathFor(featurePath string) string {
 	return strings.TrimSuffix(featurePath, ".feature") + ".doc.md"
 }
 
+// warnf writes a generator warning. A package var so a test can capture it;
+// production sends it to stderr, alongside the "wrote ..." lines on stdout.
+var warnf = func(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, "gen-living-docs: "+format+"\n", a...)
+}
+
 type generatedPage struct {
 	name    string
 	content string
@@ -105,6 +111,17 @@ func run(featuresDir, captureDir, outDir string) error {
 		narr, err := LoadNarration(docPath)
 		if err != nil {
 			return err
+		}
+
+		// A doc:scenario marker naming a scenario that no longer exists is
+		// prose the author wrote and the page will not carry. Rendering
+		// consults narration only BY an existing scenario's name, so without
+		// this the mismatch produces a complete-looking page, a zero exit, and
+		// no mention anywhere that a paragraph was dropped. Reported rather
+		// than refused: the page itself is still true, and refusing would make
+		// a docs build fail on an editorial mismatch the generator cannot fix.
+		for _, orphan := range OrphanNarrations(feat, narr) {
+			warnf("%s: narration for %q matches no scenario in %s — that prose will NOT appear on the generated page", docPath, orphan, fp)
 		}
 
 		content, err := GeneratePage(feat, narr, captures, narrArg)

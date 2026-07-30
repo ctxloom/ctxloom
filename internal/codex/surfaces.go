@@ -188,8 +188,9 @@ type configSurface struct {
 	homeOverride string
 	// trustAbsPath, when non-empty, pre-seeds `[projects."<trustAbsPath>"]
 	// trust_level = "trusted"` into the written config.toml (white-dawn
-	// §2.2A's trust pre-seed) — set ONLY alongside homeOverride, since it is
-	// safe only in an ephemeral, never-committed home (see
+	// §2.2A's trust pre-seed) — set ONLY alongside homeOverride, and only for
+	// the two EPHEMERAL, never-committed homes (isolation-provided CODEX_HOME,
+	// container-fresh $HOME) that are safe to auto-trust into (see
 	// WriteSettingsWithTrust's doc).
 	trustAbsPath string
 	// mcpCommandOverride mirrors agent.SurfaceInputs.MCPCommandOverride: when

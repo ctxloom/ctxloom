@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 
@@ -127,7 +126,7 @@ func runUnifiedSearch(cmd *cobra.Command, query string, tags []string, itemType 
 	// The hint rides stderr regardless of --format, so `search --format json
 	// | jq` stays clean while a human running the same command still sees why
 	// their answer looks short.
-	noteHiddenLocalMatches(os.Stderr, hiddenLocal)
+	noteHiddenLocalMatches(cmd.ErrOrStderr(), hiddenLocal)
 
 	out := unifiedSearchOutput{
 		Query:       query,
@@ -137,11 +136,12 @@ func runUnifiedSearch(cmd *cobra.Command, query string, tags []string, itemType 
 		HiddenLocal: hiddenLocal,
 	}
 	return emit(cmd, out, func() error {
+		w := cmd.OutOrStdout()
 		if out.Count == 0 {
-			fmt.Println("No results found.")
+			fmt.Fprintln(w, "No results found.")
 			return nil
 		}
-		printUnifiedResults(localResults, remoteResults)
+		printUnifiedResults(w, localResults, remoteResults)
 		return nil
 	})
 }
@@ -278,22 +278,24 @@ func searchRemoteContent(ctx context.Context, cfg *config.Config, query string, 
 	return result.Results, nil
 }
 
-// printUnifiedResults prints the combined local and remote search results.
-func printUnifiedResults(localResults []operations.SearchResult, remoteResults []operations.SearchRemoteEntry) {
-	fmt.Printf("Results (%d):\n\n", len(localResults)+len(remoteResults))
+// printUnifiedResults prints the combined local and remote search results to
+// w — the command's own writer, never process-global stdout, so a caller that
+// redirects the command actually receives the output it asked for.
+func printUnifiedResults(w io.Writer, localResults []operations.SearchResult, remoteResults []operations.SearchRemoteEntry) {
+	fmt.Fprintf(w, "Results (%d):\n\n", len(localResults)+len(remoteResults))
 	if len(localResults) > 0 {
-		printLocalResults(localResults)
+		printLocalResults(w, localResults)
 	}
 	if len(remoteResults) > 0 {
 		if len(localResults) > 0 {
-			fmt.Println()
+			fmt.Fprintln(w)
 		}
-		printRemoteResults(remoteResults)
+		printRemoteResults(w, remoteResults)
 	}
 }
 
 // printLocalResults prints local search results grouped by type.
-func printLocalResults(results []operations.SearchResult) {
+func printLocalResults(w io.Writer, results []operations.SearchResult) {
 	// Group by type
 	byType := make(map[string][]operations.SearchResult)
 	for _, r := range results {
@@ -315,37 +317,75 @@ func printLocalResults(results []operations.SearchResult) {
 			continue
 		}
 
-		fmt.Printf("%s:\n", typeNames[t])
+		fmt.Fprintf(w, "%s:\n", typeNames[t])
 		for _, item := range items {
-			fmt.Printf("  - %s", item.Name)
+			fmt.Fprintf(w, "  - %s", item.Name)
 			if len(item.Tags) > 0 {
-				fmt.Printf(" [%s]", strings.Join(item.Tags, ", "))
+				fmt.Fprintf(w, " [%s]", strings.Join(item.Tags, ", "))
 			}
 			if item.Source != "" {
-				fmt.Printf(" (%s)", item.Source)
+				fmt.Fprintf(w, " (%s)", item.Source)
 			}
-			fmt.Println()
+			fmt.Fprintln(w)
 		}
 	}
 }
 
+// The remote-results table's geometry. Header, rule and every data row derive
+// from these, so a width can never be changed in one place and left stale in
+// another — the rule in particular used to be a hand-drawn literal.
+const (
+	remoteColIndent   = "  "
+	remoteTypeWidth   = 8
+	remoteRemoteWidth = 12
+	remoteNameWidth   = 20
+	// remoteNameCap truncates a name two columns short of its own cell so a
+	// maximal name still leaves a gutter before the next separator. The
+	// ellipsis is reserved by Ellipsize, not pre-subtracted here.
+	remoteNameCap = remoteNameWidth - 2
+	// remoteTagsCap has no column width to answer to: Tags is the last column
+	// and runs to end of line, so its cap is a readability limit alone.
+	remoteTagsCap = 20
+	// remoteTagsRule is cosmetic — the rule under an unbounded last column is
+	// drawn to a fixed length rather than to any real cell width.
+	remoteTagsRule = 12
+)
+
+// remoteTableRow renders one row (and, given the header words, the header) at
+// the widths above.
+func remoteTableRow(itemType, remote, name, tags string) string {
+	return fmt.Sprintf("%s%-*s │ %-*s │ %-*s │ %s\n", remoteColIndent,
+		remoteTypeWidth, itemType, remoteRemoteWidth, remote, remoteNameWidth, name, tags)
+}
+
+// remoteTableRule draws the rule under the header with each ┼ under the │
+// above it. A column's rule spans its own width plus the space on either side
+// of the separator; the first column's leading space is part of the row
+// indent, so it takes one fewer.
+func remoteTableRule() string {
+	seg := func(width int) string { return strings.Repeat("─", width) }
+	return remoteColIndent +
+		seg(remoteTypeWidth+1) + "┼" +
+		seg(remoteRemoteWidth+2) + "┼" +
+		seg(remoteNameWidth+2) + "┼" +
+		seg(remoteTagsRule) + "\n"
+}
+
 // printRemoteResults prints remote search results in table format.
-func printRemoteResults(results []operations.SearchRemoteEntry) {
-	fmt.Println("Remote:")
-	fmt.Printf("  %-8s │ %-12s │ %-20s │ %s\n", "Type", "Remote", "Name", "Tags")
-	fmt.Printf("  ─────────┼──────────────┼──────────────────────┼────────────\n")
+func printRemoteResults(w io.Writer, results []operations.SearchRemoteEntry) {
+	fmt.Fprintln(w, "Remote:")
+	fmt.Fprint(w, remoteTableRow("Type", "Remote", "Name", "Tags"))
+	fmt.Fprint(w, remoteTableRule())
 
 	for _, r := range results {
-		// Honest column widths (20, 18): the ellipsis is reserved by Ellipsize
-		// rather than pre-subtracted here.
-		tags := textutil.Ellipsize(strings.Join(r.Tags, ", "), 20)
-		name := textutil.Ellipsize(r.Name, 18)
-
-		itemType := r.Type
-
-		fmt.Printf("  %-8s │ %-12s │ %-20s │ %s\n", itemType, r.Remote, name, tags)
+		fmt.Fprint(w, remoteTableRow(
+			r.Type,
+			r.Remote,
+			textutil.Ellipsize(r.Name, remoteNameCap),
+			textutil.Ellipsize(strings.Join(r.Tags, ", "), remoteTagsCap),
+		))
 	}
 
-	fmt.Println()
-	fmt.Println("Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull")
 }

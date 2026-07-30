@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -120,12 +121,25 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
 	srv := &http.Server{Handler: mux}
-	go func() { _ = srv.Serve(ln) }()
+	go serveRunnerHTTP(srv, ln, path)
 	cleanup := func() {
 		cleanupMarker()
 		cleanupSocket()
 	}
 	return &runnerMCP{socketPath: path, httpSrv: srv, cleanup: cleanup}, nil
+}
+
+// serveRunnerHTTP runs the runner's MCP endpoint until it stops. http.Server's
+// Serve ALWAYS returns an error; on a deliberate shutdown that error is
+// http.ErrServerClosed, so any other value means the endpoint died while the
+// runner carried on running and carried on advertising a socket (and a
+// discovery marker) that nothing answers on. The harness's stdio shim then
+// dials a live-looking path, and every ctxloom tool in that session fails with
+// a transport error that names nothing about the real cause.
+func serveRunnerHTTP(srv *http.Server, ln net.Listener, socketPath string) {
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		clidiag.Warn("ctxloom", "runner MCP endpoint at %s stopped serving: %v (ctxloom tools in this session will fail until the runner is restarted)", socketPath, err)
+	}
 }
 
 // close shuts the endpoint down and removes its socket dir.
@@ -252,71 +266,110 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 	// be an independent os.Getwd() call, ignoring cellWorkDir entirely.
 	cwd := resolveCellWorkDir(cellWorkDir)
 	s := &ctxServer{cfg: cfg, self: coord.Identity{Harp: harp, Project: cwd}}
-	s.registerContextTools(server)
 	s.registerResources(server)
-	for _, name := range []string{"assemble_context", "search_content", "search_library"} {
-		if routes[name] != mcpschema.RouteCellLocal {
-			return nil, fmt.Errorf("runner MCP: tool %q registered cell-local but classified otherwise — fix mcpschema.Routes", name)
+	if err := claimRoutes(routes, registered, mcpschema.RouteCellLocal, s.registerContextTools(server)...); err != nil {
+		return nil, err
+	}
+
+	if err := claimRoutes(routes, registered, mcpschema.RouteHostRelay, registerHostRelays(server, home)...); err != nil {
+		return nil, err
+	}
+
+	if err := registerGeneratedTools(server, home, harp, cwd, leaf, routes, registered); err != nil {
+		return nil, err
+	}
+
+	// Exhaustiveness: nothing classified may be missing from this surface.
+	for name := range routes {
+		if !registered[name] {
+			return nil, fmt.Errorf("runner MCP: classified tool %q is not served by any route — fix the registration or mcpschema.Routes", name)
+		}
+	}
+	return server, nil
+}
+
+// claimRoutes asserts that every name a registrar just served is classified as
+// want, and marks it served for the exhaustiveness check. The names come FROM
+// the registrars (which return what they registered) rather than from a second
+// hand-written list beside them — a list that could only ever drift from the
+// registrations it was meant to describe.
+func claimRoutes(routes map[string]mcpschema.Route, registered map[string]bool, want mcpschema.Route, names ...string) error {
+	for _, name := range names {
+		if routes[name] != want {
+			return fmt.Errorf("runner MCP: tool %q is served on the %s route but classified otherwise — fix mcpschema.Routes", name, routeName(want))
 		}
 		registered[name] = true
 	}
+	return nil
+}
 
-	// Host-resident tools: relay as CustomRequest{ctxloom/<tool>}, with the
-	// SAME typed inputs (and so schemas) AND the same description constants the
-	// stdio server registers (mcp_tools_memory.go, mcp_tools_triggers.go). One
-	// declaration per description, so the two surfaces cannot advertise the same
-	// tool differently; TestRunnerServer_HostRelayDescriptionsMatchStdio still
-	// pins the registrations themselves.
-	mcp.AddTool(server, &mcp.Tool{Name: "compact_session", Description: compactSessionDesc},
-		relayTyped[compactSessionInput](home, "compact_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "load_session", Description: loadSessionDesc},
-		relayTyped[loadSessionInput](home, "load_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "recover_session", Description: recoverSessionDesc},
-		relayTyped[recoverSessionInput](home, "recover_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "get_previous_session", Description: getPreviousSessionDesc},
-		relayTyped[getPreviousSessionInput](home, "get_previous_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "list_sessions", Description: listSessionsDesc},
-		relayTyped[listSessionsInput](home, "list_sessions"))
-	mcp.AddTool(server, &mcp.Tool{Name: "evaluate_triggers", Description: evaluateTriggersDesc},
-		relayTyped[evaluateTriggersInput](home, "evaluate_triggers"))
-	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session", "list_sessions", "evaluate_triggers"} {
-		if routes[name] != mcpschema.RouteHostRelay {
-			return nil, fmt.Errorf("runner MCP: tool %q registered as host-relay but classified otherwise — fix mcpschema.Routes", name)
-		}
-		registered[name] = true
+// routeName renders a Route for a startup-failure message. mcpschema.Route is
+// an int enum with no String method of its own, and a bare integer in the one
+// error a runner dies on tells the reader nothing.
+func routeName(r mcpschema.Route) string {
+	switch r {
+	case mcpschema.RouteCoordination:
+		return "coordination"
+	case mcpschema.RouteCellLocal:
+		return "cell-local"
+	case mcpschema.RouteHostRelay:
+		return "host-relay"
+	case mcpschema.RouteArtifactFetch:
+		return "artifact-fetch"
+	default:
+		return fmt.Sprintf("route(%d)", int(r))
 	}
+}
 
-	// Generated (proto-canonical) tools: coordination frames AND
-	// artifact-fetch both draw their schemas from mcpschema.Tools() — they
-	// differ only in which handler builder serves them (Binding.Route).
+// registerHostRelays adds the host-resident tools as CustomRequest relays and
+// returns the names it registered. Each carries the SAME typed input (and so
+// the same advertised schema) AND the same description constant the stdio
+// server registers (mcp_tools_memory.go, mcp_tools_triggers.go), so the two
+// surfaces cannot describe one tool two ways;
+// TestRunnerServer_HostRelayDescriptionsMatchStdio pins that.
+func registerHostRelays(server *mcp.Server, home *coord.Home) []string {
+	return []string{
+		addHostRelay[compactSessionInput](server, home, "compact_session", compactSessionDesc),
+		addHostRelay[loadSessionInput](server, home, "load_session", loadSessionDesc),
+		addHostRelay[recoverSessionInput](server, home, "recover_session", recoverSessionDesc),
+		addHostRelay[getPreviousSessionInput](server, home, "get_previous_session", getPreviousSessionDesc),
+		addHostRelay[listSessionsInput](server, home, "list_sessions", listSessionsDesc),
+		addHostRelay[evaluateTriggersInput](server, home, "evaluate_triggers", evaluateTriggersDesc),
+	}
+}
+
+// addHostRelay registers one host-resident tool and returns its name, so the
+// name is written once per tool rather than once in the registration and again
+// in a classification list.
+func addHostRelay[In any](server *mcp.Server, home *coord.Home, name, desc string) string {
+	mcp.AddTool(server, &mcp.Tool{Name: name, Description: desc}, relayTyped[In](home, name))
+	return name
+}
+
+// registerGeneratedTools adds the proto-canonical tools: coordination frames
+// AND artifact-fetch both draw their schemas from mcpschema.Tools() and differ
+// only in which handler builder serves them (Binding.Route).
+func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
 	tools, err := mcpschema.Tools()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, spec := range tools {
 		// Trust-boundary gate: a LEAF session must not receive the
 		// coordinator-only tools (agent_run/roster/agent_stop/
 		// agent_fetch_artifact) — a leaf holding an agent_recv inbox plus a
-		// roster infers it has children and stalls waiting for
-		// notifications that never arrive. Still marked registered
-		// (deliberately withheld), or the exhaustiveness check below fails
-		// runner startup; agent_send/agent_recv/agent_report (parent
-		// reporting) are untouched by this gate.
+		// roster infers it has children and stalls waiting for notifications
+		// that never arrive. Still marked registered (deliberately withheld),
+		// or the caller's exhaustiveness check fails runner startup;
+		// agent_send/agent_recv/agent_report (parent reporting) are untouched
+		// by this gate.
 		if leaf && mcpschema.CoordinatorOnlyTools()[spec.Name] {
 			registered[spec.Name] = true
 			continue
 		}
-		var h mcp.ToolHandler
-		switch routes[spec.Name] {
-		case mcpschema.RouteCoordination:
-			h, err = coordinationHandler(home, harp, cwd, spec.Name)
-		case mcpschema.RouteArtifactFetch:
-			h, err = artifactFetchHandler(home, cwd, spec.Name)
-		default:
-			return nil, fmt.Errorf("runner MCP: generated tool %q is not classified as coordination or artifact-fetch — fix mcpschema.Routes", spec.Name)
-		}
-		if err != nil {
-			return nil, err
+		h, herr := generatedToolHandler(home, harp, cwd, routes[spec.Name], spec.Name)
+		if herr != nil {
+			return herr
 		}
 		tool := &mcp.Tool{
 			Name:        spec.Name,
@@ -329,14 +382,20 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 		server.AddTool(tool, h)
 		registered[spec.Name] = true
 	}
+	return nil
+}
 
-	// Exhaustiveness: nothing classified may be missing from this surface.
-	for name := range routes {
-		if !registered[name] {
-			return nil, fmt.Errorf("runner MCP: classified tool %q is not served by any route — fix the registration or mcpschema.Routes", name)
-		}
+// generatedToolHandler picks the handler builder one generated tool's route
+// names. An unclassified tool is a startup error, never a silent fallthrough.
+func generatedToolHandler(home *coord.Home, harp, cwd string, route mcpschema.Route, name string) (mcp.ToolHandler, error) {
+	switch route {
+	case mcpschema.RouteCoordination:
+		return coordinationHandler(home, harp, cwd, name)
+	case mcpschema.RouteArtifactFetch:
+		return artifactFetchHandler(home, cwd, name)
+	default:
+		return nil, fmt.Errorf("runner MCP: generated tool %q is not classified as coordination or artifact-fetch — fix mcpschema.Routes", name)
 	}
-	return server, nil
 }
 
 // relayTyped forwards one host-resident tool over the RunChannel as
@@ -576,16 +635,26 @@ func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
 		}
 
 		var artifacts []*agentcoordpb.ArtifactProduced
+		// stampFailures collects everything plan auto-stamping could not
+		// deliver, so the answer can say so. A failure here still must not
+		// block the report — these files are not something the agent asked for
+		// THIS call — but "did not block" was implemented as "did not mention",
+		// and the caller then read journaled:true with an empty artifact list
+		// as a report that simply had no plans to stamp.
+		var stampFailures []string
 
 		// Automatic plan-stamping: session-dir *.plan.md files, best-effort
-		// per file exactly as before E1 — a read/upload glitch on an
-		// AUTO-DISCOVERED file warns and is skipped; it never blocks the
-		// report (these files are not something the agent explicitly asked
-		// for THIS call).
-		for _, cand := range stamper.planCandidates() {
+		// per file exactly as before E1.
+		cands, cerr := stamper.planCandidates()
+		if cerr != nil {
+			clidiag.Warn("ctxloom", "agent_report: plan discovery: %v", cerr)
+			stampFailures = append(stampFailures, fmt.Sprintf("plan discovery: %v", cerr))
+		}
+		for _, cand := range cands {
 			a, perr := stamper.publish(ctx, home, cand)
 			if perr != nil {
 				clidiag.Warn("ctxloom", "agent_report: plan stamp %s: %v", cand.absPath, perr)
+				stampFailures = append(stampFailures, fmt.Sprintf("%s: %v", cand.absPath, perr))
 				continue
 			}
 			if a != nil {
@@ -624,15 +693,35 @@ func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
 		if err := home.Report(ctx, &summary, artifacts); err != nil {
 			return nil, fmt.Errorf("agent_report: %w", err)
 		}
-		ids := make([]any, 0, len(artifacts))
-		for _, a := range artifacts {
-			ids = append(ids, a.GetArtifactId())
-		}
-		return &mcp.CallToolResult{StructuredContent: map[string]any{
-			"journaled":    true,
-			"artifact_ids": ids,
-		}}, nil
+		return reportResult(artifacts, stampFailures), nil
 	}
+}
+
+// reportResult projects agent_report's outcome onto the MCP result.
+//
+// journaled/artifact_ids are the tool's ADVERTISED structured shape (the
+// generated output schema in mcpschema) and stay exactly that. Plan-stamping
+// failures ride as TEXT content instead: they are per-call diagnostics rather
+// than part of the proto-canonical result, and text content is the same channel
+// coordinationResult already uses for a human-readable status. The agent
+// therefore learns that N plans went unstamped without the advertised schema
+// and the delivered payload drifting apart.
+func reportResult(artifacts []*agentcoordpb.ArtifactProduced, stampFailures []string) *mcp.CallToolResult {
+	ids := make([]any, 0, len(artifacts))
+	for _, a := range artifacts {
+		ids = append(ids, a.GetArtifactId())
+	}
+	out := &mcp.CallToolResult{StructuredContent: map[string]any{
+		"journaled":    true,
+		"artifact_ids": ids,
+	}}
+	if len(stampFailures) > 0 {
+		out.Content = []mcp.Content{&mcp.TextContent{
+			Text: fmt.Sprintf("report journaled, but %d plan artifact(s) were NOT stamped and are absent from artifact_ids:\n  %s",
+				len(stampFailures), strings.Join(stampFailures, "\n  ")),
+		}}
+	}
+	return out
 }
 
 // artifactPublishSizeCap bounds one file the runner reads and uploads on
@@ -667,17 +756,29 @@ type artifactStamper struct {
 // planCandidates lists the session dir's *.plan.md files as publish
 // candidates — unconditional on every report; publish decides per-file
 // whether content actually changed.
-func (p *artifactStamper) planCandidates() []artifactCandidate {
+//
+// Two "no candidates" outcomes are legitimate and return no error: a stamper
+// with no harp (docgen, tests — there is no session to stamp for) and a
+// session dir that does not exist yet (nothing has been authored). Anything
+// else — an unresolvable harp dir, an unreadable one — is a FAULT, and
+// returning it is the point: reporting nil for a directory that could not be
+// read makes "this session authored no plans" and "every plan this session
+// authored is unreachable" the same observation, and the report then answers
+// journaled:true with an empty artifact list either way.
+func (p *artifactStamper) planCandidates() ([]artifactCandidate, error) {
 	if p.harp == "" {
-		return nil
+		return nil, nil
 	}
 	dir, err := paths.HarpDir(p.harp)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("resolve session dir for %s: %w", p.harp, err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read session dir %s: %w", dir, err)
 	}
 	var out []artifactCandidate
 	for _, e := range entries {
@@ -692,7 +793,7 @@ func (p *artifactStamper) planCandidates() []artifactCandidate {
 			absPath:    filepath.Join(dir, e.Name()),
 		})
 	}
-	return out
+	return out, nil
 }
 
 // publish uploads one candidate IF its content changed since the last

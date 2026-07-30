@@ -2,10 +2,12 @@ package cli
 
 import (
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -26,12 +28,22 @@ type SessionFullRow struct {
 }
 
 // newSessionFullRow builds a SessionFullRow for e: the same projection
-// newSessionRow builds, plus the session's essence body read straight off
-// disk via readSessionEssence (the same resolution `session show` uses —
-// harp-dir layout first, then the legacy per-session-id path).
+// newSessionRow builds, plus the body of the essence file that projection
+// already resolved. The row resolves the essence ONCE — the body is read from
+// SessionRow.EssencePath — so the two halves of one row can never describe
+// different files. An unreadable essence leaves Essence empty; the row still
+// names the path it found, and readSessionEssence's caller-facing paths report
+// the read failure.
 func newSessionFullRow(e sessions.Entry, appDir string) SessionFullRow {
 	row := newSessionRow(e, appDir)
-	essence, _ := readSessionEssence(e.HarpName, &e)
+	essence := ""
+	if row.EssencePath != "" {
+		if data, err := os.ReadFile(row.EssencePath); err == nil {
+			essence = string(data)
+		} else {
+			clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", e.HarpName, row.EssencePath, err)
+		}
+	}
 	return SessionFullRow{SessionRow: row, Essence: essence}
 }
 

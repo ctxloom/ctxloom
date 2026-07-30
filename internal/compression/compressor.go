@@ -59,12 +59,8 @@ func verbatimResult(content, modelID string) Result {
 	}
 }
 
-// DetectContentType determines the content type from file extension or content analysis.
-//
-// One branch per file type / sniffed prefix: CCN intentionally exceeds 10 (see
-// ADR 0016). The cascade of cases is the spec; a lookup table buys nothing.
-// extensionContentTypes maps file extensions to their content type, checked
-// in order. One entry per recognized extension group.
+// extensionContentTypes maps file extensions to their content type, checked in
+// order — one entry per recognized extension group.
 var extensionContentTypes = []struct {
 	exts []string
 	ct   ContentType
@@ -80,6 +76,10 @@ var extensionContentTypes = []struct {
 	{[]string{".md", ".markdown"}, ContentTypeMarkdown},
 }
 
+// DetectContentType determines the content type from the file extension, and
+// only then from the leading bytes: an extension is a statement of intent,
+// while a sniff is a guess, and a wrong guess routes content through the wrong
+// grammar (see sniffContentType).
 func DetectContentType(filename string, content string) ContentType {
 	// Check by extension first
 	for _, e := range extensionContentTypes {

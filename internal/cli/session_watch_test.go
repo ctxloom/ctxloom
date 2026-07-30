@@ -306,6 +306,7 @@ func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 			cmd := &cobra.Command{}
 			cmd.SetContext(ctx)
 			cmd.SetOut(io.Discard)
+			cmd.Flags().String("source", "auto", "") // as the real command registers it
 
 			err := runSessionWatch(cmd, []string{harp})
 			require.Error(t, err, "a retired scraper's by-location watch must fail loudly, not hang or stream nothing silently")
@@ -326,6 +327,7 @@ func TestRunSessionWatch_NothingToWatch(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetOut(io.Discard)
+	cmd.Flags().String("source", "auto", "") // as the real command registers it
 
 	err = runSessionWatch(cmd, []string{entry.HarpName})
 	require.Error(t, err)
@@ -341,6 +343,7 @@ func TestRunSessionWatch_UnknownBackend(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetOut(io.Discard)
+	cmd.Flags().String("source", "auto", "") // as the real command registers it
 
 	err := runSessionWatch(cmd, []string{harp})
 	require.Error(t, err)
@@ -506,4 +509,52 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("watch did not end after RunCompleted")
 	}
+}
+
+// TestWatchFeedSource pins the --source resolution `ctxloom session watch`
+// depends on. The lookup half matters as much as the parse half: a failed
+// flag lookup used to be discarded, and ParseFeedSource reads the resulting ""
+// as auto — so a user who asked for the live tap would silently get the store
+// tail, which is a different feed (poll-and-diff over the recorded transcript,
+// not the orchestrator's zero-lag event stream) and never ends when the
+// child's engine exits.
+func TestWatchFeedSource(t *testing.T) {
+	newCmd := func(source string) *cobra.Command {
+		c := &cobra.Command{}
+		c.Flags().String("source", "auto", "")
+		require.NoError(t, c.Flags().Set("source", source))
+		return c
+	}
+
+	t.Run("registered values parse", func(t *testing.T) {
+		for _, want := range []operations.FeedSource{operations.FeedSourceAuto, operations.FeedSourceLive, operations.FeedSourceStore} {
+			got, err := watchFeedSource(newCmd(string(want)))
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		}
+	})
+
+	t.Run("an unknown value is rejected", func(t *testing.T) {
+		_, err := watchFeedSource(newCmd("tail"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown feed source")
+	})
+
+	t.Run("a failed lookup is an error, not a silent fallback to auto", func(t *testing.T) {
+		_, err := watchFeedSource(&cobra.Command{}) // no --source registered
+		require.Error(t, err, "a --source lookup that fails must not resolve to auto and quietly serve a different feed than the one asked for")
+	})
+}
+
+// TestStreamWatchEvents_NDJSONSurfacesWriteFailure is the json-mode twin of
+// TestStreamWatchEvents_TextSurfacesWriteFailure. `session watch --format json`
+// is the structured-frontend contract: a write failure that drained the feed
+// and exited 0 would hand a consumer a silently truncated stream that is
+// indistinguishable from a session that simply ended.
+func TestStreamWatchEvents_NDJSONSurfacesWriteFailure(t *testing.T) {
+	events, errs := watchChan(entryEvent("assistant", "hello"))
+	writeErr := errors.New("write broke")
+	err := streamWatchEvents(&failingWriter{err: writeErr}, formatJSON, events, errs)
+	require.Error(t, err, "a failed write in json mode must surface as an error, not exit 0 having drained the stream silently")
+	assert.ErrorIs(t, err, writeErr)
 }

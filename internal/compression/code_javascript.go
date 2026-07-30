@@ -192,41 +192,66 @@ func (c *CodeCompressor) extractJSMethodSig(node *sitter.Node, source []byte, ou
 	}
 }
 
-func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out *strings.Builder) {
-	// Handle const/let declarations - keep if they're arrow functions
-	text := c.nodeText(node, source)
-	if strings.Contains(text, "=>") {
-		// Arrow function - extract signature
-		// Simple approach: keep declaration, replace body
-		if idx := strings.Index(text, "=> {"); idx > 0 {
-			out.WriteString(text[:idx])
-			out.WriteString("=> { ... }")
-			out.WriteString("\n")
-		} else if idx := strings.Index(text, "=>\n"); idx > 0 {
-			out.WriteString(text[:idx])
-			out.WriteString("=> ...")
-			out.WriteString("\n")
-		} else {
-			out.WriteString(text)
-			out.WriteString("\n")
+// jsDeclaredValue returns the first declarator's value node — what a const/let
+// is actually bound TO. The grammar tags it, so an arrow token or an '=' byte
+// occurring anywhere ELSE in the declaration (inside a string literal, a
+// template, a regex, a TypeScript default type parameter) cannot be mistaken
+// for it.
+func jsDeclaredValue(node *sitter.Node) *sitter.Node {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child != nil && child.Type() == "variable_declarator" {
+			return child.ChildByFieldName("value")
 		}
-	} else {
-		// Regular const/let. Keep short declarations verbatim; for long ones,
-		// elide the value after the first '=' so the binding (name + type
-		// annotation) still survives. Never drop the declaration entirely:
-		// extractJSExport writes "export " before delegating here, so emitting
-		// nothing would leave a dangling "export " glued onto the next
-		// declaration (content loss + corruption).
-		switch {
-		case len(text) < 100:
-			out.WriteString(text)
-		case strings.IndexByte(text, '=') > 0:
-			idx := strings.IndexByte(text, '=')
-			out.WriteString(strings.TrimRight(text[:idx], " "))
-			out.WriteString(" = ...")
-		default:
-			out.WriteString(text)
-		}
-		out.WriteString("\n")
 	}
+	return nil
+}
+
+// extractJSLexical emits a const/let declaration with its value elided: an
+// arrow function keeps its parameter list and loses its body, and any other
+// long value is replaced by "...". Both cuts are made at the VALUE NODE'S
+// start byte rather than by searching the declaration text — the text search
+// this replaces cut a declaration at the first "=> {" it saw, which for a
+// string literal containing an arrow was mid-literal, throwing away the rest of
+// the statement including its closing quote.
+//
+// A declaration is never dropped entirely: extractJSExport writes "export "
+// before delegating here, so emitting nothing would leave a dangling "export "
+// glued onto the next declaration.
+func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out *strings.Builder) {
+	text := c.nodeText(node, source)
+	head := func(upTo *sitter.Node) string {
+		return strings.TrimRight(string(source[node.StartByte():upTo.StartByte()]), " \t\r\n")
+	}
+
+	switch value := jsDeclaredValue(node); {
+	case value == nil:
+		out.WriteString(text)
+
+	case value.Type() == "arrow_function":
+		body := value.ChildByFieldName("body")
+		switch {
+		case body == nil:
+			out.WriteString(text)
+		case body.Type() == "statement_block":
+			out.WriteString(head(body))
+			out.WriteString(" { ... }")
+		case strings.Contains(text, "\n"):
+			// A multi-line expression body: elide it, keeping the signature.
+			out.WriteString(head(body))
+			out.WriteString(" ...")
+		default:
+			// A one-line expression body IS the signature — keep it whole.
+			out.WriteString(text)
+		}
+
+	case len(text) < 100:
+		out.WriteString(text)
+
+	default:
+		// Long value: keep the binding (name and any type annotation).
+		out.WriteString(head(value))
+		out.WriteString(" ...")
+	}
+	out.WriteString("\n")
 }

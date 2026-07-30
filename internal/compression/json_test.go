@@ -284,6 +284,28 @@ func TestJSONCompressor_Entropy(t *testing.T) {
 	}
 }
 
+// U046-F10: calculateEntropy counted frequencies per RUNE but divided by BYTE
+// length, so for any multibyte string the probabilities summed to less than 1
+// and the entropy came out understated by exactly the bytes-per-rune factor.
+// A maximally-varied non-ASCII value (every rune distinct — entropy 1.0 by
+// construction) was therefore classified low-entropy and TRUNCATED, while its
+// ASCII twin was preserved.
+func TestJSONCompressor_EntropyIsPerRuneNotPerByte(t *testing.T) {
+	c := NewJSONCompressor()
+	// 20 distinct runes, 40 bytes: every rune unique, so normalized Shannon
+	// entropy is 1.0 whatever the alphabet.
+	const greek = "αβγδεζηθικλμνξοπρστυ"
+	const ascii = "abcdefghijklmnopqrst"
+
+	assert.InDelta(t, 1.0, c.calculateEntropy(ascii), 1e-9, "all-distinct ASCII is maximum entropy")
+	assert.InDelta(t, 1.0, c.calculateEntropy(greek), 1e-9, "all-distinct non-ASCII is maximum entropy too")
+	assert.True(t, c.isHighEntropy(greek), "a maximally-varied non-ASCII value is high entropy")
+
+	result, err := c.Compress(context.Background(), ContentTypeJSON, `{"token":"`+greek+`"}`)
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, greek, "a high-entropy non-ASCII value is preserved, not truncated")
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -303,4 +325,27 @@ func TestJSONCompressor_PreservesBigIntegers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, result.Content, "9223372036854775807",
 		"big integer IDs must round-trip verbatim, not as float64 scientific notation")
+}
+
+// U046-F07 called the key reordering and duplicate-key collapse a correctness
+// defect. Both are properties of decoding JSON into Go values, and both are
+// what RFC 8259 licenses: an object is an UNORDERED collection, and a repeated
+// name is undefined behaviour that encoding/json resolves last-wins. What would
+// be a defect is losing a key, which is what this pins alongside the two
+// documented behaviours — so a future ordered-map representation is a
+// deliberate change, not an accident, and the "reordering is data loss" reading
+// cannot be re-applied without this test disagreeing.
+func TestJSONCompressor_KeyOrderIsNotSemantic(t *testing.T) {
+	c := NewJSONCompressor()
+
+	result, err := c.Compress(context.Background(), ContentTypeJSON, `{"zulu":1,"alpha":2,"mike":3}`)
+	require.NoError(t, err)
+	assert.Equal(t, "{\n  \"alpha\": 2,\n  \"mike\": 3,\n  \"zulu\": 1\n}", result.Content,
+		"keys are re-emitted in sorted order — every one of them, none dropped")
+
+	dup, err := c.Compress(context.Background(), ContentTypeJSON, `{"a":1,"a":2}`)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal([]byte(dup.Content), &decoded))
+	assert.Equal(t, float64(2), decoded["a"], "a duplicate name resolves last-wins, as encoding/json does")
 }

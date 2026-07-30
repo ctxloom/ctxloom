@@ -228,3 +228,48 @@ func TestRunSign_AllWithNoBundlesIsAnError(t *testing.T) {
 	require.Error(t, err, "--all that signed nothing must not exit 0")
 	assert.Contains(t, err.Error(), "sign", "the error names what was searched")
 }
+
+// TestRunSign_JSONSignedIsAlwaysAnArray is U042-F18's pin. The row claimed the
+// zero-target path emitted signCmdResult{} — a nil slice, rendering
+// "signed": null — while the normal path emitted an initialised slice, forcing
+// a JSON consumer to handle both. It no longer can: the only construction site
+// initialises the slice, and the zero-target arm returns an ERROR rather than
+// emitting anything at all (U042-F26). This goes red if either property is
+// undone — if the slice is left nil, or if the empty case is ever made to emit
+// a result again.
+func TestRunSign_JSONSignedIsAlwaysAnArray(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	discoverer, _ := discovererWithSoleAgentIdentity(t)
+
+	jsonCmd := func() (*cobra.Command, *bytes.Buffer) {
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		cmd.Flags().String("format", "text", "")
+		require.NoError(t, cmd.Flags().Set("format", "json"))
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		return cmd, &out
+	}
+
+	t.Run("a signed run renders signed as a JSON array", func(t *testing.T) {
+		_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
+		require.NoError(t, err)
+
+		cmd, out := jsonCmd()
+		require.NoError(t, runSign(cmd, cfg, discoverer, "my-tools", false, ""))
+
+		var raw map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out.Bytes(), &raw))
+		require.Contains(t, raw, "signed")
+		assert.NotEqual(t, "null", string(raw["signed"]), `"signed" must never be JSON null`)
+		assert.Equal(t, byte('['), raw["signed"][0], `"signed" is an array in every emitted result`)
+	})
+
+	t.Run("the zero-target path emits nothing at all", func(t *testing.T) {
+		_, emptyCfg := setupSignTestDir(t)
+		cmd, out := jsonCmd()
+		require.Error(t, runSign(cmd, emptyCfg, discoverer, "", true, ""),
+			"signing nothing is a failed run, so there is no second result shape for a consumer to handle")
+		assert.Empty(t, out.String(), "a failed run emits no result document")
+	})
+}

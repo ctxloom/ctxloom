@@ -132,6 +132,11 @@ func (c *CodeCompressor) extractRustImpl(node *sitter.Node, source []byte, out *
 	out.WriteString("\n\n")
 }
 
+// extractRustImplBody emits an impl block's items with function bodies elided.
+// An impl declares more than functions: associated consts and types are part of
+// the surface a caller programs against, and rustVerbatim already names how to
+// render exactly those kinds at the top level — reused here so an impl body
+// cannot enumerate fewer kinds than the module around it.
 func (c *CodeCompressor) extractRustImplBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -143,6 +148,10 @@ func (c *CodeCompressor) extractRustImplBody(node *sitter.Node, source []byte, o
 			out.WriteString("    ")
 			c.writeRustFuncSig(child, source, out, " { ... }")
 			out.WriteString("\n")
+			continue
+		}
+		if _, ok := rustVerbatim[child.Type()]; ok {
+			writeIndentedBlock(out, "    ", c.nodeText(child, source))
 		}
 	}
 }

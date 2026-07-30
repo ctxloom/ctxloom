@@ -235,16 +235,26 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 		assert.Equal(t, 1.0, got.Ratio)
 	})
 
-	t.Run("garbage code never panics and never errors", func(t *testing.T) {
+	t.Run("garbage code degrades to verbatim, never panics and never errors", func(t *testing.T) {
 		c := NewCodeCompressor()
 		ctx := context.Background()
 		// Not valid code in any supported language; tree-sitter produces error
 		// nodes rather than a hard parse error, so this should still return
 		// cleanly (no panic, no error) per the fault-tolerance rule.
+		//
+		// U046-F19 read this as PINNING the U046-F02 defect (empty Content with
+		// a nil error reading as an extreme compression). It never asserted
+		// anything about Content at all, which was the real gap: exit-shaped
+		// assertions are precisely what let a zero-byte result look like
+		// success. Since F02, junk degrades to VERBATIM pass-through, and that
+		// is what these assertions now hold it to.
 		for _, junk := range []string{"", "}{)(", "\x00\x01\x02 not code", strings.Repeat("???", 100)} {
 			require.NotPanics(t, func() {
-				_, err := c.Compress(ctx, ContentTypeGo, junk)
+				result, err := c.Compress(ctx, ContentTypeGo, junk)
 				require.NoError(t, err)
+				assert.Equal(t, junk, result.Content, "unrecognized content passes through, it is not compressed to nothing")
+				assert.Equal(t, 1.0, result.Ratio, "verbatim pass-through is Ratio 1.0, never 0.0")
+				assert.Equal(t, "ast:go", result.ModelID, "the degrade is tagged with the grammar that was tried")
 			})
 		}
 	})

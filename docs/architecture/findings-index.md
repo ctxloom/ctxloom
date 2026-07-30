@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,239** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,240** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 113 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 157 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 162 |
-| `open` | no commit names this ID | **597** |
+| `open` | no commit names this ID | **596** |
 
-**Totals: 2268 findings across 162 units — 1,239 resolved, 597 still open, 432 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,240 resolved, 596 still open, 432 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 426 | 337 | 63 | 72 | 101 |
-| LOW | 871 | 456 | 248 | 35 | 77 | 55 |
+| LOW | 871 | 457 | 247 | 35 | 77 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1990,7 +1990,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U005-F16 | **PARTIAL** `423f9ff1` | **`manage.go:178-180`** | ERRHANDLING | A non-ENOENT `os.Stat` error is returned bare, with no path context — unlike every sibling in the file. | U005.md |
 | U005-F17 | open | `evaluate.go` (whole file)` | COHESION | `evaluate.go` holds three separable concerns; `check.go` reaches across the file boundary for one of them. | U005.md |
 | U005-F18 | **RESOLVED** `762174df` | **`manage.go:117-161`, `root_test.go:25`** | CORRECTNESS | Two untested CLI surfaces that would fail silently. (1) `newUninstallCmd`'s RunE has no test — including its `existing == nil` and `!removed` early returns, both of which decide whether the user's ... | U005.md |
-| U006-F02 | open | **`main.go:50-55`** | COUPLING | `--claude`, `--claude-code` and `--codex` hardcode backend-registry names (`"claude-code"`, `"codex"`) into a `main` package, duplicating what `--personality <name>` already expresses generically. ... | U006.md |
+| U006-F02 | **RESOLVED** `8a5a8a13` | **`main.go:50-55`** | COUPLING | `--claude`, `--claude-code` and `--codex` hardcode backend-registry names (`"claude-code"`, `"codex"`) into a `main` package, duplicating what `--personality <name>` already expresses generically. ... | U006.md |
 | U006-F03 | **RESOLVED** `0eb53a66` | **`main.go:30,38`** | NOPAY | The `MOCKENGINE_PERSONALITY` env channel has **zero users and zero tests in the repo**. A repo-wide search for the literal (all file types, excluding `.git`) returns four hits, all inside `cmd/mock... | U006.md |
 | U006-F04 | **RESOLVED** `0eb53a66` | **`main.go:30`** | NOPAY | `EnvPersonality` is exported from a `main` package, which cannot be imported, so the export can never be consumed. | U006.md |
 | U007-F13 | **RESOLVED** `5755145a` | **`commands.go:361-363`** | DEAD / TRIVIAL | `noteHiddenMatches` is a three-line pass-through whose only caller in the entire repo is its own test | U007.md |

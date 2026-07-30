@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 func newLog(t *testing.T, session string) *Store {
@@ -872,5 +874,53 @@ func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
 	want := errors.New("the write itself failed")
 	if got := closeAfter(f2, want); !errors.Is(got, want) {
 		t.Fatalf("closeAfter = %v, want the original write error %v", got, want)
+	}
+}
+
+// TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken pins the
+// deliberate decision the three read paths document: the cross-process shared
+// lock is BEST-EFFORT, and a lock failure downgrades to an unlocked read
+// rather than failing, because a read must never block or die on lock
+// acquisition (U120-F10). Turning that into a hard error is the change this
+// test exists to catch: it would make every read of a store whose .lock is
+// unusable fail, on a path whose whole point is that it stays available.
+//
+// The lock failure is produced structurally — a DIRECTORY where filelock
+// wants to open a file — so no mocking is involved.
+func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
+	s := newLog(t, "sess")
+	added, err := s.AddWithTrigger("still readable", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := s.AddTags(added.HarpID, "urgent"); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if err := os.Remove(s.Path() + ".lock"); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove lock file: %v", err)
+	}
+	if err := os.Mkdir(s.Path()+".lock", 0o755); err != nil {
+		t.Fatalf("block the lock path: %v", err)
+	}
+	if _, err := filelock.LockShared(s.Path() + ".lock"); err == nil {
+		t.Fatal("the shared lock was acquired; this test no longer exercises the fallback")
+	}
+
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("List must fall back to an unlocked read, got %v", err)
+	}
+	if len(got) != 1 || got[0].HarpID != added.HarpID {
+		t.Fatalf("List = %+v, want the one task", got)
+	}
+	tags, err := s.CurrentTags(added.HarpID)
+	if err != nil {
+		t.Fatalf("CurrentTags must fall back to an unlocked read, got %v", err)
+	}
+	if !slices.Contains(tags, "urgent") {
+		t.Fatalf("tags = %v", tags)
+	}
+	if _, err := s.DeferredSince(); err != nil {
+		t.Fatalf("DeferredSince must fall back to an unlocked read, got %v", err)
 	}
 }

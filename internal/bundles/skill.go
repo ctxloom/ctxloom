@@ -112,11 +112,28 @@ func (m SkillManifest) sorted() SkillManifest {
 func (m SkillManifest) Serialize() []byte {
 	data, err := json.Marshal(m.sorted())
 	if err != nil {
-		// Unreachable: the struct holds only strings. Fail closed to a stable
-		// digest rather than panic, matching BundleMCP/BundleHook precedent.
-		return []byte("ctxloom:skill-manifest-serialize-error")
+		return skillManifestSerializeFallback(m, err)
 	}
 	return data
+}
+
+// skillManifestSerializeFallback is Serialize's fallback for a marshal error
+// that cannot currently happen: SkillManifestEntry holds only strings, and
+// encoding/json cannot fail on those (pinned by
+// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail).
+//
+// It is factored out so it can be exercised directly, and it is DISTINCT per
+// manifest rather than a shared constant, for the same reason BundleMCP/
+// BundleHook's ComputeContentHash fallbacks are distinct per server: these
+// bytes are a signature PREIMAGE, so one constant standing in for many
+// different manifests would make a single signature verify against all of them.
+func skillManifestSerializeFallback(m SkillManifest, err error) []byte {
+	identity := make([]string, 0, len(m))
+	for _, e := range m.sorted() {
+		identity = append(identity, e.Path+"@"+e.SHA256+"@"+e.Mode)
+	}
+	return fmt.Appendf(nil, "ctxloom:skill-manifest-serialize-error:%d:%s:%v",
+		len(m), strings.Join(identity, ","), err)
 }
 
 // Hash returns the sha256 digest of Serialize() — the manifest hash B2's

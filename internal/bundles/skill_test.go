@@ -3,8 +3,10 @@ package bundles
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -447,4 +449,45 @@ func TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile(t *testing.T) {
 		"the failing file must be named, relative to the package root")
 	assert.Contains(t, err.Error(), "simulated permission denied",
 		"the underlying cause must still be wrapped, not replaced")
+}
+
+// TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests is U031-F06.
+//
+// Serialize's error fallback is a SIGNATURE PREIMAGE: PublisherSkillSignature
+// Verifier.VerifyManifestSignature verifies a detached signature over exactly
+// these bytes, and operations.ExportSkill signs exactly these bytes. One
+// constant standing in for every manifest therefore means one signature would
+// verify against ANY manifest that hit the fallback — which is precisely the
+// defect the sibling BundleMCP/BundleHook fallbacks call out in their own
+// comments ("to a digest DISTINCT per server/failure, not a shared constant:
+// one constant standing in for many different items is the T4 defect"), even
+// though this comment claimed to be following that precedent.
+//
+// Different manifests must produce different fallback bytes.
+func TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests(t *testing.T) {
+	a := SkillManifest{{Path: "SKILL.md", SHA256: "sha256:aaa", Mode: "0644"}}
+	b := SkillManifest{{Path: "scripts/run.sh", SHA256: "sha256:bbb", Mode: "0755"}}
+
+	boom := errors.New("simulated marshal failure")
+	assert.NotEqual(t, string(skillManifestSerializeFallback(a, boom)), string(skillManifestSerializeFallback(b, boom)),
+		"two different manifests must not share one preimage — a signature over that preimage would cover both")
+	assert.Equal(t, string(skillManifestSerializeFallback(a, boom)), string(skillManifestSerializeFallback(a, boom)),
+		"the fallback must still be deterministic for a given manifest")
+}
+
+// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail is the MEASURED
+// reason Serialize's error branch is unreachable today, turned into a gate:
+// encoding/json cannot fail on a slice of structs whose every field is a
+// string, so no live signature can carry the fallback preimage. This test goes
+// red the moment a field of some other kind (a channel, a func, a
+// map[interface{}]…) is added — i.e. the moment the branch becomes reachable
+// and its bytes start to matter.
+func TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail(t *testing.T) {
+	typ := reflect.TypeOf(SkillManifestEntry{})
+	require.Positive(t, typ.NumField())
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		assert.Equal(t, reflect.String, f.Type.Kind(),
+			"field %s is not a string: json.Marshal can now fail, so Serialize's fallback preimage is reachable and must be reviewed", f.Name)
+	}
 }

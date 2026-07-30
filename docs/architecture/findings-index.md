@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,080** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 50 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 100 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 134 |
-| `open` | no commit names this ID | **904** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,116** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 62 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 110 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 139 |
+| `open` | no commit names this ID | **841** |
 
-**Totals: 2268 findings across 162 units — 1,080 resolved, 904 still open, 284 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,116 resolved, 841 still open, 311 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 328 | 529 | 22 | 37 | 83 |
-| LOW | 871 | 402 | 349 | 18 | 55 | 47 |
+| MED | 999 | 351 | 485 | 32 | 43 | 88 |
+| LOW | 871 | 415 | 330 | 20 | 59 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -484,6 +484,34 @@ fallback on a host with a real, long-lived one. Bounded the walk at
 `os.TempDir()`; fixed at `39d7c09c`. Recounted (`just test-arch`):
 RESOLVED 485->517, REFUTED 10->12, ESCALATED 5->17, open 1758->1712,
 MED resolved 42->63, LOW resolved 106->117.
+
+Updated again 2026-07-30 by the `fix/u042-signer-rows` batch: the three U042
+CLI-layer rows wave 21 had ESCALATED onto the campaign's section 7 signing
+fence are RESOLVED. The fence was read too widely. It is the trust MODEL —
+`internal/signing/**`, `internal/trust/**`, the countersignature machinery and
+the approval ladder — and `internal/cli/sign.go` and `internal/cli/signer.go`
+are ordinary command files where ordinary defect fixes belong. What stays
+fenced is trust BEHAVIOUR: what gets signed, which namespace is consulted, what
+the user is asked to consent to, and the wording of any prompt. None of the
+three touched any of that. **U042-F12** `71457906`: `signerRoleWord` and
+`signerConsequenceText` now share one `hasPublishNamespace` scan instead of two
+identical open-coded copies that could only ever drift silently. **U042-F25**
+`ae84959a` `b08b5f0f`: the trust-consequence prompt wrote to `os.Stderr`
+directly — the same descriptor in production, but the missing seam meant
+nothing asserted the product's most consequential confirmation is displayed at
+all, and deleting the whole `Fprintf` kept the suite green. It now writes to
+`cmd.ErrOrStderr()` and the render half is split into `promptSignerAdd` so a
+test can reach it past the `--yes`/no-TTY gate; the new pin asserts the
+fingerprint, the role word and both consequence lines by membership over the
+prompt's parsed lines, and was verified by mutation. The prompt's wording is
+byte-identical. **U042-F10** `6e4eada0`: `runSign` measured CCN 13 (`lizard`,
+not the 12 the row claimed); the argument guards, the key-override precedence
+rule and the empty-target diagnostic are now three named helpers and it
+measures CCN 7. That fixes no gate — `just complexity-check` is red repo-wide
+at ~305 functions — it was done because the function did too much. Recounted
+(`just test-pkg ./tests/docs/ -tags arch`): RESOLVED 1075->1078, ESCALATED
+136->133, MED resolved 324->325, MED escalated 84->83, LOW resolved 401->403,
+LOW escalated 48->46.
 
 **Nothing is deleted.** The census's value is the record of what was found *and* what happened to it, so a resolved row stays where it is with its claim intact.
 
@@ -990,14 +1018,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U016-F19 | open | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
 | U016-F22 | open | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
 | U016-F23 | open | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |
-| U019-F03 | open | `artifacts.go:163–170` | ERRHANDLING | The handler waits on `<-chunkErrCh` unconditionally even when `writeAtomic` has already failed. If the store errored early (temp-file create at artifactstore.go:69, write/disk-full at :80, fsync at... | U019.md |
-| U019-F04 | open | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
-| U019-F05 | open | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |
-| U019-F06 | open | `artifactstore.go:100` | CORRECTNESS | The blob rename is not followed by a directory fsync, but the *manifest* that references the blob is fsynced (`Store.Exec` → journal.go:232). After a crash the durable manifest can point at a blob ... | U019.md |
+| U019-F03 | **RESOLVED** `2e1e1c54` | `artifacts.go:163–170` | ERRHANDLING | The handler waits on `<-chunkErrCh` unconditionally even when `writeAtomic` has already failed. If the store errored early (temp-file create at artifactstore.go:69, write/disk-full at :80, fsync at... | U019.md |
+| U019-F04 | **REFUTED** `377169bf` | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
+| U019-F05 | **ESCALATED** `1f81ed63` | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |
+| U019-F06 | **RESOLVED** `f65e56ab` | `artifactstore.go:100` | CORRECTNESS | The blob rename is not followed by a directory fsync, but the *manifest* that references the blob is fsynced (`Store.Exec` → journal.go:232). After a crash the durable manifest can point at a blob ... | U019.md |
 | U019-F07 | **ESCALATED** `8ad8145a` | `artifactstore.go (whole file)` | NOPAY | The blob store has no delete, prune or GC — verified with `rg -iE "remove\ | U019.md |
-| U019-F08 | open | `artifacts.go:96–98, :180` | COUPLING | `artifact_id` is validated as required but is never used to store, key or resolve anything — the blob is keyed by content hash and the manifest arrives on a *separate* `ArtifactProduced` plane-1 ev... | U019.md |
-| U019-F09 | open | `artifacts.go:198, :81, :112; approval.go:59, :186` | COMPLEXITY | Five of this unit's 25 functions are at or over the project's CI gate of CCN 10: `DownloadArtifact` 17, `UploadArtifact` 11, the anonymous chunk goroutine 10, `serveApproval` 10, `relayApproval` 10 | U019.md |
-| U019-F10 | open | `approval.go:63–68, :84` | CORRECTNESS | `rec = *r` copies a `RunRecord` whose `Ladder` field is a slice header, and `rec.Ladder.matchingRungs(kind)` at :84 then reads the fold's backing array **outside** the `View` window. `Store.View`'s... | U019.md |
+| U019-F08 | **REFUTED** `5132b152` | `artifacts.go:96–98, :180` | COUPLING | `artifact_id` is validated as required but is never used to store, key or resolve anything — the blob is keyed by content hash and the manifest arrives on a *separate* `ArtifactProduced` plane-1 ev... | U019.md |
+| U019-F09 | **PARTIAL** `dce316bc` | `artifacts.go:198, :81, :112; approval.go:59, :186` | COMPLEXITY | Five of this unit's 25 functions are at or over the project's CI gate of CCN 10: `DownloadArtifact` 17, `UploadArtifact` 11, the anonymous chunk goroutine 10, `serveApproval` 10, `relayApproval` 10 | U019.md |
+| U019-F10 | **REFUTED** `cad45e3b` | `approval.go:63–68, :84` | CORRECTNESS | `rec = *r` copies a `RunRecord` whose `Ladder` field is a slice header, and `rec.Ladder.matchingRungs(kind)` at :84 then reads the fold's backing array **outside** the `View` window. `Store.View`'s... | U019.md |
 | U020-F05 | open | **`children.go:1135-1141, 1152-1161, 1088-1090`** | CORRECTNESS | A mailbox message is journaled **consumed** before it is delivered, and every early return after that point drops it silently with no requeue and no warning. | U020.md |
 | U020-F06 | open | **`children.go:1424-1426`** | ERRHANDLING | The documented invariant "the parent ALWAYS learns of a child death (blue-paper)" is warn-only. | U020.md |
 | U020-F07 | open | **`children.go:1618`** | CORRECTNESS | `resumeChild` reads the mutex-guarded `rt.slotHeld` without holding `c.mu`, while the structurally identical code in `runChild` takes the lock. | U020.md |
@@ -1178,7 +1206,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F07 | **RESOLVED** `ba297344` | `session_full.go:31-35` | DUPLICATE | `newSessionFullRow` resolves each session's essence **twice by two different mechanisms** — `newSessionRow` → `sessionEssenceInfo(appDir)` for the path, then `readSessionEssence` (which re-does the... | U042.md |
 | U042-F08 | **RESOLVED** `751bdad6` | **`search.go:132, 257-263, 292-302, 308-329`** | COUPLING | `search`'s five output functions write to process-global stdout via `fmt.Printf`/`fmt.Println` instead of `cmd.OutOrStdout()`, breaking the package's own emit/cmd-writer convention. `cobra`'s `SetO... | U042.md |
 | U042-F09 | **REFUTED** `c9d76b94` | **`sign.go:203-209; signer.go:411-435`** | COUPLING | Seven package-global flag variables are each bound into **two** different cobra commands (`signCmd`/`bundleSignCmd`, `signerAddCmd`/`trustSignerAddCmd`). pflag stores the same address in both flag ... | U042.md |
-| U042-F10 | **ESCALATED** `aea9d4a0` | **`sign.go:119-172`** | COMPLEXITY | `runSign` is CCN 12, above the CCN-10 gate the brief and `justfile:793` state CI enforces, with no `//nolint` and no exclusion for `internal/cli` in `.golangci.yml`. | U042.md |
+| U042-F10 | **RESOLVED** `6e4eada0` | **`sign.go:119-172`** | COMPLEXITY | `runSign` is CCN 12, above the CCN-10 gate the brief and `justfile:793` state CI enforces, with no `//nolint` and no exclusion for `internal/cli` in `.golangci.yml`. | U042.md |
 | U042-F11 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`signer.go:29-44, 73-80, 183-188, 267-273, 307-314, 402-418; sign.go:54-61, 201-204`** | NOPAY | The deprecated top-level `signer *` and `sign` alias trees cost ~110 lines across two files — 5 duplicate `*cobra.Command` values, 5 deprecation constants, 6 duplicated flag registrations, and one ... | U042.md |
 | U042-F17 | **RESOLVED** `71200c49` | `session_cmd.go:268-281` | SILENTNOOP | `emitHarpMarker` writes zero bytes and reports nothing when `harp == ""` — the SessionStart hook exits 0 having injected no harp self-id marker. Since the marker is the documented index-independent... | U042.md |
 | U042-F20 | **RESOLVED** `552f6a71` | `session_cmd.go (whole file, 611 lines)` | COHESION | `session_cmd.go` is four unrelated things in one file: (a) the `session` command tree; (b) the essence/compaction helper cluster that four *other* files depend on; (c) the `hook session-bind` machi... | U042.md |
@@ -1191,19 +1219,19 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F09 | open | `weave.go:84-87` | COUPLING | `weave` launches engine processes but never calls `failOnFindings`, so it launches agents on a config that `ctxloom run`/`ctxloom mcp` would refuse to start on. | U043.md |
 | U043-F14 | open | `startup_helpers.go` (whole file)` | COHESION | Two functions named `print*`/`write*` also mutate process-wide strictness state — a side effect their names actively disclaim — and the file bundles five unrelated startup concerns. | U043.md |
 | U044-F03 | **RESOLVED** `349c7c13` | `model.go:53, :520` | DEAD | `Model.firstLines` is written and never read | U044.md |
-| U044-F05 | open | `model.go:215, :436, :451` | CORRECTNESS | Feed-switch state reset rides on **unspecified** Go evaluation order | U044.md |
-| U044-F06 | open | `model.go:130, :131, :548-606` | CORRECTNESS | `View`'s "renders exactly `totalHeight` lines" contract breaks on small geometry, painting over the engine | U044.md |
-| U044-F07 | open | `model.go:643; render.go:147` | CORRECTNESS | Column framing is computed in **rune counts** over arbitrary engine output | U044.md |
+| U044-F05 | **RESOLVED** `6cb1acba` | `model.go:215, :436, :451` | CORRECTNESS | Feed-switch state reset rides on **unspecified** Go evaluation order | U044.md |
+| U044-F06 | **RESOLVED** `6f000455` | `model.go:130, :131, :548-606` | CORRECTNESS | `View`'s "renders exactly `totalHeight` lines" contract breaks on small geometry, painting over the engine | U044.md |
+| U044-F07 | **RESOLVED** `dda92fef` | `model.go:643; render.go:147` | CORRECTNESS | Column framing is computed in **rune counts** over arbitrary engine output | U044.md |
 | U044-F08 | **RESOLVED** `cfea9f18` | `model.go:493, :498-505` | ERRHANDLING | `copySelection` reports success after three independent silent failures | U044.md |
 | U044-F09 | **RESOLVED** `9da6487c` | `export.go:75-92` | CORRECTNESS | `exportTranscript` can write a file whose extension lies about its content | U044.md |
-| U044-F10 | open | `model.go:32-62` | COHESION | `Model` is three field-disjoint sub-models in one struct | U044.md |
-| U044-F11 | open | `model.go:193, :549; render.go:49; roster.go:17` | COMPLEXITY | Four functions exceed the project's own CI complexity gate | U044.md |
-| U044-F12 | open | `sources.go:39; `coord/folds.go:312`; `termui/surround.go:45` | DUPLICATE | Four near-identical "one row about a session" DTOs, and the two presentation packages make **opposite** coupling decisions about the same data | U044.md |
-| U044-F13 | open | `roster.go:4; `coord/livetap_test.go:287`; `coord/livetap_gap_test.go:182`; `termui/overlay_composition_test.go:189` | COUPLING | The agentcoord↔cli dependency runs **both ways**; the cycle is real, merely deferred into external test packages | U044.md |
-| U044-F14 | open | `sources.go:13-29; model.go:141, :185, :367, :468, :498` | COUPLING | `Sources` has five nilable fields with three different, unenforced nil contracts | U044.md |
-| U044-F15 | open | `sources.go:26, :44; model.go:275; `coord/coordinator.go:33-36` | COUPLING | Two stringly-typed contracts cross the agentcoord/cli seam with only comments holding them together | U044.md |
-| U044-F16 | open | `roster.go:32` | CORRECTNESS | Merging a coordinator entry can silently blank a session's state | U044.md |
-| U044-F23 | open | `model.go:213, :223, :243, :263, :273, :276, :372, :598-600` | CORRECTNESS | Status and error lifetimes are exactly backwards: successes vanish in ≤2s, errors stick forever | U044.md |
+| U044-F10 | **REFUTED** `dce0d0ff` | `model.go:32-62` | COHESION | `Model` is three field-disjoint sub-models in one struct | U044.md |
+| U044-F11 | **PARTIAL** `37d683c2` | `model.go:193, :549; render.go:49; roster.go:17` | COMPLEXITY | Four functions exceed the project's own CI complexity gate | U044.md |
+| U044-F12 | **ESCALATED** `1e05b21e` | `sources.go:39; `coord/folds.go:312`; `termui/surround.go:45` | DUPLICATE | Four near-identical "one row about a session" DTOs, and the two presentation packages make **opposite** coupling decisions about the same data | U044.md |
+| U044-F13 | **ESCALATED** `1e05b21e` | `roster.go:4; `coord/livetap_test.go:287`; `coord/livetap_gap_test.go:182`; `termui/overlay_composition_test.go:189` | COUPLING | The agentcoord↔cli dependency runs **both ways**; the cycle is real, merely deferred into external test packages | U044.md |
+| U044-F14 | **ESCALATED** `1e05b21e` | `sources.go:13-29; model.go:141, :185, :367, :468, :498` | COUPLING | `Sources` has five nilable fields with three different, unenforced nil contracts | U044.md |
+| U044-F15 | **ESCALATED** `1e05b21e` | `sources.go:26, :44; model.go:275; `coord/coordinator.go:33-36` | COUPLING | Two stringly-typed contracts cross the agentcoord/cli seam with only comments holding them together | U044.md |
+| U044-F16 | **RESOLVED** `5b0f7d92` | `roster.go:32` | CORRECTNESS | Merging a coordinator entry can silently blank a session's state | U044.md |
+| U044-F23 | **RESOLVED** `05cfce54` | `model.go:213, :223, :243, :263, :273, :276, :372, :598-600` | CORRECTNESS | Status and error lifetimes are exactly backwards: successes vanish in ≤2s, errors stick forever | U044.md |
 | U045-F04 | **RESOLVED** `875a8300` | **`backend.go:276`** | CORRECTNESS | The credential gate reads the **ambient process** `OPENAI_API_KEY` while its caller resolves `CODEX_HOME` from `req.Env` — so a per-agent `env:` key that would have authenticated the child is invis... | U045.md |
 | U045-F05 | **RESOLVED** `fbe2ce09` | **`settings.go:319-329`** | SILENTNOOP | A configured unified `SessionEnd` hook is silently discarded for codex — written nowhere, warned nowhere | U045.md |
 | U045-F06 | **PARTIAL** `0e94c0c8` | **`capabilities.go:8-15`** | DEAD | `CodexCommands`, `RegisterFromContent`, `WriteCommandFiles`, `promptsDirFor` and `codexPromptsDir` form an unreachable chain | U045.md |
@@ -1261,22 +1289,22 @@ Full evidence and the suggested action for any row live in its source review at 
 | U052-F05 | open | `internal/operations/items.go:36-37` | DUPLICATE | A second, competing not-found taxonomy (`ErrItemNotFound`, `ErrItemExists`) is declared in `internal/operations` — a package that already imports `internal/errs`. Two sentinel vocabularies for the ... | U052.md |
 | U052-F07 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `internal/errs/errors.go:7-60` (systemic)` | NOPAY | The not-found taxonomy covers a small minority of the not-found conditions the codebase actually raises, so `errors.Is`-based handling is not a reliable strategy for callers — the same logical fail... | U052.md |
 | U053-F05 | **RESOLVED** `11ee1b56` | `exec.go:67-74, git.go:60` | DEAD | `WorktreeRemove`'s `force bool` parameter is **never `true` anywhere in the repo**. It is a destructive capability with no user, in the exact area where the project's standing rule is "never force-... | U053.md |
-| U053-F06 | open | `exec.go:123-129` | ERRHANDLING | `IsDirty` returns `(false, err)` on failure: the **unsafe** value is the zero value. Any caller writing `dirty, _ := IsDirty(…)` silently gets "safe to delete". | U053.md |
+| U053-F06 | **REFUTED** `6c526124` | `exec.go:123-129` | ERRHANDLING | `IsDirty` returns `(false, err)` on failure: the **unsafe** value is the zero value. Any caller writing `dirty, _ := IsDirty(…)` silently gets "safe to delete". | U053.md |
 | U053-F07 | **PARTIAL** `27ce9ebb` | `fake.go:44-94` | DEAD | 8 exported `Fake` fields plus `Removed` have **zero users repo-wide**: `RemoveErr`, `RepoStateErr`, `CurrentBranchErr`, `DiffPatchErr`, `UntrackedErr`, `DiffNameOnlyErr`, `DiffNameOnlyFiles`, `Topl... | U053.md |
 | U053-F08 | **RESOLVED** `27ce9ebb` | `git.go:42-44, exec.go:37` | DEAD | `Toplevel` is **test-only**: the only call site in the repo is its own test. It costs an interface method that both implementations must carry. | U053.md |
-| U053-F09 | open | `exec.go:162` | CORRECTNESS | `RepoDirs` records only each file's **immediate** parent, never its ancestors — so it under-reports exactly the question it was written to answer. A repo whose only content under `internal/signing`... | U053.md |
-| U053-F10 | open | `exec.go:104-106` | SILENTNOOP | `ListTracked` with zero pathspecs returns `nil, nil` — a silent empty result that makes the caller's skip-worktree merge-isolation pass a no-op. | U053.md |
-| U053-F11 | open | `exec.go:173-175, exec.go:201-203` | CORRECTNESS | `RepoDirs` and `WorkingChanges` truncate **silently**: no count, no marker, no second return. The consumer renders a complete-looking list into an LLM prompt. `RepoDirs` truncation is alphabetical ... | U053.md |
-| U053-F12 | open | `fake.go:216, fake.go:231, fake.go:190` | CORRECTNESS | `Fake` diverges from `execGit` on defaults, so tests can assert behaviour production does not have. Real `RepoDirs` maps `maxDirs<=0` → 400 and real `LogSince` maps `maxEntries<=0` → 50; the `Fake`... | U053.md |
-| U053-F13 | open | `exec.go:324-331` | ERRHANDLING | `LogSince` swallows every per-commit `diff-tree` failure with a bare `continue`, leaving `LogEntry.Files` nil — **indistinguishable from "this commit touched no files"**. The downstream path-matchi... | U053.md |
-| U053-F14 | open | `exec.go:223-226` | CORRECTNESS | `CommitAll` fails outright on an **unborn HEAD**: `rev-parse HEAD` errors in a repo with zero commits, so the `dirty_tree_handler: "commit"` WIP-preservation path can never rescue work in a freshly... | U053.md |
-| U054-F05 | open | `gitignore.go:248`, `:231-243` | CORRECTNESS | `Ensure` always appends at the **end** of the file, and gitignore is last-match-wins, so ctxloom's patterns silently override a user's earlier negation — the package doc's "without disturbing user ... | U054.md |
-| U054-F06 | open | `gitignore.go:152` | CORRECTNESS | `RetireSupersededFile` rewrites a **user-authored** file non-atomically and resets its mode. | U054.md |
-| U054-F07 | open | `gitignore.go:94`, `:132` | CORRECTNESS | The retirement migration matches only **four literal spellings** while its own doc frames the stake as content silently vanishing from a publishing repo. | U054.md |
-| U054-F08 | open | `gitignore.go:42` vs `:72-81` | COHESION | The two artifact sets have no enforced relationship and are inconsistent **in both directions**, despite `WorktreeArtifactPatterns` being documented as "the BROADENED set … must keep EVERY ctxloom-... | U054.md |
-| U054-F09 | open | `gitignore.go:33-42`, `:48-81` | COHESION | The file-granular vs directory-granular decision is made per-entry with **no stated rule**, and the single entry whose granularity is actually argued is the one that is now wrong. | U054.md |
+| U053-F09 | **RESOLVED** `a70d494e` | `exec.go:162` | CORRECTNESS | `RepoDirs` records only each file's **immediate** parent, never its ancestors — so it under-reports exactly the question it was written to answer. A repo whose only content under `internal/signing`... | U053.md |
+| U053-F10 | **REFUTED** `69947f17` | `exec.go:104-106` | SILENTNOOP | `ListTracked` with zero pathspecs returns `nil, nil` — a silent empty result that makes the caller's skip-worktree merge-isolation pass a no-op. | U053.md |
+| U053-F11 | **PARTIAL** `9fcf538e` | `exec.go:173-175, exec.go:201-203` | CORRECTNESS | `RepoDirs` and `WorkingChanges` truncate **silently**: no count, no marker, no second return. The consumer renders a complete-looking list into an LLM prompt. `RepoDirs` truncation is alphabetical ... | U053.md |
+| U053-F12 | **RESOLVED** `5219cf38` | `fake.go:216, fake.go:231, fake.go:190` | CORRECTNESS | `Fake` diverges from `execGit` on defaults, so tests can assert behaviour production does not have. Real `RepoDirs` maps `maxDirs<=0` → 400 and real `LogSince` maps `maxEntries<=0` → 50; the `Fake`... | U053.md |
+| U053-F13 | **RESOLVED** `c0c25592` | `exec.go:324-331` | ERRHANDLING | `LogSince` swallows every per-commit `diff-tree` failure with a bare `continue`, leaving `LogEntry.Files` nil — **indistinguishable from "this commit touched no files"**. The downstream path-matchi... | U053.md |
+| U053-F14 | **PARTIAL** `ba0e9f67` | `exec.go:223-226` | CORRECTNESS | `CommitAll` fails outright on an **unborn HEAD**: `rev-parse HEAD` errors in a repo with zero commits, so the `dirty_tree_handler: "commit"` WIP-preservation path can never rescue work in a freshly... | U053.md |
+| U054-F05 | **PARTIAL** `2a42772b` | `gitignore.go:248`, `:231-243` | CORRECTNESS | `Ensure` always appends at the **end** of the file, and gitignore is last-match-wins, so ctxloom's patterns silently override a user's earlier negation — the package doc's "without disturbing user ... | U054.md |
+| U054-F06 | **PARTIAL** `83ca3375` | `gitignore.go:152` | CORRECTNESS | `RetireSupersededFile` rewrites a **user-authored** file non-atomically and resets its mode. | U054.md |
+| U054-F07 | **RESOLVED** `845b97e5` | `gitignore.go:94`, `:132` | CORRECTNESS | The retirement migration matches only **four literal spellings** while its own doc frames the stake as content silently vanishing from a publishing repo. | U054.md |
+| U054-F08 | **RESOLVED** `69947f17` | `gitignore.go:42` vs `:72-81` | COHESION | The two artifact sets have no enforced relationship and are inconsistent **in both directions**, despite `WorktreeArtifactPatterns` being documented as "the BROADENED set … must keep EVERY ctxloom-... | U054.md |
+| U054-F09 | **PARTIAL** `b913c46e` | `gitignore.go:33-42`, `:48-81` | COHESION | The file-granular vs directory-granular decision is made per-entry with **no stated rule**, and the single entry whose granularity is actually argued is the one that is now wrong. | U054.md |
 | U054-F10 | **RESOLVED** `ef80fef6` | `gitignore.go:105-107` | DEAD | `RetireSuperseded` is test-only. | U054.md |
-| U054-F11 | open | `gitignore.go:110-156` | COMPLEXITY | `RetireSupersededFile` is the unit's only CI-gate violation (CCN 11, gate 10), and the excess is entirely incidental — two lookup sets rebuilt from package constants on every call, and an inner loo... | U054.md |
+| U054-F11 | **RESOLVED** `83ca3375` | `gitignore.go:110-156` | COMPLEXITY | `RetireSupersededFile` is the unit's only CI-gate violation (CCN 11, gate 10), and the excess is entirely incidental — two lookup sets rebuilt from package constants on every call, and an inner loo... | U054.md |
 | U055-F02 | **RESOLVED** `31361d35` | **`mcp_registrar.go:14-16`** | COUPLING | The isolation claim in this comment is **stale and overclaims**. It says `KIRO_HOME` is "the same override **the session-history reader** and the worktree isolation policy use to relocate kiro's **... | U055.md |
 | U055-F03 | **RESOLVED** `ef0880e3` | **`chat.go:44-52`** | SILENTNOOP | A configured `effort:` is **silently dropped on the structured-chat path**. `buildArgs` emits `--effort` (backend.go:160) but `chatACPConfig` never reads `b.effort` — it sets only `Command`/`Agent`... | U055.md |
 | U055-F04 | **RESOLVED** `758c200e` | **`capabilities.go:27`** | DEAD | `KiroCommands.RegisterFromContent` and the whole `KiroCommands` type are dead. Confirms the brief. | U055.md |
@@ -1329,20 +1357,20 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F08 | open | `sessionhistory.go:246, 250, 260, 264; sessionwatch.go:106; plans.go:88; server.go:71, 134` | ERRHANDLING | No hand-written server handler or client method uses `google.golang.org/grpc/status`. Every error crosses the wire as `codes.Unknown` with a flattened string, so a caller cannot distinguish "this b... | U061.md |
 | U061-F09 | open | `mock_client.go:44-51, 59, 80, 89, 132` | CORRECTNESS | `MockClient`'s mutex guards 3 of its 7 counters. `RunCalls`, `WatchSessionCalls` and `KillCalls` take `m.mu`; `InfoCalls`, `RunWithModelInfoCalls`, `GetSessionCalls` and `ListSessionsCalls` do not.... | U061.md |
 | U061-F10 | open | `sessionwatch.go:52-87` | CORRECTNESS | `sessionWatcher.step` assumes the transcript never shrinks. If a poll returns fewer entries than the high-water mark (a rewritten/compacted/rotated transcript), the watcher silently wedges: `n > w.... | U061.md |
-| U062-F02 | open | **`auth.go:876, auth.go:909`** | CORRECTNESS | The documented "copies src to dst at **0600** (owner-only)" and `MkdirAll(destDir, 0o700)` guarantees are **not enforced on a pre-existing destination** — Go applies the perm argument only at creat... | U062.md |
-| U062-F04 | open | `attach.go:51-55` | CORRECTNESS | `interactiveRunArgs` panics with index-out-of-range on an empty slice, and the invariant its own comment asserts is **false**. | U062.md |
-| U062-F05 | open | `attach.go:39, 95-109` | ERRHANDLING | `AttachedContainer.Close` returns a non-nil error on essentially **every normal teardown**, so the caller cannot distinguish a clean shutdown from a failure. | U062.md |
-| U062-F06 | open | `attach.go:72` | COUPLING | `RunAttached` silently depends on **not** setting `cmd.Env`, because the auth passthrough forwards env **names only** and the value must come from this process's own environment. Nothing asserts or... | U062.md |
-| U062-F07 | open | `attach.go:71` | CORRECTNESS | `RunAttached` offers **no `SpawnEnv`-equivalent channel**, so its callers must push every env var through `spec.Env` → `-e KEY=VAL` → the world-readable argv — precisely the exposure the rest of th... | U062.md |
-| U062-F08 | open | `container.go:531-535` | ERRHANDLING | `gitdirMirrorMount` conflates a **stat error** with "`.git` is a directory, no mirror needed", so an unreadable `.git` silently yields no mount and the container gets a broken git. | U062.md |
-| U062-F09 | open | **`auth.go:865-868`** | ERRHANDLING | `hostCredentialSeed` discards `os.UserHomeDir`'s error and reports the result as `seedNoSource`, so a real environment fault is surfaced to the user as "no credentials found". | U062.md |
-| U062-F10 | open | **`auth.go:391-397, 459-465`** | ERRHANDLING | The credential-copy mount builders collapse "no host credential exists" and "we had the credential but the copy failed" into the same `ok=false`, producing an actively false diagnostic. | U062.md |
+| U062-F02 | **RESOLVED** `87563a3a` | **`auth.go:876, auth.go:909`** | CORRECTNESS | The documented "copies src to dst at **0600** (owner-only)" and `MkdirAll(destDir, 0o700)` guarantees are **not enforced on a pre-existing destination** — Go applies the perm argument only at creat... | U062.md |
+| U062-F04 | **RESOLVED** `f0758025` | `attach.go:51-55` | CORRECTNESS | `interactiveRunArgs` panics with index-out-of-range on an empty slice, and the invariant its own comment asserts is **false**. | U062.md |
+| U062-F05 | **PARTIAL** `a357cd06` | `attach.go:39, 95-109` | ERRHANDLING | `AttachedContainer.Close` returns a non-nil error on essentially **every normal teardown**, so the caller cannot distinguish a clean shutdown from a failure. | U062.md |
+| U062-F06 | **RESOLVED** `07fe540e` | `attach.go:72` | COUPLING | `RunAttached` silently depends on **not** setting `cmd.Env`, because the auth passthrough forwards env **names only** and the value must come from this process's own environment. Nothing asserts or... | U062.md |
+| U062-F07 | **RESOLVED** `07fe540e` | `attach.go:71` | CORRECTNESS | `RunAttached` offers **no `SpawnEnv`-equivalent channel**, so its callers must push every env var through `spec.Env` → `-e KEY=VAL` → the world-readable argv — precisely the exposure the rest of th... | U062.md |
+| U062-F08 | **RESOLVED** `2f48c079` | `container.go:531-535` | ERRHANDLING | `gitdirMirrorMount` conflates a **stat error** with "`.git` is a directory, no mirror needed", so an unreadable `.git` silently yields no mount and the container gets a broken git. | U062.md |
+| U062-F09 | **RESOLVED** `87563a3a` | **`auth.go:865-868`** | ERRHANDLING | `hostCredentialSeed` discards `os.UserHomeDir`'s error and reports the result as `seedNoSource`, so a real environment fault is surfaced to the user as "no credentials found". | U062.md |
+| U062-F10 | **RESOLVED** `87563a3a` | **`auth.go:391-397, 459-465`** | ERRHANDLING | The credential-copy mount builders collapse "no host credential exists" and "we had the credential but the copy failed" into the same `ok=false`, producing an actively false diagnostic. | U062.md |
 | U062-F11 | open | `container.go:70-119, 164-183` | COHESION | `Container` carries five image-build fields that form a disjoint method partition, and `ImageConfig` already names exactly that group. | U062.md |
-| U062-F12 | open | `container.go:361-364` | CORRECTNESS | `WithImage` swaps in a caller-supplied image **without** nilling the profile's build recipe, so `runAsIs()` stays false and `checkRunAsIsIdentity` never runs on it — the exact inverse of `container... | U062.md |
-| U062-F13 | open | `curatedhome.go:58-65` | CORRECTNESS | The curated-HOME allowlist includes the whole of `~/.ssh` (every private key) while the same comment excludes `.netrc`/`.npmrc`/`.gnupg` on the stated grounds that they "carry plaintext tokens/keys... | U062.md |
-| U062-F14 | open | `curatedhome.go:12-56; auth.go:596-609; profile.go:474-499` | DUPLICATE | The same antigravity measurement narrative (HOME relocates config/session state, the D-Bus keyring escapes it, `agy -p` ignores the launch cwd) is written out three times in three files, each with ... | U062.md |
-| U062-F15 | open | **`auth.go:861-897`** | COMPLEXITY | `hostCredentialSeed` sits at CCN 13 against the project's own enforcing gate of 10. | U062.md |
-| U062-F22 | open | `container.go:768-808` | CORRECTNESS | `gitCommonDirMount` bind-mounts the **entire** git common dir read-write at its identical path, so a low-trust `container-worktree` member can rewrite the main checkout's refs/objects/index and eve... | U062.md |
+| U062-F12 | **RESOLVED** `18bdf149` | `container.go:361-364` | CORRECTNESS | `WithImage` swaps in a caller-supplied image **without** nilling the profile's build recipe, so `runAsIs()` stays false and `checkRunAsIsIdentity` never runs on it — the exact inverse of `container... | U062.md |
+| U062-F13 | **PARTIAL** `0bd71ddb` | `curatedhome.go:58-65` | CORRECTNESS | The curated-HOME allowlist includes the whole of `~/.ssh` (every private key) while the same comment excludes `.netrc`/`.npmrc`/`.gnupg` on the stated grounds that they "carry plaintext tokens/keys... | U062.md |
+| U062-F14 | **PARTIAL** `bdd78213` | `curatedhome.go:12-56; auth.go:596-609; profile.go:474-499` | DUPLICATE | The same antigravity measurement narrative (HOME relocates config/session state, the D-Bus keyring escapes it, `agy -p` ignores the launch cwd) is written out three times in three files, each with ... | U062.md |
+| U062-F15 | **RESOLVED** `553b31c5` | **`auth.go:861-897`** | COMPLEXITY | `hostCredentialSeed` sits at CCN 13 against the project's own enforcing gate of 10. | U062.md |
+| U062-F22 | **ESCALATED** `ce834955` | `container.go:768-808` | CORRECTNESS | `gitCommonDirMount` bind-mounts the **entire** git common dir read-write at its identical path, so a low-trust `container-worktree` member can rewrite the main checkout's refs/objects/index and eve... | U062.md |
 | U063-F03 | **RESOLVED** `047490b3` | `isolation.go:58-78, 102` | DEAD | The entire `Approvals` axis is dead: the type, both constants, `String()`, `Policy.Approvals()`, and all four implementations. | U063.md |
 | U063-F04 | **RESOLVED** `047490b3` | `isolation.go:391-393` | DEAD | `Resolve` has **zero production call sites** — it is test-only. Its doc's stated purpose ("Callers that need only the policy identity up front (e.g. run's approvals gating)") describes a consumer t... | U063.md |
 | U063-F05 | **REFUTED** `73438bde` | **`pidalive_unix.go:12 + pidalive_windows.go:10`** | DUPLICATE | The build-tagged `pidAlive` pair is **byte-identical apart from the `//go:build` line** and both delegate to `pidalive.Alive` — a package that already owns the platform split. The build tags buy no... | U063.md |
@@ -1980,12 +2008,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U015-F04 | open | **`schema.go:20-23`, `:26-28`** | COUPLING | The re-vendor instructions and the pinned-provenance constants can drift apart silently: the documented `curl` command fetches `main` (`schema.go:28`), while `SchemaSourceURL` (`:46`) pins the comm... | U015.md |
 | U016-F20 | open | `coordination.proto:83-101, 1218-1219` | CORRECTNESS | Historical field renumbering left no `reserved` tombstones, and the safety argument for that is not recorded in the file. | U016.md |
 | U016-F21 | **ESCALATED** `8ad8145a` | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
-| U019-F11 | open | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
-| U019-F12 | open | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |
-| U019-F13 | open | `artifactstore.go:47, artifacts.go:218` | CORRECTNESS | `artifactStore.path` does a bare `filepath.Join(s.dir, shaHex)` with no validation, and `DownloadArtifact` feeds it `rec.SHA256` — a string read back out of the runs journal. Safe today because `re... | U019.md |
+| U019-F11 | **RESOLVED** `aa6d4ff1` | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
+| U019-F12 | **PARTIAL** `82f4ba0d` | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |
+| U019-F13 | **RESOLVED** `e41c35d0` | `artifactstore.go:47, artifacts.go:218` | CORRECTNESS | `artifactStore.path` does a bare `filepath.Join(s.dir, shaHex)` with no validation, and `DownloadArtifact` feeds it `rec.SHA256` — a string read back out of the runs journal. Safe today because `re... | U019.md |
 | U019-F14 | **RESOLVED** `72f7f6bf` | `artifactstore.go:108–114` | TRIVIAL | `artifactStore.open` is a pure pass-through: `f, err := os.Open(p); if err != nil { return nil, err }; return f, nil` is byte-for-byte equivalent to `return os.Open(p)`. It adds no wrapping, no inv... | U019.md |
-| U019-F15 | open | `approval.go:77` | CORRECTNESS | The ACCEPT_FOR_SESSION cache is consulted **before** the ladder, so a cached grant outranks a later `auto_decline` rung; and the grant is keyed only by `(harp, kind)`, so one "accept for session" o... | U019.md |
-| U019-F16 | open | `approval.go:78, :89, :97, :122, :132, :139` | COUPLING | The audit actor is `caller.Harp` while every detail field comes from `rec` (`rec.RunID`), and `relayApproval`'s warnings use `rec.Harp`. Two names for one identity inside one function; they are equ... | U019.md |
+| U019-F15 | **ESCALATED** `1f81ed63` | `approval.go:77` | CORRECTNESS | The ACCEPT_FOR_SESSION cache is consulted **before** the ladder, so a cached grant outranks a later `auto_decline` rung; and the grant is keyed only by `(harp, kind)`, so one "accept for session" o... | U019.md |
+| U019-F16 | **REFUTED** `cad45e3b` | `approval.go:78, :89, :97, :122, :132, :139` | COUPLING | The audit actor is `caller.Harp` while every detail field comes from `rec` (`rec.RunID`), and `relayApproval`'s warnings use `rec.Harp`. Two names for one identity inside one function; they are equ... | U019.md |
 | U019-F17 | **ESCALATED** `8ad8145a` | `artifacts.go:244–249` | NOPAY | `DownloadArtifact` implements resumable download via `req.offset`, but the only shipped client never sets it (homeartifacts.go:90–93) *and would reject any partial response*: `Home.DownloadArtifact... | U019.md |
 | U020-F11 | **REFUTED** `7a7c9fcf` | `consumer.go:253-255` | DEAD | `Coordinator.ListRuns` is a one-line pass-through with no production callers. | U020.md |
 | U020-F14 | open | **`children.go:1055`** | CORRECTNESS | `rt.oneshot` is read outside `c.mu` one line before the same function locks it. | U020.md |
@@ -2173,7 +2201,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F19 | open | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
 | U041-F21 | open | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
 | U041-F24 | **RESOLVED** `c482871e` | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |
-| U042-F12 | **ESCALATED** `aea9d4a0` | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
+| U042-F12 | **RESOLVED** `71457906` | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
 | U042-F13 | **PARTIAL** `26a08ce7` | `session_cmd.go:183-187` | DUPLICATE | `fileExists` is triplicated across three packages with a near-identical doc comment. | U042.md |
 | U042-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`search.go:167-171`** | TRIVIAL | `resolveSearchTypes`'s `case "profile"` returns literally the same expression as the preceding case. | U042.md |
 | U042-F15 | **RESOLVED** `f4e3e547` | **`search.go:309-321`** | COMPLEXITY | Five magic numbers govern one table: format widths `%-8s/%-12s/%-20s`, tag truncation at 20→17, name truncation at 18→15. The name column is 20 wide but truncates at 18; the two thresholds are unex... | U042.md |
@@ -2184,7 +2212,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F22 | **REFUTED** `0a1165d0` | `run_terminal_ui.go:116-122` | ERRHANDLING | `ExportDir` returns a non-empty path alongside a non-nil error: `return dir, os.MkdirAll(dir, 0o755)`. A caller that checks the path before the error gets a directory that does not exist. | U042.md |
 | U042-F23 | **RESOLVED** `24e4e92e` | `run_terminal_ui.go:136-146` | TRIVIAL | `surroundRoster` declares an `error` return that is provably always `nil` on both paths, forcing every caller into a dead `if err != nil`. | U042.md |
 | U042-F24 | **RESOLVED** `24e4e92e` | `session_cmd.go:477-482` | TRIVIAL | `compactionModelFor` has exactly **one** production call site, so its stated rationale — "Shared so every distill path resolves it identically" — is not realised; `compactEntry` is already the sing... | U042.md |
-| U042-F25 | **ESCALATED** `aea9d4a0` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
+| U042-F25 | **RESOLVED** `ae84959a` `b08b5f0f` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
 | U043-F10 | open | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
 | U043-F11 | open | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
 | U043-F12 | open | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |
@@ -2195,12 +2223,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F18 | open | `skill_cmd.go:54,120,170,216,278,326` | COUPLING | Six of seven skill subcommands use `context.Background()` instead of `cmd.Context()`, so Ctrl-C and any parent deadline do not reach the operations layer. | U043.md |
 | U043-F19 | **RESOLVED** `ab18012c` | `skill_cmd.go:59-67` + `:77-79` | NOPAY | With `--bundle` naming a bundle that has no skills (or a typo), the output is "No skills found. / Create one with: ctxloom skill create <bundle> <name>" — misleading, since skills do exist, just no... | U043.md |
 | U044-F04 | **RESOLVED** `349c7c13` | `sources.go:48; roster.go:30` | DEAD | `RosterRow.Self` has no production reader | U044.md |
-| U044-F17 | open | **`render.go:82, :129`** | CORRECTNESS | The expanded tool-result view tells the user to press the key they just pressed | U044.md |
+| U044-F17 | **RESOLVED** `f7fffc74` | **`render.go:82, :129`** | CORRECTNESS | The expanded tool-result view tells the user to press the key they just pressed | U044.md |
 | U044-F18 | **RESOLVED** `349c7c13` | **`doc.go:14-15`** | NOPAY | The package doc states a capability is absent that is fully implemented | U044.md |
-| U044-F19 | open | `export.go:82, :106, :113` | DUPLICATE | The export/copy render width `100` is an unnamed magic number repeated three times | U044.md |
-| U044-F20 | open | `roster.go:56, :63-75` | SIMPLIFY | `byHarp`'s values are never read, and lineage placement is O(n²) | U044.md |
-| U044-F21 | open | **`overlay.go:58-60, :69-76`** | CORRECTNESS | `Abort` can block on an unbuffered channel while holding `o.mu` | U044.md |
-| U044-F22 | open | `model.go:110-121` | ERRHANDLING | `teaKeyName` maps every unmapped byte to `"ctrl+@"`, silently disabling the back-key | U044.md |
+| U044-F19 | **RESOLVED** `0301a9df` | `export.go:82, :106, :113` | DUPLICATE | The export/copy render width `100` is an unnamed magic number repeated three times | U044.md |
+| U044-F20 | **RESOLVED** `44a57bef` | `roster.go:56, :63-75` | SIMPLIFY | `byHarp`'s values are never read, and lineage placement is O(n²) | U044.md |
+| U044-F21 | **RESOLVED** `92cbfd2a` | **`overlay.go:58-60, :69-76`** | CORRECTNESS | `Abort` can block on an unbuffered channel while holding `o.mu` | U044.md |
+| U044-F22 | **REFUTED** `679b5c64` | `model.go:110-121` | ERRHANDLING | `teaKeyName` maps every unmapped byte to `"ctrl+@"`, silently disabling the back-key | U044.md |
 | U045-F11 | **RESOLVED** `b3d8b606` | **`settings.go:208, 225`** | ERRHANDLING | `afero.Exists` errors are discarded, so an unreadable/permission-denied config is indistinguishable from an absent one: `RemoveSettings` returns nil having done nothing, `Status` reports `SettingsE... | U045.md |
 | U045-F12 | **RESOLVED** `aecbc4bb` | **`backend.go:234`** | CORRECTNESS | Doc/code mismatch on the trust pre-seed: the field doc says it is set "ONLY when resolveCodexProjectDir found an isolation-provided CODEX_HOME", but the code sets it for the container-fresh axis too | U045.md |
 | U045-F13 | **RESOLVED** `f24d82dc` | **`settings.go:302-314`** | DUPLICATE | `hasManagedHook` re-implements `removeManagedHooks`' three-level traversal for a boolean answer | U045.md |
@@ -2263,11 +2291,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U053-F15 | **ESCALATED** `cac52a3e` | `exec.go:437` | TRIVIAL | `cmd.Env = os.Environ()` is **exactly** `exec.Cmd`'s behaviour for a nil `Env`. The line is a no-op that reads as deliberate environment control — actively misleading in a codebase whose central co... | U053.md |
 | U053-F16 | **RESOLVED** `12f375ce` | `fake.go:98` | TRIVIAL | `Fake.record` is a single `append` with 6 call sites and no invariant beyond "caller holds mu" (which it does not enforce). | U053.md |
 | U053-F17 | **RESOLVED** `cb2b8396` `127539ad` | `exec.go:242` | TRIVIAL | `CommitAll` calls `(execGit{}).DiffNameOnly(…)` — constructing a throwaway value rather than naming the receiver. Harmless for an empty struct, but it hard-codes the concrete type inside a method w... | U053.md |
-| U053-F18 | open | `exec.go:350, exec.go:354` | ERRHANDLING | `parseLogEntries` silently drops any line that does not split into three fields, and silently substitutes the zero time for an unparseable date. A zero `Date` flows into downstream since-filtering ... | U053.md |
-| U053-F19 | open | `git.go:36` | COHESION | `Git` is two disjoint interfaces under one name — a worktree-lifecycle seam used only by `internal/lm/isolation` and a repository-evidence seam used only by `internal/operations`. No file calls met... | U053.md |
+| U053-F18 | **PARTIAL** `68e68d9c` | `exec.go:350, exec.go:354` | ERRHANDLING | `parseLogEntries` silently drops any line that does not split into three fields, and silently substitutes the zero time for an unparseable date. A zero `Date` flows into downstream since-filtering ... | U053.md |
+| U053-F19 | **ESCALATED** `e28fdace` | `git.go:36` | COHESION | `Git` is two disjoint interfaces under one name — a worktree-lifecycle seam used only by `internal/lm/isolation` and a repository-evidence seam used only by `internal/operations`. No file calls met... | U053.md |
 | U053-F20 | **RESOLVED** `27ce9ebb` | `git.go:132, exec.go:253` | NOPAY | `DiffNameOnly` is on the public `Git` interface but has **no caller outside this package** — its only use is `CommitAll` at exec.go:242. Being on the interface forces a `Fake` stub plus two dead fi... | U053.md |
-| U054-F12 | open | `gitignore.go:196-198` | SILENTNOOP | `EnsureFile` returns `nil` on an empty pattern list — a function named "ensure these rules exist" succeeding at ensuring nothing. | U054.md |
-| U054-F13 | open | `gitignore_test.go` (absence)` | CORRECTNESS | The pattern set implicated in destroying agent work has **no unit test pinning its membership**, while the harmless one does. | U054.md |
+| U054-F12 | **REFUTED** `69947f17` | `gitignore.go:196-198` | SILENTNOOP | `EnsureFile` returns `nil` on an empty pattern list — a function named "ensure these rules exist" succeeding at ensuring nothing. | U054.md |
+| U054-F13 | **RESOLVED** `69947f17` | `gitignore_test.go` (absence)` | CORRECTNESS | The pattern set implicated in destroying agent work has **no unit test pinning its membership**, while the harmless one does. | U054.md |
 | U054-F14 | **RESOLVED** `21498820` | `gitignore.go:216-227`, `:231-243` | DUPLICATE | `dedupe` and `missingPatterns` are the same map-based filter over two different inputs, and `dedupe` exists only to compensate for where `missingPatterns` draws its set. | U054.md |
 | U055-F09 | **RESOLVED** `3b74bf06` | **`surfaces.go:181-184`** | DUPLICATE | `deliveredFunc` is defined **six** times across the repo while an exported equivalent already exists in the shared package. | U055.md |
 | U055-F10 | **REFUTED** `13a77e58` | **`surfaces.go:232-245`** | COMPLEXITY | The five surfaces are listed twice, ten lines apart — once as named struct fields and once as `dispatch` map entries — with nothing enforcing agreement. Adding a sixth surface and forgetting one li... | U055.md |
@@ -2315,11 +2343,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F16 | open | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
 | U061-F17 | open | `procsession_unix.go:86-104` | CORRECTNESS | `killSessionExcept` has a pid-reuse TOCTOU: between `procSessionID(pid)` (:99) and `syscall.Kill(pid, SIGKILL)` (:102) the target can exit and its pid be reused by an unrelated process, which then ... | U061.md |
 | U061-F18 | **RESOLVED** `12f375ce` | `mock_client.go:158-160` | TRIVIAL | `NewMockClient` is a one-expression constructor (`return &MockClient{}`) used only by tests, and only two of them. | U061.md |
-| U062-F16 | open | `container.go:999-1006` | DUPLICATE | `containerName` re-implements `sanitizeAgentID` verbatim rather than calling it. | U062.md |
-| U062-F17 | open | `container.go:217-222 vs 259` | CORRECTNESS | `Name()` defends against a nil `base` that `PrepareWorkspace` would panic on — the guard is in the harmless method and absent from the dangerous one. | U062.md |
-| U062-F18 | open | `container.go:956-970` | ERRHANDLING | `containerWorkspace.Cleanup` discards `baseCleanup()`'s error and asserts it "never contributes an error" — true only because `worktreeWorkspace.Cleanup` unconditionally returns nil while *warning*... | U062.md |
-| U062-F19 | open | `container.go:385-409` | SILENTNOOP | `ExecSpec` accepts an empty/nil `command` and returns a valid-looking `RunSpec` whose `Command` is nil, so the container runs the image's default entrypoint instead of what the caller asked for. | U062.md |
-| U062-F20 | open | `container.go:756-762` | CORRECTNESS | `containerConfigOverlay` creates managed-config directories inside the **host project** as a side effect of preparing a container run and never removes them; `Cleanup` removes only the scratch tree. | U062.md |
+| U062-F16 | **RESOLVED** `a57b2533` | `container.go:999-1006` | DUPLICATE | `containerName` re-implements `sanitizeAgentID` verbatim rather than calling it. | U062.md |
+| U062-F17 | **REFUTED** `4929fd9d` | `container.go:217-222 vs 259` | CORRECTNESS | `Name()` defends against a nil `base` that `PrepareWorkspace` would panic on — the guard is in the harmless method and absent from the dangerous one. | U062.md |
+| U062-F18 | **RESOLVED** `974198d2` | `container.go:956-970` | ERRHANDLING | `containerWorkspace.Cleanup` discards `baseCleanup()`'s error and asserts it "never contributes an error" — true only because `worktreeWorkspace.Cleanup` unconditionally returns nil while *warning*... | U062.md |
+| U062-F19 | **RESOLVED** `64362c38` | `container.go:385-409` | SILENTNOOP | `ExecSpec` accepts an empty/nil `command` and returns a valid-looking `RunSpec` whose `Command` is nil, so the container runs the image's default entrypoint instead of what the caller asked for. | U062.md |
+| U062-F20 | **RESOLVED** `afb355aa` | `container.go:756-762` | CORRECTNESS | `containerConfigOverlay` creates managed-config directories inside the **host project** as a side effect of preparing a container run and never removes them; `Cleanup` removes only the scratch tree. | U062.md |
 | U062-F21 | **RESOLVED** `6e95d55f` | `curatedhome.go:83-89; worktree.go:263` | NOPAY | `curatedHomeSpec.authIsolated` describes an engine shape that does not exist, and the branch that consumes it is unreachable in production. | U062.md |
 | U063-F11 | **REFUTED** `73438bde` | `isolation.go:355-373, devcontainer.go:84` | CORRECTNESS | `ImageConfig`'s zero value is self-contradictory: `NoDevcontainerBase: false` says "auto-detect ON" while `AppRoot: ""` independently forces it OFF, with no diagnostic. A config-load failure (`Isol... | U063.md |
 | U063-F12 | **PARTIAL** `1b9acc1e` | `diagnose.go:33` | CORRECTNESS | `ImageStale bool json:"image_stale,omitempty"` makes "not stale" and "not checked" indistinguishable in the JSON output. A user-owned `isolation_images` override is never checked (imagebuild.go:701... | U063.md |

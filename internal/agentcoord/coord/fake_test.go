@@ -182,6 +182,19 @@ type fakeSpawner struct {
 	nextBackend   func() agent.StructuredChat
 	engineWorkDir string
 	engineEnv     map[string]string
+	// engineCaps is the Hello advertisement StartEngine's in-process Home
+	// makes. It defaults to EMPTY — i.e. peer_messaging only — deliberately,
+	// so every test written before plane 2's control verbs keeps exercising
+	// the §5.6 MAILBOX route it was written against, which is what proves
+	// Inject's fallback survives as a strict superset. A test that wants the
+	// plane-2 path says so by setting this to RunnerCapabilities(true), the
+	// advertisement a production migrated child actually makes
+	// (llm_runner_common.go).
+	engineCaps []string
+	// engineHomes records each StartEngine call's runner-side Home, in spawn
+	// order — the seam a plane-2 test needs to drain the runner-LOCAL
+	// agent_recv a control body is parked in.
+	engineHomes []*Home
 	// engineStderrTail, when set, is threaded onto each EngineSpawn.StderrTail
 	// — the runner's captured stderr tail. It stands in for a docker-direct
 	// runner's ring (the container's streamed stderr): a runner-loss test uses
@@ -328,17 +341,19 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	workDir := s.engineWorkDir
 	engineEnv := s.engineEnv
+	caps := s.engineCaps
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(ctx)
 	host := NewEngineHost(sctx, backend, plan.Backend, runnerEnv[EnvRunID])
 	home, err := NewHome(sctx, HomeConfig{
-		URL:     runnerEnv[EnvCoordURL],
-		Token:   runnerEnv[EnvCoordCred],
-		RunID:   runnerEnv[EnvRunID],
-		Harness: plan.Backend,
-		Version: "test",
-		Engine:  host.Handle,
+		URL:          runnerEnv[EnvCoordURL],
+		Token:        runnerEnv[EnvCoordCred],
+		RunID:        runnerEnv[EnvRunID],
+		Harness:      plan.Backend,
+		Version:      "test",
+		Engine:       host.Handle,
+		Capabilities: caps,
 	})
 	if err != nil {
 		cancel()
@@ -351,6 +366,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	}
 	s.mu.Lock()
 	s.kills = append(s.kills, kill)
+	s.engineHomes = append(s.engineHomes, home)
 	s.mu.Unlock()
 	if workDir == "" {
 		workDir = "/work"
@@ -368,6 +384,16 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,
 	}, nil
+}
+
+// engineHome returns the i-th spawned runner-side Home, nil if unspawned.
+func (s *fakeSpawner) engineHome(i int) *Home {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i >= len(s.engineHomes) {
+		return nil
+	}
+	return s.engineHomes[i]
 }
 
 // chat returns the i-th scripted (StartRun-path) engine, nil if unspawned.

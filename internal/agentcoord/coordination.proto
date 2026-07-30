@@ -12,8 +12,9 @@
 //     deliberate prerelease break, human-sanctioned, per the
 //     no-backward-compat-shims rule.
 //   - 4.C: presentation-only reminder messages (MailPendingReminder,
-//     SteerPendingReminder, QuestionPendingReminder, PausedReminder,
-//     ResumedReminder). NEVER WIRE TRAFFIC: they exist to be rendered into
+//     SteerPendingReminder, UnpulledReminder, QuestionPendingReminder,
+//     PausedReminder, ResumedReminder). NEVER WIRE TRAFFIC: they exist to be
+//     rendered into
 //     injected `<ctxloom-reminder>` frames by their GENERATED `.XmlLike()`
 //     encoders (annotations.proto's XmlRole). No RPC, oneof, or field
 //     anywhere carries one.
@@ -977,6 +978,29 @@ message CoordinatorRequest {
   string request_id = 1;
   google.protobuf.Duration timeout = 2;
 
+  // What this request NEEDS the receiving run to be able to do, declared by
+  // the sender in the SAME vocabulary Hello.capabilities advertises.
+  //
+  // It exists for ONE consumer: the coordinator's own DRAIN SEAM. A request
+  // outlives the channel it was queued on — it is reissued with its original
+  // request_id when the role next attaches — and the run that attaches may not
+  // be the run that was addressed (a crash without a terminal, or a resume,
+  // brings up a run whose Hello can advertise differently). Re-checking this
+  // declared set against the FRESHLY advertised one before the request is
+  // handed over is what keeps a request enqueued under run N from being
+  // delivered to a run N+1 that cannot execute it.
+  //
+  // It is DECLARED, not derived, so the seam stays TAXONOMY-AGNOSTIC: the check
+  // is a set containment (declared ⊆ advertised) with no kind→capability table
+  // to keep in sync with the `kind` oneof below.
+  //
+  // IT IS NOT A SECURITY BOUNDARY, and nothing may treat it as one. The
+  // receiver's own backstop keys on the ACTUAL oneof arm, never on this field,
+  // so a request that declares less than it carries is still refused by the
+  // runner on the kind it really is. Under-declaring buys nothing; this field
+  // is only ever a reason to STOP delivery early, never a reason to allow it.
+  repeated string required_capabilities = 3;
+
   // 12 is held for state_snapshot, deferred with the shared-state
   // family; the rev-5 design file is the source of record.
   reserved 12;
@@ -1140,6 +1164,56 @@ message SteerPendingReminder {
     xml_like: true,
     xml_text: "call agent_recv"
   };
+}
+
+// A parked control body was announced and the turn that carried the
+// announcement ENDED without the agent pulling it. This is the frame the engine
+// host's turn-boundary re-announcer emits; the announcement frames above
+// (SteerPendingReminder and friends) are emitted once, at enqueue, and say
+// nothing about a body that has been sitting unread since.
+//
+// It exists as a SEPARATE message because the announcement frames are
+// field-less: they render to a byte-identical string every time, and a notice
+// repeated verbatim across turns is a notice a model learns to skip. The two
+// attributes here are the anti-habituation channel, and they are deliberately
+// different KINDS of signal:
+//
+//   - age_seconds is CONTINUOUS and monotone. It answers "how long has this
+//     been waiting", which is the question a model needs to weigh the notice
+//     against whatever it is doing;
+//   - urgency is a CLOSED, three-step escalation that changes on every
+//     re-announcement even when two turn boundaries fall in the same second, so
+//     a fast engine still sees the notice change rather than repeat.
+//
+// Both are attribute-eligible by construction (a number and an enum), so this
+// frame carries no sender bytes, exactly like every other one.
+message UnpulledReminder {
+  option (message_schema) = {
+    xml_like: true,
+    xml_text: "call agent_recv"
+  };
+
+  // Urgency is how many re-announcements have gone unanswered, not a severity
+  // anyone configures. FINAL is a PROMISE: it is the last frame this body will
+  // ever get, and when it too goes unanswered the runner gives up
+  // OBSERVABLY — see the control_unpulled custom event.
+  enum Urgency {
+    URGENCY_UNSPECIFIED = 0;
+    // First re-announcement: the announcement turn ended unpulled.
+    URGENCY_REPEAT = 1;
+    // The body has now survived more than one turn boundary unread.
+    URGENCY_URGENT = 2;
+    // The last frame this body gets. Nothing further will be injected for it.
+    URGENCY_FINAL = 3;
+  }
+
+  // How long the OLDEST unpulled body has been parked, whole seconds. Derived
+  // from the runner's own clock at park time — it is not sender-influenced and
+  // cannot carry sender bytes.
+  uint32 age_seconds = 1 [(xml_role) = XML_ATTRIBUTE];
+
+  // Which rung of the escalation this frame is.
+  Urgency urgency = 2 [(xml_role) = XML_ATTRIBUTE];
 }
 
 // A question is waiting in the mailbox and is expected to be answered in this

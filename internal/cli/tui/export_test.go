@@ -52,6 +52,23 @@ func TestTranscriptText_RendersExpanded(t *testing.T) {
 	assert.NotContains(t, text, "live events dropped", "notices excluded")
 }
 
+// s (save) and y (copy) are two spellings of "give me this transcript", and
+// they render it through renderItem at a width each supplies for itself. The
+// widths must be one value: a divergence silently gives the file and the
+// clipboard different line breaks for the same feed. U044-F19.
+func TestExportedTextAndCopiedTextAgreeOnRenderWidth(t *testing.T) {
+	items := []feedItem{{role: "user", text: strings.Repeat("x", 250)}}
+	dir := t.TempDir()
+
+	path, err := exportTranscript(dir, "h1", "txt", items, time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC))
+	require.NoError(t, err)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, strings.TrimRight(string(data), "\n"), copyText(items, 0, false),
+		"the saved file and the clipboard hold the same rendering")
+}
+
 func TestExportTranscript_WritesUnderSessionDir(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC)

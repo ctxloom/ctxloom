@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // containerAuthMode names HOW a container run authenticates the engine, for
@@ -409,10 +411,12 @@ func antigravityCredentialCopyMounts(containerHome, scratchDir string) ([]Mount,
 	}
 	dir := filepath.Join(scratchDir, "antigravity-auth")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		warnCredentialCopyFailed("antigravity", token, err)
 		return nil, false
 	}
 	tokenCopy := filepath.Join(dir, "antigravity-oauth-token")
 	if err := copyCredentialFile(token, tokenCopy); err != nil {
+		warnCredentialCopyFailed("antigravity", token, err)
 		return nil, false
 	}
 	return []Mount{{
@@ -477,10 +481,12 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 	}
 	dir := filepath.Join(scratchDir, "claude-auth")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		warnCredentialCopyFailed("claude", creds, err)
 		return nil, false
 	}
 	credsCopy := filepath.Join(dir, ".credentials.json")
 	if err := copyCredentialFile(creds, credsCopy); err != nil {
+		warnCredentialCopyFailed("claude", creds, err)
 		return nil, false
 	}
 	return []Mount{{
@@ -488,6 +494,21 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 		Container: filepath.Join(containerHome, ".claude", ".credentials.json"),
 		ReadOnly:  false,
 	}}, true
+}
+
+// warnCredentialCopyFailed names the one outcome the credential-copy mount
+// builders cannot express in their ok=false return: the host credential EXISTS
+// and we failed to stage a copy of it. Absence and copy-failure both degrade the
+// run the same way, but they are opposite diagnoses — the caller's authHint
+// ("no ~/.claude/.credentials.json to authenticate the in-container engine")
+// is true for the first and actively false for the second, sending the user to
+// re-authenticate a credential that is already there. Only the failure warns;
+// an absent credential is an ordinary host state and must stay silent, or the
+// signal is noise.
+func warnCredentialCopyFailed(engine, src string, err error) {
+	clidiag.Warn("ctxloom",
+		"%s container auth: the host credential %s exists but could not be staged for the container (%v); this run proceeds as if no host credential were present",
+		engine, src, err)
 }
 
 // fileExists reports whether path is an existing regular file (not a directory).
@@ -613,20 +634,12 @@ type seedFile struct {
 // isolation-home descriptor (per-engine-isolation-home plan §6): every
 // entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever
 // credential-seed behaviour HonoursVarForCreds selects. antigravity has NO
-// entry here — but NOT because it has no lever at all (that claim was
-// FALSE and has been corrected): agy reads $HOME directly for its whole
-// config/session-state tree — a full .gemini/ tree DOES relocate with it,
-// measured by chmod-000-crashes-agy on a fake HOME. What it does NOT
-// relocate is CREDENTIALS: agy authenticates through an OS-session-scoped
-// D-Bus Secret Service keyring that HOME does not gate at all (measured
-// with `env -i` + an empty fake HOME — still authenticated via keyring).
-// credentialSeedSpecs exists to copy CREDENTIAL material into a scoped
-// subdir a HonoursVarForCreds engine's isolation var points at; antigravity
-// has no such var (HOME itself is the only lever, and HOME does not carry
-// credentials), so it does not fit this registry's shape at all — it is
-// handled by the SEPARATE curatedHomeSpecs registry (curatedhome.go) instead,
-// which overrides HOME wholesale and is explicit that only config/session
-// state — never auth — moves with it.
+// entry here: this registry copies CREDENTIAL material into a scoped subdir
+// that an engine's own isolation var points at, and antigravity has no such
+// var — HOME itself is its only lever, and HOME does not carry its
+// credentials. It is handled by the SEPARATE curatedHomeSpecs registry
+// (curatedhome.go), whose package doc holds the measurements behind that
+// split and is the ONE place they are written down.
 //
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+
@@ -899,20 +912,66 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 	if spec.envTrigger != "" && os.Getenv(spec.envTrigger) != "" {
 		return seedSkippedEnv, nil
 	}
+	files, ok := hostSeedSources(spec)
+	if !ok {
+		return seedNoSource, nil
+	}
+	destDir := filepath.Join(configHome, spec.destSubdir)
+	if err := prepareSeedDir(spec, destDir); err != nil {
+		return seedNoSource, err
+	}
+	return copySeedFiles(spec, files, destDir)
+}
+
+// hostSeedSources resolves spec's host source files against the host HOME and
+// reports whether there is anything seedable at all. ok=false is the
+// "nothing to seed" degrade — an unresolvable/empty host HOME, or an absent
+// REQUIRED file — never an error, because the caller must be free to proceed
+// (worktree.go turns it into its own fail-loud decision).
+func hostSeedSources(spec credentialSeedSpec) ([]seedFile, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
-		return seedNoSource, nil
+		// Still a degrade, never an abort (the caller must not be blocked by a
+		// HOME lookup). But an unresolvable host HOME is an ENVIRONMENT FAULT,
+		// not the ordinary "this host has no credential file" the caller's own
+		// message describes — leaving it silent surfaced a real fault as advice
+		// to run `claude login`/`codex login`, which cannot help. Same handling
+		// provisionCuratedHome gives the identical failure.
+		clidiag.Warn("ctxloom",
+			"%s credential seed: could not resolve the host HOME to copy credentials from (%v); this run is treated as having no host credentials to seed",
+			spec.engine, err)
+		return nil, false
 	}
 	files := spec.sourceFiles(home)
 	for _, f := range files {
 		if f.required && !fileExists(f.host) {
-			return seedNoSource, nil
+			return nil, false
 		}
 	}
-	destDir := filepath.Join(configHome, spec.destSubdir)
+	return files, true
+}
+
+// prepareSeedDir creates the per-engine destination and makes it owner-only.
+// MkdirAll's perm argument, like os.WriteFile's, applies only on CREATION — a
+// pre-existing dir keeps its own mode — so the 0700 is restated rather than
+// assumed on a directory about to hold live credential files.
+func prepareSeedDir(spec credentialSeedSpec, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
-		return seedNoSource, fmt.Errorf("create %s credential seed dir: %w", spec.engine, err)
+		return fmt.Errorf("create %s credential seed dir: %w", spec.engine, err)
 	}
+	if err := os.Chmod(destDir, 0o700); err != nil {
+		return fmt.Errorf("restrict %s credential seed dir: %w", spec.engine, err)
+	}
+	return nil
+}
+
+// copySeedFiles copies each PRESENT source file into destDir (required ones are
+// already known present — see hostSeedSources). A copy failure is an error, not
+// a degrade: the material exists and we failed to place it. Copying nothing
+// reports seedNoSource, never seedOK — no current spec reaches that (claude's
+// primary file is required), but a future all-optional spec must not report
+// success having delivered zero bytes.
+func copySeedFiles(spec credentialSeedSpec, files []seedFile, destDir string) (seedResult, error) {
 	seededAny := false
 	for _, f := range files {
 		if !fileExists(f.host) {
@@ -924,10 +983,6 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 		seededAny = true
 	}
 	if !seededAny {
-		// Defensive: a spec with no required files and nothing present. No
-		// current spec hits this (claude's primary file is required), but a
-		// future all-optional spec should not report seedOK having copied
-		// nothing.
 		return seedNoSource, nil
 	}
 	return seedOK, nil
@@ -953,5 +1008,12 @@ func copyCredentialFile(src, dst string) error {
 	if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("credential seed destination %q is a symlink; refusing to write through it", dst)
 	}
-	return os.WriteFile(dst, data, 0o600)
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return err
+	}
+	// os.WriteFile applies its perm argument only when it CREATES the file: a
+	// destination that already existed keeps its own mode, so the 0600 above is
+	// not a guarantee on its own. Restate it on the file that now holds live
+	// credential bytes.
+	return os.Chmod(dst, 0o600)
 }

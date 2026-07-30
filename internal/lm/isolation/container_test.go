@@ -242,3 +242,260 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 	})
 }
+
+// TestContainerName_AgreesWithSanitizeAgentID pins the SHARED sanitization
+// behaviour the container-name builder and the path/email segment builder must
+// keep in common: both render an agent id through containerNameSafe, trim the
+// separator characters, and fall back to "agent" when nothing survives. The two
+// bodies were byte-identical, so no parity test could ever be red against them —
+// this instead fixes the behaviour ACROSS the seam, so collapsing one onto the
+// other is provably behaviour-preserving and a later divergence fails here.
+func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
+	for _, id := range []string{
+		"m",
+		"code review/aspect:sec",
+		"///",
+		"",
+		"-._weird-._",
+		"UPPER_lower.9",
+		"a b\tc\nd",
+	} {
+		assert.True(t,
+			strings.HasPrefix(containerName(id), "ctxloom-iso-"+sanitizeAgentID(id)+"-"),
+			"containerName(%q) must embed exactly sanitizeAgentID(%q)=%q", id, id, sanitizeAgentID(id))
+	}
+}
+
+// TestContainer_NilBaseIsUnreachable is U062-F17's pin. The row claimed Name()
+// nil-guards a base that PrepareWorkspace "would panic on" — the guard in the
+// harmless method, absent from the dangerous one. MEASURED here, both halves of
+// that are wrong:
+//
+//  1. every production construction path sets a non-nil base, so nothing can
+//     reach PrepareWorkspace with one missing;
+//  2. the only value that HAS a nil base — a bare test-built Container{} — never
+//     reaches c.base.prepareBase at all. prepareContainerScratch runs first and
+//     returns on the nil runtime, and even past that the zero profile's nil
+//     resolveAuth would fire before the base is touched. Name()'s guard exists
+//     because Name() IS called on such bare values; PrepareWorkspace is not.
+//
+// Adding a nil-base guard to PrepareWorkspace would be dead defensive code. This
+// pins the property that makes it dead, so it fails if a constructor ever stops
+// setting a base or the gate order changes to reach the base first.
+func TestContainer_NilBaseIsUnreachable(t *testing.T) {
+	rt := fakeRuntime{name: "docker", available: true}
+	for name, c := range map[string]Container{
+		"NewContainer":              NewContainer(rt, "img"),
+		"NewContainerFor":           NewContainerFor(rt, "claude-code"),
+		"containerFor":              containerFor(rt, "claude-code", ImageConfig{}),
+		"NewContainerWorktree":      NewContainerWorktree(rt, "img", nil),
+		"NewContainerWorktreeFor":   NewContainerWorktreeFor(rt, "claude-code", ImageConfig{}, nil),
+		"WithSessionState":          NewContainerFor(rt, "").WithSessionState(SessionState{Harp: "h"}),
+		"WithImage":                 NewContainerFor(rt, "").WithImage("other"),
+		"WithSessionState/worktree": NewContainerWorktreeFor(rt, "", ImageConfig{}, nil).WithSessionState(SessionState{Harp: "h"}),
+	} {
+		assert.NotNil(t, c.base, "%s must yield a container with a workspace base", name)
+	}
+
+	// The one nil-base value there is never reaches the base: the gate returns
+	// first, and no panic escapes.
+	require.NotPanics(t, func() {
+		_, err := Container{}.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot launch",
+			"a bare Container{} stops at the runtime gate, long before the base")
+	})
+}
+
+// TestContainer_ExecSpecRefusesEmptyCommand is U062-F19's regression. ExecSpec
+// used to accept a nil/empty command and hand back a perfectly valid-looking
+// RunSpec whose Command was nil — renderRunSpec then emits nothing after the
+// image, so the container silently runs the IMAGE's default entrypoint instead
+// of what the caller asked for. That is this project's signature failure: a
+// success return with zero payload delivered, and the caller (internal/acp's
+// container transport) would go on to speak JSON-RPC at whatever the image's
+// entrypoint happens to be. The refusal must assert on the PAYLOAD (no spec, an
+// error naming the empty command), never on an exit code.
+func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
+	ws := &containerWorkspace{dir: t.TempDir(), agentID: "m"}
+
+	for name, command := range map[string][]string{
+		"nil":   nil,
+		"empty": {},
+	} {
+		spec, err := c.ExecSpec(ws, command, nil, nil)
+		require.Error(t, err, "%s command must be refused, never silently run the image entrypoint", name)
+		assert.Contains(t, err.Error(), "empty command")
+		assert.Nil(t, spec.Command, "no spec is handed back on refusal")
+		assert.Empty(t, spec.Image, "no spec is handed back on refusal")
+	}
+
+	// A real command still renders unchanged.
+	spec, err := c.ExecSpec(ws, []string{"claude-code-acp"}, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
+}
+
+// TestContainer_WithImageRunsAsIs is U062-F12's regression. A caller-supplied
+// image is USER-OWNED: nothing ctxloom authored — the identity-remap entrypoint
+// included — is guaranteed to be in it, so it must be run AS-IS (never locally
+// rebuilt) and it must face checkRunAsIsIdentity's pre-start contract check, the
+// one signal there is before a wrong-identity container root-owns every file it
+// writes into the mounted project.
+//
+// containerFor already did that for an isolation_images override by clearing the
+// profile's build recipe. WithImage — the override internal/acp's container
+// transport uses for a per-agent container_image — swapped the image and left
+// the recipe in place, so runAsIs() stayed false, the identity check never ran,
+// and ensureImage would try to BUILD the user's tag locally when absent. The two
+// override paths must agree.
+func TestContainer_WithImageRunsAsIs(t *testing.T) {
+	rt := fakeRuntime{name: "docker", available: true}
+
+	assert.True(t, NewContainerFor(rt, "claude-code").WithImage("user/agent:1").runAsIs(),
+		"a caller-supplied image is user-owned: run as-is, so the identity contract is actually checked")
+	assert.True(t, containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"}).runAsIs(),
+		"the isolation_images override path already agreed")
+	assert.False(t, NewContainerFor(rt, "claude-code").runAsIs(),
+		"without an override the profile's own recipe still builds the agent image")
+}
+
+// TestContainer_GitdirMirrorMountUnreadableGit is U062-F08's regression. The
+// guard was `if err != nil || info.IsDir()` — one branch for two opposite facts.
+// "no .git" and "a .git directory" genuinely need no mirror, but an UNREADABLE
+// .git means we could not tell which case we are in, and answering "no mirror
+// needed" hands the container a checkout whose git cannot resolve the repo. The
+// container axis's whole degrade contract is fatal-unless-degraded on a lost
+// boundary, so this must error out of PrepareWorkspace, never resolve silently.
+func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory permissions; cannot make .git unstattable")
+	}
+	proj := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".git"),
+		[]byte("gitdir: /repo/.git/worktrees/x\n"), 0o644))
+	require.NoError(t, os.Chmod(proj, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(proj, 0o755) })
+
+	_, ok, err := gitdirMirrorMount(context.Background(),
+		fakeRuntime{name: "docker", available: true}, &git.Fake{CommonDirValue: "/repo/.git"}, proj)
+	require.Error(t, err, "an unreadable .git must fail the workspace, not silently yield no mirror")
+	assert.False(t, ok)
+	assert.Contains(t, err.Error(), ".git")
+}
+
+// TestContainerWorkspace_CleanupSurfacesBaseError is U062-F18's regression. The
+// base teardown's error was discarded with `_ =` under a comment asserting it
+// "never contributes an error" — true today only because worktreeWorkspace.
+// Cleanup happens to return nil unconditionally (it warns instead), which is a
+// property of a DIFFERENT type in a different file that nothing binds to this
+// one. The moment a base teardown does report a failure it would vanish. Join
+// it instead, so the guarantee is structural rather than remote.
+func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
+	baseErr := fmt.Errorf("worktree teardown failed")
+
+	// Base failure alone: nothing else went wrong, and it still surfaces.
+	ws := &containerWorkspace{dir: "/proj", agentID: "m", baseCleanup: func() error { return baseErr }}
+	err := ws.Cleanup()
+	require.Error(t, err, "a base teardown failure must not be swallowed")
+	assert.ErrorIs(t, err, baseErr)
+
+	// Both halves fail: neither hides the other.
+	root := brokenScratch(t)
+	both := &containerWorkspace{dir: "/proj", agentID: "m", scratchRoot: root, baseCleanup: func() error { return baseErr }}
+	done := captureStderr(t)
+	err = both.Cleanup()
+	_ = done()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, baseErr)
+	assert.Contains(t, err.Error(), "remove container scratch")
+}
+
+// TestHostBase_PrunesOverlayTargetsItCreated is U062-F20's regression. The
+// overlay TARGET dirs must be pre-created as the invoking user — otherwise a
+// rootful daemon creates the bind mountpoint as ROOT inside the identical-path
+// project bind, EACCES-ing every later host run. But they were created inside the
+// user's HOST project and never removed: Cleanup only removed the scratch tree,
+// so preparing a container run left `.claude/` and `.ctxloom/cache/` behind in a
+// project that never had them, as a side effect of a run that writes nothing
+// there (the overlay shadows them; every write lands in scratch).
+//
+// Only what we created, only while still empty, and never a directory the
+// project already had.
+func TestHostBase_PrunesOverlayTargetsItCreated(t *testing.T) {
+	ctx := context.Background()
+	rt := fakeRuntime{name: "docker", available: true}
+	proj := t.TempDir()
+	scratch := t.TempDir()
+
+	// A directory the project already owns, with content: untouchable.
+	preexisting := filepath.Join(proj, ".kept")
+	require.NoError(t, os.MkdirAll(preexisting, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(preexisting, "user.json"), []byte("{}"), 0o644))
+
+	profile := containerProfile{overlayDirs: []string{".kept", ".claude", filepath.FromSlash(".ctxloom/cache")}}
+	_, _, cleanup, err := hostBase{}.prepareBase(ctx, rt, proj, "m", scratch, profile, &git.Fake{})
+	require.NoError(t, err)
+
+	for _, rel := range []string{".claude", filepath.FromSlash(".ctxloom/cache")} {
+		require.DirExists(t, filepath.Join(proj, rel), "the overlay target must exist before the daemon sees the mount")
+	}
+
+	require.NoError(t, cleanup())
+
+	assert.NoDirExists(t, filepath.Join(proj, ".claude"),
+		"an overlay target this run created must not outlive it in the user's project")
+	assert.NoDirExists(t, filepath.Join(proj, ".ctxloom"),
+		"…including the intermediate directories created with it")
+	assert.FileExists(t, filepath.Join(preexisting, "user.json"),
+		"a directory the project already owned is never pruned")
+}
+
+// TestHostBase_KeepsOverlayTargetsThatGainedContent: pruning is empty-only.
+// Anything that landed in a target dir belongs to the user (or to a writer the
+// overlay did not shadow), so the directory stays — and its parents with it.
+func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
+	ctx := context.Background()
+	proj := t.TempDir()
+
+	profile := containerProfile{overlayDirs: []string{filepath.FromSlash(".ctxloom/cache")}}
+	_, _, cleanup, err := hostBase{}.prepareBase(ctx, fakeRuntime{name: "docker", available: true},
+		proj, "m", t.TempDir(), profile, &git.Fake{})
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".ctxloom", "cache", "landed"), []byte("x"), 0o644))
+	require.NoError(t, cleanup())
+
+	assert.FileExists(t, filepath.Join(proj, ".ctxloom", "cache", "landed"),
+		"a target that gained content is never removed")
+}
+
+// TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture
+// U062-F22 re-opens. The row's facts are correct: the entire git common dir is
+// bind-mounted READ-WRITE at its identical path, so a low-trust
+// container-worktree member can reach the main checkout's refs/objects/index and
+// every other worktree's admin dir. That exposure is real and was adjudicated in
+// the tree before this wave (see gitCommonDirMount's own DECISION block): the
+// per-worktree admin dir a linked checkout needs is a SUBDIRECTORY of the common
+// dir, git needs write access to refs/logs and the packed-refs/objects layout,
+// and a surgical partial mount is fragile in ways that are easy to get subtly
+// wrong. Narrowing it is a per-agent-git-isolation design decision, not a sweep's
+// call — escalated, not changed here.
+//
+// What this pins is the posture itself, in both directions: read-only would
+// break every linked-worktree container run, and a non-identical path would
+// break the `gitdir:` pointer that made the mount necessary. A change to either
+// must be deliberate.
+func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
+	const common = "/repo/.git"
+	m, err := gitCommonDirMount(context.Background(),
+		fakeRuntime{name: "docker", available: true},
+		&git.Fake{CommonDirValue: common}, "/repo/wt")
+	require.NoError(t, err)
+
+	assert.Equal(t, common, m.Host, "the WHOLE common dir is the mount source (accepted blast radius)")
+	assert.Equal(t, common, m.Container, "identical-path, so a `gitdir:` pointer file resolves in-container")
+	assert.False(t, m.ReadOnly,
+		"read-write by design: a linked checkout writes its own admin files under <common>/worktrees/<name>")
+}

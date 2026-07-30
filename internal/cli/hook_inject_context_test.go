@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -345,4 +346,33 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 	t.Run("no .ctxloom → silent, never blocks", func(t *testing.T) {
 		assert.Empty(t, agentSetupNudge(t.TempDir(), 1))
 	})
+}
+
+// TestHookInjectContext_PanicIsNotSuccess (U036-F20) pins that a PANICKING
+// inject-context hook fails loud instead of reporting success with no context.
+// The recovery's job is to keep the host from hanging (it still writes the
+// empty `{}` envelope to stdout), not to convert a crash into a clean exit: a
+// hook that panics has delivered zero context, and exit 0 makes that
+// indistinguishable from "ctxloom had nothing to inject" — this project's
+// signature silent-no-op shape.
+//
+// The panic is induced through the real production path with no test seam: the
+// hook dereferences args[0], so an empty args slice panics inside the body the
+// recovery covers. (Cobra's ExactArgs(1) makes that unreachable via the CLI;
+// the point is that the recovery, whatever panics under it, must report.)
+func TestHookInjectContext_PanicIsNotSuccess(t *testing.T) {
+	var runErr error
+	var stderr string
+	stdout := captureStdout(t, func() {
+		stderr = captureStderr(t, func() {
+			runErr = hookInjectContextCmd.RunE(&cobra.Command{}, nil)
+		})
+	})
+
+	require.Error(t, runErr,
+		"a panicking hook must return an error so the process exits non-zero")
+	assert.Equal(t, "{}\n", stdout,
+		"the fallback empty envelope must still reach stdout so the host never hangs")
+	assert.Contains(t, stderr, "panic:",
+		"the panic must stay diagnosable on stderr")
 }

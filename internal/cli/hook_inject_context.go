@@ -53,18 +53,23 @@ Output format (JSON to stdout):
 	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		hash := args[0]
-
-		// Always output valid JSON, even on errors.
-		// This ensures Claude doesn't hang waiting for output.
+	RunE: func(cmd *cobra.Command, args []string) (err error) {
+		// Always output valid JSON, even on errors, so the host never hangs
+		// waiting for output — but a panic still exits NON-ZERO: a panicking
+		// hook has delivered zero context, and exit 0 would make that
+		// indistinguishable from "ctxloom had nothing to inject". Registered
+		// before the first statement that can panic (the args read below), so
+		// the whole body is covered.
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: panic: %v\n", r)
 				// Output empty JSON on panic
 				fmt.Println("{}")
+				err = fmt.Errorf("inject-context hook panicked: %v", r)
 			}
 		}()
+
+		hash := args[0]
 
 		// Read hook input from stdin (Claude passes session context here)
 		var hookInput claude.SessionStartPayload

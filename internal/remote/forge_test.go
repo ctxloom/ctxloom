@@ -63,6 +63,38 @@ func TestResolveForge_HostMatch(t *testing.T) {
 	assert.Equal(t, "GHE_TOKEN", rf.TokenEnv)
 }
 
+// TestResolveForge_UnknownLabelCannotBePersisted pins the guard that makes
+// U093-F07 unreachable.
+//
+// The row claimed an unknown `forge:` label on a remote is silently ignored and
+// falls through to host matching, binding the remote to a different endpoint
+// and a different token env. resolveForge's label lookup does indeed fall
+// through when the label is absent — but a remote cannot ACQUIRE an unknown
+// label: SetForge validates against MergeForges(registry forges) and refuses,
+// leaving the previous binding in place. Every label that can reach
+// resolveForge is therefore a label resolveForge can find.
+//
+// This goes red the moment that validation is relaxed.
+func TestResolveForge_UnknownLabelCannotBePersisted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remotes.yaml")
+	reg, err := NewRegistry(path)
+	require.NoError(t, err)
+	require.NoError(t, reg.Add("corp", "https://git.example.com/corp/repo"))
+	require.NoError(t, reg.SetForge("corp", "git"))
+
+	require.Error(t, reg.SetForge("corp", "no-such-forge"))
+
+	rem, err := reg.Get("corp")
+	require.NoError(t, err)
+	assert.Equal(t, "git", rem.Forge, "a refused bind must not overwrite the previous label")
+
+	// The surviving label resolves against the merged forge set — the lookup
+	// arm the row said was skipped.
+	forges := MergeForges(reg.Forges())
+	require.Contains(t, forges, rem.Forge)
+	assert.Equal(t, ForgeGitGeneric, resolveForge(rem.URL, rem.Forge, forges).Type)
+}
+
 // TestResolveForge_HostMatchIsDeterministic pins that host matching answers the
 // same way every time. The candidate set is a map, and ranging a Go map yields
 // a randomised order per iteration, so two forges sharing a base_url host used

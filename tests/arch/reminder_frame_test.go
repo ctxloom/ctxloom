@@ -54,6 +54,38 @@ var frameDeclarers = map[string]string{
 	"tests/arch/reminder_frame_test.go": "this gate",
 }
 
+// skipUninterestingDir prunes trees that hold no Go source this gate is about.
+func skipUninterestingDir(d fs.DirEntry) error {
+	switch d.Name() {
+	case ".git", "node_modules", "website", "dist", "man":
+		return fs.SkipDir
+	}
+	return nil
+}
+
+// relevantGoFile returns the module-relative path of a file this gate should
+// read, or "" for one it should skip:
+//
+//   - non-Go files carry no frame construction;
+//   - *.pb.go is protoc-gen-go's output, which copies every .proto comment into
+//     a Go doc comment verbatim — the reminder messages document the frame they
+//     render, and a comment in a file nobody edits is not where a frame gets
+//     built;
+//   - *_test.go may ASSERT on frames (the goldens have to name them); a test
+//     cannot deliver one into a live turn stream.
+func relevantGoFile(root, path string) (string, error) {
+	if !strings.HasSuffix(path, ".go") ||
+		strings.HasSuffix(path, ".pb.go") ||
+		strings.HasSuffix(path, "_test.go") {
+		return "", nil
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
+}
+
 // TestArch_ReminderFramesAreConstructedOnlyByGeneratedCode fails if any
 // non-test Go file outside the allowlist mentions the reminder tag.
 func TestArch_ReminderFramesAreConstructedOnlyByGeneratedCode(t *testing.T) {
@@ -67,37 +99,17 @@ func TestArch_ReminderFramesAreConstructedOnlyByGeneratedCode(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "website", "dist", "man":
-				return fs.SkipDir
-			}
-			return nil
+			return skipUninterestingDir(d)
 		}
-		if !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		rel, rerr := filepath.Rel(root, path)
-		if rerr != nil {
+		rel, rerr := relevantGoFile(root, path)
+		if rerr != nil || rel == "" {
 			return rerr
 		}
-		rel = filepath.ToSlash(rel)
 		if generatedFrameEncoders[rel] {
 			sawGenerated = true
 			return nil
 		}
-		// protoc-gen-go copies every .proto comment into the generated Go
-		// doc comment verbatim, and the reminder messages document the frame
-		// they render. Those are COMMENTS in a file nobody edits — the .proto
-		// is the source, and the .proto is not where a frame gets built.
-		if strings.HasSuffix(rel, ".pb.go") {
-			return nil
-		}
 		if _, ok := frameDeclarers[rel]; ok {
-			return nil
-		}
-		// Test files may ASSERT on frames (the goldens have to name them);
-		// they cannot deliver one into a turn stream.
-		if strings.HasSuffix(rel, "_test.go") {
 			return nil
 		}
 		b, rerr := os.ReadFile(path)

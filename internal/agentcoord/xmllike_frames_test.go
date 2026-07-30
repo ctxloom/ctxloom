@@ -112,23 +112,28 @@ func TestXmlLikeEscapeNeutralisesFrameForgery(t *testing.T) {
 // wire traffic, and everything the design says about frames being unforgeable
 // stops following.
 func TestReminderMessagesAreReachableFromNoWireMessage(t *testing.T) {
-	reminders := map[protoreflect.FullName]bool{}
-	files := []protoreflect.FileDescriptor{
-		(&MailPendingReminder{}).ProtoReflect().Descriptor().ParentFile(),
-	}
-	for _, fd := range files {
-		msgs := fd.Messages()
-		for i := 0; i < msgs.Len(); i++ {
-			if strings.HasSuffix(string(msgs.Get(i).Name()), "Reminder") {
-				reminders[msgs.Get(i).FullName()] = true
-			}
-		}
-	}
+	fd := (&MailPendingReminder{}).ProtoReflect().Descriptor().ParentFile()
+	reminders := reminderMessageNames(fd)
 	if len(reminders) != 5 {
 		t.Fatalf("found %d reminder messages, want 5 (update this test with the new frame)", len(reminders))
 	}
+	assertNoFieldCarriesAReminder(t, fd, reminders)
+	assertNoServiceMethodCarriesAReminder(t, fd, reminders)
+}
 
-	fd := (&MailPendingReminder{}).ProtoReflect().Descriptor().ParentFile()
+func reminderMessageNames(fd protoreflect.FileDescriptor) map[protoreflect.FullName]bool {
+	out := map[protoreflect.FullName]bool{}
+	msgs := fd.Messages()
+	for i := 0; i < msgs.Len(); i++ {
+		if strings.HasSuffix(string(msgs.Get(i).Name()), "Reminder") {
+			out[msgs.Get(i).FullName()] = true
+		}
+	}
+	return out
+}
+
+func assertNoFieldCarriesAReminder(t *testing.T, fd protoreflect.FileDescriptor, reminders map[protoreflect.FullName]bool) {
+	t.Helper()
 	msgs := fd.Messages()
 	for i := 0; i < msgs.Len(); i++ {
 		md := msgs.Get(i)
@@ -147,8 +152,10 @@ func TestReminderMessagesAreReachableFromNoWireMessage(t *testing.T) {
 			}
 		}
 	}
+}
 
-	// And no service method takes or returns one.
+func assertNoServiceMethodCarriesAReminder(t *testing.T, fd protoreflect.FileDescriptor, reminders map[protoreflect.FullName]bool) {
+	t.Helper()
 	svcs := fd.Services()
 	for i := 0; i < svcs.Len(); i++ {
 		methods := svcs.Get(i).Methods()

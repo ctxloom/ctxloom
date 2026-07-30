@@ -158,38 +158,8 @@ func xmlLikeFrame(md protoreflect.MessageDescriptor, ms *agentcoordpb.MessageSch
 	}
 	fields := md.Fields()
 	for i := 0; i < fields.Len(); i++ {
-		fld := fields.Get(i)
-		role, present := xmlRole(fld)
-		if !present {
-			return frame, fmt.Errorf(
-				"%s.%s has no (xml_role): every field of an xml_like message must declare one. "+
-					"Rendering is opt-IN so a field added later cannot leak into a model's context by "+
-					"omission — say XML_OMIT explicitly if that is what you mean",
-				md.FullName(), fld.Name())
-		}
-		switch role {
-		case agentcoordpb.XmlRole_XML_OMIT:
-			// Not rendered, and deliberately not recorded: the emitted source
-			// must not so much as name it (the default-OMIT leak test).
-		case agentcoordpb.XmlRole_XML_ATTRIBUTE:
-			attr, err := attributeFor(md, fld)
-			if err != nil {
-				return frame, err
-			}
-			frame.Attributes = append(frame.Attributes, attr)
-		case agentcoordpb.XmlRole_XML_CONTENT:
-			if err := contentEligible(md, fld); err != nil {
-				return frame, err
-			}
-			if frame.Content != nil {
-				return frame, fmt.Errorf(
-					"%s declares two XML_CONTENT fields (%s and %s): an element has one content, and "+
-						"concatenating two would have no defined order",
-					md.FullName(), frame.Content.Name, fld.Name())
-			}
-			frame.Content = &XmlLikeContent{Name: string(fld.Name()), Getter: fieldGetter(fld)}
-		default:
-			return frame, fmt.Errorf("%s.%s: unrecognised xml_role %d", md.FullName(), fld.Name(), role)
+		if err := addFieldToFrame(&frame, md, fields.Get(i)); err != nil {
+			return frame, err
 		}
 	}
 	if frame.Text != "" && frame.Content != nil {
@@ -199,6 +169,51 @@ func xmlLikeFrame(md protoreflect.MessageDescriptor, ms *agentcoordpb.MessageSch
 			md.FullName(), frame.Content.Name)
 	}
 	return frame, nil
+}
+
+// addFieldToFrame folds one field into the frame plan, applying constraint 1
+// (the annotation must be PRESENT) and dispatching on the declared role.
+func addFieldToFrame(frame *XmlLikeFrame, md protoreflect.MessageDescriptor, fld protoreflect.FieldDescriptor) error {
+	role, present := xmlRole(fld)
+	if !present {
+		return fmt.Errorf(
+			"%s.%s has no (xml_role): every field of an xml_like message must declare one. "+
+				"Rendering is opt-IN so a field added later cannot leak into a model's context by "+
+				"omission — say XML_OMIT explicitly if that is what you mean",
+			md.FullName(), fld.Name())
+	}
+	switch role {
+	case agentcoordpb.XmlRole_XML_OMIT:
+		// Not rendered, and deliberately not recorded: the emitted source must
+		// not so much as name it (the default-OMIT leak test).
+		return nil
+	case agentcoordpb.XmlRole_XML_ATTRIBUTE:
+		attr, err := attributeFor(md, fld)
+		if err != nil {
+			return err
+		}
+		frame.Attributes = append(frame.Attributes, attr)
+		return nil
+	case agentcoordpb.XmlRole_XML_CONTENT:
+		return setFrameContent(frame, md, fld)
+	default:
+		return fmt.Errorf("%s.%s: unrecognised xml_role %d", md.FullName(), fld.Name(), role)
+	}
+}
+
+// setFrameContent claims the single content slot, refusing a second claimant.
+func setFrameContent(frame *XmlLikeFrame, md protoreflect.MessageDescriptor, fld protoreflect.FieldDescriptor) error {
+	if err := contentEligible(md, fld); err != nil {
+		return err
+	}
+	if frame.Content != nil {
+		return fmt.Errorf(
+			"%s declares two XML_CONTENT fields (%s and %s): an element has one content, and "+
+				"concatenating two would have no defined order",
+			md.FullName(), frame.Content.Name, fld.Name())
+	}
+	frame.Content = &XmlLikeContent{Name: string(fld.Name()), Getter: fieldGetter(fld)}
+	return nil
 }
 
 // attributeFor enforces constraint 2 and builds the attribute plan.

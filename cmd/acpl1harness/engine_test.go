@@ -74,6 +74,13 @@ func waitForFullEvents(events <-chan agent.ChatEvent) bool {
 // imitation of sync.Once — two callers can both observe the default arm and
 // both close, panicking on "close of closed channel". Idempotence has to hold
 // under concurrency, not merely under sequential repetition.
+//
+// Measured against the pre-sync.Once guard: this loop panics "close of closed
+// channel" under the default GOMAXPROCS and is GREEN at GOMAXPROCS=1 — i.e. a
+// genuine race, not a latent logic error. The harness's only consumer today
+// (acpagent's closeAllSessions, a single goroutine calling Close once per
+// session over a snapshot taken under lock) never exercises it, so this test is
+// the only thing standing between the contract and a second caller appearing.
 func TestOpenHarnessEngine_ConcurrentCloseIsIdempotent(t *testing.T) {
 	for range 50 {
 		chat, err := openHarnessEngine(context.Background(), operations.OpenRequest{})

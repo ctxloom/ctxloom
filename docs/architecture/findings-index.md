@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,213** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 94 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 95 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **663** |
+| `open` | no commit names this ID | **662** |
 
-**Totals: 2268 findings across 162 units — 1,213 resolved, 663 still open, 392 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,213 resolved, 662 still open, 393 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 411 | 373 | 53 | 67 | 95 |
+| MED | 999 | 411 | 372 | 54 | 67 | 95 |
 | LOW | 871 | 446 | 273 | 28 | 73 | 51 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1819,7 +1819,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U128-F03 | **RESOLVED** `e48bd7ad` | **`parse.go:52-53`** | CORRECTNESS | `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array — a common model habit — producing a garbage span that fails to unmarshal and degrades the chunk. | U128.md |
 | U128-F04 | open | `verdict.go:58-79` | COHESION | `Verdict` fuses three fields with three different trust directions and lifetimes: the model↔caller contract, an internal round-1→round-2 control signal (`Queries`), and caller-stamped provenance (`... | U128.md |
 | U128-F05 | **RESOLVED** `6596525f` | `prompt.go:112, prompt.go:213` | COUPLING | The response contracts hardcode the outcome vocabulary as pipe-separated string literals (`"fired\ | U128.md |
-| U128-F07 | open | `prompt.go:18, prompt.go:86` | SILENTNOOP | Given an empty `Batch`, `BuildPrompt` succeeds and returns a full prompt whose `=== Deferred tasks ===` header has nothing beneath it — asking a model to judge zero tasks. Zero payload, no error. `... | U128.md |
+| U128-F07 | **PARTIAL** `846509f3` | `prompt.go:18, prompt.go:86` | SILENTNOOP | Given an empty `Batch`, `BuildPrompt` succeeds and returns a full prompt whose `=== Deferred tasks ===` header has nothing beneath it — asking a model to judge zero tasks. Zero payload, no error. `... | U128.md |
 | U129-F01 | **RESOLVED** `6c89e42f` | `textutil.go:10` + 9 call sites` | DUPLICATE | **The concept every caller actually wants is "ellipsize to fit N bytes", and all nine of them hand-roll the second half of it.** Worse, the result *exceeds* the requested cap by the suffix length, ... | U129.md |
 | U129-F02 | open | `textutil.go:11-13`, realised at `internal/compression/json.go:203,221` | SILENTNOOP | `TruncateBytes(s, 0)` silently returns `""`. At the one call site whose `maxBytes` is configuration rather than a literal, a zero value would turn **every** long string value in the compressed JSON... | U129.md |
 | U129-F03 | open | **`internal/memory/compactor.go:774,793`** | COUPLING | Two call sites use `len(textutil.TruncateBytes(s, n))` purely to compute an **integer rune-boundary offset**, discarding the string. That allocates and copies up to `n` bytes to answer a question t... | U129.md |

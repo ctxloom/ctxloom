@@ -1286,8 +1286,13 @@ func (ts *TrustStamper) signerFor(loadRef string) string {
 	return bundle.Signer()
 }
 
-// resolve runs the decision function with the stamper's shared records store
-// so no per-item file I/O happens on the happy path.
+// resolve runs the decision function with the stamper's shared records store,
+// so no item re-reads the countersignature stores. It does NOT make the call
+// I/O-free: Retraction is left unset, so EffectiveTrust reads and parses the
+// active lockfile once per stamped item (measured in
+// trust_perkitem_io_test.go). Sharing that too would fix the sample point of
+// retraction state for a whole listing, which is a trust decision, not a
+// caching one.
 func (ts *TrustStamper) resolve(ref trust.Ref, payload []byte, form, signer string) EffectiveTrustResult {
 	res, err := EffectiveTrust(ts.cfg, EffectiveTrustRequest{
 		Ref:     ref,

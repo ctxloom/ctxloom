@@ -349,7 +349,8 @@ func warnOverriddenNegations(path string, content []byte, appended []string) {
 		}
 		target := strings.TrimPrefix(neg, "!")
 		for _, p := range appended {
-			if target != p && !(strings.HasSuffix(p, "/") && strings.HasPrefix(target, p)) {
+			shadowed := target == p || (strings.HasSuffix(p, "/") && strings.HasPrefix(target, p))
+			if !shadowed {
 				continue
 			}
 			clidiag.Warn("ctxloom",

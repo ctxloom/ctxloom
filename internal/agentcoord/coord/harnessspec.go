@@ -44,8 +44,14 @@ type HarnessSpecInput struct {
 }
 
 // buildHarnessSpec encodes a HarnessSpecInput into the wire HarnessSpec the
-// coordinator hands the runner over StartRun.
+// coordinator hands the runner over StartRun. D3 is checked HERE as well as at
+// the decoding end: headless-safety is a property of the spec, so the end that
+// composes one refuses an unsafe posture with the coordinator's own context
+// rather than shipping a spec the runner is obliged to reject.
 func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
+	if !in.Permission.SafeHeadless() {
+		return nil, fmt.Errorf("coord: permission mode %q is not headless-safe (D3: a delegated run has no channel to surface a prompt)", in.Permission)
+	}
 	fields := map[string]any{}
 	if in.SessionHarp != "" {
 		fields[harnessConfigKeySessionHarp] = in.SessionHarp
@@ -58,24 +64,7 @@ func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
 		fields[harnessConfigKeyEnv] = envObj
 	}
 	if len(in.MCPServers) > 0 {
-		servers := make([]any, 0, len(in.MCPServers))
-		for _, s := range in.MCPServers {
-			args := make([]any, 0, len(s.Args))
-			for _, a := range s.Args {
-				args = append(args, a)
-			}
-			envObj := make(map[string]any, len(s.Env))
-			for k, v := range s.Env {
-				envObj[k] = v
-			}
-			servers = append(servers, map[string]any{
-				"name":    s.Name,
-				"command": s.Command,
-				"args":    args,
-				"env":     envObj,
-			})
-		}
-		fields[harnessConfigKeyMCPServers] = servers
+		fields[harnessConfigKeyMCPServers] = encodeMCPServers(in.MCPServers)
 	}
 	var cfg *structpb.Struct
 	if len(fields) > 0 {
@@ -95,6 +84,29 @@ func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
 	}, nil
 }
 
+// encodeMCPServers writes the managed MCP set in the mcp_servers convention —
+// decodeMCPServers' inverse, kept adjacent to it so the shape cannot drift.
+func encodeMCPServers(in []agent.ChatMCPServer) []any {
+	servers := make([]any, 0, len(in))
+	for _, s := range in {
+		args := make([]any, 0, len(s.Args))
+		for _, a := range s.Args {
+			args = append(args, a)
+		}
+		envObj := make(map[string]any, len(s.Env))
+		for k, v := range s.Env {
+			envObj[k] = v
+		}
+		servers = append(servers, map[string]any{
+			"name":    s.Name,
+			"command": s.Command,
+			"args":    args,
+			"env":     envObj,
+		})
+	}
+	return servers
+}
+
 // DecodedHarnessSpec is the runner-side projection of a StartRun HarnessSpec:
 // a ready-to-use agent.ChatRequest (minus the initial prompt, which rides
 // StartRun.input separately) plus the fields config carries by convention
@@ -102,6 +114,41 @@ func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
 type DecodedHarnessSpec struct {
 	Chat        agent.ChatRequest
 	SessionHarp string
+}
+
+// decodeMCPServers reads the mcp_servers config convention into the typed set.
+// An entry that is not a usable server — not an object, or missing the name or
+// the command — is REFUSED: coercing it into an empty ChatMCPServer hands the
+// engine a server with no identity and no executable, which fails later, far
+// from the malformed spec that caused it. An absent key is not an error (no
+// managed servers is a valid child).
+func decodeMCPServers(v *structpb.Value) ([]agent.ChatMCPServer, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var servers []agent.ChatMCPServer
+	for i, item := range v.GetListValue().GetValues() {
+		sf := item.GetStructValue().GetFields()
+		name := sf["name"].GetStringValue()
+		command := sf["command"].GetStringValue()
+		if name == "" || command == "" {
+			return nil, fmt.Errorf("coord: StartRun.harness.config %s[%d] needs both a name and a command (got name %q, command %q)",
+				harnessConfigKeyMCPServers, i, name, command)
+		}
+		var args []string
+		for _, av := range sf["args"].GetListValue().GetValues() {
+			args = append(args, av.GetStringValue())
+		}
+		var senv map[string]string
+		if envFields := sf["env"].GetStructValue().GetFields(); len(envFields) > 0 {
+			senv = make(map[string]string, len(envFields))
+			for k, fv := range envFields {
+				senv[k] = fv.GetStringValue()
+			}
+		}
+		servers = append(servers, agent.ChatMCPServer{Name: name, Command: command, Args: args, Env: senv})
+	}
+	return servers, nil
 }
 
 // decodeHarnessSpec is buildHarnessSpec's inverse: the runner's translation
@@ -134,28 +181,9 @@ func decodeHarnessSpec(spec *agentcoordpb.HarnessSpec) (DecodedHarnessSpec, erro
 			env[k] = fv.GetStringValue()
 		}
 	}
-	var servers []agent.ChatMCPServer
-	if v, ok := cfg[harnessConfigKeyMCPServers]; ok {
-		for _, item := range v.GetListValue().GetValues() {
-			sf := item.GetStructValue().GetFields()
-			var args []string
-			for _, av := range sf["args"].GetListValue().GetValues() {
-				args = append(args, av.GetStringValue())
-			}
-			var senv map[string]string
-			if envFields := sf["env"].GetStructValue().GetFields(); len(envFields) > 0 {
-				senv = make(map[string]string, len(envFields))
-				for k, fv := range envFields {
-					senv[k] = fv.GetStringValue()
-				}
-			}
-			servers = append(servers, agent.ChatMCPServer{
-				Name:    sf["name"].GetStringValue(),
-				Command: sf["command"].GetStringValue(),
-				Args:    args,
-				Env:     senv,
-			})
-		}
+	servers, err := decodeMCPServers(cfg[harnessConfigKeyMCPServers])
+	if err != nil {
+		return out, err
 	}
 
 	out.Chat = agent.ChatRequest{

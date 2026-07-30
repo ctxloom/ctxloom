@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -207,6 +208,7 @@ func TestGRPCServer_Chat_RecvTransportErrorKeepsItsCode(t *testing.T) {
 type fakeChatClientStream struct {
 	mu            sync.Mutex
 	sent          []*ChatInput
+	sendErrAfter  int // >0: fail every Send once this many have landed
 	recv          []*ChatEvent
 	recvIdx       int
 	closeSendOnce sync.Once
@@ -219,8 +221,13 @@ func newFakeChatClientStream(recv []*ChatEvent) *fakeChatClientStream {
 
 func (s *fakeChatClientStream) Send(in *ChatInput) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	// sendErrAfter models a stream that breaks mid-conversation: the first N
+	// sends land, every later one fails (and delivers nothing).
+	if s.sendErrAfter > 0 && len(s.sent) >= s.sendErrAfter {
+		return errors.New("chat stream send failed")
+	}
 	s.sent = append(s.sent, in)
-	s.mu.Unlock()
 	return nil
 }
 func (s *fakeChatClientStream) sentInputs() []*ChatInput {
@@ -294,6 +301,54 @@ func TestGRPCClient_Chat_SendsStartAndMessages_ReceivesEvents(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"hello"}, texts)
+}
+
+// TestGRPCClient_Chat_SendFailureKeepsDrainingInput pins U059-F07: when a
+// stream Send failed, the inbound pump broke out of its loop and returned,
+// leaving `in` with NO reader at all. Every later write to `in` — the channel
+// this method hands the caller and documents as "write messages here" — blocked
+// forever, with no error and no closed channel to notice. The pump must keep
+// draining input after a send failure so the caller can still make progress and
+// close `in` normally.
+func TestGRPCClient_Chat_SendFailureKeepsDrainingInput(t *testing.T) {
+	cs := newFakeChatClientStream(nil)
+	cs.sendErrAfter = 1 // the start lands; every user message fails
+	c := &GRPCClient{client: &fakeLLMClient{chatStream: cs}}
+
+	in, events, errs, err := c.Chat(context.Background(), agent.ChatRequest{})
+	require.NoError(t, err)
+
+	go func() {
+		for range events {
+		}
+		for range errs {
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		in <- agent.ChatMessage{Text: "first"}
+		in <- agent.ChatMessage{Text: "second — this one used to block forever"}
+		close(in)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writing to `in` blocked: the inbound pump abandoned the channel after a send failure")
+	}
+
+	select {
+	case <-cs.closeSendDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CloseSend never fired — the pump did not run to completion")
+	}
+
+	// Nothing after the start was delivered, and nothing pretends otherwise.
+	sent := cs.sentInputs()
+	require.Len(t, sent, 1)
+	assert.NotNil(t, sent[0].GetStart())
 }
 
 func TestGRPCClient_Chat_DialErrorReturned(t *testing.T) {

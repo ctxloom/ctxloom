@@ -395,14 +395,27 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 		if coord != nil {
 			defer coord.ProducerDone()
 		}
+		// A failed Send does not release this goroutine: `in` is the channel the
+		// caller was handed and told to write to, so abandoning it mid-
+		// conversation leaves every later write blocked forever on a channel
+		// with no reader. Keep draining until the caller closes it. Nothing
+		// further is sent, and nothing further is recorded either — an
+		// undelivered turn is not part of the conversation. The broken stream
+		// itself surfaces on `errs`, whose receive side fails on the same
+		// stream.
+		sendFailed := false
 		for msg := range in {
+			if sendFailed {
+				continue
+			}
 			if coord != nil && msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn {
 				if entry := userTapEntry(msg); entry != nil {
 					coord.Submit(ctx, agent.ChatEvent{Entry: entry})
 				}
 			}
 			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
-				break
+				sendFailed = true
+				clidiag.Warn("ctxloom", "chat: message not delivered to the engine: %v", serr)
 			}
 		}
 		_ = stream.CloseSend() // input done → half-close so the backend completes

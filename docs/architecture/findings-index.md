@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,057** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 41 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 94 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **943** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,061** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 43 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 98 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 135 |
+| `open` | no commit names this ID | **931** |
 
-**Totals: 2268 findings across 162 units — 1,057 resolved, 943 still open, 268 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,061 resolved, 931 still open, 276 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 312 | 552 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 365 | 13 | 51 | 47 |
+| MED | 999 | 314 | 545 | 19 | 38 | 83 |
+| LOW | 871 | 397 | 360 | 14 | 52 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -990,14 +990,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U016-F19 | open | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
 | U016-F22 | open | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
 | U016-F23 | open | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |
-| U019-F03 | open | `artifacts.go:163–170` | ERRHANDLING | The handler waits on `<-chunkErrCh` unconditionally even when `writeAtomic` has already failed. If the store errored early (temp-file create at artifactstore.go:69, write/disk-full at :80, fsync at... | U019.md |
-| U019-F04 | open | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
-| U019-F05 | open | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |
-| U019-F06 | open | `artifactstore.go:100` | CORRECTNESS | The blob rename is not followed by a directory fsync, but the *manifest* that references the blob is fsynced (`Store.Exec` → journal.go:232). After a crash the durable manifest can point at a blob ... | U019.md |
+| U019-F03 | **RESOLVED** `2e1e1c54` | `artifacts.go:163–170` | ERRHANDLING | The handler waits on `<-chunkErrCh` unconditionally even when `writeAtomic` has already failed. If the store errored early (temp-file create at artifactstore.go:69, write/disk-full at :80, fsync at... | U019.md |
+| U019-F04 | **REFUTED** `377169bf` | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
+| U019-F05 | **ESCALATED** `PENDING1` | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |
+| U019-F06 | **RESOLVED** `f65e56ab` | `artifactstore.go:100` | CORRECTNESS | The blob rename is not followed by a directory fsync, but the *manifest* that references the blob is fsynced (`Store.Exec` → journal.go:232). After a crash the durable manifest can point at a blob ... | U019.md |
 | U019-F07 | **ESCALATED** `8ad8145a` | `artifactstore.go (whole file)` | NOPAY | The blob store has no delete, prune or GC — verified with `rg -iE "remove\ | U019.md |
-| U019-F08 | open | `artifacts.go:96–98, :180` | COUPLING | `artifact_id` is validated as required but is never used to store, key or resolve anything — the blob is keyed by content hash and the manifest arrives on a *separate* `ArtifactProduced` plane-1 ev... | U019.md |
-| U019-F09 | open | `artifacts.go:198, :81, :112; approval.go:59, :186` | COMPLEXITY | Five of this unit's 25 functions are at or over the project's CI gate of CCN 10: `DownloadArtifact` 17, `UploadArtifact` 11, the anonymous chunk goroutine 10, `serveApproval` 10, `relayApproval` 10 | U019.md |
-| U019-F10 | open | `approval.go:63–68, :84` | CORRECTNESS | `rec = *r` copies a `RunRecord` whose `Ladder` field is a slice header, and `rec.Ladder.matchingRungs(kind)` at :84 then reads the fold's backing array **outside** the `View` window. `Store.View`'s... | U019.md |
+| U019-F08 | **REFUTED** `5132b152` | `artifacts.go:96–98, :180` | COUPLING | `artifact_id` is validated as required but is never used to store, key or resolve anything — the blob is keyed by content hash and the manifest arrives on a *separate* `ArtifactProduced` plane-1 ev... | U019.md |
+| U019-F09 | **PARTIAL** `dce316bc` | `artifacts.go:198, :81, :112; approval.go:59, :186` | COMPLEXITY | Five of this unit's 25 functions are at or over the project's CI gate of CCN 10: `DownloadArtifact` 17, `UploadArtifact` 11, the anonymous chunk goroutine 10, `serveApproval` 10, `relayApproval` 10 | U019.md |
+| U019-F10 | **REFUTED** `cad45e3b` | `approval.go:63–68, :84` | CORRECTNESS | `rec = *r` copies a `RunRecord` whose `Ladder` field is a slice header, and `rec.Ladder.matchingRungs(kind)` at :84 then reads the fold's backing array **outside** the `View` window. `Store.View`'s... | U019.md |
 | U020-F05 | open | **`children.go:1135-1141, 1152-1161, 1088-1090`** | CORRECTNESS | A mailbox message is journaled **consumed** before it is delivered, and every early return after that point drops it silently with no requeue and no warning. | U020.md |
 | U020-F06 | open | **`children.go:1424-1426`** | ERRHANDLING | The documented invariant "the parent ALWAYS learns of a child death (blue-paper)" is warn-only. | U020.md |
 | U020-F07 | open | **`children.go:1618`** | CORRECTNESS | `resumeChild` reads the mutex-guarded `rt.slotHeld` without holding `c.mu`, while the structurally identical code in `runChild` takes the lock. | U020.md |
@@ -1980,12 +1980,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U015-F04 | open | **`schema.go:20-23`, `:26-28`** | COUPLING | The re-vendor instructions and the pinned-provenance constants can drift apart silently: the documented `curl` command fetches `main` (`schema.go:28`), while `SchemaSourceURL` (`:46`) pins the comm... | U015.md |
 | U016-F20 | open | `coordination.proto:83-101, 1218-1219` | CORRECTNESS | Historical field renumbering left no `reserved` tombstones, and the safety argument for that is not recorded in the file. | U016.md |
 | U016-F21 | **ESCALATED** `8ad8145a` | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
-| U019-F11 | open | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
-| U019-F12 | open | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |
-| U019-F13 | open | `artifactstore.go:47, artifacts.go:218` | CORRECTNESS | `artifactStore.path` does a bare `filepath.Join(s.dir, shaHex)` with no validation, and `DownloadArtifact` feeds it `rec.SHA256` — a string read back out of the runs journal. Safe today because `re... | U019.md |
+| U019-F11 | **RESOLVED** `aa6d4ff1` | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
+| U019-F12 | **PARTIAL** `82f4ba0d` | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |
+| U019-F13 | **RESOLVED** `e41c35d0` | `artifactstore.go:47, artifacts.go:218` | CORRECTNESS | `artifactStore.path` does a bare `filepath.Join(s.dir, shaHex)` with no validation, and `DownloadArtifact` feeds it `rec.SHA256` — a string read back out of the runs journal. Safe today because `re... | U019.md |
 | U019-F14 | **RESOLVED** `72f7f6bf` | `artifactstore.go:108–114` | TRIVIAL | `artifactStore.open` is a pure pass-through: `f, err := os.Open(p); if err != nil { return nil, err }; return f, nil` is byte-for-byte equivalent to `return os.Open(p)`. It adds no wrapping, no inv... | U019.md |
-| U019-F15 | open | `approval.go:77` | CORRECTNESS | The ACCEPT_FOR_SESSION cache is consulted **before** the ladder, so a cached grant outranks a later `auto_decline` rung; and the grant is keyed only by `(harp, kind)`, so one "accept for session" o... | U019.md |
-| U019-F16 | open | `approval.go:78, :89, :97, :122, :132, :139` | COUPLING | The audit actor is `caller.Harp` while every detail field comes from `rec` (`rec.RunID`), and `relayApproval`'s warnings use `rec.Harp`. Two names for one identity inside one function; they are equ... | U019.md |
+| U019-F15 | **ESCALATED** `PENDING1` | `approval.go:77` | CORRECTNESS | The ACCEPT_FOR_SESSION cache is consulted **before** the ladder, so a cached grant outranks a later `auto_decline` rung; and the grant is keyed only by `(harp, kind)`, so one "accept for session" o... | U019.md |
+| U019-F16 | **REFUTED** `cad45e3b` | `approval.go:78, :89, :97, :122, :132, :139` | COUPLING | The audit actor is `caller.Harp` while every detail field comes from `rec` (`rec.RunID`), and `relayApproval`'s warnings use `rec.Harp`. Two names for one identity inside one function; they are equ... | U019.md |
 | U019-F17 | **ESCALATED** `8ad8145a` | `artifacts.go:244–249` | NOPAY | `DownloadArtifact` implements resumable download via `req.offset`, but the only shipped client never sets it (homeartifacts.go:90–93) *and would reject any partial response*: `Home.DownloadArtifact... | U019.md |
 | U020-F11 | **REFUTED** `7a7c9fcf` | `consumer.go:253-255` | DEAD | `Coordinator.ListRuns` is a one-line pass-through with no production callers. | U020.md |
 | U020-F14 | open | **`children.go:1055`** | CORRECTNESS | `rt.oneshot` is read outside `c.mu` one line before the same function locks it. | U020.md |

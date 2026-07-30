@@ -68,6 +68,16 @@ func runSessionBackfill(cmd *cobra.Command, args []string) error {
 	}); rerr != nil {
 		return rerr
 	}
+	// An interrupted run stops where it was (BackfillVendorTranscripts returns
+	// on a cancelled context), so the report above covers only the sessions it
+	// reached — reporting that partial tally and exiting 0 would say the
+	// backfill completed. The remaining sessions are still unconverted, and
+	// re-running is the fix, so say so rather than leaving the user to infer it
+	// from a count they have nothing to compare against.
+	if cerr := cmd.Context().Err(); cerr != nil {
+		return fmt.Errorf("session backfill stopped after %d converted, %d skipped: %w — re-run to continue",
+			len(result.Converted), result.Skipped, cerr)
+	}
 	// U042-F02: every entry that was actually attempted (i.e. not Skipped —
 	// no vendor transcript located, already canonical, unregistered backend)
 	// failing must not exit 0. The per-harp detail is already in the

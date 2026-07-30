@@ -96,3 +96,36 @@ func TestBackfillResult_FailedHarps_Sorted(t *testing.T) {
 	}}
 	assert.Equal(t, []string{"alpha-harp", "mid-harp", "zebra-harp"}, r.FailedHarps())
 }
+
+// TestBackfillVendorTranscripts_CancellationStopsRatherThanFailingEveryEntry
+// pins U089-F21. Every registered adapter checks ctx per line
+// (importer.ConvertJSONLLines, kiro's own per-turn loop), so a cancelled
+// backfill did not stop — it kept calling Convert, and each call returned
+// context.Canceled, which the loop recorded as a per-harp FAILURE. The user
+// got one "failed: <harp> (context canceled)" line per remaining session,
+// libelling healthy sessions as broken imports for what was really one event:
+// they interrupted the command. Worse, each of those attempts also ran
+// ConvertVendorTranscript's partial-file cleanup.
+//
+// A cancelled context means STOP, so nothing after it is attempted and nothing
+// is blamed.
+func TestBackfillVendorTranscripts_CancellationStopsRatherThanFailingEveryEntry(t *testing.T) {
+	testsupport.Isolate(t)
+
+	entries := []sessions.Entry{
+		{HarpName: "backfill-cancel-a", Backend: "codex", TranscriptPath: codexFixturePath},
+		{HarpName: "backfill-cancel-b", Backend: "codex", TranscriptPath: codexFixturePath},
+		{HarpName: "backfill-cancel-c", Backend: "claude-code", TranscriptPath: claudeFixturePath},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := BackfillVendorTranscripts(ctx, entries)
+
+	assert.Empty(t, result.Failed,
+		"interrupting the command is one event, not a per-session import failure — no harp may be reported as failed for it")
+	assert.Empty(t, result.Converted, "nothing can have been converted after the context was already cancelled")
+	assert.Equal(t, 0, result.Skipped,
+		"an entry that was never attempted is not \"nothing to do\" either — a cancelled run stops rather than classifying the rest")
+}

@@ -279,6 +279,17 @@ type buildSourcesOptions struct {
 // could never produce a source.)
 func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 	if opts.baseOverride != "" {
+		if p.validate == "" {
+			// The overlay's only proof the base really ships the client is
+			// the profile's validate command, and an unprofiled backend has
+			// none — the image then builds, tags and passes every ctxloom/
+			// companion gate while the engine may be absent, surfacing only
+			// as a run-time exec failure. The caller's assertion still wins
+			// (this is the escape hatch), but it must not pass unremarked.
+			clidiag.Warn("ctxloom",
+				"no client-validation command is registered for this engine, so the agent image overlaid onto %q cannot be checked for a runnable client at build time; if the base does not ship one, every containerized run fails with the engine binary missing",
+				opts.baseOverride)
+		}
 		return []buildSource{{
 			desc:          "overlay on base image " + opts.baseOverride,
 			containerfile: overlayContainerfile(opts.baseOverride, p.validate),

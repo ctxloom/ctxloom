@@ -251,6 +251,38 @@ func TestOverlayContainerfile(t *testing.T) {
 	assert.Contains(t, noValidate, "RUN /usr/local/bin/ctxloom version\n", "the ctxloom gate always runs")
 }
 
+// TestBuildSources_OverrideWithoutValidateWarns pins U063-F22, the sibling of
+// U063-F02: the overlay Containerfile emits its client-validation `RUN` only
+// when the profile HAS a validate command, and the default (unprofiled)
+// profile has none. `ctxloom container build <unprofiled> --base-image X`
+// therefore shipped an agent image whose engine was never proven to exist —
+// it builds, tags, passes every ctxloom/companion gate, and fails at run time
+// with the engine binary simply absent. The rendering is correct (there is no
+// command to run); the silence about it was not.
+func TestBuildSources_OverrideWithoutValidateWarns(t *testing.T) {
+	p := containerProfileFor("mock")
+	require.Empty(t, p.validate, "precondition: the default profile has no client validate command")
+
+	buf := captureWarnings(t)
+	sources := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
+	require.Len(t, sources, 1, "the override still wins outright — this must stay a warning, not a refusal")
+	assert.NotContains(t, string(sources[0].containerfile), "RUN \n", "no empty validate RUN is rendered")
+
+	warning := buf.String()
+	assert.Contains(t, warning, "my-base:latest")
+	assert.Contains(t, warning, "client-validation", "the warning names the missing client-validation gate")
+}
+
+// TestBuildSources_OverrideWithValidateIsSilent: a profiled backend's override
+// DOES get its validate gate, so it must not draw the U063-F22 warning.
+func TestBuildSources_OverrideWithValidateIsSilent(t *testing.T) {
+	buf := captureWarnings(t)
+	sources := buildSources(containerProfileFor("claude-code"), buildSourcesOptions{baseOverride: "my-base:latest"})
+	require.Len(t, sources, 1)
+	assert.Contains(t, string(sources[0].containerfile), "RUN claude --version\n")
+	assert.Empty(t, buf.String(), "a profile that CAN validate its client warns about nothing")
+}
+
 // TestOverlayUserGate_FailsTheBuildWithAFixIt: a base that cannot grow the
 // identity machinery (the ctxloom user, and setpriv or gosu+usermod+groupmod)
 // must FAIL the build with a fix-it — the old all-`|| true` layer shipped an

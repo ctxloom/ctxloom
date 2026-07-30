@@ -188,10 +188,17 @@ func (s *Schema) IsScalar(target string) bool {
 // `tagma.enum:"triage:type"="correctness,security,..."` — and whether one
 // was declared. Each returned value is trimmed; empty entries (e.g. a
 // trailing comma) are dropped rather than surfacing as a spurious "" member.
-func (s *Schema) Enum(target string) ([]string, bool) {
-	v, ok := s.Get(EnumFacet, target)
-	if !ok {
-		return nil, false
+//
+// A declaration left with NO usable member (an empty value, or nothing but
+// separators and whitespace) is a returned error naming the offending
+// target, exactly as Range reports a malformed range: an empty-but-present
+// member list is indistinguishable at every consumer from a closed set that
+// admits nothing, so lint and the write seam would reject EVERY value on
+// that target while nothing could say the declaration was the fault.
+func (s *Schema) Enum(target string) (members []string, ok bool, err error) {
+	v, has := s.Get(EnumFacet, target)
+	if !has {
+		return nil, false, nil
 	}
 	parts := strings.Split(v, ",")
 	out := make([]string, 0, len(parts))
@@ -201,7 +208,10 @@ func (s *Schema) Enum(target string) ([]string, bool) {
 			out = append(out, p)
 		}
 	}
-	return out, true
+	if len(out) == 0 {
+		return nil, true, fmt.Errorf("tag_schema: enum declaration for %q lists no usable member, got %q", target, v)
+	}
+	return out, true, nil
 }
 
 // Range returns target's declared numeric [min,max] range — a facet="range"

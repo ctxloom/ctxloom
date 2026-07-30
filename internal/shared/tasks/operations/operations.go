@@ -544,8 +544,13 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 	}
 	target := tagschema.Target(parsed)
 	value := *parsed.Value
-	if enum, ok := schema.Enum(target); ok && !slices.Contains(enum, value) {
-		return fmt.Errorf("tag %q's value %q is not one of %s's declared enum values %v", tag, value, target, enum)
+	if enum, ok, eerr := schema.Enum(target); ok {
+		if eerr != nil {
+			return fmt.Errorf("tag %q: %w", tag, eerr)
+		}
+		if !slices.Contains(enum, value) {
+			return fmt.Errorf("tag %q's value %q is not one of %s's declared enum values %v", tag, value, target, enum)
+		}
 	}
 	if min, max, ok, rerr := schema.Range(target); ok {
 		if rerr != nil {

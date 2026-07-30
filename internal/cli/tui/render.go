@@ -63,40 +63,7 @@ func renderItem(it feedItem, width int, expanded bool) []string {
 	prefix := indent + tag + " "
 	cont := indent + strings.Repeat(" ", tagW+1)
 
-	var raw []string
-	switch it.role {
-	case "tool_use":
-		line := it.toolName
-		if in := compactOneLine(it.toolInput); in != "" {
-			line += " " + in
-		}
-		if expanded {
-			raw = append(raw, it.toolName)
-			raw = append(raw, splitLines(it.toolInput)...)
-		} else {
-			raw = []string{truncateLine(line, body)}
-		}
-	case "tool_result":
-		out := it.toolOutput
-		if out == "" {
-			out = it.text
-		}
-		lines := splitLines(out)
-		if expanded {
-			raw = append([]string{resultSummary(it, lines, true)}, lines...)
-		} else {
-			raw = []string{resultSummary(it, lines, false)}
-		}
-	case "thinking":
-		lines := splitLines(it.text)
-		if expanded || len(lines) <= 1 {
-			raw = lines
-		} else {
-			raw = []string{truncateLine(lines[0], body-2) + " …"}
-		}
-	default:
-		raw = splitLines(it.text)
-	}
+	raw := itemBodyLines(it, body, expanded)
 	if len(raw) == 0 {
 		raw = []string{""}
 	}
@@ -116,6 +83,40 @@ func renderItem(it feedItem, width int, expanded bool) []string {
 		}
 	}
 	return out
+}
+
+// itemBodyLines is the per-role body of a feed item, before the role tag and
+// the wrap are applied. body is the column budget one line has.
+func itemBodyLines(it feedItem, body int, expanded bool) []string {
+	switch it.role {
+	case "tool_use":
+		if expanded {
+			return append([]string{it.toolName}, splitLines(it.toolInput)...)
+		}
+		line := it.toolName
+		if in := compactOneLine(it.toolInput); in != "" {
+			line += " " + in
+		}
+		return []string{truncateLine(line, body)}
+	case "tool_result":
+		out := it.toolOutput
+		if out == "" {
+			out = it.text
+		}
+		lines := splitLines(out)
+		if expanded {
+			return append([]string{resultSummary(it, lines, true)}, lines...)
+		}
+		return []string{resultSummary(it, lines, false)}
+	case "thinking":
+		lines := splitLines(it.text)
+		if expanded || len(lines) <= 1 {
+			return lines
+		}
+		return []string{truncateLine(lines[0], body-2) + " …"}
+	default:
+		return splitLines(it.text)
+	}
 }
 
 // resultSummary is the tool_result one-liner: ok/error plus a size cue. The

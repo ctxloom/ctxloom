@@ -231,96 +231,118 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 	}
 }
 
+// Update dispatches one message. Every arm's handling lives in its own
+// method: the dispatch stays readable as the message family grows, and each
+// arm can be reasoned about (and read) on its own.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.updateKey(msg)
-
 	case rosterMsg:
-		hadRows := len(m.rows) > 0
-		keep := ""
-		if hadRows && m.sel < len(m.rows) {
-			keep = m.rows[m.sel].Harp
-		}
-		m.rows = msg.rows
-		m.sel = 0
-		for i, r := range m.rows {
-			if r.Harp == keep {
-				m.sel = i
-				break
-			}
-		}
-		m.rosterErr = ""
-		if len(m.rows) > 0 {
-			if m.status == statusLoading || m.status == statusNoSessions {
-				m.status = ""
-			}
-			if !hadRows {
-				cmd := m.openFeed(m.rows[m.sel].Harp)
-				return m, cmd
-			}
-		} else {
-			m.status = statusNoSessions
-		}
-		return m, nil
-
+		return m.applyRoster(msg)
 	case rosterErrMsg:
 		m.rosterErr = fmt.Sprintf("roster: %v", msg.err)
 		return m, nil
-
 	case rosterTickMsg:
 		return m, tea.Batch(m.fetchRosterCmd(), rosterTick())
-
 	case feedOpenedMsg:
-		if msg.harp != m.feedHarp {
-			// Stale open (selection moved on): release it.
-			if msg.feed.Cancel != nil {
-				msg.feed.Cancel()
-			}
-			return m, nil
-		}
-		m.feed = msg.feed
-		m.feedSource = msg.feed.Source
-		return m, waitEventCmd(msg.harp, msg.feed)
-
+		return m.applyFeedOpened(msg)
 	case feedErrMsg:
-		if msg.harp == m.feedHarp {
-			m.errMsg = fmt.Sprintf("feed %s: %v", msg.harp, msg.err)
-		}
-		return m, nil
-
+		return m.applyFeedErr(msg)
 	case feedEventMsg:
-		if msg.harp != m.feedHarp || m.feed == nil {
-			return m, nil
-		}
-		if add := itemsFromFeedEvent(msg.ev); len(add) > 0 {
-			m.items = append(m.items, add...)
-			if m.follow {
-				m.cursor = len(m.items) - 1
-			}
-			m.refreshFeed()
-		}
-		return m, waitEventCmd(msg.harp, m.feed)
-
+		return m.applyFeedEvent(msg)
 	case feedClosedMsg:
-		if msg.harp == m.feedHarp {
-			if msg.err != nil {
-				m.errMsg = fmt.Sprintf("feed ended: %v", msg.err)
-			} else {
-				m.status = "feed ended (agent exited)"
-			}
-			m.feed = nil
-		}
-		return m, nil
-
+		return m.applyFeedClosed(msg)
 	case injectResultMsg:
-		if msg.err != nil {
-			m.reportErr(fmt.Sprintf("inject %s: %v", msg.harp, msg.err))
-		} else {
-			m.reportOK(fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode))
+		return m.applyInjectResult(msg)
+	}
+	return m, nil
+}
+
+func (m Model) applyFeedErr(msg feedErrMsg) (tea.Model, tea.Cmd) {
+	if msg.harp == m.feedHarp {
+		m.errMsg = fmt.Sprintf("feed %s: %v", msg.harp, msg.err)
+	}
+	return m, nil
+}
+
+func (m Model) applyInjectResult(msg injectResultMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.reportErr(fmt.Sprintf("inject %s: %v", msg.harp, msg.err))
+	} else {
+		m.reportOK(fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode))
+	}
+	return m, nil
+}
+
+// applyRoster adopts a refreshed roster, keeping the selection on the harp it
+// was on. The FIRST roster to arrive also opens the selection's feed.
+func (m Model) applyRoster(msg rosterMsg) (tea.Model, tea.Cmd) {
+	hadRows := len(m.rows) > 0
+	keep := ""
+	if hadRows && m.sel < len(m.rows) {
+		keep = m.rows[m.sel].Harp
+	}
+	m.rows = msg.rows
+	m.sel = 0
+	for i, r := range m.rows {
+		if r.Harp == keep {
+			m.sel = i
+			break
+		}
+	}
+	m.rosterErr = ""
+	if len(m.rows) == 0 {
+		m.status = statusNoSessions
+		return m, nil
+	}
+	if m.status == statusLoading || m.status == statusNoSessions {
+		m.status = ""
+	}
+	if hadRows {
+		return m, nil
+	}
+	cmd := m.openFeed(m.rows[m.sel].Harp)
+	return m, cmd
+}
+
+func (m Model) applyFeedOpened(msg feedOpenedMsg) (tea.Model, tea.Cmd) {
+	if msg.harp != m.feedHarp {
+		// Stale open (selection moved on): release it.
+		if msg.feed.Cancel != nil {
+			msg.feed.Cancel()
 		}
 		return m, nil
 	}
+	m.feed = msg.feed
+	m.feedSource = msg.feed.Source
+	return m, waitEventCmd(msg.harp, msg.feed)
+}
+
+func (m Model) applyFeedEvent(msg feedEventMsg) (tea.Model, tea.Cmd) {
+	if msg.harp != m.feedHarp || m.feed == nil {
+		return m, nil
+	}
+	if add := itemsFromFeedEvent(msg.ev); len(add) > 0 {
+		m.items = append(m.items, add...)
+		if m.follow {
+			m.cursor = len(m.items) - 1
+		}
+		m.refreshFeed()
+	}
+	return m, waitEventCmd(msg.harp, m.feed)
+}
+
+func (m Model) applyFeedClosed(msg feedClosedMsg) (tea.Model, tea.Cmd) {
+	if msg.harp != m.feedHarp {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.errMsg = fmt.Sprintf("feed ended: %v", msg.err)
+	} else {
+		m.status = "feed ended (agent exited)"
+	}
+	m.feed = nil
 	return m, nil
 }
 
@@ -638,29 +660,7 @@ func (m Model) View() string {
 	contentH := max(total-2, 0)
 	feedW := m.feedWidth()
 
-	title := "feed: —"
-	if m.feedHarp != "" {
-		r := m.selectedRow()
-		meta := r.Agent
-		if r.Engine != "" {
-			if meta != "" {
-				meta += "·"
-			}
-			meta += r.Engine
-		}
-		title = "feed: " + m.feedHarp
-		if meta != "" {
-			title += " (" + meta + ")"
-		}
-		if m.feedSource != "" {
-			title += " · " + m.feedSource
-		}
-		if m.follow {
-			title += " · ▼ follow"
-		}
-	}
-	header := padCell(" agents", rosterPaneWidth) + "│" + padCell(" "+title, feedW)
-
+	header := padCell(" agents", rosterPaneWidth) + "│" + padCell(" "+m.feedTitle(), feedW)
 	rosterLines := m.rosterLines(contentH)
 	feedLines := splitPad(m.vp.View(), contentH)
 
@@ -670,25 +670,56 @@ func (m Model) View() string {
 		row := padCell(rosterLines[i], rosterPaneWidth) + "│" + padCell(feedLines[i], feedW)
 		out = append(out, padCell(row, cols))
 	}
-	if m.injecting {
-		// The inject line replaces the hints while open: explicit target, the
-		// text so far, and its own key hints. Deliberately not dimmed — it is
-		// the focused input.
-		out = append(out, padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", cols))
-	} else {
-		hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
-			strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
-		if note := m.hintNote(); note != "" {
-			hints += "  ─ " + note
-		}
-		out = append(out, styleDim.Render(padCell(hints, cols)))
-	}
+	out = append(out, m.footerLine(cols))
 	// One row of budget buys the header; the hint line is what a two-row panel
 	// gives up last.
 	if len(out) > total {
 		out = out[:total]
 	}
 	return strings.Join(out, "\n")
+}
+
+// feedTitle names the feed under view and what is known about its agent.
+func (m Model) feedTitle() string {
+	if m.feedHarp == "" {
+		return "feed: —"
+	}
+	r := m.selectedRow()
+	meta := r.Agent
+	if r.Engine != "" {
+		if meta != "" {
+			meta += "·"
+		}
+		meta += r.Engine
+	}
+	title := "feed: " + m.feedHarp
+	if meta != "" {
+		title += " (" + meta + ")"
+	}
+	if m.feedSource != "" {
+		title += " · " + m.feedSource
+	}
+	if m.follow {
+		title += " · ▼ follow"
+	}
+	return title
+}
+
+// footerLine is the panel's bottom row: the inject input while it is open,
+// otherwise the key hints plus the current note.
+func (m Model) footerLine(cols int) string {
+	if m.injecting {
+		// The inject line replaces the hints while open: explicit target, the
+		// text so far, and its own key hints. Deliberately not dimmed — it is
+		// the focused input.
+		return padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", cols)
+	}
+	hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
+		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
+	if note := m.hintNote(); note != "" {
+		hints += "  ─ " + note
+	}
+	return styleDim.Render(padCell(hints, cols))
 }
 
 func (m Model) selectedRow() RosterRow {

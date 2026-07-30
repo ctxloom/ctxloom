@@ -15,34 +15,21 @@ import (
 // held child with no index entry (e.g. a containerized child whose
 // transcript hasn't landed) still shows.
 func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string) []RosterRow {
+	return placeLineage(rosterRows(index, bus, selfHarp))
+}
+
+// rosterRows is the merge, in display order and before lineage indenting.
+func rosterRows(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string) []RosterRow {
 	busByHarp := make(map[string]coord.RosterEntry, len(bus))
 	for _, b := range bus {
 		busByHarp[b.Harp] = b
 	}
 
-	var roots []RosterRow
+	var rows []RosterRow
 	seen := make(map[string]bool)
 	addIndexRow := func(e sessions.Entry) {
-		state := "live"
-		if e.EndedAt != nil {
-			state = "ended"
-		}
-		row := RosterRow{Harp: e.HarpName, Engine: e.Backend, State: state}
-		if b, ok := busByHarp[e.HarpName]; ok {
-			// The held row is richer, not authoritative: an absent field is
-			// something the coordinator has nothing to say about, so it must
-			// not erase what the index already knows.
-			if b.Agent != "" {
-				row.Agent = b.Agent
-			}
-			if b.State != "" {
-				row.State = b.State
-			}
-			if b.Parent != "" {
-				row.Parent = b.Parent
-			}
-		}
-		roots = append(roots, row)
+		held, ok := busByHarp[e.HarpName]
+		rows = append(rows, indexRow(e, held, ok))
 		seen[e.HarpName] = true
 	}
 	// The running session first, then the rest in index order.
@@ -58,26 +45,61 @@ func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp strin
 	}
 	for _, b := range bus {
 		if !seen[b.Harp] {
-			roots = append(roots, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent})
+			rows = append(rows, RosterRow{Harp: b.Harp, Agent: b.Agent, State: b.State, Parent: b.Parent})
 			seen[b.Harp] = true
 		}
 	}
+	return rows
+}
 
-	// Lineage placement: children move under their parent, depth-indented.
-	// Both indexes are built in one pass over roots, so the walk visits each
-	// row's actual children instead of rescanning every row per node; children
-	// keep the order roots produced them in.
-	known := make(map[string]bool, len(roots))
-	children := make(map[string][]RosterRow, len(roots))
-	for _, r := range roots {
+// indexRow renders one index entry, enriched by the coordinator's held row for
+// the same harp when there is one.
+func indexRow(e sessions.Entry, held coord.RosterEntry, isHeld bool) RosterRow {
+	state := "live"
+	if e.EndedAt != nil {
+		state = "ended"
+	}
+	row := RosterRow{Harp: e.HarpName, Engine: e.Backend, State: state}
+	if !isHeld {
+		return row
+	}
+	// The held row is richer, not authoritative: an absent field is something
+	// the coordinator has nothing to say about, so it must not erase what the
+	// index already knows.
+	if held.Agent != "" {
+		row.Agent = held.Agent
+	}
+	if held.State != "" {
+		row.State = held.State
+	}
+	if held.Parent != "" {
+		row.Parent = held.Parent
+	}
+	return row
+}
+
+// placeLineage moves children under their parent, depth-indented, preserving
+// the order rows arrived in among siblings. The child index is built in one
+// pass, so the walk visits a node's actual children rather than rescanning
+// every row per node.
+func placeLineage(rows []RosterRow) []RosterRow {
+	known := make(map[string]bool, len(rows))
+	for _, r := range rows {
 		known[r.Harp] = true
 	}
-	for _, r := range roots {
+	// Roots are the rows with no parent, or a parent the roster doesn't know
+	// (an orphan); everything else hangs off its parent.
+	children := make(map[string][]RosterRow, len(rows))
+	var roots []RosterRow
+	for _, r := range rows {
 		if r.Parent != "" && known[r.Parent] {
 			children[r.Parent] = append(children[r.Parent], r)
+		} else {
+			roots = append(roots, r)
 		}
 	}
-	placed := make(map[string]bool, len(roots))
+
+	placed := make(map[string]bool, len(rows))
 	var out []RosterRow
 	var place func(r RosterRow, depth int)
 	place = func(r RosterRow, depth int) {
@@ -92,14 +114,11 @@ func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp strin
 		}
 	}
 	for _, r := range roots {
-		// Roots: no parent, or a parent the roster doesn't know (orphan).
-		if r.Parent == "" || !known[r.Parent] {
-			place(r, 0)
-		}
+		place(r, 0)
 	}
-	// Anything left is in a parent cycle that can't happen in practice —
-	// place flat rather than lose it.
-	for _, r := range roots {
+	// Anything left is in a parent cycle that can't happen in practice — place
+	// flat rather than lose it.
+	for _, r := range rows {
 		place(r, 0)
 	}
 	return out

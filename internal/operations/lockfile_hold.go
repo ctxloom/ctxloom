@@ -7,11 +7,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// activeLockfileManager builds the lockfile manager for cfg's active lockfile
+// over cfg's OWN filesystem. The FS must be threaded (as lockfile.go and
+// trust.go do): without it the manager falls back to the real OS filesystem and
+// reads/writes a DIFFERENT lock.yaml than the rest of the run resolves against.
+func activeLockfileManager(cfg *config.Config) *remote.LockfileManager {
+	baseDir := getBaseDir(cfg)
+	if fs := cfgFS(cfg); fs != nil {
+		return remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	}
+	return remote.NewLockfileManager(baseDir)
+}
+
 // LoadActiveLockfile returns the active lockfile (or an empty one if not yet on
 // disk). Used by `bundle hold` to report the held SHA back to the caller.
 func LoadActiveLockfile(cfg *config.Config) (*remote.Lockfile, error) {
-	baseDir := getBaseDir(cfg)
-	return remote.NewLockfileManager(baseDir).Load()
+	return activeLockfileManager(cfg).Load()
 }
 
 // SetItemPin flips the Pinned ("hold") flag on the active lockfile entry that
@@ -22,8 +33,7 @@ func LoadActiveLockfile(cfg *config.Config) (*remote.Lockfile, error) {
 // held ref, and a lock rebuild preserves the flag across a closure rebuild, so
 // the hold freezes the item at its current SHA until released.
 func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir)
+	activeMgr := activeLockfileManager(cfg)
 	active, err := activeMgr.Load()
 	if err != nil {
 		return false, fmt.Errorf("load active lockfile: %w", err)

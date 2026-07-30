@@ -857,3 +857,34 @@ func TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied(t *testing.T) {
 		assert.Equal(t, trust.SourceRejected, res.Source, "rejection is supreme even over a trusted-signer companion")
 	})
 }
+
+// TestEffectiveTrust_LocalExemptionSitsBelowRetraction pins the CASCADE
+// POSITION of the first-party local exemption, which ForLocalMCP's doc comment
+// names by number (U089-F18). The number is not decoration: it is the whole
+// content of the claim "a rejection beats this, and so does a retraction".
+//
+// Nothing observable distinguishes step 2 from step 3 for a local ref through
+// the PRODUCTION retraction store, because lockfileRetraction.Retracted is
+// scoped by retractable() and a local ref has no lockfile entry by
+// construction. So the position is pinned through the seam instead: a
+// retraction record that does answer for a local ref must WIN, because the
+// exemption is below it. Were the exemption actually step 2 — above retraction,
+// as the comment used to say — this would come back allowed-as-local.
+func TestEffectiveTrust_LocalExemptionSitsBelowRetraction(t *testing.T) {
+	localRef := trust.Ref{Bundle: "project-tools", Kind: trust.KindMCP, Name: "local-server", IsLocal: true}
+
+	assert.False(t, retractable(localRef),
+		"a local ref has no remote lockfile entry, so production never asks the retraction store about it — that scoping, not cascade position, is why a local item is never retracted")
+
+	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		Ref:        localRef,
+		Payload:    []byte("local mcp payload"),
+		Form:       rawForm,
+		Records:    fakeRecords{},
+		Retraction: fakeRetraction{retracted: func(trust.Ref) (bool, string) { return true, "withdrawn" }},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Deny, res.Decision)
+	assert.Equal(t, trust.SourceRetracted, res.Source,
+		"retraction is evaluated BEFORE the local exemption — the exemption is step 3, not step 2")
+}

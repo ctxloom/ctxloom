@@ -392,3 +392,70 @@ func TestLoad_NoResolverIsNoOp(t *testing.T) {
 	assert.Equal(t, []string{"core-practices"}, p.Bundles)
 	assert.Empty(t, loader.PendingUpgrades())
 }
+
+// TestUpgradeLedger_IsWiredToStorageAndToTheSeed pins the couplings that make
+// the loader's schema-upgrade ledger part of the loader rather than a passenger
+// on it: the ledger is PRODUCED by the storage read path (loadFile), it is
+// COMMITTED through the loader's own filesystem, and its rewrites are DISCOVERED
+// from the loader's seed registry. Extracting the ledger to its own type would
+// have to carry all three, so the test is what makes that cost visible
+// (U091-F16).
+func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const path = "/profiles/dev.yaml"
+	require.NoError(t, afero.WriteFile(fs, path,
+		[]byte("parents:\n  - "+defaultURL+"@profiles/developer\n"), 0o644))
+
+	loader := NewLoader([]string{"/profiles"},
+		WithFS(fs),
+		WithSeededProfiles(testBundleProfileSeed()))
+
+	// Produced by the storage read path, and only by it.
+	require.Empty(t, loader.PendingUpgrades(), "no ledger entry before anything is read")
+	_, err := loader.Load("dev")
+	require.NoError(t, err)
+	pending := loader.PendingUpgrades()
+	require.Len(t, pending, 1)
+
+	// Discovered through the SEED registry: the retired @profiles/ parent is
+	// rewritten to the bundle-shipped successor the seed map ships, which a
+	// ledger with no view of the seed could not have found.
+	assert.Contains(t, string(pending[0].Data), defaultURL+"@bundles/ai-developer#profiles/developer")
+
+	// Committed through the loader's OWN filesystem, not the OS one.
+	require.NoError(t, loader.CommitUpgrade(pending[0]))
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), defaultURL+"@bundles/ai-developer#profiles/developer")
+}
+
+// TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections pins which
+// selectors the legacy ':' grammar had. The list is exactly the sections that
+// existed while ':' was the separator -- fragments, commands, mcp -- and it is
+// deliberately identical to bundles.expandBundleRef's, which this splitter
+// mirrors. Skills are NOT among them and must not be added: the skills item kind
+// postdates the ':' grammar entirely, so no profile on disk can carry
+// "<bundle>:skills/<name>", and adding the marker here alone would split a
+// selector the bundle expander still cannot (U091-F20).
+func TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections(t *testing.T) {
+	tests := []struct {
+		name     string
+		ref      string
+		wantBase string
+		wantItem string
+	}{
+		{"legacy fragments", "personal/git:fragments/x", "personal/git", "#fragments/x"},
+		{"legacy commands", "personal/git:commands/x", "personal/git", "#commands/x"},
+		{"legacy mcp", "personal/git:mcp", "personal/git", "#mcp"},
+		{"canonical skills selector", "personal/git#skills/x", "personal/git", "#skills/x"},
+		{"colon-spelled skills is not a legacy selector", "personal/git:skills/x", "personal/git:skills/x", ""},
+		{"no selector", "personal/git", "personal/git", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, item := splitBundleSelector(tt.ref)
+			assert.Equal(t, tt.wantBase, base)
+			assert.Equal(t, tt.wantItem, item)
+		})
+	}
+}

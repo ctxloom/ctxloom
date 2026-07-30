@@ -21,14 +21,15 @@ type Runtime struct {
 	Argv agent.ParsedArgv
 	// Res resolves probe roots (cwd/home/env).
 	Res Resolver
-	// Getenv reads the controlling environment (sentinel knobs, report file).
+	// Getenv reads the controlling environment where presence alone carries no
+	// meaning — today, the report-file path.
 	Getenv func(string) string
-	// LookupEnv is the TWO-VALUE reader used for the declared env-contract
-	// observation (os.LookupEnv in production). It exists separately from
-	// Getenv because that half of the contract turns on the difference between
-	// an unset variable and one set to the empty string, which the one-value
-	// form cannot express — and "set to nothing" is exactly what a delivery
-	// that ran and passed nothing looks like.
+	// LookupEnv is the TWO-VALUE reader used wherever "unset" and "set to the
+	// empty string" are different requests: the declared env-contract
+	// observation, and the sentinel override knobs. It exists separately from
+	// Getenv because the one-value form cannot express that difference — and
+	// "set to nothing" is exactly what a delivery that ran and passed nothing,
+	// or an engine reply of zero bytes, looks like. os.LookupEnv in production.
 	LookupEnv func(string) (string, bool)
 	// Stdin is the child's stdin — the oneshot prompt channel.
 	Stdin io.Reader
@@ -45,6 +46,26 @@ func (r *Runtime) getenv(k string) string {
 		return os.Getenv(k)
 	}
 	return r.Getenv(k)
+}
+
+// stdout and stderr are the nil-safe wire/diagnostic writers. An absent
+// injection means "the process's own stream", the same policy getenv applies to
+// an absent environment reader — never io.Discard: every byte this instrument
+// emits is evidence, and swallowing it is precisely the silent no-op the mock
+// exists to catch. Stdin has no equivalent default because "no prompt arrived"
+// is a first-class observation a nil reader can express and a writer cannot.
+func (r *Runtime) stdout() io.Writer {
+	if r.Stdout == nil {
+		return os.Stdout
+	}
+	return r.Stdout
+}
+
+func (r *Runtime) stderr() io.Writer {
+	if r.Stderr == nil {
+		return os.Stderr
+	}
+	return r.Stderr
 }
 
 // lookupenv is the nil-safe two-value environment reader. When only the
@@ -73,12 +94,19 @@ func (r *Runtime) Run() int {
 	recs := Walk(r.CLI, r.Argv, r.Res)
 	env := ObserveEnv(r.CLI, r.lookupenv)
 	report := BuildReport(r.CLI, recs, env, prompt)
-	r.emitReport(report)
+	if err := r.emitReport(report); err != nil {
+		fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
+		return 1
+	}
 
-	outcome := Dispatch(string(prompt), r.getenv)
+	outcome, err := Dispatch(string(prompt), r.lookupenv)
+	if err != nil {
+		fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
+		return 1
+	}
 
 	if err := r.render(len(prompt), outcome); err != nil {
-		fmt.Fprintf(r.Stderr, "mock-engine: render error: %v\n", err)
+		fmt.Fprintf(r.stderr(), "mock-engine: render error: %v\n", err)
 		return 1
 	}
 	return outcome.ExitCode
@@ -107,19 +135,28 @@ func (r *Runtime) readPrompt() []byte {
 }
 
 // emitReport writes the report to stderr bracketed by the begin/end markers, and
-// additionally to CTXLOOM_MOCK_REPORT_FILE when set.
-func (r *Runtime) emitReport(report Report) {
+// additionally to CTXLOOM_MOCK_REPORT_FILE when set. A failure on either channel
+// is RETURNED, because the report is this instrument's entire deliverable: a run
+// that exits 0 having emitted no evidence is the silent no-op the mock exists to
+// catch. The file channel is asked for precisely when stderr is not trusted to
+// survive, so its failure is not a diagnostic.
+//
+// The marshal arm cannot fire — Report holds only strings, numbers, bools and
+// slices of the same, none of which encoding/json can refuse — but it is
+// reported rather than dropped so that adding a field which CAN fail does not
+// silently reintroduce the hole.
+func (r *Runtime) emitReport(report Report) error {
 	b, err := report.Marshal()
 	if err != nil {
-		fmt.Fprintf(r.Stderr, "mock-engine: report marshal error: %v\n", err)
-		return
+		return fmt.Errorf("report marshal error: %w", err)
 	}
-	fmt.Fprintf(r.Stderr, "%s\n%s\n%s\n", ReportBegin, b, ReportEnd)
+	fmt.Fprintf(r.stderr(), "%s\n%s\n%s\n", ReportBegin, b, ReportEnd)
 	if path := r.getenv(EnvReportFile); path != "" {
 		if werr := os.WriteFile(path, b, 0o644); werr != nil {
-			fmt.Fprintf(r.Stderr, "mock-engine: report file write error: %v\n", werr)
+			return fmt.Errorf("report file write error: %w", werr)
 		}
 	}
+	return nil
 }
 
 // render puts the outcome on the wire in the surface's format. Oneshot dispatches
@@ -132,7 +169,7 @@ func (r *Runtime) emitReport(report Report) {
 func (r *Runtime) render(promptLen int, outcome Outcome) error {
 	switch r.CLI.Surface {
 	case agent.CLISurfaceOneshot:
-		return renderOneshotWire(r.CLI.Engine, r.Stdout, r.Argv, promptLen, outcome)
+		return renderOneshotWire(r.CLI.Engine, r.stdout(), r.Argv, promptLen, outcome)
 	default:
 		// U079-F13: no interactive personality exists (--surface has no
 		// caller, main.go hard-codes oneshot), so this arm used to echo the

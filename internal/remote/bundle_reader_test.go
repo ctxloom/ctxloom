@@ -202,6 +202,29 @@ func TestLoadAllBytes(t *testing.T) {
 		assert.Empty(t, loaded)
 		assert.Empty(t, failures)
 	})
+
+	// U093-F08 read "empty loaded AND empty failures" as a silent success over
+	// unread bundles. The real invariant is stronger and is what this pins:
+	// every name the source admits to knowing is accounted for in exactly one
+	// of the two maps. "Zero failures" can only ever mean "nothing was named",
+	// never "something was named and skipped" — which is the shape the row was
+	// worried about.
+	t.Run("every listed name lands in exactly one map", func(t *testing.T) {
+		reader, fetcher, lock := readerFixture(t)
+		lock.Bundles["ghost/missing"] = LockEntry{SHA: "x"}
+		fetcher.FetchFileErr = errors.New("clone unreadable")
+
+		names := reader.ListBundleNames()
+		loaded, failures := LoadAllBytes(context.Background(), reader)
+
+		require.NotEmpty(t, names)
+		assert.Len(t, failures, len(names), "a source that names bundles and reads none reports every one as a failure")
+		assert.Empty(t, loaded)
+		for _, n := range names {
+			_, ok := failures[n]
+			assert.True(t, ok, "name %q must be accounted for", n)
+		}
+	})
 }
 
 // --- detached publisher signatures (spec §4.1) --------------------------------

@@ -72,32 +72,53 @@ func (c *CachingBundleReader) LockEntryFor(name string) (LockEntry, bool) {
 // source and stores the result keyed by (name, sha). The cache key is
 // derived from the inner source's view of the lockfile, so SHA changes
 // invalidate previous cache entries automatically.
+//
+// Membership is HasBundle's question, not LockEntryFor's: BundleByteSource
+// documents LockEntryFor as returning zero+false, so a source with no lockfile
+// behind it is legitimate and must stay readable through the decorator. The
+// lock entry supplies only the cache KEY — with no locked SHA there is nothing
+// safe to key on, so such a read passes through uncached rather than risking a
+// stale slot.
 func (c *CachingBundleReader) ReadBundleBytes(ctx context.Context, name string) ([]byte, error) {
 	if c == nil || c.inner == nil {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
 	}
-
-	entry, ok := c.inner.LockEntryFor(name)
-	if !ok {
+	if !c.inner.HasBundle(name) {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
 	}
-	key := bundleCacheKey{name: name, sha: entry.SHA}
+	return c.readThrough(ctx, name, false, c.inner.ReadBundleBytes)
+}
 
-	c.mu.RLock()
-	if cached, ok := c.cache[key]; ok {
+// readThrough serves (name, sha, sig) from the cache, falling through to read
+// and memoizing the result. An entry with no locked SHA is read but never
+// stored.
+func (c *CachingBundleReader) readThrough(
+	ctx context.Context, name string, sig bool,
+	read func(context.Context, string) ([]byte, error),
+) ([]byte, error) {
+	entry, pinned := c.inner.LockEntryFor(name)
+	key := bundleCacheKey{name: name, sha: entry.SHA, sig: sig}
+	pinned = pinned && entry.SHA != ""
+
+	if pinned {
+		c.mu.RLock()
+		cached, hit := c.cache[key]
 		c.mu.RUnlock()
-		return cached, nil
+		if hit {
+			return cached, nil
+		}
 	}
-	c.mu.RUnlock()
 
-	data, err := c.inner.ReadBundleBytes(ctx, name)
+	data, err := read(ctx, name)
 	if err != nil {
 		return nil, err
 	}
 
-	c.mu.Lock()
-	c.cache[key] = data
-	c.mu.Unlock()
+	if pinned {
+		c.mu.Lock()
+		c.cache[key] = data
+		c.mu.Unlock()
+	}
 	return data, nil
 }
 
@@ -117,29 +138,10 @@ func (c *CachingBundleReader) ReadBundleSignature(ctx context.Context, name stri
 	if !ok {
 		return nil, fmt.Errorf("no signature for %s: %w", name, errs.ErrRemoteContentNotFound)
 	}
-
-	entry, ok := c.inner.LockEntryFor(name)
-	if !ok {
+	if !c.inner.HasBundle(name) {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
 	}
-	key := bundleCacheKey{name: name, sha: entry.SHA, sig: true}
-
-	c.mu.RLock()
-	if cached, ok := c.cache[key]; ok {
-		c.mu.RUnlock()
-		return cached, nil
-	}
-	c.mu.RUnlock()
-
-	data, err := src.ReadBundleSignature(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-
-	c.mu.Lock()
-	c.cache[key] = data
-	c.mu.Unlock()
-	return data, nil
+	return c.readThrough(ctx, name, true, src.ReadBundleSignature)
 }
 
 // Ensure the decorator still satisfies BundleByteSource — that's the

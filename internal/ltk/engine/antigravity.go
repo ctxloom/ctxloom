@@ -55,21 +55,11 @@ func agShellForTool(tool string) ir.Shell {
 }
 
 // Encode renders a denial as agy's decision JSON on stdout with exit 0. An
-// allow produces a zero Output: no bytes, exit 0 — agy proceeds normally.
+// allow produces a zero Output: no bytes, exit 0 — agy proceeds normally. The
+// allow/unanalyzed/deny arms are the shared contract; only the deny bytes are
+// agy's own.
 func (Antigravity) Encode(resp Response) (Output, error) {
-	if resp.Allow {
-		if resp.Unanalyzed {
-			// See ClaudeCode.Encode's identical branch: an unanalyzed allow must
-			// not be byte-identical to a clean allow (U005-F01/U067-F03).
-			return Output{Stderr: []byte(unanalyzedNote(resp))}, nil
-		}
-		return Output{}, nil
-	}
-	body, err := antigravitycli.EncodeDeny(resp.Message())
-	if err != nil {
-		return Output{}, err
-	}
-	return Output{Stdout: body, ExitCode: 0}, nil
+	return encodeDecision(resp, antigravitycli.EncodeDeny)
 }
 
 // --- management surface (Antigravity specific) ---

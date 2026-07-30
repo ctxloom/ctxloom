@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ProfileEntry represents a profile in operation results.
@@ -119,15 +120,12 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 		})
 	}
 
-	// Sort results
-	sortBy := req.SortBy
-	if sortBy == "" {
-		sortBy = "name"
-	}
+	// Sort results. An empty sort_by defaults to name; an UNRECOGNISED one also
+	// sorts by name, loudly — leaving the slice untouched would ship it in the
+	// loader's build order, and Loader.List emits seeded (bundle-shipped)
+	// profiles by ranging over a MAP, so the order would be genuinely unstable.
 	reverse := req.SortOrder == "desc"
-
-	switch sortBy {
-	case "name":
+	byName := func() {
 		sort.Slice(result, func(i, j int) bool {
 			cmp := strings.Compare(strings.ToLower(result[i].Name), strings.ToLower(result[j].Name))
 			if reverse {
@@ -135,6 +133,11 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			}
 			return cmp < 0
 		})
+	}
+
+	switch req.SortBy {
+	case "", "name":
+		byName()
 	case "default":
 		sort.Slice(result, func(i, j int) bool {
 			if reverse {
@@ -142,6 +145,9 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			}
 			return result[i].Default && !result[j].Default
 		})
+	default:
+		clidiag.Warn("ctxloom", "unknown sort_by %q for profiles; sorting by name (accepted: name, default)", req.SortBy)
+		byName()
 	}
 
 	return &ListProfilesResult{
@@ -330,9 +336,13 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	if loader == nil {
 		loader = profileLoader(cfg)
 	}
+	// Return the loader's error verbatim, exactly as GetProfile does: it carries
+	// the errs.ErrProfileNotFound sentinel callers branch on plus the actionable
+	// detail (the remote-pull hint for a seed-missing bundle profile, the
+	// reserved-'#' explanation) that a flat re-wrap discards.
 	profile, err := loader.Load(req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("profile %q not found", req.Name)
+		return nil, err
 	}
 
 	// A seeded remote profile is the shared in-memory copy of a read-only
@@ -480,34 +490,17 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 	}, nil
 }
 
-// profileLoader creates a profile loader using the config. It wires the remote
-// resolvers so read paths (show/list) canonicalize legacy bare/alias bundle refs
-// the same way assembly does, and the same lockfile-built remote-profile seed
-// as config.GetProfileLoader so locked remote profiles are visible here too —
-// without it `profile list`/`profile show <canonical-ref>` would not see what
-// assembly resolves.
+// profileLoader creates a profile loader using the config. It is
+// config.GetProfileLoader with ONE difference, and only one: on a fresh install
+// no profiles directory exists yet, so GetProfileDirs finds none and this
+// factory synthesizes <appPath>/profiles to give a Save somewhere to land. The
+// option set comes from cfg.ProfileLoaderOptions so the two factories cannot
+// disagree about which filesystem is read, how a bundle ref canonicalizes, or
+// which remote/bundle profiles exist.
 func profileLoader(cfg *config.Config) *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
 	if len(profileDirs) == 0 && len(cfg.GetAppPaths()) > 0 {
-		// Create profiles directory in first ctxloom path
 		profileDirs = []string{filepath.Join(cfg.GetAppPaths()[0], "profiles")}
 	}
-	var opts []profiles.LoaderOption
-	if fs := cfg.FS(); fs != nil {
-		// The loader must READ the filesystem discovery just walked, or the
-		// injected fs is a lie: the directory is found through cfg.FS() and
-		// every profile inside it is then looked for on real disk. Nil keeps
-		// NewLoader's OS default, so production is unchanged. Mirrors
-		// config.GetProfileLoader, the twin this factory must agree with about
-		// which profiles exist.
-		opts = append(opts, profiles.WithFS(fs))
-	}
-	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {
-		opts = append(opts, profiles.WithRemoteResolver(resolve))
-	}
-	if resolveURL := cfg.ProfileRemoteURLResolver(); resolveURL != nil {
-		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
-	}
-	opts = append(opts, cfg.ProfileSeedOptions()...)
-	return profiles.NewLoader(profileDirs, opts...)
+	return profiles.NewLoader(profileDirs, cfg.ProfileLoaderOptions()...)
 }

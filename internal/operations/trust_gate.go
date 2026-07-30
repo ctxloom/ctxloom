@@ -14,10 +14,17 @@ import (
 
 // contentGate is the per-item trust gate bound into a bundle loader's content
 // choke (bundles.fragmentContent/commandContent). It owns a review-records store
-// built ONCE so the decision function resolves without per-item file I/O, and
-// resolves each item fail-closed: any parse/evaluation error withholds
-// (returns false), matching the security mandate that "couldn't evaluate" must
-// never mean "allow".
+// built ONCE, so no item re-reads the countersignature stores, and resolves each
+// item fail-closed: any parse/evaluation error withholds (returns false),
+// matching the security mandate that "couldn't evaluate" must never mean
+// "allow".
+//
+// That sharing covers APPROVALS ONLY. The retraction record is not shared and
+// is re-read per item: retraction is left nil below (the production default),
+// so EffectiveTrust builds it from the active lockfile on every call, opening
+// and YAML-parsing lock.yaml once per gated item. Hoisting it would change WHEN
+// retraction state is sampled, which is a trust decision rather than a caching
+// one; measured and pinned in trust_perkitem_io_test.go.
 //
 // It receives the exact BYTES about to be exposed (pre-mustache) rather than a
 // precomputed hash, so the decision can verify rather than merely compare —

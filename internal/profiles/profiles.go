@@ -387,8 +387,17 @@ func (l *Loader) PendingUpgrades() []*upgrade.Pending {
 // drops it from the pending set. Callers prompt the user before invoking this
 // (see cmd/run.go); ctxloom never rewrites a profile without consent.
 func (l *Loader) CommitUpgrade(p *upgrade.Pending) error {
+	// Nothing to write is not a successful write. The caller has just asked
+	// the user to consent to a rewrite, so a nil return here means that
+	// rewrite landed; an empty payload would land as a zero-byte profile.
 	if p == nil {
-		return nil
+		return fmt.Errorf("no pending profile upgrade to commit")
+	}
+	if p.Path == "" {
+		return fmt.Errorf("pending profile upgrade has no path")
+	}
+	if len(p.Data) == 0 {
+		return fmt.Errorf("pending upgrade for profile %s carries no content; refusing to truncate it", p.Path)
 	}
 	if err := afero.WriteFile(l.fs, p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded profile %s: %w", p.Path, err)
@@ -433,13 +442,23 @@ func (l *Loader) List() ([]*Profile, error) {
 
 	for _, dir := range l.dirs {
 		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil || !exists {
+		if err != nil {
+			// A directory that cannot be interrogated is not an empty one.
+			// Degrading silently here reports "you have no profiles" for a
+			// machine whose profiles are all present but unreachable.
+			clidiag.Warn("ctxloom", "skipping profiles directory %s: %v", dir, err)
+			continue
+		}
+		if !exists {
 			continue
 		}
 
 		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				return nil // Skip directories we can't read
+				// Same reasoning one level down: skip the entry, but say which
+				// one and why, or the profiles under it vanish undiagnosably.
+				clidiag.Warn("ctxloom", "skipping unreadable profiles path %s: %v", path, err)
+				return nil
 			}
 			if info.IsDir() {
 				return nil
@@ -450,7 +469,14 @@ func (l *Loader) List() ([]*Profile, error) {
 			}
 
 			// Use relative path from dir as profile name (e.g., "github/go-developer")
-			relPath, _ := filepath.Rel(dir, path)
+			relPath, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				// Walk derives every path from dir, so this cannot fire today;
+				// the guard exists because the alternative is a profile named
+				// "" — which sorts first and addresses nothing.
+				clidiag.Warn("ctxloom", "skipping profile %s: cannot derive a name relative to %s: %v", path, dir, relErr)
+				return nil
+			}
 			profileName := strings.TrimSuffix(strings.TrimSuffix(relPath, ".yaml"), ".yml")
 			// Normalize path separators to forward slashes for consistency
 			profileName = filepath.ToSlash(profileName)
@@ -490,6 +516,18 @@ func (l *Loader) List() ([]*Profile, error) {
 // canonical key (lockfiles and the seed map both use that shape), and a URL
 // ref with no seed entry falls back to its local materialized name (e.g.
 // "github.com/owner/repo/name") for the fs lookup.
+//
+// # Ownership
+//
+// A returned profile is READ-ONLY to the caller. The two sources differ in
+// what that costs to violate, so it is stated rather than left to be
+// discovered: a filesystem profile is parsed afresh on every call, while a
+// SEEDED (bundle-shipped) profile is the one shared instance every reader in
+// this run receives — it is a reference with no local file, so there is
+// nothing to re-read it from. Mutating one would corrupt the seed for every
+// later reader and then evaporate on the next pull, which is why every write
+// path (Save, Delete, and operations' edit/import flows) refuses a seeded
+// profile BEFORE mutating anything rather than at the moment of writing.
 func (l *Loader) Load(name string) (*Profile, error) {
 	// Seeded remote profiles win over any fs lookup.
 	if p, ok := l.lookupSeeded(name); ok {
@@ -501,7 +539,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	// exist only via the lockfile-built seed map. Say so — the bare "not
 	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
 	// reserved in local profile names, so the selector is unambiguous.)
-	if strings.Contains(name, remote.ProfileSelector) || isRemoteProfileRef(name) {
+	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
 	}
 
@@ -517,38 +555,57 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		return nil, err
 	}
 
+	path, ok := l.findFile(localName)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
+	}
+	profile, err := l.loadFile(path, l.remoteFor(name))
+	if err != nil {
+		return nil, err
+	}
+	profile.Name = name
+	return profile, nil
+}
+
+// findFile resolves a validated local profile name to the file backing it,
+// searching the configured dirs in order and both extensions. Shared by Load
+// and Exists so the two can never disagree about which names have a file —
+// "is a profile stored here" is one question with one answer, independent of
+// whether the profile happens to parse.
+func (l *Loader) findFile(localName string) (string, bool) {
 	// Convert forward slashes to OS-specific separator for file lookup
 	osName := filepath.FromSlash(localName)
-
 	for _, dir := range l.dirs {
 		for _, ext := range []string{".yaml", ".yml"} {
 			path := filepath.Join(dir, osName+ext)
 			if _, err := l.fs.Stat(path); err == nil {
-				profile, err := l.loadFile(path, l.remoteFor(name))
-				if err != nil {
-					return nil, err
-				}
-				profile.Name = name
-				return profile, nil
+				return path, true
 			}
 		}
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
+	return "", false
 }
 
-// isRemoteProfileRef reports whether name is a scheme-qualified remote
-// reference (the canonical URL form remote profiles are addressed by).
-func isRemoteProfileRef(name string) bool {
-	return strings.HasPrefix(name, "https://") ||
-		strings.HasPrefix(name, "http://") ||
-		strings.HasPrefix(name, "git@") ||
-		strings.HasPrefix(name, "file://")
-}
-
-// Exists checks if a profile exists.
+// Exists reports whether a profile is STORED under name — a seeded
+// bundle-shipped profile, or a file in one of the profile directories. It
+// deliberately does not require the profile to parse: callers use Exists to
+// decide whether a name is free (operations.CreateProfile) or whether a
+// declared parent is present (requireProfilesExist), and answering "no" for a
+// profile that is there but malformed makes the first of those overwrite the
+// user's file. A name that can never have a file behind it — traversal,
+// a bundle-profile selector, a remote URL with no seed entry — is false.
 func (l *Loader) Exists(name string) bool {
-	_, err := l.Load(name)
-	return err == nil
+	if _, ok := l.lookupSeeded(name); ok {
+		return true
+	}
+	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
+		return false
+	}
+	if err := validateProfileName(name); err != nil {
+		return false
+	}
+	_, ok := l.findFile(name)
+	return ok
 }
 
 // remoteFor returns the short remote name a profile was installed from, or ""
@@ -786,7 +843,12 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 	// doc); memo is shared across the whole call and keyed by the exact
 	// name string each recursive call receives, matching visited's own
 	// keying so the two stay consistent.
-	return l.resolveProfileRecursive(name, visited, 0, make(map[string]*ResolvedProfile))
+	// The caller's spelling is canonicalized exactly as every recursive step
+	// canonicalizes a parent, so the top frame shares one identity with the
+	// frames below it: visited and memo are keyed the same way at every depth.
+	// A raw spelling here would be a SECOND identity for a profile the
+	// recursion already knows by its canonical key, and the memo would miss.
+	return l.resolveProfileRecursive(l.canonicalProfileName(name), visited, 0, make(map[string]*ResolvedProfile))
 }
 
 func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int, memo map[string]*ResolvedProfile) (*ResolvedProfile, error) {

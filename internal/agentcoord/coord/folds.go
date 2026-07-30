@@ -83,101 +83,117 @@ func newRunsFold() *runsFold {
 	}
 }
 
+// apply dispatches one fact to its arm. The decode-and-skip per arm is the
+// forward-compatibility contract (Fact.decode's doc): an undecodable payload is
+// ignored rather than fatal, as is an unknown kind.
 func (f *runsFold) apply(fact Fact) {
 	switch fact.Kind {
 	case factRunEnqueued:
-		var p runEnqueued
-		if fact.decode(&p) != nil {
-			return
-		}
-		f.runs[p.RunID] = &RunRecord{
-			RunID:        p.RunID,
-			Harp:         p.Harp,
-			Agent:        p.Agent,
-			ParentHarp:   p.ParentHarp,
-			ParentRunID:  p.ParentRunID,
-			Runtime:      p.Runtime,
-			CredHash:     p.CredHash,
-			Depth:        p.Depth,
-			Prompt:       p.Prompt,
-			State:        StateQueued,
-			EnqueuedAt:   fact.At,
-			LastActivity: fact.At,
-			Ladder:       ladderFromFact(p.Ladder),
-			Permission:   p.Permission,
-			MCPServers:   p.MCPServers,
-		}
-		f.byHarp[p.Harp] = p.RunID
-		if p.CredHash != "" {
-			f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, Project: f.project}
-		}
+		applyDecoded(fact, f.applyEnqueued)
 	case factRunState:
-		var p runState
-		if fact.decode(&p) != nil {
-			return
-		}
-		if r := f.runs[p.RunID]; r != nil && !r.Ended {
-			r.State = p.State
-			r.LastActivity = fact.At
-		}
+		applyDecoded(fact, f.applyState)
 	case factRunEnded:
-		var p runEnded
-		if fact.decode(&p) != nil {
-			return
-		}
-		if r := f.runs[p.RunID]; r != nil && !r.Ended {
-			r.Ended = true
-			r.State = StateEnded
-			r.Cause = p.Cause
-			r.Detail = p.Detail
-			r.LastActivity = fact.At
-			// Revocation is part of the terminal fact: the credential dies
-			// with the run.
-			delete(f.creds, r.CredHash)
-		}
+		applyDecoded(fact, f.applyEnded)
 	case factRunHarness:
-		var p runHarness
-		if fact.decode(&p) != nil {
-			return
-		}
-		if r := f.runs[p.RunID]; r != nil {
-			r.HarnessSessionID = p.HarnessSessionID
-		}
+		applyDecoded(fact, f.applyHarness)
 	case factRunResumable:
-		var p runResumable
-		if fact.decode(&p) != nil {
-			return
-		}
-		if r := f.runs[p.RunID]; r != nil {
-			r.Resumable = p.Resumable
-		}
+		applyDecoded(fact, f.applyResumable)
 	case factRunReaped:
-		var p runReaped
-		if fact.decode(&p) != nil {
-			return
-		}
-		// Retention (one-shot): drop the evicted run records. byHarp is never
-		// touched — the reap set excludes every harp's current run, so the
-		// harp→current-run index (and the resume key it points at) survives.
-		for _, id := range p.RunIDs {
-			delete(f.runs, id)
-		}
+		applyDecoded(fact, f.applyReaped)
 	case factSessionCred:
-		var p sessionCred
-		if fact.decode(&p) != nil {
-			return
-		}
-		if p.Project != "" {
-			f.project = p.Project
-		}
-		f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, Project: p.Project}
+		applyDecoded(fact, f.applySessionCred)
 	case factSessionCredRevoked:
-		var p sessionCred
-		if fact.decode(&p) != nil {
-			return
-		}
-		delete(f.creds, p.CredHash)
+		applyDecoded(fact, f.applySessionCredRevoked)
 	}
+}
+
+// applyDecoded decodes fact's payload into a fresh P and hands it, with the
+// fact's own time, to arm — skipping the arm entirely when the payload does not
+// decode. One definition of that guard instead of one per arm.
+func applyDecoded[P any](fact Fact, arm func(p P, at time.Time)) {
+	var p P
+	if fact.decode(&p) != nil {
+		return
+	}
+	arm(p, fact.At)
+}
+
+func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
+	f.runs[p.RunID] = &RunRecord{
+		RunID:        p.RunID,
+		Harp:         p.Harp,
+		Agent:        p.Agent,
+		ParentHarp:   p.ParentHarp,
+		ParentRunID:  p.ParentRunID,
+		Runtime:      p.Runtime,
+		CredHash:     p.CredHash,
+		Depth:        p.Depth,
+		Prompt:       p.Prompt,
+		State:        StateQueued,
+		EnqueuedAt:   at,
+		LastActivity: at,
+		Ladder:       ladderFromFact(p.Ladder),
+		Permission:   p.Permission,
+		MCPServers:   p.MCPServers,
+	}
+	f.byHarp[p.Harp] = p.RunID
+	if p.CredHash != "" {
+		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, Project: f.project}
+	}
+}
+
+func (f *runsFold) applyState(p runState, at time.Time) {
+	if r := f.runs[p.RunID]; r != nil && !r.Ended {
+		r.State = p.State
+		r.LastActivity = at
+	}
+}
+
+func (f *runsFold) applyEnded(p runEnded, at time.Time) {
+	r := f.runs[p.RunID]
+	if r == nil || r.Ended {
+		return // exactly one terminal per run_id, whatever raced to cause it
+	}
+	r.Ended = true
+	r.State = StateEnded
+	r.Cause = p.Cause
+	r.Detail = p.Detail
+	r.LastActivity = at
+	// Revocation is part of the terminal fact: the credential dies with the
+	// run.
+	delete(f.creds, r.CredHash)
+}
+
+func (f *runsFold) applyHarness(p runHarness, _ time.Time) {
+	if r := f.runs[p.RunID]; r != nil {
+		r.HarnessSessionID = p.HarnessSessionID
+	}
+}
+
+func (f *runsFold) applyResumable(p runResumable, _ time.Time) {
+	if r := f.runs[p.RunID]; r != nil {
+		r.Resumable = p.Resumable
+	}
+}
+
+// applyReaped drops the evicted run records (one-shot retention). byHarp is
+// never touched — the reap set excludes every harp's current run, so the
+// harp→current-run index (and the resume key it points at) survives.
+func (f *runsFold) applyReaped(p runReaped, _ time.Time) {
+	for _, id := range p.RunIDs {
+		delete(f.runs, id)
+	}
+}
+
+func (f *runsFold) applySessionCred(p sessionCred, _ time.Time) {
+	if p.Project != "" {
+		f.project = p.Project
+	}
+	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, Project: p.Project}
+}
+
+func (f *runsFold) applySessionCredRevoked(p sessionCred, _ time.Time) {
+	delete(f.creds, p.CredHash)
 }
 
 // run returns the record for run_id (nil when unknown).

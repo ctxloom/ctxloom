@@ -83,6 +83,13 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // a reply quoting the id can already arrive. relayApproval is the case that
 // forced it; see its comment (pulpy-whiff).
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+	// Role "" is undrainable by construction — agent_recv drains the caller's
+	// own harp and no session has the empty harp — so queuing it fsyncs a fact
+	// that is replayed on every relaunch and read by nobody. Refused here, at
+	// the one point every sender funnels through, rather than at each sender.
+	if to == "" {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{

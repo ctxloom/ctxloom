@@ -67,11 +67,37 @@ bytes (base64) plus an OPTIONAL detached publish signature.
 
 --format yaml (the default) prints the raw bundle YAML for a human to read.`, binName, binName, binName),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return Emit(cmd.OutOrStdout(), format, bundleYAML, sig)
+			return Emit(cmd.OutOrStdout(), resolveFormat(cmd, format), bundleYAML, sig)
 		},
 	}
 	cmd.Flags().StringVar(&format, FormatFlag, "yaml", "output format: yaml (raw bundle) or json (signed envelope)")
 	return cmd
+}
+
+// resolveFormat picks the format loadout emits, honoring a host CLI's
+// --json shorthand.
+//
+// This command carries its OWN --format, narrower than the host root's
+// persistent one (yaml/json here, and defaulting to yaml because a human
+// reading a bundle wants the bundle) — so the host's --json, which every
+// other command on the tree treats as pure shorthand for --format json, does
+// not reach the local variable. A flag a command accepts and ignores is worse
+// than one it rejects: the caller asked for JSON, got YAML, and got exit 0.
+//
+// An explicitly given --format is the more specific request and wins. That
+// differs from cliemit.Resolve, where --json is unconditional; a companion
+// whose local vocabulary is a SUBSET must be able to say which member of it
+// it wants without a shorthand for a sibling format overriding it. When the
+// host declares no --json at all (ltk, or NewCommand driven without a root)
+// the lookup is nil and nothing changes.
+func resolveFormat(cmd *cobra.Command, local string) string {
+	if cmd.Flags().Changed(FormatFlag) {
+		return local
+	}
+	if f := cmd.Flags().Lookup("json"); f != nil && f.Changed {
+		return FormatJSON
+	}
+	return local
 }
 
 // ReadEmbeddedSig reads the OPTIONAL loadout.yaml.sig sibling out of an

@@ -103,6 +103,71 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 	assert.Empty(t, signer)
 }
 
+// `loadout` is the one command on this tree that declares its own local
+// --format, with a narrower vocabulary (yaml/json) and a different default
+// (yaml, not text) than the root's persistent one. Two consequences follow
+// and they are NOT the same, which is why both are pinned here.
+//
+// A root-vocabulary value the local flag does not know is refused loudly —
+// `--format markdown` errors and writes nothing, which is the acceptable
+// half.
+//
+// The --json shorthand is the other half and it was silent. --json is
+// documented as nothing but shorthand for --format json and is declared
+// persistently on the root precisely so every command can be relied on to
+// honor it; loadout read only its own local variable, so `loadout --json`
+// accepted the flag, exited 0, and emitted YAML. A caller asking for JSON
+// and being handed YAML with no diagnostic is the failure this repo names
+// silent-no-op.
+func TestLoadout_JSONShorthandIsHonored(t *testing.T) {
+	out := runLoadout(t, "--json")
+
+	assert.NotEqual(t, string(loadoutYAML), out,
+		"--json must not fall through to the raw YAML body")
+	decoded, _, err := signing.DecodeLoadoutEnvelope([]byte(out), nil, time.Now())
+	require.NoError(t, err, "--json must emit the same envelope --format json does")
+	assert.Equal(t, loadoutYAML, decoded)
+}
+
+// An explicit --format still wins over the shorthand, and the local
+// vocabulary still refuses what it cannot emit rather than degrading.
+func TestLoadout_ExplicitFormatBeatsShorthandAndRefusesUnknown(t *testing.T) {
+	assert.Equal(t, string(loadoutYAML), runLoadout(t, "--json", "--format", "yaml"),
+		"an explicit --format is the more specific request and must win")
+
+	loadout := newLoadoutCmd()
+	rootCmd.AddCommand(loadout)
+	t.Cleanup(func() { rootCmd.RemoveCommand(loadout) })
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	rootCmd.SetArgs([]string{"loadout", "--format", "markdown"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+
+	err := rootCmd.Execute()
+	require.Error(t, err, "a root-vocabulary format loadout cannot emit must be refused, not degraded")
+	assert.NotContains(t, err.Error(), "taskloom:", "the refusal names the format, not the store")
+}
+
+// runLoadout drives `loadout` through the REAL root command, which is the
+// only place the root's persistent flags and the subcommand's local ones meet
+// — calling companionloadout.Emit directly, as the tests above do, cannot see
+// this interaction at all.
+func runLoadout(t *testing.T, args ...string) string {
+	t.Helper()
+	loadout := newLoadoutCmd()
+	rootCmd.AddCommand(loadout)
+	t.Cleanup(func() { rootCmd.RemoveCommand(loadout) })
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	rootCmd.SetArgs(append([]string{"loadout"}, args...))
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+	require.NoError(t, rootCmd.Execute())
+	return buf.String()
+}
+
 func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	var buf bytes.Buffer
 	err := companionloadout.Emit(&buf, "toml", loadoutYAML, loadoutSig)

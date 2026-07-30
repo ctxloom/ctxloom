@@ -24,6 +24,14 @@ const (
 	maxOtherTasksInPack      = 200
 	maxFilesPerTask          = 40
 
+	// repoDirsScanCap and workingChangesScanCap bound the repo-global "what
+	// exists NOW" evidence. They are stated here, not left to the git seam's
+	// own defaults, because whoever owns the bound is the only one who can
+	// notice a listing that HIT it — and a listing that hit it must be
+	// declared truncated in the prompt rather than shown as complete.
+	repoDirsScanCap       = 400
+	workingChangesScanCap = 100
+
 	// defaultTriageChunkSize caps how many cache-miss tasks ride in ONE
 	// batch-triage model call. A single call carrying a large enough batch of
 	// tasks' evidence packs makes the fast model silently DROP tasks from its
@@ -347,11 +355,17 @@ func buildBatch(ctx context.Context, deferred, other []tasks.Task, since map[str
 	// failing the evaluation (the prompt's absence-of-evidence rule then
 	// keeps the model off a confident not-fired).
 	if req.RepoDir != "" {
-		if dirs, derr := gitClient.RepoDirs(ctx, req.RepoDir, 0); derr == nil {
+		// The bounds are passed EXPLICITLY rather than left to the git seam's
+		// defaults: a caller that does not own the bound cannot tell a
+		// complete listing from one that stopped at it, and both bounds cut
+		// alphabetically (U053-F11). Same shape as gitLogPathScanCap.
+		if dirs, derr := gitClient.RepoDirs(ctx, req.RepoDir, repoDirsScanCap); derr == nil {
 			batch.Repo.Dirs = dirs
+			batch.Repo.DirsTruncated = len(dirs) >= repoDirsScanCap
 		}
-		if changes, cerr := gitClient.WorkingChanges(ctx, req.RepoDir, 0); cerr == nil {
+		if changes, cerr := gitClient.WorkingChanges(ctx, req.RepoDir, workingChangesScanCap); cerr == nil {
 			batch.Repo.WorkingChanges = changes
+			batch.Repo.WorkingChangesTruncated = len(changes) >= workingChangesScanCap
 		}
 	}
 

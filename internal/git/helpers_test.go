@@ -33,6 +33,29 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
+// initRepoUnborn creates a temp git repo with NO commits — HEAD points at a
+// branch ref that does not exist yet ("unborn"). This is what `git init`
+// leaves behind, and what a project has for the whole window between creating
+// it and making its first commit.
+func initRepoUnborn(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	// A local identity, because CommitAll runs git with a sanitized
+	// environment: the test must not depend on the machine's global config.
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"config", "user.name", "ctxloom"},
+		{"config", "user.email", "ctxloom@example.com"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
 // commit writes content to path (relative to dir) and creates a commit with
 // subject, returning the commit SHA. Used by LogSince tests that need more
 // than the single seed commit initRepo leaves behind.

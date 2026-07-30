@@ -728,6 +728,11 @@ func flattenedBlockWarning(b agent.ContentBlock, kind string) api.ContentBlock {
 // from an image/audio block's Raw bytes for the flatten-with-warning message,
 // or "" when Raw carries no recognizable mimeType (e.g. a resource block,
 // which has no data/mimeType shape).
+//
+// N is the size of the DECODED payload. The spec carries image/audio data
+// base64-encoded, which inflates by 4/3, so the character count of the wire
+// field is not a byte count — and this string is read by the model and by a
+// human as the size of the content that did not arrive.
 func mediaBlockDetail(raw json.RawMessage) string {
 	var d struct {
 		MimeType string `json:"mimeType"`
@@ -736,7 +741,16 @@ func mediaBlockDetail(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &d); err != nil || d.MimeType == "" {
 		return ""
 	}
-	return fmt.Sprintf(" (mimeType=%s, %d bytes)", d.MimeType, len(d.Data))
+	return fmt.Sprintf(" (mimeType=%s, %d bytes)", d.MimeType, base64DecodedLen(d.Data))
+}
+
+// base64DecodedLen is the exact decoded byte count of a base64 payload,
+// computed arithmetically rather than by decoding it: every 4 encoding
+// characters carry 3 bytes, and a trailing 1 or 2 characters carry 1 or 2.
+// Padding is not data, so it is discarded first — this holds for the padded
+// and unpadded alphabets alike.
+func base64DecodedLen(data string) int {
+	return len(strings.TrimRight(data, "=")) * 3 / 4
 }
 
 // --- per-conversation callback handler ---

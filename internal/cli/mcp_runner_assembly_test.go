@@ -7,6 +7,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 )
 
 // Characterization coverage for newRunnerMCPServer, written BEFORE the U038-F08
@@ -88,4 +90,62 @@ func TestRunnerServer_DocgenPathAssemblesTheSameTools(t *testing.T) {
 	}
 	assert.ElementsMatch(t, liveNames, docNames,
 		"the documented surface must be the surface a live runner serves")
+}
+
+// TestClaimRoutes_RejectsAMisclassifiedTool covers the arm the split finally
+// made reachable. Before it, "this tool is served here but classified
+// elsewhere" lived inline in newRunnerMCPServer behind mcpschema.Routes, which
+// no test can perturb — so the one check that stops a tool being served by the
+// wrong route had no coverage at all.
+func TestClaimRoutes_RejectsAMisclassifiedTool(t *testing.T) {
+	routes := map[string]mcpschema.Route{
+		"good": mcpschema.RouteCellLocal,
+		"bad":  mcpschema.RouteHostRelay,
+	}
+
+	registered := map[string]bool{}
+	require.NoError(t, claimRoutes(routes, registered, mcpschema.RouteCellLocal, "good"))
+	assert.True(t, registered["good"], "a matching tool is marked served")
+
+	err := claimRoutes(routes, registered, mcpschema.RouteCellLocal, "bad")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"bad"`, "the failure must name the tool")
+	assert.Contains(t, err.Error(), "cell-local", "and the route it was served on, in words")
+	assert.False(t, registered["bad"], "a misclassified tool must not count as served")
+
+	// An unclassified name is a mismatch too: routes[""] is the zero Route,
+	// which is RouteCoordination, so a missing entry must never silently
+	// satisfy a coordination claim it was never given.
+	require.Error(t, claimRoutes(routes, map[string]bool{}, mcpschema.RouteCellLocal, "absent"))
+}
+
+// TestGeneratedToolHandler_RefusesAnUnclassifiedRoute pins the other newly
+// reachable arm: an unclassified generated tool must fail runner startup, never
+// fall through to a nil handler.
+func TestGeneratedToolHandler_RefusesAnUnclassifiedRoute(t *testing.T) {
+	home := testHome(t)
+
+	h, err := generatedToolHandler(home, "harp", t.TempDir(), mcpschema.RouteCellLocal, "agent_run")
+	assert.Nil(t, h)
+	require.Error(t, err, "cell-local is not a generated-tool route")
+	assert.Contains(t, err.Error(), "agent_run")
+
+	h, err = generatedToolHandler(home, "harp", t.TempDir(), mcpschema.RouteCoordination, "agent_run")
+	require.NoError(t, err)
+	assert.NotNil(t, h)
+}
+
+// TestRouteName_NamesEveryRoute: the enum is an int, so an unnamed member would
+// print as a bare number in the one error a runner dies on.
+func TestRouteName_NamesEveryRoute(t *testing.T) {
+	for _, r := range []mcpschema.Route{
+		mcpschema.RouteCoordination,
+		mcpschema.RouteCellLocal,
+		mcpschema.RouteHostRelay,
+		mcpschema.RouteArtifactFetch,
+	} {
+		name := routeName(r)
+		assert.NotEmpty(t, name)
+		assert.NotContains(t, name, "route(", "route %d has no name", int(r))
+	}
 }

@@ -19,8 +19,14 @@ import (
 // goleak compares the goroutine set around the call, so it fails on exactly the
 // leak the row names rather than on a count that happens to drift.
 func TestNewDocMCPServer_ClosesItsHome(t *testing.T) {
-	defer goleak.VerifyNone(t,
-		// gRPC's own package-level workers are process-wide, not per-Home.
+	// IgnoreCurrent snapshots the goroutines already running, so this measures
+	// only what THIS call adds and leaves behind — the package's other tests
+	// (real coordinators, engine fakes) run goroutines of their own that have
+	// nothing to do with the Home under test.
+	ignore := goleak.IgnoreCurrent()
+	defer goleak.VerifyNone(t, ignore,
+		// gRPC's own package-level workers are process-wide, not per-Home, and
+		// can be created lazily inside the window IgnoreCurrent opens.
 		goleak.IgnoreAnyFunction("google.golang.org/grpc/internal/grpcsync.(*CallbackSerializer).run"),
 		goleak.IgnoreAnyFunction("google.golang.org/grpc/internal/transport.(*http2Client).keepalive"),
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/grpcsync.(*Subscriber).run"),
@@ -36,7 +42,8 @@ func TestNewDocMCPServer_ClosesItsHome(t *testing.T) {
 // TestListDocMCPToolNames_ReleasesItsServer covers the helpers that build a
 // server per call — the multiplier that turned one leaked Home into many.
 func TestListDocMCPToolNames_ReleasesItsServer(t *testing.T) {
-	defer goleak.VerifyNone(t,
+	ignore := goleak.IgnoreCurrent()
+	defer goleak.VerifyNone(t, ignore,
 		goleak.IgnoreAnyFunction("google.golang.org/grpc/internal/grpcsync.(*CallbackSerializer).run"),
 		goleak.IgnoreAnyFunction("google.golang.org/grpc/internal/transport.(*http2Client).keepalive"),
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/grpcsync.(*Subscriber).run"),

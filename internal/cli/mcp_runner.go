@@ -266,71 +266,110 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 	// be an independent os.Getwd() call, ignoring cellWorkDir entirely.
 	cwd := resolveCellWorkDir(cellWorkDir)
 	s := &ctxServer{cfg: cfg, self: coord.Identity{Harp: harp, Project: cwd}}
-	s.registerContextTools(server)
 	s.registerResources(server)
-	for _, name := range []string{"assemble_context", "search_content", "search_library"} {
-		if routes[name] != mcpschema.RouteCellLocal {
-			return nil, fmt.Errorf("runner MCP: tool %q registered cell-local but classified otherwise — fix mcpschema.Routes", name)
+	if err := claimRoutes(routes, registered, mcpschema.RouteCellLocal, s.registerContextTools(server)...); err != nil {
+		return nil, err
+	}
+
+	if err := claimRoutes(routes, registered, mcpschema.RouteHostRelay, registerHostRelays(server, home)...); err != nil {
+		return nil, err
+	}
+
+	if err := registerGeneratedTools(server, home, harp, cwd, leaf, routes, registered); err != nil {
+		return nil, err
+	}
+
+	// Exhaustiveness: nothing classified may be missing from this surface.
+	for name := range routes {
+		if !registered[name] {
+			return nil, fmt.Errorf("runner MCP: classified tool %q is not served by any route — fix the registration or mcpschema.Routes", name)
+		}
+	}
+	return server, nil
+}
+
+// claimRoutes asserts that every name a registrar just served is classified as
+// want, and marks it served for the exhaustiveness check. The names come FROM
+// the registrars (which return what they registered) rather than from a second
+// hand-written list beside them — a list that could only ever drift from the
+// registrations it was meant to describe.
+func claimRoutes(routes map[string]mcpschema.Route, registered map[string]bool, want mcpschema.Route, names ...string) error {
+	for _, name := range names {
+		if routes[name] != want {
+			return fmt.Errorf("runner MCP: tool %q is served on the %s route but classified otherwise — fix mcpschema.Routes", name, routeName(want))
 		}
 		registered[name] = true
 	}
+	return nil
+}
 
-	// Host-resident tools: relay as CustomRequest{ctxloom/<tool>}, with the
-	// SAME typed inputs (and so schemas) AND the same description constants the
-	// stdio server registers (mcp_tools_memory.go, mcp_tools_triggers.go). One
-	// declaration per description, so the two surfaces cannot advertise the same
-	// tool differently; TestRunnerServer_HostRelayDescriptionsMatchStdio still
-	// pins the registrations themselves.
-	mcp.AddTool(server, &mcp.Tool{Name: "compact_session", Description: compactSessionDesc},
-		relayTyped[compactSessionInput](home, "compact_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "load_session", Description: loadSessionDesc},
-		relayTyped[loadSessionInput](home, "load_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "recover_session", Description: recoverSessionDesc},
-		relayTyped[recoverSessionInput](home, "recover_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "get_previous_session", Description: getPreviousSessionDesc},
-		relayTyped[getPreviousSessionInput](home, "get_previous_session"))
-	mcp.AddTool(server, &mcp.Tool{Name: "list_sessions", Description: listSessionsDesc},
-		relayTyped[listSessionsInput](home, "list_sessions"))
-	mcp.AddTool(server, &mcp.Tool{Name: "evaluate_triggers", Description: evaluateTriggersDesc},
-		relayTyped[evaluateTriggersInput](home, "evaluate_triggers"))
-	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session", "list_sessions", "evaluate_triggers"} {
-		if routes[name] != mcpschema.RouteHostRelay {
-			return nil, fmt.Errorf("runner MCP: tool %q registered as host-relay but classified otherwise — fix mcpschema.Routes", name)
-		}
-		registered[name] = true
+// routeName renders a Route for a startup-failure message. mcpschema.Route is
+// an int enum with no String method of its own, and a bare integer in the one
+// error a runner dies on tells the reader nothing.
+func routeName(r mcpschema.Route) string {
+	switch r {
+	case mcpschema.RouteCoordination:
+		return "coordination"
+	case mcpschema.RouteCellLocal:
+		return "cell-local"
+	case mcpschema.RouteHostRelay:
+		return "host-relay"
+	case mcpschema.RouteArtifactFetch:
+		return "artifact-fetch"
+	default:
+		return fmt.Sprintf("route(%d)", int(r))
 	}
+}
 
-	// Generated (proto-canonical) tools: coordination frames AND
-	// artifact-fetch both draw their schemas from mcpschema.Tools() — they
-	// differ only in which handler builder serves them (Binding.Route).
+// registerHostRelays adds the host-resident tools as CustomRequest relays and
+// returns the names it registered. Each carries the SAME typed input (and so
+// the same advertised schema) AND the same description constant the stdio
+// server registers (mcp_tools_memory.go, mcp_tools_triggers.go), so the two
+// surfaces cannot describe one tool two ways;
+// TestRunnerServer_HostRelayDescriptionsMatchStdio pins that.
+func registerHostRelays(server *mcp.Server, home *coord.Home) []string {
+	return []string{
+		addHostRelay[compactSessionInput](server, home, "compact_session", compactSessionDesc),
+		addHostRelay[loadSessionInput](server, home, "load_session", loadSessionDesc),
+		addHostRelay[recoverSessionInput](server, home, "recover_session", recoverSessionDesc),
+		addHostRelay[getPreviousSessionInput](server, home, "get_previous_session", getPreviousSessionDesc),
+		addHostRelay[listSessionsInput](server, home, "list_sessions", listSessionsDesc),
+		addHostRelay[evaluateTriggersInput](server, home, "evaluate_triggers", evaluateTriggersDesc),
+	}
+}
+
+// addHostRelay registers one host-resident tool and returns its name, so the
+// name is written once per tool rather than once in the registration and again
+// in a classification list.
+func addHostRelay[In any](server *mcp.Server, home *coord.Home, name, desc string) string {
+	mcp.AddTool(server, &mcp.Tool{Name: name, Description: desc}, relayTyped[In](home, name))
+	return name
+}
+
+// registerGeneratedTools adds the proto-canonical tools: coordination frames
+// AND artifact-fetch both draw their schemas from mcpschema.Tools() and differ
+// only in which handler builder serves them (Binding.Route).
+func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
 	tools, err := mcpschema.Tools()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, spec := range tools {
 		// Trust-boundary gate: a LEAF session must not receive the
 		// coordinator-only tools (agent_run/roster/agent_stop/
 		// agent_fetch_artifact) — a leaf holding an agent_recv inbox plus a
-		// roster infers it has children and stalls waiting for
-		// notifications that never arrive. Still marked registered
-		// (deliberately withheld), or the exhaustiveness check below fails
-		// runner startup; agent_send/agent_recv/agent_report (parent
-		// reporting) are untouched by this gate.
+		// roster infers it has children and stalls waiting for notifications
+		// that never arrive. Still marked registered (deliberately withheld),
+		// or the caller's exhaustiveness check fails runner startup;
+		// agent_send/agent_recv/agent_report (parent reporting) are untouched
+		// by this gate.
 		if leaf && mcpschema.CoordinatorOnlyTools()[spec.Name] {
 			registered[spec.Name] = true
 			continue
 		}
-		var h mcp.ToolHandler
-		switch routes[spec.Name] {
-		case mcpschema.RouteCoordination:
-			h, err = coordinationHandler(home, harp, cwd, spec.Name)
-		case mcpschema.RouteArtifactFetch:
-			h, err = artifactFetchHandler(home, cwd, spec.Name)
-		default:
-			return nil, fmt.Errorf("runner MCP: generated tool %q is not classified as coordination or artifact-fetch — fix mcpschema.Routes", spec.Name)
-		}
-		if err != nil {
-			return nil, err
+		h, herr := generatedToolHandler(home, harp, cwd, routes[spec.Name], spec.Name)
+		if herr != nil {
+			return herr
 		}
 		tool := &mcp.Tool{
 			Name:        spec.Name,
@@ -343,14 +382,20 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 		server.AddTool(tool, h)
 		registered[spec.Name] = true
 	}
+	return nil
+}
 
-	// Exhaustiveness: nothing classified may be missing from this surface.
-	for name := range routes {
-		if !registered[name] {
-			return nil, fmt.Errorf("runner MCP: classified tool %q is not served by any route — fix the registration or mcpschema.Routes", name)
-		}
+// generatedToolHandler picks the handler builder one generated tool's route
+// names. An unclassified tool is a startup error, never a silent fallthrough.
+func generatedToolHandler(home *coord.Home, harp, cwd string, route mcpschema.Route, name string) (mcp.ToolHandler, error) {
+	switch route {
+	case mcpschema.RouteCoordination:
+		return coordinationHandler(home, harp, cwd, name)
+	case mcpschema.RouteArtifactFetch:
+		return artifactFetchHandler(home, cwd, name)
+	default:
+		return nil, fmt.Errorf("runner MCP: generated tool %q is not classified as coordination or artifact-fetch — fix mcpschema.Routes", name)
 	}
-	return server, nil
 }
 
 // relayTyped forwards one host-resident tool over the RunChannel as

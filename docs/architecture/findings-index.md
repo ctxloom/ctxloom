@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,139** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,140** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 68 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 120 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 142 |
-| `open` | no commit names this ID | **799** |
+| `open` | no commit names this ID | **798** |
 
-**Totals: 2268 findings across 162 units — 1,139 resolved, 799 still open, 330 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,140 resolved, 798 still open, 330 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 367 | 454 | 38 | 50 | 90 |
+| MED | 999 | 368 | 453 | 38 | 50 | 90 |
 | LOW | 871 | 421 | 320 | 20 | 62 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1600,7 +1600,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F18 | **RESOLVED** `64d1f618` | `cached_fetcher_factory.go:124-126` | SILENTNOOP | `cacheFetcher.SearchRepos` returns `(nil, nil)` for every non-GitHub forge: "search is unsupported here" is delivered as "no results found". | U093.md |
 | U093-F19 | **RESOLVED** `b856eea4` | `github.go:307-309, 268` | ERRHANDLING | A transient branch-lookup failure is reported as "this ref does not exist". | U093.md |
 | U093-F20 | open | `mock_fetcher.go:163, 191` | CORRECTNESS | The shared test double defaults to *success* on its two most decision-relevant methods, so a test that forgets to seed data gets a plausible fake instead of a failure. | U093.md |
-| U093-F21 | open | `mock_fetcher.go:78` | CORRECTNESS | `MockFetcher` implements `ListTags` but not `ResolveTag`, so every mock-backed semver test exercises the branch-first fallback that the `ResolveTag` SECURITY comments exist to prevent. | U093.md |
+| U093-F21 | **RESOLVED** `beeb47e0` | `mock_fetcher.go:78` | CORRECTNESS | `MockFetcher` implements `ListTags` but not `ResolveTag`, so every mock-backed semver test exercises the branch-first fallback that the `ResolveTag` SECURITY comments exist to prevent. | U093.md |
 | U093-F22 | open | `git_clone_fetcher.go:175-187 vs 339-354` | DUPLICATE | Two ref-resolution ladders in one type, both claiming to mirror each other, with **different** strategy order. | U093.md |
 | U093-F25 | open | `cached_fetcher_factory.go:48-56` | COMPLEXITY | Every single `FetchFile`/`ListDir`/`ResolveRef`/`ListTags` call re-acquires the per-directory clone lock and re-runs `git.PlainOpen` on the same repo. | U093.md |
 | U093-F26 | **RESOLVED** `e602278b` | `forge.go:82-87` | CORRECTNESS | Forge host-matching iterates a map, so two configured forges sharing a `base_url` host resolve nondeterministically per process — a different endpoint and a different token env each run. | U093.md |

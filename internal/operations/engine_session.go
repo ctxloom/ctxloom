@@ -721,6 +721,18 @@ func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace
 	return isolation.WorkspaceAxis(ws)
 }
 
+// worktreeIsolationProse is the honesty wording for a session whose workspace
+// really is a separate git worktree, carrying one %s for that worktree's path.
+// Two surfaces say it — the first-turn announcement and the at-connect session
+// init summary — under different lead-ins, and a reader who sees both must be
+// told the same thing: what the engine can touch, and what their editor window
+// will therefore not show them. One wording, so the two can never drift into
+// describing the same posture differently.
+const worktreeIsolationProse = "isolated to its own git worktree — %s. " +
+	"Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, " +
+	"and this window stays blind to it unless you open the path yourself. " +
+	"Results return through ctxloom's normal delegated-child assemble/merge flow."
+
 // acpWorkspace is ISO2's prepared workspace-axis state for one ACP session:
 // where the engine's cwd lives, the per-agent config-home env additions
 // (worktree only — CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME isolating the
@@ -775,9 +787,7 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 		// benign fallback (isolation.go's doc), so no announcement fires and
 		// aw.dir/aw.env are the harmless projectDir/nil the None tier
 		// produces. Only a REAL worktree gets the honesty announcement.
-		aw.announce = fmt.Sprintf(
-			"ctxloom: this agent's session is isolated to its own git worktree — %s. "+
-				"Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.",
+		aw.announce = fmt.Sprintf("ctxloom: this agent's session is "+worktreeIsolationProse,
 			aw.dir)
 	}
 	return aw, nil
@@ -1026,7 +1036,7 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 			runtimeDesc = "RUNTIME: a HOST process (no container)"
 		}
 		if isolatedWorktree {
-			workspaceDesc = fmt.Sprintf("WORKSPACE isolated to its own git worktree — %s. Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.", in.aw.dir)
+			workspaceDesc = fmt.Sprintf("WORKSPACE "+worktreeIsolationProse, in.aw.dir)
 		} else {
 			// Same-path mount (ISO1 Invariant 1) rendered as an explicit
 			// host -> container mapping — see the doc comment above.

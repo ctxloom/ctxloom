@@ -132,6 +132,13 @@ func TestPrepareACPWorkspace_RealWorktree(t *testing.T) {
 	assert.FileExists(t, filepath.Join(aw.dir, "README.md"), "the worktree is a real checkout of the repo")
 	require.NotEmpty(t, aw.announce, "a REAL worktree (not a none-degrade) must carry the D-ISO announcement")
 	assert.Contains(t, aw.announce, aw.dir, "the announcement must name the actual worktree path")
+	// Golden on the exact bytes: this wording is also rendered by the session
+	// init summary under a different lead-in, and the two must stay one
+	// wording — a user who reads both must not be told two things.
+	assert.Equal(t, "ctxloom: this agent's session is isolated to its own git worktree — "+aw.dir+
+		". Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, "+
+		"and this window stays blind to it unless you open the path yourself. Results return through ctxloom's "+
+		"normal delegated-child assemble/merge flow.", aw.announce)
 
 	aw.cleanup()
 	assert.NoDirExists(t, aw.dir, "Cleanup must remove the worktree from disk (the session-end lifecycle)")

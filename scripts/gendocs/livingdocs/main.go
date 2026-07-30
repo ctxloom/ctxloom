@@ -68,73 +68,88 @@ func run(featuresDir, captureDir, outDir string) error {
 
 	pages := make([]generatedPage, 0, len(featureFiles))
 	for _, fp := range featureFiles {
-		feat, err := ParseFeature(fp)
+		page, err := buildPage(fp, captureDir, captures)
 		if err != nil {
 			return err
 		}
-
-		// Fail CLOSED, not open: a @doc feature with at least one scenario but
-		// ZERO of them captured is a strong, unambiguous signal that
-		// CTXLOOM_DOC_CAPTURE_DIR was misconfigured for this run (wrong path,
-		// the acceptance suite didn't actually execute, the capture dir got
-		// cleared after the run) — not a legitimate "nothing to show" case.
-		// Every @doc feature in this repo mixes captured scenarios with, at
-		// most, a handful of individually-tagged @live/@wip ones (see
-		// j5_multi_engine.feature) — no @doc feature is EVER entirely
-		// uncaptured by design. Left unchecked, this is the other half of the
-		// same class of bug as EvidenceGapError: every scenario would quietly
-		// render "Not captured in this build" and both the test run and this
-		// generator would still exit 0.
-		if len(feat.Scenarios) > 0 {
-			anyCaptured := false
-			for _, sc := range feat.Scenarios {
-				if len(captures[sc.Name]) > 0 {
-					anyCaptured = true
-					break
-				}
-			}
-			if !anyCaptured {
-				return fmt.Errorf(
-					"REFUSING TO GENERATE: @doc feature %q (%s) has ZERO captured scenarios out of %d — "+
-						"CTXLOOM_DOC_CAPTURE_DIR (%s) is likely misconfigured or the acceptance run never executed this feature; "+
-						"every step would otherwise silently render \"Not captured in this build\"",
-					feat.Name, fp, len(feat.Scenarios), captureDir,
-				)
-			}
-		}
-
-		docPath := narrationPathFor(fp)
-		narrArg := ""
-		if _, statErr := os.Stat(docPath); statErr == nil {
-			narrArg = docPath
-		}
-		narr, err := LoadNarration(docPath)
-		if err != nil {
-			return err
-		}
-
-		// A doc:scenario marker naming a scenario that no longer exists is
-		// prose the author wrote and the page will not carry. Rendering
-		// consults narration only BY an existing scenario's name, so without
-		// this the mismatch produces a complete-looking page, a zero exit, and
-		// no mention anywhere that a paragraph was dropped. Reported rather
-		// than refused: the page itself is still true, and refusing would make
-		// a docs build fail on an editorial mismatch the generator cannot fix.
-		for _, orphan := range OrphanNarrations(feat, narr) {
-			warnf("%s: narration for %q matches no scenario in %s — that prose will NOT appear on the generated page", docPath, orphan, fp)
-		}
-
-		content, err := GeneratePage(feat, narr, captures, narrArg)
-		if err != nil {
-			return err
-		}
-		pages = append(pages, generatedPage{name: slug(fp), content: content})
+		pages = append(pages, page)
 	}
 
-	// Every feature validated clean — now (and only now) touch disk. outDir
-	// holds nothing but generated pages, so it is fully replaced each run:
-	// a feature file that was renamed or removed can never leave a stale page
-	// behind.
+	return writePages(outDir, pages)
+}
+
+// buildPage validates one @doc feature and renders its page. It writes
+// nothing: run collects every page and only then touches disk, so a refusal
+// anywhere aborts the whole batch with no partial output.
+func buildPage(featurePath, captureDir string, captures map[string][]DocCapture) (generatedPage, error) {
+	feat, err := ParseFeature(featurePath)
+	if err != nil {
+		return generatedPage{}, err
+	}
+	if err := assertSomethingCaptured(feat, featurePath, captureDir, captures); err != nil {
+		return generatedPage{}, err
+	}
+
+	docPath := narrationPathFor(featurePath)
+	narrArg := ""
+	if _, statErr := os.Stat(docPath); statErr == nil {
+		narrArg = docPath
+	}
+	narr, err := LoadNarration(docPath)
+	if err != nil {
+		return generatedPage{}, err
+	}
+
+	// A doc:scenario marker naming a scenario that no longer exists is prose
+	// the author wrote and the page will not carry. Rendering consults
+	// narration only BY an existing scenario's name, so without this the
+	// mismatch produces a complete-looking page, a zero exit, and no mention
+	// anywhere that a paragraph was dropped. Reported rather than refused: the
+	// page itself is still true, and refusing would make a docs build fail on
+	// an editorial mismatch the generator cannot fix.
+	for _, orphan := range OrphanNarrations(feat, narr) {
+		warnf("%s: narration for %q matches no scenario in %s — that prose will NOT appear on the generated page", docPath, orphan, featurePath)
+	}
+
+	content, err := GeneratePage(feat, narr, captures, narrArg)
+	if err != nil {
+		return generatedPage{}, err
+	}
+	return generatedPage{name: slug(featurePath), content: content}, nil
+}
+
+// assertSomethingCaptured fails CLOSED, not open: a @doc feature with at least
+// one scenario but ZERO of them captured is a strong, unambiguous signal that
+// CTXLOOM_DOC_CAPTURE_DIR was misconfigured for this run (wrong path, the
+// acceptance suite didn't actually execute, the capture dir got cleared after
+// the run) — not a legitimate "nothing to show" case. Every @doc feature in
+// this repo mixes captured scenarios with, at most, a handful of
+// individually-tagged @live/@wip ones (see j5_multi_engine.feature) — no @doc
+// feature is EVER entirely uncaptured by design. Left unchecked, this is the
+// other half of the same class of bug as EvidenceGapError: every scenario
+// would quietly render "Not captured in this build" and both the test run and
+// this generator would still exit 0.
+func assertSomethingCaptured(feat Feature, featurePath, captureDir string, captures map[string][]DocCapture) error {
+	if len(feat.Scenarios) == 0 {
+		return nil
+	}
+	for _, sc := range feat.Scenarios {
+		if len(captures[sc.Name]) > 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"REFUSING TO GENERATE: @doc feature %q (%s) has ZERO captured scenarios out of %d — "+
+			"CTXLOOM_DOC_CAPTURE_DIR (%s) is likely misconfigured or the acceptance run never executed this feature; "+
+			"every step would otherwise silently render \"Not captured in this build\"",
+		feat.Name, featurePath, len(feat.Scenarios), captureDir,
+	)
+}
+
+// writePages replaces outDir's contents with pages. outDir holds nothing but
+// generated pages, so it is fully replaced each run: a feature file that was
+// renamed or removed can never leave a stale page behind.
+func writePages(outDir string, pages []generatedPage) error {
 	if err := os.RemoveAll(outDir); err != nil {
 		return fmt.Errorf("clear %s: %w", outDir, err)
 	}

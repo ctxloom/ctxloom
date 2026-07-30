@@ -20,7 +20,9 @@ package harpmarker
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -100,8 +102,14 @@ func findInValue(v any) string {
 			}
 		}
 	case map[string]any:
-		for _, vv := range t {
-			if h := findInValue(vv); h != "" {
+		// Sorted key order, not Go's randomized range order: a line carrying
+		// markers under two different keys must resolve to the SAME harp on
+		// every scan of the same bytes. Which key wins is arbitrary; that the
+		// answer is stable is not — an identity resolver of last resort that
+		// disagrees with itself between runs cannot be checked by anything
+		// downstream. Arrays keep their own order, which is already stable.
+		for _, k := range slices.Sorted(maps.Keys(t)) {
+			if h := findInValue(t[k]); h != "" {
 				return h
 			}
 		}

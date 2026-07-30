@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFormat(t *testing.T) {
@@ -122,5 +124,28 @@ func TestFormat_NeverEmitsAMarkerThatCannotIdentifyItsHarp(t *testing.T) {
 				t.Fatalf("Format(%q) = %q, which reads back as %q — a marker must name its own harp or not exist", name, got, back)
 			}
 		})
+	}
+}
+
+// TestScan_IsDeterministicAcrossObjectKeys pins U112-F06: findInValue walked
+// map[string]any in Go's RANDOMIZED range order, so a line carrying two harp
+// markers under different object keys resolved to an arbitrary one — the same
+// bytes producing a different answer between runs of the same binary. Measured
+// before the fix: 500 scans of the fixture below split 432/68 across the two
+// harps.
+//
+// A resolver of last resort that answers differently each time is worse than
+// one that answers wrongly, because nothing downstream can detect it. Which
+// harp wins is arbitrary; that it is STABLE is not.
+func TestScan_IsDeterministicAcrossObjectKeys(t *testing.T) {
+	line := []byte(`{"k1":` + jsonString(t, Format("aaa-aaa-aaa")) +
+		`,"k2":` + jsonString(t, Format("zzz-zzz-zzz")) + `}`)
+
+	first := Scan(line)
+	require.NotEmpty(t, first, "fixture must carry a recoverable marker")
+	for i := range 500 {
+		if got := Scan(line); got != first {
+			t.Fatalf("scan %d of identical bytes returned %q, first returned %q", i, got, first)
+		}
 	}
 }

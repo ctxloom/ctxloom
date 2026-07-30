@@ -148,6 +148,12 @@ func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, forma
 		case <-turnIdle:
 			pending--
 		case line := <-lines:
+			// A blank line is not a turn: issuing one would wake the engine
+			// with nothing to act on (and the coordinator refuses an empty
+			// turn outright), so it is skipped rather than counted as pending.
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
 			if err := sess.coord.SendOwnedRunTurn(runID, line); err != nil {
 				return err
 			}

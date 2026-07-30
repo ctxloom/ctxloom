@@ -3,10 +3,19 @@
 // backend and the PreToolUse hook wire types other tools (ltk) consume.
 //
 // Antigravity splits workspace configuration across two files under .agents/:
-// hooks.json (lifecycle hooks, Claude-style nested shape with PreToolUse /
-// PostToolUse / Stop events) and mcp_config.json (MCP servers). Behavior here
-// follows the verified agy v1.0.7 contract — see the wire types in
-// hooks_wire.go for the verified payload/decision shapes.
+// hooks.json (lifecycle hooks, nested matcher/hooks[] shape) and
+// mcp_config.json (MCP servers) — see the wire types in hooks_wire.go for the
+// payload/decision shapes.
+//
+// EVERY "verified" claim in this package is a DATED observation of a
+// closed-source, fast-moving CLI, not a standing contract. The behaviour
+// described here was probed live against agy v1.0.7 on 2026-06-10; the installed
+// CLI is 1.1.5. Some v1.0.7 findings are already disproved (the flat `<name>.md`
+// skills shape; the "no plan mode" claim, see backend.go), and agy's own bundled
+// documentation now describes a WIDER hooks contract than the one modelled
+// here. Re-verify against the installed version — live, or from agy's bundled
+// docs under ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/
+// — before relying on any claim below.
 package antigravity
 
 import (
@@ -14,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -39,7 +49,10 @@ const AgentsDir = ".agents"
 
 // antigravityCtxloomHookName marks a hook entry as ctxloom-managed in the
 // durable (serialized) name field. agy tolerates and preserves the field
-// (verified v1.0.7: a named entry loads and fires, reported as a "named hook").
+// (probed on v1.0.7: a named entry loads and fires, reported as a "named hook").
+// The field is NOT part of agy's documented handler contract — 1.1.5 documents
+// type, command and timeout only — so ctxloom's ownership marker rides on
+// tolerated-unknown-field behaviour, not on a guarantee.
 const antigravityCtxloomHookName = "ctxloom-managed"
 
 // AntigravityHookWriter writes hooks to Antigravity CLI's .agents/hooks.json
@@ -60,19 +73,19 @@ func (w *AntigravityHookWriter) getFS() afero.Fs {
 	return agent.GetFS(w.FS)
 }
 
-// WorkspaceHooksPath returns the workspace-level .agents/hooks.json path —
-// the only place agy v1.0.7 reads hooks from. Exported for companion tools
-// (ltk) that manage hooks in the same file, so the path convention has a
-// single source of truth.
+// WorkspaceHooksPath returns the workspace-level .agents/hooks.json path — the
+// only place agy was observed to read hooks from (v1.0.7). Exported for
+// companion tools (ltk) that manage hooks in the same file, so the path
+// convention has a single source of truth.
 func WorkspaceHooksPath(dir string) string {
 	return filepath.Join(dir, AgentsDir, "hooks.json")
 }
 
 // SettingsPath returns the path to Antigravity's project-level hooks.json file
-// (the settings file ctxloom manages for Antigravity). There is no usable
-// global location in agy v1.0.7: ~/.gemini/antigravity-cli/hooks.json is
-// silently ignored, and a hooks.json under ~/.gemini/ or ~/.gemini/config/
-// hangs headless agy before any hook executes.
+// (the settings file ctxloom manages for Antigravity). No usable global location
+// was found on v1.0.7: ~/.gemini/antigravity-cli/hooks.json is silently ignored,
+// and a hooks.json under ~/.gemini/ or ~/.gemini/config/ hangs headless agy
+// before any hook executes.
 func (w *AntigravityHookWriter) SettingsPath(projectDir string) string {
 	return WorkspaceHooksPath(projectDir)
 }
@@ -108,6 +121,39 @@ type antigravityHookGroup struct {
 // without its methods, for recursion-free (un)marshalling.
 type antigravityHookGroupShape antigravityHookGroup
 
+// Known object keys per shape, DERIVED from the structs. The unknown-field
+// capture below works by removing the known keys from the raw object, so the set
+// it removes must be exactly the set of fields the shape declares — a
+// hand-written list of tag names has no compiler link to the struct and drifts
+// the moment a field is added.
+var (
+	hookGroupKnownKeys = jsonObjectKeys(antigravityHookGroupShape{})
+	hookEntryKnownKeys = jsonObjectKeys(antigravityHookEntryShape{})
+)
+
+// jsonObjectKeys returns the object keys encoding/json reads and writes for
+// shape's exported fields: the tag name when tagged, the field name otherwise,
+// skipping `json:"-"`.
+func jsonObjectKeys(shape any) []string {
+	typ := reflect.TypeOf(shape)
+	keys := make([]string, 0, typ.NumField())
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		keys = append(keys, name)
+	}
+	return keys
+}
+
 // UnmarshalJSON decodes the known fields and captures unknown keys in extra.
 func (g *antigravityHookGroup) UnmarshalJSON(data []byte) error {
 	var shape antigravityHookGroupShape
@@ -118,8 +164,9 @@ func (g *antigravityHookGroup) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	delete(raw, "matcher")
-	delete(raw, "hooks")
+	for _, known := range hookGroupKnownKeys {
+		delete(raw, known)
+	}
 	*g = antigravityHookGroup(shape)
 	if len(raw) > 0 {
 		g.extra = raw
@@ -136,8 +183,8 @@ func (g antigravityHookGroup) MarshalJSON() ([]byte, error) {
 // antigravityHookEntry is a single command hook. agy requires type:"command".
 // name is a durable field agy preserves, used to identify ctxloom-managed
 // entries for clean removal. The timeout field is deliberately never written:
-// agy v1.0.7 does not document its unit, and a seconds/milliseconds mismatch
-// would silently break hooks — agy's own default applies instead. An existing
+// agy documents it as seconds with its own 30s default (1.1.5 hooks contract),
+// and ctxloom has no better number to impose than the engine's. An existing
 // user-set timeout round-trips untouched. Unknown per-entry fields are
 // captured in extra on load and merged back on save (see antigravityHookGroup).
 type antigravityHookEntry struct {
@@ -164,7 +211,7 @@ func (e *antigravityHookEntry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	for _, known := range []string{"type", "command", "name", "timeout"} {
+	for _, known := range hookEntryKnownKeys {
 		delete(raw, known)
 	}
 	*e = antigravityHookEntry(shape)
@@ -318,7 +365,14 @@ func (w *AntigravityHookWriter) saveHooksFile(path string, hf *antigravityHooksF
 		// an existing one (e.g. RemoveSettings). For a context-only profile the
 		// injection hook is diverted to AGENTS.md, leaving hooks empty; agy
 		// treats an absent file and `{}` identically, so skip the write.
-		if exists, _ := afero.Exists(w.getFS(), path); !exists {
+		//
+		// A failed check is not an answer: skipping the write on it would decide
+		// "no file to clear" from an error that means the opposite is possible.
+		exists, err := afero.Exists(w.getFS(), path)
+		if err != nil {
+			return fmt.Errorf("failed to check %s/hooks.json: %w", AgentsDir, err)
+		}
+		if !exists {
 			return nil
 		}
 	}
@@ -433,9 +487,18 @@ func (w *AntigravityHookWriter) addBackendHooks(hf *antigravityHooksFile, backen
 // and translating a prompt/agent hook here would mangle it into
 // {"type":"command","command":""} — a dead entry. Non-command hooks are
 // skipped with a warning (empty Type is the wire default and means command).
+//
+// A hook with no command is skipped for the same reason, and the Type guard
+// above does not cover it: `command` is required in agy's hook contract, and a
+// prompt hook authored WITHOUT an explicit type reads as a command hook with
+// nothing to run — an entry agy loads as a live handler that executes nothing.
 func (w *AntigravityHookWriter) addHook(hf *antigravityHooksFile, eventName string, h wire.Hook) {
 	if h.Type != "" && h.Type != "command" {
 		w.warn("skipping %s hook of type %q: antigravity only supports command hooks", eventName, h.Type)
+		return
+	}
+	if h.Command == "" {
+		w.warn("skipping %s hook with no command: antigravity would load it as a live hook that runs nothing (a prompt-only hook has no antigravity equivalent)", eventName)
 		return
 	}
 
@@ -603,7 +666,14 @@ func (w *AntigravityHookWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 
 	hooksPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, hooksPath); exists {
+	// An unreadable hooks.json is NOT an absent one: reporting success here
+	// would tell the user their managed hooks were cleared when nothing was
+	// even read.
+	exists, err := afero.Exists(fs, hooksPath)
+	if err != nil {
+		return fmt.Errorf("failed to check %s/hooks.json: %w", AgentsDir, err)
+	}
+	if exists {
 		hf, err := w.loadHooksFile(hooksPath)
 		if err != nil {
 			return fmt.Errorf("failed to load existing hooks.json: %w", err)
@@ -627,7 +697,13 @@ func (w *AntigravityHookWriter) Status(projectDir string) (agent.SettingsStatus,
 	var status agent.SettingsStatus
 
 	hooksPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, hooksPath); exists {
+	// Reported status must never be a guess: an unreadable hooks.json would
+	// otherwise read as an unconfigured project.
+	exists, err := afero.Exists(fs, hooksPath)
+	if err != nil {
+		return status, fmt.Errorf("failed to check %s/hooks.json: %w", AgentsDir, err)
+	}
+	if exists {
 		status.SettingsExists = true
 		hf, err := w.loadHooksFile(hooksPath)
 		if err != nil {
@@ -644,11 +720,17 @@ func (w *AntigravityHookWriter) Status(projectDir string) (agent.SettingsStatus,
 
 	// The managed context section is Antigravity's stand-in for the
 	// SessionStart injection hook other agents carry, so it counts as a
-	// managed hook for wired-status purposes.
-	if data, err := afero.ReadFile(fs, w.agentsMDPath(projectDir)); err == nil {
+	// managed hook for wired-status purposes. An absent file means "no managed
+	// context"; any other read failure means the answer is unknown, which is not
+	// the same thing.
+	data, err := afero.ReadFile(fs, w.agentsMDPath(projectDir))
+	switch {
+	case err == nil:
 		if strings.Contains(string(data), managedContextBegin) {
 			status.HooksPresent = true
 		}
+	case !os.IsNotExist(err):
+		return status, fmt.Errorf("failed to read %s/AGENTS.md: %w", AgentsDir, err)
 	}
 	return status, nil
 }

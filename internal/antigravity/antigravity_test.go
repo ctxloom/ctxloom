@@ -2,6 +2,10 @@ package antigravity
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -49,7 +53,7 @@ func TestAntigravityHookWriter_WriteSettingsHooks(t *testing.T) {
 	assert.Equal(t, "command", hooks["PreToolUse"][0].Hooks[0].Type)
 	assert.Equal(t, "./pre-tool.sh", hooks["PreToolUse"][0].Hooks[0].Command)
 	assert.Equal(t, antigravityCtxloomHookName, hooks["PreToolUse"][0].Hooks[0].Name)
-	assert.Zero(t, hooks["PreToolUse"][0].Hooks[0].Timeout, "timeout is never written (unit unverified in agy)")
+	assert.Zero(t, hooks["PreToolUse"][0].Hooks[0].Timeout, "timeout is never written — agy's own default applies")
 }
 
 // TestAntigravityHookWriter_PreShellPostFileEdit verifies the unified
@@ -111,6 +115,46 @@ func TestAntigravityHookWriter_SkipsNonCommandHooks(t *testing.T) {
 	assert.NotContains(t, string(data), `"command": ""`, "no dead empty-command entries")
 }
 
+// TestAntigravityHookWriter_SkipsEmptyCommandHook pins the PAYLOAD: no entry
+// ctxloom writes may carry an empty command. agy's hook contract makes
+// `command` REQUIRED (verified against agy's own bundled documentation,
+// ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md on
+// agy 1.1.5: "command (string, required)"), so an entry without one is a
+// live-looking handler that executes nothing — U029-F05's silent no-op.
+//
+// The reachable path is a hook authored with a prompt and NO explicit type:
+// the wire default for Type is "" which MEANS command, so the non-command
+// guard above lets it through with nothing to run. Asserting on the decoded
+// entries (not on the raw bytes) is deliberate — `command` is `omitempty`, so
+// the sibling test's `NotContains("\"command\": \"\"")` byte check can never
+// fail no matter how many dead entries are written.
+func TestAntigravityHookWriter_SkipsEmptyCommandHook(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &AntigravityHookWriter{FS: fs}
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{
+			{Prompt: "be careful"}, // untyped prompt hook: Type "" reads as command
+			{Command: "ctxloom hook pre-tool"},
+		}},
+		Plugins: map[string]wire.BackendHooks{
+			"antigravity": {"PostToolUse": []wire.Hook{{Matcher: "write_to_file"}}},
+		},
+	}
+	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+
+	hooks := readHooks(t, fs)
+	var written []string
+	for event, groups := range hooks {
+		for _, g := range groups {
+			for _, e := range g.Hooks {
+				assert.NotEmpty(t, e.Command, "%s carries an entry with no command to run", event)
+				written = append(written, e.Command)
+			}
+		}
+	}
+	assert.Equal(t, []string{"ctxloom hook pre-tool"}, written)
+}
+
 // TestAntigravityHookWriter_CompanionHookIdempotent verifies exact-duplicate
 // suppression for companion-binary hooks: an identical command already
 // installed under the same event by a non-ctxloom entry (e.g. ltk registered
@@ -146,6 +190,69 @@ func TestAntigravityHookWriter_CompanionHookIdempotent(t *testing.T) {
 	}
 	assert.Equal(t, 1, exact, "companion hook must not duplicate across re-applies")
 	assert.Equal(t, 1, variant, "user's own variant of the same binary must survive")
+}
+
+// jsonProbeObject builds a JSON object carrying one entry for every
+// json-encodable field of shape (a type-plausible value per kind), plus a key no
+// struct declares. Derived from the struct by reflection so it stays honest as
+// the struct changes.
+func jsonProbeObject(t *testing.T, shape any) []byte {
+	t.Helper()
+	typ := reflect.TypeOf(shape)
+	fields := map[string]json.RawMessage{"fieldAgyAddedLater": json.RawMessage(`"keep me"`)}
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		switch f.Type.Kind() {
+		case reflect.String:
+			fields[name] = json.RawMessage(`"probe"`)
+		case reflect.Int:
+			fields[name] = json.RawMessage(`7`)
+		case reflect.Bool:
+			fields[name] = json.RawMessage(`true`)
+		default:
+			fields[name] = json.RawMessage(`null`)
+		}
+	}
+	data, err := json.Marshal(fields)
+	require.NoError(t, err)
+	return data
+}
+
+// TestHookShapes_UnknownCaptureExcludesEveryDeclaredField pins U029-F13: the
+// round-trip preservation in UnmarshalJSON captures unknown keys by REMOVING the
+// known ones from the raw object, so the set it removes has to be exactly the
+// set of fields the struct declares. Enumerating that set by hand — as two
+// literal string lists did — has no compiler link to the structs, so a field
+// added later silently lands in both the typed shape and the "unknown" carry-over
+// map. This test derives the probe object from the structs themselves, so it
+// fails the moment the two sets diverge.
+func TestHookShapes_UnknownCaptureExcludesEveryDeclaredField(t *testing.T) {
+	onlyUnknown := map[string]json.RawMessage{"fieldAgyAddedLater": json.RawMessage(`"keep me"`)}
+
+	t.Run("group", func(t *testing.T) {
+		var g antigravityHookGroup
+		require.NoError(t, json.Unmarshal(jsonProbeObject(t, antigravityHookGroupShape{}), &g))
+		assert.Equal(t, onlyUnknown, g.extra)
+		assert.Equal(t, "probe", g.Matcher, "the declared fields still decode into the shape")
+	})
+
+	t.Run("entry", func(t *testing.T) {
+		var e antigravityHookEntry
+		require.NoError(t, json.Unmarshal(jsonProbeObject(t, antigravityHookEntryShape{}), &e))
+		assert.Equal(t, onlyUnknown, e.extra)
+		assert.Equal(t, "probe", e.Type)
+		assert.Equal(t, 7, e.Timeout)
+	})
 }
 
 // TestAntigravityHookWriter_PreservesUnknownGroupAndEntryFields verifies
@@ -453,6 +560,96 @@ func TestAntigravityHookWriter_RemoveLeavesAbsentFilesAbsent(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, exists, p)
 	}
+}
+
+// errUnreadable stands in for the class of filesystem failure that is NOT
+// "absent": a permission denial, an I/O error, a path that stopped being
+// traversable. afero.Exists reports exactly this class as an error and reports a
+// genuinely missing file as (false, nil), so discarding its error is what turns
+// "I could not tell" into "it is not there".
+var errUnreadable = errors.New("permission denied by the test filesystem")
+
+// failFS fails Stat (and/or Open) for paths ending in the configured suffix,
+// delegating everything else. Injecting at Stat is what reaches the swallowed
+// afero.Exists errors; injecting at Open reaches the swallowed afero.ReadFile
+// error in Status.
+type failFS struct {
+	afero.Fs
+	statFail string
+	openFail string
+}
+
+func (f failFS) Stat(name string) (os.FileInfo, error) {
+	if f.statFail != "" && strings.HasSuffix(filepath.ToSlash(name), f.statFail) {
+		return nil, errUnreadable
+	}
+	return f.Fs.Stat(name)
+}
+
+func (f failFS) Open(name string) (afero.File, error) {
+	if f.openFail != "" && strings.HasSuffix(filepath.ToSlash(name), f.openFail) {
+		return nil, errUnreadable
+	}
+	return f.Fs.Open(name)
+}
+
+// TestAntigravityHookWriter_UnreadableFilesAreReportedNotAssumedAbsent pins
+// U029-F10: four filesystem errors were discarded with `_`, each collapsing "I
+// could not tell whether this file is there" into "it is not there". The
+// consequences are all silent: RemoveSettings reports success having cleared
+// nothing, Status reports an unwired project, and WriteSettings decides not to
+// write on the strength of a check that failed.
+func TestAntigravityHookWriter_UnreadableFilesAreReportedNotAssumedAbsent(t *testing.T) {
+	const managed = `{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"ctxloom hook pre-tool","name":"ctxloom-managed"}]}]}}`
+
+	t.Run("RemoveSettings", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(base, "/project/.agents/hooks.json", []byte(managed), 0644))
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, statFail: "hooks.json"}}
+
+		err := writer.RemoveSettings("/project")
+		require.Error(t, err, "uninstall must not report success when it could not read hooks.json")
+		assert.ErrorIs(t, err, errUnreadable)
+
+		// The managed hook is still there — proving the reported failure is real
+		// and not a cosmetic error on an otherwise-completed removal.
+		data, readErr := afero.ReadFile(base, "/project/.agents/hooks.json")
+		require.NoError(t, readErr)
+		assert.Contains(t, string(data), "ctxloom hook pre-tool")
+	})
+
+	t.Run("Status/hooks", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(base, "/project/.agents/hooks.json", []byte(managed), 0644))
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, statFail: "hooks.json"}}
+
+		_, err := writer.Status("/project")
+		require.Error(t, err, "status must not report an unwired project on an unreadable hooks.json")
+		assert.ErrorIs(t, err, errUnreadable)
+	})
+
+	t.Run("Status/AGENTS.md", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		require.NoError(t, afero.WriteFile(base, "/project/.agents/AGENTS.md",
+			[]byte(managedContextBegin+"\ncontext\n"+managedContextEnd+"\n"), 0644))
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, openFail: "AGENTS.md"}}
+
+		_, err := writer.Status("/project")
+		require.Error(t, err, "status must not report 'no managed context' on an unreadable AGENTS.md")
+		assert.ErrorIs(t, err, errUnreadable)
+	})
+
+	t.Run("WriteSettings/emptyHooks", func(t *testing.T) {
+		base := afero.NewMemMapFs()
+		writer := &AntigravityHookWriter{FS: failFS{Fs: base, statFail: "hooks.json"}}
+
+		// Nothing to persist, so the writer consults "does hooks.json already
+		// exist?" to decide between rewriting it and leaving no stray file. That
+		// check failing is not an answer.
+		err := writer.WriteSettings(&wire.HooksConfig{}, nil, nil, "/project")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errUnreadable)
+	})
 }
 
 func TestAntigravityHookWriter_Status(t *testing.T) {

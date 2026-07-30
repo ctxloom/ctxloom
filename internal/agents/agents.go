@@ -197,7 +197,9 @@ type EscalationRung struct {
 	Role string `yaml:"role,omitempty"`
 	// Timeout bounds a relay_to_role/surface_to_human rung's wait, Go
 	// duration syntax (e.g. "5m"). Empty uses the resolver's default.
-	// Ignored by auto_accept/auto_decline (they resolve immediately).
+	// REFUSED on auto_accept/auto_decline: they resolve the request
+	// immediately, so nothing waits and a declared timeout can only mean the
+	// operator expected behaviour the ladder does not have.
 	Timeout string `yaml:"timeout,omitempty"`
 }
 

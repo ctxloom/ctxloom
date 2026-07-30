@@ -126,6 +126,43 @@ func TestAntigravityEncodeDeny(t *testing.T) {
 	}
 }
 
+// TestAntigravityEncodeDeny_ReasonlessRuleStillCarriesAReason pins the
+// invariant U029-F15 is about, at the layer that actually decides it.
+//
+// The row read `antigravitycli.EncodeDeny("")` — which emits
+// {"decision":"deny"} with no reason, so agy renders "Tool call denied with
+// reason: " — as a live silent no-op. It is not reachable: this Encode is the
+// only caller in the repo (the wire types live in an internal/ package, so
+// there can be no other), and it passes Response.Message(), which supplies
+// "denied by ltk (no reason or suggested alternative was configured for this
+// rule)" precisely when a rule carries neither. The fallback belongs there
+// rather than in EncodeDeny: making EncodeDeny refuse an empty reason would turn
+// Encode into an error return, and an ltk hook that exits non-zero makes agy
+// FAIL OPEN — the tool call it was denying would proceed. So the reasonless
+// deny must stay a well-formed deny, and this test is what keeps it one.
+func TestAntigravityEncodeDeny_ReasonlessRuleStillCarriesAReason(t *testing.T) {
+	out, err := Antigravity{}.Encode(Response{Allow: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ExitCode != 0 {
+		t.Errorf("deny is exit 0 + JSON (agy fails OPEN on non-zero), got exit %d", out.ExitCode)
+	}
+	var decoded struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(out.Stdout, &decoded); err != nil {
+		t.Fatalf("output not valid JSON: %v", err)
+	}
+	if decoded.Decision != "deny" {
+		t.Fatalf("decision = %q, want deny", decoded.Decision)
+	}
+	if strings.TrimSpace(decoded.Reason) == "" {
+		t.Error("a rule with no reason and no suggestion must still tell the model why: agy renders this field verbatim after \"Tool call denied with reason: \"")
+	}
+}
+
 func TestGetAntigravity(t *testing.T) {
 	for _, name := range []string{"antigravity", "agy", "antigravity-cli", "ANTIGRAVITY"} {
 		e, err := Get(name)

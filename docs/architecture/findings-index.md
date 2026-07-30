@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **960** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 36 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 72 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **985** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 38 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 76 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,074** |
+| `open` | no commit names this ID | **1,043** |
 
-**Totals: 2268 findings across 162 units — 960 resolved, 1,074 still open, 234 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 985 resolved, 1,043 still open, 114 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 265 | 616 | 14 | 24 | 80 |
-| LOW | 871 | 345 | 432 | 12 | 40 | 42 |
+| MED | 999 | 277 | 599 | 16 | 27 | 80 |
+| LOW | 871 | 358 | 418 | 12 | 41 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1025,18 +1025,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U022-F14 | **RESOLVED** `806bdd08` | **`home.go:721-736`** | CORRECTNESS | `Report` can report failure for a report that was durably journaled, because the Ack it waits for is explicitly droppable. | U022.md |
 | U022-F17 | **PARTIAL** `aada967a` | `httpserver.go:180-247, 353-371` | CORRECTNESS | The doc claims "never opens anything LAN-visible"; on Linux the fallback binds the host's **primary outbound interface IP**, which is LAN-visible. | U022.md |
 | U022-F23 | **RESOLVED** `e1e12166` | `journal.go:140` | COMPLEXITY | `replay` reads the **entire** journal into memory with `io.ReadAll`, defeating the point of checkpointing whenever the snapshot is missing or stale. | U022.md |
-| U023-F04 | open | `launchgate.go:313-319` | ERRHANDLING | Budget exhaustion is announced **only** for `CauseLaunchFailed`. Under every other cause the coordinator stops re-arming in total silence and the parent's mail is stranded with no notice — in a fil... | U023.md |
-| U023-F05 | open | `mailbox.go:133-137` | CORRECTNESS | `deliverToPoll`'s delivery goroutine calls `onRoleUnpark`, which can **block on the execution-slot semaphore** (`children.go:1762`, `c.slots.acquire(c.baseCtx)`). The recv's documented bounded `wai... | U023.md |
-| U023-F06 | open | `mailbox.go:85-96`, `owner_run.go:165-180` | SILENTNOOP | Neither the mailbox nor `SendOwnedRunTurn` rejects an empty body: an empty `agent_send`/turn is journaled, "delivered", and reported successful while carrying zero payload. | U023.md |
+| U023-F04 | **RESOLVED** `c031c72c` | `launchgate.go:313-319` | ERRHANDLING | Budget exhaustion is announced **only** for `CauseLaunchFailed`. Under every other cause the coordinator stops re-arming in total silence and the parent's mail is stranded with no notice — in a fil... | U023.md |
+| U023-F05 | **REFUTED** `eab8e725` | `mailbox.go:133-137` | CORRECTNESS | `deliverToPoll`'s delivery goroutine calls `onRoleUnpark`, which can **block on the execution-slot semaphore** (`children.go:1762`, `c.slots.acquire(c.baseCtx)`). The recv's documented bounded `wai... | U023.md |
+| U023-F06 | **RESOLVED** `b8d9e043` | `mailbox.go:85-96`, `owner_run.go:165-180` | SILENTNOOP | Neither the mailbox nor `SendOwnedRunTurn` rejects an empty body: an empty `agent_send`/turn is journaled, "delivered", and reported successful while carrying zero payload. | U023.md |
 | U023-F07 | **RESOLVED** `515a95f4` | `reports.go:52` + `reports.go:115-136` | DEAD | `artifactFact.Seq` is journaled on every artifact manifest and read by nothing: artifacts get **no at-least-once dedupe** while summaries do, so a redelivered `ArtifactProduced` re-writes the record. | U023.md |
-| U023-F08 | open | `mailbox.go:286-292` | CORRECTNESS | A recv cancelled by its client (`ctx.Done()`) that *lost* the race to a concurrent delivery consumes the message and returns it to a caller that is gone. The id stays in `c.delivered` forever (proc... | U023.md |
-| U023-F09 | open | `ladder.go:126-131` | CORRECTNESS | `buildLadder` rejects a `role:` on `auto_accept`/`auto_decline` but **silently ignores** a `timeout:` on them. An operator writing `action: auto_accept` + `timeout: 5m` gets no error and no timeout... | U023.md |
-| U023-F18 | open | `owner_run.go:147-149` | ERRHANDLING | The `issueStartRun` error path returns without `c.failChild(rt, err)`, unlike the two error paths above it — contradicting the function's own doc ("On any launch/handshake failure the run is failed... | U023.md |
-| U023-F21 | open | **`publish.go:59-75`** | CORRECTNESS | Intra-batch duplicates are not deduped: the watermark `c.itemsF.maxSeq` is read inside the `Exec` closure but is not advanced as facts are appended, so two events with the same `(run_id, seq)` in *... | U023.md |
-| U023-F25 | open | `reports.go:208-216` + `reports.go:125-135` | CORRECTNESS | A producer-supplied non-zero `revision` is trusted unconditionally, and `apply` overwrites `byID[p.ArtifactID]` with no monotonicity check — a replayed or out-of-order artifact fact with a **lower*... | U023.md |
-| U023-F27 | open | `reports.go:194-196`, `reports.go:230-232` | ERRHANDLING | A journal failure warns and the report/artifact is **lost**. The comment claims "the report re-rides the next checkpoint" — I could find no mechanism that re-sends a failed summary, and `recordSumm... | U023.md |
-| U023-F30 | open | `owner_run.go:116-130` | CORRECTNESS | Two post-`enqueueRun` mutations are applied to `rt` *after* the run is already visible to concurrent goroutines, creating windows where a dialing runner or a racing terminal observes a half-built r... | U023.md |
-| U023-F34 | open | `launchgate.go:210-220` (with `coordinator.go:750-752`)` | CORRECTNESS | Likely cause of the reported "`agent_stop` refuses resumed children": under one-shot, a healthy child spends the gap between turns with an **ended** current run, so `AgentStop` takes the `rec.Ended... | U023.md |
+| U023-F08 | **RESOLVED** `eab8e725` | `mailbox.go:286-292` | CORRECTNESS | A recv cancelled by its client (`ctx.Done()`) that *lost* the race to a concurrent delivery consumes the message and returns it to a caller that is gone. The id stays in `c.delivered` forever (proc... | U023.md |
+| U023-F09 | **RESOLVED** `6ea50f6a` | `ladder.go:126-131` | CORRECTNESS | `buildLadder` rejects a `role:` on `auto_accept`/`auto_decline` but **silently ignores** a `timeout:` on them. An operator writing `action: auto_accept` + `timeout: 5m` gets no error and no timeout... | U023.md |
+| U023-F18 | **REFUTED** `36a681c0` | `owner_run.go:147-149` | ERRHANDLING | The `issueStartRun` error path returns without `c.failChild(rt, err)`, unlike the two error paths above it — contradicting the function's own doc ("On any launch/handshake failure the run is failed... | U023.md |
+| U023-F21 | **RESOLVED** `111c615d` | **`publish.go:59-75`** | CORRECTNESS | Intra-batch duplicates are not deduped: the watermark `c.itemsF.maxSeq` is read inside the `Exec` closure but is not advanced as facts are appended, so two events with the same `(run_id, seq)` in *... | U023.md |
+| U023-F25 | **RESOLVED** `05e9a83d` | `reports.go:208-216` + `reports.go:125-135` | CORRECTNESS | A producer-supplied non-zero `revision` is trusted unconditionally, and `apply` overwrites `byID[p.ArtifactID]` with no monotonicity check — a replayed or out-of-order artifact fact with a **lower*... | U023.md |
+| U023-F27 | **PARTIAL** `d5da69d3` | `reports.go:194-196`, `reports.go:230-232` | ERRHANDLING | A journal failure warns and the report/artifact is **lost**. The comment claims "the report re-rides the next checkpoint" — I could find no mechanism that re-sends a failed summary, and `recordSumm... | U023.md |
+| U023-F30 | **REFUTED** `36a681c0` | `owner_run.go:116-130` | CORRECTNESS | Two post-`enqueueRun` mutations are applied to `rt` *after* the run is already visible to concurrent goroutines, creating windows where a dialing runner or a racing terminal observes a half-built r... | U023.md |
+| U023-F34 | **RESOLVED** `c031c72c` | `launchgate.go:210-220` (with `coordinator.go:750-752`)` | CORRECTNESS | Likely cause of the reported "`agent_stop` refuses resumed children": under one-shot, a healthy child spends the gap between turns with an **ended** current run, so `AgentStop` takes the `rec.Ended... | U023.md |
 | U024-F06 | **RESOLVED** `d60f2e24` `56649bfc` | `runchannel.go:682-689` | SILENTNOOP | If `protojson.Marshal` of the caller's Struct fails, `structured` stays nil and the message is queued **without its structured payload**, reported as success. For a parent answering a relayed appro... | U024.md |
 | U024-F07 | **RESOLVED** `56649bfc` | `runchannel.go:436-449` | SILENTNOOP | `peerMessageProto` swallows two errors; either one delivers a `PeerMessage` with **no structured payload** — including for the escalation ladder's relayed `ApprovalRequest`, which the child then ca... | U024.md |
 | U024-F08 | open | `runchannel.go:603-610` | ERRHANDLING | `respond`'s drop message — "the runner reissues on reconnect" — is only true across a reconnect; on a live-but-slow channel the runner's request simply hangs to its own timeout. `respond` also runs... | U024.md |
@@ -1062,13 +1062,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U028-F08 | open | **`agents.go:182-199`** | CORRECTNESS | `EscalationRung` — a safety control — is four untyped strings whose enums exist only in comments, validated one package away and one runtime phase later than every other axis. | U028.md |
 | U029-F02 | **RESOLVED** `758c200e` | **`capabilities.go:26,31 + backend.go:49`** | DEAD | `AntigravityCommands` and `RegisterFromContent` are never invoked in production. The `agent.ContentCommands` value is stored in `LaunchBackend.commands` and that field is never read anywhere in the... | U029.md |
 | U029-F03 | **RESOLVED** `2d4c4e03` | **`hooks_wire.go:21-23, 34-35, 42, 77`** | DEAD | Eight wire declarations have zero readers anywhere in the repo, including tests | U029.md |
-| U029-F05 | open | **`antigravity.go:426-448`** | SILENTNOOP | A hook with an empty `Command` is written as a live-looking but dead entry | U029.md |
+| U029-F05 | **RESOLVED** `0b9568f6` | **`antigravity.go:426-448`** | SILENTNOOP | A hook with an empty `Command` is written as a live-looking but dead entry | U029.md |
 | U029-F06 | **RESOLVED** `607f5379` | **`antigravity.go:252-282`** | CORRECTNESS | An unparseable (or schema-changed) `hooks.json` is silently replaced with a ctxloom-only file — the user's hook configuration is destroyed | U029.md |
-| U029-F07 | open | **`chat.go:301-303`** | ERRHANDLING | The only caller of `agyConversationMap.read()` discards the error that `read()`'s own doc says must be surfaced | U029.md |
-| U029-F11 | open | **`chat.go:57-195`** | COMPLEXITY | `Chat` has CCN 23 against a CI gate of 10 | U029.md |
-| U029-F14 | open | `capabilities.go (whole file)` | COHESION | `capabilities.go` holds two unrelated things: the command-file writer (`AntigravityCommands`, `WriteCommandFiles`) and agy's conversation-id cache reader (`agyConversationMap`), separated by 30 lin... | U029.md |
-| U029-F16 | open | **`skillfiles.go:10-23`** | CORRECTNESS | A stale doc comment asserts the OPPOSITE of what the code does and denies a collision the code explicitly resolves | U029.md |
-| U029-F18 | open | **`antigravity.go:8, 42, 73-75; hooks_wire.go:10, 19; mcp_registrar.go:12-15; capabilities.go (throughout)`** | CORRECTNESS | The package's normative claims are pinned to "verified agy v1.0.7" while the verified installed version is 1.1.2, and at least one v1.0.7 claim in this area has already been proven false | U029.md |
+| U029-F07 | **RESOLVED** `75f2461d` | **`chat.go:301-303`** | ERRHANDLING | The only caller of `agyConversationMap.read()` discards the error that `read()`'s own doc says must be surfaced | U029.md |
+| U029-F11 | **RESOLVED** `210f9542` | **`chat.go:57-195`** | COMPLEXITY | `Chat` has CCN 23 against a CI gate of 10 | U029.md |
+| U029-F14 | **RESOLVED** `4a0c48a6` | `capabilities.go (whole file)` | COHESION | `capabilities.go` holds two unrelated things: the command-file writer (`AntigravityCommands`, `WriteCommandFiles`) and agy's conversation-id cache reader (`agyConversationMap`), separated by 30 lin... | U029.md |
+| U029-F16 | **RESOLVED** `f0c5d073` | **`skillfiles.go:10-23`** | CORRECTNESS | A stale doc comment asserts the OPPOSITE of what the code does and denies a collision the code explicitly resolves | U029.md |
+| U029-F18 | **PARTIAL** `05b205cb` | **`antigravity.go:8, 42, 73-75; hooks_wire.go:10, 19; mcp_registrar.go:12-15; capabilities.go (throughout)`** | CORRECTNESS | The package's normative claims are pinned to "verified agy v1.0.7" while the verified installed version is 1.1.2, and at least one v1.0.7 claim in this area has already been proven false | U029.md |
 | U030-F05 | open | **`bundles.go:552-583`** | CORRECTNESS | The MCP preimage is **not stable across encodings**: `Args`/`Env` are emitted without `omitempty`, so a nil value hashes as `"args":null,"env":null` while an empty-but-present value hashes as `"arg... | U030.md |
 | U030-F08 | open | `loader_content.go:278, 396` | CORRECTNESS | `LoadedContent.IsDistilled` is re-derived with a **different predicate** than the bytes it claims to describe: `l.preferDistilled && frag.Distilled != ""` omits the `!NoDistill` term. An item with ... | U030.md |
 | U030-F09 | open | `loader_skills.go:87-88, bundles.go:271/284` | CORRECTNESS | Two comments that justify trust-relevant behaviour are **false**. (a) loader_skills.go:87-88 excuses the unverified manifest-less path with "no `ctxloom skill sync` has run — that CLI is Part B6" —... | U030.md |
@@ -2017,18 +2017,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U023-F10 | **RESOLVED** `72f7f6bf` | `launchgate.go:258-264` | TRIVIAL | `noteLaunchFailure`'s `int` return is discarded at its only call site. | U023.md |
 | U023-F11 | **RESOLVED** `44a1207b` | `launchgate.go:100-126` | DUPLICATE | `envLaunchInt` and `envLaunchDuration` are structurally identical: lookup → empty check → parse → positivity check → identical warning text. ~26 lines to express one rule twice. | U023.md |
 | U023-F12 | **RESOLVED** `8edd95f3` | `mailbox.go:49` | DEAD | `parkedPoll.role` is written at construction (`mailbox.go:262`) and never read. | U023.md |
-| U023-F13 | open | `launchgate.go:270-282` | CORRECTNESS | `launchBackoff(1)` returns `launchBackoffBase` **uncapped**: if an operator sets `CTXLOOM_LAUNCH_BACKOFF_MAX` below `..._BASE`, the first retry ignores the ceiling. | U023.md |
+| U023-F13 | **RESOLVED** `060b716a` | `launchgate.go:270-282` | CORRECTNESS | `launchBackoff(1)` returns `launchBackoffBase` **uncapped**: if an operator sets `CTXLOOM_LAUNCH_BACKOFF_MAX` below `..._BASE`, the first retry ignores the ceiling. | U023.md |
 | U023-F14 | open | `ladder.go` (whole file)` | COHESION | `ladder.go` is a self-contained value-domain module with zero `Coordinator` coupling, welded into a 1764-LOC-plus god-package. | U023.md |
 | U023-F15 | **RESOLVED** `8d5567a4` | **`liveness.go:182`** | NOPAY | `LivenessSnapshot` is exported but has no out-of-package caller; the brief lists `internal/cli` and `internal/cli/tui` as dependents and neither uses it. | U023.md |
 | U023-F16 | open | `mailbox.go:149` | COUPLING | `out := pending[:0]` filters in place into the backing array of `c.mailF.pendingFor(role)`'s result. It is safe **only** because `pendingFor` returns a copy (`folds.go:484-489`). That invariant liv... | U023.md |
-| U023-F19 | open | `owner_run.go:124-127` | ERRHANDLING | The error is wrapped with `"owner run: runner launch failed: %w"` for `failChild` and then the **raw, unwrapped** `err` is returned to the caller. The operator-facing path gets the less informative... | U023.md |
+| U023-F19 | **RESOLVED** `36a681c0` | `owner_run.go:124-127` | ERRHANDLING | The error is wrapped with `"owner run: runner launch failed: %w"` for `failChild` and then the **raw, unwrapped** `err` is returned to the caller. The operator-facing path gets the less informative... | U023.md |
 | U023-F20 | **RESOLVED** `72f7f6bf` | **`pidalive_unix.go:9`, `pidalive_windows.go:11`** | TRIVIAL | Two build-tagged files exist solely to wrap `pidalive.Alive` in a byte-identical one-line body. The build tags are pure ceremony — the platform split already lives in `internal/shared/pidalive`. | U023.md |
-| U023-F22 | open | **`publish.go:38-40`** | SILENTNOOP | `PublishEvents(nil)` returns a success response with an empty `CommittedSeqByRun` and no `Rejected` entries — indistinguishable from "committed everything". The gRPC entry (`publish.go:123`) passes... | U023.md |
-| U023-F23 | open | `reports.go:102`, `reports.go:117` | ERRHANDLING | `if fact.decode(&p) != nil { return }` — a malformed durable fact vanishes with no warning, no counter, no trace. Two occurrences. | U023.md |
-| U023-F26 | open | `reports.go:150-153` | CORRECTNESS | `text[:200]` truncates by bytes on a UTF-8 string and can split a multi-byte rune, emitting U+FFFD in roster output. | U023.md |
-| U023-F28 | open | `reports.go:237-245` | CORRECTNESS | `Artifacts` iterates a map and returns unordered results; any caller rendering a list gets a different order each call. | U023.md |
+| U023-F22 | **RESOLVED** `111c615d` | **`publish.go:38-40`** | SILENTNOOP | `PublishEvents(nil)` returns a success response with an empty `CommittedSeqByRun` and no `Rejected` entries — indistinguishable from "committed everything". The gRPC entry (`publish.go:123`) passes... | U023.md |
+| U023-F23 | **RESOLVED** `05e9a83d` | `reports.go:102`, `reports.go:117` | ERRHANDLING | `if fact.decode(&p) != nil { return }` — a malformed durable fact vanishes with no warning, no counter, no trace. Two occurrences. | U023.md |
+| U023-F26 | **RESOLVED** `05e9a83d` | `reports.go:150-153` | CORRECTNESS | `text[:200]` truncates by bytes on a UTF-8 string and can split a multi-byte rune, emitting U+FFFD in roster output. | U023.md |
+| U023-F28 | **RESOLVED** `05e9a83d` | `reports.go:237-245` | CORRECTNESS | `Artifacts` iterates a map and returns unordered results; any caller rendering a list gets a different order each call. | U023.md |
 | U023-F29 | **REFUTED** `41513737` | `reports.go:261-265` | DEAD | `LatestReport` is exported and has **no production caller** — test-only. `consumer.go:220` calls the unexported `latestSummary` directly. | U023.md |
-| U023-F31 | open | `owner_run.go:165-169` | CORRECTNESS | `SendOwnedRunTurn` accepts **any** live `runID`, not just an owner-owned one. Sending a turn to a delegated child's run id would enqueue self-addressed mail (`from == to == rt.harp`) that the child... | U023.md |
+| U023-F31 | **RESOLVED** `36a681c0` | `owner_run.go:165-169` | CORRECTNESS | `SendOwnedRunTurn` accepts **any** live `runID`, not just an owner-owned one. Sending a turn to a delegated child's run id would enqueue self-addressed mail (`from == to == rt.harp`) that the child... | U023.md |
 | U023-F32 | **RESOLVED** `72f7f6bf` | `launchgate.go:161-171` + `coordinator.go:332` | TRIVIAL | `launchGateLocked`'s `if c.launches == nil` branch is unreachable in production: `New` always does `launches: make(map[string]*launchState)`. | U023.md |
 | U023-F33 | open | `launchgate.go` (`c.launches`)` | COMPLEXITY | `c.launches` entries are created on demand and **never deleted** — including by `reapEndedRuns`, which bounds every *other* per-run projection (`children.go:1457`). A long-lived coordinator accumul... | U023.md |
 | U024-F14 | **RESOLVED** `515a95f4` | `runchannel.go:80, :122, :159` | DEAD | `runChan.credHash` is written and never read; the per-stream `hashToken(mdToken(...))` that fills it is dead work on every dial. | U024.md |
@@ -2062,14 +2062,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U028-F09 | **RESOLVED** `f45e9b79` | **`agents.go:153`** | DEAD | `ParseDrivingMode` is exported with no caller outside this package. | U028.md |
 | U028-F10 | **RESOLVED** `f45e9b79` | **`agents.go:224-238` vs `:305-308`** | NOPAY | Two different filesystem-injection conventions live 70 lines apart in one 317-line file: a functional option for the loader, a plain nil-means-OsFs parameter for the directory helper. | U028.md |
 | U029-F04 | **RESOLVED** `3b74bf06` | **`surfaces.go:177-180`** | DUPLICATE | `deliveredFunc` is a local retype of the existing shared `agent.DeliveredFunc` | U029.md |
-| U029-F08 | open | **`hooks_wire.go:104-108`** | ERRHANDLING | `DecodeHookPayload` returns the bare `encoding/json` error with no context about what failed to decode | U029.md |
-| U029-F09 | open | **`surfaces.go:122`** | CORRECTNESS | `hooksSurface.Deliver` uses `s.fs` directly while its two sibling surfaces route through `getFS()`; a zero-valued `hooksSurface` nil-panics | U029.md |
-| U029-F10 | open | **`antigravity.go:311, 589, 613, 631`** | ERRHANDLING | Four swallowed filesystem errors | U029.md |
+| U029-F08 | **RESOLVED** `c96b251f` | **`hooks_wire.go:104-108`** | ERRHANDLING | `DecodeHookPayload` returns the bare `encoding/json` error with no context about what failed to decode | U029.md |
+| U029-F09 | **RESOLVED** `9a4e0eb3` | **`surfaces.go:122`** | CORRECTNESS | `hooksSurface.Deliver` uses `s.fs` directly while its two sibling surfaces route through `getFS()`; a zero-valued `hooksSurface` nil-panics | U029.md |
+| U029-F10 | **RESOLVED** `5a935744` | **`antigravity.go:311, 589, 613, 631`** | ERRHANDLING | Four swallowed filesystem errors | U029.md |
 | U029-F12 | **RESOLVED** `2d4c4e03` | **`antigravity.go:293-298`** | DEAD | The field-preservation error branch in `saveHooksFile` is unreachable | U029.md |
-| U029-F13 | open | **`antigravity.go:121-122, 167-169`** | COUPLING | The unknown-key capture depends on hand-maintained lists of known json tag names, in two places, with no compiler link to the structs | U029.md |
-| U029-F15 | open | **`hooks_wire.go:111-113`** | SILENTNOOP | `EncodeDeny("")` emits `{"decision":"deny"}` — the model is told "Tool call denied with reason: " with no reason | U029.md |
-| U029-F17 | open | **`surfaces.go:159, 184`** | CORRECTNESS | Two more stale references in `surfaces.go`: a function that does not exist, and the retired flat command shape | U029.md |
-| U029-F19 | open | **`surfaces.go:185-250`** | COUPLING | The surface set is enumerated in four places that must be kept in sync by hand | U029.md |
+| U029-F13 | **RESOLVED** `39f9afe3` | **`antigravity.go:121-122, 167-169`** | COUPLING | The unknown-key capture depends on hand-maintained lists of known json tag names, in two places, with no compiler link to the structs | U029.md |
+| U029-F15 | **REFUTED** `05823cab` | **`hooks_wire.go:111-113`** | SILENTNOOP | `EncodeDeny("")` emits `{"decision":"deny"}` — the model is told "Tool call denied with reason: " with no reason | U029.md |
+| U029-F17 | **RESOLVED** `ef7e3a4a` | **`surfaces.go:159, 184`** | CORRECTNESS | Two more stale references in `surfaces.go`: a function that does not exist, and the retired flat command shape | U029.md |
+| U029-F19 | **RESOLVED** `dc1d98ad` | **`surfaces.go:185-250`** | COUPLING | The surface set is enumerated in four places that must be kept in sync by hand | U029.md |
 | U029-F20 | **RESOLVED** `24e4e92e` | **`capabilities.go:100-115`** | TRIVIAL | A three-declaration functional-option machine exists to set one string field for one test | U029.md |
 | U029-F21 | **RESOLVED** `f0c5d073` | **`package-wide`** | NOPAY | Comment-to-code ratio is extreme and, per F16/F17/F18, the prose is where the rot is | U029.md |
 | U030-F12 | open | **`bundles.go:791-800, 820-826`** | CORRECTNESS | `detectLegacySkillsKey` reads a root `name:` key to name the offending bundle, but `Bundle.Name` is `yaml:"-"` — the schema has no `name:` key, so `bundleName` is almost always `""` and the error r... | U030.md |

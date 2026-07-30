@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **907** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 31 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **919** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 32 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 66 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 120 |
-| `open` | no commit names this ID | **1,144** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 121 |
+| `open` | no commit names this ID | **1,130** |
 
-**Totals: 2268 findings across 162 units — 907 resolved, 1144 still open, 217 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 919 resolved, 1130 still open, 219 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 237 | 653 | 12 | 22 | 75 |
-| LOW | 871 | 320 | 465 | 9 | 36 | 41 |
+| MED | 999 | 245 | 645 | 12 | 22 | 75 |
+| LOW | 871 | 324 | 459 | 10 | 36 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -942,14 +942,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U009-F02 | **RESOLVED** `e479306b` | **`main.go:34`** | ERRHANDLING | `if data, err := os.ReadFile(configPath); err == nil` treats **every** read failure as "the file isn't there". A config that exists but is unreadable — wrong permissions, a directory at that path, ... | U009.md |
 | U009-F03 | **ESCALATED** `68f73cfe` | **`main.go:29-33`** | NOPAY | The scope is a fraction of what the name and doc claim, and the code is shaped as if it once did more. `configPaths` is a **one-element slice iterated by a `for` loop**, under a comment that says "... | U009.md |
 | U010-F01 | **RESOLVED** `f40b5eb0` | **`embed.go:14`** | DEAD | `container.Minimal` has **zero consumers anywhere in the repo** — no production code, no test. The `container/minimal/Containerfile` file itself is alive, but its only reader is `justfile:987`, whi... | U010.md |
-| U010-F02 | open | **`embed.go:14,25,33,48`** | CORRECTNESS | All four assets are exported **mutable** `[]byte` package globals. Any importer — present or future — can write through them (`container.Base[0] = 'x'`) and silently change the content for the whol... | U010.md |
-| U010-F03 | open | **`embed.go:13,24,32,47`** | SILENTNOOP | **Nothing guarantees any embedded asset is non-empty, and the whole downstream chain succeeds if one is.** `//go:embed` fails to compile only when the file is *missing*; a truncated (0-byte) file e... | U010.md |
-| U011-F04 | open | `acp.go:154–165, 329, 456` | COUPLING | `runtimeAxis` is connascence of **execution order** dressed up as a field: `chatArgv` mutates `*ACP` as a side effect so that `spawnTransport` — invoked as `open(ctx, b.chatArgv(req), …)` at sessio... | U011.md |
-| U011-F05 | open | `container_transport.go:138–149 vs acp.go:507–535` | CORRECTNESS | The container transport has **no shutdown grace**. `spawnHostTransport` waits `DefaultShutdownGrace` (3s) after stdin EOF before force-killing, precisely because claude-code-acp flushes its native ... | U011.md |
-| U011-F06 | open | **`capabilities.go:19–23`** | DEAD | `acpCommands.RegisterFromContent` has **zero callers repo-wide**. `agent.LaunchBackend.commands` is assigned at `launch_backend.go:92` and read nowhere (`grep -rn '\.commands\b' internal/shared/age... | U011.md |
-| U011-F07 | open | `acp.go:230–232` | ERRHANDLING | `Configure` silently returns on a type assertion failure: `c, ok := cfg.(*ACPConfig); if !ok { return }`. The backend is then left with empty `command`/`BinaryPath`, and the failure only surfaces m... | U011.md |
-| U011-F08 | open | `container_transport.go:206–207` | SILENTNOOP | `containerReachBackEnv` returns `(nil, nil, nil, nil)` when `CTXLOOM_MCP_SOCKET` is unset, with no warning. Under container isolation this means the in-container engine gets **no ctxloom MCP surfac... | U011.md |
-| U011-F09 | open | `container_transport.go:22, 227; fsupstream.go:25` | COUPLING | Three cross-package string constants are hand-duplicated with "keep in sync by hand" comments and **no test binding them**: `mcpSocketEnvVar` = `agentcoord/coord.EnvMCPSocket`, `reachBackTCPPrefix`... | U011.md |
+| U010-F02 | **RESOLVED** `819aa814` | **`embed.go:14,25,33,48`** | CORRECTNESS | All four assets are exported **mutable** `[]byte` package globals. Any importer — present or future — can write through them (`container.Base[0] = 'x'`) and silently change the content for the whol... | U010.md |
+| U010-F03 | **RESOLVED** `b70c3abb` | **`embed.go:13,24,32,47`** | SILENTNOOP | **Nothing guarantees any embedded asset is non-empty, and the whole downstream chain succeeds if one is.** `//go:embed` fails to compile only when the file is *missing*; a truncated (0-byte) file e... | U010.md |
+| U011-F04 | **RESOLVED** `14d431a6` | `acp.go:154–165, 329, 456` | COUPLING | `runtimeAxis` is connascence of **execution order** dressed up as a field: `chatArgv` mutates `*ACP` as a side effect so that `spawnTransport` — invoked as `open(ctx, b.chatArgv(req), …)` at sessio... | U011.md |
+| U011-F05 | **RESOLVED** `09ef3707` | `container_transport.go:138–149 vs acp.go:507–535` | CORRECTNESS | The container transport has **no shutdown grace**. `spawnHostTransport` waits `DefaultShutdownGrace` (3s) after stdin EOF before force-killing, precisely because claude-code-acp flushes its native ... | U011.md |
+| U011-F06 | **RESOLVED** `64cb379d` | **`capabilities.go:19–23`** | DEAD | `acpCommands.RegisterFromContent` has **zero callers repo-wide**. `agent.LaunchBackend.commands` is assigned at `launch_backend.go:92` and read nowhere (`grep -rn '\.commands\b' internal/shared/age... | U011.md |
+| U011-F07 | **RESOLVED** `e3a19234` | `acp.go:230–232` | ERRHANDLING | `Configure` silently returns on a type assertion failure: `c, ok := cfg.(*ACPConfig); if !ok { return }`. The backend is then left with empty `command`/`BinaryPath`, and the failure only surfaces m... | U011.md |
+| U011-F08 | **RESOLVED** `b8f14963` | `container_transport.go:206–207` | SILENTNOOP | `containerReachBackEnv` returns `(nil, nil, nil, nil)` when `CTXLOOM_MCP_SOCKET` is unset, with no warning. Under container isolation this means the in-container engine gets **no ctxloom MCP surfac... | U011.md |
+| U011-F09 | **RESOLVED** `baaaab72` | `container_transport.go:22, 227; fsupstream.go:25` | COUPLING | Three cross-package string constants are hand-duplicated with "keep in sync by hand" comments and **no test binding them**: `mcpSocketEnvVar` = `agentcoord/coord.EnvMCPSocket`, `reachBackTCPPrefix`... | U011.md |
 | U012-F06 | **RESOLVED** `218b23b0` | **`session.go:636–637 vs 587–588`** | SILENTNOOP | `deliverBlock`'s `default` branch silently flattens any unrecognized block kind to `TextBlock(b.Text)` — empty text for a block whose `Kind` is unknown — while the function's doc promises "never a ... | U012.md |
 | U012-F07 | **RESOLVED** `65a29f06` | **`session.go:1214–1224`** | DEAD | `decodeSessionUpdate` has no production caller | U012.md |
 | U012-F08 | **RESOLVED** `eccb130f` | **`session.go:117, 744–758`** | NOPAY | `chatSession.engineConfigOptions` is written once and read nowhere; 15 lines of comment defend a field that carries no capability | U012.md |
@@ -1943,13 +1943,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U008-F05 | **RESOLVED** `e7ef2c9d` | `version.go:24` | DUPLICATE | The program name is a bare `"taskloom"` string literal, where both sibling binaries define a constant for it — `cmd/harp/root.go:16` and `cmd/ltk/paths.go:7` each declare `const progName`. Package-... | U008.md |
 | U009-F04 | **RESOLVED** `e479306b` | **`main.go:30`** | COUPLING | The validated path is relative to the process CWD, so the gate is silently a no-op when run from anywhere but the repo root — including any future recipe that changes directory first. Nothing check... | U009.md |
 | U009-F05 | **RESOLVED** `e479306b` | **`main.go:43`** | ERRHANDLING | The one message that reports the tool did nothing goes to **stdout**, in the same channel and the same neutral tone as the success message. In CI it scrolls past as ordinary build output. | U009.md |
-| U011-F10 | open | `container_transport.go:285–290` | ERRHANDLING | `reachBackBridge.pipe` returns silently when `net.Dial("unix", sock)` fails, closing the accepted connection. The in-container MCP shim sees an unexplained connection reset and nothing is logged an... | U011.md |
-| U011-F11 | open | `mapping.go (whole file) vs acp.go/container_transport.go` | COHESION | `mapping.go` (516 lines, 19 functions) is a stateless ACP-wire↔ctxloom-IR translation library that touches no type in this unit; it shares a package with process-launching and config code purely by... | U011.md |
-| U011-F12 | open | `acp.go:546 vs session.go:246` | DUPLICATE | Package function `spawnEnv(base, strip, overlay)` and method `(b *ACP) spawnEnv(req)` share a name in one package with unrelated signatures. Legal Go (methods are not in identifier scope), but at a... | U011.md |
+| U011-F10 | **RESOLVED** `8ecd8fbc` | `container_transport.go:285–290` | ERRHANDLING | `reachBackBridge.pipe` returns silently when `net.Dial("unix", sock)` fails, closing the accepted connection. The in-container MCP shim sees an unexplained connection reset and nothing is logged an... | U011.md |
+| U011-F11 | **ESCALATED** `09ef3707` | `mapping.go (whole file) vs acp.go/container_transport.go` | COHESION | `mapping.go` (516 lines, 19 functions) is a stateless ACP-wire↔ctxloom-IR translation library that touches no type in this unit; it shares a package with process-launching and config code purely by... | U011.md |
+| U011-F12 | **RESOLVED** `19615154` | `acp.go:546 vs session.go:246` | DUPLICATE | Package function `spawnEnv(base, strip, overlay)` and method `(b *ACP) spawnEnv(req)` share a name in one package with unrelated signatures. Legal Go (methods are not in identifier scope), but at a... | U011.md |
 | U011-F13 | **RESOLVED** `72f7f6bf` | `acp.go:560–562` | TRIVIAL | `warnf` is a one-line pass-through to `agent.Warn`, which is itself a one-line pass-through to `clidiag.Warn`. Its justifying comment ("Centralized here so the codec (jsonrpc.go) stays free of the ... | U011.md |
-| U011-F14 | open | `acp.go:476–494` | ERRHANDLING | On the `StdoutPipe` error path (:481) the already-created `stdin` pipe is never closed; on the `cmd.Start` error path (:492) neither pipe nor the stderr tee is torn down. No process exists yet in e... | U011.md |
-| U011-F15 | open | **`mapping.go:105–111`** | ERRHANDLING | `rawOnlyEvent` drops the frame on a marshal failure with no diagnostic, whereas the analogous decode failures in `session.go:781,793,835` all `warnf("acp: dropping malformed …")`. Inconsistent with... | U011.md |
-| U011-F16 | open | **`mapping.go:464–477`** | CORRECTNESS | `toolContentText` handles `Content` and `Diff` but not `Terminal`, while its structural twin `toolContentToIR` (:449) does. A tool result whose content is terminal-only flattens to `""`, which at :... | U011.md |
+| U011-F14 | **PARTIAL** `aa033d89` | `acp.go:476–494` | ERRHANDLING | On the `StdoutPipe` error path (:481) the already-created `stdin` pipe is never closed; on the `cmd.Start` error path (:492) neither pipe nor the stderr tee is torn down. No process exists yet in e... | U011.md |
+| U011-F15 | **RESOLVED** `60a1e136` | **`mapping.go:105–111`** | ERRHANDLING | `rawOnlyEvent` drops the frame on a marshal failure with no diagnostic, whereas the analogous decode failures in `session.go:781,793,835` all `warnf("acp: dropping malformed …")`. Inconsistent with... | U011.md |
+| U011-F16 | **RESOLVED** `202e824f` | **`mapping.go:464–477`** | CORRECTNESS | `toolContentText` handles `Content` and `Diff` but not `Terminal`, while its structural twin `toolContentToIR` (:449) does. A tool result whose content is terminal-only flattens to `""`, which at :... | U011.md |
 | U011-F17 | **PARTIAL** `ac233164` | `procgroup_windows.go:18–23` | NOPAY | The Windows `killProcessGroup` is documented as knowingly leaking the double-forked worker that the unix version exists to reap; nothing warns the operator. Whether ctxloom claims Windows support a... | U011.md |
 | U012-F13 | open | **`session.go:675–684`** | CORRECTNESS | `mediaBlockDetail` reports the base64 character count as a byte count, overstating real size by ~33% in a message the model reads | U012.md |
 | U012-F14 | **RESOLVED** `72f7f6bf` | **`session.go:1227–1232`** | TRIVIAL | `stampTime` is a single `if` with one caller and no invariant of its own | U012.md |

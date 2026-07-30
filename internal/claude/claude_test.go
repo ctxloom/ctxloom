@@ -1281,3 +1281,32 @@ func TestRemoveSettings_AbsentFilesAreNotAnError(t *testing.T) {
 	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
 	require.NoError(t, writer.RemoveSettings("/project"))
 }
+
+// TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext pins the detection
+// rule removeCtxloomHooks actually implements, the one U032-F22's doc comment
+// denied: identity is the leading executable token resolving to `ctxloom`, so
+// a managed hook is removed whatever its VERB, while a hook belonging to another
+// tool survives even when "ctxloom" appears in its arguments. Nothing pinned the
+// verb-agnostic half before — the existing coverage all used inject-context
+// commands, which the wrong doc happened to describe correctly.
+func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
+	settings := &claudeCodeSettings{Hooks: map[string][]claudeCodeHookMatcher{
+		"PreToolUse": {{Hooks: []claudeCodeHook{
+			// A ctxloom callback with a verb that is not inject-context.
+			{Type: "command", Command: `"/opt/bin/ctxloom" hook evaluate-triggers`},
+			// A sibling tool's hook that merely mentions ctxloom in its args.
+			{Type: "command", Command: "ltk evaluate --tool ctxloom inject-context"},
+		}}},
+	}}
+
+	(&ClaudeCodeHookWriter{}).removeCtxloomHooks(settings)
+
+	var kept []string
+	for _, m := range settings.Hooks["PreToolUse"] {
+		for _, h := range m.Hooks {
+			kept = append(kept, h.Command)
+		}
+	}
+	assert.Equal(t, []string{"ltk evaluate --tool ctxloom inject-context"}, kept,
+		"a ctxloom-token hook is removed whatever its verb; another tool's hook is never ctxloom's to remove")
+}

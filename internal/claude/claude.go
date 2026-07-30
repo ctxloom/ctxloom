@@ -573,8 +573,17 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 	}
 }
 
-// removeCtxloomHooks removes all ctxloom-managed hooks from settings.
-// It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context".
+// removeCtxloomHooks removes all ctxloom-managed hooks from settings, pruning
+// any matcher it empties.
+//
+// Identity is the command's leading EXECUTABLE TOKEN resolving to `ctxloom`
+// (agent.IsManaged) — path-, quote- and VERB-agnostic. Two consequences follow
+// from that and neither is a substring match on the command line: every
+// `ctxloom <anything>` hook is removed, not only the inject-context callback, so
+// the callback's subcommand can move without orphaning old installs; and a
+// command that merely mentions ctxloom somewhere in its arguments is another
+// tool's hook and is left alone.
+//
 // The SCM field is checked for in-memory hooks but is not serialized to JSON
 // (Claude Code uses strict schema validation that rejects unknown fields).
 func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) {

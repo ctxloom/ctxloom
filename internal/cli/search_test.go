@@ -1,13 +1,19 @@
 package cli
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 )
 
 // captureStdout runs fn with os.Stdout redirected to a pipe and returns what
@@ -202,15 +208,60 @@ func TestNoteHiddenLocalMatches(t *testing.T) {
 // from the printed output with no error and no trace. Pins that a skill
 // result is actually rendered, not just counted.
 func TestPrintLocalResultsIncludesSkills(t *testing.T) {
-	out := captureStdout(t, func() {
-		printLocalResults([]operations.SearchResult{
-			{Type: "skill", Name: "code-review", Tags: []string{"review"}},
-		})
+	var buf bytes.Buffer
+	printLocalResults(&buf, []operations.SearchResult{
+		{Type: "skill", Name: "code-review", Tags: []string{"review"}},
 	})
+	out := buf.String()
 	if !strings.Contains(out, "Skills:") {
 		t.Fatalf("expected a Skills: section, got %q", out)
 	}
 	if !strings.Contains(out, "code-review") {
 		t.Fatalf("expected the skill name to render, got %q", out)
 	}
+}
+
+// TestSearchWritesToTheCommandWriter pins where `ctxloom search` sends its
+// human output. Every other command in this package renders through
+// cmd.OutOrStdout(); search's five text renderers wrote to process-global
+// os.Stdout via fmt.Printf/fmt.Println, so a caller that redirects the command
+// (cobra's SetOut — what the format-coverage harness, the acceptance suite and
+// any embedding frontend use) captured an EMPTY buffer while the text went
+// somewhere it never asked for. The empty-result line is the smallest complete
+// witness: it is the whole of search's output for that run.
+func TestSearchWritesToTheCommandWriter(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(projectroot.EnvVar, dir)
+	config.Invalidate()
+
+	var out, errOut bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&errOut)
+	rootCmd.SetArgs([]string{"search", "--local", "zzz-no-such-content-anywhere", "--format", "text"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	require.NoError(t, rootCmd.Execute(), "stderr: %s", errOut.String())
+	assert.Contains(t, out.String(), "No results found.",
+		"search's text output must reach the command's own writer, not process-global stdout")
+}
+
+// TestPrintUnifiedResults_RendersToItsWriter pins the same contract for the
+// populated path: header, local grouping and the remote table all land on the
+// writer they were handed.
+func TestPrintUnifiedResults_RendersToItsWriter(t *testing.T) {
+	var buf bytes.Buffer
+	printUnifiedResults(&buf,
+		[]operations.SearchResult{{Type: "fragment", Name: "go-testing", Tags: []string{"golang"}, Source: "local"}},
+		[]operations.SearchRemoteEntry{{Type: "bundle", Remote: "acme", Name: "acme-tools", Tags: []string{"tools"}}},
+	)
+	out := buf.String()
+	assert.Contains(t, out, "Results (2):")
+	assert.Contains(t, out, "Fragments:")
+	assert.Contains(t, out, "go-testing")
+	assert.Contains(t, out, "Remote:")
+	assert.Contains(t, out, "acme-tools")
 }

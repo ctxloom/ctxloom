@@ -253,13 +253,28 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 	return nil
 }
 
-// copyFile copies src to dst, preserving contents (used for the --force backup).
+// copyFile copies src to dst, preserving both contents and permissions (used
+// for the --force backup).
+//
+// The mode is carried across because the backup is a copy of the USER's rules
+// file: writing it at a hardcoded 0o644 republishes a config the user
+// deliberately restricted to 0600 as world-readable. os.WriteFile is not
+// enough on its own — its mode applies only when it CREATES the file, and it
+// is masked by the process umask — so dst's mode is set explicitly, which also
+// tightens a wider backup left by an earlier run.
 func copyFile(src, dst string) error {
 	b, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, b, 0o644)
+	mode := os.FileMode(0o600) // conservative default; src is readable, so Stat succeeds
+	if fi, err := os.Stat(src); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	if err := os.WriteFile(dst, b, mode); err != nil {
+		return err
+	}
+	return os.Chmod(dst, mode)
 }
 
 func readIfExists(path string) ([]byte, error) {

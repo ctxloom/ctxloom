@@ -129,6 +129,44 @@ func TestScaffoldConfigForceBacksUp(t *testing.T) {
 	}
 }
 
+// The --force backup is a COPY of the user's rules file, so it must not be
+// more permissive than the file it copies: a config deliberately restricted to
+// 0600 must not reappear world-readable as <path>.bak. os.WriteFile also
+// leaves an EXISTING file's mode alone, so a second --force run must not
+// inherit a stale, wider mode either.
+func TestScaffoldConfigForceBackupPreservesMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".ltk", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := "version: 1\nrules: []  # my edited rules\n"
+	if err := os.WriteFile(path, []byte(mine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil { // defeat the process umask
+		t.Fatal(err)
+	}
+	// A pre-existing, wider backup from an earlier run.
+	if err := os.WriteFile(path+".bak", []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path+".bak", 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := scaffoldConfig(path, true, true); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("the backup of a 0600 rules file has mode %v, want 0600", got)
+	}
+}
+
 func TestScaffoldConfigWritesWhenAbsent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".ltk", "config.yaml")
 	if err := scaffoldConfig(path, false, false); err != nil { // minimal template

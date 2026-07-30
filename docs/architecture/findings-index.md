@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,030** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,040** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 39 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 82 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 83 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 130 |
-| `open` | no commit names this ID | **987** |
+| `open` | no commit names this ID | **976** |
 
-**Totals: 2268 findings across 162 units — 1,030 resolved, 987 still open, 251 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,040 resolved, 976 still open, 252 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 299 | 572 | 17 | 30 | 81 |
-| LOW | 871 | 381 | 389 | 12 | 44 | 45 |
+| MED | 999 | 304 | 567 | 17 | 30 | 81 |
+| LOW | 871 | 386 | 383 | 12 | 45 | 45 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1137,14 +1137,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U037-F18 | **PARTIAL** `7db8d6bf` | **`manage.go:81, 144, 251, 277, 465; mcp.go:217, 271; item_helpers.go:349, 375, 416, 501`** | SILENTNOOP | Eleven commands in this unit ignore the global persistent `--format` flag: they print human text via bare `fmt.Printf` and exit 0. `ctxloom manage install --format json` and `ctxloom mcp server add... | U037.md |
 | U037-F19 | **RESOLVED** `e2b70317` | `llm_runner_common.go:53-55, 110` | ERRHANDLING | Two `_ =`-swallowed syscalls in `standUpRunner` guard security- and correctness-critical invariants. `os.Unsetenv` failing means the coordinator credential is **not** scrubbed and is inherited by t... | U037.md |
 | U037-F20 | **RESOLVED** `dd5cf4c2` | `llm_runner_common.go:35-121` | COMPLEXITY | `standUpRunner` is CCN 17 against a stated gate of 10 — the highest in the unit — and it interleaves four separable concerns: credential consumption+scrub, backend configuration, coordinator dial-h... | U037.md |
-| U038-F04 | open | `mcp_runner.go:121` | ERRHANDLING | A post-startup HTTP serve failure is invisible: the runner keeps running and keeps advertising a socket nothing answers on. | U038.md |
+| U038-F04 | **RESOLVED** `caf7e575` | `mcp_runner.go:121` | ERRHANDLING | A post-startup HTTP serve failure is invisible: the runner keeps running and keeps advertising a socket nothing answers on. | U038.md |
 | U038-F05 | **RESOLVED** `564418d5` | `mcp_runner.go:497-511 vs mcp_tools_agents.go:135-137,260-266 vs `mcpschema/binding.go:99-109` | DUPLICATE | The `agent_recv` `wait` contract is hand-written three times across two packages, including the default/clamp arithmetic verbatim twice. | U038.md |
 | U038-F06 | **RESOLVED** `553d6347` | `mcp_runner.go:323-330` | DUPLICATE | Five of six host-relay tool descriptions are verbatim string copies of literals in `mcp_tools_memory.go`, kept honest only by a test — while the sixth simply aliases the real constant, proving the ... | U038.md |
 | U038-F07 | **ESCALATED** `8ad8145a` | `mcp_tools_agents.go:73-301 vs mcp_runner.go:274-309` | DUPLICATE / NOPAY | Two independent implementations of `agent_run`/`agent_send`/`agent_recv`/`agent_stop` with **different schemas**, on two surfaces, only one of which is documented. | U038.md |
-| U038-F08 | open | `mcp_runner.go:219-318` | COMPLEXITY | `newRunnerMCPServer` is CCN 16 against a CI gate of 10, and its two hard-coded name lists restate names already passed to the registrars above them. | U038.md |
-| U038-F09 | open | `mcp_resources.go:169` | CORRECTNESS / ERRHANDLING | `ctxloom://sessions/recent` reads the **process** cwd (with the error swallowed) instead of the caller's identity, so on the runner it can list the wrong project's sessions and on failure lists not... | U038.md |
-| U038-F10 | open | `mcp_resources.go:221-227` | CORRECTNESS | `handleResourceSessionsAll`'s doc claims parity with `ctxloom session list --all`, but it uses the unsorted lister while the CLI and every other cross-project consumer use the sorted one. | U038.md |
-| U038-F11 | open | `mcp_runner.go:646-657` | SILENTNOOP | Plan auto-stamping fails silently and invisibly: `agent_report` then returns `journaled: true, artifact_ids: []` having delivered no plans. | U038.md |
+| U038-F08 | **RESOLVED** `537ea097` | `mcp_runner.go:219-318` | COMPLEXITY | `newRunnerMCPServer` is CCN 16 against a CI gate of 10, and its two hard-coded name lists restate names already passed to the registrars above them. | U038.md |
+| U038-F09 | **RESOLVED** `6ad30a10` | `mcp_resources.go:169` | CORRECTNESS / ERRHANDLING | `ctxloom://sessions/recent` reads the **process** cwd (with the error swallowed) instead of the caller's identity, so on the runner it can list the wrong project's sessions and on failure lists not... | U038.md |
+| U038-F10 | **RESOLVED** `6ad30a10` | `mcp_resources.go:221-227` | CORRECTNESS | `handleResourceSessionsAll`'s doc claims parity with `ctxloom session list --all`, but it uses the unsorted lister while the CLI and every other cross-project consumer use the sorted one. | U038.md |
+| U038-F11 | **RESOLVED** `3630daf4` | `mcp_runner.go:646-657` | SILENTNOOP | Plan auto-stamping fails silently and invisibly: `agent_report` then returns `journaled: true, artifact_ids: []` having delivered no plans. | U038.md |
 | U039-F05 | open | `mcp_tools_memory.go:200, 285` | CORRECTNESS | The `DistillBudget` backstop is applied by only two of the four host-relay paths that spend LLM time, so `compact_session` and `list_sessions{distill_missing:true}` run **unbounded** in the session... | U039.md |
 | U039-F06 | open | `mcp_tools_memory.go:164-213` | DUPLICATE | `handleCompactSession` bypasses `singleflightDistill`, so an explicit `compact_session` runs a full second distillation concurrently with an in-flight `recover_session`/`load_session` of the same s... | U039.md |
 | U039-F07 | open | `mcp_tools_memory.go:286, :467; memory.go:212` | ERRHANDLING | Three functions on the host-relay path write warnings to the session owner's stderr, which `distillSession` (same file, same path) documents as forbidden because that stderr is the terminal the eng... | U039.md |
@@ -2141,13 +2141,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U037-F24 | **RESOLVED** `78526d4c` | `llm_turn.go:127-137` | ERRHANDLING | `readRunStartHandoff` registers `defer os.Remove(path)` before the decode, so a **corrupt** handoff file is deleted on the way out — destroying the only evidence of why the turn failed and making t... | U037.md |
 | U037-F25 | **RESOLVED** `ad1f53fe` | `item_helpers.go:29-32, mcp.go:32` | ERRHANDLING | `decodeBackendConfig`'s gemini-successor hint writes to `os.Stderr` with a raw `fmt.Fprintf` while the line immediately above it uses `clidiag.Warn` — two diagnostic channels in one function, and t... | U037.md |
 | U037-F26 | **RESOLVED** `24e4e92e` | `item_helpers.go:498-500` | TRIVIAL | An orphaned doc comment for a function that no longer exists sits directly above `distillItem`, so the type's real doc is preceded by documentation of something else. | U037.md |
-| U038-F12 | open | `mcp_server.go:218-225` | ERRHANDLING | The config-load failure message is printed to stderr twice. | U038.md |
-| U038-F13 | open | `mcp_forward.go:35` | COUPLING | `reachBackTCPPrefix` is a hand-synced duplicate of `internal/acp/container_transport.go:227`, with the comment instructing humans to keep them in sync. | U038.md |
+| U038-F12 | **RESOLVED** `f2d941af` | `mcp_server.go:218-225` | ERRHANDLING | The config-load failure message is printed to stderr twice. | U038.md |
+| U038-F13 | **REFUTED** `0e1b122c` | `mcp_forward.go:35` | COUPLING | `reachBackTCPPrefix` is a hand-synced duplicate of `internal/acp/container_transport.go:227`, with the comment instructing humans to keep them in sync. | U038.md |
 | U038-F14 | **RESOLVED** `24e4e92e` | `mcp_runner.go:485-487` | TRIVIAL | `reflectIsNil` is a one-expression function with a single call site and a misleading name (it uses `protoreflect`, not `reflect`). | U038.md |
-| U038-F15 | open | `mcp_docgen.go:33,37` | ERRHANDLING | An exported constructor panics on recoverable errors and leaks the `coord.Home` it creates. | U038.md |
-| U038-F16 | open | `mcp_resources.go:176-179` | CORRECTNESS | `ctxloom://sessions/recent` truncates to 25 rows with no marker in the payload — a client cannot distinguish 25-of-25 from 25-of-500. | U038.md |
-| U038-F17 | open | `mcp_server.go:29-30, mcp_tools_agents.go:192` | COUPLING | Two doc comments direct the reader to `newCtxServerForIdentity`, a function that does not exist. | U038.md |
-| U038-F18 | open | `mcp_tools_agents.go:279` | ERRHANDLING | The standalone `agent_recv` silently discards a malformed `structured` payload while keeping the body, so an approval request arrives stripped of the very field the coordinator must answer. | U038.md |
+| U038-F15 | **RESOLVED** `2e9df890` | `mcp_docgen.go:33,37` | ERRHANDLING | An exported constructor panics on recoverable errors and leaks the `coord.Home` it creates. | U038.md |
+| U038-F16 | **RESOLVED** `6ad30a10` | `mcp_resources.go:176-179` | CORRECTNESS | `ctxloom://sessions/recent` truncates to 25 rows with no marker in the payload — a client cannot distinguish 25-of-25 from 25-of-500. | U038.md |
+| U038-F17 | **RESOLVED** `31aaacd8` | `mcp_server.go:29-30, mcp_tools_agents.go:192` | COUPLING | Two doc comments direct the reader to `newCtxServerForIdentity`, a function that does not exist. | U038.md |
+| U038-F18 | **RESOLVED** `5edea286` | `mcp_tools_agents.go:279` | ERRHANDLING | The standalone `agent_recv` silently discards a malformed `structured` payload while keeping the body, so an approval request arrives stripped of the very field the coordinator must answer. | U038.md |
 | U039-F13 | open | `pager.go:79-82` | ERRHANDLING | A misconfigured `$PAGER` (missing binary) silently falls back to unpaged output with no diagnostic, so the user never learns their `$PAGER` is broken. | U039.md |
 | U039-F14 | open | `plan_watch.go:87-102` | CORRECTNESS | The debounce has no maximum wait: a plan file written more often than every 100 ms starves the stream indefinitely (each event `Reset`s the timer). The timer is also never `Stop()`ed on the `ctx.Do... | U039.md |
 | U039-F15 | **RESOLVED** `24e4e92e` | `mcp_tools_memory.go:114-116` | TRIVIAL | `getSessionsDir` is a single-expression pass-through with two call sites and no invariant; the same expression is written inline in `memory.go:224,291,343` and `session_cmd.go`. | U039.md |

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,240** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,241** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 114 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 158 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 162 |
-| `open` | no commit names this ID | **594** |
+| `open` | no commit names this ID | **593** |
 
-**Totals: 2268 findings across 162 units — 1,240 resolved, 594 still open, 434 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,241 resolved, 593 still open, 434 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 426 | 336 | 64 | 72 | 101 |
+| MED | 999 | 427 | 335 | 64 | 72 | 101 |
 | LOW | 871 | 457 | 246 | 35 | 78 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -982,7 +982,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U005-F03 | **RESOLVED** `bfd6abca` | **`manage.go:167-193`** | SILENTNOOP | `scaffoldConfig` writes the embedded defaults with no check that they contain any rules, and reports "wrote rules file". A defaults file that lost its rules installs a guard that gates nothing, lou... | U005.md |
 | U005-F05 | **RESOLVED** `21c151a5` | **`manage.go:40-41` + `evaluate.go:113-122`** | CORRECTNESS | `manage install --global` bakes a **relative** `--config .ltk/config.yaml` into the *user-level* settings, and a missing explicit `--config` fail-closes. Result: in every project on the machine wit... | U005.md |
 | U005-F06 | **RESOLVED** `48b23b0b` | `evaluate.go:125-127`, `check.go:84-86` | ERRHANDLING | `os.Getwd()`'s error is swallowed on both paths; on failure `@submodules` is never expanded and every submodule rule **silently stops firing**. | U005.md |
-| U005-F07 | open | `evaluate.go:90-175` | COMPLEXITY | `evaluate` is CCN 15, above the project's own enforced gate of 10. | U005.md |
+| U005-F07 | **RESOLVED** `cc2fbc75` | `evaluate.go:90-175` | COMPLEXITY | `evaluate` is CCN 15, above the project's own enforced gate of 10. | U005.md |
 | U005-F09 | **PARTIAL** `d24be612` | `evaluate.go:74-76,170-173` + `main.go:60-65` | CORRECTNESS | The hook path is **not** fully fail-closed, contrary to `failClosed`'s doc comment. Two residual paths return a plain error → `main` exits 1 → both hosts fail OPEN. | U005.md |
 | U005-F10 | **PARTIAL** `4a5e3b31` | `evaluate.go:113-153` vs `check.go:80-91` | DUPLICATE | The four-step wiring (`loadConfig` → `os.Getwd`+`ExpandSubmodules` → `app.New` → set `ForceShell`/`HostShell`) is duplicated verbatim across the two commands, and has already drifted. | U005.md |
 | U005-F11 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `check.go:32-66,91` | NOPAY | `ltk check` cannot check a **file edit**, though path rules are half the advertised product and `check` is documented as *the* query surface for tools and GUIs. | U005.md |

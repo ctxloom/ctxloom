@@ -265,3 +265,50 @@ func TestPrintUnifiedResults_RendersToItsWriter(t *testing.T) {
 	assert.Contains(t, out, "Remote:")
 	assert.Contains(t, out, "acme-tools")
 }
+
+// TestPrintRemoteResults_TableGeometry is the characterization pin for the
+// remote results table. Its five widths (three format widths, two truncation
+// caps) governed one table but were written out five separate times, with the
+// rule under the header HAND-DRAWN to match — so a width change silently left
+// the rule at the old size, and the name column's 20-wide cell truncating at
+// 18 read as an off-by-two rather than the deliberate gutter it is. Behaviour
+// is unchanged by that cleanup (wave-brief §4 class 2: pure complexity
+// reduction, no test can discriminate), so this pins the rendered bytes AND
+// the structural invariant the hand-drawn rule could violate: every ┼ sits
+// exactly under the │ above it.
+func TestPrintRemoteResults_TableGeometry(t *testing.T) {
+	var buf bytes.Buffer
+	printRemoteResults(&buf, []operations.SearchRemoteEntry{
+		{Type: "bundle", Remote: "acme", Name: "short", Tags: []string{"a"}},
+		{Type: "bundle", Remote: "a-very-long-remote-name", Name: "a-name-that-is-way-too-long-to-fit",
+			Tags: []string{"tag-one", "tag-two", "tag-three", "tag-four"}},
+	})
+
+	const want = "Remote:\n" +
+		"  Type     │ Remote       │ Name                 │ Tags\n" +
+		"  ─────────┼──────────────┼──────────────────────┼────────────\n" +
+		"  bundle   │ acme         │ short                │ a\n" +
+		"  bundle   │ a-very-long-remote-name │ a-name-that-is-...   │ tag-one, tag-two,...\n" +
+		"\n" +
+		"Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull\n"
+	assert.Equal(t, want, buf.String())
+
+	lines := strings.Split(buf.String(), "\n")
+	assert.Equal(t, runeOffsets(lines[1], '│'), runeOffsets(lines[2], '┼'),
+		"the rule's junctions must sit under the header's separators — the whole reason the widths cannot be written out twice")
+	assert.Equal(t, runeOffsets(lines[1], '│'), runeOffsets(lines[3], '│'),
+		"a row that fits every column must align with the header")
+}
+
+// runeOffsets reports the rune (not byte) index of every occurrence of r,
+// which is what column alignment is actually measured in once box-drawing
+// characters are in play.
+func runeOffsets(s string, r rune) []int {
+	var out []int
+	for i, c := range []rune(s) {
+		if c == r {
+			out = append(out, i)
+		}
+	}
+	return out
+}

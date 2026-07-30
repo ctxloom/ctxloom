@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,9 +140,15 @@ func ExportSkillZip(fsys afero.Fs, dir string, pkg *SkillPackage) ([]byte, error
 
 // parseSkillFileMode parses a SkillManifestEntry.Mode string (e.g. "0755")
 // into an os.FileMode carrying only the permission bits.
+//
+// The whole string must be octal digits. SkillManifestEntry.Mode is bundle-tree
+// data and therefore potentially remote-originated, so a partial parse is a
+// rejection, not a value: strconv.ParseUint with an explicit base consumes the
+// entire input or fails, unlike fmt.Sscanf's "%o", which stops at the first
+// byte it cannot use and still reports success.
 func parseSkillFileMode(mode string) (os.FileMode, error) {
-	var perm uint32
-	if _, err := fmt.Sscanf(mode, "%o", &perm); err != nil {
+	perm, err := strconv.ParseUint(mode, 8, 32)
+	if err != nil {
 		return 0, fmt.Errorf("invalid manifest mode %q: %w", mode, err)
 	}
 	return os.FileMode(perm) & os.ModePerm, nil

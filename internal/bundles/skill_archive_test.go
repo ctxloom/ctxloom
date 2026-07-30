@@ -1090,3 +1090,49 @@ func TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile(t *testing.T) {
 	assert.Len(t, zr.File, len(pkg.Manifest),
 		"every manifest entry must be present as a zip entry — an archive with fewer entries than the manifest is a silent partial export")
 }
+
+// TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes is U031-F09.
+//
+// parseSkillFileMode used fmt.Sscanf(mode, "%o", &perm), which stops at the
+// first byte it cannot consume and still reports success: MEASURED, Sscanf
+// returns n=1, err=nil for "0755zzz", "0755 0644", "0755;rm -rf /" and
+// " 0755", and — worse — for "0o755" it consumes the leading "0", reports
+// success, and yields mode 0000, silently stripping the exec bit off a
+// scripts/ file. SkillManifestEntry.Mode is bundle-tree data and therefore
+// potentially remote-originated, so the parser must consume the WHOLE string
+// or reject it. A mode string is either entirely octal digits or it is not a
+// mode.
+func TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes(t *testing.T) {
+	rejected := []string{
+		"0755zzz",
+		"0755 0644",
+		"0755;rm -rf /",
+		" 0755",
+		"0755\n",
+		"0o755",
+		"755x",
+	}
+	for _, in := range rejected {
+		t.Run(fmt.Sprintf("rejects %q", in), func(t *testing.T) {
+			_, err := parseSkillFileMode(in)
+			require.Error(t, err, "a mode string that is not entirely octal digits must be rejected, not partially consumed")
+			assert.Contains(t, err.Error(), "invalid manifest mode")
+		})
+	}
+
+	// The accepted forms must keep working, digit-for-digit.
+	accepted := map[string]os.FileMode{
+		"0755":  0o755,
+		"755":   0o755,
+		"0644":  0o644,
+		"0000":  0,
+		"04755": 0o755, // setuid bit is masked off, exactly as before
+	}
+	for in, want := range accepted {
+		t.Run(fmt.Sprintf("accepts %q", in), func(t *testing.T) {
+			got, err := parseSkillFileMode(in)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
+	}
+}

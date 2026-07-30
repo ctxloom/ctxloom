@@ -479,6 +479,40 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 	}
 }
 
+// TestNewSurfaces_DispatchAgreesWithFieldsAndTable is U055-F10's pin. The row
+// claimed kiro's five surfaces are "listed twice with nothing enforcing
+// agreement" between the named struct fields and the dispatch map. There are in
+// fact THREE lists — fields, dispatch, and the declared kiroApproaches table —
+// and only the fields are unguarded, because they are read by tests alone
+// (production resolves every surface through SurfaceFor → dispatch, so omitting
+// a field is a compile error, not a silent divergence, and the table↔dispatch
+// pair is already held by internal/lm/backends'
+// TestApproachDispatch_SupportedIsResolvable across all five engines).
+//
+// This closes the one genuinely unguarded edge: a sixth surface added as a field
+// and to the table but wired into dispatch as the WRONG instance would deliver
+// the wrong file with every existing gate still green.
+func TestNewSurfaces_DispatchAgreesWithFieldsAndTable(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+
+	assert.Len(t, s.dispatch, len(kiroApproaches),
+		"every declared surface kind needs exactly one dispatch entry")
+	for kind := range kiroApproaches {
+		assert.Contains(t, s.dispatch, kind, "%s is declared in kiroApproaches but has no dispatch entry", kind)
+	}
+
+	for kind, field := range map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Settings,
+		agent.SurfaceCommands: s.Commands,
+		agent.SurfaceSkills:   s.Skills,
+	} {
+		assert.Same(t, field, s.dispatch[kind],
+			"%s must dispatch to the SAME surface instance the named field exposes — a second construction loses state a prior delivery recorded", kind)
+	}
+}
+
 // A non-UnsafeFile approach (Hook) is unsupported for kiro's context — kiro reads
 // steering directly, never a SessionStart hook.
 func TestSurfaceFor_ContextHookUnsupported(t *testing.T) {

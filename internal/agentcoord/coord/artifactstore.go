@@ -18,8 +18,12 @@ import (
 //
 // Content addressing IS the integrity claim (E1e): the file name is the hash
 // of its own bytes, so a store read that returns bytes hashing to a
-// DIFFERENT name is corruption, caught before any download places them
-// (artifacts.go). It also makes re-uploads free dedupe (E1a's idempotency
+// DIFFERENT name is corruption. Nothing on the SERVER side re-hashes a blob
+// on the way out — artifacts.go's DownloadArtifact streams the stored bytes
+// and puts the manifest's sha256 in the header — so the catch happens at the
+// RECEIVER: homeartifacts.go's Home.DownloadArtifact hashes as it streams and
+// refuses to place a file whose content disagrees with that header. It also
+// makes re-uploads free dedupe (E1a's idempotency
 // rule) and needs no journal of its own: unlike runs.jsonl/mailbox.jsonl,
 // writes here are content-identical regardless of which process or run
 // produced them, so no single-writer serialization is required — atomic

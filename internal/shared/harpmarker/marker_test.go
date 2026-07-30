@@ -149,3 +149,44 @@ func TestScan_IsDeterministicAcrossObjectKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestFind_KindAttributeIsTheOnlyDiscriminator pins U112-F08. The package doc
+// used to say the marker's self-closing form was "deliberately distinct from
+// the <ctxloom-context>…</ctxloom-context> content wrapper", which reads as
+// the SHAPE doing the separating. It does not, and never did: markerRe's
+// <ctxloom\b matches the content wrapper's prefix ('-' is a word boundary)
+// and its trailing slash is optional.
+//
+// The corrected doc now asserts that kind="harp" is the only discriminator.
+// These cases are what makes that claim checkable rather than another
+// assertion nobody can verify — each arm fails if the element name or the
+// self-closing shape silently becomes load-bearing.
+func TestFind_KindAttributeIsTheOnlyDiscriminator(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		// The kind attribute alone admits or rejects.
+		{"wrapper without kind is not a marker", `<ctxloom-context>body</ctxloom-context>`, ""},
+		{"element named ctxloom without kind is not a marker", `<ctxloom name="nope" />`, ""},
+
+		// Shape is NOT the discriminator: drop the self-closing slash and the
+		// element still matches, because only kind="harp" is required.
+		{"non-self-closing element still matches", `<ctxloom name="open-tag-harp" kind="harp">`, "open-tag-harp"},
+
+		// Element name is NOT the discriminator either: the content wrapper's
+		// own spelling matches once it carries the attribute. Documented here
+		// because it is what the doc now claims, not because it is desirable —
+		// tightening markerRe would make this arm red and is the signal that
+		// the doc needs rewriting with it.
+		{"content wrapper carrying the attribute matches", `<ctxloom-context kind="harp" name="wrapper-harp">`, "wrapper-harp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Find(tc.in); got != tc.want {
+				t.Fatalf("Find(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

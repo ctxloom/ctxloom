@@ -4,12 +4,18 @@
 //
 //	<ctxloom name="plump-loose-sash" kind="harp" />
 //
-// It is a self-closing element carrying point metadata (deliberately distinct
-// from the <ctxloom-context>…</ctxloom-context> content wrapper) so read-time
+// It is a self-closing element carrying point metadata, so read-time
 // resolution can answer "which harp owns this transcript?" without depending on
 // the session index, the PID registry, the binding, or hook bookkeeping — all of
-// which have proven unreliable. kind="harp" namespaces the marker so the same
-// element can carry other point metadata later (e.g. kind="resumed-from").
+// which have proven unreliable.
+//
+// kind="harp" is the ONLY thing that separates this marker from anything else
+// spelled <ctxloom…>, including the <ctxloom-context>…</ctxloom-context>
+// content wrapper. Neither the element name nor the self-closing shape
+// discriminates: markerRe's <ctxloom\b matches the wrapper's prefix too ('-'
+// is a word boundary), and its trailing slash is optional. The attribute also
+// namespaces the marker, so the same element can carry other point metadata
+// later (e.g. kind="resumed-from").
 //
 // The marker is written through a backend's SessionStart injection path, so it
 // lands in the transcript as escaped JSON (Claude wraps hook stdout in an
@@ -26,8 +32,9 @@ import (
 	"strings"
 )
 
-// markerRe matches a self-closing <ctxloom … kind="harp" … /> element. The
-// attribute scan stops at the first '>' so it can't run past the element.
+// markerRe matches a <ctxloom … kind="harp" … > element, self-closing or not
+// — the kind attribute is the discriminator, the shape is not. The attribute
+// scan stops at the first '>' so it can't run past the element.
 var markerRe = regexp.MustCompile(`<ctxloom\b[^>]*\bkind="harp"[^>]*?/?>`)
 
 // nameRe pulls the name attribute out of a matched marker element.

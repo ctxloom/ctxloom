@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,177** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,178** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **84** |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **724** |
+| `open` | no commit names this ID | **723** |
 
-**Totals: 2268 findings across 162 units — 1,177 resolved, 724 still open, 367 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,178 resolved, 723 still open, 367 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 388 | 414 | 45 | 58 | 94 |
-| LOW | 871 | 438 | 285 | 29 | 69 | 50 |
+| LOW | 871 | 439 | 284 | 29 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2688,7 +2688,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U123-F07 | **PARTIAL** `7dd608aa` | **`paths.go:163`** | COMPLEXITY | `ValidateProjectID` is CCN 15 (brief's baseline; the brief states the CI gate fails above 10), and two of those branches are provably subsumed by later checks. | U123.md |
 | U124-F08 | open | `:135`, `:305` | COMPLEXITY | Both formulas are recompiled from source via `expr.Compile` on **every** `Compute` call — i.e. on every `taskloom list --sort priority` and every `task_list` with `sort="priority"` | U124.md |
 | U124-F09 | open | `:427`, `:432` | CORRECTNESS | The composite-key scheme puts three different key kinds in **one flat namespace** — `target`, `target=value`, and `target=*` — so a tag whose *key* contains `=` can collide with another tag's compo... | U124.md |
-| U125-F10 | open | **`marker.go:43-52`** | SILENTNOOP | `WriteMarker(dir, "")` succeeds, writing a file containing only `"\n"`, which `ReadMarker` then reports as "no marker at all" — a write that produced a file and no identity | U125.md |
+| U125-F10 | **RESOLVED** `388aa118` | **`marker.go:43-52`** | SILENTNOOP | `WriteMarker(dir, "")` succeeds, writing a file containing only `"\n"`, which `ReadMarker` then reports as "no marker at all" — a write that produced a file and no identity | U125.md |
 | U125-F11 | open | **`registry.go:265-273`** | CORRECTNESS | `cleanPath` silently changes comparison key when `EvalSymlinks` fails, so a transient permissions or mount problem makes a live tree compare *unequal to itself*, which `Resolve` reads as "not regis... | U125.md |
 | U126-F03 | open | `tagschema.go:129-134` | CORRECTNESS | `add`'s "last wins" silently overwrites a duplicate `facet`+`target` declaration, so a config with two conflicting declarations for one target is indistinguishable from a config with one | U126.md |
 | U126-F05 | **REFUTED** `848aa14e` | `formula.go:96-99` | TRIVIAL | `Eval`'s non-`float64` branch is four lines the author documents as unreachable | U126.md |

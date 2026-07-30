@@ -57,7 +57,7 @@ type eventLog struct {
 // folded is the in-memory projection of the log.
 type folded struct {
 	byID      map[string]*Task    // live tasks by harp
-	order     []string            // add order of harp ids (for stable file-order)
+	order     []string            // harp ids in replay order (ts-sorted; file order only breaks ties)
 	issued    map[string]struct{} // every harp ever used — never reused
 	repaired  map[string]struct{} // anomaly keys already resolved by a re-add
 	anomalies []Event             // displaced duplicate adds (same harp, different task)
@@ -613,9 +613,10 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	defer l.mu.Unlock()
 	// Take a SHARED cross-process lock for the read. Mutators hold the EXCLUSIVE
 	// lock while appending (see lock()), so without this a fold could observe a
-	// partially written final line from another process — the malformed-line skip
-	// would then silently drop a just-added task, surfacing as a transient
-	// "task not found" to a peer process. Best-effort: a lock failure falls back to
+	// partially written final line from another process. fold() treats any
+	// unparseable line as fatal for the WHOLE log, so that observation surfaces
+	// as a transient hard read failure hiding every task in the store — not as
+	// one silently missing task. Best-effort: a lock failure falls back to
 	// an unlocked read rather than failing, since reads must never block (the
 	// in-process mu still serializes same-process access).
 	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {

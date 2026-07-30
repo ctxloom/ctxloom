@@ -728,3 +728,31 @@ func TestLogRemove_HarpIsNeverReissued(t *testing.T) {
 		}
 	}
 }
+
+// TestLogFold_TruncatedFinalLineFailsLoud pins the invariant snapshot()'s
+// lock rationale now states: a partially written final line (a peer process
+// caught mid-append) makes the WHOLE fold fail loud, naming the file and the
+// line. There is no malformed-line SKIP in this reader — the earlier wording
+// described a lenient fold that fold() has never had, and the difference
+// matters to the reason for taking the shared lock: the hazard a concurrent
+// append creates is a hard, transient read failure for every task in the
+// store, not one silently missing task (U120-F11).
+func TestLogFold_TruncatedFinalLineFailsLoud(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"good one","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"beta","text":"half-writ`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	got, err := s.List(nil, "")
+	if err == nil {
+		t.Fatalf("a truncated final line must fail the fold, got tasks: %+v", got)
+	}
+	if got != nil {
+		t.Fatalf("a failed fold must return no partial view, got %+v", got)
+	}
+	if !strings.Contains(err.Error(), ":2:") {
+		t.Fatalf("error %q does not name the truncated line", err.Error())
+	}
+}

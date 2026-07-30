@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,266** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,267** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 116 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 166 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **555** |
+| `open` | no commit names this ID | **554** |
 
-**Totals: 2268 findings across 162 units — 1,266 resolved, 555 still open, 447 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,267 resolved, 554 still open, 447 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 445 | 307 | 65 | 78 | 104 |
+| MED | 999 | 446 | 306 | 65 | 78 | 104 |
 | LOW | 871 | 464 | 236 | 36 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1001,7 +1001,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U008-F01 | **RESOLVED** `1ca317d0` | **`watch.go:77-102`** | DUPLICATE | The entire watch loop is a **line-for-line copy** of `internal/cli/plan_watch.go:87-112` — same `var timer *time.Timer; var timerC <-chan time.Time`, same four-arm select in the same order, same `t... | U008.md |
 | U008-F02 | **RESOLVED** `124dac91` | **`watch.go:41-103`** | CORRECTNESS | `taskloom watch` **silently ignores the `--format` flag** and always emits JSONL. `cmd/taskloom/format.go:11` registers `--format` as a *persistent* flag on `rootCmd`, so `taskloom watch --format y... | U008.md |
 | U008-F03 | **RESOLVED** `564cff98` | **`watch.go:83-86`** | CORRECTNESS | A long-lived stream command **exits 0 with no diagnostic when its watcher dies**. `case _, ok := <-w.Events(): if !ok { return nil }` treats a closed events channel as a clean shutdown, but `intern... | U008.md |
-| U008-F04 | open | `show.go:34` | COUPLING | `operations.ListTasks(tc, nil, "", true, false, 0)` is six positional arguments including **two adjacent, unlabelled booleans** and a bare `0`. At the call site nothing indicates that `true` means ... | U008.md |
+| U008-F04 | **RESOLVED** `dad11945` | `show.go:34` | COUPLING | `operations.ListTasks(tc, nil, "", true, false, 0)` is six positional arguments including **two adjacent, unlabelled booleans** and a bare `0`. At the call site nothing indicates that `true` means ... | U008.md |
 | U008-F06 | **RESOLVED** `7092dbc3` | **`watch.go:18-22`, `watch.go:41`** | CORRECTNESS | The `watch` command and its wire contract are **completely untested**. `rg` over `cmd/taskloom/*_test.go` finds no reference to `watchCmd`, `watchEvent`, or `watchDebounce`; the package's 12 test f... | U008.md |
 | U009-F02 | **RESOLVED** `e479306b` | **`main.go:34`** | ERRHANDLING | `if data, err := os.ReadFile(configPath); err == nil` treats **every** read failure as "the file isn't there". A config that exists but is unreadable — wrong permissions, a directory at that path, ... | U009.md |
 | U009-F03 | **ESCALATED** `68f73cfe` | **`main.go:29-33`** | NOPAY | The scope is a fraction of what the name and doc claim, and the code is shaped as if it once did more. `configPaths` is a **one-element slice iterated by a `for` loop**, under a comment that says "... | U009.md |

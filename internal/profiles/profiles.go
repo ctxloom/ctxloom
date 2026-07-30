@@ -387,10 +387,9 @@ func (l *Loader) PendingUpgrades() []*upgrade.Pending {
 // drops it from the pending set. Callers prompt the user before invoking this
 // (see cmd/run.go); ctxloom never rewrites a profile without consent.
 func (l *Loader) CommitUpgrade(p *upgrade.Pending) error {
-	// Nothing to write is not a successful write. Reporting nil here told the
-	// caller — which has just asked the user for consent — that a rewrite
-	// landed when none did, and an empty Data would have truncated the user's
-	// profile to zero bytes under that same success.
+	// Nothing to write is not a successful write. The caller has just asked
+	// the user to consent to a rewrite, so a nil return here means that
+	// rewrite landed; an empty payload would land as a zero-byte profile.
 	if p == nil {
 		return fmt.Errorf("no pending profile upgrade to commit")
 	}
@@ -570,9 +569,9 @@ func (l *Loader) Load(name string) (*Profile, error) {
 
 // findFile resolves a validated local profile name to the file backing it,
 // searching the configured dirs in order and both extensions. Shared by Load
-// and Exists so the two can never disagree about which names have a file: an
-// Exists that answered by attempting a full Load reported a present-but-corrupt
-// profile as absent (U091-F06).
+// and Exists so the two can never disagree about which names have a file —
+// "is a profile stored here" is one question with one answer, independent of
+// whether the profile happens to parse.
 func (l *Loader) findFile(localName string) (string, bool) {
 	// Convert forward slashes to OS-specific separator for file lookup
 	osName := filepath.FromSlash(localName)
@@ -847,9 +846,8 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 	// The caller's spelling is canonicalized exactly as every recursive step
 	// canonicalizes a parent, so the top frame shares one identity with the
 	// frames below it: visited and memo are keyed the same way at every depth.
-	// Keying the top frame by the raw spelling made an alias-spelled entry a
-	// SECOND identity for a profile the recursion already knew by its canonical
-	// key, so reaching it again re-Loaded and re-resolved it.
+	// A raw spelling here would be a SECOND identity for a profile the
+	// recursion already knows by its canonical key, and the memo would miss.
 	return l.resolveProfileRecursive(l.canonicalProfileName(name), visited, 0, make(map[string]*ResolvedProfile))
 }
 

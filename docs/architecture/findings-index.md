@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,208** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 94 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 95 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **668** |
+| `open` | no commit names this ID | **667** |
 
-**Totals: 2268 findings across 162 units — 1,208 resolved, 668 still open, 392 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,208 resolved, 667 still open, 393 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -331,7 +331,7 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
+| HIGH | 376 | 352 | 3 | 11 | 6 | 4 |
 | MED | 999 | 408 | 376 | 53 | 67 | 95 |
 | LOW | 871 | 444 | 275 | 28 | 73 | 51 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
@@ -901,7 +901,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U128-F01 | **RESOLVED** `09fd973a` | **`parse.go:32-42`** | SILENTNOOP | `ParseVerdicts` validates `HarpID` and `Outcome` but **not** `Evidence` or `Reasoning`, so `[{"harp_id":"a","outcome":"fired"}]` parses clean and reaches the human as a proposal to revive a task ca... | U128.md |
 | U131-F01 | open | **`upgrade.go:32`** | COUPLING | `Upgrader.Apply` returns only `bool` and **no error**, so an upgrader that cannot safely migrate a document must either silently skip or silently clobber. This is the structural root cause of the c... | U131.md |
 | U131-F02 | open | **`upgrade.go:83-85`** | SILENTNOOP | On encode failure `Run` returns `data, nil` — telling the caller "this file is already current" **after** the pipeline demonstrably fired. The caller then parses legacy bytes as if current, and the... | U131.md |
-| U131-F04 | open | **`upgrade.go:61-88`, `upgrade.go:156-163`** | CORRECTNESS | Two silent-data-destruction paths in the byte driver and its helpers, both of which end up written verbatim to the user's file. (a) **Multi-document YAML**: `yaml.Unmarshal` into a `yaml.Node` deco... | U131.md |
+| U131-F04 | **PARTIAL** `aaa0a6bc` | **`upgrade.go:61-88`, `upgrade.go:156-163`** | CORRECTNESS | Two silent-data-destruction paths in the byte driver and its helpers, both of which end up written verbatim to the user's file. (a) **Multi-document YAML**: `yaml.Unmarshal` into a `yaml.Node` deco... | U131.md |
 | U132-F01 | **RESOLVED** `5fbf2be2` | **`watch.go:51` (the `recursive` parameter) at `internal/cli/plan_watch.go:57`, vs `internal/shared/plans/plans.go:60-80`** | COUPLING | **`plan watch` is recursive but `plans.List` is exactly two levels deep, so nested plan files fire change events that the list they trigger can never show.** The frontend re-queries, sees no differ... | U132.md |
 | U132-F03 | **RESOLVED** `5fbf2be2` | **`watch.go:52`** | SILENTNOOP | **`New` creates the directory it was asked to watch.** A nonexistent, typo'd, or wrongly-resolved root therefore produces a healthy watcher on an empty directory that streams zero events forever, a... | U132.md |
 | U133-F01 | **RESOLVED** `40b49a7f` | **`hooks.go:38` (+ `internal/lm/grpc/llm.proto:447-455`, `internal/lm/grpc/managed.go:91-115`)`** | SILENTNOOP | `Hook.PreToolFallback` does not survive the gRPC round-trip, so on the `ctxloom run` path an antigravity fallback hook is delivered with the flag cleared and therefore never registered — and the de... | U133.md |

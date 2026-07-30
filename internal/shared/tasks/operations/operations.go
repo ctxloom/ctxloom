@@ -33,6 +33,18 @@ type TaskContext struct {
 	ProjectID   string
 	SessionHarp string
 
+	// WorkDirIsBoundary reports whether WorkDir came from a real project
+	// boundary — a CTXLOOM_ROOT override, an enclosing git repository, or an
+	// in-tree .ctxloom — rather than from a bare working directory that
+	// happens to be where the process started. It is the second half of the
+	// SAME resolution that produced WorkDir, carried here so that a consumer
+	// deciding whether a read is project-scoped never re-resolves the working
+	// directory to ask (see cmd/taskloom's resolveListScope). The zero value
+	// false means "not known to be a boundary", which is the conservative
+	// answer for a hand-built context: it only ever widens a scope decision
+	// to the explained global fallback, never narrows one silently.
+	WorkDirIsBoundary bool
+
 	// HomingMode selects where the project's task-store log lives —
 	// paths.ModeHome (private, under ~/.ctxloom/tasks, keyed by a
 	// minted/registered project-id) or paths.ModeRepo (checked into the

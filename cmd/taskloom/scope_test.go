@@ -28,7 +28,7 @@ func TestResolveListScope_ExplicitGlobal_AlwaysAggregatesNoNotice(t *testing.T) 
 	taskstest.Isolate(t)
 	dir := t.TempDir()
 
-	scope, err := resolveListScope(true, "pinned-project", dir)
+	scope, err := resolveListScope(true, "pinned-project", dir, false)
 	require.NoError(t, err)
 	assert.True(t, scope.Global)
 	assert.Empty(t, scope.Notice, "an explicit --global is a silent opt-in")
@@ -38,7 +38,7 @@ func TestResolveListScope_PinnedProjectID_StaysProjectScoped(t *testing.T) {
 	taskstest.Isolate(t)
 	dir := t.TempDir() // not a git repo, not established — the pin alone must be enough
 
-	scope, err := resolveListScope(false, "pinned-project", dir)
+	scope, err := resolveListScope(false, "pinned-project", dir, false)
 	require.NoError(t, err)
 	assert.False(t, scope.Global)
 	assert.Empty(t, scope.Notice)
@@ -52,7 +52,7 @@ func TestResolveListScope_GitBoundary_StaysProjectScopedEvenUnestablished(t *tes
 
 	// A git repo's first-ever taskloom call is still a real project: no prior
 	// task history, no marker, but a real boundary.
-	scope, err := resolveListScope(false, "", dir)
+	scope, err := resolveListScope(false, "", dir, true)
 	require.NoError(t, err)
 	assert.False(t, scope.Global)
 	assert.Empty(t, scope.Notice)
@@ -63,7 +63,7 @@ func TestResolveListScope_NoGitNoHistory_FallsBackToGlobalWithNotice(t *testing.
 	dir := t.TempDir() // no git, no marker, no registry entry
 	taskstest.ChangeDir(t, dir)
 
-	scope, err := resolveListScope(false, "", dir)
+	scope, err := resolveListScope(false, "", dir, false)
 	require.NoError(t, err)
 	assert.True(t, scope.Global, "no boundary and no established identity must default to global")
 	require.NotEmpty(t, scope.Notice, "the fallback must be explained, not silent")
@@ -77,7 +77,7 @@ func TestResolveListScope_EstablishedMarkerWithoutGit_StaysProjectScoped(t *test
 	taskstest.ChangeDir(t, dir)
 	require.NoError(t, projectid.WriteMarker(dir, "adopted-project"))
 
-	scope, err := resolveListScope(false, "", dir)
+	scope, err := resolveListScope(false, "", dir, false)
 	require.NoError(t, err)
 	assert.False(t, scope.Global, "an in-tree marker is an established identity even without git")
 	assert.Empty(t, scope.Notice)
@@ -260,4 +260,63 @@ func TestListAllProjects_TermFilterAppliesPerProject(t *testing.T) {
 	require.Len(t, got.Rows, 1)
 	assert.Equal(t, "proj-a", got.Rows[0].ProjectID)
 	assert.True(t, strings.Contains(got.Rows[0].Text, "parser"))
+}
+
+// TestResolveListScope_HonorsTheCallersBoundaryRatherThanReResolving is
+// U007-F23's pin. The working directory is resolved once, by taskContext, and
+// its boundary half travels on the context; resolveListScope used to throw
+// that away and call workdir.ResolveBoundary() a second time, so the scope
+// decision was made against a fresh resolution of the PROCESS cwd rather than
+// against the directory it had just been handed.
+//
+// The two are deliberately in conflict here: cwd is a real git repository (a
+// boundary), while the caller reports the directory it actually resolved as
+// no boundary at all. A second resolution answers "boundary, stay
+// project-scoped"; honoring the argument answers "no project here, fall back
+// to global and say why". Only the second is correct, because the caller is
+// the one that knows which directory the store was opened from.
+func TestResolveListScope_HonorsTheCallersBoundaryRatherThanReResolving(t *testing.T) {
+	taskstest.Isolate(t)
+	cwd := t.TempDir()
+	gitInit(t, cwd)
+	taskstest.ChangeDir(t, cwd)
+
+	elsewhere := t.TempDir() // no git, no marker, no registry entry
+
+	scope, err := resolveListScope(false, "", elsewhere, false)
+	require.NoError(t, err)
+	assert.True(t, scope.Global,
+		"the caller reported no boundary; re-resolving cwd (a git repo) must not override it")
+	require.NotEmpty(t, scope.Notice)
+	assert.Contains(t, scope.Notice, elsewhere,
+		"the fallback must name the directory the CALLER resolved, not the process cwd")
+}
+
+// TestTaskContext_CarriesTheBoundaryItResolved keeps the end-to-end half that
+// resolveListScope no longer performs: the boundary bit resolveListScope now
+// trusts must actually be true inside a real git repository and false in a
+// bare directory, or the collapse above would silently send every listing
+// global.
+func TestTaskContext_CarriesTheBoundaryItResolved(t *testing.T) {
+	t.Run("git repo is a boundary", func(t *testing.T) {
+		taskstest.Isolate(t)
+		dir := t.TempDir()
+		gitInit(t, dir)
+		taskstest.ChangeDir(t, dir)
+
+		tc, err := taskContext()
+		require.NoError(t, err)
+		assert.True(t, tc.WorkDirIsBoundary)
+		assert.NotEmpty(t, tc.WorkDir)
+	})
+
+	t.Run("bare directory is not", func(t *testing.T) {
+		taskstest.Isolate(t)
+		dir := t.TempDir()
+		taskstest.ChangeDir(t, dir)
+
+		tc, err := taskContext()
+		require.NoError(t, err)
+		assert.False(t, tc.WorkDirIsBoundary)
+	})
 }

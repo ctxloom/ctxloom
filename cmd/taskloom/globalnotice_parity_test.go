@@ -34,7 +34,7 @@ func TestGlobalNotice_CLIAndMCPComposeTheSameText(t *testing.T) {
 		"the CLI's stderr notice must be the MCP result's Notice, not a separately-composed near-copy")
 
 	// The composition itself, isolated: both surfaces call it.
-	scope, err := resolveListScope(true, "", proj)
+	scope, err := resolveListScope(true, "", proj, false)
 	require.NoError(t, err)
 	assert.Equal(t, res.Notice, composeGlobalNotice(scope, proj))
 }

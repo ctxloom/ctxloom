@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
-	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
 )
 
 // noProjectNoticeFmt is the exact wording surfaced — on the CLI's stderr and
@@ -119,7 +118,7 @@ func listTasksScoped(tc operations.TaskContext, opts listOptions) (*scopedListRe
 	if opts.Sort != "" && opts.Sort != sortPriority {
 		return nil, fmt.Errorf("taskloom: unknown sort value %q (must be %q)", opts.Sort, sortPriority)
 	}
-	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir)
+	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary)
 	if err != nil {
 		return nil, err
 	}
@@ -224,16 +223,21 @@ type listScope struct {
 // just wherever the shell happened to be — so the read defaults to global
 // rather than silently minting a throwaway project identity for an arbitrary
 // directory. That fallback carries a Notice explaining why.
-func resolveListScope(explicit bool, pinnedProjectID, workDir string) (listScope, error) {
+//
+// workDirIsBoundary is that middle test, DECIDED BY THE CALLER: it is the
+// boundary half of the very resolution that produced workDir
+// (operations.TaskContext.WorkDirIsBoundary, set by taskContext). Re-deriving
+// it here would resolve the working directory a second time per listing and
+// let the scope decision be made against a different answer than the store
+// was opened with.
+func resolveListScope(explicit bool, pinnedProjectID, workDir string, workDirIsBoundary bool) (listScope, error) {
 	if explicit {
 		return listScope{Global: true}, nil
 	}
 	if pinnedProjectID != "" {
 		return listScope{}, nil
 	}
-	if _, found, err := workdir.ResolveBoundary(); err != nil {
-		return listScope{}, err
-	} else if found {
+	if workDirIsBoundary {
 		return listScope{}, nil
 	}
 	established, err := isEstablishedProject(workDir)

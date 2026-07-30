@@ -99,18 +99,19 @@ func taskContext() (operations.TaskContext, error) {
 	if projectID == "" {
 		projectID = os.Getenv("CTXLOOM_PROJECT_ID")
 	}
-	workDir, _, err := workdir.ResolveBoundary()
+	workDir, boundary, err := workdir.ResolveBoundary()
 	if err != nil {
 		if projectID == "" {
 			return operations.TaskContext{}, err
 		}
 		clidiag.Warn(progName, "working directory resolution failed: %v", err)
-		workDir = ""
+		workDir, boundary = "", false
 	}
 	return operations.TaskContext{
-		WorkDir:     workDir,
-		ProjectID:   projectID,
-		SessionHarp: os.Getenv("CTXLOOM_SESSION_HARP"),
+		WorkDir:           workDir,
+		WorkDirIsBoundary: boundary,
+		ProjectID:         projectID,
+		SessionHarp:       os.Getenv("CTXLOOM_SESSION_HARP"),
 	}, nil
 }
 

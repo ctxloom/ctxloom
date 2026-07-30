@@ -55,7 +55,7 @@ func TestRunPlanList_DefaultScopesToCurrentProject(t *testing.T) {
 	taskstest.ChangeDir(t, dir)
 
 	var out, errw bytes.Buffer
-	tc := operations.TaskContext{WorkDir: dir}
+	tc := operations.TaskContext{WorkDir: dir, WorkDirIsBoundary: true}
 	require.NoError(t, runPlanListCmd(&out, &errw, tc, planListOptions{}))
 
 	assert.Contains(t, out.String(), "mine")
@@ -71,7 +71,7 @@ func TestRunPlanList_GlobalShowsEveryProject(t *testing.T) {
 	taskstest.ChangeDir(t, dir)
 
 	var out, errw bytes.Buffer
-	tc := operations.TaskContext{WorkDir: dir}
+	tc := operations.TaskContext{WorkDir: dir, WorkDirIsBoundary: true}
 	require.NoError(t, runPlanListCmd(&out, &errw, tc, planListOptions{Global: true}))
 
 	assert.Contains(t, out.String(), "mine")
@@ -86,7 +86,7 @@ func TestRunPlanList_UnattributedPlansAlwaysShown(t *testing.T) {
 	gitInit(t, dir)
 	taskstest.ChangeDir(t, dir)
 
-	tc := operations.TaskContext{WorkDir: dir}
+	tc := operations.TaskContext{WorkDir: dir, WorkDirIsBoundary: true}
 
 	var scoped, errw bytes.Buffer
 	require.NoError(t, runPlanListCmd(&scoped, &errw, tc, planListOptions{}))
@@ -125,7 +125,7 @@ func TestRunPlanList_TextRowsCarryThePathPlanShowAccepts(t *testing.T) {
 	taskstest.ChangeDir(t, dir)
 
 	var out, errw bytes.Buffer
-	tc := operations.TaskContext{WorkDir: dir}
+	tc := operations.TaskContext{WorkDir: dir, WorkDirIsBoundary: true}
 	require.NoError(t, runPlanListCmd(&out, &errw, tc, planListOptions{}))
 
 	rows := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -151,7 +151,7 @@ func TestRunPlanList_JSONFormatHonoured(t *testing.T) {
 	taskstest.ChangeDir(t, dir)
 
 	var out, errw bytes.Buffer
-	tc := operations.TaskContext{WorkDir: dir}
+	tc := operations.TaskContext{WorkDir: dir, WorkDirIsBoundary: true}
 	require.NoError(t, runPlanListCmd(&out, &errw, tc, planListOptions{Format: clifmt.FormatJSON}))
 
 	var got []plans.Plan

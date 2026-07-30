@@ -101,7 +101,7 @@ func runPlanShow(cmd *cobra.Command, args []string) error {
 // not the fix — and the project directory it scopes to is resolved by
 // planScopeDir.
 func runPlanListCmd(out, errw io.Writer, tc operations.TaskContext, opts planListOptions) error {
-	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir)
+	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir, tc.WorkDirIsBoundary)
 	if err != nil {
 		return err
 	}

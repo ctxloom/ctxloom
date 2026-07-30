@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,057** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 41 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 94 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,060** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 43 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 95 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **943** |
+| `open` | no commit names this ID | **937** |
 
-**Totals: 2268 findings across 162 units — 1,057 resolved, 943 still open, 268 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,060 resolved, 937 still open, 271 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 312 | 552 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 365 | 13 | 51 | 47 |
+| MED | 999 | 315 | 549 | 18 | 35 | 82 |
+| LOW | 871 | 395 | 362 | 15 | 52 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1277,12 +1277,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U054-F09 | open | `gitignore.go:33-42`, `:48-81` | COHESION | The file-granular vs directory-granular decision is made per-entry with **no stated rule**, and the single entry whose granularity is actually argued is the one that is now wrong. | U054.md |
 | U054-F10 | **RESOLVED** `ef80fef6` | `gitignore.go:105-107` | DEAD | `RetireSuperseded` is test-only. | U054.md |
 | U054-F11 | open | `gitignore.go:110-156` | COMPLEXITY | `RetireSupersededFile` is the unit's only CI-gate violation (CCN 11, gate 10), and the excess is entirely incidental — two lookup sets rebuilt from package constants on every call, and an inner loo... | U054.md |
-| U055-F02 | open | **`mcp_registrar.go:14-16`** | COUPLING | The isolation claim in this comment is **stale and overclaims**. It says `KIRO_HOME` is "the same override **the session-history reader** and the worktree isolation policy use to relocate kiro's **... | U055.md |
+| U055-F02 | **RESOLVED** `31361d35` | **`mcp_registrar.go:14-16`** | COUPLING | The isolation claim in this comment is **stale and overclaims**. It says `KIRO_HOME` is "the same override **the session-history reader** and the worktree isolation policy use to relocate kiro's **... | U055.md |
 | U055-F03 | **RESOLVED** `ef0880e3` | **`chat.go:44-52`** | SILENTNOOP | A configured `effort:` is **silently dropped on the structured-chat path**. `buildArgs` emits `--effort` (backend.go:160) but `chatACPConfig` never reads `b.effort` — it sets only `Command`/`Agent`... | U055.md |
 | U055-F04 | **RESOLVED** `758c200e` | **`capabilities.go:27`** | DEAD | `KiroCommands.RegisterFromContent` and the whole `KiroCommands` type are dead. Confirms the brief. | U055.md |
 | U055-F05 | **ESCALATED** `6f264e03` | **`settings.go:178`** | NOPAY | `KiroWriter.WriteSettings` has **no production call site**; only tests and the conformance suite exercise it. Its dead weight cascades: `reconcileSteering`'s hash-reading branch (settings.go:229-23... | U055.md |
-| U055-F07 | open | **`settings.go:310-315`** | ERRHANDLING | `Status` swallows two parse errors, so a **corrupt or unreadable** `.kiro/agents/ctxloom.json` reports as *"not wired"* rather than *"broken"*. This is the same silent-empty-parse failure mode that... | U055.md |
-| U055-F08 | open | **`backend.go:196-201`** | SILENTNOOP | A oneshot with an empty prompt launches `kiro-cli chat --no-interactive` **with no INPUT positional**. `--no-interactive` is appended unconditionally on `ModeOneshot` (:197-198) while the prompt is... | U055.md |
+| U055-F07 | **RESOLVED** `361fb91e` | **`settings.go:310-315`** | ERRHANDLING | `Status` swallows two parse errors, so a **corrupt or unreadable** `.kiro/agents/ctxloom.json` reports as *"not wired"* rather than *"broken"*. This is the same silent-empty-parse failure mode that... | U055.md |
+| U055-F08 | **RESOLVED** `1c5b051a` | **`backend.go:196-201`** | SILENTNOOP | A oneshot with an empty prompt launches `kiro-cli chat --no-interactive` **with no INPUT positional**. `--no-interactive` is appended unconditionally on `ModeOneshot` (:197-198) while the prompt is... | U055.md |
 | U056-F06 | open | `monitor.go:322-327 vs liveness.go:120-122` | CORRECTNESS | A zero `StartedAt` **enables** the age-gated content rung instead of disabling it, contradicting the field's documented contract; and `cpuRung` is not age-gated at all, so the launch grace does not... | U056.md |
 | U056-F07 | open | `transcript.go:300-306, monitor.go:276-279` | CORRECTNESS | The zero-median branch emits a `Redelivery` with **no cadence proof**, and `loopRung` fires on `Repeats` alone with no grace period — contradicting `detectRedelivery`'s own "both conditions matter"... | U056.md |
 | U056-F08 | **RESOLVED** `9f6a477f` | `transcript.go:388-389, 405-432` | ERRHANDLING | `NewestMTime`'s doc promises that a genuine walk error is returned; in fact the `WalkDir` callback swallows every error and the `walkErr` branch is unreachable, so a permission-denied worktree retu... | U056.md |
@@ -2270,9 +2270,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U054-F13 | open | `gitignore_test.go` (absence)` | CORRECTNESS | The pattern set implicated in destroying agent work has **no unit test pinning its membership**, while the harmless one does. | U054.md |
 | U054-F14 | **RESOLVED** `21498820` | `gitignore.go:216-227`, `:231-243` | DUPLICATE | `dedupe` and `missingPatterns` are the same map-based filter over two different inputs, and `dedupe` exists only to compensate for where `missingPatterns` draws its set. | U054.md |
 | U055-F09 | **RESOLVED** `3b74bf06` | **`surfaces.go:181-184`** | DUPLICATE | `deliveredFunc` is defined **six** times across the repo while an exported equivalent already exists in the shared package. | U055.md |
-| U055-F10 | open | **`surfaces.go:232-245`** | COMPLEXITY | The five surfaces are listed twice, ten lines apart — once as named struct fields and once as `dispatch` map entries — with nothing enforcing agreement. Adding a sixth surface and forgetting one li... | U055.md |
-| U055-F11 | open | **`backend.go:100-104`** | ERRHANDLING | `Configure` **silently ignores a wrong config type**: `c, ok := cfg.(*KiroConfig); if !ok { return }`. Every override — binary path, args, env, effort, agent, agent-engine — is dropped and the run ... | U055.md |
-| U055-F12 | open | **`mcp_registrar.go:31-40, :86-89`** | ERRHANDLING | `Present` reports `false` for **three distinct conditions**: kiro absent, `$HOME` unresolvable (:35), and `os.Stat` failing for any reason including EACCES (`pathExistsKiro`, :86-88). A caller cann... | U055.md |
+| U055-F10 | **REFUTED** `13a77e58` | **`surfaces.go:232-245`** | COMPLEXITY | The five surfaces are listed twice, ten lines apart — once as named struct fields and once as `dispatch` map entries — with nothing enforcing agreement. Adding a sixth surface and forgetting one li... | U055.md |
+| U055-F11 | **PARTIAL** `f40391fe` | **`backend.go:100-104`** | ERRHANDLING | `Configure` **silently ignores a wrong config type**: `c, ok := cfg.(*KiroConfig); if !ok { return }`. Every override — binary path, args, env, effort, agent, agent-engine — is dropped and the run ... | U055.md |
+| U055-F12 | **PARTIAL** `2ec3383e` | **`mcp_registrar.go:31-40, :86-89`** | ERRHANDLING | `Present` reports `false` for **three distinct conditions**: kiro absent, `$HOME` unresolvable (:35), and `os.Stat` failing for any reason including EACCES (`pathExistsKiro`, :86-88). A caller cann... | U055.md |
 | U056-F12 | **PARTIAL** `5ae03068` | `transcript.go:135-137; monitor.go:184; probe.go:91-100` | DEAD | Three exported symbols have no production caller: `ReadTranscript`, `Monitor.Thresholds`, `UnobservableProbe` (+ its two methods). | U056.md |
 | U056-F13 | open | `probe.go:104-109` | COUPLING | `ProbeFunc.Name` is returned from `Runtime()` and matched against `Target.Runtime`; the name says "identifier", the semantics say "runtime axis, where empty means universal". | U056.md |
 | U056-F14 | open | `monitor.go:86-104` | CORRECTNESS | `normalize` uses `<= 0`, so `0` is unrepresentable for `RedeliveryJitterRatio` and `CPUBurnFloor` — a caller asking for exact-cadence-only matching, or for "any CPU at all counts as burning", silen... | U056.md |

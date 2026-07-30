@@ -284,6 +284,8 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 			repoDir:        req.RepoDir,
 			otherByHarp:    allByHarp,
 			deferredByHarp: deferredByHarp,
+			repo:           batch.Repo,
+			otherTasks:     batch.OtherTasks,
 			cacheable:      cacheable,
 			chunkSize:      chunkSize,
 		}, verdicts)
@@ -614,6 +616,13 @@ type escalationParams struct {
 	otherByHarp    map[string]tasks.Task
 	deferredByHarp map[string]triggers.TaskInput
 
+	// repo and otherTasks are the batch's repo-global evidence, carried into
+	// round 2 unchanged. Round 2 is the FINAL look: settling a trigger on
+	// less evidence than the round that escalated it is a regression, and an
+	// existence-style trigger is answerable from repo state alone (U128-F11).
+	repo       triggers.RepoState
+	otherTasks []triggers.OtherTask
+
 	// cacheable is mutated in place: escalateNeedsInvestigation marks a
 	// harp id true once its round-2 verdict is a genuine (non-degraded,
 	// non-omitted) model answer, so the caller knows it's safe to cache.
@@ -679,7 +688,7 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 		return verdicts, 0, false, ""
 	}
 
-	finalByHarp, degradedByHarp, omittedCount := runFollowupChunks(ctx, followups, p.chunkSize, p.factory, p.backendName, p.label, p.model)
+	finalByHarp, degradedByHarp, omittedCount := runFollowupChunks(ctx, followups, p, p.chunkSize)
 
 	var warnings []string
 	seenReasons := map[string]bool{}
@@ -752,7 +761,7 @@ type followupChunkResult struct {
 // round-2 model calls with bounded concurrency (mirroring runTriageChunks),
 // merging results by harp id so assembly is independent of chunk order or
 // completion order.
-func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, chunkSize int, factory pb.ClientFactory, backendName, label, model string) (finalByHarp map[string]triggers.Verdict, degradedByHarp map[string]string, omitted int) {
+func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, p escalationParams, chunkSize int) (finalByHarp map[string]triggers.Verdict, degradedByHarp map[string]string, omitted int) {
 	chunks := chunkFollowups(followups, chunkSize)
 	results := make([]followupChunkResult, len(chunks))
 	var wg sync.WaitGroup
@@ -763,7 +772,7 @@ func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, c
 		go func(i int, c []triggers.FollowupTask) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[i] = runFollowupChunk(ctx, c, factory, backendName, label, model)
+			results[i] = runFollowupChunk(ctx, c, p)
 		}(i, c)
 	}
 	wg.Wait()
@@ -787,9 +796,14 @@ func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, c
 // but the request); a successful call marks every task the response didn't
 // mention as omitted, leaving the rest for the caller to fold back into
 // verdicts.
-func runFollowupChunk(ctx context.Context, chunk []triggers.FollowupTask, factory pb.ClientFactory, backendName, label, model string) followupChunkResult {
-	prompt := triggers.BuildFollowupPrompt(triggers.FollowupBatch{Tasks: chunk, Now: time.Now().UTC()})
-	final, degraded, warning := runTriageWithRetry(ctx, factory, backendName, label, model, prompt)
+func runFollowupChunk(ctx context.Context, chunk []triggers.FollowupTask, p escalationParams) followupChunkResult {
+	prompt := triggers.BuildFollowupPrompt(triggers.FollowupBatch{
+		Tasks:      chunk,
+		OtherTasks: p.otherTasks,
+		Repo:       p.repo,
+		Now:        time.Now().UTC(),
+	})
+	final, degraded, warning := runTriageWithRetry(ctx, p.factory, p.backendName, p.label, p.model, prompt)
 
 	res := followupChunkResult{finalByHarp: map[string]triggers.Verdict{}, degradedByHarp: map[string]string{}}
 	if degraded {

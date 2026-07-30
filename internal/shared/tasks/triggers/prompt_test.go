@@ -339,25 +339,36 @@ func TestBuildFollowupPrompt_EmptyBatchDoesNotPanic(t *testing.T) {
 	})
 }
 
-// CHARACTERIZATION (U128-F11): round 2 is a strictly poorer evidence pack than
-// the round it escalates from. Round 1 renders repo-global "what exists NOW"
-// evidence and a cross-reference of other tasks; FollowupBatch carries neither,
-// so the FINAL look at a trigger judges on less than the tentative one did.
-// This pins the current shape so the fix inverts it visibly.
-func TestBuildFollowupPrompt_LosesRound1GlobalEvidence(t *testing.T) {
-	repo := RepoState{
+// Round 2 is the LAST look, and an existence-style trigger ("once package X
+// exists") is answerable only from repo state — history structurally cannot
+// show a thing that predates the window or is uncommitted. Round 1 says so in
+// writeRepoState's doc comment; round 2 must therefore carry the same
+// repo-global evidence and the same cross-reference, or the escalation round
+// judges on strictly LESS than the round it escalated from (U128-F11).
+func TestBuildFollowupPrompt_CarriesTheSameGlobalEvidenceAsRound1(t *testing.T) {
+	b := sampleFollowupBatch()
+	b.Repo = RepoState{
 		Dirs:           []string{"internal/signing"},
 		WorkingChanges: []string{"?? internal/signing/cli.go"},
 	}
-	other := []OtherTask{{HarpID: "other-task-id", Text: "ship the signing CLI", Status: "Done"}}
+	b.OtherTasks = []OtherTask{{HarpID: "other-task-id", Text: "ship the signing CLI", Status: "Done"}}
 
-	round1 := BuildPrompt(Batch{Tasks: []TaskInput{{HarpID: "a", Text: "t", Trigger: "x"}}, Repo: repo, OtherTasks: other})
-	require.Contains(t, round1, "=== Repository state right now ===")
-	require.Contains(t, round1, "other-task-id")
+	p := BuildFollowupPrompt(b)
 
-	round2 := BuildFollowupPrompt(sampleFollowupBatch())
-	assert.NotContains(t, round2, "=== Repository state right now ===")
-	assert.NotContains(t, round2, "other-task-id")
+	assert.Contains(t, p, "=== Repository state right now ===", "round 2 must see what exists NOW")
+	assert.Contains(t, p, "internal/signing", "the directory inventory answers existence-style triggers")
+	assert.Contains(t, p, "?? internal/signing/cli.go", "uncommitted work is in no commit at all")
+	assert.Contains(t, p, "other-task-id", "the cross-reference is evidence round 1 had and round 2 needs")
+}
+
+// The closed half of the gate above: absent repo state and other tasks, round
+// 2 must not emit an empty section header. An empty "Directories present"
+// header reads to the model as positive evidence the repository has none —
+// the same safety property round 1 asserts.
+func TestBuildFollowupPrompt_OmitsGlobalEvidenceSectionsWhenEmpty(t *testing.T) {
+	p := BuildFollowupPrompt(sampleFollowupBatch())
+	assert.NotContains(t, p, "=== Repository state right now ===")
+	assert.NotContains(t, p, "=== Other tasks")
 }
 
 func TestBuildFollowupPrompt_NoQueryResultsOmitsSection(t *testing.T) {

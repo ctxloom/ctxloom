@@ -50,13 +50,7 @@ func BuildPrompt(b Batch) string {
 		writeTaskEvidence(&sb, t)
 	}
 
-	if len(b.OtherTasks) > 0 {
-		sb.WriteString("=== Other tasks (for cross-reference) ===\n\n")
-		for _, o := range b.OtherTasks {
-			fmt.Fprintf(&sb, "- [%s] %s: %s\n", o.Status, o.HarpID, o.Text)
-		}
-		sb.WriteString("\n")
-	}
+	writeOtherTasks(&sb, b.OtherTasks)
 
 	writeResponseContract(&sb, true)
 
@@ -103,11 +97,15 @@ func BuildFollowupPrompt(b FollowupBatch) string {
 		fmt.Fprintf(&sb, "Evaluation time: %s\n\n", b.Now.UTC().Format(timeLayout))
 	}
 
+	writeRepoState(&sb, b.Repo)
+
 	sb.WriteString("=== Tasks under final review ===\n\n")
 	for _, t := range b.Tasks {
 		writeTaskEvidence(&sb, t.TaskInput)
 		writeQueryResults(&sb, t.Results)
 	}
+
+	writeOtherTasks(&sb, b.OtherTasks)
 
 	writeResponseContract(&sb, false)
 
@@ -184,6 +182,22 @@ func writeRepoState(sb *strings.Builder, r RepoState) {
 		writeTruncationNotice(sb, r.WorkingChangesTruncated, len(r.WorkingChanges), "entries")
 		sb.WriteString("\n")
 	}
+}
+
+// writeOtherTasks renders the bounded cross-reference of tasks NOT under
+// evaluation. Gated on having something to say, like every other optional
+// section: a header with nothing beneath it reads to the model as positive
+// evidence that no other task exists, and positive evidence of absence is what
+// licenses a confident not-fired.
+func writeOtherTasks(sb *strings.Builder, other []OtherTask) {
+	if len(other) == 0 {
+		return
+	}
+	sb.WriteString("=== Other tasks (for cross-reference) ===\n\n")
+	for _, o := range other {
+		fmt.Fprintf(sb, "- [%s] %s: %s\n", o.Status, o.HarpID, o.Text)
+	}
+	sb.WriteString("\n")
 }
 
 // writeTruncationNotice states, right under the list it applies to, that the

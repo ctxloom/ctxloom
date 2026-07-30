@@ -232,6 +232,44 @@ func TestEvaluateTriggers_RepoStateReachesThePrompt(t *testing.T) {
 	assert.Contains(t, prompt, "?? internal/shared/tasks/triggers/parse.go", "uncommitted work must reach the model")
 }
 
+// The round-2 counterpart of TestEvaluateTriggers_RepoStateReachesThePrompt.
+// Round 2 is the FINAL look at an escalated trigger — it may not settle one on
+// LESS evidence than the tentative round that escalated it, and the
+// existence-style trigger that motivated repo state in the first place is
+// exactly the kind that escalates (U128-F11).
+func TestEvaluateTriggers_RepoStateReachesTheEscalationPrompt(t *testing.T) {
+	tc := newTaskContext(t, "proj-repo-state-round2")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "the internal/shared/tasks/triggers package exists")
+	require.NoError(t, err)
+	_, err = tasksops.AddTask(tc, "ship the triggers package", "Done", "")
+	require.NoError(t, err)
+
+	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
+		`"queries":[{"type":"path_exists","path":"internal/shared/tasks/triggers"}]}]`
+	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["it exists"],"reasoning":"present now"}]`
+	client := &fullFakeClient{outs: []string{round1, round2}}
+	factory, _ := countingClientFactory(client)
+
+	gitFake := &git.Fake{
+		Dirs:    []string{"internal/shared/tasks/triggers"},
+		Changes: []string{"?? internal/shared/tasks/triggers/parse.go"},
+	}
+
+	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		RepoDir:     "/repo",
+		Factory:     factory,
+		Git:         gitFake,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, client.gotReqs, 2)
+	escalation := client.gotReqs[1].Prompt.Content
+	assert.Contains(t, escalation, "=== Repository state right now ===", "round 2 must see what exists NOW")
+	assert.Contains(t, escalation, "?? internal/shared/tasks/triggers/parse.go", "uncommitted work must reach the escalation round too")
+	assert.Contains(t, escalation, "ship the triggers package", "the other-tasks cross-reference must survive into round 2")
+}
+
 func TestEvaluateTriggers_NeverMutatesTaskStatus(t *testing.T) {
 	tc := newTaskContext(t, "proj-3")
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")

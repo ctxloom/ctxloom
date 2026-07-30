@@ -728,13 +728,41 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 		if acked >= last {
 			return nil
 		}
+		prod := time.NewTimer(ackReissueInterval)
 		select {
 		case <-ch:
+		case <-prod.C:
+			h.reissueUnacked()
 		case <-ctx.Done():
+			prod.Stop()
 			return h.requestFailure(ctx, time.Since(started))
 		case <-h.ctx.Done():
+			prod.Stop()
 			return ErrCoordinatorUnreachable
 		}
+		prod.Stop()
+	}
+}
+
+// ackReissueInterval paces the re-issue that recovers a LOST Ack. Long enough
+// that a coordinator merely busy fsyncing is never re-prompted, short enough
+// that nobody waits out the request budget for a watermark that will never come.
+const ackReissueInterval = 2 * time.Second
+
+// reissueUnacked re-sends every event still awaiting an Ack. The coordinator's
+// ack send is deliberately non-blocking and DROPS the frame when its outbound
+// buffer is full — cumulative watermarks make that safe only for a stream that
+// keeps flowing. A waiter has nothing else in flight to carry the next
+// watermark, so a dropped one is indistinguishable from "not durable yet";
+// re-issuing is what resolves the two. It costs nothing: (run, seq) is the
+// coordinator's idempotency key, so a seq it already processed is re-acked
+// rather than re-journaled — the same reissue the post-Hello reattach performs.
+func (h *Home) reissueUnacked() {
+	h.mu.Lock()
+	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
+	h.mu.Unlock()
+	for _, ev := range events {
+		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
 }
 

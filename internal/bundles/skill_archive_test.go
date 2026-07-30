@@ -1026,3 +1026,27 @@ func TestImportSkillArchive_ValidatorSeesTheFinalSkillName(t *testing.T) {
 	assert.NotEqual(t, "/imported/humanize", seen,
 		"validation must run BEFORE the tree reaches its destination")
 }
+
+// =============================================================================
+// U031 findings-sweep additions
+// =============================================================================
+
+// TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot pins that a
+// format rejection is a pure no-op on the filesystem. HardenedExtract used to
+// create destDir before it looked at `format`, so an unsupported-format
+// rejection returned an error having already made a directory the caller never
+// asked for — and ImportSkillArchive computes its staging path from destDir, so
+// a leftover root is exactly the debris a retry then has to reason about.
+// Reject first, touch the filesystem second.
+func TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+
+	_, err := HardenedExtract(fsys, []byte("not an archive"), FormatUnknown, "/out/skill", ExtractOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported archive format")
+
+	exists, serr := afero.DirExists(fsys, "/out/skill")
+	require.NoError(t, serr)
+	assert.False(t, exists,
+		"a rejected format must not leave an extraction root behind: nothing was extracted, so nothing should have been created")
+}

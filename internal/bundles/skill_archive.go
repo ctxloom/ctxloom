@@ -228,18 +228,23 @@ const (
 func HardenedExtract(fsys afero.Fs, archive []byte, format ArchiveFormat, destDir string, opts ExtractOptions) (topDir string, err error) {
 	opts = opts.normalized()
 
-	if err := fsys.MkdirAll(destDir, 0o755); err != nil {
-		return "", fmt.Errorf("skill archive: creating extraction root %q: %w", destDir, err)
-	}
-
+	// Every rejection this function can reach must be a no-op on the
+	// filesystem, so the format verdict is settled BEFORE the extraction root
+	// is created: an unsupported format leaves nothing behind at destDir.
+	var extract func(afero.Fs, []byte, string, ExtractOptions) (string, error)
 	switch format {
 	case FormatZip:
-		return extractZip(fsys, archive, destDir, opts)
+		extract = extractZip
 	case FormatTarGz:
-		return extractTarGz(fsys, archive, destDir, opts)
+		extract = extractTarGz
 	default:
 		return "", fmt.Errorf("skill archive: unsupported archive format")
 	}
+
+	if err := fsys.MkdirAll(destDir, 0o755); err != nil {
+		return "", fmt.Errorf("skill archive: creating extraction root %q: %w", destDir, err)
+	}
+	return extract(fsys, archive, destDir, opts)
 }
 
 func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptions) (string, error) {

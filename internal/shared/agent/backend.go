@@ -25,6 +25,20 @@ type BackendConfig interface {
 	BackendType() string
 }
 
+// VerbosityStep is what one repeated -v adds to the wire verbosity level that
+// rides in RunOptions.Verbosity (llm.proto: 0=silent, 16=commands, 32=args,
+// 48+=debug). Every launch path scales its -v COUNT by it, so no two paths can
+// describe the same -vv to the engine differently.
+const VerbosityStep = 16
+
+// WireVerbosity converts a repeated-flag -v count into the wire verbosity level.
+func WireVerbosity(count int) uint32 {
+	if count <= 0 {
+		return 0
+	}
+	return uint32(count * VerbosityStep)
+}
+
 // ExecutionMode defines how the backend should execute.
 type ExecutionMode int32
 

@@ -987,8 +987,8 @@ Examples:
 				PermissionMode: permMode.String(),
 				Mode:           mode,
 				Env:            runEnv,
-				Verbosity:      uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
-				Model:          model,                     // e.g., "opus", "sonnet", "haiku"
+				Verbosity:      agent.WireVerbosity(runVerbosity),
+				Model:          model, // e.g., "opus", "sonnet", "haiku"
 			},
 			ManagedConfig: pb.ManagedConfigToProto(managed),
 		}

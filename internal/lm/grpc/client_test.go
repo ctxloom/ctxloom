@@ -478,17 +478,35 @@ func TestLLMRunner_DelegatesSessionAndPlanOperations(t *testing.T) {
 	assert.Equal(t, "do the thing", plans[0].Content)
 }
 
-func TestGRPCClient_Run_StreamWithNoOutputs_ZeroExit(t *testing.T) {
-	// A stream that EOFs without any messages — defensive: callers see
-	// exit=0 (default) and empty output. Possible if a plugin connects
-	// and dies before sending anything.
+// TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError pins U059-F05. The
+// server sends the exit code as the FINAL message of every completed run
+// (server.go's Run ends with exactly that Send), so a stream that reaches EOF
+// without one means the plugin connected and died mid-run. Zero-valuing
+// RunResult.ExitCode made that indistinguishable from a genuine "exited 0":
+// `ctxloom run` reported success for a run that never happened.
+func TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError(t *testing.T) {
 	stream := &fakeStream{}
 	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	var stdout bytes.Buffer
 	exit, err := c.Run(context.Background(), &RunStart{}, nil, &stdout, io.Discard, nil)
-	require.NoError(t, err)
-	assert.Equal(t, int32(0), exit)
+	require.Error(t, err, "an exit-code-less stream must not be reported as a successful run")
+	assert.NotEqual(t, int32(0), exit, "a failed run must not hand back a success exit code")
 	assert.Empty(t, stdout.String())
+}
+
+// TestGRPCClient_Run_PartialOutputThenNoExitCode_IsAnError is the same defect
+// with output already delivered: bytes on stdout are not evidence the run
+// completed, so the missing terminal exit code still has to fail.
+func TestGRPCClient_Run_PartialOutputThenNoExitCode_IsAnError(t *testing.T) {
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_Stdout{Stdout: []byte("half a run\n")}},
+	}}
+	c := &GRPCClient{client: &fakeLLMClient{runStream: stream}}
+
+	var stdout bytes.Buffer
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, &stdout, io.Discard, nil)
+	require.Error(t, err)
+	assert.Equal(t, "half a run\n", stdout.String(), "output seen before the truncation is still delivered")
 }

@@ -132,6 +132,11 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 	}
 
 	result := &RunResult{}
+	// The exit code is the final message of every completed run (server.go's
+	// Run ends with exactly that Send), so its ABSENCE at EOF is a truncated
+	// run, not an exit 0 — the zero value of ExitCode cannot be trusted to
+	// mean success.
+	sawExit := false
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
@@ -150,7 +155,11 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 			result.ExitCode = output.ExitCode
 			// ModelInfo is sent with exit_code
 			result.ModelInfo = resp.ModelInfo
+			sawExit = true
 		}
+	}
+	if !sawExit {
+		return nil, fmt.Errorf("run stream ended without an exit code: the engine plugin died mid-run")
 	}
 
 	return result, nil

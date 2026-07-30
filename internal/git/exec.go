@@ -382,18 +382,23 @@ func (execGit) LogSince(ctx context.Context, dir string, since time.Time, maxEnt
 		return nil, err
 	}
 	entries := parseLogEntries(out)
+	attachCommitFiles(ctx, dir, entries)
+	return entries, nil
+}
 
+// attachCommitFiles fills in each entry's changed-file list, in place.
+//
+// Best-effort per commit: a file-list miss (e.g. an unreachable SHA under
+// concurrent history rewrite) must not fail the whole query — the commit
+// summary is still useful evidence without it.
+func attachCommitFiles(ctx context.Context, dir string, entries []LogEntry) {
 	for i := range entries {
 		filesOut, ferr := output(ctx, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", entries[i].SHA)
 		if ferr != nil {
-			// Best-effort per commit: a file-list miss (e.g. an unreachable
-			// SHA under concurrent history rewrite) shouldn't fail the whole
-			// query — the commit summary is still useful evidence without it.
 			continue
 		}
 		entries[i].Files = splitNonEmptyLines(filesOut)
 	}
-	return entries, nil
 }
 
 // parseLogEntries parses LogSince's --pretty=format output: one commit per

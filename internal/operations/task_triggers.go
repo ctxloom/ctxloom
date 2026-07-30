@@ -135,6 +135,22 @@ type EvaluateTriggersResult struct {
 	// size, and the caller should surface it rather than let it hide inside
 	// an undifferentiated pile of cannot-determine verdicts.
 	Omitted int
+
+	// QueriesRejected counts the follow-up evidence queries a round-1
+	// needs-investigation verdict asked for and ctxloom REFUSED, because they
+	// failed the whitelist/containment gate (an unsupported query type, an
+	// absolute or escaping path, a grep with no pattern). It is disjoint from
+	// both Degraded and Omitted: nothing failed and nothing was dropped from a
+	// response — ctxloom declined to run something the model asked for.
+	//
+	// TasksRefusedEveryQuery is the subset that matters most: verdicts that
+	// asked for at least one query and had every one refused. Those stay
+	// needs-investigation, which is exactly what a verdict that asked for
+	// nothing does, so without this count the two are indistinguishable and a
+	// model reliably requesting malformed queries looks like a model
+	// declining to escalate.
+	QueriesRejected        int
+	TasksRefusedEveryQuery int
 }
 
 // EvaluateTriggers reads Deferred tasks, assembles a bounded evidence pack
@@ -272,10 +288,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// chunk they came from, and re-chunking on THAT count (bounded the
 		// same way) keeps the round-2 prompt from hitting the identical
 		// failure mode on a backlog with many ambiguous triggers.
-		var escOmitted int
-		var escDegraded bool
-		var escWarning string
-		verdicts, escOmitted, escDegraded, escWarning = escalateNeedsInvestigation(ctx, escalationParams{
+		esc := escalateNeedsInvestigation(ctx, escalationParams{
 			factory:        factory,
 			backendName:    backendName,
 			label:          label,
@@ -284,16 +297,21 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 			repoDir:        req.RepoDir,
 			otherByHarp:    allByHarp,
 			deferredByHarp: deferredByHarp,
+			repo:           batch.Repo,
+			otherTasks:     batch.OtherTasks,
 			cacheable:      cacheable,
 			chunkSize:      chunkSize,
 		}, verdicts)
-		result.Omitted = omitted + escOmitted
-		if escDegraded {
+		verdicts = esc.verdicts
+		result.Omitted = omitted + esc.omitted
+		result.QueriesRejected = esc.queriesRejected
+		result.TasksRefusedEveryQuery = esc.tasksRefusedEveryQuery
+		if esc.degraded {
 			result.Degraded = true
 			if result.Warning != "" {
-				result.Warning += "; " + escWarning
+				result.Warning += "; " + esc.warning
 			} else {
-				result.Warning = escWarning
+				result.Warning = esc.warning
 			}
 		}
 
@@ -614,6 +632,13 @@ type escalationParams struct {
 	otherByHarp    map[string]tasks.Task
 	deferredByHarp map[string]triggers.TaskInput
 
+	// repo and otherTasks are the batch's repo-global evidence, carried into
+	// round 2 unchanged. Round 2 is the FINAL look: settling a trigger on
+	// less evidence than the round that escalated it is a regression, and an
+	// existence-style trigger is answerable from repo state alone (U128-F11).
+	repo       triggers.RepoState
+	otherTasks []triggers.OtherTask
+
 	// cacheable is mutated in place: escalateNeedsInvestigation marks a
 	// harp id true once its round-2 verdict is a genuine (non-degraded,
 	// non-omitted) model answer, so the caller knows it's safe to cache.
@@ -648,23 +673,33 @@ type escalationParams struct {
 // the round-2 model CALL is chunked (mirroring round 1) once every
 // followup's evidence has been gathered.
 //
-// Returns the updated verdicts, how many were forced to cannot-determine
-// specifically because a chunk's otherwise-valid round-2 response omitted
-// them (the same omission-visibility contract as round 1), and whether/why
-// at least one round-2 chunk's LLM call or parse failed outright — the
-// escalation-round counterpart of chunkResult.degraded/warning, folded by
-// the caller into EvaluateTriggersResult.Degraded/Warning (U088-F08).
-func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdicts []triggers.Verdict) (result []triggers.Verdict, omitted int, degraded bool, warning string) {
+// Returns an escalationOutcome: the updated verdicts, how many were forced to
+// cannot-determine specifically because a chunk's otherwise-valid round-2
+// response omitted them (the same omission-visibility contract as round 1),
+// whether/why at least one round-2 chunk's LLM call or parse failed outright
+// — the escalation-round counterpart of chunkResult.degraded/warning, folded
+// by the caller into EvaluateTriggersResult.Degraded/Warning (U088-F08) — and
+// how many follow-up queries were refused before they ever ran.
+func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdicts []triggers.Verdict) escalationOutcome {
 	budget := maxQueriesPerBatch
 	var followups []triggers.FollowupTask
 	escalated := map[string]bool{}
+	out := escalationOutcome{verdicts: verdicts}
 
 	for _, v := range verdicts {
 		if v.Outcome != triggers.NeedsInvestigation {
 			continue
 		}
-		qs := triggers.SanitizeQueries(v.Queries, maxQueriesPerTask)
+		qs, rejected := triggers.SanitizeQueries(v.Queries, maxQueriesPerTask)
+		out.queriesRejected += len(rejected)
 		if len(qs) == 0 {
+			// A model that asked for nothing declined to escalate; a model
+			// whose every request was refused asked for shapes outside the
+			// whitelist. Both leave the task needs-investigation, so the
+			// count is the only thing that tells them apart.
+			if len(rejected) > 0 {
+				out.tasksRefusedEveryQuery++
+			}
 			continue
 		}
 		ti, ok := p.deferredByHarp[v.HarpID]
@@ -676,10 +711,10 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 		escalated[v.HarpID] = true
 	}
 	if len(followups) == 0 {
-		return verdicts, 0, false, ""
+		return out
 	}
 
-	finalByHarp, degradedByHarp, omittedCount := runFollowupChunks(ctx, followups, p.chunkSize, p.factory, p.backendName, p.label, p.model)
+	finalByHarp, degradedByHarp, omittedCount := runFollowupChunks(ctx, followups, p, p.chunkSize)
 
 	var warnings []string
 	seenReasons := map[string]bool{}
@@ -732,7 +767,33 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 			p.cacheable[v.HarpID] = true
 		}
 	}
-	return verdicts, omittedCount, len(warnings) > 0, strings.Join(warnings, "; ")
+	out.verdicts = verdicts
+	out.omitted = omittedCount
+	out.degraded = len(warnings) > 0
+	out.warning = strings.Join(warnings, "; ")
+	return out
+}
+
+// escalationOutcome is escalateNeedsInvestigation's result. queriesRejected and
+// tasksRefusedEveryQuery are DIAGNOSTICS, disjoint from degraded (a round-2
+// call/parse failure) exactly as EvaluateTriggersResult.Omitted is: a refused
+// query is ctxloom declining to run something the model asked for, not the
+// model or the transport failing, and reading the two as one pile is what
+// makes a badly-shaped escalation request invisible.
+type escalationOutcome struct {
+	verdicts []triggers.Verdict
+	omitted  int
+	degraded bool
+	warning  string
+
+	// queriesRejected counts follow-up queries dropped by SanitizeQueries
+	// because they failed the whitelist/containment gate. Queries dropped
+	// merely for exceeding the per-task cap are valid and are not counted.
+	queriesRejected int
+	// tasksRefusedEveryQuery counts needs-investigation verdicts that asked
+	// for at least one query and had EVERY one refused — the case that is
+	// otherwise indistinguishable from a model that asked for nothing.
+	tasksRefusedEveryQuery int
 }
 
 // followupChunkResult is one round-2 chunk's outcome: genuine verdicts keyed
@@ -752,7 +813,7 @@ type followupChunkResult struct {
 // round-2 model calls with bounded concurrency (mirroring runTriageChunks),
 // merging results by harp id so assembly is independent of chunk order or
 // completion order.
-func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, chunkSize int, factory pb.ClientFactory, backendName, label, model string) (finalByHarp map[string]triggers.Verdict, degradedByHarp map[string]string, omitted int) {
+func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, p escalationParams, chunkSize int) (finalByHarp map[string]triggers.Verdict, degradedByHarp map[string]string, omitted int) {
 	chunks := chunkFollowups(followups, chunkSize)
 	results := make([]followupChunkResult, len(chunks))
 	var wg sync.WaitGroup
@@ -763,7 +824,7 @@ func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, c
 		go func(i int, c []triggers.FollowupTask) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[i] = runFollowupChunk(ctx, c, factory, backendName, label, model)
+			results[i] = runFollowupChunk(ctx, c, p)
 		}(i, c)
 	}
 	wg.Wait()
@@ -787,9 +848,14 @@ func runFollowupChunks(ctx context.Context, followups []triggers.FollowupTask, c
 // but the request); a successful call marks every task the response didn't
 // mention as omitted, leaving the rest for the caller to fold back into
 // verdicts.
-func runFollowupChunk(ctx context.Context, chunk []triggers.FollowupTask, factory pb.ClientFactory, backendName, label, model string) followupChunkResult {
-	prompt := triggers.BuildFollowupPrompt(triggers.FollowupBatch{Tasks: chunk, Now: time.Now().UTC()})
-	final, degraded, warning := runTriageWithRetry(ctx, factory, backendName, label, model, prompt)
+func runFollowupChunk(ctx context.Context, chunk []triggers.FollowupTask, p escalationParams) followupChunkResult {
+	prompt := triggers.BuildFollowupPrompt(triggers.FollowupBatch{
+		Tasks:      chunk,
+		OtherTasks: p.otherTasks,
+		Repo:       p.repo,
+		Now:        time.Now().UTC(),
+	})
+	final, degraded, warning := runTriageWithRetry(ctx, p.factory, p.backendName, p.label, p.model, prompt)
 
 	res := followupChunkResult{finalByHarp: map[string]triggers.Verdict{}, degradedByHarp: map[string]string{}}
 	if degraded {

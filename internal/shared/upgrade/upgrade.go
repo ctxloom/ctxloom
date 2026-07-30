@@ -13,6 +13,8 @@ package upgrade
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
@@ -45,19 +47,23 @@ type Pipeline []Upgrader
 
 // Run is the byte driver: it parses data into a YAML document, applies the
 // pipeline to the root mapping node, and re-encodes only if some stage changed
-// it. When nothing changes — or the input is malformed or not a mapping — the
-// original bytes are returned verbatim (no reserialization), leaving the normal
-// parse path to surface any real error. applied lists the names of the stages
-// that fired, in order, for the caller's rewrite prompt.
+// it. When nothing changes — or the input is malformed, not a mapping, or
+// carries more than one document — the original bytes are returned verbatim (no
+// reserialization), leaving the normal parse path to surface any real error.
+// applied lists the names of the stages that fired, in order, for the caller's
+// rewrite prompt.
 func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	doc, ok := singleDocument(data)
+	if !ok {
 		return data, nil
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return data, nil
 	}
 	root := doc.Content[0]
+	if hasDuplicateKey(root) {
+		return data, nil
+	}
 
 	for _, u := range p {
 		if u.Apply(root) {
@@ -74,8 +80,55 @@ func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
 	if err := enc.Encode(&doc); err != nil {
 		return data, nil
 	}
-	_ = enc.Close()
+	if err := enc.Close(); err != nil {
+		return data, nil
+	}
 	return buf.Bytes(), applied
+}
+
+// singleDocument parses data as a YAML stream carrying EXACTLY ONE document and
+// returns that document's node. A stream carrying a second document is refused
+// (ok == false), because Run re-encodes the node it parsed: a decode that keeps
+// only the first document would emit a single-document file, silently deleting
+// every later one from bytes the caller then persists verbatim. The pipeline
+// upgrades a document in place or does nothing at all — it never narrows a
+// stream.
+func singleDocument(data []byte) (doc yaml.Node, ok bool) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&doc); err != nil {
+		return doc, false
+	}
+	var next yaml.Node
+	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
+		return doc, false
+	}
+	return doc, true
+}
+
+// hasDuplicateKey reports whether any mapping in the subtree rooted at n names
+// the same key twice. Such a document is malformed — every struct/map decode in
+// the codebase refuses it — but a yaml.Node decode accepts it, and MapValue,
+// MapSet and MapDelete all act on the FIRST match. An upgrade run over it
+// therefore rewrites one of the two entries and leaves the other under the
+// legacy key, producing a document that no longer has a duplicate and so parses
+// cleanly, carrying whichever value the helpers happened to reach. Refusing to
+// upgrade it keeps the loud parse error the caller would otherwise have got.
+func hasDuplicateKey(n *yaml.Node) bool {
+	if n.Kind == yaml.MappingNode {
+		seen := make(map[string]struct{}, len(n.Content)/2)
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if _, dup := seen[n.Content[i].Value]; dup {
+				return true
+			}
+			seen[n.Content[i].Value] = struct{}{}
+		}
+	}
+	for _, child := range n.Content {
+		if hasDuplicateKey(child) {
+			return true
+		}
+	}
+	return false
 }
 
 // Pending records that loading upgraded an older on-disk document to the
@@ -89,18 +142,32 @@ type Pending struct {
 }
 
 // Version reads a top-level integer schema version from key on the root mapping
-// node. A missing or non-integer value yields 0 — the implicit "pre-versioning"
-// generation.
-func Version(root *yaml.Node, key string) int {
+// node.
+//
+// A MISSING key is the implicit "pre-versioning" generation, reported as
+// (0, true): such a document is genuinely at generation 0 and every migration
+// should run over it.
+//
+// A key that is PRESENT but not an integer — `version: banana`, `version: 6.5`,
+// a nested mapping — is reported as (0, false). It is not a pre-versioning
+// document; it is a document whose version cannot be read, and the two are
+// different facts. Collapsing them re-runs every migration from generation 0
+// over a file that is probably corrupt and stamps the current version on the
+// way out, which replaces the parse error the caller would have surfaced with a
+// clean load of rewritten bytes. Callers gate on ok and decline.
+func Version(root *yaml.Node, key string) (version int, ok bool) {
 	v := MapValue(root, key)
-	if v == nil || v.Kind != yaml.ScalarNode {
-		return 0
+	if v == nil {
+		return 0, true
+	}
+	if v.Kind != yaml.ScalarNode {
+		return 0, false
 	}
 	n, err := strconv.Atoi(v.Value)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return n
+	return n, true
 }
 
 // SetVersion stamps a top-level integer schema version under key on the root

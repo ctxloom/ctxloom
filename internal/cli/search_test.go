@@ -300,6 +300,29 @@ func TestPrintRemoteResults_TableGeometry(t *testing.T) {
 		"a row that fits every column must align with the header")
 }
 
+// Four of the six Ellipsize call sites this table is cited alongside cap a
+// TRAILING field, not a cell: the Tags column runs to end of line (see
+// remoteTagsCap doc), and remote_discover's description, bundle_list's fragment
+// preview and bundle_distill's firstLineTruncated are all last on their line.
+// A byte cap on a trailing field cannot misalign anything, whatever the script
+// — which is what this pins, with a column of CJK and emoji tags that measures
+// 2 display cells per rune and 3-4 bytes per rune, so byte, rune and width
+// counts all disagree (U129-F04).
+func TestPrintRemoteResults_TheTrailingColumnsCapCannotMisalignTheTable(t *testing.T) {
+	var ascii, wide bytes.Buffer
+	printRemoteResults(&ascii, []operations.SearchRemoteEntry{
+		{Type: "bundle", Remote: "acme", Name: "short", Tags: []string{"a"}},
+	})
+	printRemoteResults(&wide, []operations.SearchRemoteEntry{
+		{Type: "bundle", Remote: "acme", Name: "short", Tags: []string{"日本語のタグ", "絵文字🙂のタグ"}},
+	})
+
+	asciiRow := strings.Split(ascii.String(), "\n")[3]
+	wideRow := strings.Split(wide.String(), "\n")[3]
+	assert.Equal(t, runeOffsets(asciiRow, '│'), runeOffsets(wideRow, '│'),
+		"the last column is unpadded, so its byte cap moves no separator")
+}
+
 // runeOffsets reports the rune (not byte) index of every occurrence of r,
 // which is what column alignment is actually measured in once box-drawing
 // characters are in play.

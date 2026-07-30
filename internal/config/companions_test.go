@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -364,4 +366,44 @@ func TestDisableCompanionProbe_BeatsGlobalEnabled(t *testing.T) {
 
 	assert.Empty(t, cfg.companionBundleSeed(),
 		"a Config that disabled its own probe must see no companions even when the process has them enabled")
+}
+
+// TestCompanionVersion_ReadsTheCliversionContract pins the cross-binary
+// version contract from BOTH ends at once: the payload is produced the way
+// every companion actually produces it — by marshalling a cliversion.Info,
+// which is what cmd/ltk, cmd/taskloom, cmd/harp and internal/cli all hand to
+// their renderer — and consumed by the reader ctxloom boots with. The
+// package doc on cliversion calls Info "the single source of truth rather
+// than being re-declared per binary"; this test is what makes that true of
+// the READER, so a field rename or json-tag change on Info can no longer
+// break companion probing silently.
+func TestCompanionVersion_ReadsTheCliversionContract(t *testing.T) {
+	payload, err := json.Marshal(cliversion.Info{Name: "taskloom", Version: "v1.2.3"})
+	require.NoError(t, err)
+
+	restore := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+		return payload, nil
+	})
+	defer restore()
+
+	got, err := companionVersion("/fake/taskloom")
+	require.NoError(t, err)
+	assert.Equal(t, "v1.2.3", got)
+}
+
+// TestCompanionVersion_RejectsAContractWithNoVersion pins the other half of
+// the reader's contract: a well-formed envelope carrying no version is an
+// ERROR, never an empty version string reported as a successful probe.
+func TestCompanionVersion_RejectsAContractWithNoVersion(t *testing.T) {
+	payload, err := json.Marshal(cliversion.Info{Name: "taskloom"})
+	require.NoError(t, err)
+
+	restore := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+		return payload, nil
+	})
+	defer restore()
+
+	_, err = companionVersion("/fake/taskloom")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no version field")
 }

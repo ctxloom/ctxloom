@@ -25,11 +25,11 @@ type acpCoordinator struct {
 func newACPCoordinator() *acpCoordinator { return &acpCoordinator{} }
 
 // acpCoordinator is handed to operations.OpenEngineSession as an
-// operations.EngineSessionCoordinator (acp_cmd.go). Nothing but this line makes
-// that binding a COMPILE-time fact: the methods live in two files here
-// (SessionEnv below, WatchChildren in acp_children.go) and are never called
-// through the interface from this package, so a signature change on either side
-// would otherwise surface as `ctxloom acp` losing delegation at runtime.
+// operations.EngineSessionCoordinator (acp_cmd.go), and its two methods live in
+// different files here: SessionEnv below, WatchChildren in acp_children.go.
+// This states the binding AT THE TYPE, so a signature change on either side
+// names acpCoordinator and the missing method instead of only failing at
+// whichever call site happens to pass it.
 var _ operations.EngineSessionCoordinator = (*acpCoordinator)(nil)
 
 // SessionEnv returns the coordinator reach-back pair (EnvCoordURL,

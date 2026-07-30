@@ -120,3 +120,32 @@ func TestResolve_AcceptsAllFiveEncodings(t *testing.T) {
 		}
 	}
 }
+
+// U104-F06 claimed Emit with a nil text closure over an EMPTY SCALAR SLICE
+// writes zero bytes and returns nil under text, while --format json writes
+// `[]` — so "nothing to show" and "the command produced no output at all"
+// are indistinguishable in exactly one format. That premise no longer holds:
+// clifmt's renderText prints a "(none)" marker for an empty slice (fixed
+// under U154-F02), and Emit routes there whenever text == nil.
+//
+// This pins the claim at THIS package's seam, which is where the row is
+// filed: the nil-closure affordance advertised in Emit's own doc ("a call
+// site can route through Emit with zero rendering code") must never deliver a
+// silent zero-byte success. It goes red if renderText's empty-slice marker is
+// removed again, or if Emit stops routing a nil closure through clifmt.
+func TestEmit_NilClosureOverEmptySliceIsNeverZeroBytes(t *testing.T) {
+	for _, format := range []clifmt.Format{
+		clifmt.FormatText, clifmt.FormatJSON, clifmt.FormatYAML, clifmt.FormatMarkdown,
+	} {
+		c, buf := newCmd(false)
+		if err := c.Flags().Set("format", string(format)); err != nil {
+			t.Fatal(err)
+		}
+		if err := Emit(c, []string{}, nil); err != nil {
+			t.Fatalf("Emit(%s): %v", format, err)
+		}
+		if buf.Len() == 0 {
+			t.Fatalf("Emit(%s) over an empty slice wrote zero bytes — indistinguishable from a delivery that never ran", format)
+		}
+	}
+}

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,178** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,179** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 85 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **722** |
+| `open` | no commit names this ID | **721** |
 
-**Totals: 2268 findings across 162 units — 1,178 resolved, 722 still open, 368 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,179 resolved, 721 still open, 368 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 388 | 412 | 47 | 58 | 94 |
-| LOW | 871 | 439 | 285 | 28 | 69 | 50 |
+| LOW | 871 | 440 | 284 | 28 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2667,7 +2667,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U119-F06 | open | `strictness.go:89–96`, `:172`, `:180` | COHESION | `mu` guards four unrelated things: `degraded`, `findings`, `generation`, `onceRecorded`. The mode has no relationship to the collection, so every `Degraded()` read (6 prod call sites, some on hot p... | U119.md |
 | U119-F07 | open | `strictness.go:342–343` | CORRECTNESS | `FailOnce`'s doc contradicts its implementation and its own tests: it claims "**per-process** dedup ... the finding records at most once", but `record` dedups **per checkpoint generation** and `Tes... | U119.md |
 | U119-F08 | open | `strictness.go:371` vs `clidiag.go:128` | DUPLICATE | **Negative result on the raised duplication** (see the dedicated cross-check below) — but the two dedup keys disagree on one dimension beyond the generation: strictness includes `class`, clidiag do... | U119.md |
-| U120-F08 | open | `log.go:321` | ERRHANDLING | `defer func() { _ = f.Close() }()` swallows the close error on the log's only write path. | U120.md |
+| U120-F08 | **RESOLVED** `68d67c26` | `log.go:321` | ERRHANDLING | `defer func() { _ = f.Close() }()` swallows the close error on the log's only write path. | U120.md |
 | U120-F09 | **RESOLVED** `80b0c3e4` | **`store.go:67-70, 77-80 vs log.go:360`** | DUPLICATE | `ValidateStatusTrigger` is called twice on every add — once in `Store.AddWithTrigger`/`AddWithTags`, again in `eventLog.addWithTags`. | U120.md |
 | U120-F10 | open | `log.go:554, 578, 598` | ERRHANDLING | The shared read lock is acquired with `if unlock, err := filelock.LockShared(…); err == nil { defer unlock() }` — a lock *failure* is silently downgraded to an unlocked read with no diagnostic at a... | U120.md |
 | U120-F11 | **RESOLVED** `7849951c` | `log.go:574-576, log.go:59` | CORRECTNESS | Two comments describe behaviour the code no longer has. | U120.md |

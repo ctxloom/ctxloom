@@ -303,6 +303,38 @@ func TestExecuteQuery_GitLogPath_TruncatedWindowIsInconclusive(t *testing.T) {
 	assert.NotEmpty(t, got.Err, "a fully-truncated commit window with zero matches is inconclusive, not evidence of absence")
 }
 
+// U053-F13: a commit whose changed-file list could not be gathered
+// (FilesUnknown) is not a commit that touched nothing. Filtering it out
+// silently turns "we never found out" into "it did not touch the path", so a
+// zero-match result over such a window is inconclusive, exactly like the
+// truncated window above.
+func TestExecuteQuery_GitLogPath_UnknownFileListIsInconclusive(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {
+		{SHA: "aaaa1111", Subject: "unrelated change", Files: []string{"unrelated.go"}},
+		{SHA: "bbbb2222", Subject: "file list unavailable", FilesUnknown: true},
+	}}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/signing"})
+	assert.Empty(t, got.Output, "a search that could not read every commit must not present a completed result")
+	assert.NotEmpty(t, got.Err, "zero matches over a window with an unreadable commit is inconclusive, not evidence of absence")
+}
+
+// A MATCH found elsewhere in the window still answers the question, even when
+// another commit's file list was unavailable — the inconclusive guard must
+// not suppress evidence that was actually found.
+func TestExecuteQuery_GitLogPath_UnknownFileListDoesNotSuppressAMatch(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {
+		{SHA: "aaaa1111", Subject: "touch signing", Files: []string{"internal/signing/cli.go"}},
+		{SHA: "bbbb2222", Subject: "file list unavailable", FilesUnknown: true},
+	}}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/signing"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "touch signing")
+}
+
 func TestExecuteQuery_TaskStatus_Found(t *testing.T) {
 	byHarp := map[string]tasks.Task{"other-task": {HarpID: "other-task", Status: "Done", Text: "shipped it"}}
 	got := executeQuery(context.Background(), &git.Fake{}, "", byHarp, triggers.Query{Type: triggers.QueryTaskStatus, HarpID: "other-task"})

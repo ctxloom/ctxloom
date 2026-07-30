@@ -223,24 +223,33 @@ func TestExecGit_LogSince(t *testing.T) {
 	assert.GreaterOrEqual(t, len(all), 3)
 }
 
-// TestAttachCommitFiles_UnresolvableCommit characterizes U053-F13's defect
-// before it is fixed: when the per-commit `git diff-tree` call fails, the
-// entry keeps a nil Files list, which is byte-for-byte what a commit that
-// genuinely touched no files looks like. The consumer that filters commits by
-// path (internal/operations' queryGitLogPath) therefore reads a failed lookup
-// as "this commit did not touch the path" and can answer a trigger with a
-// confident negative built on evidence it never actually gathered.
+// TestAttachCommitFiles_UnresolvableCommit pins U053-F13. When the per-commit
+// `git diff-tree` call fails, the entry used to keep a nil Files list, which
+// is byte-for-byte what a commit that genuinely touched no files looks like.
+// The consumer that filters commits by path (internal/operations'
+// queryGitLogPath) then reads a failed lookup as "this commit did not touch
+// the path" and answers a trigger with a confident negative built on evidence
+// it never gathered. The miss must be recorded, and must still not be fatal.
 func TestAttachCommitFiles_UnresolvableCommit(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping diff-tree integration test")
 	}
 	repo := initRepo(t)
+	sha := commit(t, repo, "a.txt", "a", "add a")
 
-	entries := []LogEntry{{SHA: "0000000000000000000000000000000000000000", Subject: "unreachable"}}
+	entries := []LogEntry{
+		{SHA: "0000000000000000000000000000000000000000", Subject: "unreachable"},
+		{SHA: sha, Subject: "add a"},
+	}
 	attachCommitFiles(context.Background(), repo, entries)
 
 	assert.Nil(t, entries[0].Files, "a failed diff-tree leaves no files")
+	assert.True(t, entries[0].FilesUnknown,
+		"a failed lookup must be distinguishable from a commit that touched nothing")
 	assert.Equal(t, "unreachable", entries[0].Subject, "the commit summary survives — the miss is not fatal")
+
+	assert.Equal(t, []string{"a.txt"}, entries[1].Files, "the resolvable commit is unaffected")
+	assert.False(t, entries[1].FilesUnknown, "a successful lookup is never marked unknown")
 }
 
 // TestExecGit_ListTracked proves the ls-files pathspec seam the worktree policy

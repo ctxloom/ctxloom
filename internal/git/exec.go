@@ -390,11 +390,14 @@ func (execGit) LogSince(ctx context.Context, dir string, since time.Time, maxEnt
 //
 // Best-effort per commit: a file-list miss (e.g. an unreachable SHA under
 // concurrent history rewrite) must not fail the whole query — the commit
-// summary is still useful evidence without it.
+// summary is still useful evidence without it. The miss is RECORDED
+// (FilesUnknown) rather than swallowed, so a consumer cannot mistake it for
+// a commit that touched nothing.
 func attachCommitFiles(ctx context.Context, dir string, entries []LogEntry) {
 	for i := range entries {
 		filesOut, ferr := output(ctx, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", entries[i].SHA)
 		if ferr != nil {
+			entries[i].FilesUnknown = true
 			continue
 		}
 		entries[i].Files = splitNonEmptyLines(filesOut)

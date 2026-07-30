@@ -549,23 +549,6 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 	return servers
 }
 
-// mcpServerNames projects a composed MCP server set onto NAMES ONLY — never
-// command, args, or env, which can carry a secret. This is the shape
-// enqueueRun journals (children.go's runEnqueued.MCPServers) and the roster
-// surfaces (consumer.go's ListRunsResult_RunInfo.McpServers): an operator
-// auditing a live delegation must be able to see WHAT a child can reach
-// without the journal itself becoming a place a credential could leak.
-func mcpServerNames(servers []agent.ChatMCPServer) []string {
-	if len(servers) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(servers))
-	for _, srv := range servers {
-		out = append(out, srv.Name)
-	}
-	return out
-}
-
 // childVerbosity gates the child launch's plugin/adapter diagnostics. A dead
 // child's only stderr trail (the go-plugin logger forwarding `llm serve` —
 // and through it the ACP adapter's stderr) is DISCARDED at verbosity 0, and

@@ -7,7 +7,6 @@ package engine
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
@@ -37,21 +36,11 @@ func All() []Engine {
 	return []Engine{claude.MCPRegistrar{}, antigravity.MCPRegistrar{}, codex.MCPRegistrar{}, kiro.MCPRegistrar{}}
 }
 
-// engineAliases maps accepted alternate spellings to canonical engine names.
-var engineAliases = map[string]string{
-	"claudecode": "claude-code",
-	"claude":     "claude-code",
-	"agy":        "antigravity",
-}
-
 // Get returns the engine for a name: the canonical name or a declared alias,
 // case-insensitively. No prefix matching — a typo must error rather than
 // silently pick an engine.
 func Get(name string) (Engine, error) {
-	want := strings.ToLower(name)
-	if canonical, ok := engineAliases[want]; ok {
-		want = canonical
-	}
+	want := agent.CanonicalEngineName(name)
 	for _, e := range All() {
 		if e.Name() == want {
 			return e, nil

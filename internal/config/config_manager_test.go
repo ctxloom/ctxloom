@@ -360,3 +360,23 @@ func TestSnapshot_CannotBeReplacedWholesale(t *testing.T) {
 	assert.Equal(t, "a", a.GetDefaultAgent())
 	assert.Equal(t, "b", b.GetDefaultAgent(), "loading b must never have overwritten a's contents")
 }
+
+// TestNoArgManager_TargetsTheAmbientProject pins the property a no-argument
+// Manager carries: it writes to the config.yaml the no-arg Load() resolves to
+// — the ambient project discovered by walking up from cwd — not to some
+// process-wide default path. This is the whole behaviour a caller that names
+// no explicit target relies on.
+func TestNoArgManager_TargetsTheAmbientProject(t *testing.T) {
+	appDir := managerTestDir(t)
+	t.Chdir(filepath.Dir(appDir))
+	Invalidate()
+
+	require.NoError(t, NewManager().Update(func(d *Draft) error {
+		d.DefaultAgent = "ambient"
+		return nil
+	}))
+
+	data, err := os.ReadFile(paths.ConfigPath(appDir))
+	require.NoError(t, err, "a no-arg Manager must have written the ambient project's own config.yaml")
+	assert.Contains(t, string(data), "ambient")
+}

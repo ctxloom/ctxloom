@@ -25,7 +25,7 @@ With an LLM name argument, sets that LLM as the default.`,
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		return runLLMDefault(cmd, config.DefaultManager(), cfg, args)
+		return runLLMDefault(cmd, config.NewManager(), cfg, args)
 	},
 }
 

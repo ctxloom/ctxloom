@@ -14,6 +14,13 @@ import (
 // the shared/wire hook + MCP vocabulary and agent.CommandExport field-for-field,
 // so these converters are mechanical — no ctxloom config/bundle type crosses the
 // wire, only its resolved, wire-typed result.
+//
+// EMPTY IS NIL, in both directions. Protobuf cannot distinguish an empty
+// repeated field or map from an absent one — both serialize to no bytes and
+// decode back to nil — so an empty collection and a missing one are the same
+// fact here, and every converter below answers it with nil. That keeps the
+// wire minimal, keeps each pair's round trip shape-preserving, and means no
+// reader downstream has to decide which of two spellings of "none" it got.
 
 // ManagedConfigToProto converts a host-assembled agent.ManagedConfig to its
 // proto form. Returns nil for nil input so skip_setup/distill paths send none.
@@ -52,7 +59,7 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 // --- command exports ---
 
 func commandExportsToProto(in []agent.CommandExport) []*CommandExport {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]*CommandExport, len(in))
@@ -71,7 +78,7 @@ func commandExportsToProto(in []agent.CommandExport) []*CommandExport {
 }
 
 func commandExportsFromProto(in []*CommandExport) []agent.CommandExport {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]agent.CommandExport, 0, len(in))
@@ -99,7 +106,7 @@ func commandExportsFromProto(in []*CommandExport) []agent.CommandExport {
 // with per-file modes, because the exec bit on a scripts/ entry is part of what
 // the writer must reproduce.
 func skillExportsToProto(in []agent.SkillExport) []*SkillExport {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]*SkillExport, len(in))
@@ -115,7 +122,7 @@ func skillExportsToProto(in []agent.SkillExport) []*SkillExport {
 }
 
 func skillExportsFromProto(in []*SkillExport) []agent.SkillExport {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]agent.SkillExport, 0, len(in))
@@ -134,7 +141,7 @@ func skillExportsFromProto(in []*SkillExport) []agent.SkillExport {
 }
 
 func packageFilesToProto(in []agent.PackageFile) []*PackageFile {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]*PackageFile, len(in))
@@ -149,7 +156,7 @@ func packageFilesToProto(in []agent.PackageFile) []*PackageFile {
 }
 
 func packageFilesFromProto(in []*PackageFile) []agent.PackageFile {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]agent.PackageFile, 0, len(in))
@@ -198,7 +205,7 @@ func hookFromProto(h *Hook) wire.Hook {
 }
 
 func hooksToProto(hs []wire.Hook) []*Hook {
-	if hs == nil {
+	if len(hs) == 0 {
 		return nil
 	}
 	out := make([]*Hook, len(hs))
@@ -309,9 +316,7 @@ func mcpServerFromProto(s *MCPServer) wire.MCPServer {
 }
 
 // mcpServerMapToProto converts a bare name→server map (the bundle MCP set) to
-// its proto form. Returns nil for an empty/nil map so the wire stays minimal and
-// managedConfigFromProto rebuilds a nil BundleMCP — matching the host's "no
-// bundle servers" shape rather than an empty non-nil map.
+// its proto form.
 func mcpServerMapToProto(in map[string]wire.MCPServer) map[string]*MCPServer {
 	if len(in) == 0 {
 		return nil

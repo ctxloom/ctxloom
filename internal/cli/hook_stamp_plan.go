@@ -38,8 +38,18 @@ var stampPlanCmd = &cobra.Command{
 			return nil
 		}
 		path, err := parseEditPayload(raw)
-		if err != nil || path == "" {
-			return nil // malformed or no file_path — silent no-op
+		if err != nil {
+			// A payload this hook cannot decode is a contract break with the
+			// host engine (every supported shape is JSON), so it is reported
+			// on the same warn-and-continue channel as the stdin-read failure
+			// above rather than vanishing. A payload that decodes but names no
+			// file (a non-edit tool call) is an ordinary event and stays
+			// silent, so this never becomes per-tool-call noise.
+			clidiag.Warn("ctxloom", "stamp-plan: parse hook payload: %v", err)
+			return nil
+		}
+		if path == "" {
+			return nil // no file_path — not a file edit, nothing to stamp
 		}
 		if !memory.IsPlanFile(path) {
 			return nil

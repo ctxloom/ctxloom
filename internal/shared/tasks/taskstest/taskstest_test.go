@@ -2,9 +2,11 @@ package taskstest
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestIsolate_ClearsVarsBeyondTheOriginalThree pins U127-F01: this package's
@@ -55,4 +57,54 @@ func TestEnvKeys_CoversTheFullProductionSet(t *testing.T) {
 	} {
 		assert.True(t, known[want], "EnvKeys is missing %s", want)
 	}
+}
+
+// TestChangeDir_RestoresTheOriginalCwd pins the half of this package that no
+// dependent test can notice breaking: a ChangeDir that failed to restore the
+// working directory would leave every LATER test in the binary running in a
+// temp dir that t.TempDir has already removed, and the resulting failures
+// would point anywhere but here.
+func TestChangeDir_RestoresTheOriginalCwd(t *testing.T) {
+	before, err := os.Getwd()
+	require.NoError(t, err)
+
+	target := t.TempDir()
+	t.Run("inside", func(t *testing.T) {
+		ChangeDir(t, target)
+		cwd, err := os.Getwd()
+		require.NoError(t, err)
+		want, err := filepath.EvalSymlinks(target)
+		require.NoError(t, err)
+		got, err := filepath.EvalSymlinks(cwd)
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+
+	after, err := os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+// TestProjectDir_IsolatesAndChangesDir pins the composition: an isolated
+// environment AND a fresh working directory, both undone on cleanup.
+func TestProjectDir_IsolatesAndChangesDir(t *testing.T) {
+	before, err := os.Getwd()
+	require.NoError(t, err)
+
+	t.Run("inside", func(t *testing.T) {
+		t.Setenv("CTXLOOM_SESSION_HARP", "ambient-harp")
+		dir := ProjectDir(t)
+		cwd, err := os.Getwd()
+		require.NoError(t, err)
+		want, err := filepath.EvalSymlinks(dir)
+		require.NoError(t, err)
+		got, err := filepath.EvalSymlinks(cwd)
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+		assert.Empty(t, os.Getenv("CTXLOOM_SESSION_HARP"), "ProjectDir must isolate as well as chdir")
+	})
+
+	after, err := os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
 }

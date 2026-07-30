@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -135,4 +136,54 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 			t.Fatal("mutating GetSettings() result's pointer field corrupted the source")
 		}
 	})
+}
+
+// mcpCloneShapeCases are the shapes an MCPServer deep copy has to get right:
+// the nil/empty distinction on both containers (yaml `omitempty` renders those
+// differently, so flattening one into the other changes persisted bytes) and a
+// populated value.
+var mcpCloneShapeCases = []struct {
+	name string
+	in   wire.MCPServer
+}{
+	{"zero", wire.MCPServer{}},
+	{"nil containers", wire.MCPServer{Command: "srv"}},
+	{"empty non-nil containers", wire.MCPServer{Command: "srv", Args: []string{}, Env: map[string]string{}}},
+	{"populated", wire.MCPServer{
+		Command: "srv", Args: []string{"a", "b"},
+		Env: map[string]string{"K": "V"}, Notes: "n", Installation: "i", SCM: "m",
+	}},
+}
+
+// TestCloneMCPServer_PreservesShape pins that the deep copy every MCP accessor
+// in this package hands out is field-for-field the value it copied, INCLUDING
+// each container's nil-vs-empty state.
+func TestCloneMCPServer_PreservesShape(t *testing.T) {
+	for _, tc := range mcpCloneShapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wire.CloneMCPServer(tc.in)
+			if (got.Args == nil) != (tc.in.Args == nil) {
+				t.Fatalf("Args nil-ness changed: in nil=%v out nil=%v", tc.in.Args == nil, got.Args == nil)
+			}
+			if (got.Env == nil) != (tc.in.Env == nil) {
+				t.Fatalf("Env nil-ness changed: in nil=%v out nil=%v", tc.in.Env == nil, got.Env == nil)
+			}
+			if !reflect.DeepEqual(got, tc.in) {
+				t.Fatalf("clone differs from source:\n in=%#v\nout=%#v", tc.in, got)
+			}
+		})
+	}
+}
+
+// TestCloneMCPServer_NeverAliases pins the reason a deep copy exists at all: a
+// plain struct copy shares the Args backing array and the Env map, so a caller
+// mutating what it was handed would reach the value it was copied from.
+func TestCloneMCPServer_NeverAliases(t *testing.T) {
+	in := wire.MCPServer{Command: "srv", Args: []string{"a"}, Env: map[string]string{"K": "V"}}
+	got := wire.CloneMCPServer(in)
+	got.Args[0] = "mutated"
+	got.Env["K"] = "mutated"
+	if in.Args[0] != "a" || in.Env["K"] != "V" {
+		t.Fatalf("clone aliases its source: args=%v env=%v", in.Args, in.Env)
+	}
 }

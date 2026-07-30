@@ -37,18 +37,6 @@ type ownedRunSession struct {
 	cancel  func()
 }
 
-// selectsOwnedRunContainer reports whether a top-level built-in run takes the
-// Phase 2a-B Transport 2 / EngineHost arm: a container policy that is either
-// --structured (a turn REPL) or a --print oneshot. Interactive container runs
-// take Part A's docker-exec arm; host/worktree runs of any mode stay on
-// SpawnClient + go-plugin (they never had the mauve-state problem this fixes).
-func selectsOwnedRunContainer(policyName string, mode pb.ExecutionMode, structured bool) bool {
-	if !isolation.IsContainerPolicyName(policyName) {
-		return false
-	}
-	return structured || mode == pb.ExecutionMode_ONESHOT
-}
-
 // startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
 // event stream, then mint the owner-owned run and spawn its runner via the
 // StartRunner keepalive-with-run-id primitive (the runner runs `ctxloom llm
@@ -160,6 +148,12 @@ func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, forma
 		case <-turnIdle:
 			pending--
 		case line := <-lines:
+			// A blank line is not a turn: issuing one would wake the engine
+			// with nothing to act on (and the coordinator refuses an empty
+			// turn outright), so it is skipped rather than counted as pending.
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
 			if err := sess.coord.SendOwnedRunTurn(runID, line); err != nil {
 				return err
 			}
@@ -305,7 +299,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				}
 				switch format {
 				case formatJSON:
-					if err := enc.Encode(chatEventJSON{Type: "entry", Entry: &chatEntryJSON{
+					if err := enc.Encode(chatEventJSON{Type: chatEventTypeEntry, Entry: &chatEntryJSON{
 						Type: string(agent.EntryTypeAssistant), Content: text,
 					}}); err != nil {
 						return answer.String(), err

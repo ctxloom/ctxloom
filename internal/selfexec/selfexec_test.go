@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -130,4 +132,26 @@ func TestSetPathForTesting_Nested(t *testing.T) {
 	assert.Equal(t, "inner", Path())
 	inner()
 	assert.Equal(t, "outer", Path(), "restoring the inner override must not clear the outer one")
+}
+
+// Path deliberately does NOT resolve symlinks. Three different answers to
+// "where is the running binary" live in this repo, and this is the property
+// that separates this one from agent.GetExecutablePath (symlink-resolved,
+// cached, for detecting PATH skew) and isolation's container ingredient
+// (symlink-resolved and ELF-gated, because the file itself is copied into an
+// image). What re-invocation needs is the path this process was STARTED as —
+// the symlink an installer manages is the stable name, and resolving it to a
+// versioned target would pin a re-invocation to a build that an in-place
+// upgrade is about to replace.
+func TestPath_DoesNotResolveSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "ctxloom-v0.7.0")
+	link := filepath.Join(dir, "ctxloom")
+	require.NoError(t, os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.Symlink(target, link))
+
+	stubExecutable(t, link, nil)
+	stubStat(t, os.Stat)
+
+	assert.Equal(t, link, Path(), "the managed symlink is the answer, not the versioned target behind it")
 }

@@ -61,7 +61,7 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 		dest.Servers = make(map[string]MCPServer)
 	}
 	for name, server := range src.Servers {
-		dest.Servers[name] = cloneMCPServer(server)
+		dest.Servers[name] = CloneMCPServer(server)
 	}
 
 	// Merge plugin-specific servers
@@ -73,15 +73,18 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 			dest.Plugins[backend] = make(map[string]MCPServer)
 		}
 		for name, server := range servers {
-			dest.Plugins[backend][name] = cloneMCPServer(server)
+			dest.Plugins[backend][name] = CloneMCPServer(server)
 		}
 	}
 }
 
-// cloneMCPServer returns a copy of s with its mutable Args slice and Env map
+// CloneMCPServer returns a copy of s with its mutable Args slice and Env map
 // duplicated, so the copy never aliases s's backing array/map. A plain struct
-// copy is shallow and would share both.
-func cloneMCPServer(s MCPServer) MCPServer {
+// copy is shallow and would share both. Exported because the packages that
+// hand MCPServer values out to callers (internal/config's copy-on-read
+// accessors) need the same deep copy this package's own merge does, and one
+// implementation of it must live with the type it copies.
+func CloneMCPServer(s MCPServer) MCPServer {
 	if s.Args != nil {
 		args := make([]string, len(s.Args))
 		copy(args, s.Args)

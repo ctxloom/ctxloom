@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
@@ -412,7 +413,7 @@ func ConflictError(conflicts []DependencyConflict) error {
 	for _, c := range conflicts {
 		shortened := make([]string, len(c.Hashes))
 		for i, h := range c.Hashes {
-			shortened[i] = shortSHA(h)
+			shortened[i] = gitutil.ShortSHA(h)
 		}
 		b.WriteString("  ")
 		b.WriteString(c.Item)

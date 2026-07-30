@@ -33,3 +33,74 @@ func TestManagedConfig_ProtoRoundTrip_PreservesBundleMCP(t *testing.T) {
 	assert.Equal(t, []string{"mcp"}, got.BundleMCP["taskloom"].Args)
 	assert.Equal(t, "bundle:builtin:taskloom", got.BundleMCP["taskloom"].SCM)
 }
+
+// Protobuf cannot distinguish an EMPTY repeated field from an ABSENT one: both
+// serialize to no bytes and decode back to nil. So "empty" and "nil" are the
+// same fact at this boundary, and every converter here must answer it the same
+// way — the way mcpServerMapToProto already documents (nil, so the wire stays
+// minimal and the rebuilt Go value matches the host's "none" shape).
+//
+// Two guard styles for one question is how the pairs drifted apart: an
+// empty-but-non-nil slice went in one direction as an empty non-nil slice and
+// came back as nil, so a value could not survive its own round trip unchanged.
+func TestManagedConverters_EmptyAndNilAreOneAnswer(t *testing.T) {
+	t.Run("to-proto direction", func(t *testing.T) {
+		assert.Nil(t, commandExportsToProto([]agent.CommandExport{}))
+		assert.Nil(t, commandExportsToProto(nil))
+		assert.Nil(t, skillExportsToProto([]agent.SkillExport{}))
+		assert.Nil(t, skillExportsToProto(nil))
+		assert.Nil(t, packageFilesToProto([]agent.PackageFile{}))
+		assert.Nil(t, packageFilesToProto(nil))
+		assert.Nil(t, hooksToProto([]wire.Hook{}))
+		assert.Nil(t, hooksToProto(nil))
+		assert.Nil(t, planFilesToProto([]agent.PlanFile{}))
+		assert.Nil(t, planFilesToProto(nil))
+		assert.Nil(t, mcpServerMapToProto(map[string]wire.MCPServer{}))
+	})
+
+	t.Run("from-proto direction", func(t *testing.T) {
+		assert.Nil(t, commandExportsFromProto([]*CommandExport{}))
+		assert.Nil(t, commandExportsFromProto(nil))
+		assert.Nil(t, skillExportsFromProto([]*SkillExport{}))
+		assert.Nil(t, skillExportsFromProto(nil))
+		assert.Nil(t, packageFilesFromProto([]*PackageFile{}))
+		assert.Nil(t, packageFilesFromProto(nil))
+		assert.Nil(t, hooksFromProto([]*Hook{}))
+		assert.Nil(t, hooksFromProto(nil))
+		assert.Nil(t, planFilesFromProto([]*PlanFile{}))
+		assert.Nil(t, planFilesFromProto(nil))
+		assert.Nil(t, mcpServerMapFromProto(map[string]*MCPServer{}))
+	})
+
+	// A config whose slices are empty-but-non-nil must round-trip to the same
+	// shape a config with nil slices does, because that is what the wire will
+	// deliver either way.
+	t.Run("round trip normalizes empty to nil", func(t *testing.T) {
+		got := managedConfigFromProto(ManagedConfigToProto(&agent.ManagedConfig{
+			Commands: []agent.CommandExport{},
+			Skills:   []agent.SkillExport{},
+			Hooks:    &wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{}}},
+		}))
+		require.NotNil(t, got)
+		assert.Nil(t, got.Commands)
+		assert.Nil(t, got.Skills)
+		require.NotNil(t, got.Hooks)
+		assert.Nil(t, got.Hooks.Unified.PreTool)
+	})
+
+	// Populated input is unaffected by the guard: every element still crosses.
+	t.Run("populated slices still cross", func(t *testing.T) {
+		got := managedConfigFromProto(ManagedConfigToProto(&agent.ManagedConfig{
+			Commands: []agent.CommandExport{{Name: "review", Content: "body", Enabled: true}},
+			Skills:   []agent.SkillExport{{Name: "humanize", Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("x"), Mode: 0o644}}}},
+			Hooks:    &wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Matcher: "Bash", Command: "ltk"}}}},
+		}))
+		require.Len(t, got.Commands, 1)
+		assert.Equal(t, "review", got.Commands[0].Name)
+		require.Len(t, got.Skills, 1)
+		require.Len(t, got.Skills[0].Files, 1)
+		assert.Equal(t, "SKILL.md", got.Skills[0].Files[0].RelPath)
+		require.Len(t, got.Hooks.Unified.PreTool, 1)
+		assert.Equal(t, "Bash", got.Hooks.Unified.PreTool[0].Matcher)
+	})
+}

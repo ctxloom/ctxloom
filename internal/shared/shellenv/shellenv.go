@@ -191,8 +191,14 @@ func extractFencedPath(raw string) (string, error) {
 // — the additions this whole package exists to recover typically live in one
 // or the other. fish/tcsh don't accept -l here, so interactive only —
 // mirrors ctxloom-vscode's shellArgs (src/shell-env.ts).
+//
+// The classification is trimmed and case-folded because $SHELL is user-supplied
+// environment: a case-insensitive filesystem (APFS by default) resolves
+// /bin/Fish to fish, and a mis-set export leaves surrounding whitespace. Either
+// shape misclassified makes the probe FAIL — fish rejects -l — and the PATH
+// recovery this package exists for then silently does nothing.
 func loginShellArgs(shell, cmd string) []string {
-	switch filepath.Base(shell) {
+	switch strings.ToLower(filepath.Base(strings.TrimSpace(shell))) {
 	case "fish", "tcsh":
 		return []string{"-i", "-c", cmd}
 	default:

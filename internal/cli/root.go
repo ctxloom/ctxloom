@@ -49,12 +49,7 @@ func (e *ExitError) Error() string {
 // CLAUDE.md fault tolerance) are echoed to stderr here so every GetConfig-based
 // command surfaces them instead of silently operating on a partial config.
 func GetConfig() (*config.Config, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	printConfigWarnings(os.Stderr, cfg.GetWarnings())
-	return cfg, nil
+	return loadWithWarnings(config.Load)
 }
 
 // GetConfigForUpdate returns a config a command may MUTATE before saving. It is
@@ -65,7 +60,15 @@ func GetConfig() (*config.Config, error) {
 // server, the coordinator). Commands that write config (agent set/remove, llm
 // default, mcp add/remove) take their own instance instead.
 func GetConfigForUpdate() (*config.Config, error) {
-	cfg, err := config.LoadFresh()
+	return loadWithWarnings(config.LoadFresh)
+}
+
+// loadWithWarnings runs one of config's loaders and echoes the findings it
+// downgraded from hard errors, so no command silently operates on a partial
+// config. Which loader is the ONLY difference between the two entry points
+// above; the warning echo is a property of loading, not of read-vs-write.
+func loadWithWarnings(load func(...config.LoadOption) (*config.Config, error)) (*config.Config, error) {
+	cfg, err := load()
 	if err != nil {
 		return nil, err
 	}

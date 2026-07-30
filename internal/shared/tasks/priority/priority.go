@@ -25,7 +25,6 @@ package priority
 import (
 	"fmt"
 	"math"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -292,8 +291,7 @@ var builtinsByFacet = map[string]map[string]bool{
 // config defect a bad expr syntax already is.
 func checkKnownBuiltins(f *tagschema.Formula, facet, target string) error {
 	known := builtinsByFacet[facet]
-	for _, m := range formulaTagPlaceholderPattern.FindAllStringSubmatch(f.Source(), -1) {
-		name := m[1]
+	for _, name := range tagschema.Placeholders(f.Source()) {
 		if strings.Contains(name, ":") {
 			continue // a Tag(...) reference, not a Builtin(...) one
 		}
@@ -351,13 +349,6 @@ func compileFacet(schema *tagschema.Schema, facet string) (*tagschema.Formula, e
 	}
 }
 
-// formulaTagPlaceholderPattern mirrors tagschema.CompileFormula's own
-// "{{...}}" placeholder syntax awareness, duplicated here rather than
-// exported from tagschema: this is a diagnostics-only concern (which bare
-// tag TARGETS a compiled formula's source text references, used only to
-// size Diagnostics.ScoredTasks), not part of the compile/eval bridge itself.
-var formulaTagPlaceholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*}}`)
-
 // referencedTagTargets collects every bare tag TARGET ("ns:key", stripped of
 // any "=value" qualifier — e.g. "{{triage:impact=capability}}" contributes
 // "triage:impact") referenced by any placeholder in any of formulas' source
@@ -369,8 +360,7 @@ func referencedTagTargets(formulas ...*tagschema.Formula) map[string]bool {
 		if f == nil {
 			continue
 		}
-		for _, m := range formulaTagPlaceholderPattern.FindAllStringSubmatch(f.Source(), -1) {
-			name := m[1]
+		for _, name := range tagschema.Placeholders(f.Source()) {
 			if !strings.Contains(name, ":") {
 				continue // a Builtin(...) reference (e.g. age_days), not a tag
 			}

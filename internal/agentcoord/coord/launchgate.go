@@ -91,38 +91,39 @@ const (
 	EnvLaunchBackoffMax = "CTXLOOM_LAUNCH_BACKOFF_MAX"
 )
 
-// envLaunchInt resolves name from the environment as a positive integer,
-// falling back to def with a loud warning when the variable is SET but
-// unparseable or non-positive (zero included — a zero attempt budget is the
-// exact defect class this whole gate exists to prevent). An unset or
-// empty-string variable falls back to def SILENTLY: that is the ordinary,
-// unconfigured case, not an operator error.
-func envLaunchInt(name string, def int) int {
-	raw, ok := os.LookupEnv(name)
-	if !ok || raw == "" {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		clidiag.Warn("ctxloom", "%s=%q is not a positive integer; using the default %d instead (a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, def)
-		return def
-	}
-	return n
+// launchTunable is a value a launch-budget env override may carry. Both
+// members are ordered and zero-comparable, which is the whole contract
+// envLaunchPositive needs.
+type launchTunable interface {
+	int | time.Duration
 }
 
-// envLaunchDuration is envLaunchInt's Go-duration-syntax sibling (e.g.
-// "500ms", "30s").
-func envLaunchDuration(name string, def time.Duration) time.Duration {
+// envLaunchPositive resolves name from the environment as a POSITIVE value of
+// T, parsed by parse and described by unit ("integer", "duration") in the
+// rejection notice. It falls back to def with a loud warning when the variable
+// is SET but unparseable or non-positive (zero included — a zero attempt
+// budget or a zero backoff is the exact defect class this whole gate exists to
+// prevent). An unset or empty-string variable falls back to def SILENTLY: that
+// is the ordinary, unconfigured case, not an operator error.
+func envLaunchPositive[T launchTunable](name string, def T, parse func(string) (T, error), unit string) T {
 	raw, ok := os.LookupEnv(name)
 	if !ok || raw == "" {
 		return def
 	}
-	d, err := time.ParseDuration(raw)
-	if err != nil || d <= 0 {
-		clidiag.Warn("ctxloom", "%s=%q is not a positive duration; using the default %s instead (a zero backoff here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, def)
+	v, err := parse(raw)
+	if err != nil || v <= 0 {
+		clidiag.Warn("ctxloom", "%s=%q is not a positive %s; using the default %v instead (a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, unit, def)
 		return def
 	}
-	return d
+	return v
+}
+
+func envLaunchInt(name string, def int) int {
+	return envLaunchPositive(name, def, strconv.Atoi, "integer")
+}
+
+func envLaunchDuration(name string, def time.Duration) time.Duration {
+	return envLaunchPositive(name, def, time.ParseDuration, "duration")
 }
 
 // resolveLaunchTunables reads the container launch-retry budget's operator
@@ -291,6 +292,11 @@ func (c *Coordinator) noteLaunchFailure(harp string) {
 // from c.launchBackoffBase, capped at c.launchBackoffMax — the resolved
 // per-Coordinator values (defaults, or EnvLaunchBackoffBase/EnvLaunchBackoffMax
 // overrides, resolved once at construction; see resolveLaunchTunables).
+//
+// The ceiling binds EVERY attempt, the first included: a base configured above
+// the max is still capped at the max, so an operator who lowers the ceiling
+// below the base gets the ceiling they asked for rather than one uncapped
+// first wait followed by capped ones.
 func (c *Coordinator) launchBackoff(fails int) time.Duration {
 	if fails <= 0 {
 		return 0
@@ -302,7 +308,7 @@ func (c *Coordinator) launchBackoff(fails int) time.Duration {
 			return c.launchBackoffMax
 		}
 	}
-	return d
+	return min(d, c.launchBackoffMax)
 }
 
 // nextRelaunch decides whether terminateRun's leftover-mail tail may relaunch

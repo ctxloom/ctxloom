@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -417,4 +418,72 @@ func TestGRPCClient_WatchSession_RecvErrorOnErrChannel(t *testing.T) {
 	for range events { //nolint:revive // drain
 	}
 	assert.Error(t, <-errs)
+}
+
+// --- WatchCanonicalTranscript: the canonical-capture locator ---
+
+// The canonical watcher shares WatchHistoryByPath's whole lifecycle contract
+// and differs only in WHICH reader it polls, so its fault posture is pinned the
+// same way: an unreadable transcript is warned and retried on the next tick.
+// A long-lived stream must not die because the file is not there yet — the
+// capture writer creates it lazily on the first successful record.
+func TestWatchCanonicalTranscript_UnreadableFileDoesNotTerminate(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "never-written", "transcript.jsonl")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, errs := WatchCanonicalTranscript(ctx, missing, "swift-amber-falcon", time.Millisecond)
+
+	// Give the loop several ticks to fail and retry, then prove it is still
+	// alive by cancelling it: a terminated stream would already be closed.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	for range events { //nolint:revive // draining to closure is the assertion
+	}
+	require.NoError(t, <-errs, "a read failure is warned, never delivered as a stream-ending error")
+}
+
+// Cancelling the context ends the canonical stream cleanly: both channels
+// close and no error is reported.
+func TestWatchCanonicalTranscript_CancelClosesChannels(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "transcript.jsonl")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events, errs := WatchCanonicalTranscript(ctx, missing, "swift-amber-falcon", time.Millisecond)
+	cancel()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-events:
+			if !ok {
+				require.NoError(t, <-errs)
+				return
+			}
+		case <-deadline:
+			t.Fatal("events channel did not close after context cancel")
+		}
+	}
+}
+
+// poll <= 0 must fall back to the package default rather than panicking in
+// time.NewTicker — the two watchers share that guard, and every caller that
+// omits a cadence depends on it.
+func TestWatchers_NonPositivePollUsesTheDefault(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hist := &fakeHistory{getSessionByPathFunc: func(string) (*agent.Session, error) {
+		return sessionWith(), nil
+	}}
+	byPathEvents, byPathErrs := WatchHistoryByPath(ctx, hist, "/p/t.jsonl", 0)
+	canonEvents, canonErrs := WatchCanonicalTranscript(ctx, filepath.Join(t.TempDir(), "t.jsonl"), "h", -1)
+
+	cancel()
+	for range byPathEvents { //nolint:revive // draining to closure
+	}
+	for range canonEvents { //nolint:revive // draining to closure
+	}
+	require.NoError(t, <-byPathErrs)
+	require.NoError(t, <-canonErrs)
 }

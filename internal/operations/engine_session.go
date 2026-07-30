@@ -362,7 +362,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		commandNames = listed(names)
 	}
 	skillNames := listSessionSkillNames(ctx, cfg)
-	mcpServerNames := listed(mcpServerNamesFor(mcpServers))
+	mcpServerNames := listed(MCPServerNames(mcpServers))
 	fragments := listed(fragmentsLoaded)
 	if assemblyFailed != nil {
 		fragments = listingFailed(assemblyFailed)
@@ -453,13 +453,17 @@ func listSessionSkillNames(ctx context.Context, cfg *config.Config) nameListing 
 	return listed(names)
 }
 
-// mcpServerNamesFor extracts a sorted name list from the session's resolved
-// MCP server set (req.MCPServers plus ctxloom's own managed injection —
-// acpSessionMCPServers) for the init summary's "mcp" line. This is the
-// CONFIGURED set only — what ctxloom is asking the engine to attach — never
-// live connection status: see buildSessionInitSummary's doc for why
-// connection status is not observable at the point this summary is built.
-func mcpServerNamesFor(servers []agent.ChatMCPServer) []string {
+// MCPServerNames extracts a SORTED name list from a resolved MCP server set —
+// names only, never command, args or env, any of which can carry a credential.
+// Two surfaces read it and need the same answer: the session-init summary's
+// "mcp" line (req.MCPServers plus acpSessionMCPServers) and the delegation
+// journal/roster. Sorted rather than composition order because the journaled
+// value must be stable across runs.
+//
+// The CONFIGURED set only — what ctxloom asks the engine to attach — never live
+// connection status: see buildSessionInitSummary for why that is not observable
+// where this summary is built.
+func MCPServerNames(servers []agent.ChatMCPServer) []string {
 	if len(servers) == 0 {
 		return nil
 	}
@@ -717,6 +721,18 @@ func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace
 	return isolation.WorkspaceAxis(ws)
 }
 
+// worktreeIsolationProse is the honesty wording for a session whose workspace
+// really is a separate git worktree, carrying one %s for that worktree's path.
+// Two surfaces say it — the first-turn announcement and the at-connect session
+// init summary — under different lead-ins, and a reader who sees both must be
+// told the same thing: what the engine can touch, and what their editor window
+// will therefore not show them. One wording, so the two can never drift into
+// describing the same posture differently.
+const worktreeIsolationProse = "isolated to its own git worktree — %s. " +
+	"Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, " +
+	"and this window stays blind to it unless you open the path yourself. " +
+	"Results return through ctxloom's normal delegated-child assemble/merge flow."
+
 // acpWorkspace is ISO2's prepared workspace-axis state for one ACP session:
 // where the engine's cwd lives, the per-agent config-home env additions
 // (worktree only — CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME isolating the
@@ -771,9 +787,7 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 		// benign fallback (isolation.go's doc), so no announcement fires and
 		// aw.dir/aw.env are the harmless projectDir/nil the None tier
 		// produces. Only a REAL worktree gets the honesty announcement.
-		aw.announce = fmt.Sprintf(
-			"ctxloom: this agent's session is isolated to its own git worktree — %s. "+
-				"Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.",
+		aw.announce = fmt.Sprintf("ctxloom: this agent's session is "+worktreeIsolationProse,
 			aw.dir)
 	}
 	return aw, nil
@@ -1022,7 +1036,7 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 			runtimeDesc = "RUNTIME: a HOST process (no container)"
 		}
 		if isolatedWorktree {
-			workspaceDesc = fmt.Sprintf("WORKSPACE isolated to its own git worktree — %s. Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.", in.aw.dir)
+			workspaceDesc = fmt.Sprintf("WORKSPACE "+worktreeIsolationProse, in.aw.dir)
 		} else {
 			// Same-path mount (ISO1 Invariant 1) rendered as an explicit
 			// host -> container mapping — see the doc comment above.

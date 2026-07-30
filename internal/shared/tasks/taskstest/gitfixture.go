@@ -16,11 +16,20 @@ import (
 // This is the CANONICAL body for every package that needs a REAL linked
 // worktree to exercise worktree-detection/redirect logic against
 // (internal/projectroot, internal/taskloom/workdir, this package's own
-// callers in internal/shared/tasks/operations). internal/config's
-// worktree_signpost_test.go keeps its own verbatim copy rather than
-// depending on this one — that file is a frozen acceptance gate (task
-// brown-canal) and must stay byte-for-byte unmodified — but every OTHER
-// caller should use this one instead of adding a third copy.
+// callers in internal/shared/tasks/operations). Exactly two other sites build
+// a linked worktree by hand, each for a reason that rules out calling this
+// one, and there must be no others — gitfixture_test.go enforces the list:
+//
+//   - internal/config/worktree_signpost_test.go keeps a verbatim copy: it is a
+//     frozen acceptance gate (task brown-canal) and must stay byte-for-byte
+//     unmodified, so it cannot take on a dependency.
+//   - tests/integration/testenv's TestEnvironment.AddGitWorktree is a
+//     differently-shaped helper, not a copy of this body: it branches an
+//     already-initialized repo, returns an error instead of failing the test,
+//     and must run git through TestEnvironment's own isolated env/dir plumbing
+//     so callers land in the same isolated HOME every acceptance helper trusts.
+//
+// Every other caller uses this one.
 func RealGitWorktreeFixture(t *testing.T) (main, linked string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
 )
 
 // mcpSocketEnvVar duplicates agentcoord/coord.EnvMCPSocket's value
@@ -18,7 +19,10 @@ import (
 // pulls in internal/operations -> internal/lm/backends -> this package
 // (backends registers acp.NewACP()), so importing it here would cycle. See
 // internal/agentcoord/coord/identity.go's EnvMCPSocket doc for the canonical
-// source of truth on this variable's meaning and lifecycle.
+// source of truth on this variable's meaning and lifecycle. The copy is BOUND
+// to that original by constants_binding_test.go, an external test package that
+// is not in the cycle — a rename on either side fails there rather than
+// silently leaving a containerized engine with no MCP surface.
 const mcpSocketEnvVar = "CTXLOOM_MCP_SOCKET"
 
 // containerProfileBackend maps ACPConfig.AgentEngine's kiro/claude/codex/agy
@@ -103,7 +107,7 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("acp: reach-back for %q: %w", engine, err)
 	}
-	// The chat's own model/session env (spawnEnv's overlay, already curated —
+	// The chat's own model/session env (envOverlay's product, already curated —
 	// never the full host os.Environ(): the container gets a fresh, minimal
 	// env by design, unlike spawnHostTransport's os.Environ() passthrough).
 	for k, v := range env {
@@ -127,6 +131,14 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("acp: starting %q in container: %w", engine, err)
 	}
+
+	// The in-container engine needs the SAME post-stdin-EOF grace the host
+	// transport gives it (see shutdownGrace / DefaultShutdownGrace): the adapter
+	// flushes its native transcript asynchronously, and here the destructive act
+	// is a container removal that takes the filesystem holding that half-written
+	// transcript with it. Zero (every production path) leaves isolation's own
+	// default; the test seam's shorter value carries through.
+	ac.ShutdownGrace = b.shutdownGrace
 
 	return &transport{
 		stdin:  ac.Stdin,
@@ -203,6 +215,15 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isolation.Mount, func() error, error) {
 	sock := os.Getenv(mcpSocketEnvVar)
 	if sock == "" {
+		// Degraded, never fatal — but never silent either: this function is only
+		// reached under container isolation, where the missing endpoint means the
+		// in-container engine cannot reach ctxloom's MCP surface AT ALL, so every
+		// ctxloom tool the session's loadout advertised is absent while the
+		// session otherwise looks healthy. A runner normally exports this before
+		// the engine spawns (internal/cli/llm_runner_common.go), so its absence
+		// says the engine was launched outside one, or that the runner's own MCP
+		// endpoint failed to stand up.
+		warnf("acp: %s is unset, so this containerized engine gets no ctxloom MCP surface (no ctxloom tools in-session) — expected when the engine was not launched by a ctxloom runner", mcpSocketEnvVar)
 		return nil, nil, nil, nil
 	}
 	if goos == "linux" {
@@ -213,18 +234,9 @@ func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isola
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("acp: reach-back TCP bridge for %s: %w", mcpSocketEnvVar, err)
 	}
-	addr := fmt.Sprintf("%s%s:%d", reachBackTCPPrefix, reachBackDialHost(rt), bridge.port)
+	addr := fmt.Sprintf("%s%s:%d", mcpsocket.TCPPrefix, reachBackDialHost(rt), bridge.port)
 	return []string{mcpSocketEnvVar + "=" + addr}, nil, bridge.Close, nil
 }
-
-// reachBackTCPPrefix marks a CTXLOOM_MCP_SOCKET value as the off-Linux TCP
-// form (host:port to dial) rather than the default unix socket path (which
-// is always an absolute filesystem path and so never collides with this
-// prefix). Duplicated as a literal in internal/cli/mcp_forward.go — the far
-// side that dials this value — for the SAME import-cycle reason
-// mcpSocketEnvVar above is duplicated rather than imported from
-// agentcoord/coord: keep both literals in sync by hand.
-const reachBackTCPPrefix = "tcp://"
 
 // reachBackDialHost is the DNS name Docker/Podman Desktop resolve, from
 // INSIDE a container, to the host's own network stack (loopback included) —
@@ -286,6 +298,10 @@ func (b *reachBackBridge) pipe(conn net.Conn, sock string) {
 	defer func() { _ = conn.Close() }()
 	uc, err := net.Dial("unix", sock)
 	if err != nil {
+		// The shim on the container side only ever sees a connection reset, and
+		// the cause is entirely on this side of the boundary — so this is the one
+		// place it can be reported at all.
+		warnf("acp: reach-back bridge could not dial the runner MCP socket %q, so the in-container shim's connection was reset: %v", sock, err)
 		return
 	}
 	defer func() { _ = uc.Close() }()

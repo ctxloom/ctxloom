@@ -199,3 +199,31 @@ func TestChat_ACPTransportGate_ContainerRuntimeExempt(t *testing.T) {
 		t.Fatal("Chat did not return")
 	}
 }
+
+// TestClaudeModelSelectionQuirk_PinnedDeclaration pins the quirk U032-F20 wants
+// gone. The row is right that session/set_model is unstable and undocumented and
+// that the coupling is version-scoped — that is what it IS: the sanctioned
+// quarantine for a LIVE, controlled-experiment-verified defect where
+// claude-code-acp 0.16.2 ignores argv --model, ignores ANTHROPIC_MODEL, does not
+// implement session/set_config_option at all, and calls query.setModel from its
+// own list on every session/new. Removing the quirk restores the bug (every
+// claude ACP session silently running the wrong model); it cannot be routed
+// through a spec channel the adapter does not honor. So the row is refuted and
+// the workaround is pinned instead — nothing pinned it before, in either package.
+//
+// Each field is load-bearing at a distance: internal/acp's applyModelQuirk fires
+// ONLY when the connected agent's self-reported initialize identity matches
+// AgentName and one of AdapterVersions EXACTLY, and calls Method by name. Any
+// drift here silently returns to the broken path, so a change to this
+// declaration must be a deliberate edit with the removal condition (grep the
+// adapter's dist/*.js for set_config_option) re-checked — see the doc comment.
+func TestClaudeModelSelectionQuirk_PinnedDeclaration(t *testing.T) {
+	require.NotNil(t, claudeModelSelectionQuirk, "the quirk is the only working model-selection channel for this adapter")
+	assert.Equal(t, "session/set_model", claudeModelSelectionQuirk.Method,
+		"the wire method name comes from the adapter's SDK schema, not its JS handler identifier")
+	assert.Equal(t, "@zed-industries/claude-code-acp", claudeModelSelectionQuirk.AgentName,
+		"must match the adapter's self-reported initialize agentInfo.name")
+	assert.Equal(t, []string{"0.16.2"}, claudeModelSelectionQuirk.AdapterVersions,
+		"exact-version scoping is the removal mechanism: widening this list must be a deliberate act, "+
+			"not a side effect of an unrelated edit")
+}

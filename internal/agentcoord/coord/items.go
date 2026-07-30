@@ -1,6 +1,8 @@
 package coord
 
 import (
+	"google.golang.org/protobuf/reflect/protoreflect"
+
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -32,40 +34,43 @@ type itemFact struct {
 // unacked re-emission window).
 const itemFlushThreshold = 32
 
-// itemKind names an AgentEvent's payload case — the fold's count key. Kinds
-// with their OWN durability/handling (custom, summary, artifact_produced)
-// are not item facts; "" marks those and the unknown/foreign payloads.
+// itemPayloadKinds is the set of AgentEvent payload oneof fields that ARE item
+// facts, named by their proto field name — which is also the kind string the
+// journal records, so the vocabulary cannot drift from the schema. An
+// ALLOWLIST, deliberately: the payloads left out are the ones with their own
+// durability/handling (custom, summary, artifact_produced), and a payload case
+// added to the proto later must be decided about rather than silently start
+// being journaled as an item.
+var itemPayloadKinds = map[protoreflect.Name]bool{
+	"run_started":          true,
+	"step_started":         true,
+	"step_completed":       true,
+	"status_changed":       true,
+	"run_completed":        true,
+	"message_started":      true,
+	"message_delta":        true,
+	"message_completed":    true,
+	"tool_call_started":    true,
+	"tool_call_args_delta": true,
+	"tool_call_completed":  true,
+	"interaction":          true,
+	"raw":                  true,
+}
+
+// agentEventPayload is AgentEvent's payload oneof descriptor, resolved once.
+var agentEventPayload = (&agentcoordpb.AgentEvent{}).ProtoReflect().Descriptor().Oneofs().ByName("payload")
+
+// itemKind names an AgentEvent's payload case — the fold's count key. "" marks
+// the payloads that are not item facts and the unknown/foreign ones.
 func itemKind(ev *agentcoordpb.AgentEvent) string {
-	switch ev.GetPayload().(type) {
-	case *agentcoordpb.AgentEvent_RunStarted:
-		return "run_started"
-	case *agentcoordpb.AgentEvent_StepStarted:
-		return "step_started"
-	case *agentcoordpb.AgentEvent_StepCompleted:
-		return "step_completed"
-	case *agentcoordpb.AgentEvent_StatusChanged:
-		return "status_changed"
-	case *agentcoordpb.AgentEvent_RunCompleted:
-		return "run_completed"
-	case *agentcoordpb.AgentEvent_MessageStarted:
-		return "message_started"
-	case *agentcoordpb.AgentEvent_MessageDelta:
-		return "message_delta"
-	case *agentcoordpb.AgentEvent_MessageCompleted:
-		return "message_completed"
-	case *agentcoordpb.AgentEvent_ToolCallStarted:
-		return "tool_call_started"
-	case *agentcoordpb.AgentEvent_ToolCallArgsDelta:
-		return "tool_call_args_delta"
-	case *agentcoordpb.AgentEvent_ToolCallCompleted:
-		return "tool_call_completed"
-	case *agentcoordpb.AgentEvent_Interaction:
-		return "interaction"
-	case *agentcoordpb.AgentEvent_Raw:
-		return "raw"
-	default:
+	if ev.GetPayload() == nil {
 		return ""
 	}
+	set := ev.ProtoReflect().WhichOneof(agentEventPayload)
+	if set == nil || !itemPayloadKinds[set.Name()] {
+		return ""
+	}
+	return string(set.Name())
 }
 
 // itemIsDelta marks the storm kinds that buffer without forcing a flush.

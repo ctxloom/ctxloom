@@ -155,7 +155,7 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 }
 
 func manageStatus(dir string, out io.Writer) error {
-	if _, err := exec.LookPath("taskloom"); err != nil {
+	if _, err := exec.LookPath(progName); err != nil {
 		fmt.Fprintln(out, "binary: taskloom NOT on PATH")
 	} else {
 		fmt.Fprintln(out, "binary: taskloom on PATH")

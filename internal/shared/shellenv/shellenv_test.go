@@ -205,3 +205,41 @@ func TestResolve_EmptySHELLFallsBackToBinBash(t *testing.T) {
 	assert.Equal(t, fakeBin, got)
 	assert.Equal(t, "/bin/bash", sawShell, "an empty $SHELL must fall back to /bin/bash")
 }
+
+// loginShellArgs classifies the shell by the basename of $SHELL, and the
+// classification is load-bearing: fish and tcsh reject -l in this position, so
+// misclassifying one of them makes the probe FAIL and the whole PATH recovery
+// this package exists for silently does nothing. $SHELL is user-supplied
+// environment, so the classification must survive the shapes it really arrives
+// in — a case-insensitive filesystem's capitalization, and stray surrounding
+// whitespace from a mis-set export.
+func TestLoginShellArgs_ClassifiesRobustly(t *testing.T) {
+	const cmd = "echo x"
+	interactiveOnly := []string{"-i", "-c", cmd}
+	loginInteractive := []string{"-l", "-i", "-c", cmd}
+
+	cases := []struct {
+		shell string
+		want  []string
+	}{
+		{"/usr/bin/fish", interactiveOnly},
+		{"/bin/tcsh", interactiveOnly},
+		{"/bin/bash", loginInteractive},
+		{"/bin/zsh", loginInteractive},
+		{"/bin/sh", loginInteractive},
+
+		// A case-insensitive filesystem (APFS by default) resolves this to the
+		// same binary, so it must classify the same way.
+		{"/usr/local/bin/Fish", interactiveOnly},
+		{"/bin/TCSH", interactiveOnly},
+
+		// Whitespace around the value: `export SHELL="/usr/bin/fish "`.
+		{" /usr/bin/fish ", interactiveOnly},
+		{"/bin/bash\n", loginInteractive},
+	}
+	for _, tc := range cases {
+		t.Run(tc.shell, func(t *testing.T) {
+			assert.Equal(t, tc.want, loginShellArgs(tc.shell, cmd))
+		})
+	}
+}

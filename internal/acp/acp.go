@@ -151,19 +151,6 @@ type ACP struct {
 	// carries no per-event time). Injected for deterministic tests; nil = time.Now.
 	now func() time.Time
 
-	// runtimeAxis is this chat's resolved runtime axis (agent.ChatRequest.Runtime:
-	// "" = host, agent.RuntimeContainer = container), stashed by chatArgv as a
-	// deliberate side effect (see its doc) so spawnTransport can route to
-	// containerTransport WITHOUT session.go's Chat needing to change: Chat calls
-	// `open(ctx, b.chatArgv(req), b.spawnEnv(req), req.WorkDir)`, and Go evaluates
-	// every argument (chatArgv included) before invoking `open` — which is already
-	// a bound method value over this same *ACP, so the mutation is visible by the
-	// time `open`'s body (spawnTransport) actually runs. One *ACP instance ever
-	// drives exactly one Chat call (NewChatDriver/NewACP construct a fresh
-	// instance per call — see claude/codex/kiro's Chat methods), so this is safe
-	// per-call state, not shared mutable state racing concurrent chats.
-	runtimeAxis string
-
 	// containerImage, when non-empty, overrides the container profile's
 	// resolved image (isolation.Container.WithImage) instead of the
 	// engine's real one. Test-only seam: the docker-gated container
@@ -172,9 +159,9 @@ type ACP struct {
 	// construction path leaves it empty.
 	containerImage string
 
-	// shutdownGrace bounds how long spawnHostTransport's close() waits for
-	// the spawned agent to exit ON ITS OWN (after stdin EOF) before force-
-	// killing its process group. tidy-gush: claude-code-acp writes its own
+	// shutdownGrace bounds how long a transport's close() waits for the spawned
+	// agent to exit ON ITS OWN (after stdin EOF) before force-killing it — its
+	// process group on the host, the container itself under runtime:container. tidy-gush: claude-code-acp writes its own
 	// NATIVE session transcript asynchronously; a zero-grace immediate kill
 	// (the pre-fix behavior) raced that flush and truncated it — reproduced
 	// by bypassing ctxloom entirely and hitting the identical symptom
@@ -185,7 +172,10 @@ type ACP struct {
 }
 
 // DefaultShutdownGrace is how long a spawned ACP agent gets to exit on its
-// own after stdin closes before teardown force-kills its process group. Long
+// own after stdin closes before teardown force-kills its process group. The
+// container transport applies the same bound to the container's teardown
+// (isolation.AttachedContainer.ShutdownGrace, whose own default matches this
+// one). Long
 // enough to cover an async native-transcript flush (tidy-gush's manual
 // repro: "sleep a few seconds" before terminate let the flush complete
 // cleanly every time); short enough that a hung/misbehaving agent doesn't
@@ -234,6 +224,11 @@ func NewACP() *ACP {
 func (b *ACP) Configure(cfg agent.BackendConfig) {
 	c, ok := cfg.(*ACPConfig)
 	if !ok {
+		// Never silently: with no ACPConfig applied this backend keeps an empty
+		// command AND an empty BinaryPath, and the mis-wiring only surfaces a
+		// whole session later as a spawn of "" — a symptom that names neither
+		// the cause nor the config that caused it.
+		warnf("acp: ignoring a %q config this backend cannot read (want *acp.ACPConfig) — the acp backend is left unconfigured and cannot spawn an agent", cfg.BackendType())
 		return
 	}
 	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
@@ -325,14 +320,6 @@ func (b *ACP) clock() func() time.Time {
 // below as model's alternate delivery and why codex's embedding config
 // (internal/codex/chat.go) never sets Agent/AgentEngine.
 func (b *ACP) chatArgv(req agent.ChatRequest) []string {
-	// ISO1 side channel: this is the one point in session.go's Chat where the
-	// full ChatRequest reaches code this package owns before the transport is
-	// chosen (session.go itself calls `open(ctx, b.chatArgv(req),
-	// b.spawnEnv(req), req.WorkDir)`, evaluating chatArgv's argument BEFORE
-	// `open` runs) — see runtimeAxis's doc on why stashing it here, rather
-	// than threading a new parameter through session.go, is deliberate and
-	// safe.
-	b.runtimeAxis = req.Runtime
 	_, cmdArgs := splitCommand(b.command)
 
 	args := make([]string, 0, len(cmdArgs)+len(b.Args)+6)
@@ -449,20 +436,31 @@ func withEngineStderr(err error, tr *transport) error {
 	return fmt.Errorf("%w (engine stderr tail: %s)", err, tail)
 }
 
-type transportFunc func(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error)
+// transportRequest is one ACP conversation's launch: the argv, the env overlay,
+// the working directory, and the runtime axis that chooses host or container
+// (agent.ChatRequest.Runtime — "" = host, agent.RuntimeContainer = container).
+// The axis travels WITH the launch rather than on *ACP, so which transport runs
+// is a property of the call and not of what a previous argv build left behind.
+type transportRequest struct {
+	argv    []string
+	env     map[string]string
+	workDir string
+	runtime string
+}
 
-// spawnTransport launches the real `<agent> acp` process with piped stdio,
-// on the HOST or inside a CONTAINER per this chat's resolved runtime axis
-// (runtimeAxis — see its doc for how it gets here without session.go
-// changing). This is the ACP client driver's transport seam (ISO1): JSON-RPC
-// is transport-agnostic, so routing here is the ONLY place that changes —
-// the driver, the protocol mapping, and everything above this function are
-// untouched regardless of which branch runs.
-func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error) {
-	if b.runtimeAxis == agent.RuntimeContainer {
-		return b.containerTransport(ctx, argv, env, workDir)
+type transportFunc func(ctx context.Context, req transportRequest) (*transport, error)
+
+// spawnTransport launches the real `<agent> acp` process with piped stdio, on
+// the HOST or inside a CONTAINER per the launch's runtime axis. This is the ACP
+// client driver's transport seam (ISO1): JSON-RPC is transport-agnostic, so
+// routing here is the ONLY place that changes — the driver, the protocol
+// mapping, and everything above this function are untouched regardless of which
+// branch runs.
+func (b *ACP) spawnTransport(ctx context.Context, req transportRequest) (*transport, error) {
+	if req.runtime == agent.RuntimeContainer {
+		return b.containerTransport(ctx, req.argv, req.env, req.workDir)
 	}
-	return b.spawnHostTransport(ctx, argv, env, workDir)
+	return b.spawnHostTransport(ctx, req.argv, req.env, req.workDir)
 }
 
 // spawnHostTransport is spawnTransport's unchanged pre-ISO1 body: the real
@@ -479,23 +477,8 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 	// (the worker reparents to PPID=1 but stays in the same process group);
 	// see procgroup_unix.go/procgroup_windows.go.
 	setpgid(cmd)
-	stdin, err := cmd.StdinPipe()
+	stdin, stdout, ring, err := startHostStdio(cmd)
 	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	// Tee rather than replace: stderr passthrough is an existing operator
-	// diagnostic (and, inside a container, the run process's only log), so
-	// capture is ADDITIVE. Before this the adapter's stderr was INHERITED
-	// only — which is why a containerized child's dying words reached the
-	// container's stdout and nowhere the coordinator could ever read them,
-	// with the container force-removed moments later.
-	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)
-	cmd.Stderr = sink
-	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 
@@ -542,6 +525,41 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 			return waitErr
 		},
 	}, nil
+}
+
+// startHostStdio wires cmd's stdio for a JSON-RPC conversation and starts it:
+// piped stdin/stdout, plus a stderr TEE — rather than replace — because stderr
+// passthrough is an existing operator diagnostic (and, inside a container, the
+// run process's only log), so capture is ADDITIVE. Before that tee the adapter's
+// stderr was INHERITED only, which is why a containerized child's dying words
+// reached the container's stdout and nowhere the coordinator could ever read
+// them, with the container force-removed moments later.
+//
+// It is a seam so the failure paths — which cannot be provoked through
+// spawnHostTransport, whose Cmd it builds itself — are exercisable.
+func startHostStdio(cmd *exec.Cmd) (io.WriteCloser, io.Reader, *stderrtail.Ring, error) {
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		// Both ends of the stdin pipe are this side's to release: os/exec closes
+		// the parent ends of the pipes it created only from inside a Start that
+		// failed, and this Cmd is abandoned before Start ever runs. StdinPipe
+		// left the child's read end on cmd.Stdin, hence the second close.
+		_ = stdin.Close()
+		if child, ok := cmd.Stdin.(io.Closer); ok {
+			_ = child.Close()
+		}
+		return nil, nil, nil, err
+	}
+	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)
+	cmd.Stderr = sink
+	if err := cmd.Start(); err != nil {
+		return nil, nil, nil, err
+	}
+	return stdin, stdout, ring, nil
 }
 
 // spawnEnv builds the spawned agent's environment: the inherited base minus

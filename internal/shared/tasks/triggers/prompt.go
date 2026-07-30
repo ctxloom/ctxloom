@@ -3,6 +3,8 @@ package triggers
 import (
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // timeLayout is the human-readable stamp used throughout the prompt — date
@@ -56,7 +58,7 @@ func BuildPrompt(b Batch) string {
 		sb.WriteString("\n")
 	}
 
-	writeResponseContract(&sb)
+	writeResponseContract(&sb, true)
 
 	return sb.String()
 }
@@ -107,10 +109,7 @@ func BuildFollowupPrompt(b FollowupBatch) string {
 		writeQueryResults(&sb, t.Results)
 	}
 
-	sb.WriteString("=== Response format ===\n\n")
-	sb.WriteString("Respond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n")
-	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|cannot-determine", "evidence": ["..."], "reasoning": "one or two sentences"}` + "\n")
-	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
+	writeResponseContract(&sb, false)
 
 	return sb.String()
 }
@@ -198,7 +197,7 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 	} else {
 		sb.WriteString("Commits since deferred:\n")
 		for _, c := range t.CommitsSince {
-			fmt.Fprintf(sb, "  - %s %s %s\n", shortSHA(c.SHA), c.Date.UTC().Format(dateLayout), c.Subject)
+			fmt.Fprintf(sb, "  - %s %s %s\n", gitutil.AbbrevSHA(c.SHA, promptSHALen), c.Date.UTC().Format(dateLayout), c.Subject)
 		}
 	}
 	if len(t.ChangedFiles) > 0 {
@@ -207,18 +206,25 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 	sb.WriteString("\n")
 }
 
-func writeResponseContract(sb *strings.Builder) {
+// writeResponseContract emits the response contract both rounds share. Round 1
+// offers needs-investigation and its queries field; round 2, the final look,
+// does not. Everything else is one wording: two wordings is two chances for a
+// model to answer in a shape the parser rejects.
+func writeResponseContract(sb *strings.Builder, allowInvestigation bool) {
+	outcomes := "fired|not-fired|cannot-determine"
+	queries := ""
+	if allowInvestigation {
+		outcomes = "fired|not-fired|needs-investigation|cannot-determine"
+		queries = `, "queries": [optional, needs-investigation only, see above]`
+	}
 	sb.WriteString("=== Response format ===\n\n")
-	sb.WriteString("Respond with ONLY a JSON array, one object per Deferred task listed above, no prose before or after, no markdown code fence. Each object:\n")
-	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|needs-investigation|cannot-determine", "evidence": ["..."], "reasoning": "one or two sentences", "queries": [optional, needs-investigation only, see above]}` + "\n")
+	sb.WriteString("Respond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n")
+	fmt.Fprintf(sb, `{"harp_id": "...", "outcome": %q, "evidence": ["..."], "reasoning": "one or two sentences"%s}`+"\n", outcomes, queries)
 	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
 }
 
-// shortSHA trims a commit hash to a readable prefix for the prompt (evidence
-// only needs enough to be recognizable, not the full 40 chars).
-func shortSHA(sha string) string {
-	if len(sha) > 10 {
-		return sha[:10]
-	}
-	return sha
-}
+// promptSHALen trims a commit hash to a readable prefix for the prompt:
+// evidence only needs enough to be recognizable, not the full 40 chars, but a
+// wider prefix than ordinary output carries so a reader can match it against a
+// log by eye.
+const promptSHALen = 10

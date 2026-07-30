@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -65,8 +66,15 @@ PowerShell:
 			return cmd.Root().GenFishCompletion(os.Stdout, true)
 		case "powershell":
 			return cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+		default:
+			// Unreachable through cobra (ValidArgs + OnlyValidArgs rejects any
+			// other value first), which is exactly why the shell list must not
+			// be able to grow past this switch in silence: without this arm a
+			// new ValidArgs entry exits 0 having written nothing, and the user
+			// sources an empty file.
+			return fmt.Errorf("no completion generator for shell %q (supported: %s)",
+				args[0], strings.Join(cmd.ValidArgs, ", "))
 		}
-		return nil
 	},
 }
 

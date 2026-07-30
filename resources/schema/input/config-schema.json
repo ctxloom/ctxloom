@@ -352,7 +352,7 @@
                 },
                 "timeout": {
                   "type": "string",
-                  "description": "Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. \"5m\"). Empty uses the resolver's default. Ignored by auto_accept/auto_decline."
+                  "description": "Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. \"5m\"). Empty uses the resolver's default. Refused on auto_accept/auto_decline, which resolve immediately."
                 }
               },
               "required": ["action"],

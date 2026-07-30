@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // testDecodeSessionUpdate parses a session/update notification's params,
@@ -271,4 +273,40 @@ func TestDecidePermission(t *testing.T) {
 		got := decidePermission(nil, true)
 		assert.Equal(t, outcomeCancelled, got.Outcome.Outcome)
 	})
+}
+
+// TestMapToolCallUpdate_TerminalOnlyContentIsReported pins a tool_call_update
+// whose content is a TERMINAL reference and nothing else. Terminal content
+// carries no text of its own (its output is fetched over terminal/output, see
+// toolContentText), so the flattened ToolOutput is legitimately empty — but the
+// update is NOT status noise: it is how the engine tells the client WHERE the
+// tool's live output is going, and dropping it leaves a frontend unable to
+// attach to the terminal at all. The structural terminal id must reach the IR.
+func TestMapToolCallUpdate_TerminalOnlyContentIsReported(t *testing.T) {
+	events := mapUpdateJSON(t, `{"sessionUpdate":"tool_call_update","toolCallId":"tc1","content":[{"type":"terminal","terminalId":"term-7"}]}`)
+	e := oneEntry(t, events)
+
+	assert.Equal(t, agent.EntryTypeToolResult, e.Type)
+	require.Len(t, e.ToolContent, 1, "the terminal reference must survive structurally")
+	assert.Equal(t, "terminal", e.ToolContent[0].Kind)
+	assert.Equal(t, "term-7", e.ToolContent[0].TerminalID)
+	assert.Empty(t, e.ToolOutput, "terminal content has no text to flatten — its output rides terminal/output")
+}
+
+// TestRawOnlyEvent_UnmarshalableUpdateIsDroppedLoudly pins the diagnostic on the
+// raw-passthrough envelope's drop path. It is reachable: a union with no variant
+// set makes api.SessionUpdate.MarshalJSON hand encoding/json zero bytes, which
+// encoding/json rejects — and the frame then vanishes, where every analogous
+// decode failure in session.go warns. A dropped frame nobody reports is a
+// frontend missing an update with no evidence anywhere that one existed.
+func TestRawOnlyEvent_UnmarshalableUpdateIsDroppedLoudly(t *testing.T) {
+	_, err := json.Marshal(&api.SessionUpdate{})
+	require.Error(t, err, "a variant-less union cannot be marshaled — this is the drop path")
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	assert.Empty(t, rawOnlyEvent(&api.SessionUpdate{}), "an empty Raw must never be emitted as an event")
+	assert.Contains(t, warnings.String(), "acp: dropping", "the drop must be diagnosable")
 }

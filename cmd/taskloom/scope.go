@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
@@ -56,6 +57,137 @@ func compactRows(rows []taskRow) []compactTaskRow {
 		out[i] = compactTaskRow{CompactTask: r.Compact(), ProjectID: r.ProjectID, ProjectDir: r.ProjectDir}
 	}
 	return out
+}
+
+// composeGlobalNotice is the one disclosure a global listing carries: why the
+// listing went global (empty for an explicit --global), then what --global
+// structurally cannot see. Both surfaces render it, so neither drops a half.
+func composeGlobalNotice(scope listScope, workDir string) string {
+	limitation := globalScopeLimitationNote(workDir, rootCmd.PersistentFlags(), tasksHoming)
+	if scope.Notice == "" {
+		return limitation
+	}
+	return scope.Notice + "; " + limitation
+}
+
+// projectRows attributes list to one project, producing the row shape every
+// structured listing emits, so a consumer sees the same keys either way.
+func projectRows(list []tasks.Task, projectID, projectDir string) []taskRow {
+	out := make([]taskRow, len(list))
+	for i, t := range list {
+		out[i] = taskRow{Task: t, ProjectID: projectID, ProjectDir: projectDir}
+	}
+	return out
+}
+
+// scopedListResult is everything a task listing decided, with no presentation
+// choice made. Both list surfaces read it and neither re-decides any of it.
+type scopedListResult struct {
+	// Notice and ProjectCount are meaningful only when Global;
+	// Path/ProjectID/ProjectDir/Summary/Warning only when not.
+	Global       bool
+	Notice       string
+	ProjectCount int
+
+	Path       string
+	ProjectID  string
+	ProjectDir string
+	Summary    *tasks.Summary
+	Warning    string
+
+	// Rows carries per-row project attribution and is populated for both
+	// scopes; Tasks is the unattributed view, single-project only.
+	Rows  []taskRow
+	Tasks []tasks.Task
+
+	HiddenCompleted int
+	HiddenDeferred  int
+	OmittedByLimit  int
+	PriorityWarning string
+
+	// Filtered decides how the hidden-task counts are phrased.
+	Filtered bool
+
+	// TC is the context AFTER homing resolution — what a renderer must use for
+	// tag-hiding config.
+	TC operations.TaskContext
+}
+
+// listTasksScoped is the whole decision half of a task listing: scope, store,
+// filters, priority, attribution. Everything left in either caller renders.
+func listTasksScoped(tc operations.TaskContext, opts listOptions) (*scopedListResult, error) {
+	if opts.Sort != "" && opts.Sort != sortPriority {
+		return nil, fmt.Errorf("taskloom: unknown sort value %q (must be %q)", opts.Sort, sortPriority)
+	}
+	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	if scope.Global {
+		return listEveryProjectScoped(tc, opts, scope)
+	}
+	return listOneProjectScoped(tc, opts)
+}
+
+// listEveryProjectScoped aggregates every privately-homed project's store.
+// ProjectID/ProjectDir stay empty — the rows span projects, so each carries
+// its own attribution.
+func listEveryProjectScoped(tc operations.TaskContext, opts listOptions, scope listScope) (*scopedListResult, error) {
+	gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All,
+		opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, opts.Limit)
+	if err != nil {
+		return nil, wrapTagQueryError(err)
+	}
+	return &scopedListResult{
+		Global:          true,
+		Notice:          composeGlobalNotice(scope, tc.WorkDir),
+		ProjectCount:    gres.ProjectCount,
+		Rows:            gres.Rows,
+		HiddenCompleted: gres.HiddenCompleted,
+		HiddenDeferred:  gres.HiddenDeferred,
+		OmittedByLimit:  gres.OmittedByLimit,
+		PriorityWarning: gres.PriorityWarning,
+		Filtered:        opts.Term != "" || opts.TagQuery != "",
+		TC:              tc,
+	}, nil
+}
+
+// listOneProjectScoped reads the single store tc resolves to, after homing.
+func listOneProjectScoped(tc operations.TaskContext, opts listOptions) (*scopedListResult, error) {
+	tc, err := resolveHoming(tc)
+	if err != nil {
+		return nil, err
+	}
+	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery,
+		opts.All, opts.IncludeSummary, opts.Limit)
+	if err != nil {
+		return nil, wrapTagQueryError(err)
+	}
+	warnTask(res.Warning)
+	out := &scopedListResult{
+		Path:            res.Path,
+		ProjectID:       res.ProjectID,
+		ProjectDir:      res.ProjectDir,
+		Summary:         res.Summary,
+		Warning:         res.Warning,
+		Tasks:           res.Tasks,
+		HiddenCompleted: res.HiddenCompleted,
+		HiddenDeferred:  res.HiddenDeferred,
+		OmittedByLimit:  res.OmittedByLimit,
+		Filtered:        opts.Term != "" || opts.TagQuery != "",
+		TC:              tc,
+	}
+	if opts.Sort == sortPriority {
+		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())
+		if perr != nil {
+			return nil, fmt.Errorf("compute priorities: %w", perr)
+		}
+		attachPriority(out.Tasks, results)
+		sortTasksByPriorityDesc(out.Tasks)
+		out.PriorityWarning = priorityDiagnosticWarning(diag)
+	}
+	out.Rows = projectRows(out.Tasks, res.ProjectID, res.ProjectDir)
+	return out, nil
 }
 
 // listScope is the resolved scope for a task-listing read: either the one

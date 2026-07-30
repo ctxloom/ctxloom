@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -312,7 +313,35 @@ func viewBundle() *bundles.Bundle {
 		MCP: map[string]bundles.BundleMCP{
 			"fs": {Command: "mcp-fs"},
 		},
+		Profiles: map[string]bundles.BundleProfile{
+			"dev": {Description: "the dev profile", Bundles: []string{"core"}},
+		},
 	}
+}
+
+// TestRenderBundleViewItem_Profile_YAMLOutput and the two not-found cases below
+// are characterization coverage added before U035-F09 split
+// renderBundleViewItem's switch into per-type renderers: the profiles arm and
+// the mcp/profile not-found paths had no test, so the split would otherwise have
+// been unguarded.
+func TestRenderBundleViewItem_Profile_YAMLOutput(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderBundleViewItem(&buf, viewBundle(), "profiles/dev", false))
+	got := buf.String()
+	assert.Contains(t, got, "# Profile: dev")
+	assert.Contains(t, got, "the dev profile")
+}
+
+func TestRenderBundleViewItem_ProfileNotFound(t *testing.T) {
+	err := renderBundleViewItem(&bytes.Buffer{}, viewBundle(), "profiles/missing", false)
+	assert.ErrorContains(t, err, "profile not found")
+}
+
+func TestRenderBundleViewItem_MCPNotFound(t *testing.T) {
+	b := viewBundle()
+	b.MCP["second"] = bundles.BundleMCP{Command: "other"} // defeat the single-server fallback
+	err := renderBundleViewItem(&bytes.Buffer{}, b, "mcp/missing", false)
+	assert.ErrorContains(t, err, "mcp server not found")
 }
 
 func TestRenderBundleViewItem_BadPathFormat(t *testing.T) {

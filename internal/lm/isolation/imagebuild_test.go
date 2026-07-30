@@ -2,9 +2,11 @@ package isolation
 
 import (
 	"context"
+	"debug/elf"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -598,7 +600,7 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 // hash, naming the base generation the image rode on.
 func TestCombineProvenance_CoversBaseConfig(t *testing.T) {
 	deflt := combineProvenance("bin-digest", "")
-	assert.Equal(t, "bin-digest-"+baseContentHash(containerfiles.Base), deflt)
+	assert.Equal(t, "bin-digest-"+baseContentHash(containerfiles.Base()), deflt)
 
 	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
 	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
@@ -821,4 +823,31 @@ func TestSelectBuildRuntime_ExplicitPreferMustBeHonored(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "containerd")
 	})
+}
+
+// selfLinuxExe is the third answer in this repo to "where is the running
+// binary", and it answers a different question from the other two: not "what
+// do I re-invoke" but "is this file a linux ELF I can copy INTO an image".
+// Hence the two gates that make it unusable as a general self-path helper — it
+// errors on a non-linux host and on a non-ELF file, so the caller degrades to
+// another build source instead of baking a binary the image cannot run. There
+// is no bare-name fallback here: a PATH name cannot be copied into an image.
+func TestSelfLinuxExe_ResolvedELFOrAnError(t *testing.T) {
+	exe, err := selfLinuxExe()
+	if runtime.GOOS != "linux" {
+		require.Error(t, err, "a non-linux host must fail up front, not hand back an unusable path")
+		assert.Empty(t, exe)
+		return
+	}
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(exe), "an image ingredient is always a real absolute path, never a PATH name")
+	assert.FileExists(t, exe)
+
+	resolved, rerr := filepath.EvalSymlinks(exe)
+	require.NoError(t, rerr)
+	assert.Equal(t, resolved, exe, "the path is symlink-resolved: the FILE is what gets copied, not the name")
+
+	f, oerr := elf.Open(exe)
+	require.NoError(t, oerr, "the gate only passes an ELF")
+	require.NoError(t, f.Close())
 }

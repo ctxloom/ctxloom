@@ -337,7 +337,9 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Resume:      resume,
 			Ladder:      ladderToFact(plan.Ladder),
 			Permission:  plan.Perm.String(),
-			MCPServers:  mcpServerNames(plan.MCPServers),
+			// Names only: an operator auditing a live delegation sees WHAT a
+			// child can reach, and command/args/env never enter the journal.
+			MCPServers: operations.MCPServerNames(plan.MCPServers),
 		})}, nil
 	}); err != nil {
 		return nil, "", err

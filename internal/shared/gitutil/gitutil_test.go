@@ -176,3 +176,20 @@ func TestGetRemoteURL_FromLinkedWorktree(t *testing.T) {
 	require.NoError(t, err, "origin IS configured — in the shared common dir a linked worktree must resolve through")
 	assert.Equal(t, "https://example.com/repo.git", url)
 }
+
+// SHA abbreviation had grown three separate copies of this three-line rule at
+// two different widths. The widths are a deliberate difference — ordinary
+// output takes git's 7, a prompt's evidence lines take a longer prefix — so
+// the width is a parameter and the RULE is shared. Both widths are pinned here
+// because both are live output.
+func TestAbbrevSHA_TruncatesAtTheRequestedWidth(t *testing.T) {
+	assert.Equal(t, "abc1234", ShortSHA("abc12345def"), "the default width is git's 7")
+	assert.Equal(t, "abcdef1234", AbbrevSHA("abcdef1234567890", 10))
+}
+
+func TestAbbrevSHA_NeverSlicesPastTheEnd(t *testing.T) {
+	assert.Equal(t, "abc", ShortSHA("abc"), "a short hash is returned as-is")
+	assert.Equal(t, "abc1234", ShortSHA("abc1234"), "exactly the width hits len > n on the false side")
+	assert.Equal(t, "", ShortSHA(""))
+	assert.Equal(t, "abc", AbbrevSHA("abc", 10))
+}

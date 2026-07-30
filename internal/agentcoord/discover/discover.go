@@ -7,11 +7,13 @@
 // Deliberately a LEAF package: internal/agentcoord/coord imports
 // internal/operations (children.go's AgentChatLaunch/JoinLeadBlocks), so
 // internal/operations — this discovery mechanism's only production consumer
-// (sessionfeed.go) — cannot import coord without a cycle. This package
-// therefore re-reads coord's endpoint.json shape as an independently
-// defined JSON structure (mirroring coord/httpserver.go's endpointState and
-// MCPPath) rather than importing coord's types; the two must be kept in
-// sync by hand, documented on both sides.
+// (sessionfeed.go) — cannot import coord without a cycle.
+//
+// That constraint fixes the direction of the endpoint.json contract: the file's
+// LAYOUT lives here (DirName, FileName, State, MCPPath, LoopbackURL) and coord,
+// the writer, imports it. The reader cannot reach the writer, so the writer
+// reaches the reader; either way both halves compile against one declaration
+// instead of two that must be kept in step by hand.
 package discover
 
 import (
@@ -25,27 +27,47 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// coordDirName mirrors coord/statedir.go's unexported coordDirName constant.
-const coordDirName = "coord"
+const (
+	// DirName is the per-user directory holding one subdirectory of coordinator
+	// state per project: ~/.ctxloom/<DirName>/<project-key>/.
+	DirName = "coord"
+	// FileName is the discovery file inside a project's state dir. 0600 and
+	// host-local: it carries the consumer credential.
+	FileName = "endpoint.json"
+	// MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
+	// (http://<host>:<port>/mcp) for continuity — the gRPC server rides the same
+	// host:port as the MCP endpoint (one h2c listener, content-type routed), and
+	// a runner derives its dial target from the URL's host:port.
+	MCPPath = "/mcp"
+)
 
-// mcpPath mirrors coord/httpserver.go's MCPPath constant: the gRPC server
-// rides the same host:port as the MCP endpoint (one h2c listener,
-// content-type routed).
-const mcpPath = "/mcp"
+// State is endpoint.json's layout: the ports a coordinator last bound, so a
+// relaunched one re-binds the SAME endpoint (adopted container RunnerChannels
+// re-Hello against a stable, re-bindable endpoint), plus the read-only D1
+// consumer credential an out-of-process viewer needs. The credential is
+// re-minted every Serve() and never journaled, so this file IS its only
+// persistence.
+//
+// Written by coord's Serve, read by List below. omitempty throughout keeps an
+// unbound wide listener or an unminted credential absent rather than zero.
+type State struct {
+	LoopbackPort int    `json:"loopback_port,omitempty"`
+	WidePort     int    `json:"wide_port,omitempty"`
+	ConsumerCred string `json:"consumer_cred,omitempty"`
+}
+
+// LoopbackURL is the host-local URL for a coordinator bound to port on
+// loopback — the value coord advertises and the value List hands back, from one
+// format string.
+func LoopbackURL(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d%s", port, MCPPath)
+}
 
 // Endpoint is one project's coordinator: the URL to dial (gRPC over h2c) and
 // the read-only D1 consumer credential to present as a bearer token.
 type Endpoint struct {
 	URL  string
 	Cred string
-}
-
-// endpointFile mirrors coord/httpserver.go's endpointState JSON shape (only
-// the fields a consumer needs — WidePort is container-reachability only,
-// irrelevant to a host-local CLI viewer).
-type endpointFile struct {
-	LoopbackPort int    `json:"loopback_port"`
-	ConsumerCred string `json:"consumer_cred"`
 }
 
 // List returns every project's coordinator endpoint this host user can
@@ -70,7 +92,7 @@ func List() (endpoints []Endpoint, skipped []error) {
 	if err != nil {
 		return nil, []error{fmt.Errorf("discover: resolve user home dir: %w", err)}
 	}
-	matches, err := filepath.Glob(filepath.Join(home, paths.AppDirName, coordDirName, "*", "endpoint.json"))
+	matches, err := filepath.Glob(filepath.Join(home, paths.AppDirName, DirName, "*", FileName))
 	if err != nil {
 		return nil, []error{fmt.Errorf("discover: glob coordinator endpoint files: %w", err)}
 	}
@@ -81,7 +103,7 @@ func List() (endpoints []Endpoint, skipped []error) {
 			skipped = append(skipped, fmt.Errorf("discover: read %s: %w", m, rerr))
 			continue
 		}
-		var ep endpointFile
+		var ep State
 		if uerr := json.Unmarshal(raw, &ep); uerr != nil {
 			skipped = append(skipped, fmt.Errorf("discover: decode %s: %w", m, uerr))
 			continue
@@ -95,7 +117,7 @@ func List() (endpoints []Endpoint, skipped []error) {
 			continue
 		}
 		endpoints = append(endpoints, Endpoint{
-			URL:  fmt.Sprintf("http://127.0.0.1:%d%s", ep.LoopbackPort, mcpPath),
+			URL:  LoopbackURL(ep.LoopbackPort),
 			Cred: ep.ConsumerCred,
 		})
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 var updateApply bool
@@ -66,14 +67,9 @@ func runRemoteUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
-	ref, err := remote.ParseReference(refStr)
+	ref, err := parseUpdateRef(refStr)
 	if err != nil {
-		return fmt.Errorf("invalid reference: %w", err)
-	}
-
-	// Canonical refs carry the repo URL directly.
-	if ref.URL == "" {
-		return fmt.Errorf("reference has no repository URL: %s", refStr)
+		return err
 	}
 
 	refreshRemoteClone(cmd.Context(), cfg, ref.URL)
@@ -88,7 +84,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return err
 	}
 
-	u, upToDate, err := detectSingleUpdate(cmd.Context(), os.Stdout, fetcher, lockfile, refStr)
+	u, upToDate, err := detectSingleUpdate(cmd.Context(), os.Stdout, fetcher, lockfile, ref, refStr)
 	if err != nil {
 		return err
 	}
@@ -122,17 +118,33 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	return nil
 }
 
+// parseUpdateRef parses a single-ref `remote update` argument and rejects one
+// that carries no repository URL. It is the ONE rejection point on this path:
+// the same input reaching two guards with two different opinions of it tells
+// the user two different things about the same string, and "invalid reference"
+// for a reference that parsed perfectly well sends the reader hunting a syntax
+// error that isn't there.
+func parseUpdateRef(refStr string) (*remote.Reference, error) {
+	ref, err := remote.ParseReference(refStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference: %w", err)
+	}
+	// Canonical refs carry the repo URL directly.
+	if ref.URL == "" {
+		return nil, fmt.Errorf("reference has no repository URL: %s", refStr)
+	}
+	return ref, nil
+}
+
 // detectSingleUpdate resolves one ref's update status against the lockfile,
 // constraint-aware: the latest SHA is the newest commit the entry's
 // RequestedVersion allows (latestWithinConstraint), never bare default-branch
 // HEAD, which can exceed the manifest constraint. The lock entry is found by
 // the ref's canonical identity, so a version-suffixed input still matches.
-// Prints the status to out; returns the pending update when one exists.
-func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetcher, lockfile *remote.Lockfile, refStr string) (updateInfo, bool, error) {
-	ref, err := remote.ParseReference(refStr)
-	if err != nil || ref.URL == "" {
-		return updateInfo{}, false, fmt.Errorf("invalid reference: %s", refStr)
-	}
+// ref is already validated by parseUpdateRef; refStr is carried only for the
+// status lines, which quote the reference the user actually typed. Prints the
+// status to out; returns the pending update when one exists.
+func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetcher, lockfile *remote.Lockfile, ref *remote.Reference, refStr string) (updateInfo, bool, error) {
 	canonical := ref.CanonicalString()
 	entry, itemType := lookupLockedEntry(lockfile, canonical)
 	if itemType == "" {
@@ -170,14 +182,23 @@ func projectAppDir(cfg *config.Config) string {
 	return ".ctxloom"
 }
 
-// refreshRemoteClone fetches the latest into the local clone so updates can be
-// detected. Fault-tolerant: a fetch failure warns and the stale clone is used.
+// refreshRemoteClone fetches the latest into one repo's local clone so updates
+// can be detected — the single-ref counterpart of refreshRemoteRepos.
 func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string) {
-	cache := operations.NewRepoCache(cfg)
-	if forgeType, _, ferr := remote.DetectForge(repoURL); ferr == nil {
-		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
-			clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
-		}
+	fetchIntoClone(ctx, operations.NewRepoCache(cfg), repoURL)
+}
+
+// fetchIntoClone refreshes one repository's local clone. Fault-tolerant, and
+// deliberately so on both arms: a fetch failure warns and leaves the stale
+// clone in place (a stale clone risks missing an update, never a crash), and a
+// URL whose forge cannot be detected has nothing to fetch from at all.
+func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, repoURL string) {
+	forgeType, _, ferr := remote.DetectForge(repoURL)
+	if ferr != nil {
+		return
+	}
+	if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
+		clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
 	}
 }
 
@@ -198,12 +219,12 @@ func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string) boo
 		fmt.Fprintf(out, "%s not found in lockfile, checking latest version...\n", refStr)
 		return false
 	case latestSHA:
-		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
+		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, gitutil.ShortSHA(latestSHA))
 		return true
 	default:
 		fmt.Fprintf(out, "%s has update available:\n", refStr)
-		fmt.Fprintf(out, "  Current: %s\n", shortSHA(currentSHA))
-		fmt.Fprintf(out, "  Latest:  %s\n", shortSHA(latestSHA))
+		fmt.Fprintf(out, "  Current: %s\n", gitutil.ShortSHA(currentSHA))
+		fmt.Fprintf(out, "  Latest:  %s\n", gitutil.ShortSHA(latestSHA))
 		return false
 	}
 }
@@ -323,8 +344,10 @@ type pullRunner interface {
 }
 
 // refreshRemoteRepos fetches each unique remote git repo once so subsequent ref
-// resolution reads from a fresh clone. Best-effort: every failure is warned to
-// stderr and skipped — a stale repo just risks missing an update, never a crash.
+// resolution reads from a fresh clone (one git fetch per repo, not one per
+// entry). It adds only the batch concerns on top of fetchIntoClone: an entry
+// with no locked SHA was never pulled and so has nothing to compare against,
+// and an unparseable or URL-less reference is skipped.
 func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remote.Lockfile) {
 	cache := operations.NewRepoCache(cfg)
 	fetched := map[string]struct{}{}
@@ -336,18 +359,11 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 		if err != nil || ref.URL == "" {
 			continue
 		}
-		repoURL := ref.URL
-		if _, ok := fetched[repoURL]; ok {
+		if _, ok := fetched[ref.URL]; ok {
 			continue
 		}
-		fetched[repoURL] = struct{}{}
-		forgeType, _, ferr := remote.DetectForge(repoURL)
-		if ferr != nil {
-			continue
-		}
-		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
-			clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
-		}
+		fetched[ref.URL] = struct{}{}
+		fetchIntoClone(ctx, cache, ref.URL)
 	}
 }
 
@@ -454,7 +470,7 @@ func printAvailableUpdates(out io.Writer, bundleUpdates []updateInfo) {
 		fmt.Fprintln(out, "Bundles:")
 		for _, u := range bundleUpdates {
 			fmt.Fprintf(out, "  %s  (%s)\n", u.Ref, u.selectorLabel())
-			fmt.Fprintf(out, "    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
+			fmt.Fprintf(out, "    Current: %s → Latest: %s\n", gitutil.ShortSHA(u.CurrentSHA), gitutil.ShortSHA(u.LatestSHA))
 		}
 	}
 }
@@ -498,7 +514,7 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 			}
 			continue
 		}
-		fmt.Fprintf(out, "  Updated to %s\n", shortSHA(result.SHA))
+		fmt.Fprintf(out, "  Updated to %s\n", gitutil.ShortSHA(result.SHA))
 		updated++
 	}
 	return updated, failed, removed
@@ -572,13 +588,6 @@ func reportMissingDefaults(out io.Writer, missing []string) {
 		fmt.Fprintf(out, "  - %s\n", name)
 	}
 	fmt.Fprintln(out, "\nUpdate your ctxloom.yaml to fix the defaults.profiles list.")
-}
-
-func shortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }
 
 // pullOutcome describes how a per-item Pull error should be reported.

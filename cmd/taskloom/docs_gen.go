@@ -24,7 +24,7 @@ import (
 // instructions string, not a hand-written copy of it.
 func registerDocsCmd(root *cobra.Command) {
 	root.AddCommand(docsgen.NewCommand(&docsgen.Product{
-		Bin:       "taskloom",
+		Bin:       progName,
 		Root:      root,
 		CLISource: "cmd/taskloom",
 		LinkBase:  "/taskloom/reference/cli/",

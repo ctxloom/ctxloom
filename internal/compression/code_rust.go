@@ -50,38 +50,55 @@ var rustSigParts = map[string]struct{ prefix, suffix string }{
 	"function_modifiers":  {"", " "},
 	"type_parameters":     {"", ""},
 	"parameters":          {"", ""},
-	"return_type":         {" ", ""},
 	"where_clause":        {"\n    ", ""},
 }
 
-// extractRustFunc emits a Rust function signature, walking its child nodes.
-func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *strings.Builder) {
-	var sig strings.Builder
-
+// writeRustFuncSig writes one function_item's declared signature — every
+// modifier, generic parameter, argument list, return type and where-clause it
+// carries — and renders its body as body. ONE walker serves both the top-level
+// and the impl-nested position: the node kinds a Rust signature is built from
+// do not depend on where the function sits, so a second walk of them is only an
+// opportunity to recognize fewer.
+//
+// The return type is matched by FIELD name, not node kind: tree-sitter-rust
+// tags it with the field `return_type` but leaves the node its own type
+// (`generic_type`, `primitive_type`, `type_identifier`, ...), so a kind-keyed
+// lookup never sees it and the `-> T` half of every signature goes missing.
+func (c *CodeCompressor) writeRustFuncSig(node *sitter.Node, source []byte, out *strings.Builder, body string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
 			continue
 		}
 
+		if node.FieldNameForChild(i) == "return_type" {
+			out.WriteString(" -> ")
+			out.WriteString(c.nodeText(child, source))
+			continue
+		}
+
 		if p, ok := rustSigParts[child.Type()]; ok {
-			sig.WriteString(p.prefix)
-			sig.WriteString(c.nodeText(child, source))
-			sig.WriteString(p.suffix)
+			out.WriteString(p.prefix)
+			out.WriteString(c.nodeText(child, source))
+			out.WriteString(p.suffix)
 			continue
 		}
 
 		switch child.Type() {
 		case "fn":
-			sig.WriteString("fn ")
+			out.WriteString("fn ")
 		case "identifier":
-			sig.WriteString(c.nodeText(child, source))
+			out.WriteString(c.nodeText(child, source))
 		case "block":
-			sig.WriteString(" { ... }")
+			out.WriteString(body)
+			return
 		}
 	}
+}
 
-	out.WriteString(sig.String())
+// extractRustFunc emits a top-level Rust function signature.
+func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *strings.Builder) {
+	c.writeRustFuncSig(node, source, out, " { ... }")
 	out.WriteString("\n\n")
 }
 
@@ -124,37 +141,8 @@ func (c *CodeCompressor) extractRustImplBody(node *sitter.Node, source []byte, o
 
 		if child.Type() == "function_item" {
 			out.WriteString("    ")
-			c.extractRustFuncSigOnly(child, source, out)
+			c.writeRustFuncSig(child, source, out, " { ... }")
 			out.WriteString("\n")
-		}
-	}
-}
-
-func (c *CodeCompressor) extractRustFuncSigOnly(node *sitter.Node, source []byte, out *strings.Builder) {
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
-		if child == nil {
-			continue
-		}
-
-		switch child.Type() {
-		case "visibility_modifier":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString(" ")
-		case "fn":
-			out.WriteString("fn ")
-		case "identifier":
-			out.WriteString(c.nodeText(child, source))
-		case "type_parameters":
-			out.WriteString(c.nodeText(child, source))
-		case "parameters":
-			out.WriteString(c.nodeText(child, source))
-		case "return_type":
-			out.WriteString(" ")
-			out.WriteString(c.nodeText(child, source))
-		case "block":
-			out.WriteString(" { ... }")
-			return
 		}
 	}
 }

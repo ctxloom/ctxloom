@@ -20,7 +20,7 @@ func executeHarness(t *testing.T, b *ACP) *fakeAgent {
 	c2aR, c2aW := io.Pipe() // client → agent
 	a2cR, a2cW := io.Pipe() // agent → client
 
-	b.openTransport = func(context.Context, []string, map[string]string, string) (*transport, error) {
+	b.openTransport = func(context.Context, transportRequest) (*transport, error) {
 		return &transport{
 			stdin:  c2aW,
 			stdout: a2cR,

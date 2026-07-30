@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 func sampleBatch() Batch {
@@ -257,10 +259,10 @@ func TestWriteQueryResults_EveryRequestIsAccountedFor(t *testing.T) {
 }
 
 func TestShortSHA(t *testing.T) {
-	assert.Equal(t, "abcdef1234", shortSHA("abcdef1234567890"), "a full hash is trimmed to a recognizable prefix")
-	assert.Equal(t, "abcdef1234", shortSHA("abcdef1234"), "a hash already at the limit is returned whole")
-	assert.Equal(t, "abc", shortSHA("abc"), "a short hash is returned as-is, never sliced past its end")
-	assert.Equal(t, "", shortSHA(""))
+	assert.Equal(t, "abcdef1234", gitutil.AbbrevSHA("abcdef1234567890", promptSHALen), "a full hash is trimmed to a recognizable prefix")
+	assert.Equal(t, "abcdef1234", gitutil.AbbrevSHA("abcdef1234", promptSHALen), "a hash already at the limit is returned whole")
+	assert.Equal(t, "abc", gitutil.AbbrevSHA("abc", promptSHALen), "a short hash is returned as-is, never sliced past its end")
+	assert.Equal(t, "", gitutil.AbbrevSHA("", promptSHALen))
 }
 
 func sampleFollowupBatch() FollowupBatch {
@@ -309,4 +311,42 @@ func TestBuildFollowupPrompt_NoQueryResultsOmitsSection(t *testing.T) {
 	b := FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "a", Text: "t", Trigger: "x"}}}}
 	p := BuildFollowupPrompt(b)
 	assert.NotContains(t, p, "Query results requested")
+}
+
+// TestPrompts_ResponseContractIsIdenticalWhereItMustBe pins the response
+// contract both prompt builders emit. The two rounds legitimately differ in
+// one thing — whether needs-investigation (and its queries field) is on the
+// menu — and must be byte-identical in everything else, because a model that
+// gets two differently-worded contracts has two chances to answer in a shape
+// the parser rejects.
+func TestPrompts_ResponseContractIsIdenticalWhereItMustBe(t *testing.T) {
+	round1 := responseFormatSection(t, BuildPrompt(Batch{Tasks: []TaskInput{{HarpID: "aa-bb-cc"}}}))
+	round2 := responseFormatSection(t, BuildFollowupPrompt(FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "aa-bb-cc"}}}}))
+
+	const shared = "Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n"
+	assert.Contains(t, round1, shared)
+	assert.Contains(t, round2, shared)
+
+	assert.Contains(t, round1, `"outcome": "fired|not-fired|needs-investigation|cannot-determine"`)
+	assert.Contains(t, round1, `"queries"`)
+	assert.Contains(t, round2, `"outcome": "fired|not-fired|cannot-determine"`)
+	assert.NotContains(t, round2, `"queries"`)
+
+	// Everything outside the outcome vocabulary and the queries field must
+	// match, line for line.
+	assert.Equal(t,
+		"=== Response format ===\n\nRespond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n",
+		strings.Split(round2, "{")[0])
+	assert.Equal(t,
+		"=== Response format ===\n\nRespond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n",
+		strings.Split(round1, "{")[0])
+}
+
+func responseFormatSection(t *testing.T, prompt string) string {
+	t.Helper()
+	i := strings.Index(prompt, "=== Response format ===")
+	if i < 0 {
+		t.Fatalf("prompt carries no response-format section:\n%s", prompt)
+	}
+	return prompt[i:]
 }

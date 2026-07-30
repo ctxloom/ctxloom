@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,11 +132,11 @@ func ResolveProjectIdentity(workDir string) (projectID, warning string, err erro
 // the path convention stays owned here rather than reconstructed by a frontend.
 //
 // In ModeRepo, projectID is always returned empty: the repo IS the identity
-// in that mode (see paths.TasksLogPath and internal/taskloom/config's doc),
+// in that mode (see paths.RepoTasksLogPath and internal/taskloom/config's doc),
 // so there is no id to mint or resolve.
 func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 	if tc.HomingMode == paths.ModeRepo {
-		logPath, err = paths.TasksLogPath(paths.ModeRepo, tc.WorkDir, "")
+		logPath, err = paths.RepoTasksLogPath(tc.WorkDir)
 		if err != nil {
 			return "", "", fmt.Errorf("task log path: %w", err)
 		}
@@ -153,7 +154,7 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 		}
 		projectID = res.ProjectID
 	}
-	logPath, err = paths.TasksLogPath(paths.ModeHome, "", projectID)
+	logPath, err = paths.HomeTasksLogPath(projectID)
 	if err != nil {
 		return projectID, "", fmt.Errorf("task log path: %w", err)
 	}
@@ -245,7 +246,7 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // AddTaskWithTags is AddTask with an initial tag set stamped on the same
@@ -276,7 +277,7 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // TagTask adds and/or removes tags on an existing task in one call,
@@ -350,7 +351,7 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 			return nil, fmt.Errorf("remove tags: %w", err)
 		}
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // scalarCollapse enforces schema's arity=scalar declarations over incoming
@@ -543,7 +544,7 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 	}
 	target := tagschema.Target(parsed)
 	value := *parsed.Value
-	if enum, ok := schema.Enum(target); ok && !containsString(enum, value) {
+	if enum, ok := schema.Enum(target); ok && !slices.Contains(enum, value) {
 		return fmt.Errorf("tag %q's value %q is not one of %s's declared enum values %v", tag, value, target, enum)
 	}
 	if min, max, ok, rerr := schema.Range(target); ok {
@@ -574,16 +575,6 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 	return nil
 }
 
-// containsString reports whether v is a member of list.
-func containsString(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
 // SetTaskStatus moves a task to a different status, attributing the change to
 // the acting session. A non-empty trigger (re)sets the revive condition;
 // moving to Deferred requires one (supplied here or already on the task).
@@ -596,7 +587,7 @@ func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult,
 	if err != nil {
 		return nil, fmt.Errorf("set status: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // EditTask replaces a task's text in place, keyed by harp ID, attributing the
@@ -611,7 +602,7 @@ func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("edit task: %w", err)
 	}
-	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+	return proj.taskResult(store, task, warning), nil
 }
 
 // TagCount reports one tag's usage across the project's tasks. Active counts
@@ -766,6 +757,19 @@ type projectIdentity struct {
 	Dir string // registered project root; empty when not registered
 }
 
+// taskResult is the one shape every single-task mutation returns. Every field
+// is populated here, so a field added to TaskResult cannot be left unset on
+// some mutation paths and not others.
+func (p projectIdentity) taskResult(store *tasks.Store, task tasks.Task, warning string) *TaskResult {
+	return &TaskResult{
+		Path:       store.Path(),
+		Task:       task,
+		Warning:    warning,
+		ProjectID:  p.ID,
+		ProjectDir: p.Dir,
+	}
+}
+
 // resolveTaskStore opens the project's task log for tc: in ModeRepo, the
 // checked-in log inside tc.WorkDir (resolveRepoHomedStore); otherwise
 // (ModeHome, or "" — every pre-homing caller) the project-id from tc (set by
@@ -817,7 +821,7 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 			}
 		}
 	}
-	logPath, err := paths.TasksLogPath(paths.ModeHome, "", proj.ID)
+	logPath, err := paths.HomeTasksLogPath(proj.ID)
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}
@@ -870,7 +874,7 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 		if e.ProjectID == resolvedID {
 			continue
 		}
-		siblingPath, perr := paths.TasksLogPath(paths.ModeHome, "", e.ProjectID)
+		siblingPath, perr := paths.HomeTasksLogPath(e.ProjectID)
 		if perr != nil {
 			continue
 		}
@@ -886,7 +890,7 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 // checked into the project tree at tc.WorkDir/paths.RepoDirName/
 // paths.RepoTasksFileName (.taskloom/tasks.jsonl), alongside
 // .taskloom/config.yaml. The repo IS the identity in this mode — no
-// project-id is minted or consulted (see paths.TasksLogPath's doc and
+// project-id is minted or consulted (see paths.RepoTasksLogPath's doc and
 // internal/taskloom/config's package doc for the full justification).
 // tc.WorkDir is expected to already be redirected through the
 // worktree-to-primary-checkout boundary by the caller (workdir.
@@ -894,14 +898,11 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 // on the SAME log a primary-checkout invocation would — exactly like
 // ModeHome's project-id resolution already does today.
 func resolveRepoHomedStore(tc TaskContext) (store *tasks.Store, proj projectIdentity, warning string, err error) {
-	if tc.WorkDir == "" {
-		return nil, proj, "", fmt.Errorf("repo-homed task store: no project root resolved (working directory unavailable)")
-	}
 	proj.Dir = tc.WorkDir
 	if tc.ProjectID != "" {
 		warning = fmt.Sprintf("--project %s is ignored in repo-homed mode; %s is the store's identity", tc.ProjectID, tc.WorkDir)
 	}
-	logPath, err := paths.TasksLogPath(paths.ModeRepo, tc.WorkDir, "")
+	logPath, err := paths.RepoTasksLogPath(tc.WorkDir)
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}

@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -19,16 +20,6 @@ type Fact struct {
 	Kind string          `json:"kind"`
 	At   time.Time       `json:"at"`
 	Data json.RawMessage `json:"data,omitempty"`
-}
-
-// newFact marshals payload into a Fact. A marshal failure is a programming
-// error (payloads are our own structs) and panics rather than dropping state.
-func newFact(kind string, at time.Time, payload any) Fact {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		panic(fmt.Sprintf("coord: marshal %s fact: %v", kind, err))
-	}
-	return Fact{Kind: kind, At: at, Data: data}
 }
 
 // decode unmarshals a fact payload into out; folds use it and IGNORE unknown
@@ -156,27 +147,34 @@ func (s *Store) OffsetView(read func(offset int64)) (int64, error) {
 // away; an unparseable line that is NOT the tail is corruption and fails
 // loudly (fail-loud philosophy: better an explicit finding than a silently
 // wrong projection).
+//
+// It streams a line at a time: recovery memory is bounded by the LONGEST line,
+// never by the file. Slurping the journal whole cost RAM proportional to its
+// size on exactly the paths that exist to avoid that work — a missing, stale, or
+// out-of-range checkpoint offset all fall back to replaying from byte 0, when
+// the journal is at its largest.
 func (s *Store) replay(fromOffset int64) error {
 	if _, err := s.f.Seek(fromOffset, io.SeekStart); err != nil {
 		return fmt.Errorf("coord: seek journal %s to %d: %w", s.path, fromOffset, err)
 	}
-	raw, err := io.ReadAll(s.f)
-	if err != nil {
-		return fmt.Errorf("coord: read journal %s: %w", s.path, err)
-	}
+	r := bufio.NewReaderSize(s.f, journalLineBuffer)
 	good := fromOffset
 	offset := fromOffset
-	for len(raw) > 0 {
-		nl := bytes.IndexByte(raw, '\n')
-		if nl < 0 {
+	for {
+		line, rerr := r.ReadBytes('\n')
+		if rerr != nil && !errors.Is(rerr, io.EOF) {
+			return fmt.Errorf("coord: read journal %s: %w", s.path, rerr)
+		}
+		if errors.Is(rerr, io.EOF) {
+			if len(line) == 0 {
+				return s.seekEnd(good)
+			}
 			// No newline: a torn final line. Truncate to the last good offset.
 			return s.truncateTo(good)
 		}
-		line := raw[:nl]
-		rest := raw[nl+1:]
 		var fact Fact
-		if uerr := json.Unmarshal(line, &fact); uerr != nil {
-			if len(bytes.TrimSpace(rest)) == 0 {
+		if uerr := json.Unmarshal(line[:len(line)-1], &fact); uerr != nil {
+			if restIsBlank(r) {
 				// The unparseable line is the tail: torn append, truncate.
 				return s.truncateTo(good)
 			}
@@ -185,11 +183,30 @@ func (s *Store) replay(fromOffset int64) error {
 		for _, fl := range s.folds {
 			fl.apply(fact)
 		}
-		offset += int64(nl + 1)
+		offset += int64(len(line))
 		good = offset
-		raw = rest
 	}
-	return s.seekEnd(good)
+}
+
+// journalLineBuffer sizes replay's read buffer. Longer lines still parse —
+// bufio collects them across fills — this only sets how many reads that takes.
+const journalLineBuffer = 64 << 10
+
+// restIsBlank reports whether nothing but whitespace remains, which is what
+// separates an unparseable line that is the TORN TAIL of a crashed append from
+// corruption in the middle of the journal. It stops at the first non-space byte,
+// so the corrupt case never reads the remainder.
+func restIsBlank(r io.Reader) bool {
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		if len(bytes.TrimSpace(buf[:n])) != 0 {
+			return false
+		}
+		if err != nil {
+			return errors.Is(err, io.EOF)
+		}
+	}
 }
 
 func (s *Store) truncateTo(n int64) error {

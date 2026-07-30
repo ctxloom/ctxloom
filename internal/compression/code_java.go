@@ -93,59 +93,33 @@ func (c *CodeCompressor) extractJavaClassBody(node *sitter.Node, source []byte, 
 			out.WriteString("\n")
 		case "method_declaration":
 			out.WriteString("    ")
-			c.extractJavaMethodSig(child, source, out)
+			c.writeJavaMemberSig(child, source, out, "block")
 			out.WriteString("\n")
 		case "constructor_declaration":
 			out.WriteString("    ")
-			c.extractJavaConstructorSig(child, source, out)
+			c.writeJavaMemberSig(child, source, out, "constructor_body")
 			out.WriteString("\n")
 		}
 	}
 }
 
-func (c *CodeCompressor) extractJavaMethodSig(node *sitter.Node, source []byte, out *strings.Builder) {
-	// Find the block and extract everything before it from source
-	var blockStart uint32
-	hasBlock := false
-
+// writeJavaMemberSig writes one class member's declaration verbatim up to the
+// point its body opens, then elides the body. bodyKind names the node kind that
+// opens it — `block` for a method, `constructor_body` for a constructor — which
+// is the ONLY thing that differs between the two; a member with no body at all
+// (abstract, or an interface method) is emitted whole.
+//
+// Taking the signature as a source SLICE rather than re-assembling it from child
+// nodes is deliberate: it keeps annotations, modifiers, generics, and a `throws`
+// clause exactly as written, with no node kind left to forget.
+func (c *CodeCompressor) writeJavaMemberSig(node *sitter.Node, source []byte, out *strings.Builder, bodyKind string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
-		if child != nil && child.Type() == "block" {
-			blockStart = child.StartByte()
-			hasBlock = true
-			break
+		if child != nil && child.Type() == bodyKind {
+			out.WriteString(strings.TrimSpace(string(source[node.StartByte():child.StartByte()])))
+			out.WriteString(" { ... }")
+			return
 		}
 	}
-
-	if hasBlock {
-		sig := strings.TrimSpace(string(source[node.StartByte():blockStart]))
-		out.WriteString(sig)
-		out.WriteString(" { ... }")
-	} else {
-		// Abstract method or interface method - no body
-		out.WriteString(strings.TrimSpace(c.nodeText(node, source)))
-	}
-}
-
-func (c *CodeCompressor) extractJavaConstructorSig(node *sitter.Node, source []byte, out *strings.Builder) {
-	// Find the constructor_body and extract everything before it from source
-	var bodyStart uint32
-	hasBody := false
-
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
-		if child != nil && child.Type() == "constructor_body" {
-			bodyStart = child.StartByte()
-			hasBody = true
-			break
-		}
-	}
-
-	if hasBody {
-		sig := strings.TrimSpace(string(source[node.StartByte():bodyStart]))
-		out.WriteString(sig)
-		out.WriteString(" { ... }")
-	} else {
-		out.WriteString(strings.TrimSpace(c.nodeText(node, source)))
-	}
+	out.WriteString(strings.TrimSpace(c.nodeText(node, source)))
 }

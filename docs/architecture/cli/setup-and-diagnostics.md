@@ -84,7 +84,8 @@ Six flags (`bindInitFlags:112`) including `--engine`, `--remote`, `--forge`,
   personal remotes, clone configured remotes, pull seeded dependencies, apply
   hooks — then hand off to the engine's raw TUI for the setup interview
   (`launchDiscovery:1118`).
-- **`.ctxloom` exists** → `engineFromExistingConfig:659` and straight to
+- **`.ctxloom` exists** → `engineForExistingDir` (an explicit `--engine` wins
+  over the recorded one), the `--remote`/`--forge` flags, and straight to
   `launchDiscovery`.
 
 `checkSystemDeps:712` hard-blocks on missing git (with a per-OS install message —
@@ -186,16 +187,13 @@ TOML integer round-trip does not fail verification.
 
 ## Documented vs real
 
-- **`init --remote` and `--forge` are silently ignored when `.ctxloom` already
-  exists**: their only consumer (`init.go:824`) sits inside the `else` branch of
-  `if alreadyExists`. `--engine` is likewise read and then discarded on that path,
-  because `engineFromExistingConfig:659` returns the config's engine first.
-- **Five post-scaffold steps use the bare ambient `config.Load()`**
-  (`init.go:660,970,988,1009,1030`), which discovers `.ctxloom` from the cwd — so
-  `ctxloom init --home` inside a project writes config to `~/.ctxloom` but applies
-  remotes, deps and hooks to the **project** config. `agentSetupNudge`
-  (`hook_inject_context.go:189`) shows the correct pattern.
-- `applyInitHooks:1043` prints `Applied hooks for: []` when nothing was applied.
+- **`ctxloom init --home` inside a project still applies HOOKS to the project.**
+  init's post-scaffold steps read the config `config.WithAppDir(appDir)`-scoped,
+  so remotes, seeded deps and the engine choice all follow the `.ctxloom` init
+  targets — but `operations.ApplyHooks` resolves its own `workDir` from the cwd
+  when the request leaves it empty, and pinning it to the `--home` dir would
+  collide with `checkHookTargetScope`'s refusal to write a backend's user-global
+  settings.
 - `config show`/`get`/`edit`/`init` accept `--format` and always emit YAML (see
   [output-and-format.md](output-and-format.md)). Eleven `manage`/`mcp`/item
   commands do the same with plain text.

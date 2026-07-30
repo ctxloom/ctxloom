@@ -148,38 +148,9 @@ func (s *GRPCServer) WatchSession(req *WatchSessionRequest, stream LLM_WatchSess
 // cancelled, after which both channels close (errs mirrors the gRPC watch
 // signature so consumers render either source identically).
 func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path string, poll time.Duration) (<-chan *WatchEvent, <-chan error) {
-	if poll <= 0 {
-		poll = defaultWatchPoll
-	}
-	events := make(chan *WatchEvent)
-	errs := make(chan error, 1)
-	go func() {
-		defer close(events)
-		defer close(errs)
-		w := &sessionWatcher{heartbeatEvery: watchHeartbeatEvery}
-		ticker := time.NewTicker(poll)
-		defer ticker.Stop()
-		for {
-			sess, err := hist.GetSessionByPath(path)
-			if err != nil {
-				clidiag.Warn("ctxloom", "watch transcript %s: %v", path, err)
-			} else {
-				for _, ev := range w.step(sess) {
-					select {
-					case events <- ev:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-	return events, errs
+	return pollTranscript(ctx, "watch transcript", path, poll, func() (*agent.Session, error) {
+		return hist.GetSessionByPath(path)
+	})
 }
 
 // WatchCanonicalTranscript streams a captured transcript.jsonl's
@@ -194,6 +165,20 @@ func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path str
 // as WatchHistoryByPath: a transient parse error is warned and retried next
 // tick, never kills the stream; it ends when ctx is cancelled.
 func WatchCanonicalTranscript(ctx context.Context, path, harpName string, poll time.Duration) (<-chan *WatchEvent, <-chan error) {
+	return pollTranscript(ctx, "watch canonical transcript", path, poll, func() (*agent.Session, error) {
+		return transcript.ParseTranscriptFile(path, harpName)
+	})
+}
+
+// pollTranscript is the host-side polling feed both by-path watchers are: read
+// the whole conversation, hand it to the shared sessionWatcher core to decide
+// what is new, emit that. Only WHICH reader runs (and the label its failures
+// are warned under) differs between the two locators, so the lifecycle is
+// stated once here — poll <= 0 falls back to the default cadence, a read
+// failure is warned and retried on the next tick rather than ending a
+// long-lived stream, and ctx cancellation closes both channels. errs mirrors
+// the gRPC watch signature so a consumer renders either source identically.
+func pollTranscript(ctx context.Context, label, path string, poll time.Duration, read func() (*agent.Session, error)) (<-chan *WatchEvent, <-chan error) {
 	if poll <= 0 {
 		poll = defaultWatchPoll
 	}
@@ -206,9 +191,9 @@ func WatchCanonicalTranscript(ctx context.Context, path, harpName string, poll t
 		ticker := time.NewTicker(poll)
 		defer ticker.Stop()
 		for {
-			sess, err := transcript.ParseTranscriptFile(path, harpName)
+			sess, err := read()
 			if err != nil {
-				clidiag.Warn("ctxloom", "watch canonical transcript %s: %v", path, err)
+				clidiag.Warn("ctxloom", "%s %s: %v", label, path, err)
 			} else {
 				for _, ev := range w.step(sess) {
 					select {

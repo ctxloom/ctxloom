@@ -59,3 +59,21 @@ func TestVersionCmd_UnknownFormatErrors(t *testing.T) {
 	assert.Empty(t, out)
 	assert.True(t, strings.Contains(err.Error(), "unsupported format") || strings.Contains(err.Error(), "xml"))
 }
+
+// TestProgName_IsTheOneNameEveryTaskloomSurfaceUses pins the program name to a
+// single constant. version.go's copy crosses a WIRE — ctxloom's boot probe
+// parses .name out of `taskloom version --format json` — and the same string is
+// the cobra Use line, the MCP server name, the loadout name, the PATH lookup
+// and every diagnostic prefix. Eleven independent literals is eleven ways for
+// a rename to half-land.
+func TestProgName_IsTheOneNameEveryTaskloomSurfaceUses(t *testing.T) {
+	assert.Equal(t, "taskloom", progName, "the wire value ctxloom's boot probe parses")
+
+	out, err := runVersionCmd(t, "json")
+	require.NoError(t, err)
+	var got cliversion.Info
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.Equal(t, progName, got.Name)
+
+	assert.Equal(t, progName, rootCmd.Use, "the cobra Use line must be the same name")
+}

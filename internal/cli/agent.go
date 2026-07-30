@@ -209,14 +209,13 @@ func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
 	// A bundle (or installed companion) can ship its own `agent-setup` command
 	// to AUGMENT the built-in onboarding/composition guidance (data, not
 	// baked into the binary); every match's content adds to the built-in,
-	// never replaces it. Falls back to the built-in alone when none is
-	// installed or config can't load.
-	prompt := ctxloomInitPrompt
-	if cfg, err := GetConfig(); err == nil {
-		prompt = operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
-	}
+	// never replaces it. discoverySessionPrompt (init.go) is the single
+	// resolver every door shares, so this one cannot drift from the body the
+	// discovery session receives; it degrades to the built-in alone for the
+	// nil config GetConfig returns on a load failure.
+	cfg, _ := GetConfig()
 	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Println(prompt)
+	w.Println(discoverySessionPrompt(cfg))
 	return w.Err()
 }
 
@@ -304,7 +303,7 @@ Examples:
 		if cmd.Flags().Changed("driving") {
 			req.Driving = &agentSetDriving
 		}
-		entry, err := operations.SetAgent(config.DefaultManager(), cfg, req)
+		entry, err := operations.SetAgent(config.NewManager(), cfg, req)
 		if err != nil {
 			return err
 		}
@@ -383,7 +382,7 @@ Examples:
 		if _, ok := cfg.Agent(name); !ok {
 			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 		}
-		if err := config.DefaultManager().Update(func(d *config.Draft) error {
+		if err := config.NewManager().Update(func(d *config.Draft) error {
 			d.DefaultAgent = name
 			return nil
 		}); err != nil {
@@ -409,7 +408,7 @@ var agentRemoveCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		if err := operations.RemoveAgent(config.DefaultManager(), cfg, name); err != nil {
+		if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())

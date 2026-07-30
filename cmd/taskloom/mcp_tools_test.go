@@ -308,6 +308,33 @@ func TestHandleTaskList_MalformedTagQueryErrors(t *testing.T) {
 
 	_, _, err = handleTaskList(context.Background(), nil, taskListInput{TagQuery: "and"})
 	assert.Error(t, err, "a malformed tag query must fail loud, never silently return an empty/all result")
+	// The agent typing tag_query is the caller MOST likely to get the postfix
+	// grammar wrong, and the only one who cannot read `taskloom list --help`.
+	assert.Contains(t, err.Error(), "queries are postfix",
+		"the MCP tool must carry the same grammar hint the CLI gives, not tagma's bare stack error")
+}
+
+// TestHandleTaskList_MalformedTagQueryErrorMatchesTheCLI pins the two list
+// surfaces to one diagnostic for one mistake. They resolve, filter and project
+// through the same pipeline; the error a malformed query produces must not
+// depend on which surface asked.
+func TestHandleTaskList_MalformedTagQueryErrorMatchesTheCLI(t *testing.T) {
+	withProjectDir(t)
+
+	_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "a task"})
+	require.NoError(t, err)
+
+	_, _, mcpErr := handleTaskList(context.Background(), nil, taskListInput{TagQuery: "and"})
+	require.Error(t, mcpErr)
+
+	tc, err := taskContext()
+	require.NoError(t, err)
+	tc, err = resolveHoming(tc)
+	require.NoError(t, err)
+	_, cliErr := operations.ListTasksWithTagQuery(tc, nil, "", "and", false, false, 0)
+	require.Error(t, cliErr)
+
+	assert.Equal(t, wrapTagQueryError(cliErr).Error(), mcpErr.Error())
 }
 
 // TestHandleTaskList_DefaultScopesToCurrentProjectOnly pins the headline

@@ -103,7 +103,7 @@ Examples:
   ctxloom fragment edit core#fragments/tdd --no-distill`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(args[0], ItemTypeFragment, fragmentEditNoDistill)
+		return editItem(cmd.OutOrStdout(), args[0], ItemTypeFragment, fragmentEditNoDistill)
 	},
 }
 

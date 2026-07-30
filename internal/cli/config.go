@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 
@@ -42,7 +43,34 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return renderConfigYAML(cfg, cmd.OutOrStdout())
+	payload, err := configPayload(cfg)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, payload, func() error { return renderConfigYAML(cfg, cmd.OutOrStdout()) })
+}
+
+// configPayload re-expresses a config value as a plain map/slice/scalar tree by
+// round-tripping it through its OWN yaml encoding, so every --format encoding
+// carries the same keys `config show` has always printed.
+//
+// The round-trip is load-bearing, not ceremony: Config's fields are all
+// unexported and it renders through a custom MarshalYAML, so handing the struct
+// straight to a reflective or json encoder yields "{}" — a zero-byte payload
+// with a 0 exit, which is exactly the failure the format contract exists to
+// prevent. The section values `config get` returns carry yaml tags but no json
+// tags, and would otherwise render Go field names in json/toml while yaml kept
+// snake_case.
+func configPayload(v any) (any, error) {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+	var payload any
+	if err := yaml.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("failed to re-read marshaled config: %w", err)
+	}
+	return payload, nil
 }
 
 // configGetLong is shared by configGetCmd (real home) and
@@ -68,7 +96,15 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return renderConfigSection(cfg, args[0], cmd.OutOrStdout())
+	section, err := resolveConfigSection(cfg, args[0])
+	if err != nil {
+		return err
+	}
+	payload, err := configPayload(section)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, payload, func() error { return renderConfigSection(cfg, args[0], cmd.OutOrStdout()) })
 }
 
 // renderConfigYAML marshals cfg to YAML and writes it to out. Extracted
@@ -126,10 +162,33 @@ var configEditCmd = &cobra.Command{
 
 func runConfigEdit(cmd *cobra.Command, _ []string) error {
 	path := projectConfigPath()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	exists, err := configFileExists(path)
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return fmt.Errorf("no config at %s — run 'ctxloom config init' first", path)
 	}
 	return openInEditor(path)
+}
+
+// configFileExists reports whether path is there, keeping "it is genuinely
+// absent" separate from "the answer is unknown". Both config commands hinge on
+// that answer — edit refuses to run without a config, init refuses to
+// overwrite one — and os.Stat has a third outcome besides yes and no: a
+// permission-denied parent, a non-directory path component, a symlink loop. A
+// boolean reading of Stat resolves every one of those to the WRONG branch
+// (edit launches $EDITOR on a path it could not read; init proceeds as if the
+// config it must not clobber were absent), so an inconclusive stat is reported,
+// never guessed.
+func configFileExists(path string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("cannot determine whether %s exists: %w", path, err)
+	}
+	return true, nil
 }
 
 // configInitLong is shared by configInitCmd (real home) and
@@ -155,16 +214,20 @@ func runConfigInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	path := paths.ConfigPath(appDir)
-	if _, err := os.Stat(path); err == nil {
+	exists, err := configFileExists(path)
+	if err != nil {
+		return err
+	}
+	if exists {
 		return fmt.Errorf("config already exists: %s", path)
 	}
-	if _, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
+	if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
 		AppDir: appDir,
 		Engine: configInitEngine,
 	}); err != nil {
 		return err
 	}
-	fmt.Printf("Wrote %s\n", path)
+	fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", path)
 	return nil
 }
 

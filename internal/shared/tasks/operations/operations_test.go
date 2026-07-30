@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +33,7 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 		t.Fatalf("origin = %q, want the session harp", add.Task.OriginSession)
 	}
 
-	logPath, err := paths.TasksLogPath(paths.ModeHome, "", "test-project")
+	logPath, err := paths.HomeTasksLogPath("test-project")
 	if err != nil {
 		t.Fatalf("log path: %v", err)
 	}
@@ -583,9 +585,9 @@ func TestHoming_HomeHomedWritesUnderHome(t *testing.T) {
 	if res.ProjectID == "" {
 		t.Fatal("ProjectID empty, want a minted/registered id")
 	}
-	wantPath, err := paths.TasksLogPath(paths.ModeHome, "", res.ProjectID)
+	wantPath, err := paths.HomeTasksLogPath(res.ProjectID)
 	if err != nil {
-		t.Fatalf("TasksLogPath: %v", err)
+		t.Fatalf("HomeTasksLogPath: %v", err)
 	}
 	if res.Path != wantPath {
 		t.Fatalf("Path = %q, want %q", res.Path, wantPath)
@@ -980,13 +982,13 @@ func TestWriteSeamNeverRevalidatesPreExistingTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TagTask add (of an unrelated, valid tag) on a task carrying pre-existing schema-violating tags: %v", err)
 	}
-	if !containsString(res.Task.Tags, "urgent") {
+	if !slices.Contains(res.Task.Tags, "urgent") {
 		t.Fatalf("tags after add = %+v, want \"urgent\" included", res.Task.Tags)
 	}
-	if !containsString(res.Task.Tags, "triage:kind=sparkles") {
+	if !slices.Contains(res.Task.Tags, "triage:kind=sparkles") {
 		t.Fatalf("pre-existing schema-violating tag must survive untouched, got %+v", res.Task.Tags)
 	}
-	if !containsString(res.Task.Tags, "legacy-flat-tag") {
+	if !slices.Contains(res.Task.Tags, "legacy-flat-tag") {
 		t.Fatalf("pre-existing bare legacy tag must survive untouched, got %+v", res.Task.Tags)
 	}
 }
@@ -1336,7 +1338,7 @@ func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
 	}
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
 
-	logPath, err := paths.TasksLogPath(paths.ModeHome, "", "p")
+	logPath, err := paths.HomeTasksLogPath("p")
 	if err != nil {
 		t.Fatalf("log path: %v", err)
 	}
@@ -1366,5 +1368,30 @@ func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
 	}
 	if len(result.Violations) != 0 {
 		t.Fatalf("violations = %+v, want none for clean data", result.Violations)
+	}
+}
+
+// TestTaskResult_PopulatesEveryField pins the one constructor every
+// single-task mutation returns through. An unset field here is a field the
+// frontend silently renders as empty on every mutation path at once.
+func TestTaskResult_PopulatesEveryField(t *testing.T) {
+	store, err := tasks.OpenLog(filepath.Join(t.TempDir(), "p.jsonl"), "swift-amber-falcon")
+	if err != nil {
+		t.Fatalf("OpenLog: %v", err)
+	}
+
+	proj := projectIdentity{ID: "proj-id", Dir: "/proj/dir"}
+	task := tasks.Task{HarpID: "aa-bb-cc", Text: "t"}
+	got := proj.taskResult(store, task, "a warning")
+
+	if got.Path != store.Path() || got.Task.HarpID != task.HarpID ||
+		got.Warning != "a warning" || got.ProjectID != "proj-id" || got.ProjectDir != "/proj/dir" {
+		t.Fatalf("taskResult mispopulated: %+v", got)
+	}
+	v := reflect.ValueOf(*got)
+	for i := range v.NumField() {
+		if v.Field(i).IsZero() {
+			t.Errorf("TaskResult.%s left at its zero value", v.Type().Field(i).Name)
+		}
 	}
 }

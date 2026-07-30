@@ -1,7 +1,8 @@
 // Tests for the pure helpers in cmd/remote_update.go. The cobra
 // RunE bodies do network IO (forge fetcher, puller) and can't be
 // unit-tested without a sizable refactor; the extracted pullOutcome
-// classifier and shortSHA helper carry the testable decision logic.
+// classifier carries the testable decision logic. SHA abbreviation is
+// gitutil.ShortSHA and is covered there.
 package cli
 
 import (
@@ -13,27 +14,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
-
-// =============================================================================
-// shortSHA
-// =============================================================================
-
-func TestShortSHA_TruncatesAtSeven(t *testing.T) {
-	assert.Equal(t, "abc1234", shortSHA("abc12345def"))
-}
-
-func TestShortSHA_PreservesShorterInput(t *testing.T) {
-	assert.Equal(t, "abc", shortSHA("abc"))
-}
-
-func TestShortSHA_ExactlySevenStaysUnchanged(t *testing.T) {
-	// 7-char SHA hits the `len > 7` boundary on the false side: no truncation.
-	assert.Equal(t, "abc1234", shortSHA("abc1234"))
-}
-
-func TestShortSHA_Empty(t *testing.T) {
-	assert.Equal(t, "", shortSHA(""))
-}
 
 // =============================================================================
 // classifyPullError

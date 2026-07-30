@@ -20,7 +20,7 @@ import (
 // the server resolves its own ctxloom home, so no host path crosses the wire.
 
 func planFilesToProto(in []agent.PlanFile) []*PlanFile {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]*PlanFile, len(in))
@@ -31,7 +31,7 @@ func planFilesToProto(in []agent.PlanFile) []*PlanFile {
 }
 
 func planFilesFromProto(in []*PlanFile) []agent.PlanFile {
-	if in == nil {
+	if len(in) == 0 {
 		return nil
 	}
 	out := make([]agent.PlanFile, 0, len(in))

@@ -58,3 +58,21 @@ func TestRouter_CompressWithType_JSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Content)
 }
+
+// TestRouter_NoHandlerMatchesVerbatimResult is the parity gate over the two
+// verbatim pass-throughs in this package: the Router's own no-compressor
+// fallback and verbatimResult, the helper every compressor degrades through.
+// A pass-through that diverges from the canonical one is a Result the caller
+// cannot classify — and Ratio in particular is load-bearing, because the only
+// production caller (cli.distillWithModel) treats `Ratio < 0.7` as "structural
+// compression succeeded, use it" and anything else as "fall back to the LLM".
+// A fallback claiming a compressed ratio for unchanged content would ship the
+// original bytes as a distillation.
+func TestRouter_NoHandlerMatchesVerbatimResult(t *testing.T) {
+	const content = "key: value\n"
+	got, err := NewRouter().CompressWithType(context.Background(), ContentTypeYAML, content)
+	require.NoError(t, err)
+	assert.Equal(t, verbatimResult(content, ""), got,
+		"the no-compressor fallback must be the canonical verbatim Result, field for field")
+	assert.Equal(t, 1.0, got.Ratio, "unchanged content must never claim a compressed ratio")
+}

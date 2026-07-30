@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -134,7 +135,12 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 
 	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, plan.Coordinator))
 	if err != nil {
-		c.failChild(rt, fmt.Errorf("owner run: runner launch failed: %w", err))
+		// ONE error, both destinations: the run's terminal record and the
+		// caller get the same text. Returning the bare cause here left the
+		// operator-facing path (this error reaches `ctxloom run`'s stderr) less
+		// informative than the journal.
+		err = fmt.Errorf("owner run: runner launch failed: %w", err)
+		c.failChild(rt, err)
 		return nil, err
 	}
 	c.mu.Lock()
@@ -186,11 +192,25 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 // run); bridgeTurnResult is suppressed for an owner run, so this input queue
 // never sees the run's own output re-queued into it (childRt.ownerRun's doc).
 func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("owner run %q: a turn needs text — an empty turn wakes the engine with nothing to "+
+			"act on (check context assembly and the prompt source)", runID)
+	}
 	c.mu.Lock()
 	rt := c.attach[runID]
+	ownerRun := rt != nil && rt.ownerRun
 	c.mu.Unlock()
 	if rt == nil {
 		return fmt.Errorf("owner run %q: no live run to send a turn to", runID)
+	}
+	// A DELEGATED child's run id must not be drivable here. This verb enqueues
+	// SELF-addressed mail (from == to == the run's harp), which is only correct
+	// for a session's own run: for a child it bypasses the parent→child routing,
+	// its audit trail and the result bridge, and delivers a turn nobody is
+	// recorded as having sent.
+	if !ownerRun {
+		return fmt.Errorf("owner run %q: not an owner-owned run — send to a delegated child with agent_send, "+
+			"which routes and audits it as its parent's message", runID)
 	}
 	// queueMailPayloadID pushes to a migrated run's live channel itself
 	// (delivery-by-state), but push again explicitly for parity with

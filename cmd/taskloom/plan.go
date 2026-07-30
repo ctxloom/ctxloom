@@ -122,7 +122,7 @@ func runPlanListCmd(out, errw io.Writer, tc operations.TaskContext, opts planLis
 	}
 
 	if scope.Notice != "" {
-		clidiag.Fwarn(errw, "taskloom", "%s", scope.Notice)
+		clidiag.Fwarn(errw, progName, "%s", scope.Notice)
 	}
 
 	var list []plans.Plan

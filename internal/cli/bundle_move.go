@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 var (
@@ -81,7 +82,7 @@ func printMoveResult(w io.Writer, r *operations.MoveBundleResult) error {
 		return err
 	}
 	if r.CommitSHA != "" {
-		if _, err := fmt.Fprintf(w, "Commit: %s\n", shortSHA(r.CommitSHA)); err != nil {
+		if _, err := fmt.Fprintf(w, "Commit: %s\n", gitutil.ShortSHA(r.CommitSHA)); err != nil {
 			return err
 		}
 	}

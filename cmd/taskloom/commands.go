@@ -7,7 +7,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -151,6 +150,11 @@ type listOptions struct {
 	// they're computed independently, straight from the store.
 	Limit int
 
+	// IncludeSummary asks the store for per-status counts alongside the rows.
+	// `taskloom list` never sets it (`summary` is its own command); task_list's
+	// include_summary does, and both go through one pipeline.
+	IncludeSummary bool
+
 	Format clifmt.Format
 }
 
@@ -161,84 +165,67 @@ type listOptions struct {
 // other format hands the raw rows to clifmt so the same data serializes to
 // json/yaml/toml/markdown without a per-format branch here.
 func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
+	// Named for the flag the user typed. Each surface spells its own option
+	// (--sort here, the sort field over MCP); listTasksScoped refuses an
+	// unknown value too, so neither can fall through to a silent unsorted
+	// listing.
 	if opts.Sort != "" && opts.Sort != sortPriority {
 		return fmt.Errorf("taskloom: unknown --sort value %q (must be %q)", opts.Sort, sortPriority)
 	}
-	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir)
+	r, err := listTasksScoped(tc, opts)
 	if err != nil {
 		return err
 	}
-	filtered := opts.Term != "" || opts.TagQuery != ""
+	if r.Notice != "" {
+		clidiag.Fwarn(errw, progName, "%s", r.Notice)
+	}
+	if r.PriorityWarning != "" {
+		clidiag.Fwarn(errw, progName, "%s", r.PriorityWarning)
+	}
+	noteHidden(errw, r.HiddenCompleted, r.HiddenDeferred, r.Filtered)
+	noteOmittedByLimit(errw, r.OmittedByLimit)
 
-	if scope.Global {
-		notice := scope.Notice
-		limitation := globalScopeLimitationNote(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
-		if notice != "" {
-			notice += "; " + limitation
-		} else {
-			notice = limitation
-		}
-		clidiag.Fwarn(errw, "taskloom", "%s", notice)
-		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp, opts.Limit)
-		if err != nil {
-			return wrapTagQueryError(err)
-		}
-		if gres.PriorityWarning != "" {
-			clidiag.Fwarn(errw, "taskloom", "%s", gres.PriorityWarning)
-		}
-		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, filtered)
-		noteOmittedByLimit(errw, gres.OmittedByLimit)
-		if opts.Format != clifmt.FormatText {
-			if opts.Compact {
-				return clifmt.Render(out, compactRows(gres.Rows), opts.Format)
-			}
-			return clifmt.Render(out, gres.Rows, opts.Format)
-		}
-		w := iox.NewErrWriter(out)
-		w.Printf("Projects: %d (--global)\n\n", gres.ProjectCount)
-		if err := w.Err(); err != nil {
-			return err
-		}
-		return renderGlobalTaskTable(out, gres.Rows, hideConfigFor(tc))
+	if r.Global {
+		return renderGlobalListing(out, r, opts)
 	}
+	return renderProjectListing(out, r, opts)
+}
 
-	tc, err = resolveHoming(tc)
-	if err != nil {
-		return err
-	}
-	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.All, false, opts.Limit)
-	if err != nil {
-		return wrapTagQueryError(err)
-	}
-	warnTask(res.Warning)
-	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, filtered)
-	noteOmittedByLimit(errw, res.OmittedByLimit)
-	if opts.Sort == sortPriority {
-		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())
-		if perr != nil {
-			return fmt.Errorf("compute priorities: %w", perr)
-		}
-		attachPriority(res.Tasks, results)
-		sortTasksByPriorityDesc(res.Tasks)
-		if msg := priorityDiagnosticWarning(diag); msg != "" {
-			clidiag.Fwarn(errw, "taskloom", "%s", msg)
-		}
-	}
+// renderGlobalListing writes an aggregated listing: project-attributed rows in
+// a machine format, or one table section per project in the text view.
+func renderGlobalListing(out io.Writer, r *scopedListResult, opts listOptions) error {
 	if opts.Format != clifmt.FormatText {
 		if opts.Compact {
-			return clifmt.Render(out, compactTasksOf(res.Tasks), opts.Format)
+			return clifmt.Render(out, compactRows(r.Rows), opts.Format)
 		}
-		return clifmt.Render(out, res.Tasks, opts.Format)
+		return clifmt.Render(out, r.Rows, opts.Format)
+	}
+	w := iox.NewErrWriter(out)
+	w.Printf("Projects: %d (--global)\n\n", r.ProjectCount)
+	if err := w.Err(); err != nil {
+		return err
+	}
+	return renderGlobalTaskTable(out, r.Rows, hideConfigFor(r.TC))
+}
+
+// renderProjectListing writes a single-project listing. Its machine formats
+// emit unattributed tasks — the project is named once, not per row.
+func renderProjectListing(out io.Writer, r *scopedListResult, opts listOptions) error {
+	if opts.Format != clifmt.FormatText {
+		if opts.Compact {
+			return clifmt.Render(out, compactTasksOf(r.Tasks), opts.Format)
+		}
+		return clifmt.Render(out, r.Tasks, opts.Format)
 	}
 	// Name the resolved store: in multi-root workspaces (several .ctxloom
 	// trees under one repo), which project a listing came from is the
 	// first thing a confused reader needs to know.
 	w := iox.NewErrWriter(out)
-	w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
+	w.Printf("Project: %s\n\n", formatProjectLabel(r.ProjectDir, r.ProjectID))
 	if err := w.Err(); err != nil {
 		return err
 	}
-	return renderTaskTable(out, res.Tasks, hideConfigFor(tc))
+	return renderTaskTable(out, r.Tasks, hideConfigFor(r.TC))
 }
 
 // compactTasksOf projects a single-project listing's tasks to their

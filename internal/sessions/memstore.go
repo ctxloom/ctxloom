@@ -116,8 +116,12 @@ func (m *MemStore) AssignHarp(projectDir, backend string) (Entry, error) {
 	for _, s := range m.sessions {
 		used[s.HarpName] = struct{}{}
 	}
+	name, err := generateUniqueHarp(used)
+	if err != nil {
+		return Entry{}, err
+	}
 	entry := Entry{
-		HarpName:   generateUniqueHarp(used),
+		HarpName:   name,
 		Backend:    backend,
 		ProjectDir: projectDir,
 		StartedAt:  time.Now().UTC(),

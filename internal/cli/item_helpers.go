@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
@@ -447,7 +448,7 @@ func deleteItem(ref string, itemType ItemType) error {
 // distillation leaves the item with NO distilled form (falls back to raw in
 // distilled-mode assembly) rather than a WRONG one. See docs at those
 // functions for the invariant this relies on.
-func editItem(ref string, itemType ItemType, noDistill bool) error {
+func editItem(out io.Writer, ref string, itemType ItemType, noDistill bool) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -491,13 +492,13 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 		return err
 	}
 
-	fmt.Printf("Updated %s %q in bundle %q", itemType, itemName, bundleName)
+	fmt.Fprintf(out, "Updated %s %q in bundle %q", itemType, itemName, bundleName)
 	if res.Distilled {
-		fmt.Print(" (re-distilled)")
+		fmt.Fprint(out, " (re-distilled)")
 	}
-	fmt.Println()
-	fmt.Print(editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
-	printPushReminder(bundleName)
+	fmt.Fprintln(out)
+	fmt.Fprint(out, editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
+	printPushReminder(out, bundleName)
 	return nil
 }
 
@@ -649,7 +650,7 @@ func printPushResult(w io.Writer, r *operations.PushBundleResult) error {
 		return err
 	}
 	if r.CommitSHA != "" {
-		if _, err := fmt.Fprintf(w, "Commit: %s\n", shortSHA(r.CommitSHA)); err != nil {
+		if _, err := fmt.Fprintf(w, "Commit: %s\n", gitutil.ShortSHA(r.CommitSHA)); err != nil {
 			return err
 		}
 	}

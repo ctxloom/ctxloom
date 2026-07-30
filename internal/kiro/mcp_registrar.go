@@ -90,7 +90,7 @@ func pathExistsKiro(path string) bool {
 
 // GlobalHome returns kiro's global config home with NO workDir context —
 // kiroHome()'s own precedence ($KIRO_HOME, else ~/.kiro) — exported for
-// operations/hooks.go's checkKiroHookTargetScope (flaky-spool: the kiro
+// the kiro descriptor's hookGlobalScopePaths (flaky-spool: the kiro
 // analog of prim-guy's claude $HOME-collision guard and comfy-lion's codex
 // one — kiro was audited and found vulnerable to the same collision class).
 func GlobalHome() (string, error) { return kiroHome() }

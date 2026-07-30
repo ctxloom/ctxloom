@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bytes"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -20,8 +21,16 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 	commandsDir := filepath.Join(workDir, ConfigDirName, CommandsDirName)
 
 	// Migration: remove the old ctxloom/ subdirectory from earlier versions
-	// that wrote commands there instead of flat with a manifest.
-	_ = fs.RemoveAll(filepath.Join(commandsDir, "ctxloom"))
+	// that wrote commands there instead of flat with a manifest. A failure here
+	// is fatal to the write: every file left in that directory still registers
+	// as a slash command with claude, so continuing would deliver a duplicate of
+	// every migrated command while reporting success. A missing directory is not
+	// a failure — RemoveAll returns nil for it on both afero.MemMapFs and the OS
+	// filesystem — so this only fires on a real permission or I/O error.
+	legacyDir := filepath.Join(commandsDir, "ctxloom")
+	if err := fs.RemoveAll(legacyDir); err != nil {
+		return fmt.Errorf("remove legacy command directory %s: %w", legacyDir, err)
+	}
 
 	// Claude Code loads ~/.claude/commands alongside this project scope, so when
 	// the dispatch layer supplies that global dir, dedup project copies that are

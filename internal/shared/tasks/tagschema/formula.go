@@ -15,6 +15,24 @@ import (
 // exactly as written between the braces.
 var placeholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*}}`)
 
+// Placeholders returns every {{...}} placeholder name in src, in source order,
+// duplicates kept, each exactly as written between the braces minus surrounding
+// whitespace — so a value-qualified tag reference arrives as "ns:key=value" and
+// the caller splits it. Nil when src has none. This package owns the syntax
+// because CompileFormula rewrites it; every inspector asks here, so changing
+// the syntax cannot leave one silently matching nothing.
+func Placeholders(src string) []string {
+	ms := placeholderPattern.FindAllStringSubmatch(src, -1)
+	if ms == nil {
+		return nil
+	}
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m[1])
+	}
+	return out
+}
+
 // formulaEnv is the fixed shape expr type-checks every compiled Formula
 // against. A placeholder becomes a call to one of these two functions at
 // Compile time (see CompileFormula); Eval supplies the actual closures for

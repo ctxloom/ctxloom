@@ -89,37 +89,7 @@ func runPlanWatch(cmd *cobra.Command, args []string) error {
 		return perr
 	}
 
-	// Emit once up front so a subscriber renders current state immediately.
-	if err := emit(); err != nil {
-		return err
-	}
-
-	var timer *time.Timer
-	var timerC <-chan time.Time
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case _, ok := <-w.Events():
-			if !ok {
-				return nil
-			}
-			if timer == nil {
-				timer = time.NewTimer(planWatchDebounce)
-				timerC = timer.C
-			} else {
-				timer.Reset(planWatchDebounce)
-			}
-		case <-timerC:
-			if err := emit(); err != nil {
-				return err
-			}
-		case err := <-w.Errors():
-			if err != nil {
-				return err
-			}
-		}
-	}
+	return watch.Stream(ctx, w, planWatchDebounce, emit)
 }
 
 func init() {

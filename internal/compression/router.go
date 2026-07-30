@@ -29,9 +29,8 @@ func (r *Router) CompressWithType(ctx context.Context, contentType ContentType, 
 		}
 	}
 
-	// No compressor available - return original content
-	return Result{
-		Content: content,
-		Ratio:   1.0,
-	}, nil
+	// No compressor claims this type: degrade through the package's canonical
+	// verbatim pass-through, untagged — no model or grammar touched this
+	// content, so there is nothing to name.
+	return verbatimResult(content, ""), nil
 }

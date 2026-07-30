@@ -92,19 +92,13 @@ func cloneAgentsMap(m map[string]agents.Agent) map[string]agents.Agent {
 	return out
 }
 
-func cloneMCPServer(s wire.MCPServer) wire.MCPServer {
-	s.Args = cloneStrings(s.Args)
-	s.Env = cloneStringMap(s.Env)
-	return s
-}
-
 func cloneMCPServerMap(m map[string]wire.MCPServer) map[string]wire.MCPServer {
 	if m == nil {
 		return nil
 	}
 	out := make(map[string]wire.MCPServer, len(m))
 	for k, v := range m {
-		out[k] = cloneMCPServer(v)
+		out[k] = wire.CloneMCPServer(v)
 	}
 	return out
 }

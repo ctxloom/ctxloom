@@ -327,7 +327,7 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 		return name
 	}
 	if len(matches) > 1 {
-		unresolvedBundleWarner.ambiguous(name, matches, matches[0])
+		l.warnAmbiguousFragment(name, matches, matches[0])
 	}
 	return matches[0] + remote.FragmentSelector + name
 }
@@ -415,7 +415,7 @@ func (l *Loader) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 		// warner expandBundleRef already uses (U030-F07): writing zero command
 		// files because the bundle would not load must not look like a bundle
 		// that ships no commands.
-		unresolvedBundleWarner.unresolved(bundleRef, err)
+		l.warnUnresolvedBundle(bundleRef, err)
 		return nil
 	}
 	names := make([]string, 0, len(bundle.Commands))
@@ -607,7 +607,7 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		// silently dropping it produces context that is missing content with no
 		// error (fault-tolerance: log, don't crash). Deduped process-wide:
 		// startup assembles context more than once.
-		unresolvedBundleWarner.unresolved(ref, err)
+		l.warnUnresolvedBundle(ref, err)
 		return nil
 	}
 	out := make([]ExpandedRef, 0, len(b.Fragments))

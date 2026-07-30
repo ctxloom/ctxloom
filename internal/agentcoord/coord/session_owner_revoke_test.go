@@ -62,3 +62,37 @@ func TestRevokeSessionOwner_UnknownTokenIsANoOp(t *testing.T) {
 	assert.NotPanics(t, func() { c.RevokeSessionOwner("not-a-real-token") })
 	assert.NotPanics(t, func() { c.RevokeSessionOwner("") })
 }
+
+// TestRevokeSessionOwner_RevocationSurvivesAdoption is the DURABILITY half, and
+// the whole reason revocation is a journal fact rather than a map delete: the
+// registry fold re-applies every factSessionCred on replay, so a credential a
+// dead process revoked in memory would come back valid the moment a fresh
+// coordinator adopted that project's state. The revoked-arm's job is to be
+// replayed too, and it must delete only the hash it names.
+func TestRevokeSessionOwner_RevocationSurvivesAdoption(t *testing.T) {
+	stateDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	first, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(nil, nil)})
+	require.NoError(t, err)
+
+	revoked, err := first.RegisterSessionOwner("owner-gone")
+	require.NoError(t, err)
+	kept, err := first.RegisterSessionOwner("owner-still-here")
+	require.NoError(t, err)
+	first.RevokeSessionOwner(revoked)
+	first.Close()
+
+	// A fresh process adopting the same project's journals.
+	second, err := New(Options{ProjectDir: projectDir, StateDir: stateDir, Spawner: newFakeSpawner(nil, nil)})
+	require.NoError(t, err)
+	t.Cleanup(second.Close)
+
+	_, ok := second.Identify(revoked)
+	assert.False(t, ok, "a revoked owner credential must stay revoked across adoption; replaying the mint without the revocation would resurrect it")
+
+	id, ok := second.Identify(kept)
+	assert.True(t, ok, "revoking one owner credential must not disturb another minted in the same process")
+	assert.Equal(t, "owner-still-here", id.Harp)
+	assert.Equal(t, 0, id.Depth)
+}

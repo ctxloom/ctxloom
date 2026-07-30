@@ -1,6 +1,8 @@
 package coord
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -24,7 +27,9 @@ import (
 //	    interactions.jsonl audit journal (no projection)
 //	    endpoint.json      last-bound ports, re-bound on relaunch so
 //	                       adopted children re-Hello a stable endpoint
-const coordDirName = "coord"
+//
+// Declared in discover, whose List globs this same directory.
+const coordDirName = discover.DirName
 
 // stateDirForProject resolves the coordinator state dir, keyed by project
 // (plan: durability first, keyed by project — a fresh `ctxloom run` adopts
@@ -40,6 +45,34 @@ func stateDirForProject(projectKey string) (string, error) {
 		return "", fmt.Errorf("coord: state dir: %w", err)
 	}
 	return dir, nil
+}
+
+// pathDerivedProjectKey is the fallback project key when no stable project
+// identity resolves: the project's base name, disambiguated by a digest of its
+// absolute path (two checkouts named "main" are two projects). Production takes
+// this path whenever taskops cannot resolve a project identity.
+func pathDerivedProjectKey(projectDir string) string {
+	return filepath.Base(projectDir) + "-" + pathDigest(projectDir)[:pathDigestKeyLen]
+}
+
+// pathDigestKeyLen is how much of the digest the key carries — short enough to
+// keep the directory name readable, long enough that a collision between two
+// checkout paths is not a practical concern.
+const pathDigestKeyLen = 12
+
+// pathDigest hashes a filesystem path for use in a state-dir NAME.
+//
+// Deliberately its own function rather than creds.go's hashToken, whose doc
+// binds it to a different contract entirely ("the persisted form of a bearer
+// token"). Sharing one function coupled the on-disk layout to the credential
+// format: hardening the token hash — a security change, made for security
+// reasons — would silently rename every project's state dir and orphan the
+// journals inside it. The algorithm is the same today; the point is that the
+// two can now move independently, and pathDerivedProjectKey's golden test
+// notices if this one does.
+func pathDigest(path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return hex.EncodeToString(sum[:])
 }
 
 // sanitizeKey makes a project key filesystem-safe as ONE path segment.

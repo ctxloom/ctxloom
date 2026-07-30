@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -83,6 +84,24 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // a reply quoting the id can already arrive. relayApproval is the case that
 // forced it; see its comment (pulpy-whiff).
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+	// Role "" is undrainable by construction — agent_recv drains the caller's
+	// own harp and no session has the empty harp — so queuing it fsyncs a fact
+	// that is replayed on every relaunch and read by nobody. Refused here, at
+	// the one point every sender funnels through, rather than at each sender.
+	if to == "" {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+	}
+	// A message with NO payload is refused at the same chokepoint. Queued, it is
+	// journaled as a durable fact, completes a parked recv, and is answered with
+	// the ordinary success disposition — a recipient woken for a turn whose
+	// content is nothing at all, with every signal green. A structured companion
+	// IS payload (the relayed ApprovalRequest projection and its replies carry
+	// it), so only a message with neither is empty.
+	if strings.TrimSpace(body) == "" && len(structured) == 0 {
+		return "", false, fmt.Errorf("mailbox: refusing to queue an empty message from %q to %q (kind %q): "+
+			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+
+			"(check the sender's message composition)", from, to, kind)
+	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{
@@ -288,9 +307,14 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 	case r := <-p.ch:
 		return r.msgs, r.err
 	case <-timer.C:
-		return c.abandonPoll(role, p, ErrRecvTimeout)
+		// The timer expiring does not end the CALLER: it is still waiting for
+		// this call's return value, so a delivery that won the race is handed
+		// to it.
+		return c.abandonPoll(role, p, ErrRecvTimeout, false)
 	case <-ctx.Done():
-		return c.abandonPoll(role, p, ctx.Err())
+		// A cancelled context DOES end the caller — nothing it returns can be
+		// received — so a delivery that won the race has to be released.
+		return c.abandonPoll(role, p, ctx.Err(), true)
 	}
 }
 
@@ -298,11 +322,29 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 // if the delivery already won (done), its completion is authoritative — wait
 // for it; otherwise claim the poll, re-acquire the slot (unpark), and fail
 // with err.
-func (c *Coordinator) abandonPoll(role string, p *parkedPoll, err error) ([]Message, error) {
+//
+// callerGone says whether the recv's caller can still receive what this
+// returns. It cannot when the caller's own context was cancelled, and a
+// delivery that won the race is then a delivery to NOBODY: the id is reserved
+// in the runtime ledger, so the next recv's cursor-ack (ackDelivered) would
+// journal a mail-consumed fact for a message no agent ever saw, and
+// undeliveredLocked would filter it out forever. Releasing the reservation is
+// what keeps at-least-once true for the one case where the message was already
+// spoken for; the timeout path keeps it, because there the caller is still
+// there to be given it.
+func (c *Coordinator) abandonPoll(role string, p *parkedPoll, err error, callerGone bool) ([]Message, error) {
 	c.mu.Lock()
 	if p.done {
 		c.mu.Unlock()
 		r := <-p.ch
+		if callerGone && len(r.msgs) > 0 {
+			ids := make([]string, 0, len(r.msgs))
+			for _, m := range r.msgs {
+				ids = append(ids, m.ID)
+			}
+			c.unreserve(role, ids)
+			return nil, err
+		}
 		return r.msgs, r.err
 	}
 	p.done = true

@@ -233,7 +233,10 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 		used[s.HarpName] = struct{}{}
 	}
 
-	name := generateUniqueHarp(used)
+	name, err := generateUniqueHarp(used)
+	if err != nil {
+		return Entry{}, err
+	}
 	entry := Entry{
 		HarpName:   name,
 		Backend:    backend,
@@ -809,15 +812,9 @@ func (m *Manager) saveLocked(idx *Index) error {
 	return nil
 }
 
-// generateUniqueHarp picks a fresh harp name that isn't in `used`.
-// Generates up to 100 candidates; collision probability across 5.6M
-// names is astronomically low even with thousands of sessions.
-func generateUniqueHarp(used map[string]struct{}) string {
-	for range 100 {
-		name := harp.GenerateName()
-		if _, dup := used[name]; !dup {
-			return name
-		}
-	}
-	return harp.GenerateName()
+// generateUniqueHarp picks a fresh harp name not in `used`, through the shared
+// allocator that also keys the project-id registry and per-project task ids —
+// so an unresolvable collision errors here too, never a name that may collide.
+func generateUniqueHarp(used map[string]struct{}) (string, error) {
+	return harp.UniqueFrom(used, harp.GenerateName)
 }

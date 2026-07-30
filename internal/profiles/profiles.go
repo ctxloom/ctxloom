@@ -387,8 +387,18 @@ func (l *Loader) PendingUpgrades() []*upgrade.Pending {
 // drops it from the pending set. Callers prompt the user before invoking this
 // (see cmd/run.go); ctxloom never rewrites a profile without consent.
 func (l *Loader) CommitUpgrade(p *upgrade.Pending) error {
+	// Nothing to write is not a successful write. Reporting nil here told the
+	// caller — which has just asked the user for consent — that a rewrite
+	// landed when none did, and an empty Data would have truncated the user's
+	// profile to zero bytes under that same success.
 	if p == nil {
-		return nil
+		return fmt.Errorf("no pending profile upgrade to commit")
+	}
+	if p.Path == "" {
+		return fmt.Errorf("pending profile upgrade has no path")
+	}
+	if len(p.Data) == 0 {
+		return fmt.Errorf("pending upgrade for profile %s carries no content; refusing to truncate it", p.Path)
 	}
 	if err := afero.WriteFile(l.fs, p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded profile %s: %w", p.Path, err)

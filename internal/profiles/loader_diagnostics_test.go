@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // TestLoad_RemoteSchemeRefsReportNoLockfileEntry pins the SEAM above the
@@ -173,4 +174,26 @@ func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
 		names = append(names, p.Name)
 	}
 	assert.Equal(t, []string{"solo", "team/shared"}, names)
+}
+
+// TestCommitUpgrade_RefusesNothingToWrite asserts the PAYLOAD: a commit that
+// carries no bytes must not report success, and must not touch the file. The
+// signature invites both mistakes -- CommitUpgrade(nil) returned nil for a write
+// that never happened, and a zero-length Data was written verbatim, truncating
+// the user's profile to nothing while reporting success (U091-F13).
+func TestCommitUpgrade_RefusesNothingToWrite(t *testing.T) {
+	const authored = "bundles:\n  - go-development\n"
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fs, "/profiles/p.yaml", []byte(authored), 0o644))
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+
+	require.Error(t, loader.CommitUpgrade(nil), "a nil pending upgrade is not a successful write")
+
+	require.Error(t, loader.CommitUpgrade(&upgrade.Pending{Path: "/profiles/p.yaml"}),
+		"an empty upgrade payload is not a successful write")
+
+	after, err := afero.ReadFile(fs, "/profiles/p.yaml")
+	require.NoError(t, err)
+	assert.Equal(t, authored, string(after), "the profile must be byte-identical after a refused commit")
 }

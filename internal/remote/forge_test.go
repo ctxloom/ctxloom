@@ -63,6 +63,33 @@ func TestResolveForge_HostMatch(t *testing.T) {
 	assert.Equal(t, "GHE_TOKEN", rf.TokenEnv)
 }
 
+// TestResolveForge_HostMatchIsDeterministic pins that host matching answers the
+// same way every time. The candidate set is a map, and ranging a Go map yields
+// a randomised order per iteration, so two forges sharing a base_url host used
+// to bind the remote to a different endpoint and a DIFFERENT token env from one
+// process to the next. Lowest label wins, and it wins every time.
+func TestResolveForge_HostMatchIsDeterministic(t *testing.T) {
+	forges := MergeForges(map[string]ForgeConfig{
+		"zulu-ghe": {Type: "github", Body: map[string]any{
+			"base_url":  "https://git.acme.example",
+			"token_env": "ZULU_TOKEN",
+		}},
+		"alfa-ghe": {Type: "github", Body: map[string]any{
+			"base_url":  "https://git.acme.example",
+			"token_env": "ALFA_TOKEN",
+		}},
+		"mike-ghe": {Type: "github", Body: map[string]any{
+			"base_url":  "https://git.acme.example",
+			"token_env": "MIKE_TOKEN",
+		}},
+	})
+
+	for i := 0; i < 200; i++ {
+		rf := resolveForge("https://git.acme.example/me/repo", "", forges)
+		require.Equal(t, "ALFA_TOKEN", rf.TokenEnv, "host match must not depend on map iteration order (attempt %d)", i)
+	}
+}
+
 func TestResolvedForge_Token(t *testing.T) {
 	t.Run("github reads token_env over ambient", func(t *testing.T) {
 		t.Setenv("GHE_TOKEN", "ghe-secret")

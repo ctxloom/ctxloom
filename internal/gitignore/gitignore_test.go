@@ -358,6 +358,54 @@ func TestRetireSuperseded_PreservesGranularRules(t *testing.T) {
 	}
 }
 
+// TestRetireSuperseded_PreservesFileMode is U054-F06's first half, and it
+// REFUTES it: the row claims retirement "resets its mode", but os.WriteFile
+// applies its perm argument only when CREATING a file, so an existing
+// .gitignore's mode was never touched. The assertion is kept because the
+// atomic rewrite below WOULD reset it — a fresh temp file takes the umask,
+// and renaming it over the original silently re-modes a user-authored file.
+func TestRetireSuperseded_PreservesFileMode(t *testing.T) {
+	for _, mode := range []os.FileMode{0600, 0640, 0664} {
+		t.Run(mode.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n.DS_Store\n"), mode))
+			require.NoError(t, os.Chmod(path, mode), "umask must not decide what this test asserts")
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			require.True(t, changed)
+
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.Equal(t, mode, info.Mode().Perm(),
+				"a user-authored file's mode is the user's, not ctxloom's to normalize")
+		})
+	}
+}
+
+// TestRetireSuperseded_LeavesNoTempFile pins the visible half of the atomic
+// rewrite. The crash window itself — a truncate-then-write that loses the
+// user's whole .gitignore if the process dies between the two — cannot be
+// discriminated by a unit test without injecting a crash, so this asserts
+// what IS observable: the replacement is staged beside the target and leaves
+// nothing behind.
+func TestRetireSuperseded_LeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n.DS_Store\n"), 0644))
+
+	changed, err := RetireSupersededFile(path)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the staged replacement must not survive the write")
+	assert.Equal(t, ".gitignore", entries[0].Name())
+	assert.Contains(t, readGitignore(t, dir), ".DS_Store")
+}
+
 // TestRetireSuperseded_Idempotent pins that a clean file is left untouched.
 func TestRetireSuperseded_Idempotent(t *testing.T) {
 	dir := t.TempDir()

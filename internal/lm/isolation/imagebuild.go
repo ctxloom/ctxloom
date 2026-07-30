@@ -705,19 +705,8 @@ func (c Container) ensureImage(ctx context.Context) error {
 func (c Container) runEnsureImage(ctx context.Context) error {
 	sources, devBase, devErr := c.containerBuildSources("")
 	present := c.imagePresent(ctx)
-	if present && len(sources) == 0 {
-		// No local recipe (user-owned isolation_images override): run AS-IS,
-		// never inspected or rebuilt — the user owns that image's lifecycle.
-		return nil
-	}
-	// A present image is accepted as current only when its provenance can
-	// actually be VERIFIED. An unresolvable host binary or an unreadable base
-	// Containerfile yields an empty wanted digest, and "cannot tell" must not
-	// read as "current": that accepted any present image, however old, and it
-	// put the unresolvable-binary case — which is precisely what empties the
-	// digest — beyond the reach of the fail-loud branch below.
 	wantProvenance := c.provenanceFor(devBase)
-	if present && wantProvenance != "" && !imageStale(c.imageLabels(ctx), wantProvenance) {
+	if c.imageRunsAsIs(ctx, present, sources, wantProvenance) {
 		return nil
 	}
 	if len(sources) == 0 {
@@ -754,35 +743,9 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		strictness.Fail(strictness.ClassIsolation, devcontainerDetectFixIt,
 			"project devcontainer auto-detection failed (%v); building without it", devErr)
 	}
-	var lastErr error
-	for _, src := range sources {
-		err := buildFromSource(ctx, c.runtime, c.image, src, selfExe, wantProvenance, false, nil)
-		if err == nil && !c.imagePresent(ctx) {
-			err = fmt.Errorf("image %q is still absent after a build via the %s", c.image, src.desc)
-		}
-		if err == nil {
-			return nil
-		}
-		switch {
-		case src.fromUserBase():
-			// The user EXPLICITLY configured this base Containerfile; falling
-			// through to the official/embedded base silently builds an image
-			// they never asked for. Record a finding (the choke owner aborts in
-			// strict mode) rather than substitute quietly — --degraded still
-			// falls through to the next source.
-			strictness.Fail(strictness.ClassIsolation, userBaseBuildFixIt,
-				"agent image build from the configured base Containerfile (%s) failed: %v", src.desc, err)
-		case src.fromDevcontainerBase():
-			// Same explicit-request contract for the AUTO-DETECTED project
-			// devcontainer: the human's own .devcontainer/ was auto-adopted,
-			// so a silent fallthrough to the default base ships a DIFFERENT
-			// environment than the one they develop in.
-			strictness.Fail(strictness.ClassIsolation, devcontainerBaseBuildFixIt,
-				"agent image build from the auto-detected project devcontainer (%s) failed: %v", src.desc, err)
-		default:
-			clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
-		}
-		lastErr = err
+	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, wantProvenance)
+	if lastErr == nil {
+		return nil
 	}
 	if present {
 		// The stale image still runs, so a failed refresh must not take the
@@ -797,6 +760,69 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		return nil
 	}
 	return fmt.Errorf("local build of container image %q failed: %w", c.image, lastErr)
+}
+
+// imageRunsAsIs reports that the image already present needs no build. Two
+// cases qualify, and only two:
+//
+//   - no local build recipe at all (a user-owned isolation_images override),
+//     which is never inspected or rebuilt — the user owns its lifecycle; and
+//   - a locally-buildable image whose provenance can be VERIFIED and matches.
+//
+// The second clause's insistence on a NON-EMPTY wanted digest is load-bearing:
+// an unresolvable host binary or unreadable base Containerfile yields "", and
+// treating "cannot tell" as "current" accepted any present image, however old,
+// while putting the unresolvable-binary case beyond the reach of the fail-loud
+// branch in runEnsureImage that exists to report exactly it.
+func (c Container) imageRunsAsIs(ctx context.Context, present bool, sources []buildSource, wantProvenance string) bool {
+	if !present {
+		return false
+	}
+	if len(sources) == 0 {
+		return true
+	}
+	return wantProvenance != "" && !imageStale(c.imageLabels(ctx), wantProvenance)
+}
+
+// buildFirstWorkingSource walks the ordered build sources and returns nil on
+// the first that produces a PRESENT image, or the last failure when none does.
+// A build that reports success but leaves the tag absent counts as a failure —
+// a green build whose image nobody can run is this project's characteristic
+// silent no-op.
+func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildSource, selfExe, wantProvenance string) error {
+	var lastErr error
+	for _, src := range sources {
+		err := buildFromSource(ctx, c.runtime, c.image, src, selfExe, wantProvenance, false, nil)
+		if err == nil && !c.imagePresent(ctx) {
+			err = fmt.Errorf("image %q is still absent after a build via the %s", c.image, src.desc)
+		}
+		if err == nil {
+			return nil
+		}
+		recordBuildSourceFailure(src, err)
+		lastErr = err
+	}
+	return lastErr
+}
+
+// recordBuildSourceFailure reports one failed build source at the severity its
+// PROVENANCE earns. A base the user configured explicitly, or the project's own
+// auto-detected devcontainer, is an explicit request: falling through to another
+// base silently ships an image they never asked for — a different environment
+// than the one they develop in — so those record a fatal ClassIsolation finding
+// the choke owner aborts on in strict mode, while --degraded still falls through
+// to the next source. Every other source is a plain warn-and-continue.
+func recordBuildSourceFailure(src buildSource, err error) {
+	switch {
+	case src.fromUserBase():
+		strictness.Fail(strictness.ClassIsolation, userBaseBuildFixIt,
+			"agent image build from the configured base Containerfile (%s) failed: %v", src.desc, err)
+	case src.fromDevcontainerBase():
+		strictness.Fail(strictness.ClassIsolation, devcontainerBaseBuildFixIt,
+			"agent image build from the auto-detected project devcontainer (%s) failed: %v", src.desc, err)
+	default:
+		clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
+	}
 }
 
 // imageStale reports whether a PRESENT, locally-buildable image's baked
@@ -1038,19 +1064,32 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	if !composable {
 		image, provenance = p.image, HostProvenanceDigest(opts.BaseContainerfile)
 	}
+	if err := buildExplicitFromSources(ctx, rt, image, sources, selfExe, provenance, opts); err != nil {
+		return "", err
+	}
+	return image, nil
+}
+
+// buildExplicitFromSources runs `ctxloom container build`'s sources in
+// precedence order, announcing each attempt when the caller streams output,
+// and returns nil on the first that builds or the last failure when none does.
+// The sibling of buildFirstWorkingSource for the EXPLICIT command: this one has
+// no chain to degrade down, so every failure is a plain warning and the last
+// one is returned to the CLI rather than recorded as a strictness finding.
+func buildExplicitFromSources(ctx context.Context, rt Runtime, image string, sources []buildSource, selfExe, provenance string, opts ImageBuildOptions) error {
 	var lastErr error
 	for _, src := range sources {
 		if opts.Output != nil {
 			fmt.Fprintf(opts.Output, "ctxloom: building %s via the %s (%s)\n", image, src.desc, rt.Name())
 		}
-		if err := buildFromSource(ctx, rt, image, src, selfExe, provenance, !opts.KeepCache, opts.Output); err != nil {
-			clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
-			lastErr = err
-			continue
+		err := buildFromSource(ctx, rt, image, src, selfExe, provenance, !opts.KeepCache, opts.Output)
+		if err == nil {
+			return nil
 		}
-		return image, nil
+		clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
+		lastErr = err
 	}
-	return "", lastErr
+	return lastErr
 }
 
 // selfLinuxExe returns the running executable's path when it can serve as the

@@ -935,3 +935,60 @@ func TestSelfLinuxExe_ResolvedELFOrAnError(t *testing.T) {
 	require.NoError(t, oerr, "the gate only passes an ELF")
 	require.NoError(t, f.Close())
 }
+
+// TestBuildAgentImage_Characterization covers BuildAgentImage's guard arms
+// before U063-F19's split: the mutually-exclusive base flags, an unresolvable
+// devcontainer, a backend with no local build recipe, and the no-runtime
+// refusal. Complexity reduction cannot make any test go red — behaviour is
+// unchanged by definition — so these must be green on both sides of it.
+func TestBuildAgentImage_Characterization(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("base image and base containerfile are mutually exclusive", func(t *testing.T) {
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{
+			BaseImage: "some/base:1", BaseContainerfile: "/tmp/Containerfile",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("an unresolvable project devcontainer is a hard error", func(t *testing.T) {
+		root := t.TempDir()
+		writeDevcontainer(t, root, `{ this is not json }`)
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{AppRoot: root})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "project devcontainer")
+	})
+
+	t.Run("a backend with no local build recipe is refused", func(t *testing.T) {
+		_, err := BuildAgentImage(ctx, "mock", ImageBuildOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no local build recipe")
+	})
+
+	t.Run("no reachable runtime is refused before any build", func(t *testing.T) {
+		orig := selectRuntimeProbe
+		selectRuntimeProbe = func(string) Runtime { return Host{} }
+		t.Cleanup(func() { selectRuntimeProbe = orig })
+
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no container runtime")
+	})
+
+	t.Run("every source failing returns the last error", func(t *testing.T) {
+		withFakeSelfExe(t)
+		dir := t.TempDir()
+		script := filepath.Join(dir, "fake-docker")
+		writeAbsentBuildFailScript(t, script)
+		orig := selectRuntimeProbe
+		selectRuntimeProbe = func(string) Runtime {
+			return fakeRuntime{name: "docker", binary: script, available: true}
+		}
+		t.Cleanup(func() { selectRuntimeProbe = orig })
+
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "build")
+	})
+}

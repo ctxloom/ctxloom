@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,030** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 39 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 82 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,039** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 40 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 89 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 130 |
-| `open` | no commit names this ID | **987** |
+| `open` | no commit names this ID | **970** |
 
-**Totals: 2268 findings across 162 units — 1,030 resolved, 987 still open, 251 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,039 resolved, 970 still open, 259 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 299 | 572 | 17 | 30 | 81 |
-| LOW | 871 | 381 | 389 | 12 | 44 | 45 |
+| MED | 999 | 302 | 565 | 18 | 33 | 81 |
+| LOW | 871 | 387 | 379 | 12 | 48 | 45 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1204,22 +1204,22 @@ Full evidence and the suggested action for any row live in its source review at 
 | U044-F15 | open | `sources.go:26, :44; model.go:275; `coord/coordinator.go:33-36` | COUPLING | Two stringly-typed contracts cross the agentcoord/cli seam with only comments holding them together | U044.md |
 | U044-F16 | open | `roster.go:32` | CORRECTNESS | Merging a coordinator entry can silently blank a session's state | U044.md |
 | U044-F23 | open | `model.go:213, :223, :243, :263, :273, :276, :372, :598-600` | CORRECTNESS | Status and error lifetimes are exactly backwards: successes vanish in ≤2s, errors stick forever | U044.md |
-| U045-F04 | open | **`backend.go:276`** | CORRECTNESS | The credential gate reads the **ambient process** `OPENAI_API_KEY` while its caller resolves `CODEX_HOME` from `req.Env` — so a per-agent `env:` key that would have authenticated the child is invis... | U045.md |
+| U045-F04 | **RESOLVED** `875a8300` | **`backend.go:276`** | CORRECTNESS | The credential gate reads the **ambient process** `OPENAI_API_KEY` while its caller resolves `CODEX_HOME` from `req.Env` — so a per-agent `env:` key that would have authenticated the child is invis... | U045.md |
 | U045-F05 | **RESOLVED** `fbe2ce09` | **`settings.go:319-329`** | SILENTNOOP | A configured unified `SessionEnd` hook is silently discarded for codex — written nowhere, warned nowhere | U045.md |
 | U045-F06 | **PARTIAL** `0e94c0c8` | **`capabilities.go:8-15`** | DEAD | `CodexCommands`, `RegisterFromContent`, `WriteCommandFiles`, `promptsDirFor` and `codexPromptsDir` form an unreachable chain | U045.md |
 | U045-F07 | **RESOLVED** `0e94c0c8` | **`skillfiles.go:51`** | DEAD | `WriteSkillFiles` is test-only, and drags `skillsDirFor` + `codexSkillsDir` with it | U045.md |
-| U045-F08 | open | **`backend.go:163-167`** | CORRECTNESS | An explicitly-set `CODEX_HOME` that does not end in `/.codex` is silently rewritten: the child receives `<value>/.codex`, not `<value>` | U045.md |
-| U045-F09 | open | **`enginecli.go:45-49`** | COUPLING | The declared "SINGLE source of the names codex reads" is contradicted by literals in three files — including one the comment explicitly names as a consumer | U045.md |
+| U045-F08 | **PARTIAL** `8c276379` | **`backend.go:163-167`** | CORRECTNESS | An explicitly-set `CODEX_HOME` that does not end in `/.codex` is silently rewritten: the child receives `<value>/.codex`, not `<value>` | U045.md |
+| U045-F09 | **RESOLVED** `1b19bea7` | **`enginecli.go:45-49`** | COUPLING | The declared "SINGLE source of the names codex reads" is contradicted by literals in three files — including one the comment explicitly names as a consumer | U045.md |
 | U045-F10 | **RESOLVED** `0e94c0c8` | **`backend.go:30`** | NOPAY | `CodexConfig.Model` is decoded from YAML and read by nothing — the model actually reaches the run through `config.Body["model"]` | U045.md |
 | U046-F03 | **RESOLVED** `c5dc5bdf` | `code_treesitter.go:63-68`, `:122-150` | DEAD | `detectLanguage`, `languageSignature`, `languageSignatures` and `matches` (34 lines) are unreachable in production. `Router.CompressWithType` (`router.go:26-28`) calls `Compress` **only** when `Can... | U046.md |
 | U046-F05 | **RESOLVED** `cdbbac20` | `router.go:33-38` | DUPLICATE / CORRECTNESS | The no-compressor fallback hand-builds a verbatim `Result` that duplicates `verbatimResult` (`compressor.go:65`) but **omits `ModelID`**. Every other degrade path in the package tags its output; th... | U046.md |
 | U046-F06 | **RESOLVED** `c5dc5bdf` | `compressor.go:43-56`, `json.go:88-135`, `code_go.go:23`, `code_java.go:13`, `code_javascript.go:21`, `code_python.go:14`, `code_rust.go:26`, `code_treesitter.go:86-90,201` | NOPAY / DEAD | `Result.OriginalSize`, `CompressedSize`, `PreservedElements`, `CompressedElements` are **write-only in production**; the whole `compressStats` machinery (~50 lines) and a `preserved *[]string` out-... | U046.md |
-| U046-F07 | open | `json.go:72` | CORRECTNESS | The JSON compressor **reorders object keys and collapses duplicate keys**, unremarked. `json.MarshalIndent` over a `map[string]any` emits keys in sorted order, so an order-sensitive JSON-ish docume... | U046.md |
+| U046-F07 | **REFUTED** `dbbff696` | `json.go:72` | CORRECTNESS | The JSON compressor **reorders object keys and collapses duplicate keys**, unremarked. `json.MarshalIndent` over a `map[string]any` emits keys in sorted order, so an order-sensitive JSON-ish docume... | U046.md |
 | U046-F08 | **ESCALATED** `c5dc5bdf` | `json.go:227-279` | NOPAY / CORRECTNESS | The high-entropy heuristic, as tuned, classifies **ordinary English prose** as high-entropy and preserves it — so `MaxValueLength` truncation, the compressor's only string-shrinking mechanism, almo... | U046.md |
-| U046-F09 | open | `compressor.go:15`, `code_treesitter.go:72-82`, `router.go:25` | ERRHANDLING | The `error` return on `Compressor.Compress` is structurally always nil in all three implementations, and the two real errors the package produces are **created and immediately discarded** with no l... | U046.md |
-| U046-F11 | open | `code_python.go:182-206`, `code_java.go:90-112`, `code_rust.go:123-136` | SILENTNOOP | The class/impl body extractors silently drop declaration kinds they do not enumerate, with no marker in the output and no entry in `CompressedElements`. Python class bodies keep only `function_defi... | U046.md |
+| U046-F09 | **REFUTED** `7c8f5fd5` | `compressor.go:15`, `code_treesitter.go:72-82`, `router.go:25` | ERRHANDLING | The `error` return on `Compressor.Compress` is structurally always nil in all three implementations, and the two real errors the package produces are **created and immediately discarded** with no l... | U046.md |
+| U046-F11 | **RESOLVED** `a01b8a4a` | `code_python.go:182-206`, `code_java.go:90-112`, `code_rust.go:123-136` | SILENTNOOP | The class/impl body extractors silently drop declaration kinds they do not enumerate, with no marker in the output and no entry in `CompressedElements`. Python class bodies keep only `function_defi... | U046.md |
 | U046-F12 | **RESOLVED** `c8f21924` | `code_python.go:114` vs `:208`; `code_rust.go:59` vs `:138`; `code_java.go:114` vs `:138` | DUPLICATE | Three near-clone pairs of signature extractors, each pair differing only in indentation/terminator: `extractPythonFunc`/`extractPythonFuncSignatureOnly` (~90 % identical switch), `extractRustFunc`/... | U046.md |
-| U046-F19 | open | `code_treesitter_guards_test.go:243-255` | CORRECTNESS | The package's own guard test **pins the F02 defect as correct behaviour**. `"garbage code never panics and never errors"` feeds junk (including `""` and `strings.Repeat("???", 100)`) to `Compress(c... | U046.md |
+| U046-F19 | **REFUTED** `cb2cd6d0` | `code_treesitter_guards_test.go:243-255` | CORRECTNESS | The package's own guard test **pins the F02 defect as correct behaviour**. `"garbage code never panics and never errors"` feeds junk (including `""` and `strings.Repeat("???", 100)`) to `Compress(c... | U046.md |
 | U047-F02 | open | `internal/config/accessors.go:213-232` | CORRECTNESS | `cloneProfile` misses `Profile.DenyTools`, so `GetProfileDefinitions()` / `GetProfilesConfig()` hand back a slice that aliases the shared `Config`'s storage — a hole in the copy-on-read guarantee t... | U047.md |
 | U047-F03 | **RESOLVED** `3240c53b` | `internal/config/accessors.go:3-48` | NOPAY | The 46-line header comment — the file's entire justification — describes a migration state that no longer exists, and actively misleads a future reader about what is safe to do. | U047.md |
 | U047-F05 | open | `internal/config/agents.go:32-66` | CORRECTNESS | `LoadAgents`/`Agent` bypass the package's own copy-on-read policy: the returned `agents.Agent` values alias `c.agents`' nested `Profiles` and `Escalation` slices. | U047.md |
@@ -2201,22 +2201,22 @@ Full evidence and the suggested action for any row live in its source review at 
 | U044-F20 | open | `roster.go:56, :63-75` | SIMPLIFY | `byHarp`'s values are never read, and lineage placement is O(n²) | U044.md |
 | U044-F21 | open | **`overlay.go:58-60, :69-76`** | CORRECTNESS | `Abort` can block on an unbuffered channel while holding `o.mu` | U044.md |
 | U044-F22 | open | `model.go:110-121` | ERRHANDLING | `teaKeyName` maps every unmapped byte to `"ctrl+@"`, silently disabling the back-key | U044.md |
-| U045-F11 | open | **`settings.go:208, 225`** | ERRHANDLING | `afero.Exists` errors are discarded, so an unreadable/permission-denied config is indistinguishable from an absent one: `RemoveSettings` returns nil having done nothing, `Status` reports `SettingsE... | U045.md |
-| U045-F12 | open | **`backend.go:234`** | CORRECTNESS | Doc/code mismatch on the trust pre-seed: the field doc says it is set "ONLY when resolveCodexProjectDir found an isolation-provided CODEX_HOME", but the code sets it for the container-fresh axis too | U045.md |
+| U045-F11 | **RESOLVED** `b3d8b606` | **`settings.go:208, 225`** | ERRHANDLING | `afero.Exists` errors are discarded, so an unreadable/permission-denied config is indistinguishable from an absent one: `RemoveSettings` returns nil having done nothing, `Status` reports `SettingsE... | U045.md |
+| U045-F12 | **RESOLVED** `aecbc4bb` | **`backend.go:234`** | CORRECTNESS | Doc/code mismatch on the trust pre-seed: the field doc says it is set "ONLY when resolveCodexProjectDir found an isolation-provided CODEX_HOME", but the code sets it for the container-fresh axis too | U045.md |
 | U045-F13 | **RESOLVED** `f24d82dc` | **`settings.go:302-314`** | DUPLICATE | `hasManagedHook` re-implements `removeManagedHooks`' three-level traversal for a boolean answer | U045.md |
-| U045-F14 | open | **`mcp_registrar.go:71-80`** | CORRECTNESS | Two writers of the same file disagree about emptiness: `Uninstall` leaves an empty `[mcp_servers]` table where `removeManagedMCP` deletes the key; and an existing whitespace-only config.toml round-... | U045.md |
-| U045-F15 | open | **`backend.go:335`** | ERRHANDLING | `Configure` silently ignores a config of the wrong dynamic type — no `else`, no warning | U045.md |
-| U045-F16 | open | **`surfaces.go:271-272`** | COUPLING | `Surfaces.Context` and `Surfaces.AgentsMD` are exported, letting a caller bypass the `routes` composition that exists precisely to stop the AGENTS.md write from being dropped | U045.md |
-| U045-F17 | open | **`surfaces.go:119-126`** | SILENTNOOP | `contextSurface.Deliver` returns `nil, nil` on empty fragments — success with zero bytes delivered | U045.md |
+| U045-F14 | **RESOLVED** `e3f33843` | **`mcp_registrar.go:71-80`** | CORRECTNESS | Two writers of the same file disagree about emptiness: `Uninstall` leaves an empty `[mcp_servers]` table where `removeManagedMCP` deletes the key; and an existing whitespace-only config.toml round-... | U045.md |
+| U045-F15 | **REFUTED** `6b22c8bb` | **`backend.go:335`** | ERRHANDLING | `Configure` silently ignores a config of the wrong dynamic type — no `else`, no warning | U045.md |
+| U045-F16 | **REFUTED** `6b22c8bb` | **`surfaces.go:271-272`** | COUPLING | `Surfaces.Context` and `Surfaces.AgentsMD` are exported, letting a caller bypass the `routes` composition that exists precisely to stop the AGENTS.md write from being dropped | U045.md |
+| U045-F17 | **REFUTED** `6b22c8bb` | **`surfaces.go:119-126`** | SILENTNOOP | `contextSurface.Deliver` returns `nil, nil` on empty fragments — success with zero bytes delivered | U045.md |
 | U046-F04 | **RESOLVED** `c5dc5bdf` | `code_treesitter.go:221-232` | DEAD | `extractStructure`'s `default:` branch (dump every top-level child verbatim) is unreachable: `Compress` guarantees `ct` is one of the 6 handled types before calling it (`parserPool`→`languageFor` e... | U046.md |
-| U046-F10 | open | `json.go:261-267` | CORRECTNESS | `calculateEntropy` counts frequencies per **rune** (`for _, r := range s`) but divides by **byte** length (`length := float64(len(s))`). For any multibyte string the probabilities sum to less than ... | U046.md |
-| U046-F13 | open | `code_javascript.go:203-242`, `code_python.go:69-79` | COUPLING / CORRECTNESS | Inside an AST-based compressor, two extractors abandon the AST and do substring surgery: `extractJSLexical` searches for the literals `"=> {"` and `"=>\n"` and slices there; both it and `extractPyt... | U046.md |
+| U046-F10 | **RESOLVED** `29e9bbea` | `json.go:261-267` | CORRECTNESS | `calculateEntropy` counts frequencies per **rune** (`for _, r := range s`) but divides by **byte** length (`length := float64(len(s))`). For any multibyte string the probabilities sum to less than ... | U046.md |
+| U046-F13 | **RESOLVED** `615a3cfe` | `code_javascript.go:203-242`, `code_python.go:69-79` | COUPLING / CORRECTNESS | Inside an AST-based compressor, two extractors abandon the AST and do substring surgery: `extractJSLexical` searches for the literals `"=> {"` and `"=>\n"` and slices there; both it and `extractPyt... | U046.md |
 | U046-F14 | **RESOLVED** `c5dc5bdf` | `code_treesitter.go:26-27,43` | DEAD | `CodeCompressor.MaxBodyLines` is never read — not by production code, not by tests. Its doc comment ("limits function body preview lines (0 = elide entirely)") advertises a configurable capability ... | U046.md |
 | U046-F15 | **ESCALATED** `c5dc5bdf` | `compressor.go:34` | DEAD | `ContentTypeText` is never produced by `DetectContentType` or `sniffContentType` and never consumed in production — test-only. | U046.md |
 | U046-F16 | **ESCALATED** `c5dc5bdf` | `compressor.go:15,62`, `router.go:25`, `json.go:44`, `code_stub.go:24` | DEAD / TRIVIAL | The `ratio float64` parameter is threaded through the interface, the router and all three implementations and **read by none of them**. Its interface doc ("suggests target size as fraction of origi... | U046.md |
-| U046-F17 | open | `compressor.go:76-80` | COHESION / NOPAY | The doc block above `extensionContentTypes` is stale and attached to the wrong declaration. It reads *"DetectContentType determines the content type… One branch per file type / sniffed prefix: CCN ... | U046.md |
+| U046-F17 | **RESOLVED** `ee58cb22` | `compressor.go:76-80` | COHESION / NOPAY | The doc block above `extensionContentTypes` is stale and attached to the wrong declaration. It reads *"DetectContentType determines the content type… One branch per file type / sniffed prefix: CCN ... | U046.md |
 | U046-F18 | **RESOLVED** `464e3aab` `12f375ce` | `compressor.go:130-137` | TRIVIAL | `hasExtension` hand-rolls `strings.HasSuffix` over a varargs list, and its `len(filename) > len(ext)` bound (rather than `>=`) means a file named exactly `.go` is not recognised. | U046.md |
-| U046-F20 | open | **`package-wide`** | COUPLING | ~70 tree-sitter node-type string literals ("package_clause", "statement_block", "constructor_body", "lexical_declaration", …) are inlined across five files with no named constants and no test that ... | U046.md |
+| U046-F20 | **REFUTED** `a44ff890` | **`package-wide`** | COUPLING | ~70 tree-sitter node-type string literals ("package_clause", "statement_block", "constructor_body", "lexical_declaration", …) are inlined across five files with no named constants and no test that ... | U046.md |
 | U047-F07 | **RESOLVED** `12f375ce` | `internal/config/agents.go:14-21, 44` | TRIVIAL | `agentDirLoader`'s doc is false and the `!= nil` guard it justifies is unreachable. | U047.md |
 | U047-F08 | open | `internal/config/agents.go:70-77` | COMPLEXITY | `Agent(name)` re-runs the full two-source merge — including a filesystem walk and a YAML parse of every `.ctxloom/agents/*.yaml` — on every single lookup, and re-emits the shadowing warning each time. | U047.md |
 | U047-F09 | open | `internal/config/agents.go:45-48` | ERRHANDLING | A directory-scan failure is warned and then the nil result is used as if it were a successful empty scan; the caller receives a merged set that is silently missing every on-disk agent. | U047.md |

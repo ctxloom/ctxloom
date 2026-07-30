@@ -1,6 +1,8 @@
 package codex
 
 import (
+	"io/fs"
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -27,6 +29,34 @@ func TestWriteSettings_UnparseableConfigIsNotWipedOut(t *testing.T) {
 	data, rerr := afero.ReadFile(fs, path)
 	require.NoError(t, rerr)
 	assert.Equal(t, original, string(data), "the user's config.toml must survive")
+}
+
+// statErrFs fails every Stat with a fixed error — the shape of a config.toml
+// under a directory the process may not traverse. afero.Exists reports
+// (false, err) there, and "false" alone is indistinguishable from "absent".
+type statErrFs struct {
+	afero.Fs
+	err error
+}
+
+func (f statErrFs) Stat(string) (os.FileInfo, error) { return nil, f.err }
+
+// U045-F11: an UNREADABLE config.toml must not be reported as an ABSENT one.
+// RemoveSettings returning nil there claims to have removed ctxloom's hooks and
+// MCP servers from a file it never opened, and Status reports the engine as
+// unconfigured — both are answers about a file nobody could look at.
+func TestSettings_UnreadableConfigIsNotReportedAsAbsent(t *testing.T) {
+	fs := statErrFs{Fs: afero.NewMemMapFs(), err: fs.ErrPermission}
+	w := &CodexHookWriter{FS: fs}
+
+	err := w.RemoveSettings("/proj")
+	require.Error(t, err, "an unreadable config.toml is not a clean removal")
+	assert.ErrorIs(t, err, os.ErrPermission)
+
+	status, err := w.Status("/proj")
+	require.Error(t, err, "an unreadable config.toml is not 'not configured'")
+	assert.ErrorIs(t, err, os.ErrPermission)
+	assert.False(t, status.SettingsExists)
 }
 
 // A genuine removal still empties the file: stripping ctxloom's own keys from

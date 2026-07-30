@@ -520,3 +520,130 @@ type Reader interface {
 		})
 	}
 }
+
+// U046-F13: two extractors abandoned the AST for substring surgery.
+// extractJSLexical searched the DECLARATION TEXT for "=> {" and sliced there,
+// so an arrow token inside a STRING LITERAL was treated as the arrow function's
+// body opener — the declaration was cut mid-literal and the rest, including its
+// closing quote, was thrown away. The AST already knows which node is the value
+// and where its body starts.
+func TestCodeCompressor_JavaScriptArrowTokenInsideStringLiteral(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := "const usage = \"pass a callback like x => { done() } to run it\";\n"
+
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Content, "to run it\"",
+		"the string literal is not an arrow-function body: it must survive whole")
+	assert.NotContains(t, result.Content, "x => { ... }",
+		"an arrow token inside a literal must not be mistaken for a body to elide")
+}
+
+// A real arrow function is still elided — via the AST's body node rather than a
+// text search, so this holds for expression bodies and CRLF sources too.
+func TestCodeCompressor_JavaScriptArrowFunctionsStillElided(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := "const handler = (req, res) => {\n  res.send(req.body);\n  log(req);\n};\n"
+
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Content, "const handler = (req, res) =>")
+	assert.NotContains(t, result.Content, "res.send", "the arrow body is elided")
+}
+
+// The Python half of U046-F13: extractPythonAssignment cut the text at the
+// first '=' byte, which for an AUGMENTED assignment lands INSIDE the operator —
+// "counts += [...]" was emitted as "counts + = ...", an expression that says
+// something else. The AST tags the right-hand side; slice there instead.
+func TestCodeCompressor_PythonAugmentedAssignmentOperatorSurvives(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := "counts += [" + strings.Repeat("'entry', ", 20) + "]\n"
+
+	result, err := c.Compress(ctx, ContentTypePython, input)
+	require.NoError(t, err)
+
+	assert.Contains(t, result.Content, "counts +=", "the augmented-assignment operator is one token")
+	assert.NotContains(t, result.Content, "counts + =", "splitting '+=' changes what the line says")
+}
+
+// U046-F11: the class/impl BODY extractors enumerate a handful of member kinds
+// and drop everything else on the floor — no marker, no trace. A class
+// attribute, a nested type, an associated const: all present in the source,
+// absent from the compressed form the model is handed, with nothing to say they
+// ever existed.
+func TestCodeCompressor_ClassBodiesKeepNonMethodMembers(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	t.Run("python", func(t *testing.T) {
+		input := `class Config:
+    TIMEOUT = 30
+    RETRIES: int = 5
+
+    class Inner:
+        def helper(self):
+            return 1
+
+    def method(self):
+        return self.TIMEOUT
+`
+		result, err := c.Compress(ctx, ContentTypePython, input)
+		require.NoError(t, err)
+		t.Logf("\n%s", result.Content)
+
+		assert.Contains(t, result.Content, "TIMEOUT = 30", "class attributes are API surface")
+		assert.Contains(t, result.Content, "RETRIES: int = 5", "annotated class attributes too")
+		assert.Contains(t, result.Content, "class Inner", "a nested class does not vanish")
+		assert.Contains(t, result.Content, "def method")
+	})
+
+	t.Run("java", func(t *testing.T) {
+		input := `class Outer {
+    private int field;
+
+    enum Kind { A, B }
+
+    static class Inner {
+        void helper() { return; }
+    }
+
+    void method() { return; }
+}
+`
+		result, err := c.Compress(ctx, ContentTypeJava, input)
+		require.NoError(t, err)
+		t.Logf("\n%s", result.Content)
+
+		assert.Contains(t, result.Content, "field", "field declarations already survived")
+		assert.Contains(t, result.Content, "enum Kind", "a nested enum does not vanish")
+		assert.Contains(t, result.Content, "class Inner", "a nested class does not vanish")
+		assert.Contains(t, result.Content, "void method")
+	})
+
+	t.Run("rust", func(t *testing.T) {
+		input := `impl Fetcher for Client {
+    const MAX_RETRIES: usize = 3;
+    type Output = Vec<u8>;
+
+    fn fetch(&self) -> Vec<u8> {
+        vec![]
+    }
+}
+`
+		result, err := c.Compress(ctx, ContentTypeRust, input)
+		require.NoError(t, err)
+		t.Logf("\n%s", result.Content)
+
+		assert.Contains(t, result.Content, "MAX_RETRIES", "an associated const is part of the impl's surface")
+		assert.Contains(t, result.Content, "type Output", "an associated type too")
+		assert.Contains(t, result.Content, "fn fetch")
+	})
+}

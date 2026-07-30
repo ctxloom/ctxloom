@@ -139,6 +139,24 @@ func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 	assert.False(t, exists, "no context, nothing written")
 }
 
+// U045-F17 claimed contextSurface.Deliver's (nil, nil) on empty fragments is a
+// silent no-op — "success with zero bytes delivered". It is the opposite: the
+// nil handle is how "nothing was asked for" is REPORTED (agent.DeliverAll skips
+// a nil handle by contract, and the composed route still delivers AGENTS.md
+// from the context STRING). The delivery that WOULD be a silent no-op — asking
+// for fragments and assembling zero bytes out of them — is an error, and this
+// pins that asymmetry. Do not "fix" the empty case into an error: materialize
+// legitimately has no fragments.
+func TestContextSurface_ZeroBytesFromRealFragmentsIsAnError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s := NewSurfaces(agent.SurfaceInputs{Fragments: []*agent.Fragment{{Name: "rules", Content: ""}}}, "", "", fs)
+
+	handle, err := s.Context.Deliver("/proj")
+	require.Error(t, err, "fragments were asked for and produced nothing — that is the silent no-op worth refusing")
+	assert.ErrorIs(t, err, agent.ErrNoContext)
+	assert.Nil(t, handle)
+}
+
 // ---- agentsMD surface (the OTHER, native context route) --------------------
 
 // taskloom tiny-ooze: the materialize path only ever populates
@@ -465,6 +483,27 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 
 	_, err = s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	assert.Error(t, err, "UnsafeFile is not a separately-selectable approach for codex's context")
+}
+
+// U045-F16 claimed the exported Context/AgentsMD fields let a caller bypass the
+// routes composition and drop the AGENTS.md write. No production caller touches
+// either field (the launch and materialize paths both resolve through
+// SurfaceFor / Select().Build(), pinned above), and every sibling backend
+// exports the same shape. What actually protects the AGENTS.md write is that
+// the exported fields ARE the composed route's parts — one instance each, as
+// SurfaceSet.SurfaceFor's contract requires. That is what this pins: a future
+// NewSurfaces that hands the field a different instance than the route delivers
+// through is the divergence the row feared, and it fails here.
+func TestSurfaces_ExportedContextFieldsAreTheComposedRouteParts(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
+
+	d, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
+	require.NoError(t, err)
+	composed, ok := d.(agent.ComposedDelivery)
+	require.True(t, ok, "context resolves to the composed route")
+	require.Len(t, composed.Parts, 2, "both context routes ride the composition")
+	assert.Same(t, s.Context, composed.Parts[0], "the exported hook-route field is the delivered instance")
+	assert.Same(t, s.AgentsMD, composed.Parts[1], "the exported AGENTS.md field is the delivered instance")
 }
 
 // SharedRealization is absent for every kind: codex has no out-of-cwd redirect,

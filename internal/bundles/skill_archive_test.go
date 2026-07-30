@@ -1136,3 +1136,53 @@ func TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes(t *testing.T) 
 		})
 	}
 }
+
+// mkdirFailFs fails MkdirAll for any path containing failOn, so a test can
+// drive the two directory-creation error paths inside processArchiveEntry
+// without depending on real filesystem permissions.
+type mkdirFailFs struct {
+	afero.Fs
+	failOn string
+}
+
+func (f *mkdirFailFs) MkdirAll(p string, perm os.FileMode) error {
+	if strings.Contains(filepath.ToSlash(p), f.failOn) {
+		return fmt.Errorf("simulated mkdir failure")
+	}
+	return f.Fs.MkdirAll(p, perm)
+}
+
+// TestHardenedExtract_MkdirFailureNamesTheEntry is U031-F16. Both MkdirAll
+// failures inside processArchiveEntry were returned bare — `return
+// fsys.MkdirAll(target, 0o755)` and `return err` — so a mid-extraction
+// directory failure surfaced as "simulated mkdir failure" with no indication of
+// WHICH archive entry could not be created, while every other error on this
+// path names its entry. For an adversarial-input extractor the failing entry is
+// the whole diagnostic value: it is the difference between "this archive is
+// hostile at path X" and "something went wrong".
+func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
+	t.Run("explicit directory entry", func(t *testing.T) {
+		archive := buildRawZip(t, []rawZipEntry{
+			{name: "myskill/SKILL.md", content: []byte("body\n")},
+			{name: "myskill/scripts/", mode: os.ModeDir | 0o755},
+		})
+		fsys := &mkdirFailFs{Fs: afero.NewMemMapFs(), failOn: "scripts"}
+
+		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "myskill/scripts/",
+			"a directory entry that could not be created must name the entry")
+	})
+
+	t.Run("a file's parent directory", func(t *testing.T) {
+		archive := buildRawZip(t, []rawZipEntry{
+			{name: "myskill/scripts/run.sh", content: []byte("#!/bin/sh\n"), mode: 0o755},
+		})
+		fsys := &mkdirFailFs{Fs: afero.NewMemMapFs(), failOn: "scripts"}
+
+		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "myskill/scripts/run.sh",
+			"a file whose parent directory could not be created must name the entry")
+	})
+}

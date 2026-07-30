@@ -450,11 +450,14 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 	}
 
 	if kind == kindDir {
-		return fsys.MkdirAll(target, 0o755)
+		if err := fsys.MkdirAll(target, 0o755); err != nil {
+			return fmt.Errorf("creating directory for entry %q: %w", name, err)
+		}
+		return nil
 	}
 
 	if err := fsys.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
+		return fmt.Errorf("creating parent directory for entry %q: %w", name, err)
 	}
 
 	// Decompression-bomb defense: never trust the archive's declared size.

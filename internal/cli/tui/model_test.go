@@ -277,6 +277,50 @@ func TestModel_ExpandCollapse(t *testing.T) {
 	assert.NotContains(t, m.View(), "line2", "x collapses it again")
 }
 
+// Model's roster, feed and inject fields are NOT three independent sub-models:
+// one focus field decides which of the first two a movement key drives, the
+// feed's own header is rendered from the ROSTER's selected row, and the inject
+// target is latched from the feed. Splitting the struct along those groups has
+// to carry these couplings across, so they are pinned here rather than left to
+// be discovered by whoever tries. U044-F10.
+func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "h1", Agent: "developer", Engine: "claude-code", State: "live"},
+		RosterRow{Harp: "h2", Agent: "finder", State: "executing"},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "one"))
+	m = pushEntry(t, m, f, entryEv("assistant", "two"))
+
+	// The feed pane's title is built from the roster's selected row.
+	assert.Contains(t, m.feedTitle(), "h1")
+	assert.Contains(t, m.feedTitle(), "developer·claude-code",
+		"the feed header reads the roster row, not the feed")
+
+	// focus routes one key to two different panes.
+	require.Equal(t, focusRoster, m.focus)
+	selBefore, cursorBefore := m.sel, m.cursor
+	m, cmd := step(t, m, keyMsg("j"))
+	require.NotNil(t, cmd)
+	assert.Equal(t, selBefore+1, m.sel, "with the roster focused, j moves the roster")
+	m, _ = step(t, m, cmd())
+	m = pushEntry(t, m, f, entryEv("user", "one"))
+	m = pushEntry(t, m, f, entryEv("assistant", "two"))
+	m, _ = step(t, m, keyMsg("enter"))
+	require.Equal(t, focusFeed, m.focus)
+	selBefore, cursorBefore = m.sel, m.cursor
+	m, _ = step(t, m, keyMsg("k"))
+	assert.Equal(t, selBefore, m.sel, "with the feed focused, the roster does not move")
+	assert.Equal(t, cursorBefore-1, m.cursor, "the feed cursor does")
+
+	// The inject target is latched from the feed, which was latched from the
+	// roster: all three panes in one flow.
+	m, _ = step(t, m, keyMsg("i"))
+	require.True(t, m.injecting)
+	assert.Equal(t, m.feedHarp, m.injectHarp)
+	assert.Equal(t, m.rows[m.sel].Harp, m.injectHarp)
+}
+
 func TestModel_ScrollbackEnds(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f, nil), f)

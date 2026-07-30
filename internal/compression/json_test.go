@@ -284,6 +284,28 @@ func TestJSONCompressor_Entropy(t *testing.T) {
 	}
 }
 
+// U046-F10: calculateEntropy counted frequencies per RUNE but divided by BYTE
+// length, so for any multibyte string the probabilities summed to less than 1
+// and the entropy came out understated by exactly the bytes-per-rune factor.
+// A maximally-varied non-ASCII value (every rune distinct — entropy 1.0 by
+// construction) was therefore classified low-entropy and TRUNCATED, while its
+// ASCII twin was preserved.
+func TestJSONCompressor_EntropyIsPerRuneNotPerByte(t *testing.T) {
+	c := NewJSONCompressor()
+	// 20 distinct runes, 40 bytes: every rune unique, so normalized Shannon
+	// entropy is 1.0 whatever the alphabet.
+	const greek = "αβγδεζηθικλμνξοπρστυ"
+	const ascii = "abcdefghijklmnopqrst"
+
+	assert.InDelta(t, 1.0, c.calculateEntropy(ascii), 1e-9, "all-distinct ASCII is maximum entropy")
+	assert.InDelta(t, 1.0, c.calculateEntropy(greek), 1e-9, "all-distinct non-ASCII is maximum entropy too")
+	assert.True(t, c.isHighEntropy(greek), "a maximally-varied non-ASCII value is high entropy")
+
+	result, err := c.Compress(context.Background(), ContentTypeJSON, `{"token":"`+greek+`"}`)
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, greek, "a high-entropy non-ASCII value is preserved, not truncated")
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

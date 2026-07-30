@@ -647,6 +647,30 @@ func stripSGR(s string) string {
 	}
 }
 
+// teaKeyName's default arm is unreachable from any configuration:
+// termui.ParsePrefixKey is the only production producer of the prefix byte
+// (internal/cli/run_terminal_ui.go builds the overlay from it), and every byte
+// that would fall through — NUL, ESC, and every printable character — it
+// rejects with a reason. This pin couples the two: it goes red if
+// ParsePrefixKey ever admits a byte teaKeyName does not name, and red if
+// teaKeyName stops agreeing with bubbletea's own vocabulary for one. U044-F22.
+func TestTeaKeyName_NamesEveryPrefixParsePrefixKeyAdmits(t *testing.T) {
+	admitted := 0
+	for ch := 0; ch < 128; ch++ {
+		spelling := "ctrl-" + string(rune(ch))
+		b, err := termui.ParsePrefixKey(spelling)
+		if err != nil {
+			continue
+		}
+		admitted++
+		want := tea.KeyMsg{Type: tea.KeyType(b)}.String()
+		assert.Equal(t, want, teaKeyName(b), "prefix %q (byte %d) must carry bubbletea's own name", spelling, b)
+		assert.NotEqual(t, "ctrl+@", teaKeyName(b),
+			"prefix %q (byte %d) fell through to the default arm, which names a key the user did not configure", spelling, b)
+	}
+	require.Greater(t, admitted, 20, "the sweep must actually exercise the accepted prefixes")
+}
+
 func TestPadCell_PadsShortAndTruncatesLongWithEllipsis(t *testing.T) {
 	assert.Equal(t, "hi   ", padCell("hi", 5), "short strings are space-padded to width")
 	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 runes plus an ellipsis")

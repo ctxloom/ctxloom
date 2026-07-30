@@ -299,3 +299,31 @@ func TestGeneratePage_NoCaptureIsStillNotAnError(t *testing.T) {
 		t.Errorf("uncaptured scenario lost its notice:\n%s", page)
 	}
 }
+
+// TestHasEvidence_IsAPresenceCheckNotAQualityJudgement pins hasEvidence's
+// contract deliberately, because U157-F05 proposed narrowing it and the
+// narrowing is wrong.
+//
+// The gate asks one question — did this step capture ANY of the three evidence
+// streams? — and nothing else. It is not a quality judgement, and it must not
+// become one: a terse capture like "exit=0" from a command that legitimately
+// prints nothing is real, run-produced proof, while any length or shape
+// heuristic that rejected it would refuse to publish a true page. The row's
+// premise that "several acceptance steps set exactly that shape" does not hold
+// — every exit= evidence site in tests/acceptance appends the command's own
+// output ("exit=%d\n%s").
+func TestHasEvidence_IsAPresenceCheckNotAQualityJudgement(t *testing.T) {
+	assert.False(t, hasEvidence(DocCaptureStep{}), "no streams at all is the only absence")
+
+	for name, step := range map[string]DocCaptureStep{
+		"cli only":        {CLIOutput: "exit=0"},
+		"mock only":       {MockRecorded: "x"},
+		"materialized":    {Materialized: "exit=0"},
+		"all three":       {CLIOutput: "a", MockRecorded: "b", Materialized: "c"},
+		"single space":    {CLIOutput: " "},
+		"terse but real":  {Materialized: "signature_state: trusted"},
+		"multiline usual": {CLIOutput: "exit=0\nhello\n"},
+	} {
+		assert.Truef(t, hasEvidence(step), "%s must satisfy the evidence gate", name)
+	}
+}

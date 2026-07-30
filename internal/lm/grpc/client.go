@@ -284,16 +284,36 @@ var dialLLMConnection = func(cmd string, args []string, env []string, logger hcl
 // canonical go-plugin plugin-in-container transport (RunnerFunc + AddrTranslator);
 // see NewContainerClient. It is a package var so tests can override it.
 var dialContainerConnection = func(runnerFunc ContainerRunnerFunc, socketTempDir string, logger hclog.Logger) llmConnection {
-	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
+	return &realLLMConnection{client: plugin.NewClient(ContainerClientConfig(runnerFunc, socketTempDir, logger))}
+}
+
+// ContainerClientConfig builds the go-plugin ClientConfig for the
+// container transport. It is a named function rather than a literal inside
+// dialContainerConnection because SkipHostEnv is a SECURITY property of this
+// transport that has to be assertable.
+//
+// SkipHostEnv keeps this process's own environment out of the metadata Cmd
+// go-plugin populates for the RunnerFunc. Without it go-plugin appends
+// os.Environ() before its handshake vars, and the container runner's env
+// curation (isolation.containerHandshakeEnv) forwards every PLUGIN_-prefixed
+// key it is handed — so an ambient host PLUGIN_* variable would cross the
+// container boundary and land on the world-readable `run` argv. With it, the
+// Cmd's env is exactly go-plugin's own handshake set, which is what the
+// curation's prefix match is meant to describe. Nothing is lost: the container
+// path never EXECUTES that Cmd (newContainerRunner builds its own
+// docker/podman command), it reads only its Env.
+func ContainerClientConfig(runnerFunc ContainerRunnerFunc, socketTempDir string, logger hclog.Logger) *plugin.ClientConfig {
+	return &plugin.ClientConfig{
 		HandshakeConfig:  HandshakeConfig,
 		Plugins:          PluginMap,
 		RunnerFunc:       runnerFunc,
 		UnixSocketConfig: &plugin.UnixSocketConfig{TempDir: socketTempDir},
+		SkipHostEnv:      true,
 		AllowedProtocols: []plugin.Protocol{
 			plugin.ProtocolGRPC,
 		},
 		Logger: logger,
-	})}
+	}
 }
 
 // newPluginLogger builds the hclog logger the plugin machinery uses. Verbosity 0

@@ -364,3 +364,34 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
 		"a spec carrying a home must render the fresh-HOME env flag")
 }
+
+// TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee states U064-F03's
+// boundary explicitly, because the doc comment's "never the host's full
+// environment" reads as a promise this function alone keeps and it is not one.
+// The PLUGIN_ arm is a prefix match over whatever it is handed, so an ambient
+// host PLUGIN_* var WOULD cross if the caller seeded cmdEnv from os.Environ().
+// The prefix stays (go-plugin owns that namespace; a version that adds a
+// handshake var must not silently lose it). What changed is the caller:
+// pb.ContainerClientConfig sets SkipHostEnv, pinned by
+// TestContainerClientConfig_SkipsHostEnv. This test pins the half that lives
+// here — every non-PLUGIN_ host key is dropped regardless — and documents the
+// half that does not, so nobody reads the prefix match as a host-env filter.
+func TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee(t *testing.T) {
+	out := containerHandshakeEnv([]string{
+		pb.HandshakeConfig.MagicCookieKey + "=ai-backend-v1",
+		"PLUGIN_PROTOCOL_VERSIONS=1",
+		"PLUGIN_LEAKED_SECRET=from-the-host",
+		"AWS_SECRET_ACCESS_KEY=from-the-host",
+	}, "/run/ctxloom/plugin")
+
+	keys := map[string]bool{}
+	for _, kv := range out {
+		key, _, _ := strings.Cut(kv, "=")
+		keys[key] = true
+	}
+	assert.True(t, keys[pb.HandshakeConfig.MagicCookieKey], "the magic cookie crosses")
+	assert.True(t, keys["PLUGIN_PROTOCOL_VERSIONS"], "go-plugin's handshake vars cross")
+	assert.False(t, keys["AWS_SECRET_ACCESS_KEY"], "a non-PLUGIN_ host key never crosses, whatever the caller hands in")
+	assert.True(t, keys["PLUGIN_LEAKED_SECRET"],
+		"the prefix match forwards ANY PLUGIN_ key: keeping the host environment out of cmdEnv is the caller's job (pb.ContainerClientConfig's SkipHostEnv), not this function's")
+}

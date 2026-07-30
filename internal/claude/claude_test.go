@@ -1188,3 +1188,96 @@ func TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped(t *testin
 		"the user's own permissions rule must still be in the file")
 	assert.Contains(t, string(data), "Read", "the surrounding allow list must be untouched too")
 }
+
+// denyStatFs fails Stat — and therefore afero.Exists — for the named paths
+// with a non-IsNotExist error: the EACCES-on-the-parent-directory case, which
+// afero.Exists reports as (false, err). Absent and unreadable are different
+// answers and the writer must not conflate them.
+type denyStatFs struct {
+	afero.Fs
+	deny map[string]error
+}
+
+func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
+	if err, ok := f.deny[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Stat(name)
+}
+
+// TestRemoveSettings_SettingsStatErrorIsLoud pins U032-F19 for the uninstall
+// path: an unreadable settings.json must NOT be reported as "nothing to
+// remove". Swallowing the stat error makes RemoveSettings a silent no-op that
+// exits 0 while ctxloom's hooks and statusline stay installed — the user is
+// told the uninstall succeeded and it did nothing.
+func TestRemoveSettings_SettingsStatErrorIsLoud(t *testing.T) {
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, settingsPath, []byte(`{"hooks":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{settingsPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	require.Error(t, writer.RemoveSettings("/project"),
+		"an unreadable settings.json must fail the uninstall, not be treated as absent")
+}
+
+// TestRemoveSettings_MCPStatErrorIsLoud is the .mcp.json half of the same
+// contract (settings.json is absent here, which is the one legitimate way to
+// have nothing to remove).
+func TestRemoveSettings_MCPStatErrorIsLoud(t *testing.T) {
+	mcpPath := filepath.Join("/project", ".mcp.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, mcpPath, []byte(`{"mcpServers":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{mcpPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	require.Error(t, writer.RemoveSettings("/project"),
+		"an unreadable .mcp.json must fail the uninstall, not be treated as absent")
+}
+
+// TestStatus_SettingsStatErrorIsLoud pins the reporting half: Status is what
+// `ctxloom` tells the user about their own installation, so answering "not
+// installed" because the file could not be STATTED is a confident lie that
+// invites a redundant install over live config.
+func TestStatus_SettingsStatErrorIsLoud(t *testing.T) {
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, settingsPath, []byte(`{"hooks":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{settingsPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	status, err := writer.Status("/project")
+	require.Error(t, err, "an unreadable settings.json must be reported, not rendered as not-installed")
+	assert.False(t, status.SettingsExists, "no claim about a file that could not be read")
+}
+
+// TestStatus_MCPStatErrorIsLoud is the .mcp.json half of the reporting
+// contract.
+func TestStatus_MCPStatErrorIsLoud(t *testing.T) {
+	mcpPath := filepath.Join("/project", ".mcp.json")
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, mcpPath, []byte(`{"mcpServers":{}}`), 0644))
+	fs := denyStatFs{Fs: base, deny: map[string]error{mcpPath: os.ErrPermission}}
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	_, err := writer.Status("/project")
+	require.Error(t, err, "an unreadable .mcp.json must be reported, not rendered as not-installed")
+}
+
+// TestStatus_AbsentFilesAreNotAnError keeps the loud stat errors above from
+// being satisfied the lazy way. A project with no settings.json and no
+// .mcp.json is the ordinary not-installed answer and must stay silent.
+func TestStatus_AbsentFilesAreNotAnError(t *testing.T) {
+	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
+	status, err := writer.Status("/project")
+	require.NoError(t, err)
+	assert.False(t, status.SettingsExists)
+	assert.False(t, status.MCPPresent)
+}
+
+// TestRemoveSettings_AbsentFilesAreNotAnError is the uninstall twin of the
+// above: removing what was never installed stays a clean no-op.
+func TestRemoveSettings_AbsentFilesAreNotAnError(t *testing.T) {
+	writer := &ClaudeCodeHookWriter{FS: afero.NewMemMapFs()}
+	require.NoError(t, writer.RemoveSettings("/project"))
+}

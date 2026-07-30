@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,261** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 115 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 116 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 165 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **562** |
+| `open` | no commit names this ID | **561** |
 
-**Totals: 2268 findings across 162 units — 1,261 resolved, 562 still open, 445 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,261 resolved, 561 still open, 446 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 441 | 312 | 65 | 77 | 104 |
-| LOW | 871 | 463 | 238 | 35 | 80 | 55 |
+| LOW | 871 | 463 | 237 | 36 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1996,7 +1996,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U007-F13 | **RESOLVED** `5755145a` | **`commands.go:361-363`** | DEAD / TRIVIAL | `noteHiddenMatches` is a three-line pass-through whose only caller in the entire repo is its own test | U007.md |
 | U007-F15 | **RESOLVED** `ddadd94b` | **`manage.go:163-172`** | ERRHANDLING | `manage status` silently skips any config it cannot stat or read (`if err != nil \ | U007.md |
 | U007-F16 | **RESOLVED** `8f778480` | **`run.go:137`** | ERRHANDLING | `pickTask` treats a stdin read *failure* as a user quit: `if !scanner.Scan() { return tasks.Task{}, false }` never consults `scanner.Err()`, and the caller prints "taskloom: cancelled" | U007.md |
-| U007-F17 | open | **`run.go:120`** | ERRHANDLING | `launchTaskAgent` returns `c.Run()` verbatim, so `ctxloom run`'s exit code collapses to taskloom's `os.Exit(1)` and the user sees a cobra-prefixed `Error: exit status N` on top of ctxloom's own output | U007.md |
+| U007-F17 | **PARTIAL** `dd80bdab` | **`run.go:120`** | ERRHANDLING | `launchTaskAgent` returns `c.Run()` verbatim, so `ctxloom run`'s exit code collapses to taskloom's `os.Exit(1)` and the user sees a cobra-prefixed `Error: exit status N` on top of ctxloom's own output | U007.md |
 | U007-F18 | open | **`root.go:182 vs root.go:191`** | COUPLING | Two adjacent functions take the same pair of same-typed strings in **opposite** order — `noteTaskProject(projectID, projectDir)` delegates to `formatProjectLabel(dir, id)`. Connascence of position ... | U007.md |
 | U007-F19 | **RESOLVED** `24e4e92e` | `scope.go:209` | TRIVIAL | `listAllProjects`' parameter `sortPriority bool` shadows the package constant `sortPriority = "priority"` (commands.go:30) inside a function whose callers pass `opts.Sort == sortPriority` | U007.md |
 | U007-F20 | **RESOLVED** `5fdf8767` | **`commands.go:128-136`** | TRIVIAL | `runListCmd`'s doc comment is attached to the wrong declaration: the comment block that begins "runListCmd is listCmd's RunE body…" runs straight into "listOptions bundles…" and lands on `type list... | U007.md |

@@ -400,9 +400,9 @@ func scalarCollapse(schema *tagschema.Schema, existingTags, incoming []string) (
 	// same-target-different-value tag that needs retracting. Parsed, not raw:
 	// target identity is already decided by parsing, and tagma's grammar
 	// admits a quoted spelling of any component, so `k=v` and `k="v"` are one
-	// tag. Comparing raw strings made the second look like a new value and
-	// retracted the first -- an untag written into an append-only log for a
-	// value that never changed (U122-F05).
+	// tag. Comparing raw strings makes the second look like a new value and
+	// retracts the first -- an untag written into an append-only log for a
+	// value that never changed.
 	surviving := map[string]string{}
 	for _, raw := range toAdd {
 		if target, value, scalar := scalarTagOf(schema, raw); scalar {
@@ -905,9 +905,14 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 	if _, err := os.Stat(logPath); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return "" // resolvedID's own log exists (or its state is otherwise inconclusive) -- nothing hidden.
 	}
+	// A failure below is NOT "nothing to report": this note exists precisely
+	// so a project's real backlog cannot hide behind an honest-looking
+	// "(no tasks)", and answering "nothing hidden" when the check never
+	// managed to look is the one answer it must not give.
 	entries, err := pm.EntriesAtPath(workDir)
 	if err != nil {
-		return ""
+		return fmt.Sprintf("project %s has no task log yet, and %s's other registrations could not be read (%v) -- another project may hold this directory's tasks",
+			resolvedID, workDir, err)
 	}
 	for _, e := range entries {
 		if e.ProjectID == resolvedID {
@@ -915,7 +920,8 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 		}
 		siblingPath, perr := paths.HomeTasksLogPath(e.ProjectID)
 		if perr != nil {
-			continue
+			return fmt.Sprintf("project %s has no task log yet, and %s is also registered under project id %q, which has no usable log path (%v)",
+				resolvedID, workDir, e.ProjectID, perr)
 		}
 		if _, serr := os.Stat(siblingPath); serr == nil {
 			return fmt.Sprintf("project %s has no task log yet, but %s is ALSO registered here under project %s, which has one -- pass --project %s to see those tasks",

@@ -265,7 +265,7 @@ func (f *folded) applyAdd(ev Event) {
 // to a live task. An event addressed to a task that is not in byID — never
 // added, or already removed — applies to nothing; see
 // TestApply_EventsForAnUnknownHarpAreSilentlyDropped for what that costs and
-// why it is not this function's call to change (U120-F03).
+// why changing it is a persisted-format decision, not this function's.
 func (f *folded) retagLive(ev Event, delta func(base, arg []string) []string) {
 	if t := f.byID[ev.Task]; t != nil {
 		t.Tags = delta(t.Tags, ev.Tags)

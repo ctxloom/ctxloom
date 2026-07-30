@@ -1556,3 +1556,58 @@ func TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead(t *testing.T) {
 		t.Fatalf("project = %q; the pin must still win — this is a diagnostic, not a refusal", got.ProjectID)
 	}
 }
+
+// writeRegistry plants a raw project-registry file, so a test can express
+// registry states the API would refuse to create — the registry is a
+// user-editable YAML file, so these states are reachable in the field.
+func writeRegistry(t *testing.T, body string) {
+	t.Helper()
+	path, err := paths.ProjectRegistryPath()
+	if err != nil {
+		t.Fatalf("registry path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+}
+
+// TestMissingLogSiblingNote_SaysWhenItCouldNotLook pins U122-F06: the note
+// swallowed a registry read failure and an unusable sibling id into the same
+// empty string it returns for "nothing to report". The whole purpose of this
+// note is to stop a project's real backlog hiding behind an honest-looking
+// "(no tasks)", so answering "nothing hidden" when it never managed to look
+// is the one answer it must not give.
+func TestMissingLogSiblingNote_SaysWhenItCouldNotLook(t *testing.T) {
+	t.Run("registry unreadable", func(t *testing.T) {
+		taskstest.Isolate(t)
+		work := t.TempDir()
+		writeRegistry(t, "projects: [this is not a registry\n")
+		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
+
+		got, err := ListTasks(tc, nil, "", false, false, 0)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if !strings.Contains(got.Warning, "could not") {
+			t.Fatalf("warning = %q; an unreadable registry must not read as 'nothing to report'", got.Warning)
+		}
+	})
+
+	t.Run("sibling id unusable", func(t *testing.T) {
+		taskstest.Isolate(t)
+		work := t.TempDir()
+		writeRegistry(t, "projects:\n  - project_id: \"../escape\"\n    path: "+work+"\n")
+		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
+
+		got, err := ListTasks(tc, nil, "", false, false, 0)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if !strings.Contains(got.Warning, "../escape") {
+			t.Fatalf("warning = %q; a registry entry whose id has no usable log path must be named", got.Warning)
+		}
+	})
+}

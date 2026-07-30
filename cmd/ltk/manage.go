@@ -241,7 +241,11 @@ func scaffoldConfig(path string, withDefaults, force bool) error {
 		}
 		fmt.Fprintf(os.Stderr, "%s: backed up existing rules to %s before overwriting\n", progName, backup)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		// Neither "exists" nor "does not exist" — a path component that is a
+		// file, an unreadable parent, a symlink loop. os.Stat's *fs.PathError
+		// already names the path; what it cannot say is which of scaffoldConfig's
+		// filesystem steps was underway, so say that, as every sibling here does.
+		return fmt.Errorf("check for an existing rules file: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

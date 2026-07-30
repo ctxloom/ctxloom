@@ -129,6 +129,34 @@ func TestScaffoldConfigForceBacksUp(t *testing.T) {
 	}
 }
 
+// scaffoldConfig's existence probe can fail for reasons other than "not there"
+// — a path component that is a file (ENOTDIR), an unreadable parent, a symlink
+// loop. os.Stat's own *fs.PathError already names the path, so the user is not
+// left guessing WHICH file; what the bare return dropped was any statement of
+// what ltk was doing, which every sibling error in this file supplies. Pin
+// both halves so the message stays actionable.
+func TestScaffoldConfig_UnreadableExistingPathSaysWhatItWasDoing(t *testing.T) {
+	dir := t.TempDir()
+	// A regular file where a directory has to be: os.Stat below it returns
+	// ENOTDIR, which is neither "exists" nor "does not exist".
+	blocker := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blocker, []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(blocker, "config.yaml")
+
+	err := scaffoldConfig(path, true, false)
+	if err == nil {
+		t.Fatal("an unreadable existing-rules probe was treated as success")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("the error must name the path it could not stat, got %q", err)
+	}
+	if !strings.Contains(err.Error(), "existing rules file") {
+		t.Errorf("the error must say what ltk was doing, like every sibling in this file, got %q", err)
+	}
+}
+
 // The --force backup is a COPY of the user's rules file, so it must not be
 // more permissive than the file it copies: a config deliberately restricted to
 // 0600 must not reappear world-readable as <path>.bak. os.WriteFile also

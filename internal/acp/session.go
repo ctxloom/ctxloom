@@ -651,26 +651,11 @@ func (s *chatSession) buildPromptBlocks(msg agent.ChatMessage) ([]api.ContentBlo
 func (s *chatSession) deliverBlock(b agent.ContentBlock) api.ContentBlock {
 	switch b.Kind {
 	case "image":
-		if s.caps.Prompt.Image {
-			if block, ok := decodeACPBlock(b.Raw); ok {
-				return block
-			}
-		}
-		return flattenedBlockWarning(b, "image")
+		return s.gatedBlock(b, "image", s.caps.Prompt.Image)
 	case "audio":
-		if s.caps.Prompt.Audio {
-			if block, ok := decodeACPBlock(b.Raw); ok {
-				return block
-			}
-		}
-		return flattenedBlockWarning(b, "audio")
+		return s.gatedBlock(b, "audio", s.caps.Prompt.Audio)
 	case "resource":
-		if s.caps.Prompt.EmbeddedContext {
-			if block, ok := decodeACPBlock(b.Raw); ok {
-				return block
-			}
-		}
-		return flattenedBlockWarning(b, "resource")
+		return s.gatedBlock(b, "resource", s.caps.Prompt.EmbeddedContext)
 	case "resource_link":
 		// Spec: "All agents MUST support resource links" — never gated.
 		if block, ok := decodeACPBlock(b.Raw); ok {
@@ -711,17 +696,38 @@ func decodeACPBlock(raw json.RawMessage) (api.ContentBlock, bool) {
 	return block, true
 }
 
-// flattenedBlockWarning renders b as a visible text placeholder when the
-// connected engine did not advertise support for its kind (or its Raw bytes
-// failed to decode) — the flatten-WITH-warning degradation the plan requires:
-// ctxloom neither silently drops the content nor lies about having delivered
-// it. Logs the same finding (operational visibility) and returns text so the
-// model — and a transcript viewer — sees that something arrived instead of
-// the turn silently missing it.
-func flattenedBlockWarning(b agent.ContentBlock, kind string) api.ContentBlock {
+// gatedBlock delivers one capability-gated block: the real typed ACP block
+// when the connected engine advertised its kind AND the block's Raw bytes
+// decode, and a visible text placeholder otherwise.
+//
+// The two ways that can fail are DIFFERENT FAULTS and are reported as such.
+// "the engine does not advertise X support" is actionable — connect a
+// different engine. "the block's bytes could not be decoded" is a fault on
+// ctxloom's own side of the wire, and reporting it as a missing engine
+// capability sends the reader hunting a capability the engine already has
+// while the real cause goes unnamed. The placeholder is read by the model and
+// by the user as the reason the content is missing, so it must name the one
+// that actually applies.
+func (s *chatSession) gatedBlock(b agent.ContentBlock, kind string, advertised bool) api.ContentBlock {
+	if !advertised {
+		return flattenedBlockWarning(b, kind, "the connected engine does not advertise "+kind+" support")
+	}
+	if block, ok := decodeACPBlock(b.Raw); ok {
+		return block
+	}
+	return flattenedBlockWarning(b, kind, "its content bytes could not be decoded")
+}
+
+// flattenedBlockWarning renders b as a visible text placeholder, naming the
+// reason it could not be delivered — the flatten-WITH-warning degradation the
+// plan requires: ctxloom neither silently drops the content nor lies about
+// having delivered it. Logs the same finding (operational visibility) and
+// returns text so the model — and a transcript viewer — sees that something
+// arrived instead of the turn silently missing it.
+func flattenedBlockWarning(b agent.ContentBlock, kind, reason string) api.ContentBlock {
 	detail := mediaBlockDetail(b.Raw)
-	warnf("acp: flattening %s content block to text — the connected engine does not advertise %s support%s", kind, kind, detail)
-	return api.TextBlock(fmt.Sprintf("[%s content received but not delivered: the connected engine does not advertise %s support%s]", kind, kind, detail))
+	warnf("acp: flattening %s content block to text — %s%s", kind, reason, detail)
+	return api.TextBlock(fmt.Sprintf("[%s content received but not delivered: %s%s]", kind, reason, detail))
 }
 
 // mediaBlockDetail extracts a human-readable "(mimeType=..., N bytes)" detail

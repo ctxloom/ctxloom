@@ -162,23 +162,33 @@ const diagnosticsLogName = "diagnostics.log"
 // TUI takes the terminal, so the user knows where to look.
 //
 // A log file that cannot be opened leaves the sink alone: corrupting the TUI
-// beats losing the diagnostics.
+// beats losing the diagnostics. That outcome is ANNOUNCED rather than returned
+// as a bare no-op — warnings continuing to land on the terminal is exactly the
+// visible symptom this exists to prevent, and a user watching their display
+// break needs the reason, not a mystery. The announcement rides the same
+// writer the success line does: it happens before the handover, and routing it
+// through clidiag would push it into the sink this function just failed to
+// redirect.
 func redirectDiagnosticsForTUI(harp string, announce io.Writer) func() {
 	noop := func() {}
-	if harp == "" {
+	decline := func(format string, args ...any) func() {
+		fmt.Fprintf(announce, "ctxloom: diagnostics stay on stderr and may disturb this session's display — "+format+"\n", args...)
 		return noop
+	}
+	if harp == "" {
+		return decline("this session has no harp, so there is no per-session log to divert them to")
 	}
 	dir, err := paths.HarpDir(harp)
 	if err != nil {
-		return noop
+		return decline("could not resolve a session dir for harp %q: %v", harp, err)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return noop
+		return decline("could not create %s: %v", dir, err)
 	}
 	path := filepath.Join(dir, diagnosticsLogName)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return noop
+		return decline("could not open %s: %v", path, err)
 	}
 	fmt.Fprintf(announce, "ctxloom: diagnostics for this session go to %s\n", path)
 	restore := clidiag.SetSink(f)

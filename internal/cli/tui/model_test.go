@@ -63,10 +63,12 @@ func (f *fakeSources) sources() Sources {
 			}, nil
 		},
 		ExportDir: func(string) (string, error) {
-			if f.exportDirErr != nil {
-				return "", f.exportDirErr
-			}
-			return f.exportDir, nil
+			// Faithful to the production wiring (cli.terminalUISources), whose
+			// ExportDir is `return dir, os.MkdirAll(dir, 0o755)` — a NON-EMPTY
+			// path alongside a non-nil error. The fake must hand back the same
+			// shape, or it silently exempts every consumer from checking the
+			// error before the path.
+			return f.exportDir, f.exportDirErr
 		},
 		Now: func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
 		Inject: func(harp, text string) (string, error) {
@@ -605,4 +607,33 @@ func TestModel_HeaderPlaceholderWithNoFeedSelected(t *testing.T) {
 	f := newFakeSources(t.TempDir())
 	m, _ := step(t, newTestModel(f, nil), rosterMsg{rows: nil})
 	assert.Contains(t, m.View(), "feed: —")
+}
+
+// TestModel_ExportDirErrorWinsOverTheReturnedPath is U042-F22's pin. The
+// production ExportDir (cli.terminalUISources) is
+// `return dir, os.MkdirAll(dir, 0o755)`, so on failure it hands back a
+// non-empty path for a directory that does not exist. Every consumer here must
+// treat the error as decisive and never touch that path — otherwise export and
+// the copy fallback would write into an unusable location, or report "saved
+// <path>" for a file nobody can read. Red if any consumer is ever reordered to
+// use the path first.
+func TestModel_ExportDirErrorWinsOverTheReturnedPath(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
+	f.exportDirErr = fmt.Errorf("session dir unavailable")
+
+	var copyBuf bytes.Buffer
+	m := openSelected(t, newTestModel(f, &copyBuf), f)
+	m = pushEntry(t, m, f, entryEv("user", "hello"))
+
+	for _, key := range []string{"s", "S", "y"} {
+		m, _ = step(t, m, keyMsg(key))
+		assert.Contains(t, m.errMsg, "session dir unavailable", "key=%s: the error must reach the user", key)
+		assert.NotContains(t, m.status, "saved ", "key=%s: nothing may be reported as saved", key)
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries,
+		"no consumer may write to the path an errored ExportDir returned alongside its error")
 }

@@ -29,7 +29,18 @@ func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp strin
 		}
 		row := RosterRow{Harp: e.HarpName, Engine: e.Backend, State: state}
 		if b, ok := busByHarp[e.HarpName]; ok {
-			row.Agent, row.State, row.Parent = b.Agent, b.State, b.Parent
+			// The held row is richer, not authoritative: an absent field is
+			// something the coordinator has nothing to say about, so it must
+			// not erase what the index already knows.
+			if b.Agent != "" {
+				row.Agent = b.Agent
+			}
+			if b.State != "" {
+				row.State = b.State
+			}
+			if b.Parent != "" {
+				row.Parent = b.Parent
+			}
 		}
 		roots = append(roots, row)
 		seen[e.HarpName] = true

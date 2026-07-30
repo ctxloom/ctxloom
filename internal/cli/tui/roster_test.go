@@ -52,6 +52,29 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 	assert.Equal(t, 0, rows[3].Depth)
 }
 
+// The merge is "the held row is RICHER", not "the held row replaces". A
+// coordinator entry whose state is empty — a journal whose runState fact
+// decoded without one — must not erase the index's own live/ended reading,
+// which would repaint a running session as the waiting glyph. U044-F16.
+func TestBuildRoster_EmptyHeldFieldsDoNotBlankTheIndexRow(t *testing.T) {
+	ended := time.Now()
+	rows := BuildRoster(
+		[]sessions.Entry{
+			{HarpName: "perky-same-chevy", Backend: "claude-code"},
+			{HarpName: "older-oak-hen", Backend: "codex", EndedAt: &ended},
+		},
+		[]coord.RosterEntry{
+			{Harp: "perky-same-chevy", Agent: "", State: "", Parent: ""},
+			{Harp: "older-oak-hen", State: ""},
+		},
+		"perky-same-chevy")
+
+	require.Len(t, rows, 2)
+	assert.Equal(t, "live", rows[0].State, "an empty held state leaves the index reading alone")
+	assert.Equal(t, "ended", rows[1].State)
+	assert.Equal(t, "●", stateGlyph(rows[0].State))
+}
+
 func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
 	rows := BuildRoster(nil, []coord.RosterEntry{
 		{Harp: "lost-kid", Agent: "finder", State: "queued", Parent: "gone-parent"},

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,151** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,152** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 71 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 121 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **780** |
+| `open` | no commit names this ID | **779** |
 
-**Totals: 2268 findings across 162 units — 1,151 resolved, 780 still open, 337 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,152 resolved, 779 still open, 337 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 372 | 448 | 38 | 50 | 91 |
-| LOW | 871 | 429 | 306 | 23 | 63 | 50 |
+| LOW | 871 | 430 | 305 | 23 | 63 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2591,7 +2591,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U102-F07 | **ESCALATED** `c3314e2e` | `skillexport.go:22` | NOPAY | `SkillExport.Description` is write-only — set by the loader, read by no engine | U102.md |
 | U102-F12 | **RESOLVED** `695cf375` | `thinking.go:45-83` | DUPLICATE | The four spellings `off/low/medium/high` are written out three times in one 84-line file | U102.md |
 | U102-F17 | **RESOLVED** `8b987554` | `sessionstore.go:35` | TRIVIAL | The package has two independent "default to the OS filesystem" mechanisms | U102.md |
-| U102-F18 | open | `sessionstore.go:67` | ERRHANDLING | `"no sessions found"` is a bare formatted string with no sentinel, so no caller can distinguish "this project has no history" from a real failure | U102.md |
+| U102-F18 | **RESOLVED** `5a1f72a0` | `sessionstore.go:67` | ERRHANDLING | `"no sessions found"` is a bare formatted string with no sentinel, so no caller can distinguish "this project has no history" from a real failure | U102.md |
 | U103-F05 | open | `clidiag.go:26` | CORRECTNESS | `Line` splices `prog` into the format string while `fwarn`:68 passes it as a `%s` argument — the two functions that are supposed to render identical text handle `prog` differently | U103.md |
 | U103-F07 | open | `clidiag.go:65,68` | ERRHANDLING | Both write paths discard their error totally; in structured mode a failing `EncodeWarning` leaves no trace anywhere | U103.md |
 | U103-F08 | open | `clidiag.go:84-94` | CORRECTNESS | `SetSink`'s doc guarantees it "never installs a nil writer", but the nil check only catches an untyped `nil`; a typed-nil (`var f *os.File; SetSink(f)`) passes `w == nil` and installs a writer that... | U103.md |

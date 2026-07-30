@@ -66,7 +66,13 @@ func TestHandleControl_SteerParksTheBodyBeforeInjectingTheReminder(t *testing.T)
 	assert.Equal(t, "ctl-order", parked[0].GetStructured().GetFields()["request_id"].GetStringValue())
 
 	// The injected turn carries the reminder and NOTHING else.
-	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 2 }, 5*time.Second, 10*time.Millisecond)
+	//
+	// `>= 2`, not `== 2`: this scripted engine completes every turn the instant
+	// it arrives and never pulls the parked body, so the turn-boundary
+	// re-announcer legitimately follows up (enginehost_reannounce.go). What
+	// this test pins is the SECOND turn's content; a later re-announcement is
+	// another test's subject, and an equality here would be a stopwatch.
+	require.Eventually(t, func() bool { return len(sc.recordedTexts()) >= 2 }, 5*time.Second, 10*time.Millisecond)
 	assert.Equal(t, (&agentcoordpb.SteerPendingReminder{}).XmlLike(), sc.recordedTexts()[1])
 }
 

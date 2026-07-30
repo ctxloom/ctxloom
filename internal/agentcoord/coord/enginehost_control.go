@@ -28,12 +28,25 @@ import (
 // turn, not two). That keeps the frame unforgeable by construction — a body
 // containing something that looks like a header is never interpolated into a
 // turn — and it keeps ONE copy of the body, in one place, with one lifecycle.
+//
+// AND IF THE AGENT DOES NOT PULL? Then nothing here notices: the announcement
+// below is emitted once, at enqueue, and this file's whole job is done the
+// moment it lands. What makes the un-pulled case survivable lives in
+// enginehost_reannounce.go — the turn-boundary re-announcer that re-announces a
+// body still sitting unread, and reports it when it gives up. Without it, an
+// engine that ignored this one frame lost the instruction silently.
 
 // turnTag attributes one locally-originated turn to what asked for it. The zero
 // value means "ordinary": the briefing, or coordinator mail.
 type turnTag struct {
-	kind  string // "" (briefing/mail) | "steer" | "question" | "summarize"
-	reqID string // the CoordinatorRequest's correlating id, when kind != ""
+	// "" (briefing/mail) | "steer" | "question" | "summarize" | "reannounce"
+	kind string
+	// The CoordinatorRequest's correlating id, when kind != "". "reannounce"
+	// is the exception: nothing correlates a re-announcement to an open
+	// request (the ack went back turns ago), so it carries the PARKED BODY's
+	// message id — which is what the re-announcer's budget is keyed on and
+	// what its give-up event names.
+	reqID string
 }
 
 // enqueueTurn is the ONE funnel onto eh.in for every locally-originated turn —

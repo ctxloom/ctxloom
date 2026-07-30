@@ -18,7 +18,11 @@ import (
 // coordinator-initiated control request against the hosted engine.
 //
 // DELIVERY IS REMINDER + PULL. The injected turn carries no untrusted bytes: it
-// is a generated <ctxloom-reminder> frame and nothing else. The instruction
+// is a reminder frame emitted by a generated .XmlLike() encoder
+// (SteerPendingReminder, for a steer) and nothing else. That encoder is the ONE
+// place a frame is constructed — see internal/agentcoord/xmllike_gen.go, and
+// the gate in tests/arch that keeps it the only place; this file must not name
+// the frame's literal tag, let alone assemble one. The instruction
 // body is parked in the runner's own recv buffer and the agent PULLS it with
 // agent_recv, in the same turn (tool results arrive mid-turn, so this is one
 // turn, not two). That keeps the frame unforgeable by construction — a body

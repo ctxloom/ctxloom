@@ -429,3 +429,22 @@ func TestConfigUpgrades_V5toV6_SynthesizedDefaults_IsNotLossy(t *testing.T) {
 
 	assert.Empty(t, drainMigrationWarnings(), "a migration that moved the list lost nothing")
 }
+
+// A config whose `version:` key is present but not an integer is not a
+// pre-versioning document — it is a document whose version cannot be read, and
+// the two must not be treated the same. Reading it as generation 0 re-ran every
+// migration from the start over a file that is probably corrupt, and stamped
+// the current version on the way out: the loud "cannot unmarshal `banana` into
+// int" the caller would have got is replaced by a clean parse of a rewritten
+// file the user is then prompted to persist.
+func TestConfigUpgrades_UnreadableVersion_AppliesNothing(t *testing.T) {
+	for _, in := range []string{
+		"version: banana\nllm:\n  defaults:\n    primary: claude-code\n",
+		"version: 6.5\nllm:\n  defaults:\n    primary: claude-code\n",
+		"version:\n  nested: 6\nllm:\n  defaults:\n    primary: claude-code\n",
+	} {
+		out, applied := configUpgrades.Run([]byte(in))
+		assert.Empty(t, applied, "input %q", in)
+		assert.Equal(t, in, string(out), "input %q must survive verbatim", in)
+	}
+}

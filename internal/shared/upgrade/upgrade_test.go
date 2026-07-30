@@ -35,7 +35,7 @@ type versionStampUpgrade struct{ target int }
 func (versionStampUpgrade) Name() string { return "version-stamp" }
 
 func (u versionStampUpgrade) Apply(root *yaml.Node) bool {
-	if Version(root, "version") >= u.target {
+	if v, ok := Version(root, "version"); !ok || v >= u.target {
 		return false
 	}
 	SetVersion(root, "version", u.target)
@@ -169,5 +169,39 @@ func TestSetVersion_IsIntScalar(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("k: v\n"), &doc))
 	root := doc.Content[0]
 	SetVersion(root, "version", 3)
-	assert.Equal(t, 3, Version(root, "version"))
+	v, ok := Version(root, "version")
+	assert.True(t, ok)
+	assert.Equal(t, 3, v)
+}
+
+// "the key is absent" and "the key is present and unreadable" are different
+// facts. Only the first is generation 0; the second must not be migrated as if
+// it were, because doing so re-runs every step over a probably-corrupt document
+// and stamps the current version on the way out.
+func TestVersion_PresentButUnreadable_IsNotGenerationZero(t *testing.T) {
+	parse := func(t *testing.T, doc string) *yaml.Node {
+		t.Helper()
+		var d yaml.Node
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &d))
+		return d.Content[0]
+	}
+
+	v, ok := Version(parse(t, "k: v\n"), "version")
+	assert.True(t, ok, "an absent version key is the pre-versioning generation")
+	assert.Equal(t, 0, v)
+
+	for _, doc := range []string{
+		"version: banana\nk: v\n",
+		"version: 6.5\nk: v\n",
+		"version: \"\"\nk: v\n",
+		"version:\n  nested: 6\n",
+		"version:\n  - 6\n",
+	} {
+		_, ok := Version(parse(t, doc), "version")
+		assert.False(t, ok, "input %q", doc)
+	}
+
+	v, ok = Version(parse(t, "version: 4\n"), "version")
+	assert.True(t, ok)
+	assert.Equal(t, 4, v)
 }

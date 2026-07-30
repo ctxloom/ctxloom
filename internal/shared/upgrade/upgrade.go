@@ -140,18 +140,32 @@ type Pending struct {
 }
 
 // Version reads a top-level integer schema version from key on the root mapping
-// node. A missing or non-integer value yields 0 — the implicit "pre-versioning"
-// generation.
-func Version(root *yaml.Node, key string) int {
+// node.
+//
+// A MISSING key is the implicit "pre-versioning" generation, reported as
+// (0, true): such a document is genuinely at generation 0 and every migration
+// should run over it.
+//
+// A key that is PRESENT but not an integer — `version: banana`, `version: 6.5`,
+// a nested mapping — is reported as (0, false). It is not a pre-versioning
+// document; it is a document whose version cannot be read, and the two are
+// different facts. Collapsing them re-runs every migration from generation 0
+// over a file that is probably corrupt and stamps the current version on the
+// way out, which replaces the parse error the caller would have surfaced with a
+// clean load of rewritten bytes. Callers gate on ok and decline.
+func Version(root *yaml.Node, key string) (version int, ok bool) {
 	v := MapValue(root, key)
-	if v == nil || v.Kind != yaml.ScalarNode {
-		return 0
+	if v == nil {
+		return 0, true
+	}
+	if v.Kind != yaml.ScalarNode {
+		return 0, false
 	}
 	n, err := strconv.Atoi(v.Value)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return n
+	return n, true
 }
 
 // SetVersion stamps a top-level integer schema version under key on the root

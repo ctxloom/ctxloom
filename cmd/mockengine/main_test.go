@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // TestRun_PersonalityFromEnv pins U006-F03. envPersonality
@@ -56,6 +58,97 @@ func TestRun_NoPersonality_NamesTheEnvVar(t *testing.T) {
 	}
 	if !strings.Contains(stderr, envPersonality) {
 		t.Fatalf("stderr = %q, want it to name %s", stderr, envPersonality)
+	}
+}
+
+// The mock's leading flags carried their own engine-name table: --claude and
+// --claude-code mapped to the literal "claude-code", --codex to "codex". The
+// repo already has exactly one such table — agent.CanonicalEngineName, whose
+// own doc says engine names are shared user-facing vocabulary and that "two
+// tables drift into one spelling resolving under one binary and erroring under
+// the other". That drift was live: --claude selected claude-code, while
+// --personality claude (and MOCKENGINE_PERSONALITY=claude) hit
+// backends.Get's exact-match lookup and died with "declares no engine CLI to
+// impersonate", for the same spelling the shared table declares.
+func TestRun_PersonalitySpellingsAgreeAcrossChannels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  string
+		args []string
+	}{
+		{"leading alias flag", "", []string{"--claude", "--print"}},
+		{"leading canonical flag", "", []string{"--claude-code", "--print"}},
+		{"--personality with an alias", "", []string{"--personality", "claude", "--print"}},
+		{"--personality canonical", "", []string{"--personality", "claude-code", "--print"}},
+		{"env var with an alias", "claude", []string{"--print"}},
+		{"env var canonical", "claude-code", []string{"--print"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envPersonality, tc.env)
+
+			var code int
+			stderr := captureStderr(t, func() { code = run(tc.args) })
+			if code != 0 {
+				t.Fatalf("run(%v) = %d, want 0 — every channel must accept the spellings the shared alias table declares; stderr: %s",
+					tc.args, code, stderr)
+			}
+		})
+	}
+}
+
+// Selectability by a leading --<engine> flag must come from the registry, not
+// from a switch in this file: a third impersonable backend should not need
+// this main package edited to be reachable the way claude-code and codex are.
+func TestPersonalityFromFlag_CoversEveryImpersonableBackend(t *testing.T) {
+	var checked int
+	for _, name := range backends.List() {
+		if _, ok := backends.EngineCLIsFor(name); !ok {
+			continue // ACP-only backend: nothing for the mock to impersonate
+		}
+		got, ok := personalityFromFlag("--" + name)
+		if !ok || got != name {
+			t.Errorf("--%s does not select the %s personality (got %q, ok=%v)", name, name, got, ok)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no impersonable backend was checked: this test validated nothing")
+	}
+
+	// A vendor flag must still terminate the mock's own flag run rather than
+	// being swallowed as a personality.
+	if _, ok := personalityFromFlag("--print"); ok {
+		t.Error("a vendor flag was consumed as a personality selector")
+	}
+	if _, ok := personalityFromFlag("not-a-flag"); ok {
+		t.Error("a bare token was consumed as a personality selector")
+	}
+}
+
+// The two discovery ROOTS the mock reports against — Resolver.Cwd and
+// Resolver.Home — had their errors discarded. The zero value that results does
+// not disable a probe: filepath.Join("", rel) yields rel, so every HOME-scoped
+// probe silently re-roots onto the process working directory and the mock
+// reports the PROJECT's .claude/CLAUDE.md as the file it found in $HOME, with
+// rec.Root recorded as "". An unset HOME is the ordinary case here, not an
+// exotic one: this binary is installed under a vendor's name inside container
+// fixtures, and ctxloom rewrites HOME deliberately to isolate engines.
+//
+// A fake whose entire product is a faithful observation report must refuse
+// rather than answer a different question.
+func TestRun_UnresolvableHomeIsRefusedNotSubstituted(t *testing.T) {
+	t.Setenv("HOME", "") // os.UserHomeDir: "$HOME is not defined"
+
+	var code int
+	stderr := captureStderr(t, func() {
+		code = run([]string{"--claude", "--print"})
+	})
+
+	if code != 2 {
+		t.Fatalf("run = %d, want 2: an unresolvable home root must be refused, not substituted with \"\"", code)
+	}
+	if !strings.Contains(stderr, "home directory") {
+		t.Fatalf("stderr = %q, want it to say which discovery root could not be resolved", stderr)
 	}
 }
 

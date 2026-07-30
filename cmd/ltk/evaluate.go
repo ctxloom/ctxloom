@@ -5,32 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/ltk/app"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
-	"github.com/ctxloom/ctxloom/internal/ltk/rules"
-	"github.com/ctxloom/ctxloom/internal/ltk/scm"
-	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
-	"github.com/ctxloom/ctxloom/internal/ltk/state"
 )
-
-// configSearch lists the default config locations, in order. The .ltk/ layout
-// (config + override state together) is preferred; the flat .ltk.yaml is kept
-// for back-compat.
-var configSearch = []string{
-	defaultConfigPath, // .ltk/config.yaml
-	legacyConfig,      // .ltk.yaml
-	"llm-tool-killer.yaml",
-	".llm-tool-killer.yaml",
-	".config/llm-tool-killer.yaml",
-}
 
 func newEvaluateCmd() *cobra.Command {
 	var cfgPath, shellName, engineName string
@@ -70,16 +51,34 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	if err != nil {
 		return err
 	}
+	if err := emitDecision(out, os.Stdout, os.Stderr); err != nil {
+		return err
+	}
+	if out.ExitCode != 0 {
+		os.Exit(out.ExitCode)
+	}
+	return nil
+}
+
+// emitDecision writes a decision's two streams. The stdout write is checked
+// and the stderr write is not, and that asymmetry is the contract, not an
+// oversight:
+//
+//   - stdout carries the DECISION. If it cannot be delivered the host never
+//     sees the deny, so there is nothing left to do but say so loudly.
+//   - stderr carries only a DIAGNOSTIC, and the sole channel on which a failed
+//     stderr write could be reported is stderr. Promoting it to an error would
+//     turn a lost diagnostic into a non-zero exit — which both hook hosts read
+//     as an allow, so a broken pipe on the diagnostic channel would disable
+//     the guard for that call.
+func emitDecision(out engine.Output, stdout, stderr io.Writer) error {
 	if len(out.Stdout) > 0 {
-		if _, err := os.Stdout.Write(out.Stdout); err != nil {
+		if _, err := stdout.Write(out.Stdout); err != nil {
 			return fmt.Errorf("write decision: %w", err)
 		}
 	}
 	if len(out.Stderr) > 0 {
-		os.Stderr.Write(out.Stderr)
-	}
-	if out.ExitCode != 0 {
-		os.Exit(out.ExitCode)
+		_, _ = stderr.Write(out.Stderr)
 	}
 	return nil
 }
@@ -90,29 +89,7 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) (engine.Output, error) {
 	adapter, err := engine.Get(engineName)
 	if err != nil {
-		// An unknown --engine in the installed hook (a manual edit or a cross-version
-		// rename) would otherwise exit 1, which both hosts treat as a silent allow.
-		// There is no adapter for the named engine to deny with. Guessing
-		// claude-code unconditionally was itself a bug (U005-F04): on an
-		// Antigravity host the deny then rides claude-code's wire format, which
-		// agy does not recognize, so the "fail closed" deny is invisible and the
-		// action proceeds anyway — the exact failure mode this branch exists to
-		// prevent. Try every registered engine's own Decode against the payload
-		// actually received; the first one that decodes something meaningful
-		// (a tool name, command, or file path) is presumably the real host, so
-		// fail closed in ITS wire format instead of guessing.
-		input, _ := io.ReadAll(stdin) // best-effort: an unreadable body just skips detection below
-		fallback := detectEngineFromPayload(input)
-		if fallback == nil {
-			var ferr error
-			fallback, ferr = engine.Get("claude-code")
-			if ferr != nil {
-				return engine.Output{}, err // unreachable in practice; nothing to deny with
-			}
-		}
-		return failClosed(fallback, fmt.Sprintf(
-			"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
-			progName, engineName))
+		return denyUnknownEngine(engineName, err, stdin)
 	}
 	// A typo'd --shell in the installed hook command would otherwise surface as
 	// ErrUnsupportedShell on every parse, which the default on_parse_error: allow
@@ -132,24 +109,12 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 			"%s could not load its rules config and is denying everything it guards until the config is fixed: %v",
 			progName, err))
 	}
-	// Resolve the `@submodules` path sentinel against this repo's .gitmodules, so
-	// a rule can block edits inside every submodule without naming them.
-	// Failing to resolve the sentinel is NOT the same as "there are no
-	// submodules": an unreadable .gitmodules or a submodule path that is not a
-	// valid glob leaves the rule expanded to zero patterns, so a rule written to
-	// protect every submodule silently protects none and every edit sails
-	// through as an allow. Same discipline as the config-load branch above —
-	// deny until it is fixed rather than guard nothing quietly.
-	if wd, err := os.Getwd(); err == nil {
-		subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
-		if err == nil {
-			err = cfg.ExpandSubmodules(subs)
-		}
-		if err != nil {
-			return failClosed(adapter, fmt.Sprintf(
-				"%s could not resolve the @submodules rule sentinel and is denying everything it guards until it is fixed: %v",
-				progName, err))
-		}
+	// Same discipline as the config-load branch above — deny until it is fixed
+	// rather than guard nothing quietly.
+	if err := expandSubmodules(cfg, os.Getwd); err != nil {
+		return failClosed(adapter, fmt.Sprintf(
+			"%s could not resolve the @submodules rule sentinel and is denying everything it guards until it is fixed: %v",
+			progName, err))
 	}
 	// Reading or decoding the hook payload could otherwise return a plain error
 	// → exit 1 → fail OPEN on both hosts (the same silent allow-all the --shell
@@ -173,45 +138,62 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 		return failClosed(adapter, ungatedToolDenyReason(adapter, req))
 	}
 
-	a := app.New(cfg)
-	a.ForceShell = forceShell
-	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
-	resp := a.Decide(context.Background(), req)
-
-	// A denial may be lifted by "confirm by repeating" only when the rule that
-	// fired allows it (inviolate rules report Confirmable=false and never reach
-	// here, so repeating them never helps).
-	if !resp.Allow && resp.Confirmable && resp.ConfirmWindowSeconds > 0 {
-		// The override is keyed on what the agent repeats: the command, or the
-		// file path for a file-edit rule.
-		key := req.Command
-		if req.FilePath != "" {
-			key = "edit:" + req.FilePath
-		}
-		resp = confirmByRepeat(resp, key, statePath(resolved),
-			time.Duration(resp.ConfirmDelaySeconds)*time.Second,
-			time.Duration(resp.ConfirmWindowSeconds)*time.Second)
-	}
+	resp := applyConfirmOverride(newDecider(cfg, forceShell).Decide(context.Background(), req), req, resolved)
 
 	out, err := adapter.Encode(resp)
 	if err != nil {
 		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
-	if resolved == "" && len(out.Stderr) == 0 {
-		// No .ltk/config.yaml (or any of the legacy names) was found anywhere
-		// from cwd up to the repository root: loadConfig fell back to the
-		// built-in zero-rule config, which allows everything with NO error and
-		// — until now — no trace at all. That is a silent, total fail-open by
-		// design (a project that never configured ltk is not gated), but
-		// "by design" and "invisible" should not be the same thing: an operator
-		// who believes the hook is active would otherwise have no way to
-		// notice it is gating nothing. Diagnostic only — the decision itself
-		// (allow) is unchanged.
-		out.Stderr = []byte(fmt.Sprintf(
-			"%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
-			progName, strings.Join(configSearch, ", ")))
+	return noteWhenNothingIsGated(out, resolved), nil
+}
+
+// denyUnknownEngine fails closed for an --engine name no adapter answers to.
+//
+// An unknown --engine in the installed hook (a manual edit or a cross-version
+// rename) would otherwise exit 1, which both hosts treat as a silent allow, and
+// there is no adapter for the NAMED engine to deny with. Guessing claude-code
+// unconditionally was itself a bug (U005-F04): on an Antigravity host the deny
+// then rides claude-code's wire format, which agy does not recognize, so the
+// "fail closed" deny is invisible and the action proceeds anyway — the exact
+// failure mode this branch exists to prevent. Try every registered engine's own
+// Decode against the payload actually received; the first one that decodes
+// something meaningful (a tool name, command, or file path) is presumably the
+// real host, so fail closed in ITS wire format instead of guessing.
+//
+// lookupErr is returned unchanged in the one case with nothing to deny with.
+func denyUnknownEngine(engineName string, lookupErr error, stdin io.Reader) (engine.Output, error) {
+	input, _ := io.ReadAll(stdin) // best-effort: an unreadable body just skips detection below
+	fallback := detectEngineFromPayload(input)
+	if fallback == nil {
+		var ferr error
+		fallback, ferr = engine.Get("claude-code")
+		if ferr != nil {
+			return engine.Output{}, lookupErr // unreachable in practice; nothing to deny with
+		}
 	}
-	return out, nil
+	return failClosed(fallback, fmt.Sprintf(
+		"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
+		progName, engineName))
+}
+
+// noteWhenNothingIsGated adds the "no rules config found" diagnostic when the
+// search came up empty (resolvedConfig == "") and nothing else has written to
+// stderr.
+//
+// loadConfig then fell back to the built-in zero-rule config, which allows
+// everything with NO error. That is a silent, total fail-open by design — a
+// project that never configured ltk is not gated — but "by design" and
+// "invisible" should not be the same thing: an operator who believes the hook
+// is active would otherwise have no way to notice it is gating nothing.
+// Diagnostic only; the decision is unchanged.
+func noteWhenNothingIsGated(out engine.Output, resolvedConfig string) engine.Output {
+	if resolvedConfig != "" || len(out.Stderr) > 0 {
+		return out
+	}
+	out.Stderr = []byte(fmt.Sprintf(
+		"%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
+		progName, strings.Join(configSearch, ", ")))
+	return out
 }
 
 // detectEngineFromPayload tries every registered engine's Decode against
@@ -281,124 +263,26 @@ func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
 // never surface as an error exit on the hook path: that would silently disable
 // every rule. Explicit user-facing commands (manage, --print) keep their
 // fail-loud exit-1 behavior; only `evaluate` fails closed.
+//
+// That guarantee is not absolute in the type system: this function, and
+// evaluate itself, still have `engine.Output{}, err` returns. They rest on two
+// properties, both pinned by
+// TestEvaluate_HookPathNeverReturnsAPlainError rather than assumed:
+//
+//   - every registered adapter's Encode is TOTAL. The deny bytes are
+//     json.Marshal over a struct of plain string fields, which has no failure
+//     mode (invalid UTF-8 is replaced, not rejected), so the encode-error
+//     returns are unreachable rather than merely unlikely.
+//   - engine.Get("claude-code") always resolves, so the last-resort fallback
+//     for an unknown --engine always has something to deny with.
+//
+// The moment an adapter grows a fallible encoder, the hook path stops being
+// fail-closed and this comment stops being true — which is exactly when that
+// test goes red.
 func failClosed(adapter engine.Adapter, reason string) (engine.Output, error) {
 	out, err := adapter.Encode(engine.Response{Allow: false, Reason: reason})
 	if err != nil {
 		return engine.Output{}, fmt.Errorf("encode fail-closed decision: %w", err)
 	}
 	return out, nil
-}
-
-// knownShells renders ir.KnownShells for a diagnostic message.
-func knownShells() string {
-	names := make([]string, len(ir.KnownShells))
-	for i, s := range ir.KnownShells {
-		names[i] = string(s)
-	}
-	return strings.Join(names, ", ")
-}
-
-// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
-// using the wall clock, and notes on stderr when a repeat was honored. The logic
-// lives in internal/state so the acceptance suite can exercise it too.
-// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
-// using the wall clock, and notes on stderr when a repeat was honored. The logic
-// lives in internal/state so the acceptance suite can exercise it too.
-func confirmByRepeat(resp engine.Response, command, stateFile string, delay, window time.Duration) engine.Response {
-	out, overridden, err := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
-	if overridden {
-		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
-	}
-	if err != nil {
-		// U076-F01: a persistence failure here previously vanished silently —
-		// the override would then never arm (or never clear), so every future
-		// identical repeat kept getting denied with a message promising a
-		// repeat WOULD work. Diagnostic only; the decision above is unchanged.
-		fmt.Fprintf(os.Stderr, "%s: could not persist confirm-by-repeat state (%v) — the override may not take effect\n", progName, err)
-	}
-	return out
-}
-
-// statePath puts the override state in a .ltk directory anchored to the
-// resolved config: next to the config when it already lives in a .ltk
-// directory, otherwise in a .ltk/ beside the config file (legacy flat configs,
-// custom --config paths). Anchoring to the config — never the cwd — keeps
-// confirm-by-repeat working when the host varies the hook cwd (agy runs hooks
-// in <workspace>/.agents; the config search walks up, so the resolved path is
-// the stable anchor). Runtime state always lives inside a .ltk directory,
-// never loose in the project root, so .gitignore's ".ltk/state.json" entry
-// covers it.
-//
-// With no config at all there is nothing to anchor to, and also nothing to
-// confirm (no rules ⇒ no confirmable denial), so the cwd-relative fallback is
-// effectively unreachable on the decision path.
-func statePath(configPath string) string {
-	if configPath == "" {
-		return filepath.Join(configDir, stateBase)
-	}
-	dir := filepath.Dir(configPath)
-	if filepath.Base(dir) == configDir {
-		return filepath.Join(dir, stateBase)
-	}
-	return filepath.Join(dir, configDir, stateBase)
-}
-
-// loadConfig loads the given path, or searches the default locations in the
-// cwd and each ancestor up to the repository root, returning the resolved
-// path (empty when falling back to the built-in allow-all config).
-//
-// The ancestor walk matters because hook hosts differ in the cwd they give
-// hooks: Claude Code runs them at the project root, Antigravity inside
-// <workspace>/.agents. A cwd-only search under agy would miss the project's
-// rules and silently fall back to the built-in allow-all config — the wrong
-// direction for a guard to fail.
-func loadConfig(path string) (*rules.Config, string, error) {
-	if path != "" {
-		c, err := rules.Load(path)
-		return c, path, err
-	}
-	for _, dir := range configSearchDirs() {
-		for _, candidate := range configSearch {
-			p := filepath.Join(dir, candidate)
-			if _, err := os.Stat(p); err == nil {
-				c, err := rules.Load(p)
-				return c, p, err
-			}
-		}
-	}
-	return rules.Empty(), "", nil
-}
-
-// configSearchDirs returns the cwd and its ancestors, stopping at the first
-// directory containing a .git DIRECTORY (the main repository root holds the
-// project's rules; directories above it are someone else's territory) or at
-// the filesystem root for non-repo workspaces.
-//
-// A .git FILE (a gitfile pointer) marks a submodule working tree or a linked
-// worktree, and is deliberately NOT a boundary: stopping there would make a
-// superproject's rules silently vanish inside its submodules (allow-all — the
-// wrong direction for a guard to fail). Continuing past it is safe for both
-// layouts because loadConfig takes the NEAREST config first, so the extra
-// ancestor dirs are only fallback candidates: a worktree (or submodule)
-// carrying its own .ltk still wins, and when it carries none, an ancestor
-// config — the superproject/monorepo case — is exactly the one that should
-// apply.
-func configSearchDirs() []string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return []string{"."}
-	}
-	var dirs []string
-	for dir := wd; ; {
-		dirs = append(dirs, dir)
-		if fi, err := os.Stat(filepath.Join(dir, ".git")); err == nil && fi.IsDir() {
-			break
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return dirs
 }

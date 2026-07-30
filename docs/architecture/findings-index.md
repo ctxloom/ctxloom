@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,258** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 115 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 165 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,266** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 119 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 166 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **565** |
+| `open` | no commit names this ID | **552** |
 
-**Totals: 2268 findings across 162 units — 1,258 resolved, 565 still open, 445 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,266 resolved, 552 still open, 450 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 440 | 313 | 65 | 77 | 104 |
-| LOW | 871 | 461 | 240 | 35 | 80 | 55 |
+| MED | 999 | 444 | 307 | 67 | 77 | 104 |
+| LOW | 871 | 465 | 233 | 37 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -980,13 +980,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U004-F02 | **PARTIAL** `0335ffa9` | **`root.go:94-99`, `root.go:61,65`** | CORRECTNESS | The CLI advertises validity ranges it never enforces, and the library it calls **silently clamps** rather than rejecting. `--components`'s help says "number of words (2-16)" and `--group`'s help en... | U004.md |
 | U004-F03 | **RESOLVED** `31d9d8d0` | **`root.go:113-116`** | DUPLICATE | `resolveFormat` re-implements a shared helper that already exists, and the copy has drifted. `internal/shared/cliemit.Resolve` (`cliemit.go:42-50`) does the same job and additionally (a) treats an ... | U004.md |
 | U005-F03 | **RESOLVED** `bfd6abca` | **`manage.go:167-193`** | SILENTNOOP | `scaffoldConfig` writes the embedded defaults with no check that they contain any rules, and reports "wrote rules file". A defaults file that lost its rules installs a guard that gates nothing, lou... | U005.md |
-| U005-F05 | open | **`manage.go:40-41` + `evaluate.go:113-122`** | CORRECTNESS | `manage install --global` bakes a **relative** `--config .ltk/config.yaml` into the *user-level* settings, and a missing explicit `--config` fail-closes. Result: in every project on the machine wit... | U005.md |
-| U005-F06 | open | `evaluate.go:125-127`, `check.go:84-86` | ERRHANDLING | `os.Getwd()`'s error is swallowed on both paths; on failure `@submodules` is never expanded and every submodule rule **silently stops firing**. | U005.md |
-| U005-F07 | open | `evaluate.go:90-175` | COMPLEXITY | `evaluate` is CCN 15, above the project's own enforced gate of 10. | U005.md |
-| U005-F09 | open | `evaluate.go:74-76,170-173` + `main.go:60-65` | CORRECTNESS | The hook path is **not** fully fail-closed, contrary to `failClosed`'s doc comment. Two residual paths return a plain error → `main` exits 1 → both hosts fail OPEN. | U005.md |
-| U005-F10 | open | `evaluate.go:113-153` vs `check.go:80-91` | DUPLICATE | The four-step wiring (`loadConfig` → `os.Getwd`+`ExpandSubmodules` → `app.New` → set `ForceShell`/`HostShell`) is duplicated verbatim across the two commands, and has already drifted. | U005.md |
+| U005-F05 | **RESOLVED** `21c151a5` | **`manage.go:40-41` + `evaluate.go:113-122`** | CORRECTNESS | `manage install --global` bakes a **relative** `--config .ltk/config.yaml` into the *user-level* settings, and a missing explicit `--config` fail-closes. Result: in every project on the machine wit... | U005.md |
+| U005-F06 | **RESOLVED** `48b23b0b` | `evaluate.go:125-127`, `check.go:84-86` | ERRHANDLING | `os.Getwd()`'s error is swallowed on both paths; on failure `@submodules` is never expanded and every submodule rule **silently stops firing**. | U005.md |
+| U005-F07 | **RESOLVED** `cc2fbc75` | `evaluate.go:90-175` | COMPLEXITY | `evaluate` is CCN 15, above the project's own enforced gate of 10. | U005.md |
+| U005-F09 | **PARTIAL** `d24be612` | `evaluate.go:74-76,170-173` + `main.go:60-65` | CORRECTNESS | The hook path is **not** fully fail-closed, contrary to `failClosed`'s doc comment. Two residual paths return a plain error → `main` exits 1 → both hosts fail OPEN. | U005.md |
+| U005-F10 | **PARTIAL** `4a5e3b31` | `evaluate.go:113-153` vs `check.go:80-91` | DUPLICATE | The four-step wiring (`loadConfig` → `os.Getwd`+`ExpandSubmodules` → `app.New` → set `ForceShell`/`HostShell`) is duplicated verbatim across the two commands, and has already drifted. | U005.md |
 | U005-F11 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `check.go:32-66,91` | NOPAY | `ltk check` cannot check a **file edit**, though path rules are half the advertised product and `check` is documented as *the* query surface for tools and GUIs. | U005.md |
-| U006-F01 | open | **`main.go:105-106`** | ERRHANDLING / CORRECTNESS | `cwd, _ := os.Getwd()` and `home, _ := os.UserHomeDir()` discard their errors, and the zero value that results **silently re-roots the discovery probes** — in the one tool whose entire product is a... | U006.md |
+| U006-F01 | **RESOLVED** `61154062` | **`main.go:105-106`** | ERRHANDLING / CORRECTNESS | `cwd, _ := os.Getwd()` and `home, _ := os.UserHomeDir()` discard their errors, and the zero value that results **silently re-roots the discovery probes** — in the one tool whose entire product is a... | U006.md |
 | U007-F03 | open | **`manage.go:137-145`** | ERRHANDLING | Uninstall reports `"removed MCP server from <engine>"` and rewrites the config even when the taskloom entry was never present — a success message for a no-op | U007.md |
 | U007-F04 | **RESOLVED** `bfd6abca` | **`manage.go:192-201`** | SILENTNOOP | `writeConfig` atomically writes whatever it is handed with no length check, so an upstream bug returning empty bytes would silently truncate a user's real backend config to 0 bytes — atomically | U007.md |
 | U007-F05 | **RESOLVED** `44362497` | `mcp_tools.go:211, 235` | CORRECTNESS / DUPLICATE | The MCP `task_list` does **not** apply `wrapTagQueryError`, so an agent that writes a malformed `tag_query` gets tagma's bare "stack underflow" while a CLI user gets the postfix-grammar hint. The e... | U007.md |
@@ -1982,15 +1982,15 @@ Full evidence and the suggested action for any row live in its source review at 
 | U002-F05 | **REFUTED** (cross-package/product decision; see wave-2 report) | **`main.go:37-43` vs docs`** | NOPAY | `CTXLOOM_VERBOSE` under-delivers against its documentation to a degree the docs themselves have had to paper over three separate times. It only raises the level of a logger read by 16 call sites in... | U002.md |
 | U003-F06 | **RESOLVED** `5e857241` | **`main.go:23`** | COUPLING | `schemaDir` is a path relative to the process CWD, so correctness depends on the invocation site's directory — connascence of execution context that nothing checks. Run from a subdirectory, the too... | U003.md |
 | U004-F04 | **RESOLVED** `31d9d8d0` | **`root.go:114`** | ERRHANDLING | `raw, _ := cmd.Flags().GetString("format")` discards the lookup error. The only way it fires is a missing or wrongly-typed flag — a programming error — but the resulting user-visible message is `un... | U004.md |
-| U005-F08 | open | `evaluate.go:79`, `check.go:64` | ERRHANDLING | Two swallowed errors, one of them inconsistent with the line above it. | U005.md |
+| U005-F08 | **PARTIAL** `a975a6b7` | `evaluate.go:79`, `check.go:64` | ERRHANDLING | Two swallowed errors, one of them inconsistent with the line above it. | U005.md |
 | U005-F12 | **RESOLVED** `24e4e92e` | `check.go:74-76` | TRIVIAL | Duplicate format validation: unreachable from the CLI. | U005.md |
-| U005-F13 | open | **`manage.go:196-202`** | CORRECTNESS | The `--force` backup is written at a hardcoded `0o644`, discarding the source's mode. A `0600` rules file is backed up world-readable. | U005.md |
+| U005-F13 | **RESOLVED** `670d4eef` | **`manage.go:196-202`** | CORRECTNESS | The `--force` backup is written at a hardcoded `0o644`, discarding the source's mode. A `0600` rules file is backed up world-readable. | U005.md |
 | U005-F14 | **RESOLVED** `24e4e92e` | `evaluate.go:298-299` | TRIVIAL | The built-in allow-all config is produced by **parsing a hardcoded YAML string at runtime**, and its (impossible) error is then reported by the caller as "could not load its rules config", naming n... | U005.md |
-| U005-F15 | open | **`main.go:53-55` vs `loadout.go:40`** | COUPLING | `--format` means two different things depending on the subcommand, and the `loadout` local flag silently shadows the root persistent one. | U005.md |
-| U005-F16 | open | **`manage.go:178-180`** | ERRHANDLING | A non-ENOENT `os.Stat` error is returned bare, with no path context — unlike every sibling in the file. | U005.md |
-| U005-F17 | open | `evaluate.go` (whole file)` | COHESION | `evaluate.go` holds three separable concerns; `check.go` reaches across the file boundary for one of them. | U005.md |
-| U005-F18 | open | **`manage.go:117-161`, `root_test.go:25`** | CORRECTNESS | Two untested CLI surfaces that would fail silently. (1) `newUninstallCmd`'s RunE has no test — including its `existing == nil` and `!removed` early returns, both of which decide whether the user's ... | U005.md |
-| U006-F02 | open | **`main.go:50-55`** | COUPLING | `--claude`, `--claude-code` and `--codex` hardcode backend-registry names (`"claude-code"`, `"codex"`) into a `main` package, duplicating what `--personality <name>` already expresses generically. ... | U006.md |
+| U005-F15 | **REFUTED** `324bf1f0` | **`main.go:53-55` vs `loadout.go:40`** | COUPLING | `--format` means two different things depending on the subcommand, and the `loadout` local flag silently shadows the root persistent one. | U005.md |
+| U005-F16 | **PARTIAL** `423f9ff1` | **`manage.go:178-180`** | ERRHANDLING | A non-ENOENT `os.Stat` error is returned bare, with no path context — unlike every sibling in the file. | U005.md |
+| U005-F17 | **RESOLVED** `e38d126a` | `evaluate.go` (whole file)` | COHESION | `evaluate.go` holds three separable concerns; `check.go` reaches across the file boundary for one of them. | U005.md |
+| U005-F18 | **RESOLVED** `762174df` | **`manage.go:117-161`, `root_test.go:25`** | CORRECTNESS | Two untested CLI surfaces that would fail silently. (1) `newUninstallCmd`'s RunE has no test — including its `existing == nil` and `!removed` early returns, both of which decide whether the user's ... | U005.md |
+| U006-F02 | **RESOLVED** `8a5a8a13` | **`main.go:50-55`** | COUPLING | `--claude`, `--claude-code` and `--codex` hardcode backend-registry names (`"claude-code"`, `"codex"`) into a `main` package, duplicating what `--personality <name>` already expresses generically. ... | U006.md |
 | U006-F03 | **RESOLVED** `0eb53a66` | **`main.go:30,38`** | NOPAY | The `MOCKENGINE_PERSONALITY` env channel has **zero users and zero tests in the repo**. A repo-wide search for the literal (all file types, excluding `.git`) returns four hits, all inside `cmd/mock... | U006.md |
 | U006-F04 | **RESOLVED** `0eb53a66` | **`main.go:30`** | NOPAY | `EnvPersonality` is exported from a `main` package, which cannot be imported, so the export can never be consumed. | U006.md |
 | U007-F13 | **RESOLVED** `5755145a` | **`commands.go:361-363`** | DEAD / TRIVIAL | `noteHiddenMatches` is a three-line pass-through whose only caller in the entire repo is its own test | U007.md |

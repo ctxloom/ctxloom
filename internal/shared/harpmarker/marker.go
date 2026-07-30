@@ -31,10 +31,25 @@ var markerRe = regexp.MustCompile(`<ctxloom\b[^>]*\bkind="harp"[^>]*?/?>`)
 // nameRe pulls the name attribute out of a matched marker element.
 var nameRe = regexp.MustCompile(`\bname="([^"]+)"`)
 
-// Format returns the harp marker for the given harp name, or "" when harp is
-// empty (nothing to identify).
+// unrepresentable are the characters a harp name cannot carry through the
+// marker's attribute syntax. harp.Validate is deliberately permissive on
+// charset (it rejects only path separators, control characters and edge
+// whitespace), so both of these reach Format as legal harp names.
+//
+// A '"' closes the name attribute early, so the element reads back as a
+// DIFFERENT, possibly real harp — the marker misattributes the transcript
+// instead of failing. A '>' closes the element before kind="harp" is
+// reached, so nothing recognises it at all.
+const unrepresentable = `">`
+
+// Format returns the harp marker for the given harp name, or "" when there is
+// nothing this package can say about it: an empty name (nothing to identify)
+// or a name the marker syntax cannot carry without changing which harp the
+// marker names. Whatever Format returns always reads back through Find as the
+// harp it was given — a marker that names the wrong harp is worse than no
+// marker, because a caller can detect the absent one and not the wrong one.
 func Format(harp string) string {
-	if harp == "" {
+	if harp == "" || strings.ContainsAny(harp, unrepresentable) {
 		return ""
 	}
 	return `<ctxloom name="` + harp + `" kind="harp" />`

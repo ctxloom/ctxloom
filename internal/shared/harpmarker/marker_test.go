@@ -87,3 +87,40 @@ func TestScan_MalformedJSON(t *testing.T) {
 		t.Fatalf("Scan malformed = %q, want empty", got)
 	}
 }
+
+// TestFormat_NeverEmitsAMarkerThatCannotIdentifyItsHarp pins the round-trip
+// contract Format's whole purpose depends on: whatever it returns must name
+// the harp it was given when read back. harp.Validate is deliberately
+// PERMISSIVE on charset (a harp is renameable to whatever a human finds
+// memorable; it rejects only path separators, control characters and edge
+// whitespace), so '"' and '>' both arrive here as legal harp names.
+//
+// Both are worse than they look. A '"' closes the name attribute early, so
+// the marker reads back as a DIFFERENT, possibly real harp — silent
+// misattribution, not a parse failure. A '>' closes the element before
+// kind="harp" is reached, so the marker is unrecoverable. Emitting either is
+// worse than emitting nothing, because the only caller (cli.emitHarpMarker)
+// reports an empty return loudly and cannot detect a corrupt one at all.
+func TestFormat_NeverEmitsAMarkerThatCannotIdentifyItsHarp(t *testing.T) {
+	names := []string{
+		"plump-loose-sash",
+		"Ünicode-harp",
+		"harp with spaces",
+		`bad"name`,                      // closes the attribute early
+		`a>b`,                           // closes the element early
+		`a<b`,                           // opens a second element
+		`x" kind="harp" name="evil`,     // attribute injection
+		`y" kind="harp" /><ctxloom n="`, // element injection
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			got := Format(name)
+			if got == "" {
+				return // refused outright: the caller reports it
+			}
+			if back := Find(got); back != name {
+				t.Fatalf("Format(%q) = %q, which reads back as %q — a marker must name its own harp or not exist", name, got, back)
+			}
+		})
+	}
+}

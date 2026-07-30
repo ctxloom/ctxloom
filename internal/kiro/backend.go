@@ -28,7 +28,9 @@ package kiro
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -135,6 +137,17 @@ func (b *Kiro) Configure(cfg agent.BackendConfig) {
 
 // Execute runs the backend with the given request.
 func (b *Kiro) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	// A oneshot gets exactly one turn, so an empty prompt asks nothing at all:
+	// `kiro-cli chat --no-interactive` with no INPUT positional and no stdin is
+	// a launch that cannot produce an answer. Refuse before spawning, the same
+	// floor the shared ACP-shaped turn applies (agent.RunOneshotTurn). An
+	// INTERACTIVE launch with no prompt is legitimate — it opens a session.
+	// A dry run is a preview of the argv, not a turn, so it stays exempt.
+	if !req.DryRun && req.Mode == agent.ModeOneshot &&
+		strings.TrimSpace(agent.GetPromptContent(req.Prompt)) == "" {
+		return nil, errors.New("kiro: nothing to run — a one-shot gets exactly one turn and this one carries no prompt")
+	}
+
 	// Resolve the model: the role's labeled config supplies it via req.Model.
 	// Kiro routes every model through Amazon Bedrock (Claude, Nova, open-weight),
 	// so the provider is bedrock regardless of the model family — don't infer it

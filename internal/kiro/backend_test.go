@@ -116,6 +116,58 @@ func TestKiro_ConfigureIgnoresForeignConfig(t *testing.T) {
 	assert.Equal(t, defaultAgentName, b.agentName)
 }
 
+// TestKiro_Execute_RefusesEmptyOneshotPrompt pins the headless-turn invariant
+// the shared ACP-shaped path already enforces (agent.RunOneshotTurn: "an empty
+// prompt now refuses before the engine is ever invoked"). kiro's exec-style
+// oneshot appends `--no-interactive` unconditionally but appends the prompt only
+// when non-empty, so a blank prompt launched `kiro-cli chat --no-interactive`
+// with NO input positional and nil stdin — a headless turn that asks nothing,
+// the exit-0-with-zero-bytes shape. The engine must not be spawned at all.
+func TestKiro_Execute_RefusesEmptyOneshotPrompt(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		prompt *agent.Fragment
+	}{
+		{"nil prompt", nil},
+		{"empty prompt", &agent.Fragment{}},
+		{"whitespace-only prompt", &agent.Fragment{Content: " \n\t "}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			launched := false
+			b := NewKiro()
+			b.SetLauncher(func(context.Context, agent.LaunchSpec, io.Reader, io.Writer, io.Writer, <-chan agent.WindowSize) (int32, error) {
+				launched = true
+				return 0, nil
+			})
+
+			_, err := b.Execute(context.Background(),
+				&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: tt.prompt},
+				io.Discard, io.Discard)
+
+			require.Error(t, err, "a oneshot that asks nothing must be refused, not launched")
+			assert.False(t, launched, "the engine must never be spawned for an empty oneshot prompt")
+		})
+	}
+}
+
+// TestKiro_Execute_InteractiveEmptyPromptIsLegitimate is the other half: an
+// interactive launch with no prompt opens a session for the human to drive, so
+// it must keep working (cf. internal/cli/run.go's identical --print-only floor).
+func TestKiro_Execute_InteractiveEmptyPromptStillLaunches(t *testing.T) {
+	launched := false
+	b := NewKiro()
+	b.SetLauncher(func(context.Context, agent.LaunchSpec, io.Reader, io.Writer, io.Writer, <-chan agent.WindowSize) (int32, error) {
+		launched = true
+		return 0, nil
+	})
+
+	_, err := b.Execute(context.Background(),
+		&agent.ExecuteRequest{Mode: agent.ModeInteractive}, io.Discard, io.Discard)
+
+	require.NoError(t, err)
+	assert.True(t, launched, "an interactive session with no opening prompt is legitimate")
+}
+
 func TestKiro_BuildArgs(t *testing.T) {
 	tests := []struct {
 		name      string

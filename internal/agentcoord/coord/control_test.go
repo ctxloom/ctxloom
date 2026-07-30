@@ -439,10 +439,36 @@ func TestControlSteer_PlaneTwoDeliversReminderAndBodyOnlyViaRecv(t *testing.T) {
 	assert.Equal(t, agentcoordpb.SteerResult_APPLIED_IMMEDIATE, outcome.Applied,
 		"an IDLE target starts a new turn now — APPLIED_IMMEDIATE is about latency, never about interrupting a running turn")
 
-	require.Eventually(t, func() bool { return len(sp.chat(0).recordedTexts()) == 2 }, conformanceWait, 10*time.Millisecond)
-	injected := sp.chat(0).recordedTexts()[1]
+	// The injected-turn count GROWS while the body sits unpulled: the
+	// turn-boundary re-announcer (enginehost_reannounce.go) injects an
+	// UnpulledReminder at every boundary until the agent calls agent_recv,
+	// and this fixture's scripted engine never pulls on its own — the pull
+	// below is the test's, several statements away. So `== 2` names a state
+	// the subject holds only between two consecutive boundaries, and each
+	// reminder turn's own boundary produces the next one immediately. A
+	// poller that misses that window sees 3 and the condition is false
+	// FOREVER, which is exactly the 5s "Condition never satisfied" this test
+	// kept producing under load (reproduced deterministically, 30/30, at
+	// GOMAXPROCS=1: the re-announcer burned its whole budget — "announced 4
+	// times over 0s" — before the poll ran once).
+	//
+	// Wait for the steer's own reminder to LAND instead. texts[1] is
+	// deterministically THIS steer's SteerPendingReminder and nothing else:
+	// the run was idle (asserted above, so turn 1's boundary is already
+	// past), handleSteer parks the body and enqueues the reminder, and
+	// planReannounce holds off entirely while a locally-originated turn is
+	// still on the tag FIFO.
+	require.Eventually(t, func() bool { return len(sp.chat(0).recordedTexts()) >= 2 }, conformanceWait, 10*time.Millisecond)
+	texts := sp.chat(0).recordedTexts()
+	injected := texts[1]
 	assert.Equal(t, (&agentcoordpb.SteerPendingReminder{}).XmlLike(), injected)
-	assert.NotContains(t, injected, "prefer sqlx", "the instruction body must NEVER ride the injected turn")
+	// "no instruction bytes reach the turn stream" is a claim about EVERY
+	// turn this steer produced, not only the first one — re-announcements
+	// included.
+	for i, turn := range texts[1:] {
+		assert.NotContains(t, turn, "prefer sqlx",
+			"the instruction body must NEVER ride an injected turn (injected turn %d)", i+1)
+	}
 
 	home := sp.engineHome(0)
 	require.NotNil(t, home)

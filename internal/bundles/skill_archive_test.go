@@ -1512,3 +1512,80 @@ func TestResolveSymlinkChain(t *testing.T) {
 			"a planted loop must be rejected by the depth cap, mirroring the OS's own ELOOP")
 	})
 }
+
+// -----------------------------------------------------------------------------
+// U031-F10 — characterization tests for processArchiveEntry's remaining arms
+// -----------------------------------------------------------------------------
+//
+// U031-F10 is a pure complexity reduction: processArchiveEntry sits at CCN 23
+// against this project's own CCN-10 gate, with ten parameters, two of them
+// mutable accumulators threaded through both format loops. Behaviour is
+// unchanged by definition, so no test can discriminate before from after — per
+// the sweep's contract these are CHARACTERIZATION tests that must be green on
+// both sides. The arms already covered elsewhere in this file (traversal,
+// absolute paths, symlinks, hardlinks/devices, a second top-level directory,
+// the byte and entry caps, the directory marker, a pre-existing symlink escape,
+// an unclassified kind, and both MkdirAll failures) are not duplicated here;
+// these three are the ones nothing reached.
+
+// lstatErrFs is an afero.Lstater whose LstatIfPossible fails for a chosen path,
+// so the symlink-escape CHECK's own error path can be exercised — distinct from
+// the check reporting an escape.
+type lstatErrFs struct {
+	afero.Fs
+	failOn string
+}
+
+func (f *lstatErrFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
+	if strings.Contains(filepath.ToSlash(name), f.failOn) {
+		return nil, false, fmt.Errorf("simulated lstat failure")
+	}
+	fi, err := f.Fs.Stat(name)
+	return fi, false, err
+}
+
+func TestProcessArchiveEntry_EmptyEntryNameIsRejected(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	var topDir string
+	var total int64
+	var filesWritten int
+
+	err := processArchiveEntry(fsys, "/out/skill", &topDir, "", kindFile, 0o644,
+		bytes.NewReader([]byte("x")), &total, &filesWritten, ExtractOptions{}.normalized())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty name")
+	assert.Zero(t, filesWritten)
+}
+
+func TestProcessArchiveEntry_NameCleaningToDotIsRejected(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	var topDir string
+	var total int64
+	var filesWritten int
+
+	// "./" cleans to "." — a name that addresses the extraction root itself
+	// rather than anything inside it.
+	err := processArchiveEntry(fsys, "/out/skill", &topDir, "./", kindDir, 0o755,
+		bytes.NewReader(nil), &total, &filesWritten, ExtractOptions{}.normalized())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolves to an empty path")
+	assert.Empty(t, topDir, "a rejected name must not become the archive's top-level directory")
+}
+
+func TestHardenedExtract_SymlinkCheckFailureIsReportedNotIgnored(t *testing.T) {
+	archive := buildRawZip(t, []rawZipEntry{
+		{name: "myskill/SKILL.md", content: []byte("body\n")},
+	})
+	fsys := &lstatErrFs{Fs: afero.NewMemMapFs(), failOn: "SKILL.md"}
+
+	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	require.Error(t, err, "a confinement check that cannot run must fail closed, never be treated as 'no escape'")
+	assert.Contains(t, err.Error(), "checking for a pre-existing symlink escape")
+	assert.Contains(t, err.Error(), "myskill/SKILL.md")
+
+	written, serr := afero.Exists(fsys, "/out/skill/SKILL.md")
+	require.NoError(t, serr)
+	assert.False(t, written, "nothing may be written when confinement could not be established")
+}

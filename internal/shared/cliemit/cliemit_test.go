@@ -215,3 +215,66 @@ func TestResolve_OnlySeesInheritedFormatOnceExecutionHasBegun(t *testing.T) {
 		t.Fatalf("Resolve inside RunE must see the inherited --format, got %q", inside)
 	}
 }
+
+// U104-F04: this package called itself "the cross-binary --format output
+// filter" while implementing only the SUCCESS half — clifmt.RenderError had
+// exactly one call site in the whole tree, inside internal/cli's Execute, so
+// the error half lived in one binary and not in the package that claims it.
+// EmitError is that missing half. It must answer the same four questions Emit
+// does, plus one Emit never faces: a --format that will not parse must not
+// cost the caller the ORIGINAL error.
+func TestEmitError_RendersInTheSelectedFormat(t *testing.T) {
+	t.Run("text keeps the human line", func(t *testing.T) {
+		c, _ := newCmd(false)
+		var buf bytes.Buffer
+		if err := EmitError(&buf, c, errors.New("boom")); err != nil {
+			t.Fatal(err)
+		}
+		if got := buf.String(); got != "Error: boom\n" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("json gets a parseable envelope", func(t *testing.T) {
+		c, _ := newCmd(false)
+		if err := c.Flags().Set("format", "json"); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		if err := EmitError(&buf, c, errors.New("boom")); err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]string
+		if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+			t.Fatalf("a caller that asked for json must get parseable bytes: %v (%q)", err, buf.String())
+		}
+		if got["error"] != "boom" {
+			t.Fatalf("got %v", got)
+		}
+	})
+
+	t.Run("an unparseable --format must not lose the original error", func(t *testing.T) {
+		c, _ := newCmd(false)
+		if err := c.Flags().Set("format", "xml"); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		if err := EmitError(&buf, c, errors.New("boom")); err != nil {
+			t.Fatal(err)
+		}
+		if got := buf.String(); got != "Error: boom\n" {
+			t.Fatalf("the original failure must survive a bad --format, got %q", got)
+		}
+	})
+
+	t.Run("writes to the writer it is given, never stdout", func(t *testing.T) {
+		c, out := newCmd(false)
+		var buf bytes.Buffer
+		if err := EmitError(&buf, c, errors.New("boom")); err != nil {
+			t.Fatal(err)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("a failure must not land on stdout, got %q", out.String())
+		}
+	})
+}

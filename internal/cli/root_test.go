@@ -33,22 +33,26 @@ func TestMCPCommand_RejectsUnknownSubcommands(t *testing.T) {
 	assert.NoError(t, mcpCmd.Args(mcpCmd, nil))
 }
 
-// reportExecuteError is Execute()'s error-printing tail, extracted so it's
-// testable without the process-ending os.Exit calls around it. --format
-// text keeps the exact "Error: msg\n" line Execute() always printed (a
-// script scraping that line today sees no change); the other four formats
-// now get clifmt's structured {"error": "..."} envelope instead of the same
-// human line regardless of --format, which was the one place in the CLI
-// where --format=json still leaked plain text onto stderr.
+// cliemit.EmitError is Execute()'s error-printing tail, callable without the
+// process-ending os.Exit calls around it. --format text keeps the exact
+// "Error: msg\n" line Execute() always printed (a script scraping that line
+// today sees no change); the other four formats get clifmt's structured
+// {"error": "..."} envelope instead of the same human line regardless of
+// --format, which was the one place in the CLI where --format=json still
+// leaked plain text onto stderr. U104-F04 moved the rendering itself into
+// cliemit, where the package doc already claimed it lived; these assertions
+// are unchanged, which is the point.
 func TestReportExecuteError_Text_MatchesPreClifmtLine(t *testing.T) {
 	var buf bytes.Buffer
-	reportExecuteError(&buf, errors.New("boom"), clifmt.FormatText)
+	cmd, _ := formatCmd(formatText)
+	require.NoError(t, cliemit.EmitError(&buf, cmd, errors.New("boom")))
 	assert.Equal(t, "Error: boom\n", buf.String())
 }
 
 func TestReportExecuteError_JSON_EmitsStructuredEnvelope(t *testing.T) {
 	var buf bytes.Buffer
-	reportExecuteError(&buf, errors.New("boom"), clifmt.FormatJSON)
+	cmd, _ := formatCmd(formatJSON)
+	require.NoError(t, cliemit.EmitError(&buf, cmd, errors.New("boom")))
 	assert.JSONEq(t, `{"error":"boom"}`, buf.String())
 }
 

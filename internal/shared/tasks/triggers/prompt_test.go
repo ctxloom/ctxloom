@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
@@ -371,6 +372,38 @@ func TestPrompts_ResponseContractIsIdenticalWhereItMustBe(t *testing.T) {
 	assert.Equal(t,
 		"=== Response format ===\n\nRespond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n",
 		strings.Split(round1, "{")[0])
+}
+
+// The outcome vocabulary in the response contract is the same closed set
+// ParseVerdicts enforces with Outcome.Valid, so it is DERIVED from Outcomes()
+// rather than transcribed. Transcribed, a fifth Outcome would be accepted by
+// the parser and never offered to the model, and a renamed one would be asked
+// for and then rejected. This asserts the menu by membership against
+// Outcomes(), not against a literal, so adding an Outcome without reaching the
+// prompt fails here (U128-F05).
+func TestResponseContract_OutcomeMenuIsDerivedFromOutcomes(t *testing.T) {
+	menu := func(prompt string) []string {
+		section := responseFormatSection(t, prompt)
+		i := strings.Index(section, `"outcome": "`)
+		require.GreaterOrEqual(t, i, 0, "the response contract names no outcome vocabulary")
+		rest := section[i+len(`"outcome": "`):]
+		j := strings.Index(rest, `"`)
+		require.GreaterOrEqual(t, j, 0)
+		return strings.Split(rest[:j], "|")
+	}
+
+	var round1Want, round2Want []string
+	for _, o := range Outcomes() {
+		round1Want = append(round1Want, string(o))
+		if o != NeedsInvestigation {
+			round2Want = append(round2Want, string(o))
+		}
+	}
+
+	assert.Equal(t, round1Want, menu(BuildPrompt(Batch{Tasks: []TaskInput{{HarpID: "aa-bb-cc"}}})),
+		"round 1 offers every recognized outcome, in Outcomes' order")
+	assert.Equal(t, round2Want, menu(BuildFollowupPrompt(FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "aa-bb-cc"}}}})),
+		"round 2 offers every recognized outcome except needs-investigation")
 }
 
 func responseFormatSection(t *testing.T, prompt string) string {

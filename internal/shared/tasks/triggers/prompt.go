@@ -225,16 +225,34 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 // does not. Everything else is one wording: two wordings is two chances for a
 // model to answer in a shape the parser rejects.
 func writeResponseContract(sb *strings.Builder, allowInvestigation bool) {
-	outcomes := "fired|not-fired|cannot-determine"
+	outcomes := outcomeMenu(allowInvestigation)
 	queries := ""
 	if allowInvestigation {
-		outcomes = "fired|not-fired|needs-investigation|cannot-determine"
 		queries = `, "queries": [optional, needs-investigation only, see above]`
 	}
 	sb.WriteString("=== Response format ===\n\n")
 	sb.WriteString("Respond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n")
 	fmt.Fprintf(sb, `{"harp_id": "...", "outcome": %q, "evidence": ["..."], "reasoning": "one or two sentences"%s}`+"\n", outcomes, queries)
 	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
+}
+
+// outcomeMenu renders the pipe-separated outcome vocabulary the response
+// contract quotes, derived from Outcomes() rather than spelled out again. The
+// prompt is the contract ParseVerdicts then enforces with Outcome.Valid, so a
+// vocabulary written twice can drift into asking the model for a value the
+// parser rejects — or, worse, silently omitting one the parser accepts.
+// Round 2 (the final look) drops needs-investigation: escalation is capped at
+// exactly one round.
+func outcomeMenu(allowInvestigation bool) string {
+	all := Outcomes()
+	names := make([]string, 0, len(all))
+	for _, o := range all {
+		if o == NeedsInvestigation && !allowInvestigation {
+			continue
+		}
+		names = append(names, string(o))
+	}
+	return strings.Join(names, "|")
 }
 
 // promptSHALen trims a commit hash to a readable prefix for the prompt:

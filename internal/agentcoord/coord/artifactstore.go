@@ -60,6 +60,14 @@ var errArtifactSHAMismatch = errors.New("coord: artifact content does not match 
 // contradicts the caller's own declared size.
 var errArtifactSizeMismatch = errors.New("coord: artifact content does not match its declared size")
 
+// syncArtifactDir fsyncs the store directory after a blob is published.
+//
+// Indirected for the same reason statedir.go's writeOwnerPID is: on a real
+// filesystem this fails only on conditions a test cannot provoke, while the
+// consequence of skipping it — a durable manifest naming a blob whose rename
+// never landed — is precisely what must not happen.
+var syncArtifactDir = fsyncDir
+
 // errArtifactBadName is returned when a name handed to the store is not a
 // content hash (U019-F13). The store's whole contract is "the file name IS
 // the sha256 of its own bytes", so anything else is a malformed request, not
@@ -146,6 +154,17 @@ func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte, declaredSiz
 	}
 	if err := os.Rename(tmpPath, final); err != nil {
 		return "", 0, fmt.Errorf("coord: artifact store: publish: %w", err)
+	}
+	// The blob's CONTENT is durable (tmp.Sync above) but its NAME is not
+	// until the directory entry is fsynced — and the manifest that will
+	// reference this blob IS fsynced, by the journal, before its own
+	// response returns (journal.go's Store.execLocked). Without this the
+	// durable reference can outlive its referent across a crash: the
+	// manifest names a blob whose rename never landed, and every later
+	// download of it answers NOT_FOUND forever. A receipt that asserts
+	// durability must not be issued before durability holds.
+	if err := syncArtifactDir(s.dir); err != nil {
+		return "", 0, fmt.Errorf("coord: artifact store: fsync dir: %w", err)
 	}
 	return shaHex, n, nil
 }

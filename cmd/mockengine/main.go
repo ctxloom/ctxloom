@@ -95,8 +95,26 @@ consume:
 		return 2
 	}
 
-	cwd, _ := os.Getwd()
-	home, _ := os.UserHomeDir()
+	// Both roots are REPORTED, not merely used: Resolver.Cwd and Resolver.Home
+	// are what ScopeCwd and ScopeHome probes join their relative paths onto,
+	// and each lands in the evidence report as rec.Root. An empty root does
+	// not disable a probe — filepath.Join("", rel) yields rel — so a home-
+	// scoped probe silently re-roots onto the process working directory and
+	// reports the project's own .claude/CLAUDE.md as the one it found in
+	// $HOME. A fake whose whole product is a faithful observation report must
+	// refuse rather than answer a different question, and an unset HOME is
+	// ordinary here: this binary runs inside container fixtures under a
+	// vendor's name, and ctxloom rewrites HOME deliberately to isolate engines.
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mock-engine: cannot determine the working directory, which every cwd-scoped probe resolves against: %v\n", err)
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mock-engine: cannot determine the home directory, which every home-scoped probe resolves against: %v\n", err)
+		return 2
+	}
 
 	rt := &mockengine.Runtime{
 		CLI:  cli,

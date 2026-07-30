@@ -59,6 +59,33 @@ func TestRun_NoPersonality_NamesTheEnvVar(t *testing.T) {
 	}
 }
 
+// The two discovery ROOTS the mock reports against — Resolver.Cwd and
+// Resolver.Home — had their errors discarded. The zero value that results does
+// not disable a probe: filepath.Join("", rel) yields rel, so every HOME-scoped
+// probe silently re-roots onto the process working directory and the mock
+// reports the PROJECT's .claude/CLAUDE.md as the file it found in $HOME, with
+// rec.Root recorded as "". An unset HOME is the ordinary case here, not an
+// exotic one: this binary is installed under a vendor's name inside container
+// fixtures, and ctxloom rewrites HOME deliberately to isolate engines.
+//
+// A fake whose entire product is a faithful observation report must refuse
+// rather than answer a different question.
+func TestRun_UnresolvableHomeIsRefusedNotSubstituted(t *testing.T) {
+	t.Setenv("HOME", "") // os.UserHomeDir: "$HOME is not defined"
+
+	var code int
+	stderr := captureStderr(t, func() {
+		code = run([]string{"--claude", "--print"})
+	})
+
+	if code != 2 {
+		t.Fatalf("run = %d, want 2: an unresolvable home root must be refused, not substituted with \"\"", code)
+	}
+	if !strings.Contains(stderr, "home directory") {
+		t.Fatalf("stderr = %q, want it to say which discovery root could not be resolved", stderr)
+	}
+}
+
 // captureStderr redirects the process-global os.Stderr for the duration of
 // fn and returns everything written to it. run writes via fmt.Fprintf(os.
 // Stderr, ...), reading the global at call time, so this substitution is

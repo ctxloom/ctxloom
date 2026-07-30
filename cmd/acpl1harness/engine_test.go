@@ -130,3 +130,70 @@ func TestOpenHarnessEngine_ResumeReplaysFixedHistory(t *testing.T) {
 		t.Error("fresh session must mint a connection-local harp")
 	}
 }
+
+// TestRunTurn_CancelSentinelsShareOneScript pins the behaviour the two
+// cancel-awaiting sentinels have in common and the single point at which they
+// diverge: both announce one assistant entry, then park until a CancelTurn
+// arrives (ignoring any other traffic), then complete — sentinelCancelMe with
+// "cancelled", sentinelRaceComplete with "end_turn" (the engine that races the
+// cancel and finishes normally anyway, which the server must still resolve as
+// cancelled).
+//
+// This is the pin above U001-F03's collapse of the two branches onto one
+// helper: it is green before and after, and red if the collapse loses either
+// the shared script or the deliberate divergence.
+func TestRunTurn_CancelSentinelsShareOneScript(t *testing.T) {
+	cases := []struct {
+		name      string
+		text      string
+		wantEntry string
+		wantStop  string
+	}{
+		{"cancel", sentinelCancelMe, "waiting for cancel", "cancelled"},
+		{"race", sentinelRaceComplete, "finishing before any cancel is read", "end_turn"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			chat, err := openHarnessEngine(context.Background(), operations.OpenRequest{})
+			if err != nil {
+				t.Fatalf("openHarnessEngine: %v", err)
+			}
+			defer chat.Close()
+
+			chat.In <- agent.ChatMessage{Text: tc.text}
+			ev := recvEvent(t, chat.Events)
+			if ev.Entry == nil || ev.Entry.Content != tc.wantEntry {
+				t.Fatalf("first event = %+v, want an assistant entry %q", ev, tc.wantEntry)
+			}
+
+			// Traffic that is not a cancel must not complete the turn.
+			chat.In <- agent.ChatMessage{Text: "not a cancel"}
+			select {
+			case unexpected := <-chat.Events:
+				t.Fatalf("non-cancel traffic completed the turn: %+v", unexpected)
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			chat.In <- agent.ChatMessage{CancelTurn: true}
+			ev = recvEvent(t, chat.Events)
+			if ev.Complete == nil || ev.Complete.StopReason != tc.wantStop {
+				t.Fatalf("completion = %+v, want stop reason %q", ev, tc.wantStop)
+			}
+		})
+	}
+}
+
+// recvEvent takes the next scripted event or fails the test.
+func recvEvent(t *testing.T, events <-chan agent.ChatEvent) agent.ChatEvent {
+	t.Helper()
+	select {
+	case ev, ok := <-events:
+		if !ok {
+			t.Fatal("events channel closed before the expected event")
+		}
+		return ev
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the next scripted event")
+		return agent.ChatEvent{}
+	}
+}

@@ -166,109 +166,148 @@ func runHarnessEngine(ctx context.Context, in <-chan agent.ChatMessage, events c
 func runTurn(ctx context.Context, text string, in <-chan agent.ChatMessage, events chan<- agent.ChatEvent, errs chan<- error) {
 	switch text {
 	case sentinelCancelMe:
-		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "waiting for cancel"}}) {
-			return
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case m, ok := <-in:
-				if !ok {
-					return
-				}
-				if m.CancelTurn {
-					emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "cancelled"}})
-					return
-				}
-			}
-		}
+		runCancelTurn(ctx, in, events, "waiting for cancel", "cancelled")
 	case sentinelRaceComplete:
-		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "finishing before any cancel is read"}}) {
-			return
-		}
-		// Deterministically wait for the server's FORWARDED CancelTurn (this
-		// proves the server-side turnCancelled flag is already set — the
-		// same synchronization TestServe_CancelRace uses in-process), then
-		// deliberately IGNORE it and report "end_turn" anyway: the engine
-		// races the cancel and finishes normally regardless. The server
-		// MUST still resolve the prompt as "cancelled" (server.go:598-606's
-		// stopReason(), keyed on session/cancel having arrived — not on
-		// what the engine itself reports).
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case m, ok := <-in:
-				if !ok {
-					return
-				}
-				if m.CancelTurn {
-					emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
-					return
-				}
-			}
-		}
+		// The stop reason is "end_turn", not "cancelled": this engine races the
+		// cancel and finishes normally regardless. The server MUST still
+		// resolve the prompt as "cancelled" (server.go's stopReason(), keyed on
+		// session/cancel having arrived — not on what the engine reports).
+		runCancelTurn(ctx, in, events, "finishing before any cancel is read", "end_turn")
 	case sentinelPermission:
-		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: permToolName}}) {
-			return
-		}
-		if !emit(ctx, events, agent.ChatEvent{Permission: &agent.PermissionRequest{
-			ID:       "l1-perm-1",
-			ToolName: permToolName,
-			Options: []agent.PermissionOption{
-				{ID: "allow", Kind: "allow_once", Name: "Allow"},
-				{ID: "deny", Kind: "reject_once", Name: "Reject"},
-			},
-		}}) {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case m, ok := <-in:
-			switch {
-			case !ok || m.Permission == nil:
-				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "permission: no answer"}})
-			case m.Permission.OptionID == "":
-				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "permission: dismissed"}})
-			default:
-				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "permission: " + m.Permission.OptionID}})
-			}
-		}
-		emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
+		runPermissionTurn(ctx, in, events)
 	case sentinelFail:
-		select {
-		case errs <- errors.New(failMessage):
-		case <-ctx.Done():
-		}
+		reportFatal(ctx, errs)
 	case sentinelTerminal:
-		if !emit(ctx, events, agent.ChatEvent{Terminal: &agent.TerminalRequest{
-			ID:     terminalTestID,
-			Op:     agent.TerminalOpCreate,
-			Params: json.RawMessage(terminalTestParams),
-		}}) {
-			return
-		}
+		runTerminalTurn(ctx, in, events)
+	default:
+		runEchoTurn(ctx, events, text)
+	}
+}
+
+// assistantEntry is the assistant-message event every scripted arm reports its
+// result with.
+func assistantEntry(content string) agent.ChatEvent {
+	return agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content}}
+}
+
+// completeTurn is the turn-completion event carrying the engine's stop reason.
+func completeTurn(stopReason string) agent.ChatEvent {
+	return agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: stopReason}}
+}
+
+// runEchoTurn is the behavior for ordinary (non-sentinel) prompt text.
+func runEchoTurn(ctx context.Context, events chan<- agent.ChatEvent, text string) {
+	if !emit(ctx, events, assistantEntry("echo: "+text)) {
+		return
+	}
+	emit(ctx, events, completeTurn("end_turn"))
+}
+
+// reportFatal reports the fixed engine error instead of completing the turn, so
+// a driving test can assert the resulting JSON-RPC error message verbatim.
+func reportFatal(ctx context.Context, errs chan<- error) {
+	select {
+	case errs <- errors.New(failMessage):
+	case <-ctx.Done():
+	}
+}
+
+// runCancelTurn announces entry, then parks until the server FORWARDS a
+// CancelTurn (which proves the server-side turnCancelled flag is already set —
+// the same synchronization TestServe_CancelRace uses in-process), ignoring any
+// other traffic, then completes the turn with stopReason. Returns without
+// completing if the session dies or `in` closes first.
+//
+// This is the one script behind BOTH cancel sentinels; they differ only in the
+// announcement text and the stop reason they claim.
+func runCancelTurn(ctx context.Context, in <-chan agent.ChatMessage, events chan<- agent.ChatEvent, entry, stopReason string) {
+	if !emit(ctx, events, assistantEntry(entry)) {
+		return
+	}
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		case m, ok := <-in:
-			switch {
-			case !ok || m.Terminal == nil:
-				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "terminal: no answer"}})
-			case m.Terminal.Error != "":
-				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "terminal error: " + m.Terminal.Error}})
-			default:
-				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "terminal result: " + string(m.Terminal.Result)}})
+			if !ok {
+				return
+			}
+			if m.CancelTurn {
+				emit(ctx, events, completeTurn(stopReason))
+				return
 			}
 		}
-		emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
+	}
+}
+
+// runPermissionTurn announces a tool call, asks permission for it, and reports
+// the answer verbatim so a driving test can assert selected/dismissed outcomes
+// by inspecting real text.
+func runPermissionTurn(ctx context.Context, in <-chan agent.ChatMessage, events chan<- agent.ChatEvent) {
+	if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: permToolName}}) {
+		return
+	}
+	if !emit(ctx, events, agent.ChatEvent{Permission: &agent.PermissionRequest{
+		ID:       "l1-perm-1",
+		ToolName: permToolName,
+		Options: []agent.PermissionOption{
+			{ID: "allow", Kind: "allow_once", Name: "Allow"},
+			{ID: "deny", Kind: "reject_once", Name: "Reject"},
+		},
+	}}) {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case m, ok := <-in:
+		emit(ctx, events, assistantEntry(permissionAnswer(m, ok)))
+	}
+	emit(ctx, events, completeTurn("end_turn"))
+}
+
+// permissionAnswer renders the client's permission reply as the fixed text the
+// driving test asserts on.
+func permissionAnswer(m agent.ChatMessage, ok bool) string {
+	switch {
+	case !ok || m.Permission == nil:
+		return "permission: no answer"
+	case m.Permission.OptionID == "":
+		return "permission: dismissed"
 	default:
-		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "echo: " + text}}) {
-			return
-		}
-		emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
+		return "permission: " + m.Permission.OptionID
+	}
+}
+
+// runTerminalTurn asks the server to broker one terminal/create call to the
+// connected editor, then reports the editor's real answer verbatim.
+func runTerminalTurn(ctx context.Context, in <-chan agent.ChatMessage, events chan<- agent.ChatEvent) {
+	if !emit(ctx, events, agent.ChatEvent{Terminal: &agent.TerminalRequest{
+		ID:     terminalTestID,
+		Op:     agent.TerminalOpCreate,
+		Params: json.RawMessage(terminalTestParams),
+	}}) {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case m, ok := <-in:
+		emit(ctx, events, assistantEntry(terminalAnswer(m, ok)))
+	}
+	emit(ctx, events, completeTurn("end_turn"))
+}
+
+// terminalAnswer renders the editor's terminal reply as the fixed text the
+// driving test asserts on.
+func terminalAnswer(m agent.ChatMessage, ok bool) string {
+	switch {
+	case !ok || m.Terminal == nil:
+		return "terminal: no answer"
+	case m.Terminal.Error != "":
+		return "terminal error: " + m.Terminal.Error
+	default:
+		return "terminal result: " + string(m.Terminal.Result)
 	}
 }
 

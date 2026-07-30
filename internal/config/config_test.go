@@ -2449,3 +2449,35 @@ func TestRewriteRetiredSeedParents(t *testing.T) {
 		"local-parent",
 	}, got)
 }
+
+// TestTestOnlyMutators_CannotReachTheSharedInstance pins the property that
+// makes SetFS and DisableCompanionProbe safe to export: they mutate the
+// receiver in place, so the only thing standing between them and every Load()
+// holder in the process is that no caller ever has the ambient instance to
+// mutate. NewFixture is the constructor those callers use, and it must keep
+// returning a config that neither IS nor aliases the memoized one — otherwise a
+// single test-only setter silently repoints production's filesystem or disarms
+// its companion probe for the rest of the process.
+func TestTestOnlyMutators_CannotReachTheSharedInstance(t *testing.T) {
+	testsupport.Isolate(t)
+	Invalidate()
+	t.Cleanup(Invalidate)
+
+	shared, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, shared)
+
+	owned := NewFixture(Fixture{AppPaths: []string{t.TempDir()}})
+	require.NotSame(t, shared, owned, "NewFixture must never hand back the memoized ambient instance")
+
+	memFS := afero.NewMemMapFs()
+	owned.SetFS(memFS)
+	owned.DisableCompanionProbe()
+
+	assert.NotSame(t, memFS, shared.FS(),
+		"a test-only SetFS must not have repointed the shared ambient config's filesystem")
+
+	again, err := Load()
+	require.NoError(t, err)
+	assert.Same(t, shared, again, "the ambient memo must still serve the instance it built")
+}

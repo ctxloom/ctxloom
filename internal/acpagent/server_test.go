@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // fakeEngine is a scripted engine conversation: it records the messages the
@@ -1035,4 +1037,51 @@ func TestMcpServersFromACP_RejectsUnreachableVariants(t *testing.T) {
 	})
 	require.Len(t, got, 1, "only the valid stdio entry should survive")
 	assert.Equal(t, "kept", got[0].Name)
+}
+
+// TestServe_CancelWithUndecodableParamsWarns pins U014-F19: a session/cancel
+// notification whose params fail to decode used to return with no trace at
+// all, so a user's cancel disappeared silently — while an UNKNOWN method on
+// the very same path already warned. A cancel that cannot be decoded is
+// exactly the case a human is watching for, so it must be at least as loud as
+// a frame nobody sent on purpose.
+func TestServe_CancelWithUndecodableParamsWarns(t *testing.T) {
+	var sink syncWriter
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	// sessionId is a string on the wire; a number cannot decode.
+	c.notify("session/cancel", `{"sessionId":123}`)
+
+	// Order the assertion behind a round-trip the server must answer AFTER
+	// the notification it read first, so the warn (if any) has landed.
+	resp, _ := c.waitResponse(c.send("session/set_mode", `{"sessionId":"`+sid+`","modeId":"nope"}`))
+	require.NotNil(t, resp.Error)
+
+	assert.Contains(t, sink.String(), "session/cancel",
+		"an undecodable session/cancel must be reported, not silently dropped")
+}
+
+// syncWriter is a mutex-guarded buffer: clidiag's sink is written from the
+// server's read-loop goroutine while the test reads it.
+type syncWriter struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
 }

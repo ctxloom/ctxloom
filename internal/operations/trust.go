@@ -1233,8 +1233,12 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 // bundle ref and therefore no publisher signature. It resolves the server's
 // executable surface (BundleMCP.ContentPayload — Command+Args+Env+Installation)
 // as a local mcp item, which the decision function ALLOWS via the first-party
-// local exemption at step 2 (the user configured it in this project themselves)
-// — unless it has been explicitly rejected at step 1, which beats the exemption.
+// local exemption at step 3 (the user configured it in this project themselves)
+// — unless it has been explicitly rejected at step 1, which beats the
+// exemption, as does a retraction at step 2. Retraction never actually fires
+// for a local item, but by SCOPE rather than by precedence: retractable()
+// excludes a ref with no remote lockfile entry. The distinction matters,
+// because it is what makes the exemption safe to sit this low.
 // Signing is irrelevant here and its absence is not a downgrade: local content
 // never needed a key and still does not.
 func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) EffectiveTrustResult {

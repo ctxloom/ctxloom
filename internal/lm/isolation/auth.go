@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // containerAuthMode names HOW a container run authenticates the engine, for
@@ -409,10 +411,12 @@ func antigravityCredentialCopyMounts(containerHome, scratchDir string) ([]Mount,
 	}
 	dir := filepath.Join(scratchDir, "antigravity-auth")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		warnCredentialCopyFailed("antigravity", token, err)
 		return nil, false
 	}
 	tokenCopy := filepath.Join(dir, "antigravity-oauth-token")
 	if err := copyCredentialFile(token, tokenCopy); err != nil {
+		warnCredentialCopyFailed("antigravity", token, err)
 		return nil, false
 	}
 	return []Mount{{
@@ -477,10 +481,12 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 	}
 	dir := filepath.Join(scratchDir, "claude-auth")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		warnCredentialCopyFailed("claude", creds, err)
 		return nil, false
 	}
 	credsCopy := filepath.Join(dir, ".credentials.json")
 	if err := copyCredentialFile(creds, credsCopy); err != nil {
+		warnCredentialCopyFailed("claude", creds, err)
 		return nil, false
 	}
 	return []Mount{{
@@ -488,6 +494,21 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 		Container: filepath.Join(containerHome, ".claude", ".credentials.json"),
 		ReadOnly:  false,
 	}}, true
+}
+
+// warnCredentialCopyFailed names the one outcome the credential-copy mount
+// builders cannot express in their ok=false return: the host credential EXISTS
+// and we failed to stage a copy of it. Absence and copy-failure both degrade the
+// run the same way, but they are opposite diagnoses — the caller's authHint
+// ("no ~/.claude/.credentials.json to authenticate the in-container engine")
+// is true for the first and actively false for the second, sending the user to
+// re-authenticate a credential that is already there. Only the failure warns;
+// an absent credential is an ordinary host state and must stay silent, or the
+// signal is noise.
+func warnCredentialCopyFailed(engine, src string, err error) {
+	clidiag.Warn("ctxloom",
+		"%s container auth: the host credential %s exists but could not be staged for the container (%v); this run proceeds as if no host credential were present",
+		engine, src, err)
 }
 
 // fileExists reports whether path is an existing regular file (not a directory).
@@ -901,6 +922,15 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 	}
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
+		// Still a degrade, never an abort (the caller must not be blocked by a
+		// HOME lookup). But an unresolvable host HOME is an ENVIRONMENT FAULT,
+		// not the ordinary "this host has no credential file" the caller's own
+		// message describes — leaving it silent surfaced a real fault as advice
+		// to run `claude login`/`codex login`, which cannot help. Same handling
+		// provisionCuratedHome gives the identical failure.
+		clidiag.Warn("ctxloom",
+			"%s credential seed: could not resolve the host HOME to copy credentials from (%v); this run is treated as having no host credentials to seed",
+			spec.engine, err)
 		return seedNoSource, nil
 	}
 	files := spec.sourceFiles(home)
@@ -912,6 +942,12 @@ func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult,
 	destDir := filepath.Join(configHome, spec.destSubdir)
 	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return seedNoSource, fmt.Errorf("create %s credential seed dir: %w", spec.engine, err)
+	}
+	// MkdirAll's perm argument, like os.WriteFile's, applies only on CREATION —
+	// a pre-existing dir keeps its own mode. This one is about to hold live
+	// credential files, so owner-only is restated rather than assumed.
+	if err := os.Chmod(destDir, 0o700); err != nil {
+		return seedNoSource, fmt.Errorf("restrict %s credential seed dir: %w", spec.engine, err)
 	}
 	seededAny := false
 	for _, f := range files {
@@ -953,5 +989,12 @@ func copyCredentialFile(src, dst string) error {
 	if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("credential seed destination %q is a symlink; refusing to write through it", dst)
 	}
-	return os.WriteFile(dst, data, 0o600)
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return err
+	}
+	// os.WriteFile applies its perm argument only when it CREATES the file: a
+	// destination that already existed keeps its own mode, so the 0600 above is
+	// not a guarantee on its own. Restate it on the file that now holds live
+	// credential bytes.
+	return os.Chmod(dst, 0o600)
 }

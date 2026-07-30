@@ -1493,3 +1493,40 @@ func TestTagTask_NeverReturnsAnEmptyTaskWithANilError(t *testing.T) {
 		t.Fatalf("Tags = %v, want the collapsed-to value", got.Task.Tags)
 	}
 }
+
+// writeHostileMarker plants an in-tree project marker whose value
+// projectid.ValidateProjectID rejects — the case ReadMarker exists to catch,
+// since the marker travels with the working tree and can be committed by a
+// third party.
+func writeHostileMarker(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".ctxloom", "project-id"), []byte("../../etc/passwd\n"), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+}
+
+// TestResolveProjectIdentity_NamesTheStageThatFailed pins U122-F09: this
+// function returned both of its failure modes bare, so its callers
+// (internal/cli/run.go's pre-launch export and coord_host.go's state-dir key)
+// could not tell "the project registry would not open" from "this tree's
+// identity could not be resolved" — two different operator actions. Every
+// other resolver in this file already wraps; this one now does too.
+func TestResolveProjectIdentity_NamesTheStageThatFailed(t *testing.T) {
+	taskstest.Isolate(t)
+	proj := t.TempDir()
+	writeHostileMarker(t, proj)
+
+	_, _, err := ResolveProjectIdentity(proj)
+	if err == nil {
+		t.Fatal("a marker that fails validation must not resolve")
+	}
+	if !strings.Contains(err.Error(), "resolve project id") {
+		t.Fatalf("error %q does not name the stage that failed", err.Error())
+	}
+	if !strings.Contains(err.Error(), "invalid project marker") {
+		t.Fatalf("error %q lost the underlying cause", err.Error())
+	}
+}

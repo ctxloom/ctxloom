@@ -115,13 +115,17 @@ type TaskResult struct {
 // notice for the frontend to surface. Used by `ctxloom run` pre-launch to
 // export CTXLOOM_PROJECT_ID into the session environment.
 func ResolveProjectIdentity(workDir string) (projectID, warning string, err error) {
+	// Both failures are wrapped with the stage that produced them, matching
+	// ResolveLogPath/resolveTaskStore: "the registry would not open" and
+	// "this tree's identity would not resolve" call for different operator
+	// action, and a bare error leaves the caller unable to tell them apart.
 	pm, err := projectid.Open("")
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("open project registry: %w", err)
 	}
 	res, err := pm.Resolve(workDir)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("resolve project id: %w", err)
 	}
 	return res.ProjectID, res.Warning, nil
 }

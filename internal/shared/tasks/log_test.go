@@ -896,15 +896,7 @@ func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
 	if _, err := s.AddTags(added.HarpID, "urgent"); err != nil {
 		t.Fatalf("tag: %v", err)
 	}
-	if err := os.Remove(s.Path() + ".lock"); err != nil && !os.IsNotExist(err) {
-		t.Fatalf("remove lock file: %v", err)
-	}
-	if err := os.Mkdir(s.Path()+".lock", 0o755); err != nil {
-		t.Fatalf("block the lock path: %v", err)
-	}
-	if _, err := filelock.LockShared(s.Path() + ".lock"); err == nil {
-		t.Fatal("the shared lock was acquired; this test no longer exercises the fallback")
-	}
+	blockLockPath(t, s.Path()+".lock")
 
 	got, err := s.List(nil, "")
 	if err != nil {
@@ -985,5 +977,21 @@ func TestApply_EventsForAnUnknownHarpAreSilentlyDropped(t *testing.T) {
 `)
 	if len(removed) != 0 {
 		t.Fatalf("fold = %v, want an empty view: a status for a tombstoned task is correctly ignored", removed)
+	}
+}
+
+// blockLockPath makes filelock.LockShared fail on path, structurally: a
+// DIRECTORY cannot be opened as a lock file. Nothing is mocked, so the
+// fallback under test is the real one.
+func blockLockPath(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove lock file: %v", err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("block the lock path: %v", err)
+	}
+	if _, err := filelock.LockShared(path); err == nil {
+		t.Fatalf("the shared lock at %s was acquired; this test no longer exercises the fallback", path)
 	}
 }

@@ -55,6 +55,29 @@ var ErrTagQuery = errors.New("tag query")
 // operators on an undeclared target keep matching tagma's own numeric
 // grammar unchanged.
 func filterTasks(all []Task, statuses []string, term, tagQuery string, schema *tagschema.Schema) ([]Task, error) {
+	candidates := selectCandidates(all, statuses, term)
+	if strings.TrimSpace(tagQuery) == "" {
+		return candidates, nil
+	}
+	matched, err := matchTagQuery(candidates, tagQuery, schema)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve input order: today's per-task loop appends in candidate
+	// order, so iterate candidates and keep the ones tagma matched, rather
+	// than trusting QueryPostfix's (sorted-by-id) return order.
+	out := make([]Task, 0, len(candidates))
+	for _, t := range candidates {
+		if _, ok := matched[t.HarpID]; ok {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// selectCandidates applies the status and term filters — the two that need no
+// index — and returns the tasks a tag query would then be evaluated over.
+func selectCandidates(all []Task, statuses []string, term string) []Task {
 	var statusSet map[string]bool
 	if len(statuses) > 0 {
 		statusSet = make(map[string]bool, len(statuses))
@@ -74,11 +97,13 @@ func filterTasks(all []Task, statuses []string, term, tagQuery string, schema *t
 		}
 		candidates = append(candidates, t)
 	}
+	return candidates
+}
 
-	if strings.TrimSpace(tagQuery) == "" {
-		return candidates, nil
-	}
-
+// matchTagQuery builds the tagma index over candidates and returns the set of
+// harp ids tagQuery selects. A malformed query is an error, never a silently
+// empty result.
+func matchTagQuery(candidates []Task, tagQuery string, schema *tagschema.Schema) (map[string]struct{}, error) {
 	idx := tagma.NewIndex()
 	registerTypes(idx)
 	if cfgTags := typeConfigTags(schema); len(cfgTags) > 0 {
@@ -114,17 +139,7 @@ func filterTasks(all []Task, statuses []string, term, tagQuery string, schema *t
 	for _, id := range ids {
 		matched[id] = struct{}{}
 	}
-
-	// Preserve input order: today's per-task loop appends in candidate
-	// order, so iterate candidates and keep the ones tagma matched, rather
-	// than trusting QueryPostfix's (sorted-by-id) return order.
-	out := make([]Task, 0, len(candidates))
-	for _, t := range candidates {
-		if _, ok := matched[t.HarpID]; ok {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return matched, nil
 }
 
 // presenceNamespace is a reserved tagma namespace used only by

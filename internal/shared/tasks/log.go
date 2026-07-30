@@ -200,80 +200,106 @@ func (l *eventLog) foldChecked() (*folded, error) {
 func (f *folded) apply(ev Event) error {
 	switch ev.Op {
 	case opAdd:
-		if ev.RepairOf != "" {
-			f.repaired[ev.RepairOf] = struct{}{}
-		}
-		if _, taken := f.issued[ev.Task]; taken {
-			// Identity already used — a displaced duplicate (concurrent-mint
-			// race, the post-100-draw fallback, or two branches that each
-			// independently minted this harp, later union-merged). Byte-
-			// identical duplicate lines never reach here — fold() dedupes
-			// those before apply() runs. So an event that DOES land here is
-			// a real collision: two different tasks claiming one identity.
-			// The first writer keeps the harp; this content is recorded as
-			// an anomaly rather than silently dropped or auto-repaired
-			// (reassigning a harp would break every reference to it).
-			// snapshot()/deferredSince() surface unresolved anomalies as a
-			// loud, actionable error (anomalyError) rather than letting the
-			// second task vanish with a clean exit code; a human runs
-			// Store.Repair() to re-add it under a fresh harp.
-			f.anomalies = append(f.anomalies, ev)
-			return nil
-		}
-		f.issued[ev.Task] = struct{}{}
-		t := &Task{
-			HarpID:        ev.Task,
-			Text:          strings.TrimSpace(ev.Text),
-			Status:        defaultStatus(ev.Status),
-			Trigger:       strings.TrimSpace(ev.Trigger),
-			OriginSession: ev.Session,
-		}
-		t.Checked = statusIsDone(t.Status)
-		t.TextHash = hashText(t.Text)
-		t.Tags = normalizeTags(ev.Tags)
-		t.CreatedAt = ev.Ts
-		f.byID[ev.Task] = t
-		f.order = append(f.order, ev.Task)
-		if t.Status == StatusDeferred {
-			f.deferredSince[ev.Task] = ev.Ts
-		}
+		f.applyAdd(ev)
 	case opTag:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Tags = unionTags(t.Tags, ev.Tags)
-		}
+		f.retagLive(ev, unionTags)
 	case opUntag:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Tags = subtractTags(t.Tags, ev.Tags)
-		}
+		f.retagLive(ev, subtractTags)
 	case opStatus:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Status = ev.Status
-			t.Checked = statusIsDone(ev.Status)
-			// A status event only carries a trigger when one was (re)set; an
-			// empty trigger never clears an existing condition.
-			if tr := strings.TrimSpace(ev.Trigger); tr != "" {
-				t.Trigger = tr
-			}
-			if ev.Status == StatusDeferred {
-				f.deferredSince[ev.Task] = ev.Ts
-			}
-		}
+		f.applyStatus(ev)
 	case opText:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Text = strings.TrimSpace(ev.Text)
-			t.TextHash = hashText(t.Text)
-		}
+		f.applyText(ev)
 	case opRemove:
-		delete(f.byID, ev.Task)
 		// ev.Task stays in `issued`: a harp is never reused, so a stale
 		// reference can never resolve to a different task.
+		delete(f.byID, ev.Task)
+	case "":
+		return fmt.Errorf("record has no op field")
 	default:
-		if ev.Op == "" {
-			return fmt.Errorf("record has no op field")
-		}
 		return fmt.Errorf("unrecognized op %q — this log was likely written by a newer taskloom; upgrade this binary", ev.Op)
 	}
 	return nil
+}
+
+// applyAdd mints a task, or records a harp collision as an anomaly when the
+// identity is already claimed.
+func (f *folded) applyAdd(ev Event) {
+	if ev.RepairOf != "" {
+		f.repaired[ev.RepairOf] = struct{}{}
+	}
+	if _, taken := f.issued[ev.Task]; taken {
+		// Identity already used — a displaced duplicate (concurrent-mint
+		// race, the post-100-draw fallback, or two branches that each
+		// independently minted this harp, later union-merged). Byte-
+		// identical duplicate lines never reach here — fold() dedupes
+		// those before apply() runs. So an event that DOES land here is
+		// a real collision: two different tasks claiming one identity.
+		// The first writer keeps the harp; this content is recorded as
+		// an anomaly rather than silently dropped or auto-repaired
+		// (reassigning a harp would break every reference to it).
+		// snapshot()/deferredSince() surface unresolved anomalies as a
+		// loud, actionable error (anomalyError) rather than letting the
+		// second task vanish with a clean exit code; a human runs
+		// Store.Repair() to re-add it under a fresh harp.
+		f.anomalies = append(f.anomalies, ev)
+		return
+	}
+	f.issued[ev.Task] = struct{}{}
+	t := &Task{
+		HarpID:        ev.Task,
+		Text:          strings.TrimSpace(ev.Text),
+		Status:        defaultStatus(ev.Status),
+		Trigger:       strings.TrimSpace(ev.Trigger),
+		OriginSession: ev.Session,
+	}
+	t.Checked = statusIsDone(t.Status)
+	t.TextHash = hashText(t.Text)
+	t.Tags = normalizeTags(ev.Tags)
+	t.CreatedAt = ev.Ts
+	f.byID[ev.Task] = t
+	f.order = append(f.order, ev.Task)
+	f.noteIfDeferred(ev, t.Status)
+}
+
+// retagLive applies a tag-set delta (union for `tag`, subtract for `untag`)
+// to a live task. An event addressed to a task that is not in byID — never
+// added, or already removed — applies to nothing; see
+// TestApply_EventsForAnUnknownHarpAreSilentlyDropped for what that costs and
+// why it is not this function's call to change (U120-F03).
+func (f *folded) retagLive(ev Event, delta func(base, arg []string) []string) {
+	if t := f.byID[ev.Task]; t != nil {
+		t.Tags = delta(t.Tags, ev.Tags)
+	}
+}
+
+func (f *folded) applyStatus(ev Event) {
+	t := f.byID[ev.Task]
+	if t == nil {
+		return
+	}
+	t.Status = ev.Status
+	t.Checked = statusIsDone(ev.Status)
+	// A status event only carries a trigger when one was (re)set; an
+	// empty trigger never clears an existing condition.
+	if tr := strings.TrimSpace(ev.Trigger); tr != "" {
+		t.Trigger = tr
+	}
+	f.noteIfDeferred(ev, ev.Status)
+}
+
+func (f *folded) applyText(ev Event) {
+	if t := f.byID[ev.Task]; t != nil {
+		t.Text = strings.TrimSpace(ev.Text)
+		t.TextHash = hashText(t.Text)
+	}
+}
+
+// noteIfDeferred records when a task most recently entered Deferred, the one
+// fact both add and status contribute to deferredSince.
+func (f *folded) noteIfDeferred(ev Event, status string) {
+	if status == StatusDeferred {
+		f.deferredSince[ev.Task] = ev.Ts
+	}
 }
 
 // taskList returns live tasks in add order.

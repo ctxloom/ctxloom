@@ -2,7 +2,9 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -239,8 +241,28 @@ func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeRe
 	ws.teardown(ctx, wtDir)
 	removeWorktreeOwnerMarker(wtDir)
 
-	if _, statErr := os.Stat(wtDir); statErr != nil {
+	if worktreeRemoved(wtDir) {
 		return worktreeReaped
 	}
 	return worktreeReapSpared
+}
+
+// worktreeRemoved reports whether teardown actually removed wtDir. ONLY
+// ErrNotExist proves removal: any other stat failure — EACCES on a parent,
+// ELOOP, ENAMETOOLONG — means the tree's fate is unknown, and the sweep must
+// never report cleanup it cannot see. Unknown is therefore reported as
+// NOT-removed (SPARED, the conservative half of the sweep's own contract) and
+// warned about, since an unreadable ephemeral path is itself a fault worth
+// surfacing.
+func worktreeRemoved(wtDir string) bool {
+	_, err := os.Stat(wtDir)
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, fs.ErrNotExist):
+		return true
+	default:
+		clidiag.Warn("ctxloom", "worktree reap: cannot tell whether %q was removed (%v); reporting it as spared", wtDir, err)
+		return false
+	}
 }

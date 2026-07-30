@@ -127,13 +127,6 @@ Examples:
 
 var commandDistillForce bool
 
-var (
-	commandPushPR      bool
-	commandPushMessage string
-	commandPushSign    bool
-	commandPushNoSign  bool
-)
-
 // commandPushDeprecation is the one-line pointer cobra prints whenever
 // `ctxloom command push` still runs (CLI-primary reorg plan, Decision 4:
 // `command push` -> `bundle push`).
@@ -167,7 +160,7 @@ DEPRECATED: use 'ctxloom bundle push' instead.`,
 		if len(args) > 1 {
 			remoteName = args[1]
 		}
-		return pushBundle(cmd, args[0], remoteName, commandPushPR, commandPushMessage, commandPushSign, commandPushNoSign)
+		return pushBundle(cmd, args[0], remoteName, bundlePushPR, bundlePushMessage, bundlePushSign, bundlePushNoSign)
 	},
 }
 
@@ -188,8 +181,5 @@ func init() {
 	commandEditCmd.Flags().BoolVar(&commandEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	commandDistillCmd.Flags().BoolVarP(&commandDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
-	commandPushCmd.Flags().BoolVar(&commandPushPR, "pr", false, "Create a pull request")
-	commandPushCmd.Flags().StringVarP(&commandPushMessage, "message", "m", "", "Commit message")
-	commandPushCmd.Flags().BoolVar(&commandPushSign, "sign", false, "sign the published bundle (spec §3.1)")
-	commandPushCmd.Flags().BoolVar(&commandPushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
+	registerPushFlags(commandPushCmd)
 }

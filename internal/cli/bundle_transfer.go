@@ -16,6 +16,19 @@ var (
 	bundlePushNoSign  bool
 )
 
+// registerPushFlags binds the publish flags onto a command that pushes a
+// bundle. Every such command shares these four variables and this one
+// registration, so an ALIAS of `bundle push` cannot present a different flag
+// set, a different default, or different help text for the identical publish
+// (they all reach the same pushBundle). Only one command runs per invocation,
+// so one set of variables backing several FlagSets is exactly the point.
+func registerPushFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&bundlePushPR, "pr", false, "Create a pull request instead of pushing directly")
+	cmd.Flags().StringVarP(&bundlePushMessage, "message", "m", "", "Commit message")
+	cmd.Flags().BoolVar(&bundlePushSign, "sign", false, "sign the published bundle (spec §3.1)")
+	cmd.Flags().BoolVar(&bundlePushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
+}
+
 var bundlePushCmd = &cobra.Command{
 	Use:   "push <name> [remote]",
 	Short: "Publish a bundle to a remote repository",

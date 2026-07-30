@@ -57,10 +57,7 @@ func init() {
 
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
-	bundlePushCmd.Flags().BoolVar(&bundlePushPR, "pr", false, "Create a pull request instead of pushing directly")
-	bundlePushCmd.Flags().StringVarP(&bundlePushMessage, "message", "m", "", "Commit message")
-	bundlePushCmd.Flags().BoolVar(&bundlePushSign, "sign", false, "sign the published bundle (spec §3.1)")
-	bundlePushCmd.Flags().BoolVar(&bundlePushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
+	registerPushFlags(bundlePushCmd)
 	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
 	bundleExportCmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
 	bundleMoveCmd.Flags().StringVar(&bundleMoveTo, "to", "", "Destination: a configured remote name, or a local directory / ctxloom project checkout (a remote name wins)")

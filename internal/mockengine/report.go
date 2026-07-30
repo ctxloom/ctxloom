@@ -75,6 +75,15 @@ type ProbeRecord struct {
 	// Head is a bounded prefix of the content for eyeballing (never the
 	// assertion target — hashes are). Omitted for directories and absent paths.
 	Head string `json:"head,omitempty"`
+	// Unresolved marks a probe whose LOCATION could never be determined, as
+	// opposed to one that was located and found absent: the declared flag was
+	// not in argv at all, or the declared scope has no resolver. Both render as
+	// Present=false, and every byte that told them apart used to live in Note,
+	// which the digest excludes — so "ctxloom never passed --settings" and
+	// "ctxloom passed --settings and wrote nothing there" hashed the same
+	// (U079-F08). They are different delivery failures. It is in the digest for
+	// the reason Fallback and Unreadable are.
+	Unresolved bool `json:"unresolved,omitempty"`
 	// Fallback marks a ScopeEnvDir probe whose env var was UNSET, so the root
 	// came from $HOME/<EnvHomeDefault> instead. It is in the digest because
 	// the alternative is a false green on the host path: a developer with a
@@ -236,15 +245,17 @@ func hashBytes(b []byte) string {
 
 // canonicalRendering is the one-line-per-record text the DiscoveryDigest hashes.
 // It carries the STABLE identity of each observation — order, kind, scope, rel,
-// present, size, content hash — and every directory entry's (name, size, hash),
+// present, size, content hash, and the three qualifiers that change what a
+// present:false MEANS (fallback, unreadable, unresolved) — and every directory
+// entry's (name, size, hash),
 // but NOT the absolute Root/Path, which vary by machine and would make the
 // digest un-assertable. Two deliveries of the same bytes to the same declared
 // surfaces render identically here regardless of where on disk they landed.
 func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 	var b strings.Builder
 	for _, r := range recs {
-		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t|%t\n",
-			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback, r.Unreadable)
+		fmt.Fprintf(&b, "%d|%s|%s|%s|%t|%d|%s|%t|%t|%t\n",
+			r.Order, r.Kind, r.Scope, r.Rel, r.Present, r.Size, r.SHA256, r.Fallback, r.Unreadable, r.Unresolved)
 		for _, e := range r.Entries {
 			fmt.Fprintf(&b, "  entry|%s|%d|%s|%t\n", e.Name, e.Size, e.SHA256, e.Unreadable)
 		}

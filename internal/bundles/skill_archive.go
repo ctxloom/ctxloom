@@ -277,9 +277,7 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 		return "", fmt.Errorf("skill archive: %d entries exceeds the %d entry cap — rejected (entry-count bomb guard)", len(zr.File), opts.MaxEntries)
 	}
 
-	var topDir string
-	var total int64
-	var filesWritten int
+	var st extractState
 	for _, f := range zr.File {
 		kind := zipEntryKind(f)
 		perr := func() error {
@@ -288,13 +286,13 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 				return fmt.Errorf("opening entry %q: %w", f.Name, err)
 			}
 			defer rc.Close()
-			return processArchiveEntry(fsys, destDir, &topDir, f.Name, kind, int64(f.Mode().Perm()), rc, &total, &filesWritten, opts)
+			return processArchiveEntry(fsys, destDir, &st, f.Name, kind, int64(f.Mode().Perm()), rc, opts)
 		}()
 		if perr != nil {
 			return "", fmt.Errorf("skill archive: %w", perr)
 		}
 	}
-	if topDir == "" {
+	if st.topDir == "" {
 		return "", fmt.Errorf("skill archive: empty archive, no top-level skill directory found")
 	}
 	// U031-F01: a topDir alone (e.g. a lone "myskill/" marker entry) is not
@@ -302,10 +300,10 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 	// for the marker itself without writing a single file, so an archive
 	// containing only single-segment entries previously "succeeded" having
 	// written zero bytes under destDir.
-	if filesWritten == 0 {
-		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", topDir)
+	if st.filesWritten == 0 {
+		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", st.topDir)
 	}
-	return topDir, nil
+	return st.topDir, nil
 }
 
 func zipEntryKind(f *zip.File) entryKind {
@@ -330,9 +328,7 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 	defer gz.Close()
 	tr := tar.NewReader(gz)
 
-	var topDir string
-	var total int64
-	var filesWritten int
+	var st extractState
 	var count int
 	for {
 		hdr, err := tr.Next()
@@ -347,19 +343,19 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 			return "", fmt.Errorf("skill archive: exceeds the %d entry cap — rejected (entry-count bomb guard)", opts.MaxEntries)
 		}
 		kind := tarEntryKind(hdr)
-		if err := processArchiveEntry(fsys, destDir, &topDir, hdr.Name, kind, hdr.Mode, tr, &total, &filesWritten, opts); err != nil {
+		if err := processArchiveEntry(fsys, destDir, &st, hdr.Name, kind, hdr.Mode, tr, opts); err != nil {
 			return "", fmt.Errorf("skill archive: %w", err)
 		}
 	}
-	if topDir == "" {
+	if st.topDir == "" {
 		return "", fmt.Errorf("skill archive: empty archive, no top-level skill directory found")
 	}
 	// U031-F01: see extractZip's identical guard — a top-level marker alone
 	// is not proof anything was extracted.
-	if filesWritten == 0 {
-		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", topDir)
+	if st.filesWritten == 0 {
+		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", st.topDir)
 	}
-	return topDir, nil
+	return st.topDir, nil
 }
 
 func tarEntryKind(hdr *tar.Header) entryKind {
@@ -378,82 +374,46 @@ func tarEntryKind(hdr *tar.Header) entryKind {
 	}
 }
 
+// extractState holds the per-archive accumulators HardenedExtract's zip and
+// tar loops both thread through every entry: the archive's single top-level
+// directory name (established by the first entry, enforced on every later one),
+// the running total of uncompressed bytes actually read, and the number of
+// files actually written. They live in one value so the choke point below takes
+// a state rather than a fistful of pointers, and so the two format loops cannot
+// drift in what they track.
+type extractState struct {
+	topDir       string
+	total        int64
+	filesWritten int
+}
+
 // processArchiveEntry is the single choke point HardenedExtract's zip and tar
 // loops both funnel every entry through: path validation, kind rejection,
 // entry-count/size accounting, mode normalization, and the actual write. See
 // HardenedExtract's doc comment for the full, authoritative rejection list —
-// this function is where each rule is enforced.
-func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name string, kind entryKind, mode int64, r io.Reader, total *int64, filesWritten *int, opts ExtractOptions) error {
-	if name == "" {
-		return fmt.Errorf("entry has an empty name")
+// this function and the four helpers below are where each rule is enforced, in
+// this order: nothing is written until every check has passed.
+func processArchiveEntry(fsys afero.Fs, destDir string, st *extractState, name string, kind entryKind, mode int64, r io.Reader, opts ExtractOptions) error {
+	segments, err := validateEntryPath(name)
+	if err != nil {
+		return err
 	}
-	slashName := filepath.ToSlash(name)
-	if path.IsAbs(slashName) || filepath.IsAbs(name) {
-		return fmt.Errorf("entry %q uses an absolute path — rejected (zip-slip guard)", name)
+	if err := rejectUnwritableKind(kind, name); err != nil {
+		return err
 	}
-
-	cleaned := path.Clean(slashName)
-	if cleaned == "." || cleaned == "" {
-		return fmt.Errorf("entry %q resolves to an empty path", name)
+	rest, err := st.placeUnderTopDir(name, segments)
+	if err != nil {
+		return err
 	}
-	segments := strings.Split(cleaned, "/")
-	for _, seg := range segments {
-		if seg == ".." || seg == "" {
-			return fmt.Errorf("entry %q contains a path-traversal segment — rejected (zip-slip guard)", name)
-		}
-	}
-
-	switch kind {
-	case kindUnknown:
-		return fmt.Errorf("entry %q was not classified by any format reader — rejected (an unclassified entry is never written)", name)
-	case kindSymlink:
-		return fmt.Errorf("entry %q is a symlink — rejected (symlinks are never permitted in a skill archive)", name)
-	case kindOther:
-		return fmt.Errorf("entry %q is a hardlink, device, or other special file — rejected", name)
-	}
-
-	first := segments[0]
-	switch {
-	case *topDir == "":
-		*topDir = first
-	case first != *topDir:
-		return fmt.Errorf("entry %q is outside the archive's single top-level directory %q", name, *topDir)
-	}
-
-	rest := segments[1:]
 	if len(rest) == 0 {
 		// The top-level directory marker entry itself (e.g. "myskill/" in a
 		// zip) — destDir already stands in for it, nothing further to write.
 		return nil
 	}
-	relPath := strings.Join(rest, "/")
 
-	// The canonical zip-slip guard: reuse the exact confinement helper
-	// ResolveSkillDir uses for bundle-tree paths (safeSkillRelJoin) as a
-	// second, independent check. Belt and braces: even though the segment
-	// scan above already rejects "..", every remote-originated relative path
-	// in this codebase is required to pass this same join-and-verify before
-	// it ever touches a real filesystem path.
-	target, ok := safeSkillRelJoin(destDir, relPath)
-	if !ok {
-		return fmt.Errorf("entry %q escapes the extraction root — rejected (zip-slip guard)", name)
-	}
-
-	// safeSkillRelJoin's check above is purely LEXICAL (filepath.Join/Rel
-	// string arithmetic) — it cannot see that an ancestor directory of
-	// target might already be a real symlink on disk, planted in destDir
-	// before this call, pointing somewhere outside destDir entirely. No
-	// archive entry can introduce one mid-extraction (every symlink-typed
-	// entry is rejected above, unconditionally), but a hardened extractor's
-	// confinement guarantee must hold regardless of what destDir already
-	// contained when it was invoked — resolve any symlinks actually present
-	// along the path and re-verify confinement against the resolved result.
-	escapes, err := symlinkEscapesRoot(fsys, destDir, target)
+	target, err := confineEntryTarget(fsys, destDir, strings.Join(rest, "/"), name)
 	if err != nil {
-		return fmt.Errorf("entry %q: checking for a pre-existing symlink escape: %w", name, err)
-	}
-	if escapes {
-		return fmt.Errorf("entry %q escapes the extraction root via a pre-existing symlink — rejected (zip-slip guard)", name)
+		return err
 	}
 
 	if kind == kindDir {
@@ -462,16 +422,111 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 		}
 		return nil
 	}
+	return st.writeEntryFile(fsys, target, name, mode, r, opts)
+}
 
+// validateEntryPath rejects every path shape an archive entry may not have and
+// returns the cleaned entry name split into segments. Absolute paths and any
+// ".." segment are the canonical zip-slip shapes; a name that cleans away to
+// nothing addresses the extraction root itself rather than anything inside it.
+func validateEntryPath(name string) ([]string, error) {
+	if name == "" {
+		return nil, fmt.Errorf("entry has an empty name")
+	}
+	slashName := filepath.ToSlash(name)
+	if path.IsAbs(slashName) || filepath.IsAbs(name) {
+		return nil, fmt.Errorf("entry %q uses an absolute path — rejected (zip-slip guard)", name)
+	}
+
+	cleaned := path.Clean(slashName)
+	if cleaned == "." || cleaned == "" {
+		return nil, fmt.Errorf("entry %q resolves to an empty path", name)
+	}
+	segments := strings.Split(cleaned, "/")
+	for _, seg := range segments {
+		if seg == ".." || seg == "" {
+			return nil, fmt.Errorf("entry %q contains a path-traversal segment — rejected (zip-slip guard)", name)
+		}
+	}
+	return segments, nil
+}
+
+// rejectUnwritableKind admits only the two kinds that may ever land on disk.
+// Everything else — a symlink, a hardlink/device/fifo/socket, or an entry no
+// format reader classified at all — is a rejection, not a fallback.
+func rejectUnwritableKind(kind entryKind, name string) error {
+	switch kind {
+	case kindUnknown:
+		return fmt.Errorf("entry %q was not classified by any format reader — rejected (an unclassified entry is never written)", name)
+	case kindSymlink:
+		return fmt.Errorf("entry %q is a symlink — rejected (symlinks are never permitted in a skill archive)", name)
+	case kindOther:
+		return fmt.Errorf("entry %q is a hardlink, device, or other special file — rejected", name)
+	}
+	return nil
+}
+
+// placeUnderTopDir enforces the single-top-level-directory rule and returns the
+// entry's segments BELOW that directory (empty for the marker entry itself).
+// The first entry establishes the top-level name; a second, foreign top-level
+// path is exactly the shape a zip-slip-adjacent smuggling attempt takes.
+func (st *extractState) placeUnderTopDir(name string, segments []string) ([]string, error) {
+	first := segments[0]
+	switch {
+	case st.topDir == "":
+		st.topDir = first
+	case first != st.topDir:
+		return nil, fmt.Errorf("entry %q is outside the archive's single top-level directory %q", name, st.topDir)
+	}
+	return segments[1:], nil
+}
+
+// confineEntryTarget resolves relPath to a real filesystem path under destDir,
+// through BOTH confinement checks — the lexical one and the on-disk one.
+//
+// safeSkillRelJoin (the same helper ResolveSkillDir uses for bundle-tree paths)
+// is the canonical zip-slip guard: belt and braces, since validateEntryPath's
+// segment scan already rejects "..", but every remote-originated relative path
+// in this codebase is required to pass this same join-and-verify before it ever
+// touches a real filesystem path.
+//
+// That check is purely LEXICAL (filepath.Join/Rel string arithmetic), so it
+// cannot see that an ancestor directory of target might already be a real
+// symlink on disk, planted in destDir before extraction began, pointing
+// somewhere outside destDir entirely. No archive entry can introduce one
+// mid-extraction (every symlink-typed entry is rejected), but the confinement
+// guarantee must hold regardless of what destDir already contained — so any
+// symlinks actually present along the path are resolved and confinement is
+// re-verified against the resolved result. A check that cannot run fails
+// closed.
+func confineEntryTarget(fsys afero.Fs, destDir, relPath, name string) (string, error) {
+	target, ok := safeSkillRelJoin(destDir, relPath)
+	if !ok {
+		return "", fmt.Errorf("entry %q escapes the extraction root — rejected (zip-slip guard)", name)
+	}
+	escapes, err := symlinkEscapesRoot(fsys, destDir, target)
+	if err != nil {
+		return "", fmt.Errorf("entry %q: checking for a pre-existing symlink escape: %w", name, err)
+	}
+	if escapes {
+		return "", fmt.Errorf("entry %q escapes the extraction root via a pre-existing symlink — rejected (zip-slip guard)", name)
+	}
+	return target, nil
+}
+
+// writeEntryFile creates target's parent, streams the entry under the remaining
+// byte budget, and writes it with a normalized mode.
+//
+// Decompression-bomb defense: never trust the archive's declared size. The
+// stream passes through a hard limit sized to what is left of the budget, so an
+// entry with more actual bytes than that comes back over budget and the whole
+// extraction is rejected — the archive's own size fields never participate.
+func (st *extractState) writeEntryFile(fsys afero.Fs, target, name string, mode int64, r io.Reader, opts ExtractOptions) error {
 	if err := fsys.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("creating parent directory for entry %q: %w", name, err)
 	}
 
-	// Decompression-bomb defense: never trust the archive's declared size.
-	// Stream through a hard limit sized to the remaining budget; if the
-	// entry has more actual bytes than that, this read comes back over
-	// budget and the whole extraction is rejected below.
-	remaining := opts.MaxTotalBytes - *total + 1
+	remaining := opts.MaxTotalBytes - st.total + 1
 	if remaining < 0 {
 		remaining = 0
 	}
@@ -479,17 +534,15 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 	if err != nil {
 		return fmt.Errorf("reading entry %q: %w", name, err)
 	}
-	*total += int64(len(data))
-	if *total > opts.MaxTotalBytes {
+	st.total += int64(len(data))
+	if st.total > opts.MaxTotalBytes {
 		return fmt.Errorf("uncompressed size exceeds the %d byte cap — rejected (decompression-bomb guard)", opts.MaxTotalBytes)
 	}
 
 	if err := afero.WriteFile(fsys, target, data, normalizeExtractedMode(mode)); err != nil {
 		return fmt.Errorf("writing entry %q: %w", name, err)
 	}
-	if filesWritten != nil {
-		*filesWritten++
-	}
+	st.filesWritten++
 	return nil
 }
 

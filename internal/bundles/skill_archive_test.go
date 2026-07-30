@@ -475,8 +475,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // rejected, regardless of what the final accept/reject verdict ends up being.
 func TestProcessArchiveEntry_RemainingBudgetAccountsForPriorTotal(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	var topDir string
-	total := int64(30) // bytes already consumed by prior entries
+	st := extractState{total: 30} // bytes already consumed by prior entries
 	opts := ExtractOptions{MaxTotalBytes: 100, MaxEntries: 10}.normalized()
 
 	// Correct remaining budget: 100 - 30 + 1 = 71. This entry's "content" is
@@ -485,8 +484,7 @@ func TestProcessArchiveEntry_RemainingBudgetAccountsForPriorTotal(t *testing.T) 
 	bigContent := bytes.Repeat([]byte("Q"), 10_000)
 	spy := &countingReader{r: bytes.NewReader(bigContent)}
 
-	var filesWritten int
-	err := processArchiveEntry(fsys, "/out/skill", &topDir, "myskill/bomb.bin", kindFile, 0o644, spy, &total, &filesWritten, opts)
+	err := processArchiveEntry(fsys, "/out/skill", &st, "myskill/bomb.bin", kindFile, 0o644, spy, opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decompression-bomb")
 
@@ -1201,20 +1199,17 @@ func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
 // before this fix the call returned nil and the file appeared on disk.
 func TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	var topDir string
-	var total int64
-	var filesWritten int
+	var st extractState
 	opts := ExtractOptions{}.normalized()
 
-	err := processArchiveEntry(fsys, "/out/skill", &topDir, "myskill/payload.sh",
-		entryKind(0), 0o755, bytes.NewReader([]byte("#!/bin/sh\nrm -rf /\n")),
-		&total, &filesWritten, opts)
+	err := processArchiveEntry(fsys, "/out/skill", &st, "myskill/payload.sh",
+		entryKind(0), 0o755, bytes.NewReader([]byte("#!/bin/sh\nrm -rf /\n")), opts)
 
 	require.Error(t, err, "entryKind's zero value must be an unclassified entry, and an unclassified entry must be rejected")
 	exists, serr := afero.Exists(fsys, "/out/skill/payload.sh")
 	require.NoError(t, serr)
 	assert.False(t, exists, "an unclassified entry must never reach the filesystem")
-	assert.Zero(t, filesWritten)
+	assert.Zero(t, st.filesWritten)
 }
 
 // renameFailFs fails Rename for a chosen source and/or destination path, so a
@@ -1546,32 +1541,28 @@ func (f *lstatErrFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
 
 func TestProcessArchiveEntry_EmptyEntryNameIsRejected(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	var topDir string
-	var total int64
-	var filesWritten int
+	var st extractState
 
-	err := processArchiveEntry(fsys, "/out/skill", &topDir, "", kindFile, 0o644,
-		bytes.NewReader([]byte("x")), &total, &filesWritten, ExtractOptions{}.normalized())
+	err := processArchiveEntry(fsys, "/out/skill", &st, "", kindFile, 0o644,
+		bytes.NewReader([]byte("x")), ExtractOptions{}.normalized())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty name")
-	assert.Zero(t, filesWritten)
+	assert.Zero(t, st.filesWritten)
 }
 
 func TestProcessArchiveEntry_NameCleaningToDotIsRejected(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	var topDir string
-	var total int64
-	var filesWritten int
+	var st extractState
 
 	// "./" cleans to "." — a name that addresses the extraction root itself
 	// rather than anything inside it.
-	err := processArchiveEntry(fsys, "/out/skill", &topDir, "./", kindDir, 0o755,
-		bytes.NewReader(nil), &total, &filesWritten, ExtractOptions{}.normalized())
+	err := processArchiveEntry(fsys, "/out/skill", &st, "./", kindDir, 0o755,
+		bytes.NewReader(nil), ExtractOptions{}.normalized())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "resolves to an empty path")
-	assert.Empty(t, topDir, "a rejected name must not become the archive's top-level directory")
+	assert.Empty(t, st.topDir, "a rejected name must not become the archive's top-level directory")
 }
 
 func TestHardenedExtract_SymlinkCheckFailureIsReportedNotIgnored(t *testing.T) {

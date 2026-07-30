@@ -49,7 +49,12 @@ var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run as MCP server over stdio",
 	Long:  `Run ctxloom as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'ctxloom mcp' without subcommands.`,
-	RunE:  runMCPServerSDK,
+	// NoArgs for the same reason as its bare `ctxloom mcp` twin above: this
+	// RunE is the stdio server, so a stale invocation like `ctxloom mcp serve
+	// list` would otherwise sit waiting on stdin instead of reporting the
+	// mistake.
+	Args: cobra.NoArgs,
+	RunE: runMCPServerSDK,
 }
 
 // mcpListDeprecation is the one-line pointer cobra prints whenever the

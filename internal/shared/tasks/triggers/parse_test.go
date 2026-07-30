@@ -230,12 +230,33 @@ func TestStripCodeFence(t *testing.T) {
 		{"unterminated fence keeps its content", "```json\n[1]", "[1]"},
 		{"opener only", "```", ""},
 		{"trailing prose after the closer is dropped", "```json\n[1]\n```\nhope that helps", "[1]"},
+		// The opener line is dropped because it carries an INFO STRING, not
+		// content. A model that writes the array on that same line is common
+		// enough that dropping the line unconditionally deletes the entire
+		// payload — the whole response — and leaves a fence with nothing in
+		// it. Content on the opener line wins over the info string.
+		{"array on the opener line survives", "```json [1]\n```", "json [1]"},
+		{"object array on the opener line survives", "```json [{\"harp_id\":\"a\"}]\n```", `json [{"harp_id":"a"}]`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, stripCodeFence(tc.in))
 		})
 	}
+}
+
+// The end-to-end shape U128-F02 describes: a well-formed verdict array written
+// on the fence-opener line must parse, not vanish. stripCodeFence's unit cases
+// above pin the stripping; this pins that the payload actually reaches a
+// caller, because a zero-payload parse error is what the model's whole answer
+// degrades to.
+func TestParseVerdicts_ArrayOnTheFenceOpenerLine(t *testing.T) {
+	raw := "```json [{\"harp_id\":\"a\",\"outcome\":\"fired\",\"evidence\":[\"abc123\"],\"reasoning\":\"shipped\"}]\n```"
+	got, err := ParseVerdicts(raw)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "a", got[0].HarpID)
+	assert.Equal(t, Fired, got[0].Outcome)
 }
 
 func TestExtractJSONArray(t *testing.T) {

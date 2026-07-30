@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // watchEvent is one line of the `taskloom watch` JSONL stream.
@@ -24,6 +27,26 @@ type watchEvent struct {
 // watchDebounce coalesces the burst of filesystem events a single append
 // produces (write + chmod, lock-file churn) into one logical change.
 const watchDebounce = 100 * time.Millisecond
+
+// checkWatchFormat rejects a --format this command cannot produce. The root's
+// persistent --format admits five values, but this stream has exactly one
+// shape: the JSONL wire contract a GUI subscribes to. text is the default
+// every existing subscriber invokes with and its bytes ARE that contract, so
+// text and json both map onto the stream and yaml/toml/markdown have no
+// rendering of it at all. Answering those with JSONL anyway is a confident
+// wrong answer; naming the mismatch is the only honest option.
+func checkWatchFormat(cmd *cobra.Command) error {
+	format, err := cliemit.Resolve(cmd)
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "", clifmt.FormatText, clifmt.FormatJSON:
+		return nil
+	default:
+		return fmt.Errorf("taskloom watch emits a JSONL event stream and has no %s rendering of it; use --format json (or omit --format)", format)
+	}
+}
 
 var watchCmd = &cobra.Command{
 	Use:   "watch",
@@ -39,6 +62,9 @@ without polling or watching the store files itself (the watch plumbing lives in
 the backend, not the client).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := checkWatchFormat(cmd); err != nil {
+			return err
+		}
 		tc, err := taskContextSingle()
 		if err != nil {
 			return err

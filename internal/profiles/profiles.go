@@ -433,13 +433,23 @@ func (l *Loader) List() ([]*Profile, error) {
 
 	for _, dir := range l.dirs {
 		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil || !exists {
+		if err != nil {
+			// A directory that cannot be interrogated is not an empty one.
+			// Degrading silently here reports "you have no profiles" for a
+			// machine whose profiles are all present but unreachable.
+			clidiag.Warn("ctxloom", "skipping profiles directory %s: %v", dir, err)
+			continue
+		}
+		if !exists {
 			continue
 		}
 
 		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				return nil // Skip directories we can't read
+				// Same reasoning one level down: skip the entry, but say which
+				// one and why, or the profiles under it vanish undiagnosably.
+				clidiag.Warn("ctxloom", "skipping unreadable profiles path %s: %v", path, err)
+				return nil
 			}
 			if info.IsDir() {
 				return nil
@@ -450,7 +460,14 @@ func (l *Loader) List() ([]*Profile, error) {
 			}
 
 			// Use relative path from dir as profile name (e.g., "github/go-developer")
-			relPath, _ := filepath.Rel(dir, path)
+			relPath, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				// Walk derives every path from dir, so this cannot fire today;
+				// the guard exists because the alternative is a profile named
+				// "" — which sorts first and addresses nothing.
+				clidiag.Warn("ctxloom", "skipping profile %s: cannot derive a name relative to %s: %v", path, dir, relErr)
+				return nil
+			}
 			profileName := strings.TrimSuffix(strings.TrimSuffix(relPath, ".yaml"), ".yml")
 			// Normalize path separators to forward slashes for consistency
 			profileName = filepath.ToSlash(profileName)

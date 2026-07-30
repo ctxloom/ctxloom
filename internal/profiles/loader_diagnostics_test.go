@@ -1,6 +1,9 @@
 package profiles
 
 import (
+	"bytes"
+	"errors"
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -8,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestLoad_RemoteSchemeRefsReportNoLockfileEntry pins the SEAM above the
@@ -73,4 +77,100 @@ func TestExists_ReportsPresenceNotLoadability(t *testing.T) {
 func TestExists_SeededProfile(t *testing.T) {
 	loader, p, _ := seedTestProfile(t)
 	assert.True(t, loader.Exists(p.Name))
+}
+
+// faultyFs injects per-path Stat and Open failures into an afero filesystem, so
+// a test can exercise the I/O error arms List takes on a directory it cannot
+// interrogate. MemMapFs alone can only ever report "not found".
+type faultyFs struct {
+	afero.Fs
+	statErr map[string]error
+	openErr map[string]error
+}
+
+func (f *faultyFs) Stat(name string) (os.FileInfo, error) {
+	if err, ok := f.statErr[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Stat(name)
+}
+
+func (f *faultyFs) Open(name string) (afero.File, error) {
+	if err, ok := f.openErr[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Open(name)
+}
+
+// TestList_WarnsWhenAProfileDirectoryCannotBeRead pins that a profile directory
+// List cannot interrogate is REPORTED, not silently dropped. An unreadable dir
+// used to `continue` with the error discarded, so `ctxloom profile list`
+// printed an empty, error-free list for a machine whose profiles were all
+// present but unreachable — the shape of failure this project keeps producing
+// (U091-F07).
+func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, base.MkdirAll("/profiles", 0o755))
+	fs := &faultyFs{Fs: base, statErr: map[string]error{"/profiles": errors.New("permission denied")}}
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	list, err := loader.List()
+	require.NoError(t, err, "List still degrades rather than failing the whole command")
+	assert.Empty(t, list)
+	assert.Contains(t, warnings.String(), "/profiles",
+		"the unreadable profiles directory must be named on stderr")
+}
+
+// TestList_WarnsWhenASubdirectoryCannotBeWalked is the same invariant one level
+// down: a subdirectory whose entries cannot be read is skipped, and saying so is
+// the difference between "you have no profiles" and "I could not look"
+// (U091-F07).
+func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, base.MkdirAll("/profiles/team", 0o755))
+	require.NoError(t, afero.WriteFile(base, "/profiles/solo.yaml", []byte("bundles:\n  - go\n"), 0o644))
+	require.NoError(t, afero.WriteFile(base, "/profiles/team/shared.yaml", []byte("bundles:\n  - go\n"), 0o644))
+	fs := &faultyFs{Fs: base, openErr: map[string]error{"/profiles/team": errors.New("permission denied")}}
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	list, err := loader.List()
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(list))
+	for _, p := range list {
+		names = append(names, p.Name)
+	}
+	assert.Equal(t, []string{"solo"}, names, "the readable profile is still listed")
+	assert.Contains(t, warnings.String(), "/profiles/team",
+		"the unwalkable subdirectory must be named on stderr")
+}
+
+// TestList_NamesAreDirRelativeAndNeverEmpty pins the invariant behind the
+// discarded filepath.Rel error in List: every listed profile carries the name
+// derived from its path relative to the directory it was found in, and a name is
+// never empty. An empty Name would sort first and address nothing (U091-F14).
+func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/profiles/team", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/profiles/solo.yaml", []byte("bundles:\n  - go\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, "/profiles/team/shared.yml", []byte("bundles:\n  - go\n"), 0o644))
+
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
+	list, err := loader.List()
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(list))
+	for _, p := range list {
+		require.NotEmpty(t, p.Name, "profile at %s got an empty name", p.Path)
+		names = append(names, p.Name)
+	}
+	assert.Equal(t, []string{"solo", "team/shared"}, names)
 }

@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -167,9 +168,12 @@ func resolveComposeBase(devcontainerPath string, dc devcontainerFile, service st
 	if service == "" {
 		return nil, fmt.Errorf("%s declares dockerComposeFile (a multi-service compose project does not map to one agent container); configure isolation_devcontainer_service to pick one, or opt out with isolation_devcontainer_base: false", devcontainerPath)
 	}
-	files := decodeComposeFileList(dc.DockerComposeFile)
+	files, ferr := decodeComposeFileList(dc.DockerComposeFile)
 	if len(files) == 0 {
-		return nil, fmt.Errorf("%s: could not parse dockerComposeFile", devcontainerPath)
+		if ferr == nil {
+			ferr = errors.New("it is neither a non-empty string nor an array of strings")
+		}
+		return nil, fmt.Errorf("%s: could not parse dockerComposeFile: %w", devcontainerPath, ferr)
 	}
 	contextDir := filepath.Dir(devcontainerPath)
 	var lastErr error
@@ -191,18 +195,23 @@ func resolveComposeBase(devcontainerPath string, dc devcontainerFile, service st
 }
 
 // decodeComposeFileList decodes devcontainer.json's dockerComposeFile, which
-// the spec allows as either a single string or an array of strings.
-func decodeComposeFileList(raw json.RawMessage) []string {
+// the spec allows as either a single string or an array of strings. A value
+// that is neither returns the ARRAY decode's error: the caller reports "could
+// not parse dockerComposeFile", and without a cause the human is told the file
+// is wrong but never what about it is wrong (U063-F18).
+func decodeComposeFileList(raw json.RawMessage) ([]string, error) {
 	var single string
 	if err := json.Unmarshal(raw, &single); err == nil {
 		if single == "" {
-			return nil
+			return nil, nil
 		}
-		return []string{single}
+		return []string{single}, nil
 	}
 	var list []string
-	_ = json.Unmarshal(raw, &list)
-	return list
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 // composeServiceStage reads one docker-compose file and resolves the named
@@ -240,28 +249,37 @@ func composeServiceStage(composePath, service string) (*baseStage, error) {
 		base := filepath.Join(contextDir, filepath.FromSlash(b))
 		return devcontainerBuildStage(desc+fmt.Sprintf(", build %s", b), filepath.Join(base, "Dockerfile"), base, nil), nil
 	case map[string]any:
-		dockerfile := "Dockerfile"
-		if v, ok := b["dockerfile"].(string); ok && v != "" {
-			dockerfile = v
-		}
-		rel := "."
-		if v, ok := b["context"].(string); ok && v != "" {
-			rel = v
-		}
-		var args map[string]string
-		if raw, ok := b["args"].(map[string]any); ok {
-			args = map[string]string{}
-			for k, v := range raw {
-				if s, ok := v.(string); ok {
-					args[k] = s
-				}
-			}
-		}
-		base := filepath.Join(contextDir, filepath.FromSlash(rel))
-		return devcontainerBuildStage(desc, filepath.Join(base, filepath.FromSlash(dockerfile)), base, args), nil
+		return composeBuildObjectStage(desc, contextDir, b), nil
 	default:
 		return nil, fmt.Errorf("service %q has neither image nor build", service)
 	}
+}
+
+// composeBuildObjectStage maps a compose service's OBJECT build form
+// ({dockerfile, context, args}) to a base stage, defaulting dockerfile to
+// "Dockerfile" and context to the compose file's own directory, and keeping
+// only the string-valued build args (compose allows numbers and nulls there,
+// which no --build-arg can carry).
+func composeBuildObjectStage(desc, contextDir string, b map[string]any) *baseStage {
+	dockerfile := "Dockerfile"
+	if v, ok := b["dockerfile"].(string); ok && v != "" {
+		dockerfile = v
+	}
+	rel := "."
+	if v, ok := b["context"].(string); ok && v != "" {
+		rel = v
+	}
+	var args map[string]string
+	if raw, ok := b["args"].(map[string]any); ok {
+		args = map[string]string{}
+		for k, v := range raw {
+			if s, ok := v.(string); ok {
+				args[k] = s
+			}
+		}
+	}
+	base := filepath.Join(contextDir, filepath.FromSlash(rel))
+	return devcontainerBuildStage(desc, filepath.Join(base, filepath.FromSlash(dockerfile)), base, args)
 }
 
 // stripJSONC removes devcontainer.json's JSONC extensions (// and /* */
@@ -272,43 +290,69 @@ func stripJSONC(src []byte) []byte {
 	return stripTrailingCommas(stripComments(src))
 }
 
+// copyStringLiteral copies the JSON string literal opening at src[i] (which
+// must be the opening quote) into out and returns the index of its closing
+// quote — or len(src) for an unterminated literal, which is copied verbatim
+// so a malformed document reaches the JSON parser to be reported there.
+// Backslash escaping is honored, so an escaped quote does not end the literal
+// and an escaped backslash does not escape the quote after it.
+//
+// The single string-aware step both JSONC strippers share: everything either
+// of them does is "outside a string", so this is the whole of the state they
+// used to each carry (U063-F20).
+func copyStringLiteral(src []byte, i int, out []byte) (int, []byte) {
+	out = append(out, src[i])
+	escaped := false
+	for i++; i < len(src); i++ {
+		c := src[i]
+		out = append(out, c)
+		switch {
+		case escaped:
+			escaped = false
+		case c == '\\':
+			escaped = true
+		case c == '"':
+			return i, out
+		}
+	}
+	return i, out
+}
+
+// skipLineComment returns the index of the newline ending the // comment
+// starting at src[i], or len(src) when it runs to EOF.
+func skipLineComment(src []byte, i int) int {
+	for i < len(src) && src[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+// skipBlockComment returns the index of the '/' closing the /* */ comment
+// opening at src[i], or the end of an unterminated one.
+func skipBlockComment(src []byte, i int) int {
+	i += 2
+	for i+1 < len(src) && (src[i] != '*' || src[i+1] != '/') {
+		i++
+	}
+	return i + 1
+}
+
 // stripComments removes // line comments and /* */ block comments, leaving
 // their content replaced by nothing (a line comment collapses to a newline so
 // line numbers stay roughly stable for error messages) — never touching
 // bytes inside a JSON string.
 func stripComments(src []byte) []byte {
 	var out []byte
-	inString := false
-	escaped := false
 	for i := 0; i < len(src); i++ {
 		c := src[i]
-		if inString {
-			out = append(out, c)
-			switch {
-			case escaped:
-				escaped = false
-			case c == '\\':
-				escaped = true
-			case c == '"':
-				inString = false
-			}
-			continue
-		}
 		switch {
 		case c == '"':
-			inString = true
-			out = append(out, c)
+			i, out = copyStringLiteral(src, i, out)
 		case c == '/' && i+1 < len(src) && src[i+1] == '/':
-			for i < len(src) && src[i] != '\n' {
-				i++
-			}
+			i = skipLineComment(src, i)
 			out = append(out, '\n')
 		case c == '/' && i+1 < len(src) && src[i+1] == '*':
-			i += 2
-			for i+1 < len(src) && (src[i] != '*' || src[i+1] != '/') {
-				i++
-			}
-			i++ // land on the closing '/'; the loop's i++ steps past it
+			i = skipBlockComment(src, i) // the loop's i++ steps past the closing '/'
 		default:
 			out = append(out, c)
 		}
@@ -321,37 +365,26 @@ func stripComments(src []byte) []byte {
 // files commonly use. String-aware for the same reason as stripComments.
 func stripTrailingCommas(src []byte) []byte {
 	var out []byte
-	inString := false
-	escaped := false
 	for i := 0; i < len(src); i++ {
 		c := src[i]
-		if inString {
-			out = append(out, c)
-			switch {
-			case escaped:
-				escaped = false
-			case c == '\\':
-				escaped = true
-			case c == '"':
-				inString = false
-			}
-			continue
-		}
 		if c == '"' {
-			inString = true
-			out = append(out, c)
+			i, out = copyStringLiteral(src, i, out)
 			continue
 		}
-		if c == ',' {
-			j := i + 1
-			for j < len(src) && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
-				j++
-			}
-			if j < len(src) && (src[j] == '}' || src[j] == ']') {
-				continue // drop the trailing comma
-			}
+		if c == ',' && closesAfterSpace(src, i+1) {
+			continue // drop the trailing comma
 		}
 		out = append(out, c)
 	}
 	return out
+}
+
+// closesAfterSpace reports whether the next non-whitespace byte at or after i
+// closes an object or array — i.e. whether a comma just before it is a
+// trailing one.
+func closesAfterSpace(src []byte, i int) bool {
+	for i < len(src) && (src[i] == ' ' || src[i] == '\t' || src[i] == '\n' || src[i] == '\r') {
+		i++
+	}
+	return i < len(src) && (src[i] == '}' || src[i] == ']')
 }

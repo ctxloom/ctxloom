@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **918** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **931** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 33 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 67 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 121 |
-| `open` | no commit names this ID | **1,129** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 122 |
+| `open` | no commit names this ID | **1,115** |
 
-**Totals: 2268 findings across 162 units — 918 resolved, 1129 still open, 221 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 931 resolved, 1115 still open, 222 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 244 | 642 | 14 | 23 | 76 |
-| LOW | 871 | 324 | 461 | 9 | 36 | 41 |
+| MED | 999 | 250 | 635 | 14 | 23 | 77 |
+| LOW | 871 | 331 | 454 | 9 | 36 | 41 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1078,15 +1078,15 @@ Full evidence and the suggested action for any row live in its source review at 
 | U030-F20 | open | **`bundles.go:530-721`** | COHESION | A 14-method accessor tier (`SkillCount`, `SkillNames`, `HasMCP`, `MCPCount`, `MCPNames`, `FragmentCount`, `CommandCount`, `FragmentNames`, `PromptNames`, `HasProfiles`, `ProfileCount`, `ProfileName... | U030.md |
 | U031-F03 | **RESOLVED** `17b5f8ee` | `skill_archive.go:750, 642` | NOPAY | `InstallSkillPackage` — the "fixed, ATOMIC install seam", the largest function in the file, with the longest doc comment — is **test-only**, and the production import path reimplements a *different... | U031.md |
 | U031-F04 | **RESOLVED** `17b5f8ee` | `skill_archive.go:646-657` | NOPAY | `NoopSkillSignatureVerifier` — an exported, accept-everything signature verifier — is the *silent default* when `InstallSkillPackage` is called with `verifier == nil` (:751-753). B2 has landed (`Pu... | U031.md |
-| U031-F05 | open | `skill_archive.go:91-130` | SILENTNOOP | `ExportSkillZip` with an empty `pkg.Manifest` writes a valid, empty 22-byte zip and returns `nil` — the loop at :99 simply never runs. The only guard is `pkg == nil` (:92). `operations.ExportSkill`... | U031.md |
-| U031-F06 | open | `skill.go:112-120` | CORRECTNESS | `SkillManifest.Serialize()` swallows a marshal error and returns the **constant** `[]byte("ctxloom:skill-manifest-serialize-error")`. This value is a *signature preimage*: two different manifests t... | U031.md |
+| U031-F05 | **RESOLVED** `ee2a88a0` | `skill_archive.go:91-130` | SILENTNOOP | `ExportSkillZip` with an empty `pkg.Manifest` writes a valid, empty 22-byte zip and returns `nil` — the loop at :99 simply never runs. The only guard is `pkg == nil` (:92). `operations.ExportSkill`... | U031.md |
+| U031-F06 | **RESOLVED** `697c2cec` | `skill.go:112-120` | CORRECTNESS | `SkillManifest.Serialize()` swallows a marshal error and returns the **constant** `[]byte("ctxloom:skill-manifest-serialize-error")`. This value is a *signature preimage*: two different manifests t... | U031.md |
 | U031-F07 | **RESOLVED** `17b5f8ee` | **`store.go:19-22, 160`** | DEAD | The `Source` interface is used **nowhere**: `rg -n 'bundles\.Source'` → 0 hits repo-wide. Its only effect is to contribute `LoadFile` to `Store`, which is never called through either interface (`rg... | U031.md |
 | U031-F08 | **RESOLVED** `fd563b80` | **`store.go:127-177`** | NOPAY | `MemStore` (50 lines, 6 methods) has exactly **one** call site in the repo — `store_test.go:44`. Its stated purpose ("demonstrate that operations are storage-agnostic") is a claim, not a capability... | U031.md |
-| U031-F10 | open | `skill_archive.go:347-447` | COMPLEXITY | `processArchiveEntry` is CCN **23** against a CI gate of 10, takes **9 parameters**, two of which (`topDir *string`, `total *int64`) are mutable accumulators threaded through both extractor loops —... | U031.md |
-| U031-F11 | open | `skill_archive.go:588-595, 774-778` | CORRECTNESS | Both `ImportSkillArchive` and `InstallSkillPackage` do `RemoveAll(dest)` **then** `Rename(staging, dest)`. If the rename fails (cross-device, EACCES, a concurrent hold), the previously-good tree at... | U031.md |
-| U031-F12 | open | **`store.go:101-104`** | ERRHANDLING | `invalidateStaleSignature` swallows **every** `ReadFile` error as "no signature": `if err != nil { return nil }`. A `.sig` that exists but cannot be read (permissions, I/O error, a directory at tha... | U031.md |
-| U031-F13 | open | **`store.go:118-125`** | CORRECTNESS | `fsStore.Delete` removes only the file `Find` resolved. For a **directory-form** bundle that is `<dir>/bundle.yaml` — the `fragments/`, `commands/`, and `skills/` subtrees are orphaned on disk whil... | U031.md |
-| U031-F14 | open | `warn.go:54 + loader.go:148-156` | COUPLING | Two independent warning sinks. `WithWarnWriter`'s doc says it redirects "**this loader/store's** user-facing diagnostics (the clidiag 'ctxloom: warning:' lines)" — but `bundleWarner`'s two warnings... | U031.md |
+| U031-F10 | **RESOLVED** `5a61f2dd` | `skill_archive.go:347-447` | COMPLEXITY | `processArchiveEntry` is CCN **23** against a CI gate of 10, takes **9 parameters**, two of which (`topDir *string`, `total *int64`) are mutable accumulators threaded through both extractor loops —... | U031.md |
+| U031-F11 | **RESOLVED** `33eaef9b` | `skill_archive.go:588-595, 774-778` | CORRECTNESS | Both `ImportSkillArchive` and `InstallSkillPackage` do `RemoveAll(dest)` **then** `Rename(staging, dest)`. If the rename fails (cross-device, EACCES, a concurrent hold), the previously-good tree at... | U031.md |
+| U031-F12 | **RESOLVED** `b0aef2a3` | **`store.go:101-104`** | ERRHANDLING | `invalidateStaleSignature` swallows **every** `ReadFile` error as "no signature": `if err != nil { return nil }`. A `.sig` that exists but cannot be read (permissions, I/O error, a directory at tha... | U031.md |
+| U031-F13 | **ESCALATED** `18d846be` | **`store.go:118-125`** | CORRECTNESS | `fsStore.Delete` removes only the file `Find` resolved. For a **directory-form** bundle that is `<dir>/bundle.yaml` — the `fragments/`, `commands/`, and `skills/` subtrees are orphaned on disk whil... | U031.md |
+| U031-F14 | **RESOLVED** `767bd251` | `warn.go:54 + loader.go:148-156` | COUPLING | Two independent warning sinks. `WithWarnWriter`'s doc says it redirects "**this loader/store's** user-facing diagnostics (the clidiag 'ctxloom: warning:' lines)" — but `bundleWarner`'s two warnings... | U031.md |
 | U032-F06 | **RESOLVED** `80db62d0` | `agentfiles.go:1-162` | DEAD | The **entire file** — `ClaudeAgents`, `RegisterRoster`, `AgentExport`, `WriteAgentFiles`, `TransformToClaudeAgent`, `claudeAgentName`, `nonSlugRe` — has no production caller. 162 lines plus a 219-l... | U032.md |
 | U032-F07 | **RESOLVED** `758c200e` | **`capabilities.go:13; claudecode.go:65`** | DEAD | `ClaudeCommands.RegisterFromContent` is never dispatched. The `agent.ContentCommands` wiring is write-only across all six backends. | U032.md |
 | U032-F08 | open | `surfacedelivery.go:23-55; surfaces.go:116-217` | COUPLING | `fileTemplateDelivery` has three mutually-exclusive optional fields the constructor cannot set, so all six call sites are a construct-then-assign-then-deliver ritual. Omitting an assignment is comp... | U032.md |
@@ -2079,14 +2079,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U030-F16 | open | `loader_skills.go:90-92` | ERRHANDLING | The `entry.ContentPayload()` failure path is the only withhold in `skillContent` with **no** `clidiag.Warn` — every other one (dir resolve, manifest mismatch, parse, file read) warns. | U030.md |
 | U030-F17 | open | `loader_content.go:578` | CORRECTNESS | Stale doc: the inline comment says the targeted-ref grammar is `bundle{:\ | U030.md |
 | U030-F18 | open | **`bundles.go:552-583, 609-641, 496-514`** | CORRECTNESS | The three exec preimages are documented as a versioned, cross-implementation canonicalization (`ctxloom-exec/1`, spec §3.3.2), but they inherit `encoding/json`'s Go-specific HTML escaping: `<`, `>`... | U030.md |
-| U031-F09 | open | `skill_archive.go:134-140` | CORRECTNESS | `parseSkillFileMode` uses `fmt.Sscanf(mode, "%o", &perm)`, which returns `n=1, err=nil` for trailing garbage (`"0755zzz"` parses as 0755). `SkillManifestEntry.Mode` is bundle-tree data, so a hand-e... | U031.md |
-| U031-F15 | open | `skill_archive.go:230-235` | LOW | `HardenedExtract` runs `MkdirAll(destDir)` **before** validating `format`, so an unsupported-format rejection leaves an empty directory behind at `destDir`. `ImportSkillArchive` never reaches this ... | U031.md |
-| U031-F16 | open | `skill_archive.go:419, 422` | ERRHANDLING | Two `MkdirAll` errors inside `processArchiveEntry` are returned bare — `return fsys.MkdirAll(target, 0o755)` (:419) and `return err` (:422) — with no `entry %q` context, while every other error in ... | U031.md |
+| U031-F09 | **RESOLVED** `ae402c3b` | `skill_archive.go:134-140` | CORRECTNESS | `parseSkillFileMode` uses `fmt.Sscanf(mode, "%o", &perm)`, which returns `n=1, err=nil` for trailing garbage (`"0755zzz"` parses as 0755). `SkillManifestEntry.Mode` is bundle-tree data, so a hand-e... | U031.md |
+| U031-F15 | **RESOLVED** `142103a0` | `skill_archive.go:230-235` | LOW | `HardenedExtract` runs `MkdirAll(destDir)` **before** validating `format`, so an unsupported-format rejection leaves an empty directory behind at `destDir`. `ImportSkillArchive` never reaches this ... | U031.md |
+| U031-F16 | **RESOLVED** `efeb2ffd` | `skill_archive.go:419, 422` | ERRHANDLING | Two `MkdirAll` errors inside `processArchiveEntry` are returned bare — `return fsys.MkdirAll(target, 0o755)` (:419) and `return err` (:422) — with no `entry %q` context, while every other error in ... | U031.md |
 | U031-F17 | **ESCALATED** `350fca25` | `skill_archive.go:430-433` | TRIVIAL | The `if remaining < 0 { remaining = 0 }` guard is unreachable. `processArchiveEntry` returns an error whenever `*total > opts.MaxTotalBytes` (:439), and every caller aborts on that error, so `*tota... | U031.md |
-| U031-F18 | open | `skill.go:255-284` | ERRHANDLING | `buildSkillManifest` returns `relErr` and `readErr` unwrapped, so a mid-walk failure surfaces as a bare `open /x/y/z: permission denied` with no skill name — unlike the size-cap error two lines abo... | U031.md |
-| U031-F19 | open | `warn.go:32, 45` | COUPLING | One `seen` map serves two key namespaces asymmetrically: `unresolved` keys on the bare ref, `ambiguous` keys on `"ambiguous:"+name`. A bundle ref literally named `ambiguous:foo` collides. Cosmetic ... | U031.md |
-| U031-F20 | open | `skill_archive.go:174-183` | CORRECTNESS | `kindFile` is `entryKind`'s zero value — i.e. the *unsafe* default is "write this to disk". Both producers (`zipEntryKind`, `tarEntryKind`) return explicitly so there is no live bug, but a hardened... | U031.md |
-| U031-F21 | open | `skill_archive.go:326, 469, 514` | COMPLEXITY | Three functions carrying the confinement guarantee have **no direct unit test**: `tarEntryKind`, `symlinkEscapesRoot`, `resolveSymlinkChain` (`rg` finds each only in `skill_archive.go`). `symlinkEs... | U031.md |
+| U031-F18 | **RESOLVED** `4d94c73f` | `skill.go:255-284` | ERRHANDLING | `buildSkillManifest` returns `relErr` and `readErr` unwrapped, so a mid-walk failure surfaces as a bare `open /x/y/z: permission denied` with no skill name — unlike the size-cap error two lines abo... | U031.md |
+| U031-F19 | **RESOLVED** `a42ab322` | `warn.go:32, 45` | COUPLING | One `seen` map serves two key namespaces asymmetrically: `unresolved` keys on the bare ref, `ambiguous` keys on `"ambiguous:"+name`. A bundle ref literally named `ambiguous:foo` collides. Cosmetic ... | U031.md |
+| U031-F20 | **RESOLVED** `f31036d4` | `skill_archive.go:174-183` | CORRECTNESS | `kindFile` is `entryKind`'s zero value — i.e. the *unsafe* default is "write this to disk". Both producers (`zipEntryKind`, `tarEntryKind`) return explicitly so there is no live bug, but a hardened... | U031.md |
+| U031-F21 | **RESOLVED** `e193ea09` | `skill_archive.go:326, 469, 514` | COMPLEXITY | Three functions carrying the confinement guarantee have **no direct unit test**: `tarEntryKind`, `symlinkEscapesRoot`, `resolveSymlinkChain` (`rg` finds each only in `skill_archive.go`). `symlinkEs... | U031.md |
 | U032-F12 | **RESOLVED** `24e4e92e` | **`claudecode.go:194-209`** | TRIVIAL | `pickByMaxOutput` is generic over `T` with exactly one instantiation, takes an accessor closure that is always `func(u claudeModelUsage) int { return u.OutputTokens }`, and its second return value ... | U032.md |
 | U032-F13 | **RESOLVED** `ae27b2f1` | **`claudecode.go:173`** | DEAD | `claudeModelUsage.InputTokens` is decoded and never read. | U032.md |
 | U032-F14 | **RESOLVED** `ae27b2f1` | **`claudecode.go:19`** | DEAD | `ClaudeConfig.Model` is decoded and never read; the effective model is read untyped from the same YAML elsewhere. | U032.md |

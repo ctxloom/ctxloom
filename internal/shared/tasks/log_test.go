@@ -924,3 +924,66 @@ func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
 		t.Fatalf("DeferredSince must fall back to an unlocked read, got %v", err)
 	}
 }
+
+// TestApply_EventsForAnUnknownHarpAreSilentlyDropped measures U120-F03: the
+// fold's own doc says "a reader must never silently drop a record", and
+// apply()'s status/text/tag/untag arms do exactly that whenever byID has no
+// entry for the event's harp. All three ways that happens are recorded here,
+// because they are NOT the same defect and a single "fail the fold" remedy
+// would be wrong for two of them:
+//
+//   - after a remove: the drop is correct and must stay (tombstoned task).
+//   - clock skew across machines: the log is git-merged and replayed in ts
+//     order, so a status stamped BEFORE its own add is replayed before the
+//     task exists and is lost. This is the real payload loss.
+//   - a harp that was never issued at all: a genuinely dangling record.
+//
+// Escalated rather than fixed: what an event addressed to an unknown harp
+// MEANS is a persisted-format decision, and the obvious remedy (fatal fold)
+// would turn a merge artifact into a permanently unreadable store — the
+// failure U120-F01 was filed to remove.
+func TestApply_EventsForAnUnknownHarpAreSilentlyDropped(t *testing.T) {
+	statusOf := func(t *testing.T, raw string) map[string]string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+		if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, _ := OpenLog(path, "")
+		got, err := s.List(nil, "")
+		if err != nil {
+			t.Fatalf("fold: %v", err)
+		}
+		out := map[string]string{}
+		for _, task := range got {
+			out[task.HarpID] = task.Status
+		}
+		return out
+	}
+
+	// A status event replayed BEFORE its own add (writer clock skew, the case
+	// the chronological fold cannot order correctly) is lost without a word.
+	skew := statusOf(t, `{"op":"status","task":"alpha","status":"In Progress","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"alpha","text":"skewed","status":"To Do","ts":"2026-01-01T00:00:05Z"}
+`)
+	if skew["alpha"] != StatusToDo {
+		t.Fatalf("status = %q; this test records the CURRENT silent-drop behaviour", skew["alpha"])
+	}
+
+	// An event for a harp that was never issued at all: dropped, no error.
+	dangling := statusOf(t, `{"op":"add","task":"alpha","text":"real","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"tag","task":"ghost","tags":["urgent"],"ts":"2026-01-01T00:00:01Z"}
+`)
+	if len(dangling) != 1 || dangling["alpha"] != StatusToDo {
+		t.Fatalf("fold = %v, want just the real task", dangling)
+	}
+
+	// After a remove, the drop is CORRECT and must survive any future fix.
+	removed := statusOf(t, `{"op":"add","task":"alpha","text":"real","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"remove","task":"alpha","ts":"2026-01-01T00:00:01Z"}
+{"op":"status","task":"alpha","status":"Done","ts":"2026-01-01T00:00:02Z"}
+`)
+	if len(removed) != 0 {
+		t.Fatalf("fold = %v, want an empty view: a status for a tombstoned task is correctly ignored", removed)
+	}
+}

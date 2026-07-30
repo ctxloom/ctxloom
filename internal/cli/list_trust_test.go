@@ -194,7 +194,7 @@ func TestMcpListRows_StampBelongsToItsOwnServer(t *testing.T) {
 	bannedSurface := bundles.BundleMCP{Command: banned.Command, Args: banned.Args}
 	payload, perr := bannedSurface.ContentPayload()
 	require.NoError(t, perr)
-	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.KindMCP, signing.FormRaw, payload))
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.AttestExecMCP, payload))
 
 	servers := []operations.MCPServerEntry{clean, banned}
 	rows := mcpListRows(cfg, servers, true)

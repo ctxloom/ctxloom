@@ -1,6 +1,7 @@
 package strictness
 
 import (
+	"bytes"
 	"fmt"
 	"runtime"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // resetForTest restores pristine strict-mode state and registers cleanup so
@@ -178,6 +181,32 @@ func TestSince_StaleMarkIsNil(t *testing.T) {
 	mark := Checkpoint()
 	Reset()
 	assert.Nil(t, Since(mark))
+}
+
+// FailOnce carries TWO dedups with different scopes, and conflating them is
+// how a reader reasons wrongly about this package: the WARNING line is deduped
+// process-wide and permanently (clidiag.WarnOnce), while the FINDING is deduped
+// only within one checkpoint window. Both halves of that sentence are asserted
+// here in one place, because the doc used to claim the finding was
+// per-process too — which would mean a refused-and-retried session opening
+// silently on broken context.
+func TestFailOnce_PrintDedupIsProcessWideRecordDedupIsPerWindow(t *testing.T) {
+	resetForTest(t)
+
+	var out bytes.Buffer
+	restore := clidiag.SetSink(&out)
+	t.Cleanup(restore)
+
+	const msg = "u119f07 probe: profile parent not installed"
+	mark1 := Checkpoint()
+	FailOnce(ClassRef, "ctxloom remote pull", "%s", msg)
+	_ = Checkpoint() // a new window: the retried session
+	FailOnce(ClassRef, "ctxloom remote pull", "%s", msg)
+
+	assert.Equal(t, 1, strings.Count(out.String(), msg),
+		"the warning LINE is deduped process-wide — it prints at most once whatever the window")
+	assert.Len(t, Since(mark1), 2,
+		"the FINDING is deduped only within a window, so the re-fire in the next window records again")
 }
 
 // mu co-guards the MODE and the COLLECTION on purpose: record's degraded check

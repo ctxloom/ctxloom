@@ -399,10 +399,15 @@ func Fail(class Class, fixit, format string, args ...any) {
 	record(class, fixit, msg, false)
 }
 
-// FailOnce is Fail with per-process dedup on the formatted message: the
-// warning prints at most once (clidiag.WarnOnce) and the finding records at
-// most once. For chokes that re-fire per subsystem (e.g. an unresolvable
-// profile parent hit by every loader build).
+// FailOnce is Fail with dedup on BOTH halves — but the two dedups have
+// different scopes and are not interchangeable. The warning LINE is deduped
+// process-wide and permanently (clidiag.WarnOnce), keyed on the rendered line.
+// The FINDING is deduped only within the recording goroutine's current
+// checkpoint window, and on class as well as message (see generation's doc):
+// a fault re-fired in a LATER window must record again, or a session refused
+// over it and retried unfixed opens silently on broken context. For chokes
+// that re-fire per subsystem (e.g. an unresolvable profile parent hit by
+// every loader build).
 func FailOnce(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.WarnOnce(prog, "%s", msg)

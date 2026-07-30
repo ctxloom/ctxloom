@@ -179,10 +179,7 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 		return failClosed(adapter, ungatedToolDenyReason(adapter, req))
 	}
 
-	a := app.New(cfg)
-	a.ForceShell = forceShell
-	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
-	resp := a.Decide(context.Background(), req)
+	resp := newDecider(cfg, forceShell).Decide(context.Background(), req)
 
 	// A denial may be lifted by "confirm by repeating" only when the rule that
 	// fired allows it (inviolate rules report Confirmable=false and never reach
@@ -218,6 +215,20 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 			progName, strings.Join(configSearch, ", ")))
 	}
 	return out, nil
+}
+
+// newDecider builds the rules app both `evaluate` and `check` decide with.
+// The two surfaces differ deliberately in ERROR POLICY — the hook fails
+// closed, the query surface fails loud — but they must never differ in how a
+// decision is REACHED, or the answer to "would this be blocked?" stops
+// predicting what the hook does. Keeping the force-shell override and the
+// host-shell inference in one place is what makes that structural rather than
+// a convention two call sites have to remember.
+func newDecider(cfg *rules.Config, forceShell ir.Shell) *app.App {
+	a := app.New(cfg)
+	a.ForceShell = forceShell
+	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
+	return a
 }
 
 // expandSubmodules resolves the `@submodules` path sentinel against this

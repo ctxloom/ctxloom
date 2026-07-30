@@ -44,8 +44,8 @@ rules:
 	}
 
 	t.Run("denied command returns deny with discrete message and suggestion", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git push --force", cfgPath, "", "json"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git push --force", cfgPath, "", "json"); err != nil {
 			t.Fatal(err)
 		}
 		var got checkResult
@@ -59,8 +59,8 @@ rules:
 	})
 
 	t.Run("allowed command returns a bare allow", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git status", cfgPath, "", "json"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git status", cfgPath, "", "json"); err != nil {
 			t.Fatal(err)
 		}
 		var got checkResult
@@ -73,8 +73,8 @@ rules:
 	})
 
 	t.Run("wrapped denied command is still denied", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "bash -ec 'git push --force'", cfgPath, "", "json"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "bash -ec 'git push --force'", cfgPath, "", "json"); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(buf.String(), `"deny"`) {
@@ -83,8 +83,8 @@ rules:
 	})
 
 	t.Run("text format prints a human verdict", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git push --force", cfgPath, "", "text"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git push --force", cfgPath, "", "text"); err != nil {
 			t.Fatal(err)
 		}
 		out := buf.String()
@@ -97,8 +97,8 @@ rules:
 	// Routing structured output through clifmt widens check from text/json to
 	// the full five formats: yaml now renders {decision, message, suggestion}.
 	t.Run("yaml renders the structured verdict", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git push --force", cfgPath, "", "yaml"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git push --force", cfgPath, "", "yaml"); err != nil {
 			t.Fatal(err)
 		}
 		out := buf.String()
@@ -108,8 +108,8 @@ rules:
 	})
 
 	t.Run("toml renders the structured verdict", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git push --force", cfgPath, "", "toml"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git push --force", cfgPath, "", "toml"); err != nil {
 			t.Fatal(err)
 		}
 		out := buf.String()
@@ -119,8 +119,8 @@ rules:
 	})
 
 	t.Run("markdown renders the structured verdict", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git push --force", cfgPath, "", "markdown"); err != nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git push --force", cfgPath, "", "markdown"); err != nil {
 			t.Fatal(err)
 		}
 		out := buf.String()
@@ -130,15 +130,15 @@ rules:
 	})
 
 	t.Run("unknown format errors", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git status", cfgPath, "", "xml"); err == nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git status", cfgPath, "", "xml"); err == nil {
 			t.Error("an unsupported --format should error")
 		}
 	})
 
 	t.Run("unknown shell errors (loud, unlike the hook)", func(t *testing.T) {
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git status", cfgPath, "fish", "json"); err == nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git status", cfgPath, "fish", "json"); err == nil {
 			t.Error("check is an explicit command; an unknown --shell must error, not fail closed")
 		}
 	})
@@ -159,8 +159,8 @@ rules:
 		}
 		t.Chdir(dir)
 
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git status", subCfg, "", "json"); err == nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git status", subCfg, "", "json"); err == nil {
 			t.Errorf("an unresolvable @submodules sentinel must error, got %q", buf.String())
 		}
 	})
@@ -170,8 +170,8 @@ rules:
 		if err := os.WriteFile(broken, []byte("version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		var buf bytes.Buffer
-		if err := runCheck(&buf, "git status", broken, "", "json"); err == nil {
+		var buf, diag bytes.Buffer
+		if err := runCheck(&buf, &diag, "git status", broken, "", "json"); err == nil {
 			t.Error("a broken config must error on the explicit check path")
 		}
 	})

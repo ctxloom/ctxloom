@@ -146,8 +146,8 @@ func TestLoadout_TaskRunnerCommand_SampleRulesPassLtkCheck(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(exampleTaskRunnerRule), 0o644))
 
-	var buf bytes.Buffer
-	require.NoError(t, runCheck(&buf, "go test ./...", cfgPath, "", "json"))
+	var buf, diag bytes.Buffer
+	require.NoError(t, runCheck(&buf, &diag, "go test ./...", cfgPath, "", "json"))
 
 	var result checkResult
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &result))

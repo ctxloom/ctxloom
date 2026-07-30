@@ -148,7 +148,7 @@ func (b *Antigravity) Chat(ctx context.Context, req agent.ChatRequest, in <-chan
 			}
 
 			// Resolve (or refresh) the conversation id via agy's own
-			// workspace->conversation map (capabilities.go's agyConversationMap)
+			// workspace->conversation map (conversationmap.go's agyConversationMap)
 			// — agy -p never prints it. Emitted as a
 			// follow-up Session event only when it changed, so a coordinator can
 			// journal SessionID for a later ResumeSessionID resume. R3
@@ -294,7 +294,7 @@ func advisoryMCPStatus(servers []agent.ChatMCPServer) []agent.MCPStatus {
 }
 
 // resolveChatConversationID looks up workDir's current agy conversation id via
-// agy's own workspace->conversation map (capabilities.go's agyConversationMap
+// agy's own workspace->conversation map (conversationmap.go's agyConversationMap
 // — a live continuation lookup, NOT the deleted transcript scraper; see
 // backend.go's convMap doc). ok is false when workDir is empty, the cache
 // file doesn't exist yet, or workDir has no entry.

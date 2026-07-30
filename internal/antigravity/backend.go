@@ -26,7 +26,7 @@ func (AntigravityConfig) BackendType() string { return "antigravity" }
 type Antigravity struct {
 	agent.LaunchBackend
 	// convMap is agy's own workDir->conversation-UUID cache reader
-	// (capabilities.go). NOT a SessionHistory — that scraper was deleted in
+	// (conversationmap.go). NOT a SessionHistory — that scraper was deleted in
 	// tough-cloud S5 (tall-grab: it mis-keyed the global brain store). convMap
 	// is a live continuation lookup chat.go's resolveChatConversationID
 	// depends on every oneshot turn, unrelated to historical transcript

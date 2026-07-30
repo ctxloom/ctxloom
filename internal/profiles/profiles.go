@@ -501,7 +501,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	// exist only via the lockfile-built seed map. Say so — the bare "not
 	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
 	// reserved in local profile names, so the selector is unambiguous.)
-	if strings.Contains(name, remote.ProfileSelector) || isRemoteProfileRef(name) {
+	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
 	}
 
@@ -534,15 +534,6 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		}
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
-}
-
-// isRemoteProfileRef reports whether name is a scheme-qualified remote
-// reference (the canonical URL form remote profiles are addressed by).
-func isRemoteProfileRef(name string) bool {
-	return strings.HasPrefix(name, "https://") ||
-		strings.HasPrefix(name, "http://") ||
-		strings.HasPrefix(name, "git@") ||
-		strings.HasPrefix(name, "file://")
 }
 
 // Exists checks if a profile exists.

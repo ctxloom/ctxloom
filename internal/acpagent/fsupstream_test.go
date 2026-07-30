@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -117,4 +119,27 @@ func TestServe_FsUpstream_NotOfferedWhenClientDeclinesFs(t *testing.T) {
 
 	<-seen
 	assert.Empty(t, gotAddr, "no fs capability declared -> no fs-upstream address offered at all")
+}
+
+// TestFsUpstream_CloseRemovesTheTempDir pins U014-F09: startFsUpstream mints a
+// private temp DIRECTORY to hold its socket, but Close removed only the socket
+// FILE — so every fs-upstream session left an empty ctxloom-acp-fs-* directory
+// behind in TMPDIR for the life of the machine. Both failure paths inside
+// startFsUpstream already used os.RemoveAll on the same directory, so the
+// success path was the odd one out.
+func TestFsUpstream_CloseRemovesTheTempDir(t *testing.T) {
+	s := &Server{ctx: context.Background()}
+	s.setClientFs(api.FileSystemCapabilities{ReadTextFile: true})
+
+	f := s.startFsUpstream()
+	require.NotNil(t, f, "the editor declared readTextFile — a listener must be stood up")
+	dir := filepath.Dir(f.Addr())
+	require.DirExists(t, dir)
+
+	require.NoError(t, f.Close())
+
+	assert.NoFileExists(t, f.Addr(), "the socket file must be gone")
+	_, err := os.Stat(dir)
+	assert.True(t, os.IsNotExist(err),
+		"Close must remove the temp DIRECTORY it created, not just the socket inside it; %s still exists", dir)
 }

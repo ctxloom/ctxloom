@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,134** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 68 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 118 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 119 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 142 |
-| `open` | no commit names this ID | **806** |
+| `open` | no commit names this ID | **805** |
 
-**Totals: 2268 findings across 162 units — 1,134 resolved, 806 still open, 328 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,134 resolved, 805 still open, 329 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 363 | 460 | 38 | 48 | 90 |
+| MED | 999 | 363 | 459 | 38 | 49 | 90 |
 | LOW | 871 | 420 | 321 | 20 | 62 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1589,7 +1589,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F05 | **RESOLVED** `fc6af315` | **`bundle_reader.go:62,69`** | DEAD | `BundleReader.registry` is read by no method, yet both production constructors do disk I/O to load a `Registry` for it and **return nil (disabling the reader entirely) when that load fails**. | U093.md |
 | U093-F06 | **ESCALATED** `bffceac1` | `detect.go:141-167` | CORRECTNESS | `NormalizeURL` silently reassigns any bare host-qualified URL to github.com, disagreeing with its own sibling `normalizeCloneURL`, and its documented final fallback is unreachable. | U093.md |
 | U093-F07 | **REFUTED** `1d27a73a` | `forge.go:74-78` | CORRECTNESS | An unknown `forge:` label on a remote is silently ignored and falls through to host matching, binding the remote to a different endpoint and a different token env. | U093.md |
-| U093-F08 | open | **`bundle_reader.go:203-205`** | SILENTNOOP | `LoadAllBytes(ctx, nil)` returns empty `loaded` **and** empty `failures` with no error: "loaded every bundle, zero failures" when nothing was read. | U093.md |
+| U093-F08 | **REFUTED** `0fa6306f` | **`bundle_reader.go:203-205`** | SILENTNOOP | `LoadAllBytes(ctx, nil)` returns empty `loaded` **and** empty `failures` with no error: "loaded every bundle, zero failures" when nothing was read. | U093.md |
 | U093-F09 | **RESOLVED** `3ca8d99d` | **`lockfile.go:184,200,255,265,279`** | DEAD | Five `Lockfile` methods totalling ~100 lines — including `GetCanonicalURL`, the **highest-complexity function in this unit at CCN 15** — are test-only. | U093.md |
 | U093-F11 | **RESOLVED** `c7f56b5f` | `detect.go:93-134` | CORRECTNESS | `ParseRepoURL` accepts empty owner or repo segments and reports success. | U093.md |
 | U093-F12 | open | `detect.go:50-60; github.go:54-56` | COUPLING | A github.com personal access token is sent to a non-github.com host: a GitHub Enterprise forge whose `token_env` is unset receives `GITHUB_TOKEN`. | U093.md |

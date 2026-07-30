@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,130** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,131** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 68 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 117 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 141 |
-| `open` | no commit names this ID | **812** |
+| `open` | no commit names this ID | **811** |
 
-**Totals: 2268 findings across 162 units — 1,130 resolved, 812 still open, 326 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,131 resolved, 811 still open, 326 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 359 | 466 | 38 | 47 | 89 |
+| MED | 999 | 360 | 465 | 38 | 47 | 89 |
 | LOW | 871 | 420 | 321 | 20 | 62 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1593,7 +1593,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F09 | **RESOLVED** `3ca8d99d` | **`lockfile.go:184,200,255,265,279`** | DEAD | Five `Lockfile` methods totalling ~100 lines — including `GetCanonicalURL`, the **highest-complexity function in this unit at CCN 15** — are test-only. | U093.md |
 | U093-F11 | open | `detect.go:93-134` | CORRECTNESS | `ParseRepoURL` accepts empty owner or repo segments and reports success. | U093.md |
 | U093-F12 | open | `detect.go:50-60; github.go:54-56` | COUPLING | A github.com personal access token is sent to a non-github.com host: a GitHub Enterprise forge whose `token_env` is unset receives `GITHUB_TOKEN`. | U093.md |
-| U093-F13 | open | `detect.go:82-85` | CORRECTNESS | `DetectForge` returns success with a meaningless base URL for host-less input. | U093.md |
+| U093-F13 | **RESOLVED** `e1a25d81` | `detect.go:82-85` | CORRECTNESS | `DetectForge` returns success with a meaningless base URL for host-less input. | U093.md |
 | U093-F14 | open | `bundle_reader_cache.go:84-87` | CORRECTNESS | The caching decorator imposes a lockfile precondition its own interface says a source need not have: wrapping a legitimate source can make it unreadable. | U093.md |
 | U093-F16 | open | **`lockfile.go:94-98`** | CORRECTNESS | `Load` writes to disk as a side effect of a read, triggered by a raw substring match over the whole file, and the write round-trips through the struct, silently dropping any field a newer schema ad... | U093.md |
 | U093-F17 | open | `fetcher.go:13-33; cached_fetcher_factory.go:58-117; git_clone_fetcher.go:50,79` | COUPLING | The `Fetcher` interface's `owner, repo` parameters are inert in two of three implementations — a caller that believes it scoped a read to a repository did not. | U093.md |

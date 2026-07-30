@@ -93,7 +93,10 @@ func (r *Runtime) Run() int {
 	recs := Walk(r.CLI, r.Argv, r.Res)
 	env := ObserveEnv(r.CLI, r.lookupenv)
 	report := BuildReport(r.CLI, recs, env, prompt)
-	r.emitReport(report)
+	if err := r.emitReport(report); err != nil {
+		fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
+		return 1
+	}
 
 	outcome := Dispatch(string(prompt), r.getenv)
 
@@ -127,19 +130,28 @@ func (r *Runtime) readPrompt() []byte {
 }
 
 // emitReport writes the report to stderr bracketed by the begin/end markers, and
-// additionally to CTXLOOM_MOCK_REPORT_FILE when set.
-func (r *Runtime) emitReport(report Report) {
+// additionally to CTXLOOM_MOCK_REPORT_FILE when set. A failure on either channel
+// is RETURNED, because the report is this instrument's entire deliverable: a run
+// that exits 0 having emitted no evidence is the silent no-op the mock exists to
+// catch. The file channel is asked for precisely when stderr is not trusted to
+// survive, so its failure is not a diagnostic.
+//
+// The marshal arm cannot fire — Report holds only strings, numbers, bools and
+// slices of the same, none of which encoding/json can refuse — but it is
+// reported rather than dropped so that adding a field which CAN fail does not
+// silently reintroduce the hole.
+func (r *Runtime) emitReport(report Report) error {
 	b, err := report.Marshal()
 	if err != nil {
-		fmt.Fprintf(r.stderr(), "mock-engine: report marshal error: %v\n", err)
-		return
+		return fmt.Errorf("report marshal error: %w", err)
 	}
 	fmt.Fprintf(r.stderr(), "%s\n%s\n%s\n", ReportBegin, b, ReportEnd)
 	if path := r.getenv(EnvReportFile); path != "" {
 		if werr := os.WriteFile(path, b, 0o644); werr != nil {
-			fmt.Fprintf(r.stderr(), "mock-engine: report file write error: %v\n", werr)
+			return fmt.Errorf("report file write error: %w", werr)
 		}
 	}
+	return nil
 }
 
 // render puts the outcome on the wire in the surface's format. Oneshot dispatches

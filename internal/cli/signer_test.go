@@ -137,6 +137,50 @@ func testSignerKeyInfo(t *testing.T) operations.SignerKeyInfo {
 	return operations.SignerKeyInfo{PublicKey: pub, Fingerprint: ssh.FingerprintSHA256(pub)}
 }
 
+// promptLines splits rendered prompt output into its non-blank lines with the
+// indentation stripped, so the assertions below are MEMBERSHIP tests over a
+// parsed slice — exact line equality — rather than substring checks against a
+// whole buffer. A substring check on a dump passes on accidental containment:
+// a sentence softened but still carrying the fragment being matched, a role
+// word that is a substring of its replacement. This prompt is the one place in
+// the product where that kind of false green is least acceptable.
+func promptLines(rendered string) []string {
+	var lines []string
+	for _, line := range strings.Split(rendered, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
+}
+
+// The exact lines the confirmation must show, as named constants so every
+// assertion below matches a whole line rather than a fragment of one.
+// TestSignerPromptPins_AreTheProductionSentences ties them back to the
+// production text so they cannot rot into a stale copy of a changed prompt.
+const (
+	signerPromptVerifyLine = "Verify this fingerprint out of band before you continue."
+
+	signerPublishConsequenceLine1 = "Everything this signer ever publishes — text AND executables (MCP servers,"
+	signerPublishConsequenceLine2 = "hooks), now and in every future update — will reach your agent WITHOUT REVIEW."
+
+	signerApproveConsequenceLine1 = "Everything this signer ever approves reaches your agent unreviewed —"
+	signerApproveConsequenceLine2 = "you are delegating your review decisions to them, forever."
+)
+
+// TestSignerPromptPins_AreTheProductionSentences keeps the constants above
+// honest: they are signerConsequenceText's own output, line for line. Without
+// this, a reworded consequence would only fail the membership assertions with
+// no indication that the expectations themselves were the stale side.
+func TestSignerPromptPins_AreTheProductionSentences(t *testing.T) {
+	assert.Equal(t,
+		[]string{signerPublishConsequenceLine1, signerPublishConsequenceLine2},
+		promptLines(signerConsequenceText([]string{signing.NamespacePublish})))
+	assert.Equal(t,
+		[]string{signerApproveConsequenceLine1, signerApproveConsequenceLine2},
+		promptLines(signerConsequenceText([]string{signing.NamespaceApprove})))
+}
+
 // TestPromptSignerAdd_ShowsFingerprintRoleAndConsequence is U042-F25's pin.
 // The prompt this renders is the most consequential confirmation in the
 // product — it is the moment a user grants a key the right to reach their
@@ -161,19 +205,18 @@ func TestPromptSignerAdd_ShowsFingerprintRoleAndConsequence(t *testing.T) {
 		assert.True(t, promptSignerAdd(cmd, "context@acme.com", key, []string{signing.NamespacePublish}),
 			`an explicit "y" is a yes`)
 
-		shown := errBuf.String()
-		assert.Contains(t, shown, "Trust context@acme.com as a PUBLISHER?",
+		lines := promptLines(errBuf.String())
+		assert.Contains(t, lines, "Trust context@acme.com as a PUBLISHER?",
 			"the header must name the principal and the role")
-		assert.Contains(t, shown, key.Fingerprint,
-			"the fingerprint the user is told to verify must actually be shown")
-		assert.Contains(t, shown, key.PublicKey.Type(), "the key type is shown alongside it")
-		assert.Contains(t, shown, "Verify this fingerprint out of band before you continue.",
+		assert.Contains(t, lines, fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()),
+			"the fingerprint the user is told to verify, and its key type, must actually be shown")
+		assert.Contains(t, lines, signerPromptVerifyLine,
 			"the instruction that makes the fingerprint useful must be shown with it")
-		assert.Contains(t, shown, "will reach your agent WITHOUT REVIEW.",
-			"the publish consequence must be shown, not merely computed")
-		assert.Contains(t, shown, "text AND executables (MCP servers,",
-			"and it must say executables — that is the part users underestimate")
-		assert.NotContains(t, shown, "delegating your review decisions",
+		assert.Contains(t, lines, signerPublishConsequenceLine1,
+			"the publish consequence must be shown, not merely computed — and it must say executables")
+		assert.Contains(t, lines, signerPublishConsequenceLine2,
+			"including the WITHOUT REVIEW clause, which is the whole point of asking")
+		assert.NotContains(t, lines, signerApproveConsequenceLine2,
 			"a publish grant must not be described with the narrower review-delegation wording")
 	})
 
@@ -185,11 +228,13 @@ func TestPromptSignerAdd_ShowsFingerprintRoleAndConsequence(t *testing.T) {
 
 		assert.True(t, promptSignerAdd(cmd, "lead@team.example", key, []string{signing.NamespaceApprove}))
 
-		shown := errBuf.String()
-		assert.Contains(t, shown, "Trust lead@team.example as a REVIEWER?")
-		assert.Contains(t, shown, key.Fingerprint)
-		assert.Contains(t, shown, "you are delegating your review decisions to them, forever.")
-		assert.NotContains(t, shown, "WITHOUT REVIEW",
+		lines := promptLines(errBuf.String())
+		assert.Contains(t, lines, "Trust lead@team.example as a REVIEWER?")
+		assert.Contains(t, lines, fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()))
+		assert.Contains(t, lines, signerPromptVerifyLine)
+		assert.Contains(t, lines, signerApproveConsequenceLine1)
+		assert.Contains(t, lines, signerApproveConsequenceLine2)
+		assert.NotContains(t, lines, signerPublishConsequenceLine2,
 			"a review-delegation grant must not borrow the broader publish consequence")
 	})
 
@@ -208,7 +253,8 @@ func TestPromptSignerAdd_ShowsFingerprintRoleAndConsequence(t *testing.T) {
 			cmd.SetErr(&errBuf)
 
 			assert.False(t, promptSignerAdd(cmd, "context@acme.com", key, []string{signing.NamespacePublish}))
-			assert.Contains(t, errBuf.String(), key.Fingerprint,
+			assert.Contains(t, promptLines(errBuf.String()),
+				fmt.Sprintf("%s  (%s)", key.Fingerprint, key.PublicKey.Type()),
 				"the prompt is still shown before the answer is read")
 		})
 	}

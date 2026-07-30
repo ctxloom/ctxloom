@@ -66,10 +66,25 @@ const (
 type CustomHandler func(ctx context.Context, caller Identity, args json.RawMessage) (json.RawMessage, error)
 
 // SetCustomHandlers installs the host-relay tool handlers (host-resident
-// tools: cross-session history, distillation). Called once at hosting setup,
-// before any runner connects.
+// tools: cross-session history, distillation). Production calls it once at
+// hosting setup, before any runner connects.
+//
+// The map is written under c.mu and read the same way (customHandler): every
+// child's plane-2 dispatch runs on its OWN goroutine, so "installed before
+// anyone connects" is a call-ORDER convention and conventions do not make a
+// map access race-free. Guarding it costs one uncontended lock per relayed
+// tool call and removes a data race from the handler table entirely.
 func (c *Coordinator) SetCustomHandlers(handlers map[string]CustomHandler) {
+	c.mu.Lock()
 	c.custom = handlers
+	c.mu.Unlock()
+}
+
+// customHandler resolves one host-relay tool's handler, or nil.
+func (c *Coordinator) customHandler(name string) CustomHandler {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.custom[name]
 }
 
 // runChan is one live RunChannel: the coordinator side of a runner's
@@ -963,7 +978,7 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 // serveCustom relays a host-resident tool to its coordinator-side handler,
 // under the 4MiB response-size watch.
 func (c *Coordinator) serveCustom(caller Identity, req *agentcoordpb.CustomRequest) *agentcoordpb.CoordinatorResponse {
-	h := c.custom[req.GetName()]
+	h := c.customHandler(req.GetName())
 	if h == nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, fmt.Sprintf("no host handler for %q", req.GetName()))}
 	}

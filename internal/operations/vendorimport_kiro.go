@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	kiroimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/kiro"
 )
 
@@ -20,7 +21,9 @@ import (
 //     agentSpawn hook maps to the same `ctxloom hook session-bind` target
 //     codex/claude use (internal/kiro/settings.go's mapHooks, u.SessionStart
 //     -> AgentSpawn), so a payload that DOES carry a usable id lands here
-//     exactly like any other bind, no enumeration needed.
+//     exactly like any other bind, with no per-project matching to derive.
+//     The id still has to be paired with the db that holds it — see
+//     kiroDBHoldingConversation.
 //  2. No SessionID bound — the situation this repo's own dogfood
 //     .kiro/agents/ctxloom.json shows today (the agentSpawn hook IS wired,
 //     but whether kiro-cli's payload carries a real conversation id this
@@ -134,7 +137,17 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 		return "", false
 	}
 	refs, err := kiroimporter.EnumerateConversations(ctx, dbPath)
-	if err != nil || len(refs) == 0 {
+	if err != nil {
+		// "I cannot read this store" is not "this session has nothing to
+		// import", and collapsing the two hid a corrupt, truncated or locked
+		// db behind the Skipped count `session backfill` reports for the
+		// ordinary nothing-to-do case. The locator still degrades to not-found
+		// — one bad store must never abort a whole backfill (CLAUDE.md fault
+		// tolerance) — but the reason is stated, and it names the file.
+		clidiag.Warn("ctxloom", "kiro conversation store %s is unreadable (%v); no transcript can be imported from it", dbPath, err)
+		return "", false
+	}
+	if len(refs) == 0 {
 		return "", false
 	}
 	var best *kiroimporter.ConversationRef

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -299,4 +301,33 @@ func TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt(t *testing.T
 	require.True(t, ok)
 	assert.Equal(t, hostDB+"#"+bound, src,
 		"a bound conversation id must resolve against the candidate db that actually holds it, not whichever db happens to be checked first")
+}
+
+// TestLocateKiroConversation_UnreadableDBIsReportedNotSilentlyNothing pins
+// U089-F20: a kiro sqlite store that exists but cannot be read (corrupt,
+// truncated mid-write, locked by a still-running kiro-cli, or simply not a
+// sqlite file at all) is a DIFFERENT fact from "this session has no
+// conversation to import", and the two used to be indistinguishable —
+// EnumerateConversations' error was folded into the same ok=false the
+// ordinary nothing-to-do case returns, so `session backfill` counted the harp
+// as Skipped and said nothing. The locator still degrades to "not found"
+// (fault tolerance: one bad store must not abort a whole backfill), but the
+// failure is now stated.
+func TestLocateKiroConversation_UnreadableDBIsReportedNotSilentlyNothing(t *testing.T) {
+	testsupport.Isolate(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	dbPath := filepath.Join(dataHome, "kiro-cli", "data.sqlite3")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dbPath), 0o755))
+	require.NoError(t, os.WriteFile(dbPath, []byte("this is not a sqlite database"), 0o600))
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	_, ok := locateKiroConversation(context.Background(), sessions.Entry{ProjectDir: "/some/project"})
+	assert.False(t, ok, "an unreadable store still yields no locator — one bad db must not abort the backfill")
+	assert.Contains(t, warnings.String(), "kiro conversation store",
+		"an unreadable kiro store must be reported, not reported as nothing to convert")
+	assert.Contains(t, warnings.String(), dbPath, "the advisory must name the db the user has to fix")
 }

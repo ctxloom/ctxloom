@@ -133,18 +133,20 @@ Exactly one consumer: `operations.LintTasks`, called by exactly one frontend, `c
 - A `nil` `*Schema` is a legal value everywhere and means "nothing declared" — `Get`, `Targets`, and `HideFacts` are all nil-receiver-safe, and every consumer relies on that instead of nil-checking.
 - `tagschema.Target` is the one definition of tag identity that `operations`, `lint`, and `priority` must all agree with. They do not agree on *value* identity: `operations.scalarCollapse` compares raw strings, `lint.groupByTarget` compares parsed-but-undeduped values, `priority.resolveTagValues` uses composite string keys.
 - `add` validates the facet against the closed set `tagschema.KnownFacets()` returns, so a typo'd facet (`tagma.arty:…`) is a returned error naming the facet and listing the known ones. Without that check the declaration was misfiled rather than dropped — the same effect as losing it, with no signal, and nothing upstream catches it: the taskloom config JSON Schema constrains `tag_schema` only to an array of strings.
-- `add` is last-wins on a duplicate `facet`+`target`, silently.
+- `add` is last-wins on a duplicate `facet`+`target`, silently. Note lists replace rather than concatenate across config layers (`confload.Merge`) and `ResolvedTagSchema` picks one list whole, so both declarations always come from a single file — the "a later line is more specific intent" rationale does not describe any real layering. Deliberately pinned by `TestParse_LastDeclarationWins`; escalated as U126-F03.
 
-**Malformed-declaration policy is not uniform**
+**Malformed-declaration policy: reported everywhere but one named exception**
 
-One package applies four different policies to a bad declaration, and there is no stated rule a reader can generalise from:
+The rule is stated once in `TestMalformedDeclarationPolicy`, which is the executable form of this table:
 
 | Site | Behaviour |
 |---|---|
-| `Parse` / `add` (`tagschema.go:109`) | Hard error naming the declaration. |
-| `Range` (`tagschema.go:237`) | Hard error naming the target and bad component. |
-| `Enum` (`tagschema.go:215`) | Silently returns an empty-but-present member list. |
-| `HideFacts` (`tagschema.go:268`) | Silently skips the declaration. |
+| `Parse` / `add` | Hard error naming the declaration — unparseable, no namespace, wrong namespace, unknown facet, no value. |
+| `Range` | Hard error naming the target and bad component. |
+| `Enum` | Hard error naming the target and the unusable raw value. |
+| `HideFacts` | **The one exception.** A non-`true`/`false` value is skipped and configures nothing. Deliberate, pinned by `TestHideFacts_UninterpretableValueIsSkipped`; escalated as U126-F04 rather than changed, because making it loud changes what an existing `config.yaml` does. |
+
+A DUPLICATE declaration is a separate axis and is still silently last-wins — see U126-F03, escalated for the same reason.
 
 - `Enum`'s empty-but-present result makes every value on that target a violation: `operations.validateTag` blocks every write with "is not one of … declared enum values `[]`", and `lint.Lint` emits the same nonsense for every task carrying the tag. One config typo becomes a total write-block.
 

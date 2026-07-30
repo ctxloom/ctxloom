@@ -117,13 +117,13 @@ type Schema struct {
 }
 
 // Parse parses every declaration in decls (in order; a later declaration for
-// the same facet+target overwrites an earlier one, "last wins" — mirroring
-// a real config file where a later line is the more specific intent) into a
+// the same facet+target overwrites an earlier one, "last wins") into a
 // Schema. A malformed declaration — one tagma.ParseTag rejects, one with no
-// namespace, one whose namespace isn't "tagma" or "tagma.<facet>", or one
-// with no value — is a returned error naming the offending declaration:
-// fail loud, never silently drop a schema entry (a dropped arity=scalar
-// declaration would silently stop collapsing a task's tags).
+// namespace, one whose namespace isn't "tagma" or "tagma.<facet>", one
+// naming a facet outside KnownFacets, or one with no value — is a returned
+// error naming the offending declaration: fail loud, never silently drop a
+// schema entry (a dropped arity=scalar declaration would silently stop
+// collapsing a task's tags).
 func Parse(decls []string) (*Schema, error) {
 	s := &Schema{facets: map[string]map[string]string{}}
 	for _, decl := range decls {
@@ -276,9 +276,12 @@ func (s *Schema) Range(target string) (min, max float64, ok bool, err error) {
 // tagma.HideFact values ready for tagma.HideConfigFromPatterns — the
 // display-time hide config a caller filters a task's tags through (see
 // cmd/taskloom's hideConfigFor/visibleTags). A declared value other than
-// "true"/"false" is skipped (mirrors tagma's own hideFact decoding: an
-// uninterpretable value configures nothing rather than erroring, since it
-// only ever narrows what's hidden, never what's stored). A nil Schema
+// "true"/"false" is skipped — the ONE malformed-declaration shape this
+// package does not report, deliberately (it mirrors tagma's own hideFact
+// decoding, and hide only ever narrows what a listing shows, never what is
+// stored, matched or ranked); pinned by
+// TestHideFacts_UninterpretableValueIsSkipped, and see U126-F03/F04 for why
+// making it loud is a config-surface decision rather than a fix. A nil Schema
 // returns nil, same nil-receiver-safety as Get. Order is unspecified (map
 // iteration) — HideConfigFromPatterns's resolution doesn't depend on fact
 // order (a target with both a true and a false fact on record resolves

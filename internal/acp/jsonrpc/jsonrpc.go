@@ -342,7 +342,16 @@ func (c *Conn) routeResponse(m rpcMessage) {
 		warnf("acp: dropping response for unknown id %d", id)
 		return
 	}
-	ch <- m
+	// The slot is cap-1 and JSON-RPC 2.0 permits exactly one response per id,
+	// so a full slot means the peer answered twice. This send runs on the read
+	// loop: blocking here stops every later frame, permanently, because the
+	// waiting caller receives once and then abandons the slot. First answer
+	// wins; the extra is dropped.
+	select {
+	case ch <- m:
+	default:
+		warnf("acp: dropping duplicate response for id %d (one response per id was already routed)", id)
+	}
 }
 
 // failPending unblocks every parked caller when the connection dies.

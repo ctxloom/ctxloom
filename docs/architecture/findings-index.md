@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,237** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,238** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 111 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 158 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 162 |
-| `open` | no commit names this ID | **600** |
+| `open` | no commit names this ID | **599** |
 
-**Totals: 2268 findings across 162 units — 1,237 resolved, 600 still open, 431 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,238 resolved, 599 still open, 431 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 425 | 339 | 62 | 72 | 101 |
+| MED | 999 | 426 | 338 | 62 | 72 | 101 |
 | LOW | 871 | 455 | 249 | 34 | 78 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -975,7 +975,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U002-F03 | **ESCALATED** `6c89e42f` | **`main.go:36-45`** | DUPLICATE | ctxloom carries **two** diagnostics systems, and this 10-line block is the entire reason the zap dependency exists in the shipped binary. Measured: `zap.L()`/`zap.S()` appears at **16** call sites ... | U002.md |
 | U003-F02 | **RESOLVED** `9a61c77e` | **`main.go:3-7` vs `main.go:19-23`** | CORRECTNESS | The package doc comment asserts a safety net that **does not exist**, and contradicts a comment 15 lines below it. It says: "The schemas are checked in and a CI step (`just gen-schemas-check`) rege... | U003.md |
 | U003-F03 | **ESCALATED** `18a8c154` | **`main.go:23` (whole unit)`** | NOPAY | **Nothing reads the generated schemas.** 70 files / 284 KB are generated on every container build and CI run and embedded into the shipped binary, and I can find no consumer. `resources.GetSchema` ... | U003.md |
-| U003-F04 | open | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
+| U003-F04 | **RESOLVED** `434fcd12` | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
 | U003-F05 | open | **`main.go:30`** | CORRECTNESS | The generator never prunes, so a renamed or deleted result type leaves its old schema on disk forever — and, because `//go:embed all:schema` sweeps the directory, **ships it inside the binary as a ... | U003.md |
 | U004-F02 | open | **`root.go:94-99`, `root.go:61,65`** | CORRECTNESS | The CLI advertises validity ranges it never enforces, and the library it calls **silently clamps** rather than rejecting. `--components`'s help says "number of words (2-16)" and `--group`'s help en... | U004.md |
 | U004-F03 | **RESOLVED** `31d9d8d0` | **`root.go:113-116`** | DUPLICATE | `resolveFormat` re-implements a shared helper that already exists, and the copy has drifted. `internal/shared/cliemit.Resolve` (`cliemit.go:42-50`) does the same job and additionally (a) treats an ... | U004.md |

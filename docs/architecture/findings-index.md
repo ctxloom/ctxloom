@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,138** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,139** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 68 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 120 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 142 |
-| `open` | no commit names this ID | **800** |
+| `open` | no commit names this ID | **799** |
 
-**Totals: 2268 findings across 162 units — 1,138 resolved, 800 still open, 330 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,139 resolved, 799 still open, 330 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 367 | 454 | 38 | 50 | 90 |
-| LOW | 871 | 420 | 321 | 20 | 62 | 48 |
+| LOW | 871 | 421 | 320 | 20 | 62 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2531,7 +2531,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F15 | open | `bundle_reader_cache.go:120-123` | COUPLING | "This source has no signature surface" and "this bundle is unsigned" are the same error, so a wiring mistake that drops the signature capability is indistinguishable from ordinary unsigned content. | U093.md |
 | U093-F23 | **RESOLVED** `5b7952dc` | **`bundle_reader.go:168-171`** | DEAD | The `entry.URL` fallback is unreachable, and its unreachability means the lockfile's recorded URL is never cross-checked against the key's URL. | U093.md |
 | U093-F24 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `mock_fetcher.go (whole file)` | NOPAY | 206 lines of test double compile into the shipped production binary. | U093.md |
-| U093-F27 | open | `git_clone_fetcher.go:289` | ERRHANDLING | `GetDefaultBranch` returns the guess `"main"` with a nil error when nothing resolved, presenting a guess as an answer. | U093.md |
+| U093-F27 | **RESOLVED** `b9348b9a` | `git_clone_fetcher.go:289` | ERRHANDLING | `GetDefaultBranch` returns the guess `"main"` with a nil error when nothing resolved, presenting a guess as an answer. | U093.md |
 | U093-F28 | open | `github.go:284` | COUPLING | Unnamed magic bounds encode "looks like a commit SHA", and a 7-character branch name is probed as a commit first. | U093.md |
 | U093-F29 | open | `github.go:114, 123, 125, 169` | ERRHANDLING | Diagnostics go to `os.Stderr` via raw `fmt.Fprintf` while the same package uses `clidiag` for the equivalent job. | U093.md |
 | U093-F33 | open | **`lockfile.go:104-107`** | ERRHANDLING | `Save(nil)` panics rather than returning an error, on the type that is the sole on-disk trust record. | U093.md |

@@ -264,7 +264,7 @@ existing file at the target is adopted, never overwritten (--force overwrites).`
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		path, err := operations.ScaffoldContainerBase(config.DefaultManager(), cfg, containerScaffoldPath, containerScaffoldForce)
+		path, err := operations.ScaffoldContainerBase(config.NewManager(), cfg, containerScaffoldPath, containerScaffoldForce)
 		if err != nil {
 			return err
 		}

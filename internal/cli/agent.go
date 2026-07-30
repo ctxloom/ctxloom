@@ -304,7 +304,7 @@ Examples:
 		if cmd.Flags().Changed("driving") {
 			req.Driving = &agentSetDriving
 		}
-		entry, err := operations.SetAgent(config.DefaultManager(), cfg, req)
+		entry, err := operations.SetAgent(config.NewManager(), cfg, req)
 		if err != nil {
 			return err
 		}
@@ -383,7 +383,7 @@ Examples:
 		if _, ok := cfg.Agent(name); !ok {
 			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 		}
-		if err := config.DefaultManager().Update(func(d *config.Draft) error {
+		if err := config.NewManager().Update(func(d *config.Draft) error {
 			d.DefaultAgent = name
 			return nil
 		}); err != nil {
@@ -409,7 +409,7 @@ var agentRemoveCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		if err := operations.RemoveAgent(config.DefaultManager(), cfg, name); err != nil {
+		if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())

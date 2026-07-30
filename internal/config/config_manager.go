@@ -28,27 +28,19 @@ type Draft = configDoc
 
 // Manager mediates every WRITE to one project's config.yaml. Reads never go
 // through a Manager (Load() is sufficient and lock-free); only a caller that
-// intends to PERSIST a change constructs one. There is exactly one
-// meaningful Manager per project — DefaultManager returns the one for the
-// ambient project the no-arg Load() already resolves to; NewManager exists
-// for explicit-target callers (tests, an --app-dir override) the same way
-// WithAppDir/WithFS do for Load.
+// intends to PERSIST a change constructs one. There is exactly one meaningful
+// Manager per project.
 type Manager struct {
 	opts []LoadOption
 }
 
-// DefaultManager returns the Manager for the ambient project config — the
-// same directory/file the no-arg Load() resolves to.
-func DefaultManager() *Manager {
-	return &Manager{}
-}
-
-// NewManager returns a Manager targeting an explicit config (a specific
-// app dir and/or filesystem), mirroring Load(opts...)'s own explicit-target
-// path. Every opts... value is threaded into both the pre-lock path
-// resolution and the post-lock fresh reload Update performs, so a test
-// Manager built with WithFS(memFS) never touches the real filesystem at any
-// point in the transaction.
+// NewManager returns a Manager targeting the config Load(opts...) resolves to:
+// no options means the ambient project the no-arg Load() finds, and
+// WithAppDir/WithFS name an explicit target exactly as they do for Load. Every
+// opts... value is threaded into both the pre-lock path resolution and the
+// post-lock fresh reload Update performs, so a test Manager built with
+// WithFS(memFS) never touches the real filesystem at any point in the
+// transaction.
 func NewManager(opts ...LoadOption) *Manager {
 	return &Manager{opts: opts}
 }

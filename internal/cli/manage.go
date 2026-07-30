@@ -425,7 +425,7 @@ func setMcpAutoRegister(cmd *cobra.Command, enabled bool) error {
 	if _, err := GetConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	result, err := operations.SetMCPAutoRegister(cmd.Context(), config.DefaultManager(), operations.SetMCPAutoRegisterRequest{Enabled: enabled})
+	result, err := operations.SetMCPAutoRegister(cmd.Context(), config.NewManager(), operations.SetMCPAutoRegisterRequest{Enabled: enabled})
 	if err != nil {
 		return err
 	}
@@ -484,7 +484,7 @@ func setStatusline(cmd *cobra.Command, enabled bool) error {
 	if _, err := GetConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	result, err := operations.SetStatusline(cmd.Context(), config.DefaultManager(), operations.SetStatuslineRequest{Enabled: enabled})
+	result, err := operations.SetStatusline(cmd.Context(), config.NewManager(), operations.SetStatuslineRequest{Enabled: enabled})
 	if err != nil {
 		return err
 	}

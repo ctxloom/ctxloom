@@ -381,28 +381,3 @@ func TestNoArgManager_TargetsTheAmbientProject(t *testing.T) {
 	assert.Contains(t, string(data), "ambient")
 }
 
-// TestManagerConstructors_Parity is the pre-collapse parity gate across BOTH
-// no-argument Manager constructors: DefaultManager() and NewManager() must be
-// indistinguishable in the target they resolve and the bytes they persist.
-func TestManagerConstructors_Parity(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		mk   func() *Manager
-	}{
-		{"DefaultManager", func() *Manager { return DefaultManager() }},
-		{"NewManagerNoOpts", func() *Manager { return NewManager() }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			appDir := managerTestDir(t)
-			t.Chdir(filepath.Dir(appDir))
-			Invalidate()
-			require.NoError(t, tc.mk().Update(func(d *Draft) error {
-				d.DefaultAgent = "parity"
-				return nil
-			}))
-			data, err := os.ReadFile(paths.ConfigPath(appDir))
-			require.NoError(t, err)
-			assert.Contains(t, string(data), "parity")
-		})
-	}
-}

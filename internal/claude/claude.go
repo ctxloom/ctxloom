@@ -288,12 +288,7 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 
 	// Extract statusLine separately
 	if slRaw, ok := raw["statusLine"]; ok {
-		var sl claudeCodeStatusLine
-		if err := json.Unmarshal(slRaw, &sl); err != nil {
-			agent.Warn("failed to parse statusLine in settings.json: %v", err)
-		} else {
-			settings.StatusLine = &sl
-		}
+		settings.StatusLine = parseStatusLine(slRaw)
 		delete(raw, "statusLine")
 	}
 
@@ -309,20 +304,10 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// allow/ask/defaultMode/additionalDirectories rules being dropped from
 	// the file — silently, with no .corrupt backup, on a SECURITY surface.
 	if permRaw, ok := raw["permissions"]; ok {
-		var permMap map[string]json.RawMessage
-		if err := json.Unmarshal(permRaw, &permMap); err != nil {
-			return nil, w.corruptSettings(path, data, "permissions", err, "to avoid dropping existing permission rules")
+		perm, err := w.parsePermissions(path, data, permRaw)
+		if err != nil {
+			return nil, err
 		}
-		perm := &claudeCodePermissions{}
-		if denyRaw, ok := permMap["deny"]; ok {
-			var deny []string
-			if err := json.Unmarshal(denyRaw, &deny); err != nil {
-				return nil, w.corruptSettings(path, data, "permissions.deny", err, "to avoid dropping existing permission rules")
-			}
-			perm.Deny = deny
-			delete(permMap, "deny")
-		}
-		perm.Other = permMap
 		settings.Permissions = perm
 		delete(raw, "permissions")
 	}
@@ -341,6 +326,43 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	return settings, nil
 }
 
+// parseStatusLine decodes the statusLine block, or nil when it cannot be read.
+// A statusLine is a single slot ctxloom either manages or leaves alone, so an
+// unreadable one degrades to "the user has none this code can recognize" and
+// ensureStatusLine decides from there — unlike the permissions block below,
+// whose unreadable siblings are refused outright because they are the user's
+// own security rules.
+func parseStatusLine(raw json.RawMessage) *claudeCodeStatusLine {
+	var sl claudeCodeStatusLine
+	if err := json.Unmarshal(raw, &sl); err != nil {
+		agent.Warn("failed to parse statusLine in settings.json: %v", err)
+		return nil
+	}
+	return &sl
+}
+
+// parsePermissions splits the permissions block into the ctxloom-managed Deny
+// list and the verbatim siblings (allow, ask, defaultMode, …) that must
+// round-trip untouched. Anything it cannot read is refused, not dropped: see
+// loadSettings' own comment for the data loss that caused.
+func (w *ClaudeCodeHookWriter) parsePermissions(path string, data []byte, raw json.RawMessage) (*claudeCodePermissions, error) {
+	var permMap map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &permMap); err != nil {
+		return nil, w.corruptSettings(path, data, "permissions", err, "to avoid dropping existing permission rules")
+	}
+	perm := &claudeCodePermissions{}
+	if denyRaw, ok := permMap["deny"]; ok {
+		var deny []string
+		if err := json.Unmarshal(denyRaw, &deny); err != nil {
+			return nil, w.corruptSettings(path, data, "permissions.deny", err, "to avoid dropping existing permission rules")
+		}
+		perm.Deny = deny
+		delete(permMap, "deny")
+	}
+	perm.Other = permMap
+	return perm, nil
+}
+
 // corruptSettings is this writer's binding of agent.RefuseCorrupt (see its
 // doc): back the original bytes up, then return an error so the caller aborts
 // before touching the file. Every partial-parse failure in loadSettings and
@@ -350,6 +372,26 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 // destroying user data behind it.
 func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what string, cause error, consequence string) error {
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
+}
+
+// permissionsOutput renders the permissions block for re-emission: the
+// preserved sibling keys first, then the ctxloom-managed Deny list layered on
+// top — the same shape as saveSettings' top-level output map. A sibling that
+// cannot be re-encoded refuses the whole write (preserveFailure); dropping one
+// silently would delete the user's own allow/ask/defaultMode rules.
+func permissionsOutput(path string, perm *claudeCodePermissions) (map[string]interface{}, error) {
+	out := make(map[string]interface{})
+	for k, v := range perm.Other {
+		var val interface{}
+		if err := json.Unmarshal(v, &val); err != nil {
+			return nil, preserveFailure(path, "permissions."+k, err)
+		}
+		out[k] = val
+	}
+	if len(perm.Deny) > 0 {
+		out["deny"] = perm.Deny
+	}
+	return out, nil
 }
 
 // preserveFailure refuses a write that could not carry a preserved field
@@ -399,16 +441,9 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	// the typed Deny list layered on top — same shape as the top-level output
 	// map above (preserved fields, then ctxloom-managed ones).
 	if settings.Permissions != nil {
-		permOut := make(map[string]interface{})
-		for k, v := range settings.Permissions.Other {
-			var val interface{}
-			if err := json.Unmarshal(v, &val); err != nil {
-				return preserveFailure(path, "permissions."+k, err)
-			}
-			permOut[k] = val
-		}
-		if len(settings.Permissions.Deny) > 0 {
-			permOut["deny"] = settings.Permissions.Deny
+		permOut, err := permissionsOutput(path, settings.Permissions)
+		if err != nil {
+			return err
 		}
 		if len(permOut) > 0 {
 			output["permissions"] = permOut

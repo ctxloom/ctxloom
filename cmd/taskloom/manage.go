@@ -182,7 +182,15 @@ func manageStatus(dir string, out io.Writer) error {
 				continue
 			}
 			raw, err := readIfExists(path)
-			if err != nil || raw == nil {
+			// An absent config is a real empty state and stays silent; a
+			// config that exists but cannot be READ is a different answer
+			// entirely, and dropping it from the table renders it
+			// indistinguishable from "this backend has no config here".
+			if err != nil {
+				fmt.Fprintf(out, "%-12s %-8s unreadable: %v (%s)\n", e.Name(), scope.label, err, path)
+				continue
+			}
+			if raw == nil {
 				continue
 			}
 			ok, err := e.Installed(raw, engine.TaskloomName)

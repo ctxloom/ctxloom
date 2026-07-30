@@ -75,7 +75,7 @@ func (p *Projector) MessageSchema(name string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.messageSchema(md, map[protoreflect.FullName]bool{}), nil
+	return p.messageSchema(md, map[protoreflect.FullName]bool{})
 }
 
 func (p *Projector) messageDoc(md protoreflect.MessageDescriptor) string {
@@ -90,16 +90,25 @@ func (p *Projector) messageDoc(md protoreflect.MessageDescriptor) string {
 	return p.leadingComment(md)
 }
 
+// recursionNotice is the description a TRUNCATED message projection carries.
+// It is the only signal distinguishing "this object was cut off because its
+// own type is already on the projection stack" from "this object has no
+// declared properties", so every path that assembles a description around a
+// truncated projection has to preserve it.
+func recursionNotice(name protoreflect.FullName) string {
+	return fmt.Sprintf("(recursive %s)", name)
+}
+
 // messageSchema is the recursive body. seen guards self-recursive shapes
 // (e.g. Usage.per_model): a message already on the projection stack renders
 // as an open object naming the recursion.
-func (p *Projector) messageSchema(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) map[string]any {
+func (p *Projector) messageSchema(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) (map[string]any, error) {
 	if seen[md.FullName()] {
 		return map[string]any{
 			"type":                 "object",
 			"additionalProperties": true,
-			"description":          fmt.Sprintf("(recursive %s)", md.FullName()),
-		}
+			"description":          recursionNotice(md.FullName()),
+		}, nil
 	}
 	seen[md.FullName()] = true
 	defer delete(seen, md.FullName())
@@ -109,7 +118,10 @@ func (p *Projector) messageSchema(md protoreflect.MessageDescriptor, seen map[pr
 	fields := md.Fields()
 	for i := 0; i < fields.Len(); i++ {
 		fld := fields.Get(i)
-		schema := p.fieldSchema(fld, seen)
+		schema, err := p.fieldSchema(fld, seen)
+		if err != nil {
+			return nil, err
+		}
 		props[string(fld.Name())] = schema
 		if ann := fieldAnnotation(fld); ann.GetRequired() {
 			required = append(required, string(fld.Name()))
@@ -126,29 +138,59 @@ func (p *Projector) messageSchema(md protoreflect.MessageDescriptor, seen map[pr
 		sort.Strings(required)
 		out["required"] = required
 	}
-	return out
+	return out, nil
 }
 
 // fieldSchema projects one field: base kind schema, repeated/map wrapping,
-// description assembly (comment/doc-override, oneof exclusivity note,
-// example).
-func (p *Projector) fieldSchema(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) map[string]any {
-	var schema map[string]any
+// description assembly, example.
+func (p *Projector) fieldSchema(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) (map[string]any, error) {
+	schema, err := p.baseFieldSchema(fld, seen)
+	if err != nil {
+		return nil, err
+	}
+	if desc := p.fieldDescription(fld, seen); desc != "" {
+		schema["description"] = desc
+	}
+	ex := fieldAnnotation(fld).GetExample()
+	if ex == "" {
+		return schema, nil
+	}
+	var v any
+	if err := json.Unmarshal([]byte(ex), &v); err != nil {
+		// The annotation is hand-authored in the .proto and read only here,
+		// so a typo that costs the model its example is invisible unless the
+		// generator refuses it.
+		return nil, fmt.Errorf("mcpschema: field %s: (field_schema).example is not valid JSON: %w", fld.FullName(), err)
+	}
+	schema["examples"] = []any{v}
+	return schema, nil
+}
+
+// baseFieldSchema projects the field's kind, wrapped for repeated and map
+// cardinalities.
+func (p *Projector) baseFieldSchema(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) (map[string]any, error) {
 	switch {
 	case fld.IsMap():
-		schema = map[string]any{
-			"type":                 "object",
-			"additionalProperties": p.singularSchema(fld.MapValue(), seen),
+		val, err := p.singularSchema(fld.MapValue(), seen)
+		if err != nil {
+			return nil, err
 		}
+		return map[string]any{"type": "object", "additionalProperties": val}, nil
 	case fld.IsList():
-		schema = map[string]any{
-			"type":  "array",
-			"items": p.singularSchema(fld, seen),
+		item, err := p.singularSchema(fld, seen)
+		if err != nil {
+			return nil, err
 		}
+		return map[string]any{"type": "array", "items": item}, nil
 	default:
-		schema = p.singularSchema(fld, seen)
+		return p.singularSchema(fld, seen)
 	}
+}
 
+// fieldDescription assembles a field's description: its doc (comment or
+// annotation override), the oneof exclusivity note, and the truncation notice
+// when the field projects onto a message already on the projection stack.
+func (p *Projector) fieldDescription(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) string {
 	desc := p.fieldDoc(fld)
 	// Rule (b): oneof members are flat optional fields whose descriptions
 	// state the mutual exclusivity; the server names the conflict.
@@ -157,72 +199,101 @@ func (p *Projector) fieldSchema(fld protoreflect.FieldDescriptor, seen map[proto
 		for i := 0; i < oo.Fields().Len(); i++ {
 			members = append(members, string(oo.Fields().Get(i).Name()))
 		}
-		note := fmt.Sprintf("At most one of %s is set", strings.Join(members, " / "))
-		if desc == "" {
-			desc = note
-		} else {
-			desc += ". " + note
-		}
+		desc = joinSentences(desc, fmt.Sprintf("At most one of %s is set", strings.Join(members, " / ")))
 	}
-	if desc != "" {
-		schema["description"] = desc
+	if name, truncated := truncatedTarget(fld, seen); truncated {
+		desc = joinSentences(desc, recursionNotice(name))
 	}
-	if ex := fieldAnnotation(fld).GetExample(); ex != "" {
-		var v any
-		if err := json.Unmarshal([]byte(ex), &v); err == nil {
-			schema["examples"] = []any{v}
-		}
-	}
-	return schema
+	return desc
 }
 
-// singularSchema maps one scalar/message/enum occurrence to its JSON shape.
-func (p *Projector) singularSchema(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) map[string]any {
-	switch fld.Kind() {
+// truncatedTarget names the message a SINGULAR field projects onto when that
+// message is already on the projection stack — the one shape whose truncation
+// notice sits directly on the field schema (a repeated or mapped recursion
+// carries it on `items`/`additionalProperties`, out of the description's way).
+func truncatedTarget(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) (protoreflect.FullName, bool) {
+	if fld.IsList() || fld.IsMap() {
+		return "", false
+	}
+	if fld.Kind() != protoreflect.MessageKind && fld.Kind() != protoreflect.GroupKind {
+		return "", false
+	}
+	name := fld.Message().FullName()
+	return name, seen[name]
+}
+
+// joinSentences appends a clause to a description, tolerating an empty lead.
+func joinSentences(desc, clause string) string {
+	if desc == "" {
+		return clause
+	}
+	return desc + ". " + clause
+}
+
+// scalarSchema maps a scalar proto kind onto its JSON shape, reporting whether
+// the kind is a scalar at all.
+func scalarSchema(kind protoreflect.Kind) (map[string]any, bool) {
+	switch kind {
 	case protoreflect.BoolKind:
-		return map[string]any{"type": "boolean"}
+		return map[string]any{"type": "boolean"}, true
 	case protoreflect.StringKind:
-		return map[string]any{"type": "string"}
+		return map[string]any{"type": "string"}, true
 	case protoreflect.BytesKind:
-		return map[string]any{"type": "string", "contentEncoding": "base64"}
+		return map[string]any{"type": "string", "contentEncoding": "base64"}, true
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
 		protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return map[string]any{"type": "integer"}
+		return map[string]any{"type": "integer"}, true
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
 		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		// Rule (e): protojson marshals 64-bit integers as strings and
 		// accepts either representation on unmarshal.
-		return map[string]any{"type": []any{"integer", "string"}}
+		return map[string]any{"type": []any{"integer", "string"}}, true
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		return map[string]any{"type": "number"}
+		return map[string]any{"type": "number"}, true
+	}
+	return nil, false
+}
+
+// enumSchema projects an enum as a string over its value names (rule (f):
+// protojson's representation).
+func enumSchema(ed protoreflect.EnumDescriptor) map[string]any {
+	vals := ed.Values()
+	names := make([]any, 0, vals.Len())
+	for i := 0; i < vals.Len(); i++ {
+		names = append(names, string(vals.Get(i).Name()))
+	}
+	return map[string]any{"type": "string", "enum": names}
+}
+
+// singularSchema maps one scalar/message/enum occurrence to its JSON shape.
+// Every kind protodesc admits is covered; anything else is a corrupt
+// descriptor and must not project as an unconstrained "any JSON value".
+func (p *Projector) singularSchema(fld protoreflect.FieldDescriptor, seen map[protoreflect.FullName]bool) (map[string]any, error) {
+	if schema, ok := scalarSchema(fld.Kind()); ok {
+		return schema, nil
+	}
+	switch fld.Kind() {
 	case protoreflect.EnumKind:
-		// Rule (f): protojson uses value names.
-		vals := fld.Enum().Values()
-		names := make([]any, 0, vals.Len())
-		for i := 0; i < vals.Len(); i++ {
-			names = append(names, string(vals.Get(i).Name()))
-		}
-		return map[string]any{"type": "string", "enum": names}
+		return enumSchema(fld.Enum()), nil
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		return p.wellKnownOrMessage(fld.Message(), seen)
-	default:
-		return map[string]any{}
 	}
+	return nil, fmt.Errorf("mcpschema: field %s has unprojectable kind %v", fld.FullName(), fld.Kind())
 }
 
 // wellKnownOrMessage maps the well-known types onto their protojson wire
 // shapes and recurses into everything else.
-func (p *Projector) wellKnownOrMessage(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) map[string]any {
+func (p *Projector) wellKnownOrMessage(md protoreflect.MessageDescriptor, seen map[protoreflect.FullName]bool) (map[string]any, error) {
 	switch md.FullName() {
 	case "google.protobuf.Struct":
 		// Rule (c): open JSON object, never a bare "object".
-		return map[string]any{"type": "object", "additionalProperties": true}
+		return map[string]any{"type": "object", "additionalProperties": true}, nil
 	case "google.protobuf.Value":
-		return map[string]any{} // any JSON value
+		return map[string]any{}, nil // any JSON value
 	case "google.protobuf.Duration":
-		return map[string]any{"type": "string", "description": "Duration, e.g. \"3s\""}
+		return map[string]any{"type": "string", "description": "Duration, e.g. \"3s\""}, nil
 	case "google.protobuf.Timestamp":
-		return map[string]any{"type": "string", "format": "date-time"}
+		return map[string]any{"type": "string", "format": "date-time"}, nil
 	default:
 		return p.messageSchema(md, seen)
 	}
@@ -291,48 +362,124 @@ type ToolSpec struct {
 }
 
 // ProjectTool builds one binding's ToolSpec: input schema (message-backed or
-// synthetic, additionalProperties always closed on inputs), output schema,
-// and the tool description (message doc, or the binding's synthetic one).
+// synthetic, closed against invented argument names), output schema, and the
+// tool description (message doc, or the binding's synthetic one).
 func (p *Projector) ProjectTool(b Binding) (*ToolSpec, error) {
 	spec := &ToolSpec{Name: b.Tool, Description: b.Description}
 
-	in, err := p.sideSchema(b.Input, b.SyntheticInput)
+	in, doc, err := p.toolInput(b)
 	if err != nil {
-		return nil, fmt.Errorf("tool %s input: %w", b.Tool, err)
+		return nil, err
 	}
-	if in == nil {
-		return nil, fmt.Errorf("tool %s: no input schema (binding needs Input or SyntheticInput)", b.Tool)
+	if doc != "" {
+		spec.Description = doc
 	}
-	// Inputs are closed: models must not invent argument names.
-	in["additionalProperties"] = false
-	if b.Input != "" {
-		// The message's LLM-facing description: (message_schema).doc when
-		// annotated, else its leading comment.
-		if md, derr := p.message(b.Input); derr == nil {
-			if doc := p.messageDoc(md); doc != "" {
-				spec.Description = doc
-				// The tool description carries the doc; keep the schema lean.
-				delete(in, "description")
-			}
-		}
+	if spec.Description == "" {
+		return nil, fmt.Errorf("tool %s: no description (annotate the message with (message_schema).doc or set Binding.Description)", b.Tool)
 	}
 	if spec.InputSchema, err = marshalSchema(in); err != nil {
 		return nil, err
 	}
 
-	out, err := p.sideSchema(b.Output, b.SyntheticOutput)
+	out, err := p.toolOutput(b)
 	if err != nil {
-		return nil, fmt.Errorf("tool %s output: %w", b.Tool, err)
+		return nil, err
 	}
 	if out != nil {
 		if spec.OutputSchema, err = marshalSchema(out); err != nil {
 			return nil, err
 		}
 	}
-	if spec.Description == "" {
-		return nil, fmt.Errorf("tool %s: no description (annotate the message with (message_schema).doc or set Binding.Description)", b.Tool)
-	}
 	return spec, nil
+}
+
+// toolInput resolves, validates and closes one binding's input schema, and
+// reports the description the bound message carries (empty when the binding's
+// own Description stands).
+func (p *Projector) toolInput(b Binding) (map[string]any, string, error) {
+	in, err := p.sideSchema(b.Input, b.SyntheticInput)
+	if err != nil {
+		return nil, "", fmt.Errorf("tool %s input: %w", b.Tool, err)
+	}
+	if in == nil {
+		return nil, "", fmt.Errorf("tool %s: no input schema (binding needs Input or SyntheticInput)", b.Tool)
+	}
+	if err := assertObjectSchema(b.Tool, "input", in); err != nil {
+		return nil, "", err
+	}
+	closeObjects(in)
+	// The top level is closed unconditionally: whatever a synthetic builder
+	// declared, models must not invent argument names.
+	in["additionalProperties"] = false
+	if b.Input == "" {
+		return in, "", nil
+	}
+	md, derr := p.message(b.Input)
+	if derr != nil {
+		return in, "", nil
+	}
+	doc := p.messageDoc(md)
+	if doc != "" {
+		// The tool description carries the doc; keep the schema lean.
+		delete(in, "description")
+	}
+	return in, doc, nil
+}
+
+// toolOutput resolves and validates one binding's output schema, or nil when
+// the tool has no structured output.
+func (p *Projector) toolOutput(b Binding) (map[string]any, error) {
+	out, err := p.sideSchema(b.Output, b.SyntheticOutput)
+	if err != nil {
+		return nil, fmt.Errorf("tool %s output: %w", b.Tool, err)
+	}
+	if out == nil {
+		return nil, nil
+	}
+	if err := assertObjectSchema(b.Tool, "output", out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// assertObjectSchema enforces what the MCP SDK requires of a registered tool:
+// mcp.Server.AddTool PANICS on an input or output schema whose type is not
+// "object", and these schemas are checked in and embedded, so a bad one takes
+// down every runner at startup. Refuse it at generation time instead.
+func assertObjectSchema(tool, side string, schema map[string]any) error {
+	if schema["type"] != "object" {
+		return fmt.Errorf("tool %s %s schema: type is %v, MCP requires \"object\"", tool, side, schema["type"])
+	}
+	return nil
+}
+
+// closeObjects closes every object in an input schema that has not declared
+// its own openness. protojson unmarshals tool arguments WITHOUT
+// DiscardUnknown, so an invented key is rejected at any depth — a schema that
+// says so only at the top level under-states what the handler enforces, and a
+// model learns the constraint from a failed call instead of from the schema. A
+// schema that sets additionalProperties itself (Struct's open object, a map's
+// value schema, a truncated recursion) is left exactly as projected.
+func closeObjects(schema map[string]any) {
+	if schema["type"] == "object" {
+		if _, declared := schema["additionalProperties"]; !declared {
+			schema["additionalProperties"] = false
+		}
+	}
+	for _, key := range []string{"items", "additionalProperties"} {
+		if child, ok := schema[key].(map[string]any); ok {
+			closeObjects(child)
+		}
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, v := range props {
+		if child, ok := v.(map[string]any); ok {
+			closeObjects(child)
+		}
+	}
 }
 
 // sideSchema resolves one side of a binding: the bound message's projection,

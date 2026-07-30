@@ -225,3 +225,92 @@ func argIndex(args []string, want string) int {
 	}
 	return -1
 }
+
+// unnamedErrnoStrace carries the two real strace renderings of a FAILED
+// syscall whose errno the parser's `([A-Z][A-Z0-9]+)` name group cannot
+// match: an errno strace has no symbolic name for (rendered lowercase, `errno
+// 4242`), and a bare negative return with no errno clause at all (what a
+// truncated or `-e status`-filtered trace produces). Both are failures — the
+// return value is negative, and every syscall in the traced set returns >= 0
+// on success.
+const unnamedErrnoStrace = `12 openat(AT_FDCWD, "/home/ctxloom/.config/odd", O_RDONLY) = -1 errno 4242 (Unknown error 4242)
+13 access("/home/ctxloom/.config/bare", R_OK) = -1
+14 readlink("/proc/self/exe", "/usr/local/bin/ctxloom", 4096) = 22
+`
+
+// TestParseStraceReads_NegativeReturnIsNeverOK pins U064-F04: the parser
+// captured the syscall's return value and then ignored it, deciding "ok"
+// purely on whether a NAMED errno was present. A failure strace did not name
+// symbolically therefore read back as a success — the exact inversion this
+// probe exists to catch, since a silent no-op looks like a failed lookup from
+// outside.
+func TestParseStraceReads_NegativeReturnIsNeverOK(t *testing.T) {
+	reads := ParseStraceReads([]byte(unnamedErrnoStrace))
+
+	for _, tc := range []struct{ path, syscall string }{
+		{"/home/ctxloom/.config/odd", "openat"},
+		{"/home/ctxloom/.config/bare", "access"},
+	} {
+		if hasRead(reads, tc.path, tc.syscall, "ok") {
+			t.Errorf("%s(%s) returned -1 and must never be recorded as a success; got %+v", tc.syscall, tc.path, reads)
+		}
+		found := false
+		for _, r := range reads {
+			if r.Path == tc.path && r.Syscall == tc.syscall {
+				found = true
+				if !r.Failed() {
+					t.Errorf("%s(%s) returned -1 and must read as Failed; got %+v", tc.syscall, tc.path, r)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s(%s) must still be recorded (a failed lookup is the point of the probe); got %+v", tc.syscall, tc.path, reads)
+		}
+	}
+
+	// A non-negative return stays a success: readlink returns a byte count.
+	if !hasRead(reads, "/proc/self/exe", "readlink", "ok") {
+		t.Errorf("a non-negative return is still a success; got %+v", reads)
+	}
+}
+
+// TestTraceProbeFromEnv_ActivationIsNeverSilent pins U064-F11's corrected
+// invariant. The row read TraceProbe's security note as claiming the loosened
+// seccomp profile is STRUCTURALLY unreachable from a normal run, and objected
+// that the gate is a plain os.Getenv — an environment variable is inherited
+// from whatever launched ctxloom, so any parent that exports it turns an
+// ordinary `ctxloom run` into a probe run with a loosened profile and an strace
+// wrap. That is correct about the gate; what is structural is only that
+// renderRunSpec applies the profile from RunSpec.Trace alone and that this
+// function is its sole setter. The residue — an inherited variable silently
+// changing a run's isolation posture — is closed by making activation LOUD, and
+// this pins it: the probe announces itself and names the variable to unset.
+func TestTraceProbeFromEnv_ActivationIsNeverSilent(t *testing.T) {
+	t.Setenv(probeTraceEnv, t.TempDir())
+	buf := captureWarnings(t)
+
+	if tp := traceProbeFromEnv(); tp == nil {
+		t.Fatal("the probe env var must still activate the probe")
+	}
+	out := buf.String()
+	if !strings.Contains(out, probeTraceEnv) {
+		t.Errorf("the activation warning must name the variable to unset; got %q", out)
+	}
+	if !strings.Contains(out, "seccomp") {
+		t.Errorf("the activation warning must name the isolation property being loosened; got %q", out)
+	}
+}
+
+// TestTraceProbeFromEnv_UnsetIsSilentAndNil: the ordinary run says nothing and
+// gets no Trace — the warning must not become ambient noise.
+func TestTraceProbeFromEnv_UnsetIsSilentAndNil(t *testing.T) {
+	t.Setenv(probeTraceEnv, "")
+	buf := captureWarnings(t)
+
+	if tp := traceProbeFromEnv(); tp != nil {
+		t.Fatalf("an unset probe var must yield a nil Trace; got %+v", tp)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("an ordinary run must be silent; got %q", buf.String())
+	}
+}

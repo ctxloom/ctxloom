@@ -324,7 +324,7 @@ func (e *erroringListStore) ListForProject(projectDir string) ([]sessions.Entry,
 }
 
 // TestCanonicalFallbackSource_ListSessions_NoLegacy_CanonicalErrorPropagates
-// pins U059-F03: legacy==nil is the RetiredScraperBackends case (codex, kiro,
+// pins U059-F03: legacy==nil is the retired-scraper case (codex, kiro,
 // antigravity, claude-code — S5, canonical is the ONLY source). Before the
 // fix, `canonMetas, _ := f.canonical.ListSessions(ctx)` discarded the error
 // and returned (nil, nil) — a confident "no sessions" indistinguishable from
@@ -420,4 +420,31 @@ func TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale(t *testing.T)
 
 	assert.Equal(t, few, many,
 		"index reads grew with the session count: %d for 1 session, %d for 6", few, many)
+}
+
+// TestRetiredScraperRoster_IsClosedAndImmutable pins U059-F21. The roster used
+// to be an exported package-level MAP, so every importer could add or remove a
+// backend from it at run time — silently deciding, for the whole process,
+// whether some engine gets a legacy scraper leg. The accessors expose exactly
+// the two questions callers actually ask, and neither hands out a writable view
+// of the package's own copy.
+//
+// A red for this could not be shown: the defect is the shape of the API, so the
+// test only compiles once the accessors exist.
+func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
+	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+
+	for _, name := range RetiredScraperBackendNames() {
+		assert.True(t, IsRetiredScraperBackend(name), "%s must be reported as retired", name)
+	}
+	assert.False(t, IsRetiredScraperBackend("opencode"),
+		"opencode's native reader is correct and keeps its legacy leg")
+	assert.False(t, IsRetiredScraperBackend(""))
+
+	// A caller reordering or truncating what it was handed cannot reach the
+	// roster itself.
+	got := RetiredScraperBackendNames()
+	got[0] = "tampered"
+	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+	assert.False(t, IsRetiredScraperBackend("tampered"))
 }

@@ -80,9 +80,35 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
       | MESSAGE_KIND_STEER            |
 
   # A sender is told, in the schema it reads before choosing an argument, that
-  # the coordinator's own kinds are not its to name. An agent that learns this
-  # only from a rejection has already spent a turn on it.
-  Scenario: the surface tells a sender which kinds are not its to name
+  # the coordinator's own kinds are not its to name AND that a wrong value is
+  # REFUSED rather than accepted-and-ignored. An agent that learns either of
+  # those only from a rejection has already spent a turn on it — and one that
+  # believes an unknown kind passes through will keep sending it.
+  Scenario: the surface states the rejection behaviour, not just the vocabulary
     When I read the "agent_send" tool's input contract
-    Then it advertises "The remaining values are the coordinator's own"
-    And it advertises "sending one is refused"
+    Then it advertises "REQUIRED"
+    And it advertises "CLOSED vocabulary of exactly four values"
+    And it advertises "is REJECTED from a sender, not quietly downgraded"
+    And it advertises "An unrecognised value is likewise REJECTED rather than passed through"
+    # The four sender-legal values, named as such — `message` included, which
+    # the retired free-text doc never listed.
+    And it advertises "MESSAGE_KIND_MESSAGE (plain prose"
+    And it advertises "MESSAGE_KIND_ERROR"
+
+  # The tool DESCRIPTION carries it too, not only the per-field schema: some
+  # harnesses surface the description and elide argument docs, and an agent that
+  # sees only the description would otherwise learn nothing about the closure.
+  Scenario: the tool description itself states the vocabulary is closed
+    When I read the "agent_send" tool's description
+    Then it advertises "`kind` is REQUIRED and its vocabulary is CLOSED"
+    And it advertises "is REFUSED rather than accepted-and-ignored"
+
+  # A recipient's guarantee is the mirror image of the sender's constraint: a
+  # kind it reads is trustworthy as to PROVENANCE, because a sender could not
+  # have set the reserved ones. That is the whole point of the split, and it is
+  # what makes an approval prompt believable.
+  Scenario: agent_recv tells a recipient which kinds a sender could not have set
+    When I read the "agent_recv" tool's result contract
+    Then it advertises "A SENDER could only have set one of"
+    And it advertises "minted by the coordinator itself and are therefore trustworthy as to provenance"
+    And it advertises "an unrecognised value is refused at ingress rather than delivered unclassified"

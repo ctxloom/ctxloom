@@ -87,6 +87,25 @@ func registerCoordinationContractSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	ctx.Step(`^I read the "([^"]*)" tool's description$`, func(c context.Context, tool string) error {
+		w := worldFrom(c)
+		if w.contract == nil {
+			return fmt.Errorf("no tool surface enumerated yet")
+		}
+		t, ok := w.contract.tools[tool]
+		if !ok {
+			return fmt.Errorf("tool %q is not on the coordination surface; it advertises %s",
+				tool, strings.Join(contractToolNames(w.contract), ", "))
+		}
+		if strings.TrimSpace(t.Description) == "" {
+			return fmt.Errorf("tool %q advertises no description at all", tool)
+		}
+		// The following assertions read the same "last" slot; description text
+		// goes in it so one set of steps serves all three surfaces.
+		w.contract.last = cli.DocMCPToolContract{Name: t.Name, Description: t.Description, InputSchema: t.Description}
+		return nil
+	})
+
 	ctx.Step(`^it advertises "([^"]*)"$`, func(c context.Context, want string) error {
 		return contractContains(c, want, true)
 	})

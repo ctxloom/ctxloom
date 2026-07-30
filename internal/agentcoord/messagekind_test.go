@@ -140,6 +140,51 @@ func TestParseMessageKind(t *testing.T) {
 	}
 }
 
+// CROSS-VOCABULARY AGREEMENT. While both guards exist — the string-level
+// chokepoint check (coord.SenderMailKind) and this typed enum — they must accept
+// the SAME four kinds. They live in packages that cannot import each other, so
+// the link is the derived spelling: if this test is green, an enum value and its
+// legacy string are the same word, and the merge that unifies them cannot
+// mismatch by spelling.
+//
+// The four names below are copied deliberately, not derived: a test that derived
+// its own expectation from the code under test would pass no matter what the
+// code said.
+func TestLegacySenderKindNames_MatchTheStringVocabulary(t *testing.T) {
+	want := []string{"error", "message", "question", "result"}
+	got := LegacySenderKindNames()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("sender-allowed legacy spellings are %v, want %v — the typed enum and the "+
+			"string-level guard would accept different sets", got, want)
+	}
+}
+
+// Every RESERVED value's legacy spelling must round-trip too, so the merge can
+// repoint the string guard's reserved list at the enum with the same confidence.
+func TestLegacyKindName_CoversTheReservedVocabulary(t *testing.T) {
+	for k, want := range map[MessageKind]string{
+		MessageKind_MESSAGE_KIND_APPROVAL_REQUEST: "approval_request",
+		MessageKind_MESSAGE_KIND_USER_INJECTED:    "user_injected",
+		MessageKind_MESSAGE_KIND_USER_CONTROL:     "user_control",
+		MessageKind_MESSAGE_KIND_EXITED:           "exited",
+		MessageKind_MESSAGE_KIND_STEER:            "steer",
+	} {
+		if got := LegacyKindName(k); got != want {
+			t.Errorf("LegacyKindName(%v) = %q, want %q", k, got, want)
+		}
+	}
+	// "unkinded" was the EMPTY STRING in the free-string vocabulary, and the
+	// enum deliberately does not represent it — MESSAGE_KIND_MESSAGE is what an
+	// unkinded message becomes. So UNSPECIFIED has no legacy spelling, and an
+	// unrecognised number has none either.
+	if got := LegacyKindName(MessageKind_MESSAGE_KIND_UNSPECIFIED); got != "" {
+		t.Errorf("UNSPECIFIED has no legacy spelling, got %q", got)
+	}
+	if got := LegacyKindName(MessageKind(99)); got != "" {
+		t.Errorf("an unrecognised value has no legacy spelling, got %q", got)
+	}
+}
+
 // §4.E: UNSPECIFIED must be invalid at every consumer, so an unrecognised
 // initiator fails CLOSED rather than inheriting the narrower branch's
 // privileges by default.

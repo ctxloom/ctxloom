@@ -1,6 +1,6 @@
 {
   "name": "agent_send",
-  "description": "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts.",
+  "description": "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -12,7 +12,7 @@
         "type": "string"
       },
       "kind": {
-        "description": "The message's kind, from a closed vocabulary. MESSAGE_KIND_MESSAGE (prose), MESSAGE_KIND_RESULT (a finding/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (awaiting an answer). The remaining values are the coordinator's own — sending one is refused. Leaving this unset is refused too: name the kind",
+        "description": "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship (MESSAGE_KIND_APPROVAL_REQUEST is relayed to a human as a trust decision), so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
         "enum": [
           "MESSAGE_KIND_UNSPECIFIED",
           "MESSAGE_KIND_MESSAGE",

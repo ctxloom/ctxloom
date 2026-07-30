@@ -27,7 +27,7 @@
               "type": "string"
             },
             "kind": {
-              "description": "The message's kind, from a closed vocabulary: MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION, MESSAGE_KIND_APPROVAL_REQUEST (an escalation waiting on your decision — see `structured`), MESSAGE_KIND_USER_INJECTED (a human injected text into a session you supervise), MESSAGE_KIND_USER_CONTROL, MESSAGE_KIND_EXITED (a child of yours ended), MESSAGE_KIND_STEER",
+              "description": "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_APPROVAL_REQUEST is an escalation WAITING on your decision (see `structured`); MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices.",
               "enum": [
                 "MESSAGE_KIND_UNSPECIFIED",
                 "MESSAGE_KIND_MESSAGE",

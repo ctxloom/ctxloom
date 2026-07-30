@@ -28,6 +28,14 @@ import (
 // Adding a value to MessageKind and NOT listing it here makes it
 // coordinator-reserved — the safe default, and the reason this is an allow-list
 // rather than a deny-list.
+//
+// It must agree, MEMBER FOR MEMBER, with the string-level vocabulary
+// `coord.SenderMailKind` enforces at the peerSend chokepoint (plane-2 Stage 0's
+// standalone form of this check). Two vocabularies that disagree are worse than
+// either alone: the typed guard and the string guard would each let through what
+// the other refuses, at different ingresses. LegacySenderKindNames below is the
+// executable link — a test cross-checks it against that vocabulary, so the pair
+// cannot drift silently while both look correct in isolation.
 var senderAllowedKinds = map[MessageKind]bool{
 	MessageKind_MESSAGE_KIND_MESSAGE:  true,
 	MessageKind_MESSAGE_KIND_RESULT:   true,
@@ -115,6 +123,45 @@ func SenderAllowedKindNames() string {
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")
+}
+
+// LegacyKindName is one enum value's spelling in the RETIRED free-string
+// vocabulary: the enum name with its MESSAGE_KIND_ prefix stripped and
+// lowercased. MESSAGE_KIND_APPROVAL_REQUEST -> "approval_request".
+//
+// It exists so the two guards cannot drift by SPELLING. The string-level
+// chokepoint guard (`coord.SenderMailKind`) and this typed enum have to agree
+// while both exist, and they live in packages that cannot import each other
+// (coord imports this one). So the relationship is made mechanical instead of
+// remembered: every enum value's legacy spelling is DERIVED, and a test pins the
+// derivation against the four names the string vocabulary actually uses.
+//
+// What this does NOT prove: that the string guard's MEMBERSHIP matches. That
+// check belongs at the merge that brings both into one tree, and it has one
+// obvious form — repoint coord's `senderMailKinds` at LegacySenderKindNames()
+// and delete its literal. Until then, this is the shared definition to converge
+// on rather than a second one to maintain.
+//
+// UNSPECIFIED has no legacy spelling: the free-string vocabulary expressed
+// "unkinded" as the EMPTY STRING, which the enum deliberately does not
+// represent (see MESSAGE_KIND_MESSAGE's comment). It returns "".
+func LegacyKindName(k MessageKind) string {
+	if k == MessageKind_MESSAGE_KIND_UNSPECIFIED || !k.recognised() {
+		return ""
+	}
+	return strings.ToLower(strings.TrimPrefix(k.String(), "MESSAGE_KIND_"))
+}
+
+// LegacySenderKindNames is the sender-allowed vocabulary in the retired
+// free-string spelling, sorted — the exact set `agent_send` used to accept as
+// text, derived from the enum so there is one source for it.
+func LegacySenderKindNames() []string {
+	names := make([]string, 0, len(senderAllowedKinds))
+	for k := range senderAllowedKinds {
+		names = append(names, LegacyKindName(k))
+	}
+	sort.Strings(names)
+	return names
 }
 
 // allKindNames lists every declared value name except UNSPECIFIED, sorted.

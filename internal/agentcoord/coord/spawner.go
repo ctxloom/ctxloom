@@ -83,7 +83,7 @@ type SpawnPlan struct {
 	// only when the resolved agent declared `driving: oneshot` AND the
 	// backend has a cheap resume-by-key primitive (resumeCapableBackends);
 	// ResumeModePersistent (the zero value) otherwise — including every
-	// conversational agent, which is every agent today. Resolved once in
+	// conversational agent. Resolved once in
 	// Resolve() via resolveResumeMode, mirroring Coordinator/Ladder/
 	// MCPServers above: a later config edit must not retroactively change a
 	// live run. Since Slice 4, Resolve() returns ResumeModeOneShot for the
@@ -100,21 +100,22 @@ type SpawnPlan struct {
 }
 
 // ResumeMode is a resolved agent's per-turn engine-lifecycle mode: whether
-// its engine process persists across turns (today's only behavior) or tears
-// down at each turn boundary to be resumed by native session key on the next
-// mailbox delivery (the one-shot-resume plan; not yet executed — see
-// SpawnPlan.ResumeMode's doc).
+// its engine process persists across turns — the default, and what every
+// conversational agent gets — or tears down at each turn boundary to be
+// resumed by native session key on the next mailbox delivery.
 type ResumeMode int
 
 const (
-	// ResumeModePersistent is the zero value / today's only behavior: the
-	// engine process stays warm across turns.
+	// ResumeModePersistent is the zero value: the engine process stays warm
+	// across turns.
 	ResumeModePersistent ResumeMode = iota
-	// ResumeModeOneShot is the turn-boundary teardown+resume-by-key model
-	// (v0.8, Slice 4). Reaching this value requires BOTH a `driving: oneshot`
-	// agent declaration and a resume-capable backend (resolveResumeMode); see
-	// SpawnPlan.ResumeMode's doc for why Resolve() does not actually return a
-	// plan carrying it in this release.
+	// ResumeModeOneShot is the turn-boundary teardown+resume-by-key model,
+	// LIVE for the wired backends. Reaching this value requires BOTH a
+	// `driving: oneshot` agent declaration and a statically resume-capable
+	// backend (resolveResumeMode); Resolve() narrows it once more to the
+	// backends whose turn loop is wired end to end (oneShotSupportedBackends:
+	// claude-code, codex) and fails loud for any other resume-capable one
+	// rather than returning a mode the turn loop would not act on.
 	ResumeModeOneShot
 )
 

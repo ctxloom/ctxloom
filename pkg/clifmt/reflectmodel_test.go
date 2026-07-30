@@ -1,7 +1,9 @@
 package clifmt
 
 import (
+	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -176,4 +178,71 @@ func TestBuildNodePointerToStructDereferenced(t *testing.T) {
 	if len(node.Scalars) != 2 {
 		t.Fatalf("expected 2 scalars from dereferenced pointer struct, got %+v", node.Scalars)
 	}
+}
+
+// ptrStringer's String() is declared on the POINTER receiver, so the VALUE
+// type does not satisfy fmt.Stringer while the pointer type does. That split
+// is what implementsStringer and typeImplementsStringer used to disagree
+// about.
+type ptrStringer struct {
+	N string `json:"n"`
+}
+
+func (p *ptrStringer) String() string { return "PS(" + p.N + ")" }
+
+// TestStringerClassifiersAgreeOnPointerReceiver pins that the value-level and
+// type-level "does this have a canonical human string form?" questions get the
+// same answer. typeImplementsStringer accepted a pointer receiver and
+// implementsStringer did not, so a slice of such a struct was ruled
+// "stringable" (and therefore NOT rendered as a table) by the first, then
+// failed the second and fell through to Go's default struct dump — rendered
+// neither as a table nor via its String().
+func TestStringerClassifiersAgreeOnPointerReceiver(t *testing.T) {
+	v := reflect.ValueOf(ptrStringer{N: "a"})
+	if got, want := implementsStringer(v), typeImplementsStringer(v.Type()); got != want {
+		t.Fatalf("implementsStringer=%v but typeImplementsStringer=%v for the same type", got, want)
+	}
+}
+
+// TestScalarStringUsesPointerReceiverStringer covers the three shapes the
+// disagreement leaked into: a top-level slice, a slice-of-pointer field, and a
+// plain struct field. All three must show the String() form.
+func TestScalarStringUsesPointerReceiverStringer(t *testing.T) {
+	type holder struct {
+		Ptrs  []*ptrStringer `json:"ptrs"`
+		One   ptrStringer    `json:"one"`
+		Plain string         `json:"plain"`
+	}
+
+	t.Run("top-level slice", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := renderText(&buf, []ptrStringer{{N: "a"}}); err != nil {
+			t.Fatalf("renderText: %v", err)
+		}
+		if !strings.Contains(buf.String(), "PS(a)") {
+			t.Errorf("got %q, want the String() form PS(a)", buf.String())
+		}
+	})
+
+	t.Run("slice-of-pointer field", func(t *testing.T) {
+		var buf bytes.Buffer
+		h := holder{Ptrs: []*ptrStringer{{N: "b"}}, Plain: "p"}
+		if err := renderText(&buf, h); err != nil {
+			t.Fatalf("renderText: %v", err)
+		}
+		if !strings.Contains(buf.String(), "PS(b)") {
+			t.Errorf("got %q, want the String() form PS(b)", buf.String())
+		}
+	})
+
+	t.Run("struct field", func(t *testing.T) {
+		var buf bytes.Buffer
+		h := holder{One: ptrStringer{N: "c"}, Plain: "p"}
+		if err := renderText(&buf, h); err != nil {
+			t.Fatalf("renderText: %v", err)
+		}
+		if !strings.Contains(buf.String(), "PS(c)") {
+			t.Errorf("got %q, want the String() form PS(c)", buf.String())
+		}
+	})
 }

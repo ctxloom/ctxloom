@@ -213,8 +213,8 @@ func scalarString(v reflect.Value) string {
 	if !v.IsValid() {
 		return ""
 	}
-	if implementsStringer(v) {
-		return v.Interface().(fmt.Stringer).String()
+	if s, ok := stringerString(v); ok {
+		return s
 	}
 	if err, ok := v.Interface().(error); ok {
 		return err.Error()
@@ -286,10 +286,44 @@ func derefType(t reflect.Type) reflect.Type {
 
 var stringerType = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
 
+// implementsStringer reports whether v has a canonical human string form. It
+// asks the same question of a VALUE that typeImplementsStringer asks of a
+// TYPE, and must keep giving the same answer: a String() declared on the
+// pointer receiver still gives the type a canonical form, and addressability
+// is a property of the call site rather than of the type. When the two
+// disagreed, a slice of such a struct was ruled "stringable" (so not rendered
+// as a table) by the type-level check and then failed the value-level one,
+// falling through to Go's default struct dump — neither a table nor a String().
 func implementsStringer(v reflect.Value) bool {
-	return v.IsValid() && v.Type().Implements(stringerType)
+	return v.IsValid() && typeImplementsStringer(v.Type())
 }
 
 func typeImplementsStringer(t reflect.Type) bool {
 	return t.Implements(stringerType) || reflect.PointerTo(t).Implements(stringerType)
+}
+
+// stringerString returns v's fmt.Stringer form, honoring a String() declared
+// on the POINTER receiver by addressing the value — or an addressable copy of
+// it, since a reflect.Value reached through an interface is never addressable.
+// Without the copy, every pointer-receiver Stringer would be classified as
+// stringable and then fail to produce its string.
+func stringerString(v reflect.Value) (string, bool) {
+	if !v.IsValid() || !v.CanInterface() {
+		return "", false
+	}
+	if v.Type().Implements(stringerType) {
+		if v.Kind() == reflect.Pointer && v.IsNil() {
+			return "", true
+		}
+		return v.Interface().(fmt.Stringer).String(), true
+	}
+	if !reflect.PointerTo(v.Type()).Implements(stringerType) {
+		return "", false
+	}
+	if v.CanAddr() {
+		return v.Addr().Interface().(fmt.Stringer).String(), true
+	}
+	addressable := reflect.New(v.Type())
+	addressable.Elem().Set(v)
+	return addressable.Interface().(fmt.Stringer).String(), true
 }

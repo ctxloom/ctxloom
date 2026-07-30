@@ -330,6 +330,20 @@ func (c *Conn) serveRequest(ctx context.Context, m rpcMessage) {
 
 // routeResponse hands a response frame to the caller waiting on its id.
 func (c *Conn) routeResponse(m rpcMessage) {
+	// JSON-RPC 2.0 mandates a null id on an error the peer cannot attribute to
+	// a request — Parse error (-32700), Invalid Request (-32600) — which is to
+	// say, on the errors reporting that OUR OWN output was unreadable. No
+	// caller can be waiting on it (ids start at 1), and unmarshalling JSON null
+	// into an int64 is a no-op in encoding/json, so routing it by id would
+	// silently rename it "unknown id 0" and discard the code and message.
+	if isNullID(m.ID) {
+		if m.Error != nil {
+			warnf("acp: peer reported an error it could not attribute to a request: %s", m.Error.Error())
+		} else {
+			warnf("acp: dropping id-less response frame carrying no error")
+		}
+		return
+	}
 	var id int64
 	if err := json.Unmarshal(m.ID, &id); err != nil {
 		warnf("acp: dropping response with non-integer id %s", m.ID)
@@ -353,6 +367,12 @@ func (c *Conn) routeResponse(m rpcMessage) {
 		warnf("acp: dropping duplicate response for id %d (one response per id was already routed)", id)
 	}
 }
+
+// isNullID reports whether a frame's id member is the JSON literal null. The
+// decoder stores a raw member verbatim, so this is a byte compare; the wire
+// distinction matters because null is a PRESENT id member meaning "not
+// attributable", not an absent one.
+func isNullID(raw json.RawMessage) bool { return string(raw) == "null" }
 
 // failPending unblocks every parked caller when the connection dies.
 func (c *Conn) failPending() {

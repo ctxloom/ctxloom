@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,214** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 95 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 149 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 151 |
-| `open` | no commit names this ID | **660** |
+| `open` | no commit names this ID | **659** |
 
-**Totals: 2268 findings across 162 units — 1,214 resolved, 660 still open, 394 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,214 resolved, 659 still open, 395 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 411 | 371 | 54 | 67 | 96 |
+| MED | 999 | 411 | 370 | 54 | 68 | 96 |
 | LOW | 871 | 446 | 273 | 28 | 73 | 51 |
 | (unparsed) | 22 | 5 | 12 | 3 | 2 | 0 |
 
@@ -1822,7 +1822,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U128-F07 | **PARTIAL** `846509f3` | `prompt.go:18, prompt.go:86` | SILENTNOOP | Given an empty `Batch`, `BuildPrompt` succeeds and returns a full prompt whose `=== Deferred tasks ===` header has nothing beneath it — asking a model to judge zero tasks. Zero payload, no error. `... | U128.md |
 | U129-F01 | **RESOLVED** `6c89e42f` | `textutil.go:10` + 9 call sites` | DUPLICATE | **The concept every caller actually wants is "ellipsize to fit N bytes", and all nine of them hand-roll the second half of it.** Worse, the result *exceeds* the requested cap by the suffix length, ... | U129.md |
 | U129-F02 | open | `textutil.go:11-13`, realised at `internal/compression/json.go:203,221` | SILENTNOOP | `TruncateBytes(s, 0)` silently returns `""`. At the one call site whose `maxBytes` is configuration rather than a literal, a zero value would turn **every** long string value in the compressed JSON... | U129.md |
-| U129-F03 | open | **`internal/memory/compactor.go:774,793`** | COUPLING | Two call sites use `len(textutil.TruncateBytes(s, n))` purely to compute an **integer rune-boundary offset**, discarding the string. That allocates and copies up to `n` bytes to answer a question t... | U129.md |
+| U129-F03 | **REFUTED** `6a3d18fa` | **`internal/memory/compactor.go:774,793`** | COUPLING | Two call sites use `len(textutil.TruncateBytes(s, n))` purely to compute an **integer rune-boundary offset**, discarding the string. That allocates and copies up to `n` bytes to answer a question t... | U129.md |
 | U129-F04 | open | `internal/cli/search.go:315,320`, `remote_discover.go:83,88`, `bundle_list.go:267`, `bundle_distill.go:299` | CORRECTNESS | Six call sites use a **byte** cap to size a **terminal column**. For CJK, emoji, or accented text the two diverge by 2-4x in one direction and 0.5x in the other, so tables misalign for non-ASCII co... | U129.md |
 | U130-F01 | open | `tokens.go:9,13` | CORRECTNESS | **`len()` counts BYTES, but the constant is named `CharsPerToken` and the doc says "characters".** For non-ASCII the two diverge by 2-4x, and the divergence propagates into a chunker that slices by... | U130.md |
 | U130-F02 | **RESOLVED** `659eab02` | **`internal/memory/compactor.go:33-35`** | DUPLICATE | **The package's sole stated purpose — being "the one place that knows the heuristic" — is undercut by its largest consumer, which re-exports the constant under a second name.** There are now two sp... | U130.md |

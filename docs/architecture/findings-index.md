@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,270** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 118 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 166 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 167 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **549** |
+| `open` | no commit names this ID | **548** |
 
-**Totals: 2268 findings across 162 units — 1,270 resolved, 549 still open, 449 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,270 resolved, 548 still open, 450 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 447 | 304 | 66 | 78 | 104 |
+| MED | 999 | 447 | 303 | 66 | 79 | 104 |
 | LOW | 871 | 466 | 233 | 37 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -991,7 +991,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U007-F04 | **RESOLVED** `bfd6abca` | **`manage.go:192-201`** | SILENTNOOP | `writeConfig` atomically writes whatever it is handed with no length check, so an upstream bug returning empty bytes would silently truncate a user's real backend config to 0 bytes — atomically | U007.md |
 | U007-F05 | **RESOLVED** `44362497` | `mcp_tools.go:211, 235` | CORRECTNESS / DUPLICATE | The MCP `task_list` does **not** apply `wrapTagQueryError`, so an agent that writes a malformed `tag_query` gets tagma's bare "stack underflow" while a CLI user gets the postfix-grammar hint. The e... | U007.md |
 | U007-F06 | **RESOLVED** `01524e6b` | **`commands.go:163-241 vs mcp_tools.go:182-271`** | DUPLICATE / COHESION | The list pipeline exists twice (~75 lines each): scope resolve → notice compose → global-vs-single → homing → priority → projection. It has already drifted twice (F01 shared, F05 divergent), which ... | U007.md |
-| U007-F07 | open | `mcp_tools.go:203, root.go:92/128` | COUPLING | The MCP handlers reach into CLI global state — `rootCmd.PersistentFlags()` and the package vars `tasksProject`/`tasksHoming` — mixing a launch-time value into a per-call resolution. `taskloom --hom... | U007.md |
+| U007-F07 | **REFUTED** `6da710b5` | `mcp_tools.go:203, root.go:92/128` | COUPLING | The MCP handlers reach into CLI global state — `rootCmd.PersistentFlags()` and the package vars `tasksProject`/`tasksHoming` — mixing a launch-time value into a per-call resolution. `taskloom --hom... | U007.md |
 | U007-F08 | **RESOLVED** `31bc02e3` | `mcp_tools.go:283, 296, 309, 322` | CORRECTNESS | All four MCP write tools discard `res.Warning` (the project moved/forked notice) and the project attribution: `warnTask` sends it to **stderr**, which an MCP client's model never reads, and the res... | U007.md |
 | U007-F09 | **PARTIAL** `0fb7d6ae` | **`format.go:11 vs loadout.go:43`** | COUPLING | Two `--format` flags with different, incompatible vocabularies live on one command tree: root's persistent `{json,yaml,toml,text,markdown}` default `text`, and `loadout`'s local `{yaml,json}` defau... | U007.md |
 | U007-F10 | **RESOLVED** `8ee99b8f` | **`commands.go:163, mcp_tools.go:182, scope.go:209, mcp_resources.go:107`** | COMPLEXITY | Four owned functions sit at or above the project's own enforcing gate (CCN 20 / 17 / 14 / 10 against `just complexity-check`, "fail if any function exceeds CCN 10 — used by the CI lint job", justfi... | U007.md |

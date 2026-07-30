@@ -829,6 +829,15 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 // worktree half: a fallback warns and the run proceeds.
 func (w Worktree) scratchBase() string {
 	if !safePathSegment(w.state.Harp) {
+		// An EMPTY harp is the documented no-session-accounting construction
+		// and stays silent. A NON-empty harp that fails the validator is a
+		// rejected value on the same untrusted channel (an env map) the
+		// container path hard-errors on — reporting it is the least this side
+		// can do, since the fallback silently relocates every per-agent
+		// scratch resource out of the session layout the run claims to use.
+		if w.state.Harp != "" {
+			clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent scratch falls back to the OS temp dir instead of the session's ephemeral dir", w.state.Harp)
+		}
 		return os.TempDir()
 	}
 	dir, err := paths.HarpEphemeralDir(w.state.Harp)

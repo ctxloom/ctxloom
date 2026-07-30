@@ -987,3 +987,45 @@ func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
 	assert.Empty(t, nestedUnder(list, filepath.Join(link, "ctxloom-wt-elsewhere")),
 		"resolving the target must not widen the match to unrelated trees")
 }
+
+// TestWorktree_UnsafeHarpIsReported is U065-F13's pin. scratchBase runs the
+// SAME safePathSegment validator on the SAME untrusted input the container
+// path validates (a harp arriving from the env map), but where the container
+// path turns a rejection into a hard error, this one silently swapped in the
+// OS temp dir: no warning, no finding, and a run that reports session-scoped
+// ephemeral state while writing none. The EMPTY harp keeps its silence — that
+// is the documented no-session-accounting construction, not a rejected value.
+func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
+	t.Run("rejected harp is reported", func(t *testing.T) {
+		const badHarp = "wave31/u065-unsafe-harp"
+		f := &git.Fake{CommonDirValue: t.TempDir()}
+		w := NewWorktree(f, "")
+		w.state = SessionState{Harp: badHarp}
+
+		done := captureStderr(t)
+		ws, err := w.PrepareWorkspace(context.Background(), "/proj", "member-badharp")
+		stderr := done()
+		require.NoError(t, err)
+		requireCleanWorkspace(t, ws)
+		t.Cleanup(func() { _ = ws.Cleanup() })
+
+		assert.Contains(t, stderr, badHarp, "the warning names the harp it refused to use")
+		assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()+string(os.PathSeparator)),
+			"the fallback itself is unchanged: scratch %q lands in the OS temp dir", ws.Dir())
+	})
+
+	t.Run("absent harp stays silent", func(t *testing.T) {
+		f := &git.Fake{CommonDirValue: t.TempDir()}
+		w := NewWorktree(f, "")
+
+		done := captureStderr(t)
+		ws, err := w.PrepareWorkspace(context.Background(), "/proj", "member-noharp")
+		stderr := done()
+		require.NoError(t, err)
+		requireCleanWorkspace(t, ws)
+		t.Cleanup(func() { _ = ws.Cleanup() })
+
+		assert.Empty(t, strings.TrimSpace(stderr),
+			"no session accounting is the documented construction, not a fault to warn about")
+	})
+}

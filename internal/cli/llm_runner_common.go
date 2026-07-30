@@ -24,6 +24,10 @@ type runnerStandup struct {
 	endpointClose func()
 }
 
+// label is the config label whose LLM entry configures the backend, passed by
+// whichever command owns the standup — each has its own --label flag, and a
+// parameter is what keeps the three from sharing one mutable package global.
+//
 // standUpRunner performs the runner standup shared by `llm serve` and `llm
 // host` (queer-shrug §4.3): consume + scrub the coordinator reach-back trio,
 // load + apply the backend config, stand up the EngineHost for a delegated
@@ -32,7 +36,7 @@ type runnerStandup struct {
 // (plugin.Serve vs a lifecycle block, which each caller owns). It returns the
 // standup on success, or a FATAL error (a hosted run whose MCP endpoint failed
 // — never launch its engine with no reach-back) after closing home itself.
-func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string) (*runnerStandup, error) {
+func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label string) (*runnerStandup, error) {
 	// RUNNER-TERMINATED MCP: the per-spawn seam stamps the coordinator trio
 	// onto THIS process's env. Consume it FIRST and scrub it — the runner is
 	// the ONE credential holder; the harness and its subprocesses must never
@@ -72,7 +76,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string
 		// (root.go) and runMCPServerSDK (mcp_server.go), the other
 		// process-owning entry points.
 		printConfigWarnings(os.Stderr, cfg.GetWarnings())
-		if bc := serveBackendConfig(cfg, backendName, llmServeLabel); bc != nil {
+		if bc := serveBackendConfig(cfg, backendName, label); bc != nil {
 			if c, ok := backend.(backends.Configurable); ok {
 				c.Configure(bc)
 			}

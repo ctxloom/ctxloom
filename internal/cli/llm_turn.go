@@ -65,11 +65,6 @@ var llmTurnCmd = &cobra.Command{
 		if llmTurnStartPath == "" {
 			return fmt.Errorf("llm turn: --start (the RunStart handoff path) is required")
 		}
-		// standUpRunner reads llmServeLabel for the config lookup (shared seam).
-		if llmTurnLabel != "" {
-			llmServeLabel = llmTurnLabel
-		}
-
 		req, err := readRunStartHandoff(llmTurnStartPath)
 		if err != nil {
 			return err
@@ -83,7 +78,7 @@ var llmTurnCmd = &cobra.Command{
 		// it is a no-op, and an MCP hiccup on this interactive path degrades the
 		// shim to its local fallback rather than failing the turn (there is no
 		// hosted delegated run here — no RunID, so no EngineHost).
-		standup, serr := standUpRunner(cmd, backend, backendName)
+		standup, serr := standUpRunner(cmd, backend, backendName, llmTurnLabel)
 		if serr != nil {
 			clidiag.Warn("ctxloom", "runner MCP standup for interactive turn failed (continuing without it): %v", serr)
 			standup = &runnerStandup{}

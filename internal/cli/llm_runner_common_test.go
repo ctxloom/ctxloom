@@ -12,6 +12,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -121,4 +123,57 @@ func TestRunnerMustRefuseNoConfigReachBack(t *testing.T) {
 		"no config but no hosted run (e.g. `llm serve` with no RunID) has nothing to refuse for")
 	assert.False(t, runnerMustRefuseNoConfigReachBack(&config.Config{}, hostedRun),
 		"a loaded config (however degraded) takes the normal serveRunnerMCP path instead")
+}
+
+// labelCapturingBackend is a Configurable agent.Backend double that records the
+// typed config standUpRunner resolved for it. It embeds the mock backend purely
+// to satisfy agent.Backend; only Configure matters here.
+type labelCapturingBackend struct {
+	*backends.Mock
+	got agent.BackendConfig
+}
+
+func (b *labelCapturingBackend) Configure(bc agent.BackendConfig) { b.got = bc }
+
+// twoMockLabelProject writes a project whose config declares two mock-typed LLM
+// labels with distinguishable models, so a label mix-up is visible in the
+// resolved config rather than silently harmless.
+func twoMockLabelProject(t *testing.T) {
+	t.Helper()
+	dir := testsupport.ProjectDir(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
+	body := "llm:\n  configs:\n    alpha:\n      type: mock\n      model: model-alpha\n    beta:\n      type: mock\n      model: model-beta\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte(body), 0o644))
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+}
+
+// TestStandUpRunner_ConfiguresFromTheLabelItWasGiven is the U037-F23 pin. `llm
+// host` and `llm turn` each used to copy their own --label into `llm serve`'s
+// package-global llmServeLabel, because standUpRunner read that global instead
+// of taking the label as an argument: three commands writing one mutable global
+// to pass an argument down one call. The label is now a parameter, and this pins
+// that the parameter is what selects the entry — nothing else can.
+//
+// No reach-back trio is set, so standUpRunner returns at its own "nothing to
+// dial" early exit immediately after the config/configure block under test: no
+// coordinator, no engine, no socket.
+func TestStandUpRunner_ConfiguresFromTheLabelItWasGiven(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t) // no CTXLOOM_COORD_* trio in the environment
+
+	for _, label := range []string{"alpha", "beta"} {
+		backend := &labelCapturingBackend{Mock: backends.NewMock()}
+		standup, err := func() (*runnerStandup, error) {
+			cmd, _ := testCmd()
+			return standUpRunner(cmd, backend, "mock", label)
+		}()
+		require.NoError(t, err)
+		require.NotNil(t, standup)
+
+		cfg, ok := backend.got.(*backends.MockConfig)
+		require.Truef(t, ok, "label %q must resolve a mock config, got %T", label, backend.got)
+		assert.Equal(t, "model-"+label, cfg.Model,
+			"the label passed to standUpRunner is what selects the entry")
+	}
 }

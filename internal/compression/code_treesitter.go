@@ -179,6 +179,28 @@ func (c *CodeCompressor) emitVerbatim(child *sitter.Node, source []byte, out *st
 	out.WriteString(suffix)
 }
 
+// writeIndentedBlock writes s into out with prefix on every non-blank line. The
+// class/impl body extractors use it to nest a member that was itself extracted
+// (a nested class, an enum) at the depth it sits at in the source, instead of
+// dropping it for want of somewhere to put it.
+func writeIndentedBlock(out *strings.Builder, prefix, s string) {
+	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		if strings.TrimSpace(line) != "" {
+			out.WriteString(prefix)
+			out.WriteString(line)
+		}
+		out.WriteString("\n")
+	}
+}
+
+// extractIndented runs extract into a scratch builder and writes the result
+// into out at prefix — for a member whose own extractor writes at column zero.
+func (c *CodeCompressor) extractIndented(node *sitter.Node, source []byte, out *strings.Builder, prefix string, extract func(*sitter.Node, []byte, *strings.Builder)) {
+	var nested strings.Builder
+	extract(node, source, &nested)
+	writeIndentedBlock(out, prefix, nested.String())
+}
+
 func (c *CodeCompressor) isDocComment(node *sitter.Node, source []byte) bool {
 	text := c.nodeText(node, source)
 	return strings.HasPrefix(text, "//") || strings.HasPrefix(text, "/*")

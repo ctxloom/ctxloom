@@ -177,10 +177,28 @@ func (c *CodeCompressor) extractPythonClass(node *sitter.Node, source []byte, ou
 	out.WriteString("\n")
 }
 
+// extractPythonClassBody emits a class's members with method bodies elided.
+// Every member kind a class body can declare is handled: methods (plain and
+// decorated), class attributes — annotated or not, which are API surface as
+// much as any method — and nested classes. A member kind that is merely
+// enumerated nowhere is a member the model never sees, with nothing in the
+// output to say it existed.
 func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
+			continue
+		}
+
+		switch child.Type() {
+		case "expression_statement":
+			c.extractIndented(child, source, out, "    ", c.extractPythonExpressionStatement)
+			continue
+		case "assignment", "augmented_assignment":
+			c.extractIndented(child, source, out, "    ", c.extractPythonAssignment)
+			continue
+		case "class_definition":
+			c.extractIndented(child, source, out, "    ", c.extractPythonClass)
 			continue
 		}
 

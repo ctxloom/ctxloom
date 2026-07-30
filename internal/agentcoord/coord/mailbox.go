@@ -288,9 +288,14 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 	case r := <-p.ch:
 		return r.msgs, r.err
 	case <-timer.C:
-		return c.abandonPoll(role, p, ErrRecvTimeout)
+		// The timer expiring does not end the CALLER: it is still waiting for
+		// this call's return value, so a delivery that won the race is handed
+		// to it.
+		return c.abandonPoll(role, p, ErrRecvTimeout, false)
 	case <-ctx.Done():
-		return c.abandonPoll(role, p, ctx.Err())
+		// A cancelled context DOES end the caller — nothing it returns can be
+		// received — so a delivery that won the race has to be released.
+		return c.abandonPoll(role, p, ctx.Err(), true)
 	}
 }
 
@@ -298,11 +303,29 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 // if the delivery already won (done), its completion is authoritative — wait
 // for it; otherwise claim the poll, re-acquire the slot (unpark), and fail
 // with err.
-func (c *Coordinator) abandonPoll(role string, p *parkedPoll, err error) ([]Message, error) {
+//
+// callerGone says whether the recv's caller can still receive what this
+// returns. It cannot when the caller's own context was cancelled, and a
+// delivery that won the race is then a delivery to NOBODY: the id is reserved
+// in the runtime ledger, so the next recv's cursor-ack (ackDelivered) would
+// journal a mail-consumed fact for a message no agent ever saw, and
+// undeliveredLocked would filter it out forever. Releasing the reservation is
+// what keeps at-least-once true for the one case where the message was already
+// spoken for (U023-F08); the timeout path keeps it, because there the caller is
+// still there to be given it.
+func (c *Coordinator) abandonPoll(role string, p *parkedPoll, err error, callerGone bool) ([]Message, error) {
 	c.mu.Lock()
 	if p.done {
 		c.mu.Unlock()
 		r := <-p.ch
+		if callerGone && len(r.msgs) > 0 {
+			ids := make([]string, 0, len(r.msgs))
+			for _, m := range r.msgs {
+				ids = append(ids, m.ID)
+			}
+			c.unreserve(role, ids)
+			return nil, err
+		}
 		return r.msgs, r.err
 	}
 	p.done = true

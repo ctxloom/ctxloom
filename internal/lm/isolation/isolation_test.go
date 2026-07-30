@@ -348,7 +348,6 @@ func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testi
 	})
 }
 
-<<<<<<< HEAD
 // TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution is U064-F07's
 // pinning test. The row claimed an explicit runtime preference that is unknown
 // or unavailable is silently replaced by auto-detection, so "a user who
@@ -387,7 +386,8 @@ func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) 
 		assert.Empty(t, prefer,
 			"the run path must probe with auto-detect; a preference expressed here would be silently substituted by SelectRuntime's fall-through, which only selectBuildRuntime guards against")
 	}
-=======
+}
+
 // TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins U063-F13: the
 // predicate every "did we keep the container boundary?" check funnels through
 // must agree with what each policy actually calls itself. It used to match on
@@ -508,5 +508,4 @@ func TestImageOverrideAndBaseImageAreOppositeConcepts(t *testing.T) {
 	assert.Contains(t, string(overlay[0].containerfile), "FROM my-registry/my-kiro:v2\n")
 	assert.Contains(t, string(overlay[0].containerfile), "COPY ctxloom /usr/local/bin/ctxloom\n",
 		"a build base gets ctxloom layered onto it; a run-as-is override never would")
->>>>>>> release/0.7
 }

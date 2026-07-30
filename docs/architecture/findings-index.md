@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,155** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,156** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 72 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 124 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **772** |
+| `open` | no commit names this ID | **771** |
 
-**Totals: 2268 findings across 162 units — 1,155 resolved, 772 still open, 341 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,156 resolved, 771 still open, 341 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 374 | 443 | 39 | 52 | 91 |
-| LOW | 871 | 431 | 303 | 23 | 64 | 50 |
+| LOW | 871 | 432 | 302 | 23 | 64 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2597,7 +2597,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U103-F08 | open | `clidiag.go:84-94` | CORRECTNESS | `SetSink`'s doc guarantees it "never installs a nil writer", but the nil check only catches an untyped `nil`; a typed-nil (`var f *os.File; SetSink(f)`) passes `w == nil` and installs a writer that... | U103.md |
 | U103-F10 | **RESOLVED** `5fdf8767` | `clidiag.go:23` | TRIVIAL | Doc comment attributes the dedup to the wrong functions | U103.md |
 | U103-F11 | **RESOLVED** `4df72345` | `clidiag.go:152-154` | TRIVIAL | `(Warner) Warn` is a pure pass-through satisfying no interface and providing no seam | U103.md |
-| U104-F08 | open | `cliemit.go:42` | COUPLING | `Resolve` carries connascence of **execution order**: it is only correct after cobra has merged parents' persistent flags into `cmd.Flags()`, which happens during `ParseFlags` inside `Execute`. Cal... | U104.md |
+| U104-F08 | **RESOLVED** `3ea441dc` | `cliemit.go:42` | COUPLING | `Resolve` carries connascence of **execution order**: it is only correct after cobra has merged parents' persistent flags into `cmd.Flags()`, which happens during `ParseFlags` inside `Execute`. Cal... | U104.md |
 | U104-F09 | **REFUTED** `7841c4ba` | `internal/cli/root.go:167` | CORRECTNESS | The top-level error path resolves the format from `rootCmd`, where the `--json` shorthand does not exist — so a `--json` invocation that fails gets JSON success-shaped output on the happy path and ... | U104.md |
 | U104-F10 | **REFUTED** (cross-package/product decision; see wave-2 report) | `internal/cli/format.go:43-53` | TRIVIAL | `emit` and `resolveFormat` in `internal/cli` are one-line pure pass-throughs to this package. | U104.md |
 | U105-F04 | open | `cliversion.go:24` | COUPLING | The format vocabulary (`""`, `"text"`, `"json"`) is a bare string switch duplicating the format enum `clifmt` already owns (`formatJSON`/`formatText` constants exist in `internal/cli`). Connascence... | U105.md |

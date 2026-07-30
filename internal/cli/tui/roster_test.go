@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -81,6 +82,43 @@ func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
 	}, "")
 	require.Len(t, rows, 1)
 	assert.Equal(t, 0, rows[0].Depth, "an orphan (parent unknown) shows at the root")
+}
+
+// Characterization of the lineage walk before U044-F20 replaces its
+// scan-every-row-per-node placement with a children index: depth accumulates
+// down the chain, siblings keep the order the roster produced them in, and a
+// subtree is emitted immediately after its parent rather than after its
+// parent's siblings.
+func TestBuildRoster_GrandchildrenNestAndSiblingsKeepRosterOrder(t *testing.T) {
+	rows := BuildRoster(nil, []coord.RosterEntry{
+		{Harp: "root", State: "live"},
+		{Harp: "kid-b", State: "executing", Parent: "root"},
+		{Harp: "kid-a", State: "queued", Parent: "root"},
+		{Harp: "grandkid", State: "queued", Parent: "kid-b"},
+		{Harp: "other-root", State: "live"},
+	}, "")
+
+	var got []string
+	for _, r := range rows {
+		got = append(got, fmt.Sprintf("%s@%d", r.Harp, r.Depth))
+	}
+	assert.Equal(t, []string{"root@0", "kid-b@1", "grandkid@2", "kid-a@1", "other-root@0"}, got)
+}
+
+// A parent cycle cannot arise from the coordinator, but the walk must still
+// emit every row exactly once rather than dropping the cycle's members.
+func TestBuildRoster_ParentCycleIsPlacedFlatNotLost(t *testing.T) {
+	rows := BuildRoster(nil, []coord.RosterEntry{
+		{Harp: "a", State: "live", Parent: "b"},
+		{Harp: "b", State: "live", Parent: "a"},
+		{Harp: "c", State: "live"},
+	}, "")
+
+	require.Len(t, rows, 3, "no row is lost to the cycle")
+	assert.Equal(t, "c", rows[0].Harp, "the real root places first")
+	assert.Equal(t, []string{"a", "b"}, []string{rows[1].Harp, rows[2].Harp})
+	assert.Equal(t, 0, rows[1].Depth)
+	assert.Equal(t, 1, rows[2].Depth, "the cycle's second member still nests under the first")
 }
 
 func TestStateGlyphs(t *testing.T) {

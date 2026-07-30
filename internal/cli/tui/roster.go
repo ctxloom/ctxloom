@@ -64,11 +64,20 @@ func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp strin
 	}
 
 	// Lineage placement: children move under their parent, depth-indented.
-	byHarp := make(map[string]int, len(roots))
-	for i, r := range roots {
-		byHarp[r.Harp] = i
+	// Both indexes are built in one pass over roots, so the walk visits each
+	// row's actual children instead of rescanning every row per node; children
+	// keep the order roots produced them in.
+	known := make(map[string]bool, len(roots))
+	children := make(map[string][]RosterRow, len(roots))
+	for _, r := range roots {
+		known[r.Harp] = true
 	}
-	placed := make(map[string]bool)
+	for _, r := range roots {
+		if r.Parent != "" && known[r.Parent] {
+			children[r.Parent] = append(children[r.Parent], r)
+		}
+	}
+	placed := make(map[string]bool, len(roots))
 	var out []RosterRow
 	var place func(r RosterRow, depth int)
 	place = func(r RosterRow, depth int) {
@@ -78,15 +87,13 @@ func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp strin
 		placed[r.Harp] = true
 		r.Depth = depth
 		out = append(out, r)
-		for _, c := range roots {
-			if c.Parent == r.Harp {
-				place(c, depth+1)
-			}
+		for _, c := range children[r.Harp] {
+			place(c, depth+1)
 		}
 	}
 	for _, r := range roots {
 		// Roots: no parent, or a parent the roster doesn't know (orphan).
-		if _, parentKnown := byHarp[r.Parent]; r.Parent == "" || !parentKnown {
+		if r.Parent == "" || !known[r.Parent] {
 			place(r, 0)
 		}
 	}

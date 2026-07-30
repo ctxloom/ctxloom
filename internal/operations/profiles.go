@@ -493,6 +493,13 @@ func profileLoader(cfg *config.Config) *profiles.Loader {
 		profileDirs = []string{filepath.Join(cfg.GetAppPaths()[0], "profiles")}
 	}
 	var opts []profiles.LoaderOption
+	// The loader must READ the same filesystem the directories were discovered
+	// on. Without this the dirs come from cfg.FS() and the reads go to the OS
+	// filesystem, so an injected filesystem yields a discovered-but-empty
+	// directory and an error-free empty listing.
+	if fs := cfg.FS(); fs != nil {
+		opts = append(opts, profiles.WithFS(fs))
+	}
 	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}

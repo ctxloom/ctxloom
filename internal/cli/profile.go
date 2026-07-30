@@ -167,7 +167,7 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		LLM:         profileCreateLLM,
 		Parents:     profileCreateParents,
 		Bundles:     profileCreateBundles,
-		Loader:      profiles.NewLoader(profileCreateDirs(cfg)),
+		Loader:      profiles.NewLoader(profileCreateDirs(cfg), profileLoaderFSOptions(cfg)...),
 	})
 	if err != nil {
 		return err
@@ -192,6 +192,17 @@ func profileCreateDirs(cfg *config.Config) []string {
 		dirs = []string{filepath.Join(appPaths[0], "profiles")}
 	}
 	return dirs
+}
+
+// profileLoaderFSOptions threads the config's filesystem into a profile loader
+// so reads and WRITES land where the directories were discovered. Empty when
+// the config carries no injected filesystem, which leaves the loader on its OS
+// default.
+func profileLoaderFSOptions(cfg *config.Config) []profiles.LoaderOption {
+	if fs := cfg.FS(); fs != nil {
+		return []profiles.LoaderOption{profiles.WithFS(fs)}
+	}
+	return nil
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.

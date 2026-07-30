@@ -41,3 +41,27 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Equal(t, authored, string(after), "the authored bytes must survive untouched")
 }
+
+// TestProfileLoader_HonoursTheInjectedFilesystem pins that the profile loader
+// operations build reads the SAME filesystem the config was given. It resolved
+// its directories through cfg.FS() but then constructed a loader with no
+// WithFS, so the loader defaulted to the OS filesystem: with an injected
+// filesystem the directories were discovered and then found empty, and
+// `profile list` reported zero profiles with no error at all (U091-F22).
+func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/app/profiles/alpha.yaml", []byte("bundles:\n  - go-development\n"), 0o644))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
+	cfg.SetFS(fs)
+
+	list, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{})
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(list.Profiles))
+	for _, p := range list.Profiles {
+		names = append(names, p.Name)
+	}
+	assert.Equal(t, []string{"alpha"}, names, "the profile written to the injected filesystem must be listed")
+}

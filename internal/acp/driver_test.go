@@ -103,8 +103,8 @@ func TestConfigure_ClaudeAgentEngineStripsCLAUDECODE(t *testing.T) {
 func TestChat_ModelEnvVar(t *testing.T) {
 	b := NewChatDriver(ACPConfig{Command: "claude-code-acp", ModelEnvVar: "ANTHROPIC_MODEL"})
 	gotEnv := make(chan map[string]string, 1)
-	b.openTransport = func(_ context.Context, _ []string, env map[string]string, _ string) (*transport, error) {
-		gotEnv <- env
+	b.openTransport = func(_ context.Context, req transportRequest) (*transport, error) {
+		gotEnv <- req.env
 		return nil, io.ErrUnexpectedEOF // spawn "fails": env capture is all this test needs
 	}
 	in := make(chan agent.ChatMessage)
@@ -121,8 +121,8 @@ func TestChat_ModelEnvVar(t *testing.T) {
 	// channels: Chat closes out on return, per the StructuredChat contract.)
 	b2 := NewChatDriver(ACPConfig{Command: "kiro-cli acp"})
 	gotEnv2 := make(chan map[string]string, 1)
-	b2.openTransport = func(_ context.Context, _ []string, env map[string]string, _ string) (*transport, error) {
-		gotEnv2 <- env
+	b2.openTransport = func(_ context.Context, req transportRequest) (*transport, error) {
+		gotEnv2 <- req.env
 		return nil, io.ErrUnexpectedEOF
 	}
 	_ = b2.Chat(context.Background(), agent.ChatRequest{Model: "some-model", Env: map[string]string{"FOO": "bar"}},

@@ -49,7 +49,12 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	if open == nil {
 		open = b.spawnTransport
 	}
-	tr, err := open(ctx, b.chatArgv(req), b.envOverlay(req), req.WorkDir)
+	tr, err := open(ctx, transportRequest{
+		argv:    b.chatArgv(req),
+		env:     b.envOverlay(req),
+		workDir: req.WorkDir,
+		runtime: req.Runtime,
+	})
 	if err != nil {
 		return err
 	}

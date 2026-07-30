@@ -41,7 +41,7 @@ func startChatWithClock(t *testing.T, req agent.ChatRequest, now func() time.Tim
 
 	b := NewACP()
 	b.now = now
-	b.openTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*transport, error) {
+	b.openTransport = func(context.Context, transportRequest) (*transport, error) {
 		return &transport{
 			stdin:  c2aW,
 			stdout: a2cR,
@@ -1247,7 +1247,7 @@ func TestChat_ForwardedTerminal_InputClosed(t *testing.T) {
 // closes out per the contract).
 func TestChat_TransportError(t *testing.T) {
 	b := NewACP()
-	b.openTransport = func(context.Context, []string, map[string]string, string) (*transport, error) {
+	b.openTransport = func(context.Context, transportRequest) (*transport, error) {
 		return nil, io.ErrUnexpectedEOF
 	}
 	out := make(chan agent.ChatEvent, 1)

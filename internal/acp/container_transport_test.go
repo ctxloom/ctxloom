@@ -94,7 +94,7 @@ func TestSpawnTransport_RoutesOnTheLaunchNotOnLeftoverBackendState(t *testing.T)
 
 	_ = b.chatArgv(agent.ChatRequest{Runtime: agent.RuntimeContainer})
 
-	_, err := b.spawnTransport(context.Background(), nil, nil, t.TempDir())
+	_, err := b.spawnTransport(context.Background(), transportRequest{workDir: t.TempDir()})
 	require.Error(t, err, "the binary does not exist, so the host spawn must fail")
 	assert.NotContains(t, err.Error(), "no container runtime is reachable",
 		"a host launch must not be routed into the container transport")

@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 
@@ -126,10 +127,33 @@ var configEditCmd = &cobra.Command{
 
 func runConfigEdit(cmd *cobra.Command, _ []string) error {
 	path := projectConfigPath()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	exists, err := configFileExists(path)
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return fmt.Errorf("no config at %s — run 'ctxloom config init' first", path)
 	}
 	return openInEditor(path)
+}
+
+// configFileExists reports whether path is there, keeping "it is genuinely
+// absent" separate from "the answer is unknown". Both config commands hinge on
+// that answer — edit refuses to run without a config, init refuses to
+// overwrite one — and os.Stat has a third outcome besides yes and no: a
+// permission-denied parent, a non-directory path component, a symlink loop. A
+// boolean reading of Stat resolves every one of those to the WRONG branch
+// (edit launches $EDITOR on a path it could not read; init proceeds as if the
+// config it must not clobber were absent), so an inconclusive stat is reported,
+// never guessed.
+func configFileExists(path string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("cannot determine whether %s exists: %w", path, err)
+	}
+	return true, nil
 }
 
 // configInitLong is shared by configInitCmd (real home) and
@@ -155,10 +179,14 @@ func runConfigInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	path := paths.ConfigPath(appDir)
-	if _, err := os.Stat(path); err == nil {
+	exists, err := configFileExists(path)
+	if err != nil {
+		return err
+	}
+	if exists {
 		return fmt.Errorf("config already exists: %s", path)
 	}
-	if _, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
+	if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
 		AppDir: appDir,
 		Engine: configInitEngine,
 	}); err != nil {

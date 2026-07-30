@@ -303,6 +303,68 @@ func TestExecuteQuery_GitLogPath_TruncatedWindowIsInconclusive(t *testing.T) {
 	assert.NotEmpty(t, got.Err, "a fully-truncated commit window with zero matches is inconclusive, not evidence of absence")
 }
 
+// U053-F13: a commit whose changed-file list could not be gathered
+// (FilesUnknown) is not a commit that touched nothing. Filtering it out
+// silently turns "we never found out" into "it did not touch the path", so a
+// zero-match result over such a window is inconclusive, exactly like the
+// truncated window above.
+func TestExecuteQuery_GitLogPath_UnknownFileListIsInconclusive(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {
+		{SHA: "aaaa1111", Subject: "unrelated change", Files: []string{"unrelated.go"}},
+		{SHA: "bbbb2222", Subject: "file list unavailable", FilesUnknown: true},
+	}}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/signing"})
+	assert.Empty(t, got.Output, "a search that could not read every commit must not present a completed result")
+	assert.NotEmpty(t, got.Err, "zero matches over a window with an unreadable commit is inconclusive, not evidence of absence")
+}
+
+// A MATCH found elsewhere in the window still answers the question, even when
+// another commit's file list was unavailable — the inconclusive guard must
+// not suppress evidence that was actually found.
+func TestExecuteQuery_GitLogPath_UnknownFileListDoesNotSuppressAMatch(t *testing.T) {
+	repo := t.TempDir()
+	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{repo: {
+		{SHA: "aaaa1111", Subject: "touch signing", Files: []string{"internal/signing/cli.go"}},
+		{SHA: "bbbb2222", Subject: "file list unavailable", FilesUnknown: true},
+	}}}
+
+	got := executeQuery(context.Background(), gitFake, repo, nil, triggers.Query{Type: triggers.QueryGitLogPath, Path: "internal/signing"})
+	assert.Empty(t, got.Err)
+	assert.Contains(t, got.Output, "touch signing")
+}
+
+// TestBuildBatch_DeclaresTruncatedRepoState pins the gathering half of
+// U053-F11: the repo-state lists are bounded, and only the caller that owns
+// the bound can notice a listing that hit it. A batch built from a full-cap
+// result must carry the truncation flags the prompt renders, or the model is
+// handed a partial inventory presented as a complete one.
+func TestBuildBatch_DeclaresTruncatedRepoState(t *testing.T) {
+	repo := t.TempDir()
+
+	dirs := make([]string, repoDirsScanCap+50)
+	for i := range dirs {
+		dirs[i] = fmt.Sprintf("internal/pkg%04d", i)
+	}
+	changes := make([]string, workingChangesScanCap+50)
+	for i := range changes {
+		changes[i] = fmt.Sprintf("?? internal/new%04d.go", i)
+	}
+	gitFake := &git.Fake{Dirs: dirs, Changes: changes}
+
+	batch := buildBatch(context.Background(), nil, nil, nil, EvaluateTriggersRequest{RepoDir: repo, Git: gitFake})
+	assert.Len(t, batch.Repo.Dirs, repoDirsScanCap)
+	assert.True(t, batch.Repo.DirsTruncated, "a directory inventory that hit its bound must be declared truncated")
+	assert.Len(t, batch.Repo.WorkingChanges, workingChangesScanCap)
+	assert.True(t, batch.Repo.WorkingChangesTruncated, "a working-changes list that hit its bound must be declared truncated")
+
+	small := &git.Fake{Dirs: []string{"internal/a"}, Changes: []string{"?? a.go"}}
+	batch = buildBatch(context.Background(), nil, nil, nil, EvaluateTriggersRequest{RepoDir: repo, Git: small})
+	assert.False(t, batch.Repo.DirsTruncated, "a complete listing must not claim truncation")
+	assert.False(t, batch.Repo.WorkingChangesTruncated)
+}
+
 func TestExecuteQuery_TaskStatus_Found(t *testing.T) {
 	byHarp := map[string]tasks.Task{"other-task": {HarpID: "other-task", Status: "Done", Text: "shipped it"}}
 	got := executeQuery(context.Background(), &git.Fake{}, "", byHarp, triggers.Query{Type: triggers.QueryTaskStatus, HarpID: "other-task"})

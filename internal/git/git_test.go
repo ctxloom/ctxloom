@@ -36,6 +36,62 @@ func TestParseWorktreeList(t *testing.T) {
 	assert.True(t, got[2].Bare)
 }
 
+// TestParseLogEntries pins U053-F18's two behaviours across every shape the
+// --pretty=format output can take, so neither can be changed silently.
+//
+// The row's stated consequence — that a zero Date "flows into downstream
+// since-filtering" — does not hold: the since-window is applied by git itself
+// (`git log --since=…`, see LogSince), and no consumer filters on
+// LogEntry.Date. It is rendered (task_triggers_query, triggers/prompt) and
+// hashed into the verdict-cache fingerprint, and nothing else. What matters
+// instead is that an unparseable date must stay DETECTABLE rather than pass
+// for a real timestamp: time.Time{}.IsZero() is that signal, and a consumer
+// that wants to distinguish the two has it.
+func TestParseLogEntries(t *testing.T) {
+	sep := logFieldSep
+
+	t.Run("parses the ordinary three-field shape", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "add a thing")
+		require.Len(t, got, 1)
+		assert.Equal(t, "abc123", got[0].SHA)
+		assert.Equal(t, "add a thing", got[0].Subject)
+		assert.False(t, got[0].Date.IsZero())
+		assert.Equal(t, 2026, got[0].Date.UTC().Year())
+	})
+
+	t.Run("an empty subject is preserved, not treated as malformed", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep)
+		require.Len(t, got, 1, "git emits this for a commit with an empty subject line")
+		assert.Empty(t, got[0].Subject)
+	})
+
+	t.Run("a separator inside the subject stays in the subject", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "sub" + sep + "ject")
+		require.Len(t, got, 1, "SplitN(…, 3) keeps the remainder together — the commit is not lost")
+		assert.Equal(t, "sub"+sep+"ject", got[0].Subject)
+	})
+
+	t.Run("a line with too few fields is skipped, never half-parsed", func(t *testing.T) {
+		got := parseLogEntries("garbage-with-no-separators\nabc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "real")
+		require.Len(t, got, 1, "the malformed line must not produce an entry with a SHA-shaped subject")
+		assert.Equal(t, "abc123", got[0].SHA)
+	})
+
+	t.Run("an unparseable date keeps the commit and stays detectable", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "not-a-date" + sep + "real commit")
+		require.Len(t, got, 1, "a bad date must not discard the commit itself — the SHA and subject are still evidence")
+		assert.True(t, got[0].Date.IsZero(),
+			"an unknown date must remain distinguishable from a real one, never a plausible-looking substitute")
+		assert.Equal(t, "real commit", got[0].Subject)
+	})
+
+	t.Run("blank lines and CR line endings", func(t *testing.T) {
+		got := parseLogEntries("abc123" + sep + "2026-07-30T12:00:00+00:00" + sep + "one\r\n\n")
+		require.Len(t, got, 1)
+		assert.Equal(t, "one", got[0].Subject, "a CRLF terminator is not part of the subject")
+	})
+}
+
 // TestExecGit_Lifecycle exercises the real git-binary impl end-to-end in a temp
 // repo: add a detached worktree, list it, mark clean/dirty, common-dir resolution,
 // and remove. Skips cleanly when git is unavailable so the normal suite stays
@@ -150,6 +206,40 @@ func TestExecGit_RepoDirsAndWorkingChanges(t *testing.T) {
 	assert.Len(t, capped, 1, "the inventory is bounded")
 }
 
+// TestExecGit_RepoDirs_IncludesAncestors pins U053-F09. The inventory answers
+// existence-style triggers ("once package X exists"), and a directory whose
+// content all lives in SUBdirectories is still a directory that exists: with
+// only internal/signing/keys/pem.go in the repo, "internal/signing" and
+// "internal" must both be inventoried. Recording only each file's IMMEDIATE
+// parent under-reports exactly the question this evidence was written to
+// answer, and the model reads the absence as proof the package does not exist.
+func TestExecGit_RepoDirs_IncludesAncestors(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping exec git integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	commit(t, repo, "internal/signing/keys/pem.go", "package keys", "add nested tracked pkg")
+	// Untracked and equally nested — the same claim must hold for work that
+	// lives in no commit.
+	require.NoError(t, writeFile(filepath.Join(repo, "internal/fresh/deep/nested/b.go"), "package nested"))
+
+	dirs, err := g.RepoDirs(ctx, repo, 0)
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		"internal", "internal/signing", "internal/signing/keys",
+		"internal/fresh", "internal/fresh/deep", "internal/fresh/deep/nested",
+	} {
+		assert.Contains(t, dirs, want, "every ancestor directory exists and must be inventoried")
+	}
+	assert.NotContains(t, dirs, ".", "the repo root is not a directory entry")
+	assert.NotContains(t, dirs, "", "no empty entry")
+	assert.IsNonDecreasing(t, dirs, "the inventory stays sorted")
+}
+
 // TestExecGit_LogSince exercises the real git-binary impl: a since-bound
 // window excludes the seed commit, each returned entry carries its changed
 // files, and maxEntries caps the result even when more commits qualify.
@@ -187,6 +277,35 @@ func TestExecGit_LogSince(t *testing.T) {
 	all, err := g.LogSince(ctx, repo, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(all), 3)
+}
+
+// TestAttachCommitFiles_UnresolvableCommit pins U053-F13. When the per-commit
+// `git diff-tree` call fails, the entry used to keep a nil Files list, which
+// is byte-for-byte what a commit that genuinely touched no files looks like.
+// The consumer that filters commits by path (internal/operations'
+// queryGitLogPath) then reads a failed lookup as "this commit did not touch
+// the path" and answers a trigger with a confident negative built on evidence
+// it never gathered. The miss must be recorded, and must still not be fatal.
+func TestAttachCommitFiles_UnresolvableCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping diff-tree integration test")
+	}
+	repo := initRepo(t)
+	sha := commit(t, repo, "a.txt", "a", "add a")
+
+	entries := []LogEntry{
+		{SHA: "0000000000000000000000000000000000000000", Subject: "unreachable"},
+		{SHA: sha, Subject: "add a"},
+	}
+	attachCommitFiles(context.Background(), repo, entries)
+
+	assert.Nil(t, entries[0].Files, "a failed diff-tree leaves no files")
+	assert.True(t, entries[0].FilesUnknown,
+		"a failed lookup must be distinguishable from a commit that touched nothing")
+	assert.Equal(t, "unreachable", entries[0].Subject, "the commit summary survives — the miss is not fatal")
+
+	assert.Equal(t, []string{"a.txt"}, entries[1].Files, "the resolvable commit is unaffected")
+	assert.False(t, entries[1].FilesUnknown, "a successful lookup is never marked unknown")
 }
 
 // TestExecGit_ListTracked proves the ls-files pathspec seam the worktree policy
@@ -271,6 +390,45 @@ func TestExecGit_CommitAll_StagesAndVerifies(t *testing.T) {
 	dirty, err := g.IsDirty(ctx, repo)
 	require.NoError(t, err)
 	assert.False(t, dirty, "nothing left uncommitted")
+}
+
+// TestExecGit_CommitAll_UnbornHEAD pins U053-F14. In a repository with zero
+// commits HEAD is UNBORN: `git rev-parse HEAD` fails, and CommitAll resolved
+// the pre-commit HEAD unconditionally, so it refused outright. That is the
+// one moment a project has the most unpreserved work and the least history to
+// lose — CommitAll must create the ROOT commit and still report the files it
+// captured, since its caller refuses any commit reporting no content.
+func TestExecGit_CommitAll_UnbornHEAD(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping CommitAll integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepoUnborn(t)
+
+	require.NoError(t, writeFile(filepath.Join(repo, "README.md"), "first"))
+	require.NoError(t, writeFile(filepath.Join(repo, "pkg/a.go"), "package pkg"))
+
+	sha, changed, err := g.CommitAll(ctx, repo, "initial commit")
+	require.NoError(t, err, "a zero-commit repo must still be committable")
+	assert.NotEmpty(t, sha, "the root commit's SHA is reported")
+	assert.ElementsMatch(t, []string{"README.md", "pkg/a.go"}, changed,
+		"a root commit's changed-file list is every file in it, not the empty list its caller treats as a failed commit")
+
+	dirty, err := g.IsDirty(ctx, repo)
+	require.NoError(t, err)
+	assert.False(t, dirty, "nothing left uncommitted")
+}
+
+// TestExecGit_CommitAll_NonRepoStillFails pins the other half: the unborn-HEAD
+// accommodation must not turn a genuinely broken target (a bare directory that
+// is no repository at all) into a silent success.
+func TestExecGit_CommitAll_NonRepoStillFails(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping CommitAll integration test")
+	}
+	_, _, err := NewExec().CommitAll(context.Background(), t.TempDir(), "nope")
+	require.Error(t, err, "a directory that is not a repository must fail loudly")
 }
 
 // TestExecGit_DiffPatch_ApplyPatch_RoundTrip proves the copy handler's

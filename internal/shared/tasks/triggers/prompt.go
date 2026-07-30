@@ -173,6 +173,7 @@ func writeRepoState(sb *strings.Builder, r RepoState) {
 		for _, d := range r.Dirs {
 			fmt.Fprintf(sb, "  %s\n", d)
 		}
+		writeTruncationNotice(sb, r.DirsTruncated, len(r.Dirs), "directories")
 		sb.WriteString("\n")
 	}
 	if len(r.WorkingChanges) > 0 {
@@ -180,8 +181,21 @@ func writeRepoState(sb *strings.Builder, r RepoState) {
 		for _, c := range r.WorkingChanges {
 			fmt.Fprintf(sb, "  %s\n", c)
 		}
+		writeTruncationNotice(sb, r.WorkingChangesTruncated, len(r.WorkingChanges), "entries")
 		sb.WriteString("\n")
 	}
+}
+
+// writeTruncationNotice states, right under the list it applies to, that the
+// listing stopped at a bound. Both repo-state bounds cut ALPHABETICALLY, so a
+// truncated list is not a random sample — it is missing the tail of the repo,
+// and a name that falls there is absent from the listing for a reason that
+// has nothing to do with whether it exists.
+func writeTruncationNotice(sb *strings.Builder, truncated bool, shown int, unit string) {
+	if !truncated {
+		return
+	}
+	fmt.Fprintf(sb, "  (TRUNCATED at %d %s, in alphabetical order — more exist that are not shown. Something missing from this list is NOT evidence it does not exist.)\n", shown, unit)
 }
 
 func writeTaskEvidence(sb *strings.Builder, t TaskInput) {

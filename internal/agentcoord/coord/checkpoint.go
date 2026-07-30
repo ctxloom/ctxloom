@@ -2,6 +2,8 @@ package coord
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -66,12 +68,22 @@ func (c *Coordinator) writeItemsSnapshot() {
 
 // loadItemsSnapshot reads a prior checkpoint snapshot for stateDir. A
 // missing file is the normal (no checkpoint yet) case, reported via ok=false
-// with no error; a present-but-corrupt file warns and also reports
-// ok=false — either way the caller falls back to a full replay from 0,
-// safe by construction.
+// with NO warning; any other read failure (EISDIR, EACCES, EIO) and a
+// present-but-corrupt file both warn and also report ok=false — either way
+// the caller falls back to a full replay from 0, safe by construction.
+//
+// Only ErrNotExist is silent: it is the one case that says nothing is wrong.
+// Every other error means a checkpoint that EXISTS is being ignored, and
+// because compaction is a performance contract rather than a functional one,
+// that failure has no symptom of its own — the coordinator just replays the
+// whole journal on every boot, permanently and quietly.
 func loadItemsSnapshot(stateDir string) (snap itemsSnapshot, ok bool) {
-	raw, err := os.ReadFile(itemsSnapshotPath(stateDir))
+	path := itemsSnapshotPath(stateDir)
+	raw, err := os.ReadFile(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", path, err)
+		}
 		return itemsSnapshot{}, false
 	}
 	if err := json.Unmarshal(raw, &snap); err != nil {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -113,6 +114,65 @@ func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	}, PrivateStatePatterns)
 }
 
+// TestWorktreeArtifactPatterns_MatchExpectedSet pins U054-F13. This is the set
+// whose incompleteness has twice been implicated in destroying agent work: a
+// ctxloom-written file missing from it stays visible to `git status` inside a
+// per-agent worktree, which false-dirties the worktree and makes teardown
+// (correctly) refuse to remove it — orphaning it permanently — or, in the
+// mirror case, rides an agent's merge-back. PrivateStatePatterns, whose worst
+// failure is a noisy diff, had an exact-membership pin; this one had two spot
+// checks. Membership is the invariant, so membership is what is pinned.
+func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		".mcp.json",
+		".claude/",
+		".agents/",
+		".codex/config.toml",
+		".codex/auth.json",
+		".kiro/",
+		".ctxloom/cache/",
+		"CLAUDE.md",
+		"AGENTS.md",
+		".opencode/",
+		"opencode.json",
+		".ctxloom-opencode-managed",
+		"*.ctxloom.bak",
+	}, WorktreeArtifactPatterns)
+}
+
+// TestWorktreeArtifactPatterns_CoverTransientOnes pins U054-F08. The two sets
+// are documented as standing in a definite relationship — WorktreeArtifact is
+// "the BROADENED set … must keep EVERY ctxloom-written config out of a
+// developer member's merge-back" — but nothing enforced it, and the sets had
+// in fact drifted: the per-file hook backups (*.ctxloom.bak) were ignored in
+// the project .gitignore and NOT hidden inside a per-agent worktree, where
+// hook application writes them just the same. The BROADENING direction is by
+// design (.mcp.json, .claude/ and CLAUDE.md are deliberately the project's
+// choice in a plain checkout); the containment direction is the invariant.
+func TestWorktreeArtifactPatterns_CoverTransientOnes(t *testing.T) {
+	for _, p := range TransientArtifactPatterns {
+		assert.Contains(t, WorktreeArtifactPatterns, p,
+			"every artifact ctxloom keeps out of a plain checkout must also be kept out of a per-agent worktree's merge-back")
+	}
+}
+
+// TestPatternSets_AreNonEmpty pins U054-F12 and U053-F10, whose shared premise
+// is a pattern list arriving empty. Every production call site of Ensure /
+// EnsureFile passes one of these package-level sets verbatim, so an empty list
+// is not something a caller can construct — but if one of these sets were ever
+// emptied, the failure would be silent twice over: EnsureFile returns nil for
+// an empty list ("ensured" nothing), and git.ListTracked treats an empty
+// pathspec list as "match nothing", so isolation's skip-worktree merge-isolation
+// pass (which passes WorktreeArtifactPatterns as its pathspecs) would quietly
+// become a no-op rather than failing.
+func TestPatternSets_AreNonEmpty(t *testing.T) {
+	assert.NotEmpty(t, PrivateStatePatterns)
+	assert.NotEmpty(t, TransientArtifactPatterns)
+	assert.NotEmpty(t, WorktreeArtifactPatterns,
+		"isolation passes this as git.ListTracked's pathspec list, where empty means MATCH NOTHING")
+	assert.NotEmpty(t, SupersededPatterns)
+}
+
 // TestTransientArtifactPatterns_IgnoreCodexCredential pins the second half of
 // U045-F01: internal/lm/isolation/auth.go's SeedCodexHome actively copies the
 // host's ~/.codex/auth.json into <workDir>/.codex/auth.json on every plain
@@ -124,6 +184,23 @@ func TestTransientArtifactPatterns_IgnoreCodexCredential(t *testing.T) {
 		"the copied credential file must be gitignored exactly like .codex/config.toml is")
 	assert.Contains(t, WorktreeArtifactPatterns, ".codex/auth.json",
 		"a per-agent worktree fan-out member must also keep the credential out of merge-back")
+}
+
+// TestArtifactPatterns_GranularityRule pins U054-F09. The file-granular vs
+// directory-granular choice is made per entry, and broadening one to its whole
+// directory is irreversible in one direction: it un-tracks whatever the
+// project had already committed there, silently. .codex/ holds a user's own
+// files alongside the two ctxloom writes, so it must stay named file by file
+// — the same reasoning .agents/ fails, which is why THAT one is wholesale.
+func TestArtifactPatterns_GranularityRule(t *testing.T) {
+	for _, set := range [][]string{TransientArtifactPatterns, WorktreeArtifactPatterns} {
+		assert.NotContains(t, set, ".codex/",
+			"a project's own .codex files must not be swept up; name the ctxloom-written ones individually")
+		assert.Contains(t, set, ".codex/config.toml")
+		assert.Contains(t, set, ".codex/auth.json")
+		assert.Contains(t, set, ".agents/",
+			"everything under .agents/ is machine-written, so it is ignored wholesale")
+	}
 }
 
 // TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins U080-F09:
@@ -226,6 +303,59 @@ func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 	assert.Contains(t, got, "# OS files", "unrelated user comments must survive")
 }
 
+// TestRetireSuperseded_RetiresEveryBlanketSpelling pins U054-F07. Retirement
+// matched four literal spellings, but a blanket .ctxloom exclusion has more
+// than four ways to be written and every one of them has the same effect: the
+// project's own .ctxloom/content/ becomes invisible to git, `git add` reports
+// nothing, and a content repo publishes an empty tree while every consumer's
+// bundle refs fail to resolve. A spelling the migration does not recognise is
+// a project it silently leaves broken — and Ensure only ever APPENDS, so no
+// amount of re-running repairs it.
+func TestRetireSuperseded_RetiresEveryBlanketSpelling(t *testing.T) {
+	for _, blanket := range []string{
+		".ctxloom", ".ctxloom/", "/.ctxloom", "/.ctxloom/",
+		".ctxloom/*", ".ctxloom/**", "/.ctxloom/*", "/.ctxloom/**",
+		"**/.ctxloom/", "**/.ctxloom",
+		"  .ctxloom/  ",
+	} {
+		t.Run(blanket, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			require.NoError(t, os.WriteFile(path, []byte("# OS files\n.DS_Store\n"+blanket+"\n"), 0644))
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			assert.True(t, changed, "%q blanket-excludes .ctxloom/content/ and must be retired", blanket)
+			assert.NotContains(t, readGitignore(t, dir), ".ctxloom")
+			assert.Contains(t, readGitignore(t, dir), ".DS_Store", "unrelated user entries survive")
+		})
+	}
+}
+
+// TestRetireSuperseded_LeavesNonBlanketLinesAlone is the over-matching guard
+// for the broadened matcher: current granular rules, a user's own re-include,
+// and a comment mentioning the path must all survive untouched.
+func TestRetireSuperseded_LeavesNonBlanketLinesAlone(t *testing.T) {
+	for _, keep := range []string{
+		".ctxloom/cache/", ".ctxloom/sessions/", ".ctxloom/project-id",
+		".ctxloom/content/drafts/", ".ctxloomer/", ".ctxloom-opencode-managed",
+		"!.ctxloom/", "!/.ctxloom/**",
+		"# .ctxloom/",
+	} {
+		t.Run(keep, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			original := keep + "\n"
+			require.NoError(t, os.WriteFile(path, []byte(original), 0644))
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			assert.False(t, changed, "%q is not a blanket .ctxloom exclusion", keep)
+			assert.Equal(t, original, readGitignore(t, dir))
+		})
+	}
+}
+
 // TestRetireSuperseded_PreservesGranularRules guards against over-matching: the
 // current granular private-state patterns are all prefixed .ctxloom/ and must
 // NOT be mistaken for the blanket rule.
@@ -244,6 +374,54 @@ func TestRetireSuperseded_PreservesGranularRules(t *testing.T) {
 			assert.Contains(t, got, p)
 		}
 	}
+}
+
+// TestRetireSuperseded_PreservesFileMode is U054-F06's first half, and it
+// REFUTES it: the row claims retirement "resets its mode", but os.WriteFile
+// applies its perm argument only when CREATING a file, so an existing
+// .gitignore's mode was never touched. The assertion is kept because the
+// atomic rewrite below WOULD reset it — a fresh temp file takes the umask,
+// and renaming it over the original silently re-modes a user-authored file.
+func TestRetireSuperseded_PreservesFileMode(t *testing.T) {
+	for _, mode := range []os.FileMode{0600, 0640, 0664} {
+		t.Run(mode.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n.DS_Store\n"), mode))
+			require.NoError(t, os.Chmod(path, mode), "umask must not decide what this test asserts")
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			require.True(t, changed)
+
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.Equal(t, mode, info.Mode().Perm(),
+				"a user-authored file's mode is the user's, not ctxloom's to normalize")
+		})
+	}
+}
+
+// TestRetireSuperseded_LeavesNoTempFile pins the visible half of the atomic
+// rewrite. The crash window itself — a truncate-then-write that loses the
+// user's whole .gitignore if the process dies between the two — cannot be
+// discriminated by a unit test without injecting a crash, so this asserts
+// what IS observable: the replacement is staged beside the target and leaves
+// nothing behind.
+func TestRetireSuperseded_LeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("# ctxloom local files\n.ctxloom/\n.DS_Store\n"), 0644))
+
+	changed, err := RetireSupersededFile(path)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the staged replacement must not survive the write")
+	assert.Equal(t, ".gitignore", entries[0].Name())
+	assert.Contains(t, readGitignore(t, dir), ".DS_Store")
 }
 
 // TestRetireSuperseded_Idempotent pins that a clean file is left untouched.
@@ -338,6 +516,54 @@ func TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules(t *testing.T) {
 	for _, p := range TransientArtifactPatterns {
 		assert.Contains(t, got, p, "the caller's own patterns must still be written: %s", p)
 	}
+}
+
+// TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins U054-F05. .gitignore
+// is LAST-MATCH-WINS and Ensure only ever appends at the end of the file, so a
+// pattern ctxloom appends silently overrides a user's earlier `!` re-include
+// of the same path — against the package doc's promise to append "without
+// disturbing user entries".
+//
+// Reordering is not the remedy and the row's framing overstates what one is
+// available: git cannot re-include a path whose PARENT DIRECTORY is excluded
+// at all, so for a directory pattern like .ctxloom/cache/ the user's negation
+// is dead however the file is ordered. What ctxloom can do is stop doing it
+// silently — the user's line is still there, still looks effective, and only
+// a warning tells them it no longer is.
+func TestEnsureFile_WarnsWhenAppendingOverAUserNegation(t *testing.T) {
+	var warnings strings.Builder
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("# keep my scratch notes\n!.ctxloom/cache/notes.md\n"), 0644))
+
+	require.NoError(t, EnsureFile(path, testComment, ".ctxloom/cache/"))
+
+	got := warnings.String()
+	assert.Contains(t, got, ".ctxloom/cache/", "the warning must name the pattern ctxloom added")
+	assert.Contains(t, got, "!.ctxloom/cache/notes.md", "and the user line it overrides")
+
+	// The user's line survives — this warns, it never edits user entries.
+	assert.Contains(t, readGitignore(t, dir), "!.ctxloom/cache/notes.md")
+}
+
+// TestEnsureFile_DoesNotWarnWithoutAnAffectedNegation is the over-warning
+// guard: an unrelated negation, or one the appended pattern cannot possibly
+// shadow, must stay silent.
+func TestEnsureFile_DoesNotWarnWithoutAnAffectedNegation(t *testing.T) {
+	var warnings strings.Builder
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("*.log\n!important.log\n!src/vendor/keep.go\n"), 0644))
+
+	require.NoError(t, EnsureFile(path, testComment, ".ctxloom/cache/", ".agents/"))
+
+	assert.Empty(t, warnings.String(), "an unrelated re-include is none of ctxloom's business")
 }
 
 // TestEnsure_NoBlanketRule_DoesNotInjectPrivateState pins the converse: Ensure

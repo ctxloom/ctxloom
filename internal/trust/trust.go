@@ -216,8 +216,18 @@ const BuiltinSigner = "builtin:ctxloom"
 // "code-quality#fragments/solid" or "tooling#mcp/postgres". It deliberately
 // omits the repo URL (stored separately) and any @version (grants pin by
 // content hash, not commit).
+//
+// This is the ingest boundary for Bundle and Name, and the LAST one: a Ref is a
+// plain struct, so those two fields are set directly by every surface type's
+// RefFor (internal/content) from a bundle-manifest item name or a filename —
+// neither of which passes through the reference grammar in internal/remote.
+// Key is the single function that turns those fields into a ref string, and
+// operations.countersignRef composes its result straight into the countersign
+// preimage, where a control character forges the frame (see
+// signing.CountersignHeader.Validate). Normalising here covers every
+// construction site at once, including ones not yet written.
 func (r Ref) Key() string {
-	return r.Bundle + "#" + r.Kind.Dir() + "/" + r.Name
+	return remote.NormalizeRef(r.Bundle) + "#" + r.Kind.Dir() + "/" + remote.NormalizeRef(r.Name)
 }
 
 // CanonicalURL returns the canonical repo URL used for keying. Local items key

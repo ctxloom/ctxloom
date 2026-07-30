@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ProfileEntry represents a profile in operation results.
@@ -119,15 +120,12 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 		})
 	}
 
-	// Sort results
-	sortBy := req.SortBy
-	if sortBy == "" {
-		sortBy = "name"
-	}
+	// Sort results. An empty sort_by defaults to name; an UNRECOGNISED one also
+	// sorts by name, loudly — leaving the slice untouched would ship it in the
+	// loader's build order, and Loader.List emits seeded (bundle-shipped)
+	// profiles by ranging over a MAP, so the order would be genuinely unstable.
 	reverse := req.SortOrder == "desc"
-
-	switch sortBy {
-	case "name":
+	byName := func() {
 		sort.Slice(result, func(i, j int) bool {
 			cmp := strings.Compare(strings.ToLower(result[i].Name), strings.ToLower(result[j].Name))
 			if reverse {
@@ -135,6 +133,11 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			}
 			return cmp < 0
 		})
+	}
+
+	switch req.SortBy {
+	case "", "name":
+		byName()
 	case "default":
 		sort.Slice(result, func(i, j int) bool {
 			if reverse {
@@ -142,6 +145,9 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			}
 			return result[i].Default && !result[j].Default
 		})
+	default:
+		clidiag.Warn("ctxloom", "unknown sort_by %q for profiles; sorting by name (accepted: name, default)", req.SortBy)
+		byName()
 	}
 
 	return &ListProfilesResult{

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -108,11 +109,11 @@ func collectMCPServers(cfg *config.Config, query string) []MCPServerEntry {
 }
 
 // sortMCPServers sorts servers in place by name or command. An empty sortBy
-// defaults to name; any other value leaves the order untouched.
+// defaults to name. An UNRECOGNISED sortBy also sorts by name, loudly: leaving
+// the slice untouched would ship it in collectMCPServers' build order, which
+// comes from Go map iteration over the unified and per-backend scopes, so the
+// same input could come back ordered differently on the next call.
 func sortMCPServers(servers []MCPServerEntry, sortBy, sortOrder string) {
-	if sortBy == "" {
-		sortBy = "name"
-	}
 	reverse := sortOrder == "desc"
 	less := func(a, b string) bool {
 		cmp := strings.Compare(strings.ToLower(a), strings.ToLower(b))
@@ -121,11 +122,17 @@ func sortMCPServers(servers []MCPServerEntry, sortBy, sortOrder string) {
 		}
 		return cmp < 0
 	}
-	switch sortBy {
-	case "name":
+	byName := func() {
 		sort.Slice(servers, func(i, j int) bool { return less(servers[i].Name, servers[j].Name) })
+	}
+	switch sortBy {
+	case "", "name":
+		byName()
 	case "command":
 		sort.Slice(servers, func(i, j int) bool { return less(servers[i].Command, servers[j].Command) })
+	default:
+		clidiag.Warn("ctxloom", "unknown sort_by %q for mcp servers; sorting by name (accepted: name, command)", sortBy)
+		byName()
 	}
 }
 

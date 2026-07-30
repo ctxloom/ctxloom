@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -120,7 +121,19 @@ func launchTaskAgent(chosen tasks.Task, noStart bool) error {
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	return c.Run()
+	if err := c.Run(); err != nil {
+		// exec's own error is the bare string "exit status N", which names
+		// neither the child nor the operation: printed under ctxloom's own
+		// output it reads as taskloom breaking. The child's stderr is
+		// inherited, so its diagnosis is already on screen — this line only
+		// has to attribute the status.
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return fmt.Errorf("ctxloom run exited with status %d", ee.ExitCode())
+		}
+		return fmt.Errorf("ctxloom run: %w", err)
+	}
+	return nil
 }
 
 // pickTask renders a line-buffered task picker (plain stdin/stderr, no TUI

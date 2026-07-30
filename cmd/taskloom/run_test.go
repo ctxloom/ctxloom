@@ -163,3 +163,26 @@ func TestPickTask_StdinReadFailureIsAnErrorNotAQuit(t *testing.T) {
 	assert.False(t, ok)
 	assert.NoError(t, err, "a clean EOF is a quit, not a failure")
 }
+
+// When the child `ctxloom run` fails, taskloom returned exec's error verbatim,
+// so cobra printed a bare "Error: exit status 3" underneath ctxloom's own
+// output — a line that names neither the child nor what failed, and reads as
+// taskloom itself breaking. The failure must say whose status that is.
+//
+// (The other half of this row — propagating the child's exit code instead of
+// collapsing every failure to main.go's os.Exit(1) — is an exit-code contract
+// change and is escalated, not fixed here.)
+func TestLaunchTaskAgent_ChildFailureNamesCtxloomAndStatus(t *testing.T) {
+	origExec, origLook := execCommand, lookPath
+	execCommand = func(string, ...string) *exec.Cmd { return exec.Command("sh", "-c", "exit 3") }
+	lookPath = func(file string) (string, error) { return "/stub/" + file, nil }
+	t.Cleanup(func() { execCommand, lookPath = origExec, origLook })
+
+	err := launchTaskAgent(task("swift-amber-falcon", "x", tasks.StatusToDo, ""), false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ctxloom run", "the failure must name the child that failed")
+	assert.Contains(t, err.Error(), "3", "the child's status must survive into the message")
+	assert.NotEqual(t, "exit status 3", err.Error(),
+		"a bare exec error reads as taskloom breaking, not as the child exiting")
+}

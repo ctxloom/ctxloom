@@ -573,6 +573,34 @@ func TestEvaluateTriggers_EscalatesAndSettlesInRoundTwo(t *testing.T) {
 	assert.Contains(t, client.gotReqs[1].Prompt.Content, "exists")
 }
 
+// BuildPrompt on an empty Batch is a zero-payload success: a complete prompt
+// whose "=== Deferred tasks ===" header has nothing beneath it, asking a model
+// to judge nothing and paying for the call. Nothing in production can build
+// one, and THESE are the guards that make it so — an empty task set yields no
+// chunk, so no prompt is ever constructed for it. They are load-bearing:
+// remove either "return nil" and an empty-batch model call becomes reachable
+// (U128-F07).
+func TestChunking_AnEmptySetYieldsNoChunkSoNoPromptIsEverBuilt(t *testing.T) {
+	assert.Empty(t, chunkMissTasks(nil, nil, defaultTriageChunkSize), "no cache misses means no round-1 call")
+	assert.Empty(t, chunkMissTasks([]tasks.Task{}, []triggers.TaskInput{}, 0), "…including at the unbounded chunk size")
+	assert.Empty(t, chunkFollowups(nil, defaultTriageChunkSize), "no escalations means no round-2 call")
+	assert.Empty(t, chunkFollowups([]triggers.FollowupTask{}, 0))
+
+	// And no chunk that IS produced is empty, so every prompt built from one
+	// names at least one task.
+	missTasks := []tasks.Task{{HarpID: "a"}, {HarpID: "b"}, {HarpID: "c"}}
+	missInputs := []triggers.TaskInput{{HarpID: "a"}, {HarpID: "b"}, {HarpID: "c"}}
+	for size := 1; size <= 4; size++ {
+		for _, c := range chunkMissTasks(missTasks, missInputs, size) {
+			assert.NotEmpty(t, c.inputs, "chunk size %d produced a chunk with no evidence in it", size)
+			assert.NotEmpty(t, c.tasks, "chunk size %d produced a chunk with no tasks in it", size)
+		}
+		for _, c := range chunkFollowups([]triggers.FollowupTask{{TaskInput: triggers.TaskInput{HarpID: "a"}}, {TaskInput: triggers.TaskInput{HarpID: "b"}}}, size) {
+			assert.NotEmpty(t, c, "chunk size %d produced an empty followup chunk", size)
+		}
+	}
+}
+
 // A needs-investigation verdict whose EVERY query was refused looks, from the
 // outside, exactly like one that asked for nothing: no escalation call, the
 // verdict left as-is. They are not the same event — the second is a model

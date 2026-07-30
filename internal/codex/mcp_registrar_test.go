@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,6 +95,41 @@ func TestMCPRegistrar_UninstallAbsentIsByteForByteNoop(t *testing.T) {
 			assert.Equal(t, tc.config, string(out), "nothing to remove: the bytes are returned untouched")
 		})
 	}
+}
+
+// TestCodexPathVocabularyIsSingleSourced holds the constants block in
+// enginecli.go to its own claim: it is "the SINGLE source of the names codex
+// reads", shared by every writer AND by the probe declarations, so that a
+// rename cannot leave one of them describing a path nothing writes. Each
+// consumer it names is checked against the constants rather than against a
+// spelled-out path — a consumer that goes back to its own literal passes only
+// until the constant changes, which is exactly the drift this pins.
+func TestCodexPathVocabularyIsSingleSourced(t *testing.T) {
+	t.Setenv(CodexHomeEnv, "")
+	home, err := codexHome()
+	require.NoError(t, err)
+	userHome, err := os.UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(userHome, ConfigDirName), home, "codexHome")
+
+	t.Setenv(CodexHomeEnv, "/env/provided/.codex")
+	envHome, err := codexHome()
+	require.NoError(t, err)
+	assert.Equal(t, "/env/provided/.codex", envHome, "codexHome honours CodexHomeEnv")
+
+	global, err := (MCPRegistrar{}).ConfigPath("/proj", true)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(envHome, ConfigFileName), global, "MCPRegistrar.ConfigPath (global)")
+
+	project, err := (MCPRegistrar{}).ConfigPath("/proj", false)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join("/proj", ConfigDirName, ConfigFileName), project, "MCPRegistrar.ConfigPath (project)")
+
+	assert.Equal(t, filepath.Join("/proj", ConfigDirName, ConfigFileName),
+		(&CodexHookWriter{}).SettingsPath("/proj"), "CodexHookWriter.SettingsPath")
+	assert.Equal(t, filepath.Join("/proj", ConfigDirName), cellScopedCodexHome("/proj"))
+	assert.Equal(t, filepath.Join("/proj", ConfigDirName, PromptsDirName), cellScopedPromptsDir("/proj"))
+	assert.Equal(t, filepath.Join("/proj", ConfigDirName, SkillsDirName), cellScopedSkillsDir("/proj"))
 }
 
 func TestMCPRegistrar_InstallPreservesForeignTables(t *testing.T) {

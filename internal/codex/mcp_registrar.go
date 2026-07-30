@@ -46,9 +46,9 @@ func (MCPRegistrar) ConfigPath(dir string, global bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(home, "config.toml"), nil
+		return filepath.Join(home, ConfigFileName), nil
 	}
-	return filepath.Join(dir, ".codex", "config.toml"), nil
+	return filepath.Join(dir, ConfigDirName, ConfigFileName), nil
 }
 
 // Install merges the named server into the config bytes. Idempotent; foreign

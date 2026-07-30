@@ -220,7 +220,7 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 	if allowEmpty {
 		opts = append(opts, agent.AllowEmptyWrite())
 	}
-	return agent.AtomicWriteFile(w.getFS(), path, buf.Bytes(), "config.toml", opts...)
+	return agent.AtomicWriteFile(w.getFS(), path, buf.Bytes(), ConfigFileName, opts...)
 }
 
 // RemoveSettings implements SettingsWriter for Codex CLI: it strips ctxloom

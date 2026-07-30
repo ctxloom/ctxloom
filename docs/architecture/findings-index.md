@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,237** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,238** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 104 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 152 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 154 |
-| `open` | no commit names this ID | **621** |
+| `open` | no commit names this ID | **620** |
 
-**Totals: 2268 findings across 162 units — 1,237 resolved, 621 still open, 410 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,238 resolved, 620 still open, 410 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 426 | 349 | 57 | 70 | 97 |
+| MED | 999 | 427 | 348 | 57 | 70 | 97 |
 | LOW | 871 | 455 | 255 | 34 | 74 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1937,7 +1937,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U155-F02 | **RESOLVED** `6c244709` | **`embed.go:117-147`** | DUPLICATE | `splitCommandFrontmatter` is a knowing, hand-maintained copy of `internal/lm/backends.parseMarkdownFrontmatter`. Both parse the *same embedded files* for the *same* `description` key; if they ever ... | U155.md |
 | U156-F02 | open | **`main.go:56-75`** | CORRECTNESS | `mcpIntro` makes four checkable factual claims about the *standalone* surface — that it exposes `agent_run`/`agent_send`/`agent_recv`/`agent_stop` "only (no `roster`, no `agent_report`, no `agent_f... | U156.md |
 | U157-F02 | open | `feature.go:87-114` | CORRECTNESS | `ParseFeature` treats a `@tag` line as a scenario terminator (`:106-108`), so a scenario's `Examples:` table that is preceded by a tag — and, more importantly, any `@tag` appearing *inside* a scena... | U157.md |
-| U157-F03 | open | `narration.go:22-49` | SILENTNOOP | A `<!-- doc:scenario: Name -->` marker whose name does not match any scenario is **silently discarded** — the prose is parsed into `Narration.Scenarios` and then never looked up, so an author's han... | U157.md |
+| U157-F03 | **RESOLVED** `436c2ce1` | `narration.go:22-49` | SILENTNOOP | A `<!-- doc:scenario: Name -->` marker whose name does not match any scenario is **silently discarded** — the prose is parsed into `Narration.Scenarios` and then never looked up, so an author's han... | U157.md |
 | U157-F05 | open | **`render.go:220-222`** | CORRECTNESS | `hasEvidence` accepts **any** non-empty string in any of the three streams, so `w.docStepMaterialized = "exit=0"` satisfies the evidence gate. Several acceptance steps set exactly that shape, and o... | U157.md |
 | U157-F06 | open | **`render.go:156-170, 229-248`** | SILENTNOOP | Both gates are loops over `cap.Steps` and therefore **pass vacuously on a zero-step capture**. The capture side writes such a file unconditionally (U158-F09: `flushDocCapture` has no length check),... | U157.md |
 | U157-F07 | **REFUTED** `47422064` | `capture.go:15 ↔ `tests/acceptance/steps_doc_capture.go:43` | DUPLICATE | `DocCapture`/`DocCaptureStep` and the capture side's `docCapture`/`docCaptureStep` are byte-identical JSON contracts declared twice in two packages, held together only by a comment ("Field names an... | U157.md |

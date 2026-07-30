@@ -93,3 +93,39 @@ func TestRemoveReportsGone(t *testing.T) {
 	assert.False(t, removeReportsGone(wedged))
 	assert.False(t, removeReportsGone(errors.New("context deadline exceeded")))
 }
+
+// TestKill_ReapedRunProcessIsRoutineTeardownNotAnError is U064-F13's pinning
+// test. The row claimed Kill "unconditionally returns nil and swallows
+// r.cmd.Process.Kill(), so go-plugin can never observe a failed teardown".
+// Both halves of the mechanism are true and both are deliberate:
+//
+//   - The remove is the REAL stop and it is not silent — a remove that does
+//     not confirm the container is gone streams a named, fix-it-carrying
+//     warning (TestKill_SurfacesLeakOnRemoveFailure). go-plugin, by contrast,
+//     can act on nothing: its two call sites Debug-log the error (discarded at
+//     our default verbosity) and discard it outright.
+//   - The trailing cmd.Process.Kill only reaps our own `run` CLI, which the
+//     force-remove has usually already ended and go-plugin's own Wait
+//     goroutine has already reaped. Propagating that error — the row's
+//     remedy — would report a failure on the ORDINARY teardown path, as this
+//     test measures: an already-waited process refuses the signal.
+//
+// So the pin is that a fully-reaped run process is teardown SUCCESS, silently:
+// no error out of Kill, no warning on stderr.
+func TestKill_ReapedRunProcessIsRoutineTeardownNotAnError(t *testing.T) {
+	stubKillExec(t, func(context.Context, []string) (string, error) { return "", nil })
+
+	cmd := exec.Command("true")
+	require.NoError(t, cmd.Start())
+	require.NoError(t, cmd.Wait()) // go-plugin's Wait goroutine gets here first
+
+	// Measured, not assumed: this is exactly what the row's remedy would
+	// propagate out of every ordinary teardown.
+	require.Error(t, cmd.Process.Kill(), "a waited-for process refuses the signal — the routine post-remove state")
+
+	done := captureStderr(t)
+	r := &containerRunner{runtime: Docker{}, name: "ctxloom-iso-reaped", cmd: cmd}
+	assert.NoError(t, r.Kill(context.Background()),
+		"a confirmed remove plus an already-reaped run CLI is teardown success; reporting the reap as a failure would flag every ordinary shutdown")
+	assert.Empty(t, done(), "no leak, so nothing to warn about")
+}

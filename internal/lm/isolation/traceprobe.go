@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
@@ -138,7 +139,11 @@ func straceWrapPrefix(tp *TraceProbe) []string {
 type TraceRead struct {
 	Path    string
 	Syscall string
-	Result  string // "ok" on success, else the errno name (e.g. "ENOENT")
+	// Result is "ok" on success, else the failure: the symbolic errno name
+	// when strace named one (e.g. "ENOENT"), or "errno <ret>" for a negative
+	// return it left unnamed. Never "ok" for a negative return — see
+	// straceResult.
+	Result string
 }
 
 // Failed reports whether this read did not succeed (an errno was returned) —
@@ -170,12 +175,37 @@ var readSyscalls = map[string]bool{
 // skipped — a documented, accepted limitation of a line-oriented parser.
 var straceLineRe = regexp.MustCompile(`^(?:\[pid\s+\d+\]\s+|\d+\s+)?(\w+)\([^"]*"((?:[^"\\]|\\.)*)".*?\)\s*=\s*(-?\d+)(?:\s+([A-Z][A-Z0-9]+))?`)
 
+// straceResult renders one traced syscall's outcome for TraceRead.Result: the
+// symbolic errno name when strace named one, "ok" for a non-negative return,
+// and "errno <ret>" for a negative return strace left unnamed — never "ok",
+// which TraceRead.Failed reads as a success. A return value that does not parse
+// as a number cannot be judged, so it keeps whichever verdict the errno group
+// gave.
+func straceResult(ret, errno string) string {
+	if errno != "" {
+		return errno
+	}
+	n, err := strconv.Atoi(ret)
+	if err == nil && n < 0 {
+		return "errno " + ret
+	}
+	return "ok"
+}
+
 // ParseStraceReads parses raw strace output (as written by straceWrapPrefix)
 // into a sorted, deduplicated read-set. Deduplication is by (path, syscall,
 // result), so the same file opened repeatedly collapses to one row while a path
 // that both succeeds once and ENOENTs once keeps BOTH observations. Lines that
 // are not a complete traced syscall (strace's own banner, signal lines,
 // unfinished/resumed split lines) are skipped.
+//
+// The RETURN VALUE decides success, not merely the presence of a named errno:
+// every syscall in readSyscalls returns >= 0 on success (a descriptor, a byte
+// count, or 0), so a negative return is a failure whether or not strace could
+// name its errno symbolically. An errno strace has no symbolic name for renders
+// lowercase ("= -1 errno 4242 (Unknown error 4242)"), and a truncated or
+// status-filtered trace can carry a bare "= -1"; treating either as a success
+// would invert exactly the observation this probe exists to make.
 func ParseStraceReads(raw []byte) []TraceRead {
 	seen := map[string]TraceRead{}
 	for _, line := range strings.Split(string(raw), "\n") {
@@ -187,10 +217,7 @@ func ParseStraceReads(raw []byte) []TraceRead {
 		if !readSyscalls[syscall] {
 			continue
 		}
-		result := "ok"
-		if errno != "" {
-			result = errno
-		}
+		result := straceResult(m[3], errno)
 		key := path + "\x00" + syscall + "\x00" + result
 		if _, ok := seen[key]; !ok {
 			seen[key] = TraceRead{Path: path, Syscall: syscall, Result: result}

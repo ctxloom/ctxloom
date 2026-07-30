@@ -122,50 +122,52 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 	w := iox.NewErrWriter(out)
 	switch itemType {
 	case "fragments":
-		frag, ok := bundle.Fragments[itemName]
-		if !ok {
+		frag, found := bundle.Fragments[itemName]
+		if !found {
 			return fmt.Errorf("fragment not found: %s", itemName)
 		}
 		writeViewContent(w, frag.Content, frag.Distilled, useDistilled)
 		return w.Err()
 
 	case "commands":
-		prompt, ok := bundle.Commands[itemName]
-		if !ok {
+		command, found := bundle.Commands[itemName]
+		if !found {
 			return fmt.Errorf("command not found: %s", itemName)
 		}
-		writeViewContent(w, prompt.Content, prompt.Distilled, useDistilled)
+		writeViewContent(w, command.Content, command.Distilled, useDistilled)
 		return w.Err()
 
 	case "mcp":
-		mcp, name, ok := lookupBundleMCP(bundle, itemName)
-		if !ok {
+		mcp, name, found := lookupBundleMCP(bundle, itemName)
+		if !found {
 			return fmt.Errorf("mcp server not found: %s", itemName)
 		}
-		data, err := yaml.Marshal(mcp)
-		if err != nil {
-			return fmt.Errorf("failed to marshal MCP config: %w", err)
-		}
-		w.Printf("# MCP Server: %s\n", name)
-		w.WriteRaw(data)
-		return w.Err()
+		return writeViewYAML(w, "MCP Server: "+name, mcp, "MCP config")
 
 	case "profiles":
-		profile, ok := bundle.Profiles[itemName]
-		if !ok {
+		profile, found := bundle.Profiles[itemName]
+		if !found {
 			return fmt.Errorf("profile not found: %s", itemName)
 		}
-		data, err := yaml.Marshal(profile)
-		if err != nil {
-			return fmt.Errorf("failed to marshal profile: %w", err)
-		}
-		w.Printf("# Profile: %s\n", itemName)
-		w.WriteRaw(data)
-		return w.Err()
+		return writeViewYAML(w, "Profile: "+itemName, profile, "profile")
 
 	default:
 		return fmt.Errorf("unknown item type: %s (expected fragments, commands, mcp, or profiles)", itemType)
 	}
+}
+
+// writeViewYAML renders a structured item (an MCP server, a profile) as a
+// "# <heading>" line followed by its YAML. The mcp and profiles arms of
+// renderBundleViewItem differ only in heading and in what a marshal failure is
+// called, so the shape lives here once. what names the item in that error.
+func writeViewYAML(w *iox.ErrWriter, heading string, v any, what string) error {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s: %w", what, err)
+	}
+	w.Printf("# %s\n", heading)
+	w.WriteRaw(data)
+	return w.Err()
 }
 
 // writeViewContent picks between distilled and raw content per the

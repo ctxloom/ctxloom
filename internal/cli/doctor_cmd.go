@@ -260,27 +260,10 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 // "missing" never conflates an optional convenience with a real hard
 // dependency.
 func doctorCheckDeps(cfg *config.Config) doctorCheck {
-	var missingRequired []string
-	for _, bin := range doctorDepBinariesRequired {
-		if _, err := exec.LookPath(bin); err != nil {
-			missingRequired = append(missingRequired, bin)
-		}
-	}
-	var missingRecommended []string
-	for _, bin := range doctorDepBinariesRecommended {
-		if _, err := exec.LookPath(bin); err != nil {
-			missingRecommended = append(missingRecommended, bin)
-		}
-	}
-	for _, engine := range doctorConfiguredEngines(cfg) {
-		bin, ok := doctorEngineBinaries[engine]
-		if !ok {
-			continue
-		}
-		if _, err := exec.LookPath(bin); err != nil {
-			missingRequired = append(missingRequired, fmt.Sprintf("%s (%s)", bin, engine))
-		}
-	}
+	const marker = "DOCTOR-CHECK-DEPS-a1"
+	missingRequired := doctorMissingFromPath(doctorDepBinariesRequired)
+	missingRequired = append(missingRequired, doctorMissingEngineClients(cfg)...)
+	missingRecommended := doctorMissingFromPath(doctorDepBinariesRecommended)
 	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
 		if doctorContainerRuntimeRequired(cfg) {
 			missingRequired = append(missingRequired,
@@ -291,7 +274,7 @@ func doctorCheckDeps(cfg *config.Config) doctorCheck {
 		}
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
-		return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: doctorOK,
+		return doctorCheck{Marker: marker, Status: doctorOK,
 			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either; a container runtime is required only for `runtime: container` agents)"}
 	}
 	sort.Strings(missingRequired)
@@ -303,7 +286,37 @@ func doctorCheckDeps(cfg *config.Config) doctorCheck {
 	if len(missingRecommended) > 0 {
 		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
 	}
-	return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: doctorWarn, Detail: strings.Join(parts, "; ")}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: strings.Join(parts, "; ")}
+}
+
+// doctorMissingFromPath returns the subset of bins that does not resolve on
+// PATH, in the order given (the caller sorts).
+func doctorMissingFromPath(bins []string) []string {
+	var missing []string
+	for _, bin := range bins {
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	return missing
+}
+
+// doctorMissingEngineClients returns "<binary> (<engine>)" for every CONFIGURED
+// engine whose native client is not on PATH. Engines with no external client
+// binary (none listed in doctorEngineBinaries) are skipped rather than reported
+// as missing.
+func doctorMissingEngineClients(cfg *config.Config) []string {
+	var missing []string
+	for _, engine := range doctorConfiguredEngines(cfg) {
+		bin, ok := doctorEngineBinaries[engine]
+		if !ok {
+			continue
+		}
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, fmt.Sprintf("%s (%s)", bin, engine))
+		}
+	}
+	return missing
 }
 
 // doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
@@ -454,14 +467,7 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 	email, emailOK, emailErr := gitConfig(ctx, "", "user.email")
 
 	if nameErr != nil || emailErr != nil {
-		var errs []string
-		if nameErr != nil {
-			errs = append(errs, nameErr.Error())
-		}
-		if emailErr != nil {
-			errs = append(errs, emailErr.Error())
-		}
-		return false, "reading git identity failed: " + strings.Join(errs, "; ")
+		return false, "reading git identity failed: " + joinErrors("; ", nameErr, emailErr)
 	}
 
 	nameSet := nameOK && strings.TrimSpace(name) != ""
@@ -469,9 +475,25 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 	if nameSet && emailSet {
 		return true, fmt.Sprintf("git identity resolves: %s <%s>", name, email)
 	}
+	return false, gitIdentityGapDetail(nameSet, emailSet)
+}
 
-	var missing []string
-	var fixes []string
+// joinErrors renders the non-nil errors' messages joined by sep.
+func joinErrors(sep string, errs ...error) string {
+	var msgs []string
+	for _, err := range errs {
+		if err != nil {
+			msgs = append(msgs, err.Error())
+		}
+	}
+	return strings.Join(msgs, sep)
+}
+
+// gitIdentityGapDetail names which halves of git's commit identity are unset
+// and the exact command that sets each — misattributed commits are the danger,
+// so the fix has to be in the message.
+func gitIdentityGapDetail(nameSet, emailSet bool) string {
+	var missing, fixes []string
 	if !nameSet {
 		missing = append(missing, "user.name")
 		fixes = append(fixes, `git config --global user.name "Your Name"`)
@@ -480,7 +502,7 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 		missing = append(missing, "user.email")
 		fixes = append(fixes, "git config --global user.email you@example.com")
 	}
-	return false, fmt.Sprintf(
+	return fmt.Sprintf(
 		"git commit identity not fully set (missing: %s) — agents ctxloom launches commit their own work inside isolated worktrees, and without an explicit identity a commit fails or git silently mis-attributes it to whatever the OS account derives; set it: %s",
 		strings.Join(missing, ", "), strings.Join(fixes, "; "))
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -963,4 +964,20 @@ func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
 	}}))
 	assert.Contains(t, buf.String(), "DOCTOR-CHECK-X [info] d",
 		"the human line must render the status the same way too")
+}
+
+// TestGitIdentityDetail_ReadErrorIsReported is characterization coverage added
+// before U035-F09 split gitIdentityDetail: the `git config` READ-failure arm
+// (as opposed to a value simply being unset) had no test, so the split would
+// otherwise have been unguarded.
+func TestGitIdentityDetail_ReadErrorIsReported(t *testing.T) {
+	failing := func(ctx context.Context, dir, key string) (string, bool, error) {
+		return "", false, errors.New("git: " + key + " unreadable")
+	}
+	ok, detail := gitIdentityDetail(context.Background(), failing)
+
+	assert.False(t, ok)
+	assert.Contains(t, detail, "reading git identity failed")
+	assert.Contains(t, detail, "user.name unreadable")
+	assert.Contains(t, detail, "user.email unreadable", "both failures must be reported, not just the first")
 }

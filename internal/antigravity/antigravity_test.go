@@ -111,6 +111,46 @@ func TestAntigravityHookWriter_SkipsNonCommandHooks(t *testing.T) {
 	assert.NotContains(t, string(data), `"command": ""`, "no dead empty-command entries")
 }
 
+// TestAntigravityHookWriter_SkipsEmptyCommandHook pins the PAYLOAD: no entry
+// ctxloom writes may carry an empty command. agy's hook contract makes
+// `command` REQUIRED (verified against agy's own bundled documentation,
+// ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md on
+// agy 1.1.5: "command (string, required)"), so an entry without one is a
+// live-looking handler that executes nothing — U029-F05's silent no-op.
+//
+// The reachable path is a hook authored with a prompt and NO explicit type:
+// the wire default for Type is "" which MEANS command, so the non-command
+// guard above lets it through with nothing to run. Asserting on the decoded
+// entries (not on the raw bytes) is deliberate — `command` is `omitempty`, so
+// the sibling test's `NotContains("\"command\": \"\"")` byte check can never
+// fail no matter how many dead entries are written.
+func TestAntigravityHookWriter_SkipsEmptyCommandHook(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &AntigravityHookWriter{FS: fs}
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{
+			{Prompt: "be careful"}, // untyped prompt hook: Type "" reads as command
+			{Command: "ctxloom hook pre-tool"},
+		}},
+		Plugins: map[string]wire.BackendHooks{
+			"antigravity": {"PostToolUse": []wire.Hook{{Matcher: "write_to_file"}}},
+		},
+	}
+	require.NoError(t, writer.WriteSettings(cfg, nil, nil, "/project"))
+
+	hooks := readHooks(t, fs)
+	var written []string
+	for event, groups := range hooks {
+		for _, g := range groups {
+			for _, e := range g.Hooks {
+				assert.NotEmpty(t, e.Command, "%s carries an entry with no command to run", event)
+				written = append(written, e.Command)
+			}
+		}
+	}
+	assert.Equal(t, []string{"ctxloom hook pre-tool"}, written)
+}
+
 // TestAntigravityHookWriter_CompanionHookIdempotent verifies exact-duplicate
 // suppression for companion-binary hooks: an identical command already
 // installed under the same event by a non-ctxloom entry (e.g. ltk registered

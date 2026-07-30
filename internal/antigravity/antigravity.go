@@ -433,9 +433,18 @@ func (w *AntigravityHookWriter) addBackendHooks(hf *antigravityHooksFile, backen
 // and translating a prompt/agent hook here would mangle it into
 // {"type":"command","command":""} — a dead entry. Non-command hooks are
 // skipped with a warning (empty Type is the wire default and means command).
+//
+// A hook with no command is skipped for the same reason, and the Type guard
+// above does not cover it: `command` is required in agy's hook contract, and a
+// prompt hook authored WITHOUT an explicit type reads as a command hook with
+// nothing to run — an entry agy loads as a live handler that executes nothing.
 func (w *AntigravityHookWriter) addHook(hf *antigravityHooksFile, eventName string, h wire.Hook) {
 	if h.Type != "" && h.Type != "command" {
 		w.warn("skipping %s hook of type %q: antigravity only supports command hooks", eventName, h.Type)
+		return
+	}
+	if h.Command == "" {
+		w.warn("skipping %s hook with no command: antigravity would load it as a live hook that runs nothing (a prompt-only hook has no antigravity equivalent)", eventName)
 		return
 	}
 

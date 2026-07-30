@@ -91,20 +91,35 @@ func ParseReference(ref string) (*Reference, error) {
 		"— the short \"repo/path\" form is no longer accepted", ref)
 }
 
-// isSelfContainedRef reports whether ref carries its own scheme/source token
+// IsSelfContainedRef reports whether ref carries its own scheme/source token
 // (a canonical URL or an explicit ctxloom:local/ctxloom:companion ref) rather
 // than being a short same-repo reference meant for expansion against a
-// container's source. It mirrors ParseReference's own dispatch prefixes, so
-// ResolveRef can tell "this is scheme-qualified but malformed" (a real parse
-// error) apart from "this has no scheme at all" (a candidate short ref).
-func isSelfContainedRef(ref string) bool {
+// container's source. It lets a caller tell "this is scheme-qualified but
+// malformed" (a real parse error, fail CLOSED) apart from "this has no scheme
+// at all" (a candidate short ref, or a first-party local bundle name).
+//
+// THIS IS THE ONLY LIST. Two copies of it existed — this one and
+// operations.looksLikeSourceRef — and they were not merely duplicated, they
+// had DRIFTED: the operations copy recognised any "://" but was missing
+// ctxloom:companion@, so a malformed companion ref was downgraded to a
+// first-party local bundle name and auto-trusted, i.e. trusted MORE than a
+// well-formed one (giddy-handstand / U089-F12 / U150-F09). This function is
+// the union of the two, so neither reach is lost:
+//
+//   - any "://" ANYWHERE, not just the http/https/file prefixes ParseReference
+//     dispatches on. An "ssh://…" or "git://…" ref is scheme-qualified even
+//     though ParseReference cannot parse it, and must fail closed rather than
+//     be re-read as a bare name.
+//   - the git@ scp-like prefix, and both ctxloom: source tokens.
+//
+// Adding a dispatch prefix to ParseReference means adding it here too;
+// anything ParseReference recognises but this does not is a fail-open.
+func IsSelfContainedRef(ref string) bool {
 	switch {
 	case strings.HasPrefix(ref, LocalSource+"@"),
 		strings.HasPrefix(ref, CompanionSource+"@"),
-		strings.HasPrefix(ref, "https://"),
-		strings.HasPrefix(ref, "http://"),
 		strings.HasPrefix(ref, "git@"),
-		strings.HasPrefix(ref, "file://"):
+		strings.Contains(ref, "://"):
 		return true
 	default:
 		return false
@@ -130,7 +145,7 @@ func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
 	// Already self-contained (canonical URL or ctxloom:local) → as-is.
 	if parsed, err := ParseReference(ref); err == nil {
 		return parsed, nil
-	} else if isSelfContainedRef(ref) {
+	} else if IsSelfContainedRef(ref) {
 		// ref carries its OWN scheme/source token (https://, git@, file://,
 		// ctxloom:local@, ctxloom:companion@) — it was never a short same-repo
 		// ref to expand in the first place, so a ParseReference failure here is

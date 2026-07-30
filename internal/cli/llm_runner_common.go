@@ -92,6 +92,10 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName string
 			homeCfg.Engine = standup.engineHost.Handle
 		}
 	}
+	// The Hello advertisement, resolved BEFORE NewHome dials: the control kinds
+	// ride only when this runner actually hosts an engine that could execute
+	// them, so an engineless runner advertises the mailbox surface alone.
+	homeCfg.Capabilities = coord.RunnerCapabilities(standup.engineHost != nil)
 	h, herr := coord.NewHome(cmd.Context(), homeCfg)
 	if herr != nil {
 		clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)

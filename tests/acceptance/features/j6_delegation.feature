@@ -172,3 +172,27 @@ Feature: Coordinator delegates isolated work
     And the tool failure message contains "is not a message kind"
     When the agent sends "fixer"'s remembered session a message of kind "result"
     Then the tool call succeeds
+
+  # LOCKED — capability negotiation, from a standing start of NOTHING. The
+  # handshake has carried Hello.capabilities since the contract was written and
+  # both ends wrote a hardcoded literal into it that neither end ever read: the
+  # "the coordinator MUST NOT send request kinds the agent didn't advertise"
+  # rule had no implementation at all, and nothing noticed because there were
+  # no senders yet. A runner now advertises what its hosted engine can actually
+  # execute, the coordinator captures it per-run, and — the part that makes it
+  # observable outside the process — the advertisement is journaled with the
+  # attach, so an operator asking "why was my control request refused?" can
+  # read what that run claimed rather than what today's config would say.
+  #
+  # This spawns a REAL child, whose REAL runner subprocess dials home and
+  # Hellos; the assertion reads the coordinator's own interactions.jsonl off
+  # disk. It also pins the all-or-nothing shape: a PARTIAL control
+  # advertisement is what would make the send-side check pass and the request
+  # die at the far end, which is the experience the check exists to replace.
+  Scenario: A child runner's advertised capabilities are captured and journaled
+    When the agent calls tool "agent_run" with:
+      | agent     | fixer |
+      | prompt    | go    |
+      | workspace | none  |
+    Then the tool call succeeds
+    And the coordinator's audit trail records the child runner's advertised capabilities

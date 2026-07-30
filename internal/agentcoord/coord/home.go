@@ -99,6 +99,10 @@ type HomeConfig struct {
 	// spawned run and never receives one; a spawned child's Home always
 	// carries one once the caller wires it (llm_serve.go).
 	Engine RunnerRequestHandler
+	// Capabilities is this runner's Hello advertisement: what its hosted engine
+	// can actually execute (RunnerCapabilities). Empty advertises
+	// CapPeerMessaging alone — the mailbox surface every runner has.
+	Capabilities []string
 }
 
 type homeReq struct {
@@ -254,7 +258,7 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 		RunId:           h.cfg.RunID,
 		ResumeFromSeq:   resume,
 		ProtocolVersion: 1,
-		Capabilities:    []string{"peer_messaging"},
+		Capabilities:    h.helloCapabilities(),
 	}}}); err != nil {
 		return err
 	}
@@ -305,6 +309,16 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 		}
 		h.handleCoordinatorFrame(frame)
 	}
+}
+
+// helloCapabilities is this runner's advertisement, re-sent on every reconnect
+// because the coordinator forgets it with the old stream. A runner whose config
+// names none still advertises the mailbox surface it certainly has.
+func (h *Home) helloCapabilities() []string {
+	if len(h.cfg.Capabilities) == 0 {
+		return []string{CapPeerMessaging}
+	}
+	return append([]string(nil), h.cfg.Capabilities...)
 }
 
 // send writes one frame on the current stream under the single-writer

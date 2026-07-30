@@ -85,6 +85,12 @@ type runChan struct {
 	parked bool     // runner-side agent_recv park is open
 	pushed []string // message ids pushed tentatively (also in c.delivered)
 
+	// caps is this run's Hello advertisement (coordination.proto's
+	// Hello.capabilities), captured at serve. It is per-CHANNEL because it is
+	// per-run: a resumed harp gets a fresh channel from a fresh runner and may
+	// advertise differently, so nothing may cache it against the harp.
+	caps map[string]bool
+
 	// Plane-2 request idempotency does NOT live here: it must survive this
 	// channel's death so a request reissued on the NEXT dial (same request_id)
 	// reuses the in-flight dispatch instead of starting a second one. It lives
@@ -149,19 +155,24 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			// (U016-F10) — nobody should build a client that trusts this as
 			// confirmation.
 			CommittedSeq: hello.GetResumeFromSeq(),
-			Capabilities: []string{"peer_messaging"},
+			Capabilities: []string{CapPeerMessaging},
 		},
 	}}); err != nil {
 		return err
 	}
 
 	streamCtx, cancel := context.WithCancel(stream.Context())
+	caps := make(map[string]bool, len(hello.GetCapabilities()))
+	for _, cap := range hello.GetCapabilities() {
+		caps[cap] = true
+	}
 	ch := &runChan{
 		role:      id.Harp,
 		id:        id,
 		send:      make(chan *agentcoordpb.CoordinatorFrame, 64),
 		cancel:    cancel,
 		completed: make(chan struct{}),
+		caps:      caps,
 	}
 	c.mu.Lock()
 	if prev := c.chans[id.Harp]; prev != nil {
@@ -169,7 +180,14 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	}
 	c.chans[id.Harp] = ch
 	c.mu.Unlock()
-	c.audit("run_channel", id.Harp, map[string]string{"run_id": id.RunID})
+	// The advertisement is journaled with the attach, not just held in memory: it
+	// is per-run, so once the run is gone nothing can reconstruct what it claimed
+	// to be able to do — which is exactly the question an operator asks when a
+	// control request was refused.
+	c.audit("run_channel", id.Harp, map[string]string{
+		"run_id":       id.RunID,
+		"capabilities": strings.Join(hello.GetCapabilities(), ","),
+	})
 	// A migrated child's queued mail drains the moment its channel attaches
 	// (fresh spawn: the pre-engine window; reconnect: unconsumed
 	// redelivery — at-least-once, deduped runner-side on message_id).

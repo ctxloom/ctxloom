@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **949** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **964** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 36 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 72 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 73 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,085** |
+| `open` | no commit names this ID | **1,069** |
 
-**Totals: 2268 findings across 162 units — 949 resolved, 1,085 still open, 234 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 964 resolved, 1,069 still open, 235 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 260 | 621 | 14 | 24 | 80 |
-| LOW | 871 | 339 | 438 | 12 | 40 | 42 |
+| MED | 999 | 267 | 614 | 14 | 24 | 80 |
+| LOW | 871 | 347 | 429 | 12 | 41 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1110,14 +1110,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U034-F11 | open | `internal/cli/bundle_distill.go:127-139,151-162,186-193,226-240` | ERRHANDLING | `bundle distill`'s entire text path uses unchecked `fmt.Fprintf` and always returns nil, unlike the `iox.ErrWriter` used in all eleven other renderers in this unit; errors go to `os.Stderr` rather ... | U034.md |
 | U034-F12 | open | `internal/cli/bundle_items.go:75,98` | ERRHANDLING | `bundle mcp edit` writes user-facing output with package-level `fmt.Println`/`fmt.Printf` instead of `cmd.OutOrStdout()` | U034.md |
 | U035-F01 | **RESOLVED** `9ca81437` | `exitcode_unix.go:15`, `exitcode_windows.go:10` | DEAD | `childExitCode` has **zero production call sites** on either platform; two build-tagged files and a dedicated test file exist for a function nothing calls. Worse, the capability it names — shell-co... | U035.md |
-| U035-F02 | open | `container_cmd.go:110-113` | CORRECTNESS | `container build --base-image X` **hard-fails** on any project that sets `isolation_base_containerfile`: the config value is copied into `opts.BaseContainerfile` without checking whether `--base-im... | U035.md |
-| U035-F03 | open | `container_cmd.go:102-133` | CORRECTNESS | `container build` **silently ignores `isolation_images`**. `IsolationImageConfig` resolves `Image` (`operations/oneshot.go:183`) but the build path never reads `img.Image`, so on a project with a u... | U035.md |
-| U035-F04 | open | `container_cmd.go:302-318` | CORRECTNESS | `container check` with no backend argument and an unloadable config diagnoses **the empty backend**: both `GetConfig()` errors are discarded, `backend` stays `""`, and the command prints `Container... | U035.md |
-| U035-F05 | open | `doctor_cmd.go:590-601` | ERRHANDLING | `doctorCheckHooksTrust` appends `operations.ListSigners`' error text to the detail string but **never sets `status = "warn"`**. A doctor run whose trust store fails to load can report `DOCTOR-CHECK... | U035.md |
-| U035-F06 | open | `distiller.go:26-45` | ERRHANDLING | `newLLMDistillerForLabel` has **three silent `return nil` paths** — empty label, `loadDistillPrompt()` error (discarded entirely), unresolved backend. The operations layer then stores raw, undistil... | U035.md |
-| U035-F07 | open | **`config.go:40-72`, `format_coverage_test.go:256-259`** | SILENTNOOP | `config show`/`config get` **ignore the global `--format` flag entirely** — they always write YAML. `--format`'s own help text advertises "json, yaml, toml, text, or markdown" (`format.go:63`), so ... | U035.md |
+| U035-F02 | **RESOLVED** `7d5fc290` | `container_cmd.go:110-113` | CORRECTNESS | `container build --base-image X` **hard-fails** on any project that sets `isolation_base_containerfile`: the config value is copied into `opts.BaseContainerfile` without checking whether `--base-im... | U035.md |
+| U035-F03 | **RESOLVED** `7d5fc290` | `container_cmd.go:102-133` | CORRECTNESS | `container build` **silently ignores `isolation_images`**. `IsolationImageConfig` resolves `Image` (`operations/oneshot.go:183`) but the build path never reads `img.Image`, so on a project with a u... | U035.md |
+| U035-F04 | **RESOLVED** `3517a696` | `container_cmd.go:302-318` | CORRECTNESS | `container check` with no backend argument and an unloadable config diagnoses **the empty backend**: both `GetConfig()` errors are discarded, `backend` stays `""`, and the command prints `Container... | U035.md |
+| U035-F05 | **RESOLVED** `eb833cd6` | `doctor_cmd.go:590-601` | ERRHANDLING | `doctorCheckHooksTrust` appends `operations.ListSigners`' error text to the detail string but **never sets `status = "warn"`**. A doctor run whose trust store fails to load can report `DOCTOR-CHECK... | U035.md |
+| U035-F06 | **RESOLVED** `67146410` | `distiller.go:26-45` | ERRHANDLING | `newLLMDistillerForLabel` has **three silent `return nil` paths** — empty label, `loadDistillPrompt()` error (discarded entirely), unresolved backend. The operations layer then stores raw, undistil... | U035.md |
+| U035-F07 | **RESOLVED** `09b8862b` | **`config.go:40-72`, `format_coverage_test.go:256-259`** | SILENTNOOP | `config show`/`config get` **ignore the global `--format` flag entirely** — they always write YAML. `--format`'s own help text advertises "json, yaml, toml, text, or markdown" (`format.go:63`), so ... | U035.md |
 | U035-F08 | **RESOLVED** `6e3ab795` | `command_cmd.go:130-172` vs `bundle_transfer.go:12-44` | DUPLICATE | `command push` is a full second copy of `bundle push`: four parallel flag vars (`commandPushPR/Message/Sign/NoSign` vs `bundlePush*`), four duplicate `Flags()` registrations, and an identical arg-u... | U035.md |
-| U035-F09 | open | `doctor_cmd.go:206`, `:551`, `:390`, `bundle_view.go:116` | COMPLEXITY | Four functions in this unit exceed the project's declared cyclomatic gate: `doctorCheckDeps` CCN 14, `doctorCheckHooksTrust` 13, `renderBundleViewItem` 12, `gitIdentityDetail` 11. CI declares the g... | U035.md |
+| U035-F09 | **RESOLVED** `a20426ff` | `doctor_cmd.go:206`, `:551`, `:390`, `bundle_view.go:116` | COMPLEXITY | Four functions in this unit exceed the project's declared cyclomatic gate: `doctorCheckDeps` CCN 14, `doctorCheckHooksTrust` 13, `renderBundleViewItem` 12, `gitIdentityDetail` 11. CI declares the g... | U035.md |
 | U036-F03 | open | `hook_inject_context.go:100-103, 211-220` | CORRECTNESS | When the context file is missing under a **chunked** hook set, `ChunkContext("")` returns `nil`, every part is out of range, and each `part>1` invocation still calls `agent.AwaitTurn`, which blocks... | U036.md |
 | U036-F05 | open | **`init.go:618, 659-666`** | CORRECTNESS | `--engine` is read then **discarded** on the re-init path: `engineFromExistingConfig` returns the config's engine whenever one is set, so `ctxloom init --engine codex` in an existing project silent... | U036.md |
 | U036-F06 | open | **`init.go:660, 970, 988, 1009, 1030`** | CORRECTNESS | Five post-scaffold steps use the **bare ambient** `config.Load()`, which discovers `.ctxloom` from the cwd (`config.go:1170 findAppDir`), not the `appDir` init just wrote. Running `ctxloom init --h... | U036.md |
@@ -2109,18 +2109,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U034-F18 | open | `internal/cli/bundle_move.go:77` | COUPLING | `printMoveResult` compares `r.DestKind` against the hard-coded literal `"remote"` because the producing constant is unexported | U034.md |
 | U035-F10 | **RESOLVED** `c4109ec8` | `container_cmd.go:137-139` | NOPAY | `var containerDiagnose = isolation.Diagnose` exists, per its own comment, "so the CLI rendering is testable with an injected report" — but **no test ever assigns it**. The tests inject a `Diagnosis... | U035.md |
 | U035-F11 | **RESOLVED** `6ddb49ff` | `doctor_cmd.go:85`, `:92` | NOPAY | `DoctorCheck` and `DoctorReport` are exported from an `internal/` package with **zero references outside `internal/cli`**. Exporting the *types* is unnecessary (only the fields need to be exported ... | U035.md |
-| U035-F12 | open | `doctor_cmd.go:85-88` | COUPLING | `DoctorCheck.Status` is an untyped `string` whose three legal values live in a trailing comment, written as free literals at 20+ sites plus two `status := "ok"` accumulators. `Marker`'s DOCTOR-CHEC... | U035.md |
+| U035-F12 | **RESOLVED** `b276cdb6` | `doctor_cmd.go:85-88` | COUPLING | `DoctorCheck.Status` is an untyped `string` whose three legal values live in a trailing comment, written as free literals at 20+ sites plus two `status := "ok"` accumulators. `Marker`'s DOCTOR-CHEC... | U035.md |
 | U035-F13 | **RESOLVED** `db750c7e` | `distiller.go:50` | NOPAY | `mcpLLMDistillerSDK` names two things it is not: it has no relationship to MCP and uses no SDK. It is a plain adapter over `distillWithModel`. | U035.md |
 | U035-F14 | **RESOLVED** `5fdf8767` | `coord_acp.go:26`, `coord_host.go:120` | NOPAY | Both doc comments promise "the coordinator reach-back **trio**", but `sessionOwnerEnv` returns a **two**-entry map. `sessionOwnerEnv`'s own comment (`:136-140`) explains that D2 retired the third e... | U035.md |
-| U035-F15 | open | **`config.go:129`, `:158`** | ERRHANDLING | Both config commands treat `os.Stat` as a boolean. `runConfigEdit` proceeds to launch `$EDITOR` on any non-`IsNotExist` error (permission denied, a broken symlink), and `runConfigInit` proceeds to ... | U035.md |
-| U035-F16 | open | **`config.go:161`** | CORRECTNESS | `runConfigInit` passes `context.Background()` to `operations.InitializeProject` even though `cmd.Context()` is available on the receiver it ignores (`cmd *cobra.Command`). `ctxloom config init` can... | U035.md |
-| U035-F17 | open | **`config.go:167`, `container_cmd.go:132`, `edit_helpers.go:31,38,45-47`** | COUPLING | Five success messages go to `os.Stdout` via bare `fmt.Print*` instead of `cmd.OutOrStdout()`, so they are invisible to the package's own cobra output-capture tests and unredirectable by any embeddi... | U035.md |
-| U035-F18 | open | `completion.go:58-70` | SILENTNOOP | `completionCmd.RunE`'s `switch` has no `default`; an unmatched arg falls through to `return nil` — exit 0, zero bytes, no message. Today `ValidArgs` + `OnlyValidArgs` makes it unreachable, so this ... | U035.md |
-| U035-F19 | open | `completion.go:115-122` | COUPLING | `completeLLMNames` degrades differently from its four siblings: on a config-load failure it falls back to `backends.List()`, while `completeFragmentNames`/`ProfileNames`/`TagNames`/`PromptNames` al... | U035.md |
+| U035-F15 | **RESOLVED** `a93530bb` | **`config.go:129`, `:158`** | ERRHANDLING | Both config commands treat `os.Stat` as a boolean. `runConfigEdit` proceeds to launch `$EDITOR` on any non-`IsNotExist` error (permission denied, a broken symlink), and `runConfigInit` proceeds to ... | U035.md |
+| U035-F16 | **RESOLVED** `a93530bb` | **`config.go:161`** | CORRECTNESS | `runConfigInit` passes `context.Background()` to `operations.InitializeProject` even though `cmd.Context()` is available on the receiver it ignores (`cmd *cobra.Command`). `ctxloom config init` can... | U035.md |
+| U035-F17 | **RESOLVED** `09b8862b` | **`config.go:167`, `container_cmd.go:132`, `edit_helpers.go:31,38,45-47`** | COUPLING | Five success messages go to `os.Stdout` via bare `fmt.Print*` instead of `cmd.OutOrStdout()`, so they are invisible to the package's own cobra output-capture tests and unredirectable by any embeddi... | U035.md |
+| U035-F18 | **RESOLVED** `522beb6c` | `completion.go:58-70` | SILENTNOOP | `completionCmd.RunE`'s `switch` has no `default`; an unmatched arg falls through to `return nil` — exit 0, zero bytes, no message. Today `ValidArgs` + `OnlyValidArgs` makes it unreachable, so this ... | U035.md |
+| U035-F19 | **REFUTED** `522beb6c` | `completion.go:115-122` | COUPLING | `completeLLMNames` degrades differently from its four siblings: on a config-load failure it falls back to `backends.List()`, while `completeFragmentNames`/`ProfileNames`/`TagNames`/`PromptNames` al... | U035.md |
 | U035-F20 | **RESOLVED** `100eb930` | `bundle_view.go:40` | NOPAY | The `bundle view` help text mislabels commands as prompts and is column-misaligned: `bundle-name#commands/name Prompt content`. The prompt→skill/command rename left this line behind. | U035.md |
-| U035-F21 | open | `doctor_cmd.go:228-233` | CORRECTNESS | `doctorCheckDeps` classifies a container runtime as **required** ("git, every configured engine's client, and a container runtime are all on PATH (required)"), but a container runtime is required o... | U035.md |
-| U035-F22 | open | `container_cmd.go:298`, `doctor_cmd.go:141` | CORRECTNESS | Both commands document "always exits 0" / "Diagnostic only: always exits 0", but both `return emit(...)`, which returns an error (→ exit 1) for an unparseable `--format`; `container check` addition... | U035.md |
-| U035-F23 | open | `coord_acp.go:18` | COUPLING | `acpCoordinator` satisfies `operations.EngineSessionCoordinator` purely structurally, with no compile-time assertion on either side. A signature change to `SessionEnv`/`WatchChildren` surfaces as a... | U035.md |
+| U035-F21 | **RESOLVED** `ddec1c96` | `doctor_cmd.go:228-233` | CORRECTNESS | `doctorCheckDeps` classifies a container runtime as **required** ("git, every configured engine's client, and a container runtime are all on PATH (required)"), but a container runtime is required o... | U035.md |
+| U035-F22 | **RESOLVED** `10e3b417` | `container_cmd.go:298`, `doctor_cmd.go:141` | CORRECTNESS | Both commands document "always exits 0" / "Diagnostic only: always exits 0", but both `return emit(...)`, which returns an error (→ exit 1) for an unparseable `--format`; `container check` addition... | U035.md |
+| U035-F23 | **RESOLVED** `35328b82` | `coord_acp.go:18` | COUPLING | `acpCoordinator` satisfies `operations.EngineSessionCoordinator` purely structurally, with no compile-time assertion on either side. A signature change to `SessionEnv`/`WatchChildren` surfaces as a... | U035.md |
 | U035-F24 | **RESOLVED** `2402a8b7` | **`format.go:51-53`** | TRIVIAL | `resolveFormat` is a pure one-line pass-through to `cliemit.Resolve` with 3 production call sites and no added meaning — and the name is *already* independently redefined in `cmd/harp/root.go:113`,... | U035.md |
 | U036-F07 | open | **`init.go:1043`** | SILENTNOOP | `fmt.Printf("Applied hooks for: %v\n", result.Backends)` prints `Applied hooks for: []` when nothing was applied — a success message with an empty payload. | U036.md |
 | U036-F10 | open | `hook_stamp_plan.go:40-43` | ERRHANDLING | `parseEditPayload`'s error is discarded without a warning, breaking this file's own stated convention that hooks "warn and continue". | U036.md |

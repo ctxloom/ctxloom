@@ -47,12 +47,76 @@ message FieldSchema {
 message MessageSchema {
   // LLM-facing description OVERRIDING the message's leading comment.
   string doc = 1;
+
+  // This message is rendered into an injected `<ctxloom-reminder>` frame by a
+  // GENERATED `.XmlLike()` encoder (plane-2 §6.6). Build-time only: no wire
+  // traffic ever carries these messages, and nothing at runtime reads this
+  // option.
+  //
+  // Marking a message xml_like turns on the generator's three build-time
+  // constraints over EVERY one of its fields (see XmlRole): a field with no
+  // xml_role option FAILS THE BUILD, a free-text/repeated/message field
+  // annotated XML_ATTRIBUTE FAILS THE BUILD, and at most one field may be
+  // XML_CONTENT. The invalid frame is unrepresentable at build time rather
+  // than warned about at runtime — the whole reason encoders are generated
+  // instead of reflected.
+  //
+  // The frame's `kind` attribute is derived from the message NAME (a closed
+  // set by construction, never a value): MailPendingReminder -> "mail-pending".
+  bool xml_like = 2;
+
+  // Literal element content for this message's generated frame — a BUILD-TIME
+  // CONSTANT baked into the encoder, never sender bytes and never a field
+  // value. `<ctxloom-reminder kind="mail-pending" count="2">call
+  // agent_recv</ctxloom-reminder>` gets its "call agent_recv" from here.
+  //
+  // A message may carry xml_text or one XML_CONTENT field, not both: two
+  // sources of element content would have no defined order, and the whole
+  // point of the encoder is that the frame's shape is decided at build time.
+  string xml_text = 3;
+}
+
+// XmlRole declares how one field of an xml_like message encodes into its
+// generated `<ctxloom-reminder>` frame. Build-time only — annotations "impose
+// no wire-format change" per this file's header, and no runtime code reads
+// this option.
+//
+// THE ZERO VALUE IS OMIT, DELIBERATELY, and it is the security-relevant
+// choice: rendering is OPT-IN, so a field added to a reminder message later —
+// a run token, an internal id, a credential — cannot leak into a model's
+// context by being forgotten. Opt-out would mean it can. There is no
+// XML_ROLE_UNSPECIFIED: "no role declared" is not a fourth state to resolve at
+// runtime, it is OMIT, and the generator additionally refuses to build a field
+// that does not SAY so (see MessageSchema.xml_like) — so the safe default is
+// belt, and the build failure is braces.
+enum XmlRole {
+  // THE DEFAULT: this field is NOT rendered into any injected frame.
+  XML_OMIT = 0;
+
+  // Rendered as an attribute (`count="2"`). LEGAL ONLY for enums and
+  // singular numeric/bool scalars. An enum renders as its value NAME — a name
+  // from a closed set, unforgeable, off the escaping-dependent path entirely.
+  // A string, bytes, repeated, or message field annotated XML_ATTRIBUTE is a
+  // BUILD FAILURE: multi-line free text does not belong in an attribute at
+  // all, so it must be XML_CONTENT or XML_OMIT.
+  XML_ATTRIBUTE = 1;
+
+  // Rendered as the element's content — the only place free text may appear.
+  // The generated encoder escapes it; every string field stays an untrusted
+  // surface. At most one field per message may be XML_CONTENT, and not
+  // alongside MessageSchema.xml_text.
+  XML_CONTENT = 2;
 }
 
 extend google.protobuf.FieldOptions {
   // Range 50000-99999 is reserved for internal use within individual
   // organizations; this package never leaves ctxloom's build.
   FieldSchema field_schema = 50100;
+
+  // How this field encodes into its message's generated `.XmlLike()` frame.
+  // Read ONLY by the frame-encoder generator, and only for messages marked
+  // (message_schema).xml_like.
+  XmlRole xml_role = 50101;
 }
 
 extend google.protobuf.MessageOptions {

@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
@@ -43,8 +40,11 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 		if entry.EffectiveType() == "gemini" {
 			// Removed backend with a known successor: point at the fix. The
 			// config upgrade rewrites this on load; the hint covers configs
-			// where that rewrite has not been committed yet.
-			fmt.Fprintf(os.Stderr, "ctxloom: note: the \"gemini\" backend was replaced by \"antigravity\" (Antigravity CLI, binary agy); update the entry's type to \"antigravity\" or re-run ctxloom to apply the config upgrade\n")
+			// where that rewrite has not been committed yet. It rides clidiag
+			// like the line above it: that is the one channel that honours the
+			// process's structured-diagnostics wire shape and the TUI's sink
+			// redirect, both of which a bare write to os.Stderr corrupts.
+			clidiag.Warn("ctxloom", "the \"gemini\" backend was replaced by \"antigravity\" (Antigravity CLI, binary agy); update the entry's type to \"antigravity\" or re-run ctxloom to apply the config upgrade")
 		}
 		return nil
 	}

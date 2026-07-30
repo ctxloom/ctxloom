@@ -131,8 +131,8 @@ func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	servers := []operations.MCPServerEntry{{Name: "local-srv", Command: "node", Backend: "unified"}}
-	rows := []mcpListRow{{Name: "local-srv", Command: "node", Backend: "unified"}}
-	stampMCPTrust(cfg, servers, rows)
+	rows := mcpListRows(cfg, servers, true)
+	require.Len(t, rows, 1)
 
 	assert.True(t, rows[0].Trusted, "project-configured local MCP is first-party")
 	assert.Equal(t, "local", rows[0].TrustSource)
@@ -163,10 +163,61 @@ func TestStampMCPTrust_RejectedServerJSON(t *testing.T) {
 	// regardless of which ref/name it is later exposed under.
 	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.AttestExecMCP, mcpPayload))
 
-	rows := []mcpListRow{{Name: srv.Name, Command: srv.Command, Args: srv.Args, Backend: srv.Backend}}
-	stampMCPTrust(cfg, []operations.MCPServerEntry{srv}, rows)
+	rows := mcpListRows(cfg, []operations.MCPServerEntry{srv}, true)
+	require.Len(t, rows, 1)
 
 	assert.False(t, rows[0].Trusted)
 	assert.Equal(t, "rejected", rows[0].TrustSource)
 	assert.Equal(t, "rejected", rows[0].State)
+}
+
+// TestMcpListRows_StampBelongsToItsOwnServer is the U037-F14 pin. The trust
+// stamp used to be applied by a second function that walked `rows` and indexed
+// `servers` at the same position — connascence of position across a function
+// boundary, with no length check, so a shorter servers slice panicked and a
+// reordered one silently mislabelled every row's security posture. Rows are now
+// produced by one loop over one slice; this pins the property that makes that
+// safe: one row per server, in server order, each carrying the verdict for its
+// OWN executable surface.
+//
+// The two servers differ in exactly the way the display exists to show: one has
+// its command+args content-rejected, the other does not. A pairing that drifts
+// by one therefore reports "rejected" against the innocent server.
+func TestMcpListRows_StampBelongsToItsOwnServer(t *testing.T) {
+	appDir := t.TempDir()
+	noAgentEnv(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	clean := operations.MCPServerEntry{Name: "clean-srv", Command: "node", Args: []string{"-a"}, Backend: "unified"}
+	banned := operations.MCPServerEntry{Name: "banned-srv", Command: "node", Args: []string{"-x"}, Backend: "unified"}
+
+	bannedSurface := bundles.BundleMCP{Command: banned.Command, Args: banned.Args}
+	payload, perr := bannedSurface.ContentPayload()
+	require.NoError(t, perr)
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.KindMCP, signing.FormRaw, payload))
+
+	servers := []operations.MCPServerEntry{clean, banned}
+	rows := mcpListRows(cfg, servers, true)
+
+	require.Len(t, rows, len(servers), "one row per server, never a slice of its own length")
+	for i, srv := range servers {
+		assert.Equal(t, srv.Name, rows[i].Name, "row %d must describe servers[%d]", i, i)
+	}
+	assert.Equal(t, "rejected", rows[1].State, "the rejected surface is the one flagged")
+	assert.NotEqual(t, "rejected", rows[0].State, "the innocent server must not inherit its neighbour's verdict")
+}
+
+// TestMcpListRows_TextPathSkipsTheStamp pins the other half of runMCPList's
+// contract: the human listing is cheaper because it never resolves trust, so a
+// row built without the stamp carries the zero-value fields rather than a
+// misleading "untrusted".
+func TestMcpListRows_TextPathSkipsTheStamp(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+
+	rows := mcpListRows(cfg, []operations.MCPServerEntry{{Name: "local-srv", Command: "node"}}, false)
+
+	require.Len(t, rows, 1)
+	assert.Equal(t, "local-srv", rows[0].Name)
+	assert.Empty(t, rows[0].TrustSource, "the text path resolves no trust")
+	assert.Empty(t, rows[0].State)
 }

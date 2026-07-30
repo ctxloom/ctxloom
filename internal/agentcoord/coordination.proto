@@ -1,4 +1,27 @@
-// coordination.proto — agentcoord.v1 (rev 11 — ctxloom Wave F1)
+// coordination.proto — agentcoord.v1 (rev 12 — plane-2 Stage 2a)
+//
+// Changelog rev 11 -> rev 12 (pre-release; ONE SANCTIONED BREAK, see below):
+//   - 4.B: mail `kind` becomes the MessageKind ENUM, carried by
+//     PeerSendRequest.kind (7) and PeerMessage.kind (8). The
+//     `structured["kind"]` free-string convention is RETIRED — that string was
+//     the injection vector (a sender could name the coordinator-reserved
+//     `approval_request` and have it interpolated into a delivered frame). An
+//     enum validates at DECODE, renders as a name from a closed set, and is
+//     attribute-eligible by construction. This BREAKS `agent_recv`'s output
+//     shape: `kind` moves out of `structured` and onto the message. A
+//     deliberate prerelease break, human-sanctioned, per the
+//     no-backward-compat-shims rule.
+//   - 4.C: presentation-only reminder messages (MailPendingReminder,
+//     SteerPendingReminder, QuestionPendingReminder, PausedReminder,
+//     ResumedReminder). NEVER WIRE TRAFFIC: they exist to be rendered into
+//     injected `<ctxloom-reminder>` frames by their GENERATED `.XmlLike()`
+//     encoders (annotations.proto's XmlRole). No RPC, oneof, or field
+//     anywhere carries one.
+//   - 4.E: ControlInitiatorKind — the closed HUMAN/AGENT privilege
+//     discriminator for control verbs, journaled into durable facts.
+//   - Comment-only: SteerResult.APPLIED_IMMEDIATE no longer claims "injected
+//     into the current turn" (review finding F4). It means IDLE TARGET, NEW
+//     TURN NOW; no engine surface supports genuine mid-turn injection.
 //
 // Changelog rev 10 -> rev 11 (pre-release, additive):
 //   - F1 (taskloom spare-chevy): ListRunsResult.RunInfo gains permission_mode
@@ -697,13 +720,85 @@ message SpawnAgentResult {
   string child_agent_id = 3;
 }
 
+// MessageKind is the CLOSED vocabulary of mailbox message kinds (4.B).
+//
+// It replaces the `structured["kind"]` free-string convention, which was
+// sender-controlled over an OPEN vocabulary that included the
+// coordinator-reserved `approval_request` — so a child could mint what read as
+// an approval prompt. Three properties come from making it an enum rather than
+// validating strings at each call site: an unrecognised value is a
+// DECODE-time reject, not a string to sanitise; the value renders as a NAME
+// from a closed set, which makes it attribute-eligible in a generated
+// `<ctxloom-reminder>` frame by construction rather than by remembering to
+// escape; and the vocabulary is discoverable to the agent through the
+// generated MCP tool schemas, with no parallel documentation to drift.
+//
+// TWO CLASSES, one enum. The split is INGRESS POLICY, not two types:
+// `agent_send` accepts only the sender-allowed values, and rejects the
+// coordinator-reserved ones (and unrecognised numbers) naming the vocabulary.
+// Only the coordinator itself may mint a reserved kind.
+//
+// MESSAGE_KIND_UNSPECIFIED is INVALID at every consumer. A message whose kind
+// did not decode to a recognised value is refused, never defaulted — the
+// zero value must not be a way to arrive unclassified and inherit whatever a
+// switch's default branch happens to do.
+enum MessageKind {
+  // Invalid. Never queue, send, or accept a message with this kind.
+  MESSAGE_KIND_UNSPECIFIED = 0;
+
+  // Ordinary prose from one session to another (sender-allowed). Also the
+  // kind the coordinator uses for text the HUMAN injects into a session
+  // (`Coordinator.Inject`, viewer/terminal): it is a message, and the
+  // human's identity rides from_agent_id ("user"), not the kind. Injection
+  // used to queue mail with NO kind at all — the one producer the enum had
+  // no representation for; see the Stage 2a report.
+  MESSAGE_KIND_MESSAGE = 1;
+
+  // A finding/verdict/deliverable (sender-allowed). Also what the automatic
+  // turn-boundary bridge reports to a parent when a child's turn ends
+  // without the child having sent anything itself.
+  MESSAGE_KIND_RESULT = 2;
+
+  // A failure the recipient must act on (sender-allowed). The coordinator
+  // also mints it for launch failures, resume failures, and a terminal whose
+  // run actually FAILED (as against merely ended).
+  MESSAGE_KIND_ERROR = 3;
+
+  // A question awaiting the recipient's answer (sender-allowed).
+  MESSAGE_KIND_QUESTION = 4;
+
+  // COORDINATOR-RESERVED: a relayed escalation-ladder ApprovalRequest,
+  // waiting on the recipient's decision. `agent_send` MUST refuse this from
+  // a sender — minting it is exactly the forgery the enum closes.
+  MESSAGE_KIND_APPROVAL_REQUEST = 10;
+
+  // COORDINATOR-RESERVED: the mirror notice a human injection always sends to
+  // the target's PARENT, so a coordinator's picture of its child never
+  // diverges without a trace.
+  MESSAGE_KIND_USER_INJECTED = 11;
+
+  // COORDINATOR-RESERVED: a control action taken against the recipient
+  // (pause/resume/...) reported as mail. No producer yet — the control verbs
+  // land in a later stage; the value exists so that stage adds no schema.
+  MESSAGE_KIND_USER_CONTROL = 12;
+
+  // COORDINATOR-RESERVED: the synthesized terminal notice queued to a parent
+  // when a child run ends. The parent ALWAYS learns of a child's death.
+  MESSAGE_KIND_EXITED = 13;
+
+  // COORDINATOR-RESERVED: a steer instruction's body, queued as durable mail
+  // so it survives the target's run succession. No producer yet (later
+  // stage); declared here so that stage adds no schema.
+  MESSAGE_KIND_STEER = 14;
+}
+
 // Peer messaging is hub-and-spoke: sender asks the coordinator to relay;
 // the coordinator applies policy (may deny, redact, or queue) and
 // delivers to the target as a CoordinatorNotice.PeerMessage. No agent
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
   option (message_schema) = {
-    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts."
+    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored."
   };
 
   // or...
@@ -721,8 +816,18 @@ message PeerSendRequest {
     doc: "Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"
   }];
   google.protobuf.Struct structured = 4 [(field_schema) = {
-    doc: "Optional structured companion. Ordinarily an envelope whose `kind` names the message kind: result | question | error. ANSWERING A RELAYED approval_request is the exception — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}. `kind` may ride alongside the decision and is ignored; any OTHER key is rejected, and the send fails naming the accepted shape. Answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent.",
-    example: "{\"kind\": \"result\"}"
+    doc: "Optional structured companion. ANSWERING A RELAYED MESSAGE_KIND_APPROVAL_REQUEST is its main use — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}. Any OTHER key on an approval reply is rejected, and the send fails naming the accepted shape; answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent. A `kind` key here is NO LONGER the message kind: name the kind in the `kind` field.",
+    example: "{\"decision\": \"DECISION_ACCEPT\"}"
+  }];
+  // The message's kind, from the closed MessageKind vocabulary. Only the
+  // sender-allowed values are accepted here; a coordinator-reserved value (or
+  // an unrecognised number) is refused at ingress naming the vocabulary.
+  //
+  // 4.B: this REPLACES the retired `structured["kind"]` convention. `kind` in
+  // `structured` is now just an ordinary payload key with no special meaning.
+  MessageKind kind = 7 [(field_schema) = {
+    doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship (MESSAGE_KIND_APPROVAL_REQUEST is relayed to a human as a trust decision), so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
+    example: "\"MESSAGE_KIND_RESULT\""
   }];
   // 5 was artifact_ids (repeated string), REMOVED 2026-07-26 (U016-F05):
   // servePeerSend never read it and PeerMessage.artifacts was never
@@ -915,7 +1020,13 @@ message SteerRequest {
 message SteerResult {
   enum Applied {
     APPLIED_UNSPECIFIED = 0;
-    APPLIED_IMMEDIATE = 1;       // injected into the current turn
+    // The target was IDLE, so the steer starts a NEW TURN NOW. It is NOT
+    // injected into a turn already running: no engine surface ctxloom drives
+    // supports genuine mid-turn injection, and the earlier comment here
+    // ("injected into the current turn") claimed a capability that does not
+    // exist. "Immediate" is about LATENCY — the instruction is acted on
+    // without waiting for a boundary — never about interrupting a turn.
+    APPLIED_IMMEDIATE = 1;
     APPLIED_NEXT_TURN = 2;       // queued for the next turn boundary
     APPLIED_REJECTED = 3;        // agent declined (also see status)
   }
@@ -956,6 +1067,106 @@ message PauseResult {
 message ResumeRequest {}
 message ResumeResult {}
 
+// ControlInitiatorKind names WHO initiated a control action (4.E) — the
+// privilege discriminator the coordinator's control guard reads to decide
+// whether the caller may control a given run.
+//
+// It is a closed enum rather than a bool because a bool made four states
+// representable where two are valid, and because this value is journaled into
+// DURABLE facts (audit, InteractionRecorded) — and this project's durable facts
+// are proto. It also has to be an ENUM, not a string, to be eligible to render
+// as an attribute in a generated `<ctxloom-reminder>` frame: "the human paused
+// you" and "your parent paused you" are a distinction an agent genuinely
+// needs, and XmlRole refuses free text as an attribute.
+//
+// It is NEVER a request payload field. The coordinator DERIVES it — from the
+// authenticated caller identity on the agent path, from the in-process call on
+// the human path. An initiator that arrived in a payload would be
+// self-asserted, and therefore forgeable.
+//
+// HUMAN and AGENT only. A system/watchdog initiator is plausible but has no
+// producer, and adding an enum value later is additive — precisely the
+// property the enum buys.
+enum ControlInitiatorKind {
+  // INVALID. Every control verb MUST refuse this, so an unrecognised
+  // initiator fails closed instead of inheriting the narrower branch's
+  // privileges by default.
+  CONTROL_INITIATOR_KIND_UNSPECIFIED = 0;
+  // The human, at the viewer or the terminal.
+  CONTROL_INITIATOR_KIND_HUMAN = 1;
+  // A coordinating agent — specifically the target's own parent.
+  CONTROL_INITIATOR_KIND_AGENT = 2;
+}
+
+// ----- injected reminder frames (PRESENTATION ONLY, never wire traffic) -------
+//
+// 4.C. These messages are the source of the DATA STRUCTURE for the tiny
+// `<ctxloom-reminder>` notices ctxloom injects into a session's turn stream.
+// They are rendered to text by their GENERATED `.XmlLike()` encoders
+// (annotations.proto's XmlRole) and are NEVER SENT: no RPC takes one, no oneof
+// arm carries one, nothing marshals one onto a channel. If you find one on the
+// wire, that is a bug.
+//
+// Why they are protos at all: generation can FAIL THE BUILD. Declaring the
+// frame shape in field options means an un-annotated field, or free text
+// smuggled into an attribute, is a compile error rather than a runtime
+// warning — and because no hand-written frame construction exists anywhere, a
+// sender-supplied string can never be interpolated into a frame. Escaping is a
+// property of the encoder, not a convention someone has to remember.
+//
+// Every frame is DELIBERATELY tiny and content-free: the mailbox stays
+// authoritative and the agent PULLS the payload with agent_recv. Sender
+// identity and correlation ids have NO frame representation on purpose — they
+// are structured data on the pulled message, and as proto `string`s they are
+// attribute-INELIGIBLE anyway.
+
+// Mail is waiting. `<ctxloom-reminder kind="mail-pending" count="2">call
+// agent_recv</ctxloom-reminder>`
+message MailPendingReminder {
+  option (message_schema) = {
+    xml_like: true,
+    xml_text: "call agent_recv"
+  };
+
+  // How many messages are pending. A count is a number, so it is
+  // attribute-eligible; it is also the only sender-influenced quantity in any
+  // frame, and it cannot carry sender BYTES.
+  uint32 count = 1 [(xml_role) = XML_ATTRIBUTE];
+}
+
+// A steer instruction is waiting in the mailbox.
+message SteerPendingReminder {
+  option (message_schema) = {
+    xml_like: true,
+    xml_text: "call agent_recv"
+  };
+}
+
+// A question is waiting in the mailbox and is expected to be answered in this
+// turn.
+message QuestionPendingReminder {
+  option (message_schema) = {
+    xml_like: true,
+    xml_text: "call agent_recv"
+  };
+}
+
+// This session has been paused; no further work until it resumes.
+message PausedReminder {
+  option (message_schema) = {
+    xml_like: true,
+    xml_text: "this session is paused"
+  };
+}
+
+// This session has been resumed.
+message ResumedReminder {
+  option (message_schema) = {
+    xml_like: true,
+    xml_text: "this session has resumed"
+  };
+}
+
 // ----- coordinator -> agent notices (fire-and-forget) -------------------------
 
 message CoordinatorNotice {
@@ -993,13 +1204,23 @@ message PeerMessage {
   string from_run_id = 3;
   string text = 4;
   google.protobuf.Struct structured = 5 [(field_schema) = {
-    doc: "Structured companion the sender attached, when there is one. `kind` names the message kind. A message whose kind is approval_request carries the escalation ladder's ApprovalRequest projection and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first."
+    doc: "Structured companion the sender attached, when there is one. A message whose `kind` is MESSAGE_KIND_APPROVAL_REQUEST carries the escalation ladder's ApprovalRequest projection here and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first. This object no longer carries the message kind — read the `kind` field."
   }];
   // 6 was artifacts (repeated ArtifactRef), REMOVED 2026-07-26 (U016-F05):
   // no producer ever set it, so agent_recv advertised an artifacts array
   // that could never appear. See PeerSendRequest's reserved 5.
   reserved 6;
   string in_reply_to = 7;
+  // The message's kind, from the closed MessageKind vocabulary — including the
+  // coordinator-reserved values, which only ever appear INBOUND like this.
+  //
+  // 4.B: this REPLACES the retired `structured["kind"]` convention, and is the
+  // user-visible half of that break: `kind` moved out of `structured` and onto
+  // the message. A recognised value here is guaranteed by decode; an
+  // unrecognised one is refused rather than delivered unclassified.
+  MessageKind kind = 8 [(field_schema) = {
+    doc: "The message's kind, from a CLOSED vocabulary — guaranteed to be one of these names, because an unrecognised value is refused at ingress rather than delivered unclassified. A SENDER could only have set one of MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, MESSAGE_KIND_QUESTION; the rest are minted by the coordinator itself and are therefore trustworthy as to provenance. MESSAGE_KIND_APPROVAL_REQUEST is an escalation WAITING on your decision (see `structured`); MESSAGE_KIND_USER_INJECTED means a human injected text into a session you supervise; MESSAGE_KIND_EXITED means a child of yours ended; MESSAGE_KIND_USER_CONTROL and MESSAGE_KIND_STEER are control-plane notices."
+  }];
 }
 
 // Withdraw an outstanding CoordinatorRequest (agent equivalent: agents

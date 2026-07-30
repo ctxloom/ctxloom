@@ -2,12 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -72,13 +72,15 @@ func runLLMDefault(cmd *cobra.Command, mgr *config.Manager, cfg *config.Config, 
 	})
 }
 
-// isKnownLLM checks if an LLM is a registered built-in or has a config entry.
+// isKnownLLM reports whether name is one of the LLMs this config exposes. It is
+// a membership test over operations.AvailableLLMNames — the ONE definition of
+// "known LLM" — so the set `llm default` accepts is by construction the set its
+// rejection message offers. Re-deriving membership here (built-in registry OR a
+// config entry) restated that set in a second place with no compiler help, and
+// a command that rejects a name its own error lists as available is the drift
+// that costs.
 func isKnownLLM(cfg *config.Config, name string) bool {
-	if backends.Exists(name) {
-		return true
-	}
-	_, ok := cfg.GetLLMEntry(name)
-	return ok
+	return slices.Contains(operations.AvailableLLMNames(cfg), name)
 }
 
 func init() {

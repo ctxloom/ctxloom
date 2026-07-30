@@ -33,7 +33,7 @@ func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 	require.NotEmpty(t, childToken)
 
 	// File a report + queue mail so every journal has content.
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "note", "remember this", nil, "")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "remember this", nil, "")
 	require.NoError(t, err)
 
 	secrets := []string{ownerToken, childToken}

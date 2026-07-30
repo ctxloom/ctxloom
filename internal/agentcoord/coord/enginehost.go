@@ -585,23 +585,119 @@ func usdToMicros(usd float64) uint64 {
 	return uint64(micros)
 }
 
-// frameCoordinatorMessage renders one coordinator-delivered mailbox message
-// as the text of a new engine turn: the kind survives as frame text
-// (manly-grant (6)) alongside the sender, then the body verbatim.
-func frameCoordinatorMessage(pm *agentcoordpb.PeerMessage) string {
+// coordinatorFrameOpen is the provenance header's opening literal. It is the
+// one byte sequence a delivered turn may contain exactly once, and only where
+// this package wrote it: a receiving model reads the header as the coordinator's
+// own attribution of who sent the body.
+const coordinatorFrameOpen = "[coordinator-delivered message"
+
+// coordinatorFrameQuote opens the header literal's rewritten form wherever
+// untrusted bytes carry it. What matters is that "[quoted-" is not a prefix of
+// coordinatorFrameOpen, so the rewritten text cannot contain the literal at any
+// offset — including one a neighbouring '[' might manufacture once the matched
+// bracket is gone.
+const coordinatorFrameQuote = "[quoted-"
+
+// frameCoordinatorDelivery renders one coordinator-delivered message as the text
+// of a new engine turn: a provenance header naming the sender and the message
+// kind, then the body.
+//
+// INVARIANTS, all three of them about what the SENDER cannot do:
+//   - the framed text contains exactly one header literal, and it is this
+//     function's — every occurrence inside body is rewritten inert;
+//   - the rendered kind is a name from the closed mail vocabulary
+//     (knownMailKind), never sender bytes;
+//   - the rendered sender id holds header-safe characters only, so it cannot
+//     close the header early and append attributes of its own.
+//
+// The header is hand-written here and in exactly one other place (the legacy
+// mail path funnels through this function). Rendering frames from generated
+// encoders is what makes the invariants structural rather than remembered.
+func frameCoordinatorDelivery(from, kind, body string) string {
 	var b strings.Builder
-	b.WriteString("[coordinator-delivered message")
-	if from := pm.GetFromAgentId(); from != "" {
-		fmt.Fprintf(&b, " from=%s", from)
+	b.WriteString(coordinatorFrameOpen)
+	if f := frameHeaderToken(from); f != "" {
+		fmt.Fprintf(&b, " from=%s", f)
 	}
-	if s := pm.GetStructured(); s != nil {
-		if v, ok := s.GetFields()["kind"]; ok && v.GetStringValue() != "" {
-			fmt.Fprintf(&b, " kind=%s", v.GetStringValue())
-		}
+	if knownMailKind(kind) {
+		fmt.Fprintf(&b, " kind=%s", kind)
 	}
 	b.WriteString("]\n")
-	b.WriteString(pm.GetText())
+	b.WriteString(quoteFrameHeaders(body))
 	return b.String()
+}
+
+// frameCoordinatorMessage projects the wire shape onto frameCoordinatorDelivery:
+// the kind rides the sender's structured companion (retired once kind is a typed
+// field), so it is read here and validated there.
+func frameCoordinatorMessage(pm *agentcoordpb.PeerMessage) string {
+	kind := ""
+	if s := pm.GetStructured(); s != nil {
+		if v, ok := s.GetFields()["kind"]; ok {
+			kind = v.GetStringValue()
+		}
+	}
+	return frameCoordinatorDelivery(pm.GetFromAgentId(), kind, pm.GetText())
+}
+
+// frameHeaderToken reduces one value to characters that cannot alter the
+// header's structure. Coordinator-minted harps and UserSender already satisfy
+// this, so the substitution is a no-op on every value produced today — it exists
+// so a future producer cannot make the header lie by accident.
+func frameHeaderToken(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+// quoteFrameHeaders rewrites every occurrence of the provenance header literal
+// inside untrusted text, case-insensitively (a differently-cased header reads
+// just as authoritative to a model). The original bytes survive, visibly quoted,
+// so the body still reaches the model in full; the rewrite is idempotent.
+func quoteFrameHeaders(text string) string {
+	// ASCII-only folding, byte for byte: strings.ToLower can change a string's
+	// LENGTH on some non-ASCII runes, which would desync the fold's offsets from
+	// text's and rewrite the wrong bytes. The marker is pure ASCII, so folding
+	// only A-Z loses no match.
+	fold := asciiLower(text)
+	marker := asciiLower(coordinatorFrameOpen)
+	if !strings.Contains(fold, marker) {
+		return text
+	}
+	var b strings.Builder
+	for i := 0; i < len(text); {
+		if strings.HasPrefix(fold[i:], marker) {
+			// The matched bytes keep their own case; only the opening bracket is
+			// replaced, by a prefix that cannot re-form the literal.
+			b.WriteString(coordinatorFrameQuote)
+			b.WriteString(text[i+1 : i+len(marker)])
+			i += len(marker)
+			continue
+		}
+		b.WriteByte(text[i])
+		i++
+	}
+	return b.String()
+}
+
+// asciiLower folds A-Z and leaves every other byte untouched, so the result has
+// the same length and the same byte offsets as its input.
+func asciiLower(s string) string {
+	out := []byte(s)
+	for i, c := range out {
+		if c >= 'A' && c <= 'Z' {
+			out[i] = c + ('a' - 'A')
+		}
+	}
+	return string(out)
 }
 
 // approvalRequestBudget bounds the runner's OWN wait for the coordinator's

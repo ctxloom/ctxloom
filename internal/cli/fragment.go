@@ -66,7 +66,7 @@ Examples:
   ctxloom fragment create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return createItem(args[0], args[1], ItemTypeFragment)
+		return createItem(cmd, args[0], args[1], ItemTypeFragment)
 	},
 }
 
@@ -81,7 +81,7 @@ Examples:
   ctxloom fragment delete my-bundle#fragments/old-standard`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return deleteItem(args[0], ItemTypeFragment)
+		return deleteItem(cmd, args[0], ItemTypeFragment)
 	},
 }
 
@@ -103,7 +103,7 @@ Examples:
   ctxloom fragment edit core#fragments/tdd --no-distill`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(cmd.OutOrStdout(), args[0], ItemTypeFragment, fragmentEditNoDistill)
+		return editItem(cmd, args[0], ItemTypeFragment, fragmentEditNoDistill)
 	},
 }
 
@@ -121,7 +121,7 @@ Examples:
   ctxloom fragment distill go-tools#fragments/testing --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return distillItem(args[0], ItemTypeFragment, fragmentDistillForce)
+		return distillItem(cmd, args[0], ItemTypeFragment, fragmentDistillForce)
 	},
 }
 

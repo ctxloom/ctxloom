@@ -496,13 +496,21 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 	home.mu.Unlock()
 	require.NotNil(t, sink, "startRun must register the turn sink")
 
-	structured, _ := structpb.NewStruct(map[string]any{"kind": "task"})
+	structured, _ := structpb.NewStruct(map[string]any{"kind": KindResult})
 	ok := sink(&agentcoordpb.PeerMessage{MessageId: "m-9", FromAgentId: "parent-harp", Text: "next assignment", Structured: structured})
 	require.True(t, ok)
 	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 2 }, 5*time.Second, 10*time.Millisecond)
 	got := sc.recordedTexts()[1]
-	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=task]")
+	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=result]")
 	assert.Contains(t, got, "next assignment")
+
+	// A kind OUTSIDE the closed vocabulary is not interpolated into the header:
+	// the value used to be rendered straight from the sender's own structured
+	// payload, which is the forgery surface, so only closed-set names render.
+	offVocab, _ := structpb.NewStruct(map[string]any{"kind": "task"})
+	require.True(t, sink(&agentcoordpb.PeerMessage{MessageId: "m-10", FromAgentId: "parent-harp", Text: "another", Structured: offVocab}))
+	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 3 }, 5*time.Second, 10*time.Millisecond)
+	assert.NotContains(t, sc.recordedTexts()[2], "kind=")
 }
 
 // TestEngineHost_StartRunIdempotentOnReissue: the SAME run_id reissued

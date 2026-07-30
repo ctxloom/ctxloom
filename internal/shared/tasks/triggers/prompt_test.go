@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
@@ -338,6 +339,38 @@ func TestBuildFollowupPrompt_EmptyBatchDoesNotPanic(t *testing.T) {
 	})
 }
 
+// Round 2 is the LAST look, and an existence-style trigger ("once package X
+// exists") is answerable only from repo state — history structurally cannot
+// show a thing that predates the window or is uncommitted. Round 1 says so in
+// writeRepoState's doc comment; round 2 must therefore carry the same
+// repo-global evidence and the same cross-reference, or the escalation round
+// judges on strictly LESS than the round it escalated from (U128-F11).
+func TestBuildFollowupPrompt_CarriesTheSameGlobalEvidenceAsRound1(t *testing.T) {
+	b := sampleFollowupBatch()
+	b.Repo = RepoState{
+		Dirs:           []string{"internal/signing"},
+		WorkingChanges: []string{"?? internal/signing/cli.go"},
+	}
+	b.OtherTasks = []OtherTask{{HarpID: "other-task-id", Text: "ship the signing CLI", Status: "Done"}}
+
+	p := BuildFollowupPrompt(b)
+
+	assert.Contains(t, p, "=== Repository state right now ===", "round 2 must see what exists NOW")
+	assert.Contains(t, p, "internal/signing", "the directory inventory answers existence-style triggers")
+	assert.Contains(t, p, "?? internal/signing/cli.go", "uncommitted work is in no commit at all")
+	assert.Contains(t, p, "other-task-id", "the cross-reference is evidence round 1 had and round 2 needs")
+}
+
+// The closed half of the gate above: absent repo state and other tasks, round
+// 2 must not emit an empty section header. An empty "Directories present"
+// header reads to the model as positive evidence the repository has none —
+// the same safety property round 1 asserts.
+func TestBuildFollowupPrompt_OmitsGlobalEvidenceSectionsWhenEmpty(t *testing.T) {
+	p := BuildFollowupPrompt(sampleFollowupBatch())
+	assert.NotContains(t, p, "=== Repository state right now ===")
+	assert.NotContains(t, p, "=== Other tasks")
+}
+
 func TestBuildFollowupPrompt_NoQueryResultsOmitsSection(t *testing.T) {
 	b := FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "a", Text: "t", Trigger: "x"}}}}
 	p := BuildFollowupPrompt(b)
@@ -371,6 +404,38 @@ func TestPrompts_ResponseContractIsIdenticalWhereItMustBe(t *testing.T) {
 	assert.Equal(t,
 		"=== Response format ===\n\nRespond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n",
 		strings.Split(round1, "{")[0])
+}
+
+// The outcome vocabulary in the response contract is the same closed set
+// ParseVerdicts enforces with Outcome.Valid, so it is DERIVED from Outcomes()
+// rather than transcribed. Transcribed, a fifth Outcome would be accepted by
+// the parser and never offered to the model, and a renamed one would be asked
+// for and then rejected. This asserts the menu by membership against
+// Outcomes(), not against a literal, so adding an Outcome without reaching the
+// prompt fails here (U128-F05).
+func TestResponseContract_OutcomeMenuIsDerivedFromOutcomes(t *testing.T) {
+	menu := func(prompt string) []string {
+		section := responseFormatSection(t, prompt)
+		i := strings.Index(section, `"outcome": "`)
+		require.GreaterOrEqual(t, i, 0, "the response contract names no outcome vocabulary")
+		rest := section[i+len(`"outcome": "`):]
+		j := strings.Index(rest, `"`)
+		require.GreaterOrEqual(t, j, 0)
+		return strings.Split(rest[:j], "|")
+	}
+
+	var round1Want, round2Want []string
+	for _, o := range Outcomes() {
+		round1Want = append(round1Want, string(o))
+		if o != NeedsInvestigation {
+			round2Want = append(round2Want, string(o))
+		}
+	}
+
+	assert.Equal(t, round1Want, menu(BuildPrompt(Batch{Tasks: []TaskInput{{HarpID: "aa-bb-cc"}}})),
+		"round 1 offers every recognized outcome, in Outcomes' order")
+	assert.Equal(t, round2Want, menu(BuildFollowupPrompt(FollowupBatch{Tasks: []FollowupTask{{TaskInput: TaskInput{HarpID: "aa-bb-cc"}}}})),
+		"round 2 offers every recognized outcome except needs-investigation")
 }
 
 func responseFormatSection(t *testing.T, prompt string) string {

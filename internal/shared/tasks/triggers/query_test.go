@@ -85,10 +85,33 @@ func TestSanitizeQueries_DropsInvalidKeepsValid(t *testing.T) {
 		{Type: QueryPathExists, Path: "/etc/passwd"},
 		{Type: QueryGrep, Pattern: "TODO"},
 	}
-	out := SanitizeQueries(qs, 0)
+	out, rejected := SanitizeQueries(qs, 0)
 	require.Len(t, out, 2)
+	assert.Len(t, rejected, 2, "the two refusals are reported, not erased")
 	assert.Equal(t, QueryPathExists, out[0].Type)
 	assert.Equal(t, QueryGrep, out[1].Type)
+}
+
+// "The model asked for nothing" and "the model asked for four things and every
+// one was rejected" reach the caller as the same empty slice, yet they mean
+// opposite things: the first is a model declining to escalate, the second is
+// ctxloom refusing every request it made. Only the second is a diagnosable
+// fault, and it must not vanish (U128-F12).
+func TestSanitizeQueries_ReportsWhatItRejected(t *testing.T) {
+	kept, rejected := SanitizeQueries([]Query{
+		{Type: "shell_exec", Path: "internal/foo"},
+		{Type: QueryPathExists, Path: "/etc/passwd"},
+		{Type: QueryGrep},
+	}, 0)
+	assert.Empty(t, kept, "every query was invalid")
+	require.Len(t, rejected, 3, "each rejection is reported, not just the fact that some happened")
+	for _, err := range rejected {
+		assert.Error(t, err)
+	}
+
+	kept, rejected = SanitizeQueries(nil, 0)
+	assert.Empty(t, kept)
+	assert.Empty(t, rejected, "a model that asked for nothing has nothing rejected")
 }
 
 func TestSanitizeQueries_CapsPerTask(t *testing.T) {
@@ -96,14 +119,19 @@ func TestSanitizeQueries_CapsPerTask(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		qs = append(qs, Query{Type: QueryPathExists, Path: "internal/foo"})
 	}
-	out := SanitizeQueries(qs, 3)
+	out, rejected := SanitizeQueries(qs, 3)
 	assert.Len(t, out, 3)
+	assert.Empty(t, rejected, "queries dropped by the per-task cap are valid, not rejected")
 }
 
 func TestSanitizeQueries_EmptyAndNilNeverPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
-		assert.Empty(t, SanitizeQueries(nil, 5))
-		assert.Empty(t, SanitizeQueries([]Query{}, 0))
+		kept, rejected := SanitizeQueries(nil, 5)
+		assert.Empty(t, kept)
+		assert.Empty(t, rejected)
+		kept, rejected = SanitizeQueries([]Query{}, 0)
+		assert.Empty(t, kept)
+		assert.Empty(t, rejected)
 	})
 }
 

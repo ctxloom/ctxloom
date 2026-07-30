@@ -3,6 +3,7 @@ package compression
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -218,6 +219,40 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A JSONCompressor built by its own zero value has MaxValueLength 0, and a
+// budget of zero bytes means every long low-entropy string value is replaced by
+// NOTHING: the compressor reports success, the document keeps its shape, and
+// the payload is gone. That is this project's signature failure mode, and the
+// cap is a plain exported int on an exported struct, so nothing stops a caller
+// from reaching it. An unset budget means "do not truncate", never "delete"
+// (U129-F02).
+func TestJSONCompressor_UnsetValueBudgetDoesNotDeleteEveryValue(t *testing.T) {
+	// Low-entropy and not identifier-shaped, so neither preservation rule
+	// applies and the value really does reach the truncation branch.
+	long := strings.Repeat("aaaaaaaaaa", 8)
+
+	for _, budget := range []int{0, -1} {
+		c := &JSONCompressor{MaxValueLength: budget, MaxArrayItems: 3, EntropyThreshold: 0.75}
+		assert.Equal(t, long, c.compressString(long), "budget %d annihilated a value instead of leaving it alone", budget)
+
+		result, err := c.Compress(context.Background(), ContentTypeJSON, `{"note": "`+long+`"}`)
+		require.NoError(t, err)
+		var parsed map[string]any
+		require.NoError(t, json.Unmarshal([]byte(result.Content), &parsed))
+		assert.Equal(t, long, parsed["note"], "budget %d compressed a value to zero bytes and called it success", budget)
+	}
+}
+
+// The configured path is unaffected: a real budget still truncates.
+func TestJSONCompressor_PositiveValueBudgetStillTruncates(t *testing.T) {
+	c := NewJSONCompressor()
+	require.Positive(t, c.MaxValueLength, "the only production construction sets a real budget")
+	got := c.compressString(strings.Repeat("aaaaaaaaaa", 8))
+	assert.NotEmpty(t, got)
+	assert.LessOrEqual(t, len(got), c.MaxValueLength)
+	assert.Contains(t, got, "...")
 }
 
 func TestJSONCompressor_PreservesStructure(t *testing.T) {

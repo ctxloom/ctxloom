@@ -192,12 +192,27 @@ type Ref struct {
 	// Name is the item name within the bundle, e.g. "solid".
 	Name string
 
-	// IsLocal marks a ctxloom:local (project-authored) item. Local content
-	// (fragment/prompt) is auto-allowed; local executables (mcp) are not.
+	// IsLocal marks a ctxloom:local (project-authored) item. EVERY local kind
+	// is auto-allowed at the decision function's local tier — fragment,
+	// prompt and skill content AND the mcp/hook executable surfaces the user
+	// configured in this project themselves. Kind does not enter that tier at
+	// all: only locality exempts, which is why IsContent (below) explicitly
+	// does not govern it. See ItemKind's own doc, EffectiveTrust step 3, and
+	// the "local mcp auto-allowed (project-authored executable)" case in
+	// operations' decision-function table.
 	IsLocal bool
 
 	// IsBuiltin marks an item shipped inside the ctxloom binary itself
-	// (resources/builtin_bundles). Mutually exclusive with IsLocal. Builtin
+	// (resources/builtin_bundles). Mutually exclusive with IsLocal — every
+	// site that builds a Ref sets at most one of the two as a literal, and the
+	// single site that copies both from data (content.Provenance.stamp) is
+	// refused at construction by Provenance.validate, "provenance cannot be
+	// both local and builtin". Neither field is assigned anywhere else, so the
+	// exclusion is a checked property rather than a convention. It matters
+	// because the two flags are read at DIFFERENT layers: CanonicalURL keys
+	// builtin first, while the decision function reaches its local tier first,
+	// so a Ref carrying both would key under one identity and report the
+	// other. Builtin
 	// items key under BuiltinSigner (never remote.LocalSource) so they cannot
 	// collide with a project-local bundle of the same name, and so a rejection
 	// recorded against a builtin item is addressed unambiguously.

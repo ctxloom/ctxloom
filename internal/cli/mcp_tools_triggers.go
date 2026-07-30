@@ -38,8 +38,17 @@ type evaluateTriggersResult struct {
 	// failure) — a caller must be able to tell "the model dropped N tasks"
 	// apart from "N chunks failed outright" rather than reading both as an
 	// undifferentiated pile of cannot-determine verdicts.
-	Omitted  int                `json:"omitted,omitempty"`
-	Verdicts []triggers.Verdict `json:"verdicts"`
+	Omitted int `json:"omitted,omitempty"`
+	// QueriesRejected/TasksRefusedEveryQuery surface follow-up evidence
+	// queries ctxloom REFUSED (a query type outside the whitelist, a path
+	// that escapes the repository). Disjoint from both Degraded and Omitted:
+	// nothing failed, ctxloom declined to run what the model asked for. A
+	// task whose every query was refused stays needs-investigation, which is
+	// indistinguishable from a task that asked for nothing unless the count
+	// says otherwise.
+	QueriesRejected        int                `json:"queries_rejected,omitempty"`
+	TasksRefusedEveryQuery int                `json:"tasks_refused_every_query,omitempty"`
+	Verdicts               []triggers.Verdict `json:"verdicts"`
 }
 
 func (s *ctxServer) registerTriggerTools(server *mcp.Server) {
@@ -73,7 +82,10 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 		Degraded:    res.Degraded,
 		Warning:     res.Warning,
 		Omitted:     res.Omitted,
-		Verdicts:    res.Verdicts,
+
+		QueriesRejected:        res.QueriesRejected,
+		TasksRefusedEveryQuery: res.TasksRefusedEveryQuery,
+		Verdicts:               res.Verdicts,
 	}, nil
 }
 

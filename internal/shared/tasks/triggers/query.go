@@ -131,18 +131,26 @@ func validateRepoPath(p string) error {
 // asks for one bad query among several good ones loses only the bad one, not
 // the whole batch — malformed input degrades gracefully rather than losing
 // legitimate follow-up evidence. Never panics on nil, empty, or garbled input.
-func SanitizeQueries(qs []Query, maxPerTask int) []Query {
-	var out []Query
+//
+// It returns what it REFUSED alongside what it kept. An empty result on its own
+// is ambiguous in a way that matters: a model that asked for nothing declined
+// to escalate, while a model whose every request was refused asked for shapes
+// outside the whitelist — the second is a diagnosable fault in the prompt or
+// the model, and a caller that cannot see the difference reports neither.
+// Queries dropped by maxPerTask are NOT rejections: they are valid and were
+// merely over the cap.
+func SanitizeQueries(qs []Query, maxPerTask int) (kept []Query, rejected []error) {
 	for _, q := range qs {
 		if err := q.Validate(); err != nil {
+			rejected = append(rejected, err)
 			continue
 		}
-		out = append(out, q)
-		if maxPerTask > 0 && len(out) >= maxPerTask {
+		kept = append(kept, q)
+		if maxPerTask > 0 && len(kept) >= maxPerTask {
 			break
 		}
 	}
-	return out
+	return kept, rejected
 }
 
 // QueryResult is the deterministic, ctxloom-gathered answer to one Query,

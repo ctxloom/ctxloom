@@ -97,7 +97,15 @@ type FollowupTask struct {
 // ever carries the subset of tasks round 1 flagged needs-investigation AND
 // gave at least one valid query for; everything else was already settled in
 // round 1 and never reaches round 2.
+//
+// OtherTasks and Repo are the same repo-global evidence round 1 saw, carried
+// forward unchanged. Round 2 is the LAST look: a final verdict reached on less
+// evidence than the tentative one is a regression, and the existence evidence
+// RepoState exists to supply is exactly what an escalated "once X exists"
+// trigger needs.
 type FollowupBatch struct {
-	Tasks []FollowupTask
-	Now   time.Time
+	Tasks      []FollowupTask
+	OtherTasks []OtherTask
+	Repo       RepoState
+	Now        time.Time
 }

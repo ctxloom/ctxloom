@@ -84,7 +84,7 @@ func (llmRenameUpgrade) Name() string { return "plugin→llm rename (v1→v2)" }
 // upgrade, so an already-key-correct but unversioned config upgrades simply by
 // gaining `version: 2`.
 func (llmRenameUpgrade) Apply(root *yaml.Node) (changed bool) {
-	if upgrade.Version(root, versionKey) >= 2 {
+	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 2 {
 		return false
 	}
 
@@ -145,7 +145,7 @@ func (labeledConfigUpgrade) Name() string { return "labeled LLM configs + role m
 
 // Apply performs the reshape and stamps version 3, a no-op once at version 3+.
 func (labeledConfigUpgrade) Apply(root *yaml.Node) (changed bool) {
-	if upgrade.Version(root, versionKey) >= 3 {
+	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 3 {
 		return false
 	}
 
@@ -314,7 +314,7 @@ func (geminiToAntigravityUpgrade) Name() string { return "gemini→antigravity b
 // version 4+. As with earlier steps, stamping the version is itself a valid
 // upgrade, so a gemini-free v3 config upgrades simply by gaining `version: 4`.
 func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
-	if upgrade.Version(root, versionKey) >= 4 {
+	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 4 {
 		return false
 	}
 
@@ -474,7 +474,7 @@ func (profileCommandSelectorUpgrade) Name() string {
 // the version is itself a valid upgrade, so a selector-free v4 config upgrades
 // simply by gaining `version: 5`.
 func (profileCommandSelectorUpgrade) Apply(root *yaml.Node) (changed bool) {
-	if upgrade.Version(root, versionKey) >= 5 {
+	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 5 {
 		return false
 	}
 	if profiles := upgrade.MapValue(root, "profiles"); profiles != nil && profiles.Kind == yaml.MappingNode {
@@ -543,7 +543,7 @@ func (defaultAgentUpgrade) Name() string { return "profiles.defaults → default
 
 // Apply performs the reshape and stamps version 6, a no-op once at version 6+.
 func (defaultAgentUpgrade) Apply(root *yaml.Node) (changed bool) {
-	if upgrade.Version(root, versionKey) >= 6 {
+	if v, ok := upgrade.Version(root, versionKey); !ok || v >= 6 {
 		return false
 	}
 

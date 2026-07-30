@@ -232,6 +232,44 @@ func TestEvaluateTriggers_RepoStateReachesThePrompt(t *testing.T) {
 	assert.Contains(t, prompt, "?? internal/shared/tasks/triggers/parse.go", "uncommitted work must reach the model")
 }
 
+// The round-2 counterpart of TestEvaluateTriggers_RepoStateReachesThePrompt.
+// Round 2 is the FINAL look at an escalated trigger — it may not settle one on
+// LESS evidence than the tentative round that escalated it, and the
+// existence-style trigger that motivated repo state in the first place is
+// exactly the kind that escalates (U128-F11).
+func TestEvaluateTriggers_RepoStateReachesTheEscalationPrompt(t *testing.T) {
+	tc := newTaskContext(t, "proj-repo-state-round2")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "the internal/shared/tasks/triggers package exists")
+	require.NoError(t, err)
+	_, err = tasksops.AddTask(tc, "ship the triggers package", "Done", "")
+	require.NoError(t, err)
+
+	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
+		`"queries":[{"type":"path_exists","path":"internal/shared/tasks/triggers"}]}]`
+	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["it exists"],"reasoning":"present now"}]`
+	client := &fullFakeClient{outs: []string{round1, round2}}
+	factory, _ := countingClientFactory(client)
+
+	gitFake := &git.Fake{
+		Dirs:    []string{"internal/shared/tasks/triggers"},
+		Changes: []string{"?? internal/shared/tasks/triggers/parse.go"},
+	}
+
+	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		RepoDir:     "/repo",
+		Factory:     factory,
+		Git:         gitFake,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, client.gotReqs, 2)
+	escalation := client.gotReqs[1].Prompt.Content
+	assert.Contains(t, escalation, "=== Repository state right now ===", "round 2 must see what exists NOW")
+	assert.Contains(t, escalation, "?? internal/shared/tasks/triggers/parse.go", "uncommitted work must reach the escalation round too")
+	assert.Contains(t, escalation, "ship the triggers package", "the other-tasks cross-reference must survive into round 2")
+}
+
 func TestEvaluateTriggers_NeverMutatesTaskStatus(t *testing.T) {
 	tc := newTaskContext(t, "proj-3")
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
@@ -533,6 +571,83 @@ func TestEvaluateTriggers_EscalatesAndSettlesInRoundTwo(t *testing.T) {
 	// The round-2 prompt must have carried the query result forward.
 	require.Len(t, client.gotReqs, 2)
 	assert.Contains(t, client.gotReqs[1].Prompt.Content, "exists")
+}
+
+// BuildPrompt on an empty Batch is a zero-payload success: a complete prompt
+// whose "=== Deferred tasks ===" header has nothing beneath it, asking a model
+// to judge nothing and paying for the call. Nothing in production can build
+// one, and THESE are the guards that make it so — an empty task set yields no
+// chunk, so no prompt is ever constructed for it. They are load-bearing:
+// remove either "return nil" and an empty-batch model call becomes reachable
+// (U128-F07).
+func TestChunking_AnEmptySetYieldsNoChunkSoNoPromptIsEverBuilt(t *testing.T) {
+	assert.Empty(t, chunkMissTasks(nil, nil, defaultTriageChunkSize), "no cache misses means no round-1 call")
+	assert.Empty(t, chunkMissTasks([]tasks.Task{}, []triggers.TaskInput{}, 0), "…including at the unbounded chunk size")
+	assert.Empty(t, chunkFollowups(nil, defaultTriageChunkSize), "no escalations means no round-2 call")
+	assert.Empty(t, chunkFollowups([]triggers.FollowupTask{}, 0))
+
+	// And no chunk that IS produced is empty, so every prompt built from one
+	// names at least one task.
+	missTasks := []tasks.Task{{HarpID: "a"}, {HarpID: "b"}, {HarpID: "c"}}
+	missInputs := []triggers.TaskInput{{HarpID: "a"}, {HarpID: "b"}, {HarpID: "c"}}
+	for size := 1; size <= 4; size++ {
+		for _, c := range chunkMissTasks(missTasks, missInputs, size) {
+			assert.NotEmpty(t, c.inputs, "chunk size %d produced a chunk with no evidence in it", size)
+			assert.NotEmpty(t, c.tasks, "chunk size %d produced a chunk with no tasks in it", size)
+		}
+		for _, c := range chunkFollowups([]triggers.FollowupTask{{TaskInput: triggers.TaskInput{HarpID: "a"}}, {TaskInput: triggers.TaskInput{HarpID: "b"}}}, size) {
+			assert.NotEmpty(t, c, "chunk size %d produced an empty followup chunk", size)
+		}
+	}
+}
+
+// A needs-investigation verdict whose EVERY query was refused looks, from the
+// outside, exactly like one that asked for nothing: no escalation call, the
+// verdict left as-is. They are not the same event — the second is a model
+// asking for shapes outside the whitelist, or paths that escape the repo — and
+// the counts are the only thing that tells them apart (U128-F12).
+func TestEvaluateTriggers_RefusedQueriesAreCountedNotSwallowed(t *testing.T) {
+	tc := newTaskContext(t, "proj-refused-queries")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
+	require.NoError(t, err)
+
+	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
+		`"queries":[{"type":"shell_exec","path":"internal/foo"},{"type":"path_exists","path":"/etc/passwd"},{"type":"grep"}]}]`
+	client := &fullFakeClient{out: round1}
+	factory, calls := countingClientFactory(client)
+
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		Factory:     factory,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), calls.Load(), "nothing survived sanitizing, so there is no round 2")
+	assert.Equal(t, 3, res.QueriesRejected, "every refused query is counted")
+	assert.Equal(t, 1, res.TasksRefusedEveryQuery, "the task had all of its queries refused")
+	assert.False(t, res.Degraded, "a refused query is not a call or parse failure")
+	assert.Equal(t, 0, res.Omitted, "a refused query is not a dropped task")
+	require.Len(t, res.Verdicts, 1)
+	assert.Equal(t, triggers.NeedsInvestigation, res.Verdicts[0].Outcome, "the verdict is still left for a human")
+}
+
+// The other side of the same gate: a model that asked for nothing has nothing
+// refused, so the counts stay at zero and cannot be read as a fault.
+func TestEvaluateTriggers_NoQueriesAskedCountsNoRefusals(t *testing.T) {
+	tc := newTaskContext(t, "proj-no-queries-asked")
+	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
+	require.NoError(t, err)
+
+	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure"}]`}
+	factory, _ := countingClientFactory(client)
+
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
+		TaskContext: tc,
+		Factory:     factory,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.QueriesRejected)
+	assert.Equal(t, 0, res.TasksRefusedEveryQuery)
 }
 
 // A round-1 needs-investigation with NO queries has nothing for round 2 to

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,7 +43,7 @@ func TestRunAttached_CloseWaitsForTheContainerToFinishFlushing(t *testing.T) {
 	script := attachScript(t, "0.2", marker)
 
 	rt := attachRuntime{fakeRuntime{name: "docker", binary: script, available: true}}
-	ac, err := RunAttached(context.Background(), rt, RunSpec{})
+	ac, err := RunAttached(context.Background(), rt, RunSpec{}, nil)
 	require.NoError(t, err)
 	ac.ShutdownGrace = 5 * time.Second // comfortably longer than the stub's flush
 
@@ -59,7 +61,7 @@ func TestRunAttached_CloseIsBoundedWhenTheContainerIgnoresEOF(t *testing.T) {
 	script := attachScript(t, "100", filepath.Join(t.TempDir(), "never"))
 
 	rt := attachRuntime{fakeRuntime{name: "docker", binary: script, available: true}}
-	ac, err := RunAttached(context.Background(), rt, RunSpec{})
+	ac, err := RunAttached(context.Background(), rt, RunSpec{}, nil)
 	require.NoError(t, err)
 	ac.ShutdownGrace = 50 * time.Millisecond
 
@@ -86,7 +88,7 @@ func TestRunAttached_RuntimeThatLaunchesNoContainer(t *testing.T) {
 	assert.Empty(t, interactiveRunArgs(nil), "an empty argv has no insertion point; never index into it")
 
 	require.NotPanics(t, func() {
-		_, err := RunAttached(context.Background(), Host{}, RunSpec{})
+		_, err := RunAttached(context.Background(), Host{}, RunSpec{}, nil)
 		require.Error(t, err, "a runtime that renders no run argv must be refused, not indexed into")
 		assert.Contains(t, err.Error(), "cannot start a container")
 	})
@@ -125,7 +127,7 @@ func TestRunAttached_CloseIsCleanWhenTeardownForcedIt(t *testing.T) {
 	script := attachScript(t, "100", filepath.Join(t.TempDir(), "never"))
 
 	rt := attachRuntime{fakeRuntime{name: "docker", binary: script, available: true}}
-	ac, err := RunAttached(context.Background(), rt, RunSpec{})
+	ac, err := RunAttached(context.Background(), rt, RunSpec{}, nil)
 	require.NoError(t, err)
 	ac.ShutdownGrace = 50 * time.Millisecond
 
@@ -140,11 +142,86 @@ func TestRunAttached_CloseIsCleanWhenTeardownForcedIt(t *testing.T) {
 // of why an engine adapter died.
 func TestRunAttached_CloseReportsAContainerThatDiedOnItsOwn(t *testing.T) {
 	rt := attachRuntime{fakeRuntime{name: "docker", binary: attachExitScript(t, 3), available: true}}
-	ac, err := RunAttached(context.Background(), rt, RunSpec{})
+	ac, err := RunAttached(context.Background(), rt, RunSpec{}, nil)
 	require.NoError(t, err)
 	ac.ShutdownGrace = 5 * time.Second
 
 	err = ac.Close()
 	require.Error(t, err, "a container that exited nonzero on its own is a real failure")
 	assert.Contains(t, err.Error(), "exit status 3")
+}
+
+// attachEnvRuntime renders the spec's env onto the run argv the way a real OCI
+// runtime does (renderRunSpec's `-e <entry>` loop), so a test can see exactly
+// what a bystander reading /proc/<pid>/cmdline would see.
+type attachEnvRuntime struct{ fakeRuntime }
+
+func (attachEnvRuntime) RunArgs(spec RunSpec) []string {
+	args := []string{"run"}
+	for _, e := range spec.Env {
+		args = append(args, "-e", e)
+	}
+	return args
+}
+
+// attachRecordingScript writes a stub runtime that records its own argv and
+// environment before behaving like a container that ends on stdin EOF.
+func attachRecordingScript(t *testing.T, argvFile, envFile string) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "recording-runtime")
+	body := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nenv > %q\ncat >/dev/null\n", argvFile, envFile)
+	require.NoError(t, os.WriteFile(script, []byte(body), 0o755))
+	return script
+}
+
+// TestRunAttached_SpawnEnvKeepsValuesOffTheArgv covers U062-F07 and U062-F06
+// together, because they are two halves of one property.
+//
+// F07: RunAttached had no SpawnEnv-equivalent channel, so a caller with a
+// KEY→VALUE env to deliver had only spec.Env — which renders `-e KEY=VAL` into a
+// `run` argv that stays world-readable via /proc/<pid>/cmdline for the whole life
+// of the container. That is precisely the exposure the rest of this package
+// avoids (containerAuth.envPassthrough's bare-name form, and LaunchSpec.SpawnEnv
+// on the go-plugin path). The value must reach the container without the argv
+// ever holding it.
+//
+// F06: the bare-name `-e NAME` form only works because the `run` process
+// INHERITS this process's environment — the value is read from there. That was an
+// unstated dependency on cmd.Env being left nil; nothing asserted it, so setting
+// cmd.Env for any reason would have silently dropped the credential a container
+// was launched to use. It is explicit now, and pinned here.
+func TestRunAttached_SpawnEnvKeepsValuesOffTheArgv(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	envFile := filepath.Join(dir, "env")
+	script := attachRecordingScript(t, argvFile, envFile)
+
+	// F06: a bare NAME in the spec resolves its value from THIS process's env.
+	t.Setenv("U062_HOST_PASSTHROUGH", "from-the-launcher")
+
+	rt := attachEnvRuntime{fakeRuntime{name: "docker", binary: script, available: true}}
+	ac, err := RunAttached(context.Background(), rt,
+		RunSpec{Env: []string{"U062_HOST_PASSTHROUGH"}},
+		map[string]string{"U062_SPAWN_SECRET": "s3cr3t-value"})
+	require.NoError(t, err)
+	ac.ShutdownGrace = 5 * time.Second
+	require.NoError(t, ac.Close())
+
+	argv, err := os.ReadFile(argvFile)
+	require.NoError(t, err)
+	envRaw, err := os.ReadFile(envFile)
+	require.NoError(t, err)
+	// Membership, never a Contains against the whole dump: this file holds the
+	// REAL environment of the machine running the suite, and an assertion that
+	// prints it on failure would spill every host secret into the test log.
+	childEnv := strings.Split(string(envRaw), "\n")
+	hasEnv := func(entry string) bool { return slices.Contains(childEnv, entry) }
+
+	assert.Contains(t, string(argv), "U062_SPAWN_SECRET", "the key crosses by NAME on the argv")
+	assert.NotContains(t, string(argv), "s3cr3t-value",
+		"the VALUE must never land on the run argv — it is world-readable via /proc/<pid>/cmdline")
+	assert.True(t, hasEnv("U062_SPAWN_SECRET=s3cr3t-value"),
+		"the value must reach the run process's own environment, where the runtime reads it")
+	assert.True(t, hasEnv("U062_HOST_PASSTHROUGH=from-the-launcher"),
+		"a bare-name -e NAME passthrough is only forwardable because the run process inherits this process's env")
 }

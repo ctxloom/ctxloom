@@ -54,7 +54,7 @@ func TestRunAttached_StderrTailSurvivesTeardown(t *testing.T) {
 		_ = exec.Command("docker", "rm", "-f", spec.Name).Run()
 	})
 
-	ac, err := RunAttached(ctx, rt, spec)
+	ac, err := RunAttached(ctx, rt, spec, nil)
 	require.NoError(t, err, "RunAttached must start the container")
 
 	// The stderr is STREAMED into the host-side ring as the container writes

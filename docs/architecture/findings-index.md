@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,159** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,160** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 75 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 127 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **762** |
+| `open` | no commit names this ID | **761** |
 
-**Totals: 2268 findings across 162 units — 1,159 resolved, 762 still open, 347 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,160 resolved, 761 still open, 347 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 377 | 435 | 41 | 55 | 91 |
+| MED | 999 | 378 | 434 | 41 | 55 | 91 |
 | LOW | 871 | 432 | 301 | 24 | 64 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1753,7 +1753,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U112-F03 | **RESOLVED** `3ec03f97` | **`marker.go:40`** | CORRECTNESS | `Format` performs no validation or escaping of `harp`. A name containing `"` produces a malformed element that `nameRe`'s `[^"]+` truncates; a name containing `>` produces an element `markerRe` can... | U112.md |
 | U112-F04 | open | **`marker.go:60-61`** | CORRECTNESS | `Scan` searches the **entire** transcript line — including user-authored message content — for a marker, and checks the raw bytes *first*. A marker string that a user pasted into a prompt therefore... | U112.md |
 | U112-F05 | open | **`marker.go:73-101`** | COMPLEXITY | `findInValue` has CCN 12 against a CI gate that fails above 10, with no `nolint` and no exclusion. Either the gate is not being run or it is failing. | U112.md |
-| U112-F06 | open | **`marker.go:87-92`** | CORRECTNESS | `findInValue` iterates `map[string]any` in Go's randomized order. A line containing two harp markers under different object keys resolves to an **arbitrary one, differing between runs of the same i... | U112.md |
+| U112-F06 | **RESOLVED** `0b34e54d` | **`marker.go:87-92`** | CORRECTNESS | `findInValue` iterates `map[string]any` in Go's randomized order. A line containing two harp markers under different object keys resolves to an **arbitrary one, differing between runs of the same i... | U112.md |
 | U113-F01 | **RESOLVED** `5ff9c4ab` | `internal/shared/iox/atomicwrite.go:16` and `internal/shared/iox/atomicwrite_fs.go:15` | DUPLICATE | The two atomic writers are the same 34-line algorithm written twice with no shared code and no compiler-enforced link — connascence of algorithm across two files. They are already not identical | U113.md |
 | U113-F02 | open | `internal/shared/iox/atomicwrite.go:44` and `internal/shared/iox/atomicwrite_fs.go:13,44` | CORRECTNESS | Neither function fsyncs the parent directory after `Rename`, so the *rename* is not durable across power loss — only the temp file's contents are. `atomicwrite_fs.go`'s doc claims otherwise | U113.md |
 | U113-F06 | **RESOLVED** `67a26a8f` | `internal/shared/agent/settings_io.go:136`, `internal/agentcoord/coord/checkpoint.go:54`, `internal/cli/mcp_discovery.go:107` | DUPLICATE | Three more hand-rolled temp+rename writers bypass `iox` and violate the exact invariant `iox.WriteFileAtomic` documents itself as existing to protect | U113.md |

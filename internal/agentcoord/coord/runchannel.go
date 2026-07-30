@@ -66,10 +66,25 @@ const (
 type CustomHandler func(ctx context.Context, caller Identity, args json.RawMessage) (json.RawMessage, error)
 
 // SetCustomHandlers installs the host-relay tool handlers (host-resident
-// tools: cross-session history, distillation). Called once at hosting setup,
-// before any runner connects.
+// tools: cross-session history, distillation). Production calls it once at
+// hosting setup, before any runner connects.
+//
+// The map is written under c.mu and read the same way (customHandler): every
+// child's plane-2 dispatch runs on its OWN goroutine, so "installed before
+// anyone connects" is a call-ORDER convention and conventions do not make a
+// map access race-free. Guarding it costs one uncontended lock per relayed
+// tool call and removes a data race from the handler table entirely.
 func (c *Coordinator) SetCustomHandlers(handlers map[string]CustomHandler) {
+	c.mu.Lock()
 	c.custom = handlers
+	c.mu.Unlock()
+}
+
+// customHandler resolves one host-relay tool's handler, or nil.
+func (c *Coordinator) customHandler(name string) CustomHandler {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.custom[name]
 }
 
 // runChan is one live RunChannel: the coordinator side of a runner's
@@ -315,8 +330,20 @@ func (c *Coordinator) ackThrough(ch *runChan, seq uint64) {
 func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEvent) {
 	switch ev.GetName() {
 	case CustomMailConsumed:
-		ids := stringList(ev.GetValue(), "message_ids")
+		ids, dropped := stringList(ev.GetValue(), "message_ids")
+		if dropped > 0 {
+			clidiag.Warn("ctxloom", "coordinator: %s from %s carried %d unusable message_ids entry/entries (not non-empty strings); those messages keep their cursor and will be re-delivered",
+				CustomMailConsumed, ch.role, dropped)
+		}
 		if len(ids) == 0 {
+			// The mailbox cursor advances ONLY on this fact, so an event with
+			// nothing usable in it means the runner's claim of consumption was
+			// lost: the messages stay pending and re-deliver. Both in-tree
+			// emitters refuse to send an empty list (home.go's ackReturned and
+			// the per-notice ack), so reaching here is a real fault, never
+			// ordinary traffic.
+			clidiag.Warn("ctxloom", "coordinator: ignoring a %s event from %s with no usable message_ids — the consumption it claims cannot be journaled",
+				CustomMailConsumed, ch.role)
 			return
 		}
 		if err := c.mail.Exec(func() ([]Fact, error) {
@@ -342,15 +369,27 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		c.mu.Unlock()
 		c.onRoleUnpark(ch.role)
 	case CustomHarnessSession:
-		if s := ev.GetValue(); s != nil {
-			if v, ok := s.GetFields()["session_id"]; ok {
-				c.recordHarnessSession(ch.id.RunID, v.GetStringValue())
-			}
-			// The engine's live loadSession capability (the one-shot gate's
-			// live half) rides the SAME custom event as the session id.
-			if v, ok := s.GetFields()["resumable"]; ok {
-				c.recordResumable(ch.id.RunID, v.GetBoolValue())
-			}
+		s := ev.GetValue()
+		sid := ""
+		if v, ok := s.GetFields()["session_id"]; ok {
+			sid = v.GetStringValue()
+		}
+		if sid == "" {
+			// The harness-native session id is the run's ONLY resume handle: a
+			// child killed mid-run respawns through HarnessSpec.resume_session_id,
+			// and the one-shot turn loop refuses to tear an engine down without
+			// one (oneShotReady). recordHarnessSession drops an empty id, so
+			// losing it here used to leave no trace at all — the run simply
+			// stopped being resumable and nothing said why.
+			clidiag.Warn("ctxloom", "coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
+				CustomHarnessSession, ch.role, ch.id.RunID)
+			return
+		}
+		c.recordHarnessSession(ch.id.RunID, sid)
+		// The engine's live loadSession capability (the one-shot gate's
+		// live half) rides the SAME custom event as the session id.
+		if v, ok := s.GetFields()["resumable"]; ok {
+			c.recordResumable(ch.id.RunID, v.GetBoolValue())
 		}
 	case CustomTurnStarted:
 		c.onTurnStarted(ch.role)
@@ -672,14 +711,48 @@ func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentReq
 	})
 }
 
+// responseQueueWindow bounds how long a plane-2 response waits for room on a
+// saturated writer pump before it is given up on. The wait itself never runs on
+// the channel's receive goroutine — see respond.
+const responseQueueWindow = 5 * time.Second
+
 // respond queues one response frame on the channel's writer pump.
+//
+// A saturated pump must NOT block the caller (U024-F08). respond runs on the
+// channel's own RECEIVE goroutine for two paths — a request arriving with no
+// request_id, and re-delivery of an already-cached response to a reissue — and
+// waiting there stalls every inbound frame on that channel behind one slow
+// writer: acks, mail-consumption facts, park and turn-state transitions. The
+// bounded wait is therefore handed to a tracked goroutine, which is also what
+// makes the wait worth anything: a pump that drains inside the window now
+// DELIVERS the response instead of dropping it after five seconds of holding
+// the receive loop still.
+//
+// Ordering is not a casualty: every response is correlated by request_id
+// (reqTrack), so one that is overtaken while its pump was full is still matched
+// to its own request.
+//
+// The give-up notice states what actually happens, which the old wording did
+// not: the runner does not reissue on a live channel — Home.Request is bounded
+// by its own defaultRequestTimeout and fails the call — and only a RECONNECT
+// reissues, at which point reqTrack re-delivers the cached response.
 func (c *Coordinator) respond(ch *runChan, resp *agentcoordpb.CoordinatorResponse) {
 	frame := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Response{Response: resp}}
 	select {
 	case ch.send <- frame:
-	case <-time.After(5 * time.Second):
-		clidiag.Warn("ctxloom", "coordinator: response to %s stalled; dropping (the runner reissues on reconnect)", ch.role)
+		return
+	default:
 	}
+	role := ch.role
+	c.goTracked(func() {
+		select {
+		case ch.send <- frame:
+		case <-c.baseCtx.Done():
+		case <-time.After(responseQueueWindow):
+			clidiag.Warn("ctxloom", "coordinator: response to %s found its send pump full for %s and was dropped; the runner's request fails at its own timeout — only a reconnect reissues it, and the cached response is re-delivered then",
+				role, responseQueueWindow)
+		}
+	})
 }
 
 // respondRole queues a response on the role's CURRENT live channel — the
@@ -963,7 +1036,7 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 // serveCustom relays a host-resident tool to its coordinator-side handler,
 // under the 4MiB response-size watch.
 func (c *Coordinator) serveCustom(caller Identity, req *agentcoordpb.CustomRequest) *agentcoordpb.CoordinatorResponse {
-	h := c.custom[req.GetName()]
+	h := c.customHandler(req.GetName())
 	if h == nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, fmt.Sprintf("no host handler for %q", req.GetName()))}
 	}
@@ -1016,22 +1089,31 @@ func statusFromErr(err error) *rpcstatus.Status {
 	return statusErr(code, err.Error())
 }
 
-// stringList extracts a []string field from a Struct value.
-func stringList(s *structpb.Struct, key string) []string {
-	if s == nil {
-		return nil
-	}
+// stringList extracts a []string field from a Struct value, also reporting how
+// many entries it could NOT use: a list element that is not a non-empty string
+// counts one each, and a key whose value is not a list at all counts one. An
+// ABSENT key is not a fault and reports zero.
+//
+// The count is what lets a caller tell "the field said nothing" apart from "the
+// field said something this build cannot read" — without it, a malformed event
+// and an absent one were the same silent empty result at every call site.
+func stringList(s *structpb.Struct, key string) (out []string, dropped int) {
 	v, ok := s.GetFields()[key]
 	if !ok {
-		return nil
+		return nil, 0
 	}
-	var out []string
-	for _, e := range v.GetListValue().GetValues() {
+	lv, isList := v.GetKind().(*structpb.Value_ListValue)
+	if !isList {
+		return nil, 1
+	}
+	for _, e := range lv.ListValue.GetValues() {
 		if str := e.GetStringValue(); str != "" {
 			out = append(out, str)
+			continue
 		}
+		dropped++
 	}
-	return out
+	return out, dropped
 }
 
 // removeIDs filters ids out of list.

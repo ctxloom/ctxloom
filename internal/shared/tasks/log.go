@@ -344,7 +344,6 @@ func (l *eventLog) append(ev Event) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
 	if created {
 		// The log file did not exist a moment ago, so this open just created
 		// its directory entry — and appendLine's fsync below makes the file's
@@ -354,10 +353,25 @@ func (l *eventLog) append(ev Event) error {
 		// event is written so a failure here is unambiguous: nothing was
 		// appended, and the caller's error means exactly that.
 		if err := syncDir(dir); err != nil {
-			return fmt.Errorf("sync task log directory %s: %w", dir, err)
+			return closeAfter(f, fmt.Errorf("sync task log directory %s: %w", dir, err))
 		}
 	}
-	return appendLine(f, append(b, '\n'))
+	return closeAfter(f, appendLine(f, append(b, '\n')))
+}
+
+// closeAfter closes f and decides which error the caller should see. opErr
+// wins when it is non-nil: it is the diagnosis (a failed write, a failed
+// sync), and the close error that follows a failure is noise. When the
+// operation succeeded, the close error IS the result — this is the log's only
+// write path, and a close failure means the event the caller is about to be
+// told it wrote may not be there. Discarding it would report success for a
+// write that did not land.
+func closeAfter(f *os.File, opErr error) error {
+	cerr := f.Close()
+	if opErr != nil {
+		return opErr
+	}
+	return cerr
 }
 
 // admissible rejects an event this reader could never fold back. The write

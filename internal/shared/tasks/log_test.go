@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -840,5 +841,36 @@ func TestFold_BlankIdentityAddIsCharacterizedNotRejected(t *testing.T) {
 	}
 	if !slices.Contains(ids, "beta") {
 		t.Fatalf("the real task must still fold; ids = %v", ids)
+	}
+}
+
+// TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite pins the log's only
+// write path against reporting success for an event that may not be on disk
+// (U120-F08). A close error after a SUCCEEDED write is the result; a close
+// error after a failed one is noise, and the original diagnosis must survive.
+func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
+	open := func() *os.File {
+		f, err := os.Create(filepath.Join(t.TempDir(), "x"))
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		return f
+	}
+
+	f := open()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := closeAfter(f, nil); err == nil {
+		t.Fatal("closeAfter swallowed a close failure on a successful write")
+	}
+
+	f2 := open()
+	if err := f2.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	want := errors.New("the write itself failed")
+	if got := closeAfter(f2, want); !errors.Is(got, want) {
+		t.Fatalf("closeAfter = %v, want the original write error %v", got, want)
 	}
 }

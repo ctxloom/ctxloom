@@ -39,6 +39,16 @@ func TestDetectForge(t *testing.T) {
 		{"scp ssh github", "git@github.com:owner/repo.git", ForgeGitHub, "https://github.com", false},
 		{"scp ssh github no suffix", "git@github.com:owner/repo", ForgeGitHub, "https://github.com", false},
 		{"scp ssh self-hosted", "git@gitlab.company.com:group/project.git", ForgeGitGeneric, "https://gitlab.company.com", false},
+
+		// Host-less input. url.Parse puts the whole string in Path when there is
+		// no authority component, so "%s://%s" over (Scheme, Host) rendered the
+		// literal "://" — a base URL that names nothing at all. The endpoint
+		// must be something a reader could act on: the host when one can be
+		// read off the path, otherwise the input itself.
+		{"bare host, no scheme, no path", "gitlab.com", ForgeGitGeneric, "https://gitlab.com", false},
+		{"bare host-qualified path", "gitlab.com/owner/repo", ForgeGitGeneric, "https://gitlab.com", false},
+		{"bare github.com host", "github.com/owner/repo", ForgeGitHub, "https://github.com", false},
+		{"path-addressed transport", "file:///srv/repo.git", ForgeGitGeneric, "file:///srv/repo.git", false},
 	}
 
 	for _, tt := range tests {

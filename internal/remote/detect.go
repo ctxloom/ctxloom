@@ -83,13 +83,24 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 
 	host := strings.ToLower(u.Hostname())
 
-	if host == "github.com" || host == "www.github.com" {
-		return ForgeGitHub, "https://github.com", nil
+	// No authority component: url.Parse put the whole string in Path, so
+	// joining Scheme and Host yields the literal "://", an endpoint that names
+	// nothing. Two shapes land here — a host-qualified string with no scheme
+	// ("example.com/owner/repo"), whose host is the first path segment; and a
+	// path-addressed transport ("file:///srv/repo.git"), which has no host at
+	// all and whose endpoint is the URL itself.
+	if host == "" {
+		seg, _, _ := strings.Cut(u.Path, "/")
+		seg = strings.ToLower(seg)
+		if u.Scheme == "" && strings.Contains(seg, ".") {
+			return forgeForHost(seg, "https://"+seg)
+		}
+		return ForgeGitGeneric, repoURL, nil
 	}
 
 	// Any other host is consumed via the generic git adapter (clone + local
 	// read) against its own endpoint.
-	return ForgeGitGeneric, fmt.Sprintf("%s://%s", u.Scheme, u.Host), nil
+	return forgeForHost(host, fmt.Sprintf("%s://%s", u.Scheme, u.Host))
 }
 
 // scpLikeHost returns the host of an scp-style SSH ref ("user@host:owner/repo")

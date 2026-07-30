@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,116** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 62 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 110 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,124** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 66 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 113 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 139 |
-| `open` | no commit names this ID | **841** |
+| `open` | no commit names this ID | **826** |
 
-**Totals: 2268 findings across 162 units — 1,116 resolved, 841 still open, 311 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,124 resolved, 826 still open, 318 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 351 | 485 | 32 | 43 | 88 |
-| LOW | 871 | 415 | 330 | 20 | 59 | 47 |
+| MED | 999 | 356 | 474 | 36 | 45 | 88 |
+| LOW | 871 | 418 | 326 | 20 | 60 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1485,18 +1485,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U082-F14 | open | **`bundles.go:385/419, :993/1011/1030, :1050/1069, :1093/1120`** | DUPLICATE | Four pairs/triples of fragment-vs-command functions are line-for-line clones differing only in the field name and one extra `Description`. ~180 of this file's 1144 lines are mechanical duplication,... | U082.md |
 | U082-F16 | open | **`bundles.go:180-181, :374-375`** | ERRHANDLING | `CreateBundle` and `UpdateBundle` **discard** the failure set `distillFragments`/`distillPrompts` compute. The result DTOs report `"created"`/`"updated"` with a change line per item and no indicati... | U082.md |
 | U083-F04 | **REFUTED** (cross-package/product decision; see wave-2 report) | `delegate.go:239-245`, `:960-1009` | NOPAY / CORRECTNESS | The oneshot fallback (~55 lines + the `Oneshot` field + the copy-handler refusal at `:241`) is unreachable for every constructible backend. Its **only** reachable trigger is an unknown backend name... | U083.md |
-| U083-F05 | open | `delegate.go:965-1008` | CORRECTNESS | `startOneshot`'s `Close` (= `cancel`) never closes `in`, so its `events`/`errs` never close — but the consumer drains `Errs` *before* closing `In`. That is a cycle: the child's driver goroutine par... | U083.md |
+| U083-F05 | **PARTIAL** `464d8c82` | `delegate.go:965-1008` | CORRECTNESS | `startOneshot`'s `Close` (= `cancel`) never closes `in`, so its `events`/`errs` never close — but the consumer drains `Errs` *before* closing `In`. That is a cycle: the child's driver goroutine par... | U083.md |
 | U083-F06 | **RESOLVED** `cc44e876` | `engine_session.go:427-437`, `:469-474`, `:546-556`, `:976-987` | SILENTNOOP | Three listing failures degrade to `nil`, which `namesOrCount` renders as the authoritative word `none` in the editor-facing summary. The one artifact whose stated purpose is "what did ctxloom assem... | U083.md |
-| U083-F07 | open | `engine_session.go:671-674` | CORRECTNESS | **CONFIRMS routed #10, with a mitigation the router did not have.** An explicit `--workspace worktree` without `--agent` is discarded and returns `WorkspaceAxis("")` with no warning naming the igno... | U083.md |
-| U083-F08 | open | `delegate.go:211-213`, `:928-957` | SILENTNOOP | The delegated child's composed context is delivered with no floor: if both `req.Context` and `rs.Context` are empty, the child launches with **zero** ctxloom bytes and nothing says so. `leadContext... | U083.md |
-| U083-F09 | open | `depgraph.go:139` | ERRHANDLING | `FlattenProfileRoots` swallows the lockfile load error, silently discarding the carry-forward anchor its own comment two lines above calls load-bearing — while the sibling upgrade path hard-errors ... | U083.md |
-| U083-F10 | open | `depgraph.go:54` (defect at `profiles.go:508-522`)` | COUPLING | **CONFIRMS routed #12 from this call site.** `profileLoader` discovers profile *directories* through the injected FS but reads profile *content* from the real OS filesystem. `FlattenDependencies` —... | U083.md |
-| U083-F11 | open | `delegate.go:674-676` | SILENTNOOP | `dirty_tree_handler: "copy"` silently fails to reproduce untracked **symlinks**, contradicting both its own comment and `applyCopySnapshot`'s documented "never half-applies and continues" contract. | U083.md |
-| U083-F12 | open | `delegate.go:261`, `engine_session.go:724` | ERRHANDLING | Both workspace teardowns discard `ws.Cleanup()`'s error, so a failed worktree removal is invisible. | U083.md |
-| U083-F13 | open | `delegate.go:251-274`, `:739` | CORRECTNESS | `PrepareAgentChat` assigns `p.starter` only inside `if p.factory == nil`. A caller supplying `Factory` but not `Starter` gets `p.starter == nil`, and `StartEngine` calls it → nil-func panic instead... | U083.md |
-| U083-F14 | open | `delegate.go:29-157` | COHESION | `AgentChatRequest`/`PreparedAgentChat` are each two objects: the legacy Chat-path prep and the StartRun-path prep. `contextText` is computed on both but read only by the legacy/oneshot paths — on t... | U083.md |
-| U083-F15 | open | `delegate.go:442-452`, `:596-598` | ERRHANDLING | `boundDirtyChanges` swallows the `WorkingChanges` error and returns an empty list; the "commit" handler then prints a preview that names **no** files immediately before auto-committing the user's t... | U083.md |
-| U083-F16 | open | `engine_session.go:78`, `:114`, `:922`; `delegate.go:167`; `depgraph.go:264` | COMPLEXITY | Five functions exceed the project's stated CCN-10 CI gate, one of them anonymous (so a name-keyed gate cannot report it). | U083.md |
+| U083-F07 | **RESOLVED** `19437a08` | `engine_session.go:671-674` | CORRECTNESS | **CONFIRMS routed #10, with a mitigation the router did not have.** An explicit `--workspace worktree` without `--agent` is discarded and returns `WorkspaceAxis("")` with no warning naming the igno... | U083.md |
+| U083-F08 | **RESOLVED** `099b3d9c` | `delegate.go:211-213`, `:928-957` | SILENTNOOP | The delegated child's composed context is delivered with no floor: if both `req.Context` and `rs.Context` are empty, the child launches with **zero** ctxloom bytes and nothing says so. `leadContext... | U083.md |
+| U083-F09 | **PARTIAL** `4f0ca691` | `depgraph.go:139` | ERRHANDLING | `FlattenProfileRoots` swallows the lockfile load error, silently discarding the carry-forward anchor its own comment two lines above calls load-bearing — while the sibling upgrade path hard-errors ... | U083.md |
+| U083-F10 | **RESOLVED** `007240bf` | `depgraph.go:54` (defect at `profiles.go:508-522`)` | COUPLING | **CONFIRMS routed #12 from this call site.** `profileLoader` discovers profile *directories* through the injected FS but reads profile *content* from the real OS filesystem. `FlattenDependencies` —... | U083.md |
+| U083-F11 | **RESOLVED** `898bd179` | `delegate.go:674-676` | SILENTNOOP | `dirty_tree_handler: "copy"` silently fails to reproduce untracked **symlinks**, contradicting both its own comment and `applyCopySnapshot`'s documented "never half-applies and continues" contract. | U083.md |
+| U083-F12 | **REFUTED** `bf5b4c29` | `delegate.go:261`, `engine_session.go:724` | ERRHANDLING | Both workspace teardowns discard `ws.Cleanup()`'s error, so a failed worktree removal is invisible. | U083.md |
+| U083-F13 | **PARTIAL** `c4ce19f4` | `delegate.go:251-274`, `:739` | CORRECTNESS | `PrepareAgentChat` assigns `p.starter` only inside `if p.factory == nil`. A caller supplying `Factory` but not `Starter` gets `p.starter == nil`, and `StartEngine` calls it → nil-func panic instead... | U083.md |
+| U083-F14 | **REFUTED** `6849b25c` | `delegate.go:29-157` | COHESION | `AgentChatRequest`/`PreparedAgentChat` are each two objects: the legacy Chat-path prep and the StartRun-path prep. `contextText` is computed on both but read only by the legacy/oneshot paths — on t... | U083.md |
+| U083-F15 | **RESOLVED** `f491f088` | `delegate.go:442-452`, `:596-598` | ERRHANDLING | `boundDirtyChanges` swallows the `WorkingChanges` error and returns an empty list; the "commit" handler then prints a preview that names **no** files immediately before auto-committing the user's t... | U083.md |
+| U083-F16 | **PARTIAL** `0a7fb13f` | `engine_session.go:78`, `:114`, `:922`; `delegate.go:167`; `depgraph.go:264` | COMPLEXITY | Five functions exceed the project's stated CCN-10 CI gate, one of them anonymous (so a name-keyed gate cannot report it). | U083.md |
 | U083-F17 | **RESOLVED** `cc44e876` | `engine_session.go:609-621` | SILENTNOOP | `session/set_mode` replaces the session's lead context with `res.Context` unchecked — an assembly that succeeds while producing zero bytes silently blanks the mode's context. | U083.md |
 | U084-F04 | open | **`hooks.go:54`** | COUPLING | `ApplyHooks`'s exported `cfg *config.Config` parameter is **never read**; the function reloads config from disk instead. | U084.md |
 | U084-F05 | **RESOLVED** `e459008e` | **`hooks.go:271-340`** | DUPLICATE | `checkClaudeHookTargetScope`, `checkCodexHookTargetScope` and `checkKiroHookTargetScope` are three structurally identical 15-line functions differing only in two function references and three messa... | U084.md |
@@ -2440,14 +2440,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U082-F18 | **RESOLVED** `12f375ce` | `context.go:759` | TRIVIAL | `referencesVariable` is a single boolean expression with one call site and no invariant. | U082.md |
 | U082-F19 | open | `context.go:169-178` | COUPLING | Connascence of *execution order*: `missingRequested` **must** be computed before `appendBuiltinFragments` mutates `loadedNames`, enforced only by a comment. | U082.md |
 | U082-F20 | open | **`bundles.go:160-162`** | CORRECTNESS | `CreateBundle`'s "bundle already exists" check is a TOCTOU: `os.Stat` then `Save` with no exclusive create. | U082.md |
-| U083-F18 | open | `engine_session.go:251-255` | CORRECTNESS | A failed `AssignSession` degrades to `harp == ""`, which silently disables **three** things at once — session recording/resumability, `CTXLOOM_SESSION_HARP` for the engine and its hooks, and the wh... | U083.md |
+| U083-F18 | **RESOLVED** `a6a82145` | `engine_session.go:251-255` | CORRECTNESS | A failed `AssignSession` degrades to `harp == ""`, which silently disables **three** things at once — session recording/resumability, `CTXLOOM_SESSION_HARP` for the engine and its hooks, and the wh... | U083.md |
 | U083-F19 | **RESOLVED** `38b64b17` | `delegate.go:561`, `:994`(→`engine_session.go`), `depgraph.go:373` | TRIVIAL | Three single-expression pass-throughs with one call site each. | U083.md |
 | U083-F20 | **RESOLVED** `38b64b17` | `depgraph.go:370`, `:381-383` | NOPAY | `dependencyConflictError` is a struct wrapping one string with an `Error()` that returns it — exactly `errors.New`. | U083.md |
 | U083-F21 | **RESOLVED** `38b64b17` | `depgraph.go:203-208` | DEAD | The `w.resolveHash == nil` passthrough branch exists solely for tests, and it pins a *version expression* into a field named `Hash`. | U083.md |
 | U083-F22 | **PARTIAL** `38b64b17` | `depgraph.go:53`, `:129-133` | NOPAY | `FlattenDependencies`' `profileNames` parameter has no production caller, and `FlattenProfileRoots` is exported but called only from the same file, with a stale doc naming a caller that does not ex... | U083.md |
-| U083-F23 | open | `depgraph.go:187`, `:193-195` | COHESION | `unexpanded` is lazily initialised inside `markUnexpanded` while the walker's three other maps are initialised eagerly in `flattenRootsWith` — two conventions in one struct, and `result` (`:348`) r... | U083.md |
-| U083-F24 | open | `delegate.go:239-242` | CORRECTNESS | The oneshot+`copy` refusal fires even when the captured snapshot is empty (nothing to reproduce), turning a harmless spawn into an error. | U083.md |
-| U083-F25 | open | `engine_session.go:268`, `:400` | CORRECTNESS | `acpCoord` is dereferenced twice with no nil check, so a frontend that legitimately has no coordinator must pass a no-op implementation rather than `nil`. | U083.md |
+| U083-F23 | **RESOLVED** `c6500c8f` | `depgraph.go:187`, `:193-195` | COHESION | `unexpanded` is lazily initialised inside `markUnexpanded` while the walker's three other maps are initialised eagerly in `flattenRootsWith` — two conventions in one struct, and `result` (`:348`) r... | U083.md |
+| U083-F24 | **REFUTED** `fa801a70` | `delegate.go:239-242` | CORRECTNESS | The oneshot+`copy` refusal fires even when the captured snapshot is empty (nothing to reproduce), turning a harmless spawn into an error. | U083.md |
+| U083-F25 | **RESOLVED** `262ca605` | `engine_session.go:268`, `:400` | CORRECTNESS | `acpCoord` is dereferenced twice with no nil check, so a frontend that legitimately has no coordinator must pass a no-op implementation rather than `nil`. | U083.md |
 | U083-F26 | **RESOLVED** `2df10350` | `engine_session.go:736-739` vs `:958` | DUPLICATE | The worktree-isolation announcement prose is duplicated verbatim in two places. | U083.md |
 | U084-F07 | **RESOLVED** `9f84aa35` | `helpers.go:71,78,84` | TRIVIAL | `NewRepoCache`, `NewCachedFetcherFactory` and `GetCachedFetcher` are exported one-line pass-throughs to same-package unexported twins. | U084.md |
 | U084-F08 | **RESOLVED** `0e703dc2` | `ensemble.go:193-198` | DEAD | `MapProfilesResult` is documented as "the CLI-facing envelope for a `map` run" but **there is no `ctxloom map` command**. | U084.md |

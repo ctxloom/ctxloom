@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -186,6 +187,10 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 // run); bridgeTurnResult is suppressed for an owner run, so this input queue
 // never sees the run's own output re-queued into it (childRt.ownerRun's doc).
 func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("owner run %q: a turn needs text — an empty turn wakes the engine with nothing to "+
+			"act on (check context assembly and the prompt source)", runID)
+	}
 	c.mu.Lock()
 	rt := c.attach[runID]
 	c.mu.Unlock()

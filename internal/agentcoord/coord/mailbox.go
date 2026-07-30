@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -83,6 +84,18 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // a reply quoting the id can already arrive. relayApproval is the case that
 // forced it; see its comment (pulpy-whiff).
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+	// A message with NO payload is refused here, at the one chokepoint every
+	// send goes through. Queued, it is journaled as a durable fact, completes a
+	// parked recv, and is answered with the ordinary success disposition — a
+	// recipient woken for a turn whose content is nothing at all, with every
+	// signal green. A structured companion IS payload (the relayed
+	// ApprovalRequest projection and its replies carry it), so only a message
+	// with neither is empty.
+	if strings.TrimSpace(body) == "" && len(structured) == 0 {
+		return "", false, fmt.Errorf("mailbox: refusing to queue an empty message from %q to %q (kind %q): "+
+			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+
+			"(check the sender's message composition)", from, to, kind)
+	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{

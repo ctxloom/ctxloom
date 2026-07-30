@@ -175,6 +175,18 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
 	// carried forward (stability), and a resolution failure falls back to its last
 	// known SHA rather than dropping the item. Lock mode (reResolve=false).
+	//
+	// The error is dropped BY DECISION, not by oversight, and this is the one
+	// place that decision is recorded. FlattenDependencies (this function's
+	// only caller) builds its profile loader first, and that seeds remote
+	// bundles from this same lockfile — config.loadRemoteBundleSeed reports an
+	// unreadable one fatal-class, naming the file and the fix, before this load
+	// is ever reached. Repeating it here would say the same thing twice, and
+	// this function cannot do anything better with it: FlattenDependencies
+	// returns no error, and an anchorless rebuild is barred from being
+	// PERSISTED downstream by Save's unreadable-file refusal (U085-F01) rather
+	// than by anything decidable here. A nil lockfile resolves as no anchor,
+	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(getBaseDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
 	return flattenRootsWith(ctx, loader, factory, auth, roots, resolve)

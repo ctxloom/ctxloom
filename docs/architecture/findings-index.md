@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,179** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **85** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | **86** |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 148 |
-| `open` | no commit names this ID | **721** |
+| `open` | no commit names this ID | **720** |
 
-**Totals: 2268 findings across 162 units — 1,179 resolved, 721 still open, 368 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,179 resolved, 720 still open, 369 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 389 | 413 | 45 | 58 | 94 |
+| MED | 999 | 389 | 412 | 46 | 58 | 94 |
 | LOW | 871 | 439 | 283 | 30 | 69 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1805,7 +1805,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U125-F05 | **REFUTED** `a68c3e52` | `resolve.go:9-32` | DEAD | `Resolution.Action` and all four `Action` constants are **read only by this package's own tests**. The entire outcome taxonomy exists to let its tests assert on it | U125.md |
 | U125-F06 | **RESOLVED** `33a6de34` | **`registry.go:36`, `:70`** | DEAD | `Registry` and `Manager.Load` are exported but have **no callers outside this package** — they leak the on-disk representation into the public API for no consumer | U125.md |
 | U125-F07 | **RESOLVED** `555e4588` | **`registry.go:159-171`, `:203-215`, `:235-247`** | DUPLICATE | The three mutating methods each open with the **same 8-line lock-and-load preamble**, copy-pasted, and the ordering it encodes (`mu` → filelock → `loadLocked`) is connascence of *order* enforced by... | U125.md |
-| U125-F08 | open | `resolve.go:109-118` | CORRECTNESS | `mintInto` is a **non-atomic two-step**: the registry entry is appended and persisted, then the marker is written. A failure between them leaves an id registered at a path whose tree does not know ... | U125.md |
+| U125-F08 | **PARTIAL** `5e8ea1a3` | `resolve.go:109-118` | CORRECTNESS | `mintInto` is a **non-atomic two-step**: the registry entry is appended and persisted, then the marker is written. A failure between them leaves an id registered at a path whose tree does not know ... | U125.md |
 | U126-F01 | open | `tagschema.go:215-229` | CORRECTNESS | `Enum` returns an **empty-but-present** member list for a declaration containing no usable member, and cannot report the malformation. Both consumers then reject *every* value on that target — one ... | U126.md |
 | U126-F02 | **RESOLVED** `9e25a5a2` | `tagschema.go:189`, `:196`, `:206` | TRIVIAL | `PriorityFn`, `DecayFn`, and `Type` are three one-line aliases for `Get(<constant>, target)` that add no invariant, no validation, and no concept — and the one design that appears to justify them d... | U126.md |
 | U126-F04 | open | `tagschema.go:283-285` vs `:243-245` vs `:113` | COHESION | One package applies **three different policies to a malformed declaration**: `Parse`/`add` errors, `Range` errors, `Enum` silently returns an empty set (F01), and `HideFacts` silently skips. A conf... | U126.md |

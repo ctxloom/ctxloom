@@ -101,3 +101,39 @@ func TestGenerate_ReportsFilesWrittenNotTargetsGiven(t *testing.T) {
 		t.Errorf("Generate reported %d schemas written, %d files on disk", n, len(entries))
 	}
 }
+
+// TestGenerate_DoesNotPruneStaleSchemas characterizes U003-F05's mechanism,
+// which is real: Generate only ever writes, so a schema for a result type that
+// has since been renamed or deleted survives in the output directory
+// indefinitely. The claim's CONSEQUENCE — that //go:embed then ships the stale
+// file inside the binary — no longer holds: resources/embed.go embeds
+// schema/input explicitly, not all:schema, and
+// TestEmbeddedFS_ExcludesGeneratedSchemas pins that.
+//
+// So the survival below is stated behaviour, not an accident, and the reported
+// count is of files WRITTEN by this run — never of files present in the
+// directory, which is what would make a stale one look generated.
+func TestGenerate_DoesNotPruneStaleSchemas(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gen")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "retired-result-schema.json")
+	if err := os.WriteFile(stale, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	type current struct {
+		A string `json:"a"`
+	}
+	n, err := Generate(dir, []Target{{Type: reflect.TypeOf(current{}), Name: "current"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("Generate reported %d written, want 1 — the count must not include files it found", n)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("the generator started pruning: %v — that is a deliberate change, not a silent one", err)
+	}
+}

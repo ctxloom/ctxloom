@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -175,22 +176,37 @@ func permissionRequestFromProto(p *ChatPermissionRequest) *agent.PermissionReque
 	return out
 }
 
+// clampInt32 narrows a host-side int onto the wire's int32 without wrapping.
+// An unchecked conversion turns an out-of-range measurement into a small or
+// negative one that reads as a plausible reading; saturating keeps the sign and
+// puts the value at the edge of the range, where it is recognizable as a
+// ceiling rather than a measurement.
+func clampInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
+}
+
 func turnMetaToProto(m *agent.TurnMeta) *TurnMeta {
 	if m == nil {
 		return nil
 	}
 	return &TurnMeta{
-		InputTokens:         int32(m.InputTokens),
-		OutputTokens:        int32(m.OutputTokens),
-		CacheReadTokens:     int32(m.CacheReadTokens),
-		CacheCreationTokens: int32(m.CacheCreationTokens),
-		ContextWindow:       int32(m.ContextWindow),
-		MaxOutputTokens:     int32(m.MaxOutputTokens),
+		InputTokens:         clampInt32(m.InputTokens),
+		OutputTokens:        clampInt32(m.OutputTokens),
+		CacheReadTokens:     clampInt32(m.CacheReadTokens),
+		CacheCreationTokens: clampInt32(m.CacheCreationTokens),
+		ContextWindow:       clampInt32(m.ContextWindow),
+		MaxOutputTokens:     clampInt32(m.MaxOutputTokens),
 		CostUsd:             m.CostUSD,
 		Model:               m.Model,
 		StopReason:          m.StopReason,
-		DurationMs:          int32(m.DurationMs),
-		NumTurns:            int32(m.NumTurns),
+		DurationMs:          clampInt32(m.DurationMs),
+		NumTurns:            clampInt32(m.NumTurns),
 	}
 }
 

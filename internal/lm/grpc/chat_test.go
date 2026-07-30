@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -49,6 +50,57 @@ func TestChatMCPServer_ProtoRoundTrip_HttpSse(t *testing.T) {
 
 	back := chatStartFromProto(proto)
 	assert.Equal(t, req.MCPServers, back.MCPServers, "http/sse Transport/URL/Headers must survive the relay round trip byte for byte")
+}
+
+// TestTurnMetaToProto_SaturatesInsteadOfWrapping pins U059-F15: every int field
+// of agent.TurnMeta was narrowed to the proto's int32 with an unchecked
+// conversion, so a value past the field's range WRAPPED — a token count over
+// 2.1e9, or a turn longer than ~24.9 days, arrived as a small or negative
+// number that reads as a perfectly plausible measurement. Saturating is not
+// accurate either, but it cannot be mistaken for a real reading and it never
+// changes sign.
+func TestTurnMetaToProto_SaturatesInsteadOfWrapping(t *testing.T) {
+	if math.MaxInt == math.MaxInt32 {
+		t.Skip("int is 32 bits here: these values cannot be represented on the host side at all")
+	}
+	over := int(math.MaxInt32) + 1
+	under := int(math.MinInt32) - 1
+
+	got := turnMetaToProto(&agent.TurnMeta{
+		InputTokens:         over,
+		OutputTokens:        over,
+		CacheReadTokens:     over,
+		CacheCreationTokens: over,
+		ContextWindow:       over,
+		MaxOutputTokens:     over,
+		DurationMs:          over,
+		NumTurns:            under,
+	})
+
+	assert.Equal(t, int32(math.MaxInt32), got.GetInputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetOutputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetCacheReadTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetCacheCreationTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetContextWindow())
+	assert.Equal(t, int32(math.MaxInt32), got.GetMaxOutputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetDurationMs(),
+		"a duration past ~24.9 days must not come back as a short one")
+	assert.Equal(t, int32(math.MinInt32), got.GetNumTurns())
+}
+
+// TestTurnMetaToProto_InRangeValuesAreUntouched is the other half: clamping
+// must not perturb any value the field can actually hold.
+func TestTurnMetaToProto_InRangeValuesAreUntouched(t *testing.T) {
+	got := turnMetaToProto(&agent.TurnMeta{
+		InputTokens:   1234,
+		DurationMs:    math.MaxInt32,
+		NumTurns:      -7,
+		ContextWindow: 0,
+	})
+	assert.Equal(t, int32(1234), got.GetInputTokens())
+	assert.Equal(t, int32(math.MaxInt32), got.GetDurationMs())
+	assert.Equal(t, int32(-7), got.GetNumTurns())
+	assert.Equal(t, int32(0), got.GetContextWindow())
 }
 
 // chatBackend is a fakeBackend that also implements agent.StructuredChat: it

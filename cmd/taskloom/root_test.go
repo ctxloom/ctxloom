@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

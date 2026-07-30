@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **949** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **955** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 36 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 72 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 75 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,085** |
+| `open` | no commit names this ID | **1,076** |
 
-**Totals: 2268 findings across 162 units — 949 resolved, 1,085 still open, 234 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 955 resolved, 1,076 still open, 237 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 260 | 621 | 14 | 24 | 80 |
-| LOW | 871 | 339 | 438 | 12 | 40 | 42 |
+| MED | 999 | 262 | 617 | 14 | 26 | 80 |
+| LOW | 871 | 343 | 433 | 12 | 41 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1089,11 +1089,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U031-F14 | **RESOLVED** `767bd251` | `warn.go:54 + loader.go:148-156` | COUPLING | Two independent warning sinks. `WithWarnWriter`'s doc says it redirects "**this loader/store's** user-facing diagnostics (the clidiag 'ctxloom: warning:' lines)" — but `bundleWarner`'s two warnings... | U031.md |
 | U032-F06 | **RESOLVED** `80db62d0` | `agentfiles.go:1-162` | DEAD | The **entire file** — `ClaudeAgents`, `RegisterRoster`, `AgentExport`, `WriteAgentFiles`, `TransformToClaudeAgent`, `claudeAgentName`, `nonSlugRe` — has no production caller. 162 lines plus a 219-l... | U032.md |
 | U032-F07 | **RESOLVED** `758c200e` | **`capabilities.go:13; claudecode.go:65`** | DEAD | `ClaudeCommands.RegisterFromContent` is never dispatched. The `agent.ContentCommands` wiring is write-only across all six backends. | U032.md |
-| U032-F08 | open | `surfacedelivery.go:23-55; surfaces.go:116-217` | COUPLING | `fileTemplateDelivery` has three mutually-exclusive optional fields the constructor cannot set, so all six call sites are a construct-then-assign-then-deliver ritual. Omitting an assignment is comp... | U032.md |
-| U032-F09 | open | **`claudecode.go:231; claude.go:259, 364`** | COMPLEXITY | Three functions exceed the project's CCN-10 CI gate: `buildArgs` (18), `loadSettings` (14), `saveSettings` (11). | U032.md |
+| U032-F08 | **REFUTED** `dcbae41b` | `surfacedelivery.go:23-55; surfaces.go:116-217` | COUPLING | `fileTemplateDelivery` has three mutually-exclusive optional fields the constructor cannot set, so all six call sites are a construct-then-assign-then-deliver ritual. Omitting an assignment is comp... | U032.md |
+| U032-F09 | **RESOLVED** `0d21e52c` | **`claudecode.go:231; claude.go:259, 364`** | COMPLEXITY | Three functions exceed the project's CCN-10 CI gate: `buildArgs` (18), `loadSettings` (14), `saveSettings` (11). | U032.md |
 | U032-F10 | **RESOLVED** `80db62d0` | `internal/claude/docs/design/*.md` | NOPAY | 357 lines of design docs in the package describe **deleted or unwired** code — direct residue of the retired stream-json path the brief asked about. | U032.md |
-| U032-F11 | open | `contextdelivery.go:50-55; claudecode.go:294-299` | SILENTNOOP | Empty assembled context produces: no file, `Path() == ""`, no `--append-system-prompt-file` flag, no warning, exit 0. Nothing distinguishes "this project legitimately has no context" from "assembly... | U032.md |
-| U032-F20 | open | **`chat.go:143-187`** | COUPLING | `claudeModelSelectionQuirk` drives an **unstable, undocumented** `claude-code-acp` JSON-RPC method (`session/set_model`) discovered by grepping the adapter's `dist/*.js`, pinned to `AdapterVersions... | U032.md |
+| U032-F11 | **RESOLVED** `1fa95e35` | `contextdelivery.go:50-55; claudecode.go:294-299` | SILENTNOOP | Empty assembled context produces: no file, `Path() == ""`, no `--append-system-prompt-file` flag, no warning, exit 0. Nothing distinguishes "this project legitimately has no context" from "assembly... | U032.md |
+| U032-F20 | **REFUTED** `7bcbccee` | **`chat.go:143-187`** | COUPLING | `claudeModelSelectionQuirk` drives an **unstable, undocumented** `claude-code-acp` JSON-RPC method (`session/set_model`) discovered by grepping the adapter's `dist/*.js`, pinned to `AdapterVersions... | U032.md |
 | U033-F01 | **RESOLVED** `04f6cf04` | **`surfaces.go:249`** | DUPLICATE | `claude.SurfaceInputs` is `agent.SurfaceInputs` minus `Fragments`, and forces two hand-maintained field-by-field mappers that have already diverged; a field dropped from one mapper silently degrade... | U033.md |
 | U033-F02 | **RESOLVED** `f8a8d950` | **`surfaces.go:265`** | DEAD | `SurfaceInputs.SelfContainedSkills` is written by three call sites and read by none — a field that pretends to be a threaded control | U033.md |
 | U033-F03 | **RESOLVED** `7b910dd3` | **`surfaces.go:96,144,195,226,340`** | DEAD | The five `Kind()` methods have zero production call sites; the `agent.KindedDelivery` contract they satisfy is test-only scaffolding replicated across every backend | U033.md |
@@ -2090,13 +2090,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U032-F12 | **RESOLVED** `24e4e92e` | **`claudecode.go:194-209`** | TRIVIAL | `pickByMaxOutput` is generic over `T` with exactly one instantiation, takes an accessor closure that is always `func(u claudeModelUsage) int { return u.OutputTokens }`, and its second return value ... | U032.md |
 | U032-F13 | **RESOLVED** `ae27b2f1` | **`claudecode.go:173`** | DEAD | `claudeModelUsage.InputTokens` is decoded and never read. | U032.md |
 | U032-F14 | **RESOLVED** `ae27b2f1` | **`claudecode.go:19`** | DEAD | `ClaudeConfig.Model` is decoded and never read; the effective model is read untyped from the same YAML elsewhere. | U032.md |
-| U032-F15 | open | **`claudecode.go:375-378`** | ERRHANDLING | `minimalSettings` swallows a marshal error and returns `"{}"`, which drops `permissions.defaultMode: bypassPermissions` — the setting that keeps a headless distill run from blocking on a permission... | U032.md |
-| U032-F16 | open | **`claude.go:369-372, 392-396`** | ERRHANDLING | Two `warn`+`continue` "skip corrupted field" branches in `saveSettings` are unreachable. | U032.md |
+| U032-F15 | **REFUTED** `80bb7def` | **`claudecode.go:375-378`** | ERRHANDLING | `minimalSettings` swallows a marshal error and returns `"{}"`, which drops `permissions.defaultMode: bypassPermissions` — the setting that keeps a headless distill run from blocking on a permission... | U032.md |
+| U032-F16 | **RESOLVED** `2fdec64e` | **`claude.go:369-372, 392-396`** | ERRHANDLING | Two `warn`+`continue` "skip corrupted field" branches in `saveSettings` are unreachable. | U032.md |
 | U032-F17 | **RESOLVED** `24e4e92e` | **`claude.go:40, 342`** | TRIVIAL | `getFS` and `warn` are one-line pass-throughs to `agent.GetFS` / `agent.Warn`, satisfying no interface and providing no seam (the fs seam is the `FS` field itself). | U032.md |
 | U032-F18 | **RESOLVED** `ae27b2f1` | **`hooks_wire.go:26, 29`** | DEAD | `HookEventPreToolUse` and `PermissionDeny` are exported but consumed only by `EncodeDeny` in the same file — no importer uses either. | U032.md |
-| U032-F19 | open | **`claude.go:759, 781, 803, 814; commandfiles.go:24`** | ERRHANDLING | Five discarded errors. `exists, _ := afero.Exists(…)` ×4 treats an I/O error as "absent", so a permission-denied settings.json makes `RemoveSettings` a silent no-op and `Status` report "not install... | U032.md |
-| U032-F21 | open | `agentfiles.go:98-102, 81-86` | SILENTNOOP | Two roster names slugging to the same identifier (`"Foo"` / `"foo"` / `"research/foo"`) both render to `foo.md` — last write wins, silently. Duplicate `Name`s collapse in `byName` so both `cmds` en... | U032.md |
-| U032-F22 | open | **`claude.go:556-559`** | LOW | `removeCtxloomHooks`'s doc describes a detection rule the code does not implement: *"It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context""*. The code uses `agen... | U032.md |
+| U032-F19 | **RESOLVED** `e86b3a2c` | **`claude.go:759, 781, 803, 814; commandfiles.go:24`** | ERRHANDLING | Five discarded errors. `exists, _ := afero.Exists(…)` ×4 treats an I/O error as "absent", so a permission-denied settings.json makes `RemoveSettings` a silent no-op and `Status` report "not install... | U032.md |
+| U032-F21 | **RESOLVED** `ee0cdad0` | `agentfiles.go:98-102, 81-86` | SILENTNOOP | Two roster names slugging to the same identifier (`"Foo"` / `"foo"` / `"research/foo"`) both render to `foo.md` — last write wins, silently. Duplicate `Name`s collapse in `byName` so both `cmds` en... | U032.md |
+| U032-F22 | **RESOLVED** `69802f97` | **`claude.go:556-559`** | LOW | `removeCtxloomHooks`'s doc describes a detection rule the code does not implement: *"It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context""*. The code uses `agen... | U032.md |
 | U033-F07 | **RESOLVED** `c97a0e90` | **`surfaces.go:358-367`** | DUPLICATE | `SupportedApproaches` and `DefaultApproach` are byte-identical across all five backends modulo the table variable name — ten methods that only name a table | U033.md |
 | U033-F08 | **RESOLVED** `5fdf8767` | **`surfaces.go:247-248`** | NOPAY | Stale doc comment describes a plan state two slices out of date: "S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup" | U033.md |
 | U033-F09 | open | **`surfaces.go:131-136`, `surfaces.go:182-187`** | ERRHANDLING | On a failed `DeliverIsolated`, `s.path` retains its prior value rather than being cleared, so `Path()` can report a path for a delivery that did not happen — contradicting its own doc (`"" before d... | U033.md |

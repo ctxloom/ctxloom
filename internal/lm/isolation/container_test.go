@@ -411,3 +411,62 @@ func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
 	assert.ErrorIs(t, err, baseErr)
 	assert.Contains(t, err.Error(), "remove container scratch")
 }
+
+// TestHostBase_PrunesOverlayTargetsItCreated is U062-F20's regression. The
+// overlay TARGET dirs must be pre-created as the invoking user — otherwise a
+// rootful daemon creates the bind mountpoint as ROOT inside the identical-path
+// project bind, EACCES-ing every later host run. But they were created inside the
+// user's HOST project and never removed: Cleanup only removed the scratch tree,
+// so preparing a container run left `.claude/` and `.ctxloom/cache/` behind in a
+// project that never had them, as a side effect of a run that writes nothing
+// there (the overlay shadows them; every write lands in scratch).
+//
+// Only what we created, only while still empty, and never a directory the
+// project already had.
+func TestHostBase_PrunesOverlayTargetsItCreated(t *testing.T) {
+	ctx := context.Background()
+	rt := fakeRuntime{name: "docker", available: true}
+	proj := t.TempDir()
+	scratch := t.TempDir()
+
+	// A directory the project already owns, with content: untouchable.
+	preexisting := filepath.Join(proj, ".kept")
+	require.NoError(t, os.MkdirAll(preexisting, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(preexisting, "user.json"), []byte("{}"), 0o644))
+
+	profile := containerProfile{overlayDirs: []string{".kept", ".claude", filepath.FromSlash(".ctxloom/cache")}}
+	_, _, cleanup, err := hostBase{}.prepareBase(ctx, rt, proj, "m", scratch, profile, &git.Fake{})
+	require.NoError(t, err)
+
+	for _, rel := range []string{".claude", filepath.FromSlash(".ctxloom/cache")} {
+		require.DirExists(t, filepath.Join(proj, rel), "the overlay target must exist before the daemon sees the mount")
+	}
+
+	require.NoError(t, cleanup())
+
+	assert.NoDirExists(t, filepath.Join(proj, ".claude"),
+		"an overlay target this run created must not outlive it in the user's project")
+	assert.NoDirExists(t, filepath.Join(proj, ".ctxloom"),
+		"…including the intermediate directories created with it")
+	assert.FileExists(t, filepath.Join(preexisting, "user.json"),
+		"a directory the project already owned is never pruned")
+}
+
+// TestHostBase_KeepsOverlayTargetsThatGainedContent: pruning is empty-only.
+// Anything that landed in a target dir belongs to the user (or to a writer the
+// overlay did not shadow), so the directory stays — and its parents with it.
+func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
+	ctx := context.Background()
+	proj := t.TempDir()
+
+	profile := containerProfile{overlayDirs: []string{filepath.FromSlash(".ctxloom/cache")}}
+	_, _, cleanup, err := hostBase{}.prepareBase(ctx, fakeRuntime{name: "docker", available: true},
+		proj, "m", t.TempDir(), profile, &git.Fake{})
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".ctxloom", "cache", "landed"), []byte("x"), 0o644))
+	require.NoError(t, cleanup())
+
+	assert.FileExists(t, filepath.Join(proj, ".ctxloom", "cache", "landed"),
+		"a target that gained content is never removed")
+}

@@ -513,7 +513,7 @@ func (hostBase) withState(SessionState) containerBase { return hostBase{} }
 // common dir mirrored so in-container git resolves. Failure returns the error
 // (the caller removes the scratch); nothing host-side is created to unwind.
 func (hostBase) prepareBase(ctx context.Context, rt Runtime, projectDir, _, scratchRoot string, profile containerProfile, g git.Git) (string, []Mount, func() error, error) {
-	overlays, err := containerConfigOverlay(rt, projectDir, scratchRoot, profile.overlayDirs)
+	overlays, created, err := containerConfigOverlay(rt, projectDir, scratchRoot, profile.overlayDirs)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -524,11 +524,20 @@ func (hostBase) prepareBase(ctx context.Context, rt Runtime, projectDir, _, scra
 	// resolution failure fails this workspace so the chain degrades
 	// (fatal-unless-degraded), never a silent broken-git launch.
 	if gitMount, ok, gerr := gitdirMirrorMount(ctx, rt, g, projectDir); gerr != nil {
+		pruneCreatedOverlayTargets(projectDir, created)
 		return "", nil, nil, gerr
 	} else if ok {
 		overlays = append(overlays, gitMount)
 	}
-	return projectDir, overlays, func() error { return nil }, nil
+	// The host base creates no workspace of its own, but it DOES create the
+	// overlay mountpoints inside the user's live project. Undoing those is this
+	// base's whole teardown: nothing is supposed to be written through them (the
+	// overlay shadows every write into scratch), so a target this run created and
+	// that is still empty is pure residue.
+	return projectDir, overlays, func() error {
+		pruneCreatedOverlayTargets(projectDir, created)
+		return nil
+	}, nil
 }
 
 // gitdirMirrorMount returns the git common-dir mirror mount the plain container
@@ -762,14 +771,21 @@ func (c Container) launchSpec(backendName, label string, verbosity int, cw *cont
 // Directories only — a single-file overlay would break the atomic write+rename
 // the writers use, which is why the project-root file .mcp.json is deliberately
 // NOT overlaid (flagged residue, see the Container doc).
-func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
+func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, []string, error) {
 	mounts := make([]Mount, 0, len(overlayDirs))
+	var created []string
 	for i, rel := range overlayDirs {
 		host := filepath.Join(scratchRoot, fmt.Sprintf("cfg%d", i))
 		if err := os.MkdirAll(host, 0o755); err != nil {
-			return nil, fmt.Errorf("container config overlay scratch: %w", err)
+			return nil, nil, fmt.Errorf("container config overlay scratch: %w", err)
 		}
 		target := filepath.Join(projectDir, rel)
+		if _, statErr := os.Stat(target); os.IsNotExist(statErr) {
+			// Ours to undo: the project did not have this directory before the
+			// run. Recorded BEFORE the MkdirAll below, which is the only moment
+			// the distinction is still observable.
+			created = append(created, target)
+		}
 		seedOverlay(target, host)
 		// Pre-create the overlay TARGET (as the invoking user — this process runs
 		// as it) BEFORE docker sees the mount. The target is nested inside the
@@ -780,11 +796,37 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		// run's managed-config writers. Creating it ourselves makes docker find it
 		// existing. Idempotent (a no-op — never a chmod — when it already exists).
 		if err := os.MkdirAll(target, 0o755); err != nil {
-			return nil, fmt.Errorf("container config overlay target: %w", err)
+			return nil, nil, fmt.Errorf("container config overlay target: %w", err)
 		}
 		mounts = append(mounts, rt.Expose(host, target, false))
 	}
-	return mounts, nil
+	return mounts, created, nil
+}
+
+// pruneCreatedOverlayTargets removes the managed-config directories this run
+// created inside the user's HOST project, walking each one upward through the
+// intermediate directories MkdirAll made with it and stopping at projectDir.
+//
+// Removal is gated on an EXPLICIT emptiness check, never on Remove failing for a
+// non-empty directory: that is true on the OS filesystem but FALSE on afero's
+// MemMapFs, and this package's tests are not the only consumers of that
+// asymmetry. Anything a directory holds belongs to the user (or to a writer the
+// overlay did not shadow), so content stops the walk — as does any directory the
+// project already owned, which never enters created in the first place. Failures
+// are silent by design: an unprunable residue is a cosmetic empty directory, and
+// warning about it on every teardown would be noise, not signal.
+func pruneCreatedOverlayTargets(projectDir string, created []string) {
+	for _, target := range created {
+		for dir := target; strings.HasPrefix(dir, projectDir+string(filepath.Separator)); dir = filepath.Dir(dir) {
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) > 0 {
+				break
+			}
+			if err := os.Remove(dir); err != nil {
+				break
+			}
+		}
+	}
 }
 
 // gitCommonDirMount builds the identical-path .git mirror mount from a checkout's

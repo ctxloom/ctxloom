@@ -108,6 +108,11 @@ func (f *fakeEngineHome) ReportRunExited(code int, sessionID string) {
 func (f *fakeEngineHome) customNames() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.customNamesLocked()
+}
+
+// customNamesLocked is customNames for a caller already holding f.mu.
+func (f *fakeEngineHome) customNamesLocked() []string {
 	out := make([]string, len(f.customs))
 	for i, c := range f.customs {
 		out[i] = c.Name

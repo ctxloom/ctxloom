@@ -23,7 +23,10 @@ func envMap(m map[string]string) func(string) (string, bool) {
 // it was unreachable, because the one-value read could not tell
 // CTXLOOM_MOCK_RESPONSE="" from an unset variable (U079-F11).
 func TestDispatch_EmptyResponseCanBeRequested(t *testing.T) {
-	out := Dispatch("hello", envMap(map[string]string{EnvResponse: ""}))
+	out, err := Dispatch("hello", envMap(map[string]string{EnvResponse: ""}))
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
 	if out.Response != "" {
 		t.Errorf("Response = %q, want the empty reply that was explicitly requested", out.Response)
 	}
@@ -35,12 +38,18 @@ func TestDispatch_EmptyResponseCanBeRequested(t *testing.T) {
 // An UNSET variable must still leave the default (or the sentinel's) reply
 // alone — otherwise every run would deliver nothing.
 func TestDispatch_UnsetResponseLeavesTheDefault(t *testing.T) {
-	out := Dispatch("hello", envMap(map[string]string{}))
+	out, err := Dispatch("hello", envMap(map[string]string{}))
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
 	if out.Response == "" {
 		t.Error("an unset CTXLOOM_MOCK_RESPONSE must not be read as a request for an empty reply")
 	}
 
-	echoed := Dispatch(SentinelEcho+"token-42\n", envMap(map[string]string{}))
+	echoed, err := Dispatch(SentinelEcho+"token-42\n", envMap(map[string]string{}))
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
 	if !strings.Contains(echoed.Response, "token-42") {
 		t.Errorf("the echo sentinel was lost: %q", echoed.Response)
 	}

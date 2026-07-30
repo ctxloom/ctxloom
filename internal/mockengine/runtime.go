@@ -99,7 +99,11 @@ func (r *Runtime) Run() int {
 		return 1
 	}
 
-	outcome := Dispatch(string(prompt), r.lookupenv)
+	outcome, err := Dispatch(string(prompt), r.lookupenv)
+	if err != nil {
+		fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
+		return 1
+	}
 
 	if err := r.render(len(prompt), outcome); err != nil {
 		fmt.Fprintf(r.stderr(), "mock-engine: render error: %v\n", err)

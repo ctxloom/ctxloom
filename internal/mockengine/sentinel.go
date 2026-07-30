@@ -1,6 +1,7 @@
 package mockengine
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -54,7 +55,12 @@ type Outcome struct {
 // A zero-byte reply is the shape ctxloom's characteristic bug produces, so the
 // knob that lets a test prove ctxloom surfaces one rather than papering over it
 // must be expressible.
-func Dispatch(prompt string, lookup func(string) (string, bool)) Outcome {
+//
+// A knob that is set but UNREADABLE is an error, not a default. EnvExitCode is
+// the fault-INJECTION channel — a test sets it to prove ctxloom surfaces a
+// failing engine — so a typo silently degrading to "success" would make the
+// test that was asserting a failure go green having injected nothing.
+func Dispatch(prompt string, lookup func(string) (string, bool)) (Outcome, error) {
 	if lookup == nil {
 		lookup = func(string) (string, bool) { return "", false }
 	}
@@ -73,11 +79,13 @@ func Dispatch(prompt string, lookup func(string) (string, bool)) Outcome {
 		out.Response = v
 	}
 	if v, ok := lookup(EnvExitCode); ok && strings.TrimSpace(v) != "" {
-		if code, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			out.ExitCode = code
+		code, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return out, fmt.Errorf("%s=%q is not an integer exit code", EnvExitCode, v)
 		}
+		out.ExitCode = code
 	}
-	return out
+	return out, nil
 }
 
 // echoPayload returns the rest of the line following the first SentinelEcho.

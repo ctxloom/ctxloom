@@ -5,32 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/ltk/app"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
-	"github.com/ctxloom/ctxloom/internal/ltk/rules"
-	"github.com/ctxloom/ctxloom/internal/ltk/scm"
-	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
-	"github.com/ctxloom/ctxloom/internal/ltk/state"
 )
-
-// configSearch lists the default config locations, in order. The .ltk/ layout
-// (config + override state together) is preferred; the flat .ltk.yaml is kept
-// for back-compat.
-var configSearch = []string{
-	defaultConfigPath, // .ltk/config.yaml
-	legacyConfig,      // .ltk.yaml
-	"llm-tool-killer.yaml",
-	".llm-tool-killer.yaml",
-	".config/llm-tool-killer.yaml",
-}
 
 func newEvaluateCmd() *cobra.Command {
 	var cfgPath, shellName, engineName string
@@ -195,24 +176,6 @@ func denyUnknownEngine(engineName string, lookupErr error, stdin io.Reader) (eng
 		progName, engineName))
 }
 
-// applyConfirmOverride lifts a denial that "confirm by repeating" permits.
-// Only a rule that allows it qualifies — inviolate rules report
-// Confirmable=false, so repeating them never helps — and the override is keyed
-// on what the agent repeats: the command, or the file path for a file-edit
-// rule.
-func applyConfirmOverride(resp engine.Response, req engine.Request, resolvedConfig string) engine.Response {
-	if resp.Allow || !resp.Confirmable || resp.ConfirmWindowSeconds <= 0 {
-		return resp
-	}
-	key := req.Command
-	if req.FilePath != "" {
-		key = "edit:" + req.FilePath
-	}
-	return confirmByRepeat(resp, key, statePath(resolvedConfig),
-		time.Duration(resp.ConfirmDelaySeconds)*time.Second,
-		time.Duration(resp.ConfirmWindowSeconds)*time.Second)
-}
-
 // noteWhenNothingIsGated adds the "no rules config found" diagnostic when the
 // search came up empty (resolvedConfig == "") and nothing else has written to
 // stderr.
@@ -231,45 +194,6 @@ func noteWhenNothingIsGated(out engine.Output, resolvedConfig string) engine.Out
 		"%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
 		progName, strings.Join(configSearch, ", ")))
 	return out
-}
-
-// newDecider builds the rules app both `evaluate` and `check` decide with.
-// The two surfaces differ deliberately in ERROR POLICY — the hook fails
-// closed, the query surface fails loud — but they must never differ in how a
-// decision is REACHED, or the answer to "would this be blocked?" stops
-// predicting what the hook does. Keeping the force-shell override and the
-// host-shell inference in one place is what makes that structural rather than
-// a convention two call sites have to remember.
-func newDecider(cfg *rules.Config, forceShell ir.Shell) *app.App {
-	a := app.New(cfg)
-	a.ForceShell = forceShell
-	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
-	return a
-}
-
-// expandSubmodules resolves the `@submodules` path sentinel against this
-// repo's .gitmodules, so a rule can block edits inside every submodule without
-// naming them. getwd is os.Getwd in production and a stub in tests.
-//
-// EVERY step reports its failure, including getwd's. Failing to resolve the
-// sentinel is NOT the same as "there are no submodules": an unknown working
-// directory, an unreadable .gitmodules, or a submodule path that is not a
-// valid glob all leave a `path: ["@submodules"]` rule holding the literal
-// sentinel, which matches no real path — so a rule written to protect every
-// submodule protects none and every edit sails through as an allow. The
-// callers decide what to do about it (evaluate denies, check errors); what
-// they must not be handed is a nil error over an expansion that never
-// happened.
-func expandSubmodules(cfg *rules.Config, getwd func() (string, error)) error {
-	wd, err := getwd()
-	if err != nil {
-		return fmt.Errorf("determine the working directory: %w", err)
-	}
-	subs, err := scm.SubmodulePaths(afero.NewOsFs(), wd)
-	if err != nil {
-		return err
-	}
-	return cfg.ExpandSubmodules(subs)
 }
 
 // detectEngineFromPayload tries every registered engine's Decode against
@@ -361,118 +285,4 @@ func failClosed(adapter engine.Adapter, reason string) (engine.Output, error) {
 		return engine.Output{}, fmt.Errorf("encode fail-closed decision: %w", err)
 	}
 	return out, nil
-}
-
-// knownShells renders ir.KnownShells for a diagnostic message.
-func knownShells() string {
-	names := make([]string, len(ir.KnownShells))
-	for i, s := range ir.KnownShells {
-		names[i] = string(s)
-	}
-	return strings.Join(names, ", ")
-}
-
-// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
-// using the wall clock, and notes on stderr when a repeat was honored. The logic
-// lives in internal/state so the acceptance suite can exercise it too.
-// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
-// using the wall clock, and notes on stderr when a repeat was honored. The logic
-// lives in internal/state so the acceptance suite can exercise it too.
-func confirmByRepeat(resp engine.Response, command, stateFile string, delay, window time.Duration) engine.Response {
-	out, overridden, err := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
-	if overridden {
-		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
-	}
-	if err != nil {
-		// U076-F01: a persistence failure here previously vanished silently —
-		// the override would then never arm (or never clear), so every future
-		// identical repeat kept getting denied with a message promising a
-		// repeat WOULD work. Diagnostic only; the decision above is unchanged.
-		fmt.Fprintf(os.Stderr, "%s: could not persist confirm-by-repeat state (%v) — the override may not take effect\n", progName, err)
-	}
-	return out
-}
-
-// statePath puts the override state in a .ltk directory anchored to the
-// resolved config: next to the config when it already lives in a .ltk
-// directory, otherwise in a .ltk/ beside the config file (legacy flat configs,
-// custom --config paths). Anchoring to the config — never the cwd — keeps
-// confirm-by-repeat working when the host varies the hook cwd (agy runs hooks
-// in <workspace>/.agents; the config search walks up, so the resolved path is
-// the stable anchor). Runtime state always lives inside a .ltk directory,
-// never loose in the project root, so .gitignore's ".ltk/state.json" entry
-// covers it.
-//
-// With no config at all there is nothing to anchor to, and also nothing to
-// confirm (no rules ⇒ no confirmable denial), so the cwd-relative fallback is
-// effectively unreachable on the decision path.
-func statePath(configPath string) string {
-	if configPath == "" {
-		return filepath.Join(configDir, stateBase)
-	}
-	dir := filepath.Dir(configPath)
-	if filepath.Base(dir) == configDir {
-		return filepath.Join(dir, stateBase)
-	}
-	return filepath.Join(dir, configDir, stateBase)
-}
-
-// loadConfig loads the given path, or searches the default locations in the
-// cwd and each ancestor up to the repository root, returning the resolved
-// path (empty when falling back to the built-in allow-all config).
-//
-// The ancestor walk matters because hook hosts differ in the cwd they give
-// hooks: Claude Code runs them at the project root, Antigravity inside
-// <workspace>/.agents. A cwd-only search under agy would miss the project's
-// rules and silently fall back to the built-in allow-all config — the wrong
-// direction for a guard to fail.
-func loadConfig(path string) (*rules.Config, string, error) {
-	if path != "" {
-		c, err := rules.Load(path)
-		return c, path, err
-	}
-	for _, dir := range configSearchDirs() {
-		for _, candidate := range configSearch {
-			p := filepath.Join(dir, candidate)
-			if _, err := os.Stat(p); err == nil {
-				c, err := rules.Load(p)
-				return c, p, err
-			}
-		}
-	}
-	return rules.Empty(), "", nil
-}
-
-// configSearchDirs returns the cwd and its ancestors, stopping at the first
-// directory containing a .git DIRECTORY (the main repository root holds the
-// project's rules; directories above it are someone else's territory) or at
-// the filesystem root for non-repo workspaces.
-//
-// A .git FILE (a gitfile pointer) marks a submodule working tree or a linked
-// worktree, and is deliberately NOT a boundary: stopping there would make a
-// superproject's rules silently vanish inside its submodules (allow-all — the
-// wrong direction for a guard to fail). Continuing past it is safe for both
-// layouts because loadConfig takes the NEAREST config first, so the extra
-// ancestor dirs are only fallback candidates: a worktree (or submodule)
-// carrying its own .ltk still wins, and when it carries none, an ancestor
-// config — the superproject/monorepo case — is exactly the one that should
-// apply.
-func configSearchDirs() []string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return []string{"."}
-	}
-	var dirs []string
-	for dir := wd; ; {
-		dirs = append(dirs, dir)
-		if fi, err := os.Stat(filepath.Join(dir, ".git")); err == nil && fi.IsDir() {
-			break
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return dirs
 }

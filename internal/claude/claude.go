@@ -480,6 +480,17 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
 	mcpPath := w.MCPConfigPath(projectDir)
 
+	// Ensure the target directory exists, as writeSettingsFile does for
+	// .claude/. .mcp.json sits directly in projectDir, so this writer used to
+	// depend on someone else having created it — and for an out-of-cwd delivery
+	// that someone was whichever surface happened to be delivered first. When
+	// the context surface delivered nothing (no context configured), the
+	// per-session scratch directory was never created and this write failed with
+	// a bare ENOENT about a temp file.
+	if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create MCP config directory: %w", err)
+	}
+
 	// Load existing MCP config
 	mcpConfig, err := w.loadMCPConfig(mcpPath)
 	if err != nil {

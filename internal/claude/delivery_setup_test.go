@@ -340,3 +340,65 @@ func TestContextDelivery_DistinctHarpsDistinctScratch(t *testing.T) {
 	require.FileExists(t, a)
 	require.FileExists(t, b)
 }
+
+// TestSetup_FragmentsAssemblingToNothingIsLoud closes the divergence behind
+// U032-F11. A backend whose context rides the RAW CACHE FILE (codex,
+// antigravity, kiro) already refuses this exact input: Provide → WriteContextFile
+// returns agent.ErrNoContext, deliberately distinct from the no-fragments case,
+// because "the user configured no context" and "every fragment the user
+// configured resolved to nothing" are different facts. claude's context rides a
+// surface instead, and that path assembled the same empty string, wrote no file,
+// reported no flag, warned about nothing and returned nil — a session launched
+// with zero bytes of the context the user asked for.
+//
+// The payload half is the companion below: nothing about this may make an
+// ordinary delivery quieter.
+func TestSetup_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	backend := NewClaudeCode()
+	err := backend.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   t.TempDir(),
+		Env:       map[string]string{sessionHarpEnv: "witty-plain-crate"},
+		Fragments: []*agent.Fragment{{Name: "rules", Content: ""}, {Name: "style", Content: "   \n\t "}},
+		Managed:   &agent.ManagedConfig{},
+		CellKind:  agent.CellKindShared,
+	})
+	require.Error(t, err, "two configured fragments delivering zero bytes must fail the launch, not launch context-less")
+	assert.ErrorIs(t, err, agent.ErrNoContext,
+		"the same fact must produce the same error as the raw-cache path, so callers can recognize it")
+	assert.Empty(t, backend.surfaces.Context.Path(),
+		"no framed context file may be left behind by a refused setup")
+}
+
+// TestSetup_NoFragmentsIsNotAnError keeps the guard above from becoming a new
+// failure mode of its own: a project that legitimately configures NO context
+// still sets up cleanly and simply emits no context flag.
+func TestSetup_NoFragmentsIsNotAnError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	backend := NewClaudeCode()
+	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   t.TempDir(),
+		Env:       map[string]string{sessionHarpEnv: "witty-plain-crate"},
+		Fragments: nil,
+		Managed:   &agent.ManagedConfig{},
+		CellKind:  agent.CellKindShared,
+	}))
+	assert.Empty(t, backend.surfaces.Context.Path(), "nothing was asked for, so nothing is delivered")
+
+	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindShared})
+	assert.NotContains(t, args, flagAppendSystemFile, "no context means no context flag")
+}
+
+// TestSetup_ContextPayloadStillReachesTheLaunchFlag is the payload assertion the
+// guard must not weaken: a real fragment set is framed, written, and named on the
+// argv that launches claude. Exit status alone would not notice its loss.
+func TestSetup_ContextPayloadStillReachesTheLaunchFlag(t *testing.T) {
+	backend, _ := setupClaudeInTempHome(t, t.TempDir(), "witty-plain-crate", &agent.ManagedConfig{})
+
+	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindShared})
+	path := argValue(args, flagAppendSystemFile)
+	require.NotEmpty(t, path, "the framed context file must be named on the argv")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "project rules", "the fragment's own bytes must be in the delivered file")
+}

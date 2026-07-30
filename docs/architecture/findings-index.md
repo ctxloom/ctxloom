@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,134** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,135** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 68 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 120 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 142 |
-| `open` | no commit names this ID | **804** |
+| `open` | no commit names this ID | **803** |
 
-**Totals: 2268 findings across 162 units — 1,134 resolved, 804 still open, 330 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,135 resolved, 803 still open, 330 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 363 | 458 | 38 | 50 | 90 |
+| MED | 999 | 364 | 457 | 38 | 50 | 90 |
 | LOW | 871 | 420 | 321 | 20 | 62 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1597,7 +1597,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F14 | **RESOLVED** `dcb68007` | `bundle_reader_cache.go:84-87` | CORRECTNESS | The caching decorator imposes a lockfile precondition its own interface says a source need not have: wrapping a legitimate source can make it unreadable. | U093.md |
 | U093-F16 | open | **`lockfile.go:94-98`** | CORRECTNESS | `Load` writes to disk as a side effect of a read, triggered by a raw substring match over the whole file, and the write round-trips through the struct, silently dropping any field a newer schema ad... | U093.md |
 | U093-F17 | open | `fetcher.go:13-33; cached_fetcher_factory.go:58-117; git_clone_fetcher.go:50,79` | COUPLING | The `Fetcher` interface's `owner, repo` parameters are inert in two of three implementations — a caller that believes it scoped a read to a repository did not. | U093.md |
-| U093-F18 | open | `cached_fetcher_factory.go:124-126` | SILENTNOOP | `cacheFetcher.SearchRepos` returns `(nil, nil)` for every non-GitHub forge: "search is unsupported here" is delivered as "no results found". | U093.md |
+| U093-F18 | **RESOLVED** `64d1f618` | `cached_fetcher_factory.go:124-126` | SILENTNOOP | `cacheFetcher.SearchRepos` returns `(nil, nil)` for every non-GitHub forge: "search is unsupported here" is delivered as "no results found". | U093.md |
 | U093-F19 | open | `github.go:307-309, 268` | ERRHANDLING | A transient branch-lookup failure is reported as "this ref does not exist". | U093.md |
 | U093-F20 | open | `mock_fetcher.go:163, 191` | CORRECTNESS | The shared test double defaults to *success* on its two most decision-relevant methods, so a test that forgets to seed data gets a plausible fake instead of a failure. | U093.md |
 | U093-F21 | open | `mock_fetcher.go:78` | CORRECTNESS | `MockFetcher` implements `ListTags` but not `ResolveTag`, so every mock-backed semver test exercises the branch-first fallback that the `ResolveTag` SECURITY comments exist to prevent. | U093.md |

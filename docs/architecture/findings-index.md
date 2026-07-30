@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,166** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 77 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 129 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 130 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 146 |
-| `open` | no commit names this ID | **750** |
+| `open` | no commit names this ID | **749** |
 
-**Totals: 2268 findings across 162 units — 1,166 resolved, 750 still open, 352 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,166 resolved, 749 still open, 353 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
 | MED | 999 | 379 | 427 | 43 | 58 | 92 |
-| LOW | 871 | 435 | 299 | 24 | 63 | 50 |
+| LOW | 871 | 435 | 298 | 24 | 64 | 50 |
 | (unparsed) | 22 | 2 | 18 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2664,7 +2664,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U115-F14 | **RESOLVED** `9a283b1c` | **`plans.go:40`, `:49`** | TRIVIAL | `HomeSessionsDir` and `ListHome` are both single-expression wrappers with no interface obligation, no test seam, and no concept not already named by their callee. | U115.md |
 | U116-F09 | **RESOLVED** `9d8f12f0` | `ptyrunner.go:91-93`, `:239`, `:253` | TRIVIAL | `Result` is a one-`int` struct returned by pointer, obliging the caller to nil-check something that is never nil on the success path. | U116.md |
 | U117-F05 | open | **`shellenv.go:109-115`** | CORRECTNESS | `isExecutableFile` tests raw mode bits (`Mode()&0o111 != 0`), so it can select a file the *current user* cannot execute — diverging from `exec.LookPath`, whose Unix implementation uses `unix.Eacces... | U117.md |
-| U119-F06 | open | `strictness.go:89–96`, `:172`, `:180` | COHESION | `mu` guards four unrelated things: `degraded`, `findings`, `generation`, `onceRecorded`. The mode has no relationship to the collection, so every `Degraded()` read (6 prod call sites, some on hot p... | U119.md |
+| U119-F06 | **REFUTED** `5d6cb459` | `strictness.go:89–96`, `:172`, `:180` | COHESION | `mu` guards four unrelated things: `degraded`, `findings`, `generation`, `onceRecorded`. The mode has no relationship to the collection, so every `Degraded()` read (6 prod call sites, some on hot p... | U119.md |
 | U119-F07 | open | `strictness.go:342–343` | CORRECTNESS | `FailOnce`'s doc contradicts its implementation and its own tests: it claims "**per-process** dedup ... the finding records at most once", but `record` dedups **per checkpoint generation** and `Tes... | U119.md |
 | U119-F08 | open | `strictness.go:371` vs `clidiag.go:128` | DUPLICATE | **Negative result on the raised duplication** (see the dedicated cross-check below) — but the two dedup keys disagree on one dimension beyond the generation: strictness includes `class`, clidiag do... | U119.md |
 | U120-F08 | open | `log.go:321` | ERRHANDLING | `defer func() { _ = f.Close() }()` swallows the close error on the log's only write path. | U120.md |

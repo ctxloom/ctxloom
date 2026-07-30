@@ -91,6 +91,22 @@ func TestSanitizeQueries_DropsInvalidKeepsValid(t *testing.T) {
 	assert.Equal(t, QueryGrep, out[1].Type)
 }
 
+// CHARACTERIZATION (U128-F12): a model that asked for nothing and a model
+// whose every request was refused reach the caller as the SAME value. They mean
+// opposite things — the first is a model declining to escalate, the second is
+// ctxloom rejecting everything it asked for, which is a diagnosable fault — and
+// the sanitizer's return type cannot tell them apart. Pinned here so the fix
+// inverts it visibly.
+func TestSanitizeQueries_AllRejectedIsIndistinguishableFromNothingAsked(t *testing.T) {
+	allRejected := SanitizeQueries([]Query{
+		{Type: "shell_exec", Path: "internal/foo"},
+		{Type: QueryPathExists, Path: "/etc/passwd"},
+		{Type: QueryGrep},
+	}, 0)
+	nothingAsked := SanitizeQueries(nil, 0)
+	assert.Equal(t, nothingAsked, allRejected, "the two cases are currently the same value")
+}
+
 func TestSanitizeQueries_CapsPerTask(t *testing.T) {
 	var qs []Query
 	for i := 0; i < 10; i++ {

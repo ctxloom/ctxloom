@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **918** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 33 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 67 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 120 |
-| `open` | no commit names this ID | **1,130** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 121 |
+| `open` | no commit names this ID | **1,129** |
 
-**Totals: 2268 findings across 162 units — 918 resolved, 1130 still open, 220 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 918 resolved, 1129 still open, 221 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 244 | 643 | 14 | 23 | 75 |
+| MED | 999 | 244 | 642 | 14 | 23 | 76 |
 | LOW | 871 | 324 | 461 | 9 | 36 | 41 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1017,7 +1017,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U022-F02 | **RESOLVED** `bfdd1d24` | `grpcserver.go:405-428` | CORRECTNESS | `requestRunner` can register a waiter into a map `failPending` has already swapped out, then stall for the full 60 s budget instead of failing fast. | U022.md |
 | U022-F03 | **PARTIAL** `cf31d30f` | `harnessspec.go:49-98` | COUPLING | The D3 headless-safety invariant is enforced only at the decode end, so a bad posture is detected **after** the child process and credential are already spawned. | U022.md |
 | U022-F04 | **RESOLVED** `cf31d30f` | `harnessspec.go:140-160` | ERRHANDLING | `decodeHarnessSpec` silently coerces malformed `mcp_servers` entries into `ChatMCPServer{}` with empty Name/Command instead of refusing. | U022.md |
-| U022-F05 | open | **`home.go:31-91`** | COHESION | `Home` is four protocol planes plus a connection manager under one mutex — six disjoint field partitions. | U022.md |
+| U022-F05 | **ESCALATED** `02b4e618` | **`home.go:31-91`** | COHESION | `Home` is four protocol planes plus a connection manager under one mutex — six disjoint field partitions. | U022.md |
 | U022-F06 | **RESOLVED** `7a6ed156` | **`home.go:675-684`** | ERRHANDLING | `emitCustomEvent` swallows the `structpb.NewStruct` error and emits a valueless event; for `mail_consumed` that silently breaks the consumption cursor. | U022.md |
 | U022-F07 | **RESOLVED** `7a6ed156` | **`home.go:712-714`** | SILENTNOOP | `Report(ctx, nil, nil)` returns success having emitted nothing. | U022.md |
 | U022-F09 | **RESOLVED** `aada967a` | `httpserver.go:245` | COUPLING | `go s.saveEndpoint()` is load-bearing for lock re-entrancy, and nothing says so — removing the `go` self-deadlocks the coordinator. | U022.md |

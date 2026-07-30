@@ -10,6 +10,8 @@ import (
 	"github.com/google/go-github/v60/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // mockGitHubRepositoriesService mocks GitHubRepositoriesService.
@@ -361,7 +363,41 @@ func TestGitHubFetcher_ResolveRef(t *testing.T) {
 		_, err := fetcher.ResolveRef(ctx, "owner", "repo", "nonexistent")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ref not found")
+		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
+
+	// U093-F19: only a 404 establishes that a ref is absent. A 5xx, a 403 or a
+	// transport error says the forge could not be asked — and reporting that as
+	// ErrRemoteContentNotFound is load-bearing, because callers treat
+	// ErrRemoteContentNotFound as "this content legitimately does not exist"
+	// (an absent .sig is how an unsigned bundle is signalled), so a transient
+	// blip became a factual claim about the remote.
+	for _, tc := range []struct {
+		name string
+		resp *github.Response
+	}{
+		{"server error", &github.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}}},
+		{"forbidden", &github.Response{Response: &http.Response{StatusCode: http.StatusForbidden}}},
+		{"no response at all", nil},
+	} {
+		t.Run("branch lookup "+tc.name+" is not reported as absent", func(t *testing.T) {
+			mock := newMockGitHubClient()
+			mock.repos.GetCommitFunc = func(ctx context.Context, owner, repo, sha string, opts *github.ListOptions) (*github.RepositoryCommit, *github.Response, error) {
+				return nil, nil, errors.New("not a commit")
+			}
+			mock.repos.GetBranchFunc = func(ctx context.Context, owner, repo, branch string, maxRedirects int) (*github.Branch, *github.Response, error) {
+				return nil, tc.resp, errors.New("upstream is having a bad day")
+			}
+
+			fetcher := NewGitHubFetcherWithClient(mock)
+			_, err := fetcher.ResolveRef(ctx, "owner", "repo", "release-branch")
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, errs.ErrRemoteContentNotFound,
+				"a branch lookup that never got a 404 has not established that the ref is absent")
+			assert.Contains(t, err.Error(), "upstream is having a bad day",
+				"the real failure must survive into the message")
+		})
+	}
 }
 
 func TestGitHubFetcher_SearchRepos(t *testing.T) {

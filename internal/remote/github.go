@@ -254,16 +254,31 @@ func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubC
 		return sha, err
 	}
 
-	sha, found, branchResp, err := f.resolveAsBranch(ctx, client, owner, repo, ref, allowRetry)
+	sha, found, branchResp, branchErr := f.resolveAsBranch(ctx, client, owner, repo, ref, allowRetry)
 	if found {
-		return sha, err
+		return sha, branchErr
 	}
 
 	if sha, found, err := f.resolveAsTag(ctx, client, owner, repo, ref, allowRetry, branchResp); found {
 		return sha, err
 	}
 
+	// Only a 404 establishes that the ref is absent. A 5xx, a 403 or a
+	// transport error means the forge could not be asked, and answering with
+	// ErrRemoteContentNotFound turns a transient blip into a factual claim
+	// about the remote — one callers act on, since that sentinel is how
+	// "legitimately absent" is signalled (an unsigned bundle has no .sig).
+	if branchErr != nil && !isHTTPNotFound(branchResp) {
+		return "", fmt.Errorf("could not determine whether ref %q exists: branch lookup failed: %w", ref, branchErr)
+	}
+
 	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
+}
+
+// isHTTPNotFound reports whether resp is a definite 404. A nil response means
+// the request never produced one, which is not a 404.
+func isHTTPNotFound(resp *github.Response) bool {
+	return resp != nil && resp.Response != nil && resp.StatusCode == http.StatusNotFound
 }
 
 // retryRefWithFallback retries the resolution against the fallback client when
@@ -290,14 +305,18 @@ func (f *GitHubFetcher) resolveAsCommit(ctx context.Context, client GitHubClient
 }
 
 // resolveAsBranch tries ref as a branch name, returning the branch response so
-// the tag strategy can gate on a 404.
+// the tag strategy can gate on a 404. When the lookup neither succeeded nor
+// triggered a fallback retry, the ORIGINAL error is returned alongside
+// found=false: the caller needs it to tell "no such ref" from "could not ask".
 func (f *GitHubFetcher) resolveAsBranch(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, resp *github.Response, err error) {
 	branch, resp, err := client.Repositories().GetBranch(ctx, owner, repo, ref, 0)
 	if err == nil {
 		return branch.GetCommit().GetSHA(), true, resp, nil
 	}
-	sha, found, rerr := f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, resp, err)
-	return sha, found, resp, rerr
+	if sha, retried, rerr := f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, resp, err); retried {
+		return sha, true, resp, rerr
+	}
+	return "", false, resp, err
 }
 
 // resolveAsTag tries ref as a tag, but only when the branch lookup 404'd.

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -319,4 +320,58 @@ func TestTaskContext_CarriesTheBoundaryItResolved(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, tc.WorkDirIsBoundary)
 	})
+}
+
+// TestListAllProjects_ByPriority_RanksWithinEachProjectAndReportsWarnings
+// characterizes the one arm of listAllProjects that nothing else covered: the
+// byPriority branch, which snapshots each project separately, computes ranks
+// against that project's OWN full population, attaches them, collects each
+// project's degenerate-ranking diagnostic under a "project <id>:" prefix, and
+// then reorders within — but never across — a project's group.
+//
+// It is deliberately asymmetric: proj-a declares the tag the priority_fn
+// reads, proj-b does not, so the same schema produces a real ranking on one
+// side and an all-tied one on the other. That is the only shape in which the
+// per-project scoping, the per-project warning prefix, and the
+// grouping-survives-the-sort rule are all observable at once.
+func TestListAllProjects_ByPriority_RanksWithinEachProjectAndReportsWarnings(t *testing.T) {
+	taskstest.Isolate(t)
+
+	schema, err := tagschema.Parse([]string{
+		`tagma.priority_fn:"triage:impact"="{{triage:impact}}"`,
+	})
+	require.NoError(t, err)
+
+	a := operations.TaskContext{ProjectID: "proj-a", TagSchema: schema}
+	_, err = operations.AddTaskWithTags(a, "a low", "", "", []string{"triage:impact=1"})
+	require.NoError(t, err)
+	_, err = operations.AddTaskWithTags(a, "a high", "", "", []string{"triage:impact=9"})
+	require.NoError(t, err)
+
+	b := operations.TaskContext{ProjectID: "proj-b", TagSchema: schema}
+	_, err = operations.AddTask(b, "b untagged one", "", "")
+	require.NoError(t, err)
+	// AllTied needs more than one non-terminal task to mean anything.
+	_, err = operations.AddTask(b, "b untagged two", "", "")
+	require.NoError(t, err)
+
+	got, err := listAllProjects(nil, "", "", false, true, schema, time.Now(), "", 0)
+	require.NoError(t, err)
+	require.Len(t, got.Rows, 4)
+
+	// Grouping survives the priority sort: every proj-a row precedes proj-b.
+	assert.Equal(t, []string{"proj-a", "proj-a", "proj-b", "proj-b"},
+		[]string{got.Rows[0].ProjectID, got.Rows[1].ProjectID, got.Rows[2].ProjectID, got.Rows[3].ProjectID})
+	assert.Equal(t, "a high", got.Rows[0].Text, "highest impact ranks first inside its own project")
+	assert.Equal(t, "a low", got.Rows[1].Text)
+
+	for i, r := range got.Rows {
+		require.NotNil(t, r.DerivedPriority, "row %d must carry a computed priority", i)
+	}
+	assert.Greater(t, priorityOf(got.Rows[0].Task), priorityOf(got.Rows[1].Task))
+
+	assert.Contains(t, got.PriorityWarning, "project proj-b:",
+		"a degenerate per-project ranking must be attributed to that project")
+	assert.NotContains(t, got.PriorityWarning, "project proj-a:",
+		"a healthy ranking must stay quiet")
 }

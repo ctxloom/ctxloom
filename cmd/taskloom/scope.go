@@ -358,6 +358,60 @@ type globalListResult struct {
 // A tasks dir that doesn't exist yet (nothing has ever been tracked
 // anywhere) is zero projects, zero tasks — not an error.
 func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPriority bool, schema *tagschema.Schema, now time.Time, sessionHarp string, limit int) (*globalListResult, error) {
+	logs, err := projectLogPaths()
+	if err != nil {
+		return nil, err
+	}
+
+	scan := globalScan{
+		statuses:    statuses,
+		term:        term,
+		tagQuery:    tagQuery,
+		includeDone: includeDone,
+		byPriority:  byPriority,
+		schema:      schema,
+		now:         now,
+		sessionHarp: sessionHarp,
+	}
+
+	out := &globalListResult{}
+	var priorityWarnings []string
+	for _, log := range logs {
+		p, err := scan.project(log.path, log.projectID)
+		if err != nil {
+			return nil, err
+		}
+		out.ProjectCount++
+		out.HiddenCompleted += p.hiddenCompleted
+		out.HiddenDeferred += p.hiddenDeferred
+		if p.priorityWarning != "" {
+			priorityWarnings = append(priorityWarnings, p.priorityWarning)
+		}
+		for _, t := range p.visible {
+			out.Rows = append(out.Rows, taskRow{Task: t, ProjectID: log.projectID})
+		}
+	}
+	out.PriorityWarning = strings.Join(priorityWarnings, "; ")
+	sortGlobalRows(out.Rows, byPriority)
+	// Applied LAST, after every project has been scanned/filtered/sorted:
+	// limit caps the TOTAL row count across all projects, mirroring the
+	// single-project path (operations.ListTasks) exactly.
+	out.Rows, out.OmittedByLimit = capRows(out.Rows, limit)
+	return out, nil
+}
+
+// projectLog is one privately-homed project's task log: the file to open and
+// the project-id its filename encodes.
+type projectLog struct {
+	path      string
+	projectID string
+}
+
+// projectLogPaths enumerates every privately-homed project's task log under
+// ~/.ctxloom/tasks (one <project-id>.jsonl per project). A tasks dir that
+// does not exist yet — nothing has ever been tracked anywhere — is zero
+// projects, not an error.
+func projectLogPaths() ([]projectLog, error) {
 	dir, err := paths.HomeTasksDir()
 	if err != nil {
 		return nil, fmt.Errorf("tasks dir: %w", err)
@@ -365,68 +419,114 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPr
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &globalListResult{}, nil
+			return nil, nil
 		}
 		return nil, fmt.Errorf("read tasks dir: %w", err)
 	}
-
-	out := &globalListResult{}
-	var priorityWarnings []string
+	var out []projectLog
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), paths.TasksLogExt) {
 			continue
 		}
-		projectID := strings.TrimSuffix(e.Name(), paths.TasksLogExt)
-		store, err := tasks.OpenLog(filepath.Join(dir, e.Name()), sessionHarp)
-		if err != nil {
-			return nil, fmt.Errorf("open project %s: %w", projectID, err)
-		}
-		list, err := store.ListWithTagQuery(statuses, term, tagQuery, schema)
-		if err != nil {
-			return nil, fmt.Errorf("list project %s: %w", projectID, err)
-		}
-		visible, hiddenCompleted, hiddenDeferred := filterActiveDefault(list, includeDone, statuses)
-		out.ProjectCount++
-		out.HiddenCompleted += hiddenCompleted
-		out.HiddenDeferred += hiddenDeferred
-		if byPriority {
-			all, serr := store.Snapshot()
-			if serr != nil {
-				return nil, fmt.Errorf("snapshot project %s for priority computation: %w", projectID, serr)
-			}
-			results, diag, perr := priority.Compute(all, schema, now)
-			if perr != nil {
-				return nil, fmt.Errorf("compute priorities for project %s: %w", projectID, perr)
-			}
-			attachPriority(visible, results)
-			if msg := priorityDiagnosticWarning(diag); msg != "" {
-				priorityWarnings = append(priorityWarnings, fmt.Sprintf("project %s: %s", projectID, msg))
-			}
-		}
-		for _, t := range visible {
-			out.Rows = append(out.Rows, taskRow{Task: t, ProjectID: projectID})
-		}
-	}
-	out.PriorityWarning = strings.Join(priorityWarnings, "; ")
-	sort.SliceStable(out.Rows, func(i, j int) bool {
-		if out.Rows[i].ProjectID != out.Rows[j].ProjectID {
-			return out.Rows[i].ProjectID < out.Rows[j].ProjectID
-		}
-		if byPriority {
-			return priorityOf(out.Rows[i].Task) > priorityOf(out.Rows[j].Task)
-		}
-		return out.Rows[i].HarpID < out.Rows[j].HarpID
-	})
-	// Applied LAST, after every project has been scanned/filtered/sorted:
-	// limit caps the TOTAL row count across all projects, mirroring the
-	// single-project path (operations.listTasks) exactly. Previously this
-	// parameter didn't exist at all — a global listing ignored --limit
-	// completely and always returned every row from every project (U007-F01).
-	if limit > 0 && len(out.Rows) > limit {
-		out.OmittedByLimit = len(out.Rows) - limit
-		out.Rows = out.Rows[:limit]
+		out = append(out, projectLog{
+			path:      filepath.Join(dir, e.Name()),
+			projectID: strings.TrimSuffix(e.Name(), paths.TasksLogExt),
+		})
 	}
 	return out, nil
+}
+
+// capRows truncates rows to limit and reports how many it dropped. A limit
+// <= 0 means no cap, and nothing is ever dropped silently — the count is what
+// the caller surfaces as omitted_by_limit.
+func capRows(rows []taskRow, limit int) (capped []taskRow, omitted int) {
+	if limit <= 0 || len(rows) <= limit {
+		return rows, 0
+	}
+	return rows[:limit], len(rows) - limit
+}
+
+// globalScan is the per-project half of a --global listing's inputs: the
+// filters, the shared tag-schema, and the clock. It exists so one project's
+// scan can be read on its own rather than as nine arguments threaded through
+// listAllProjects' loop body.
+type globalScan struct {
+	statuses    []string
+	term        string
+	tagQuery    string
+	includeDone bool
+	byPriority  bool
+	schema      *tagschema.Schema
+	now         time.Time
+	sessionHarp string
+}
+
+// projectScan is one project store's contribution to a --global listing.
+type projectScan struct {
+	visible                         []tasks.Task
+	hiddenCompleted, hiddenDeferred int
+	priorityWarning                 string
+}
+
+// project opens one project's log at logPath and applies the scan's filters
+// to it. Every error names the project, because a --global read touches many
+// and "list tasks: ..." alone would not say which one failed.
+func (g globalScan) project(logPath, projectID string) (projectScan, error) {
+	store, err := tasks.OpenLog(logPath, g.sessionHarp)
+	if err != nil {
+		return projectScan{}, fmt.Errorf("open project %s: %w", projectID, err)
+	}
+	list, err := store.ListWithTagQuery(g.statuses, g.term, g.tagQuery, g.schema)
+	if err != nil {
+		return projectScan{}, fmt.Errorf("list project %s: %w", projectID, err)
+	}
+	visible, hiddenCompleted, hiddenDeferred := filterActiveDefault(list, g.includeDone, g.statuses)
+	out := projectScan{visible: visible, hiddenCompleted: hiddenCompleted, hiddenDeferred: hiddenDeferred}
+	if !g.byPriority {
+		return out, nil
+	}
+	warning, err := g.rank(store, projectID, visible)
+	if err != nil {
+		return projectScan{}, err
+	}
+	out.priorityWarning = warning
+	return out, nil
+}
+
+// rank attaches derived priorities to visible, computed against the project's
+// OWN full snapshot rather than the filtered page — percentile rank is a
+// property of that project's whole non-terminal population. The returned
+// string is the degenerate-ranking warning, attributed to the project, or
+// empty when the ranking is healthy.
+func (g globalScan) rank(store *tasks.Store, projectID string, visible []tasks.Task) (string, error) {
+	all, err := store.Snapshot()
+	if err != nil {
+		return "", fmt.Errorf("snapshot project %s for priority computation: %w", projectID, err)
+	}
+	results, diag, err := priority.Compute(all, g.schema, g.now)
+	if err != nil {
+		return "", fmt.Errorf("compute priorities for project %s: %w", projectID, err)
+	}
+	attachPriority(visible, results)
+	if msg := priorityDiagnosticWarning(diag); msg != "" {
+		return fmt.Sprintf("project %s: %s", projectID, msg), nil
+	}
+	return "", nil
+}
+
+// sortGlobalRows groups rows by project-id (renderGlobalTaskTable relies on
+// that grouping being consecutive) and orders each group by harp-id, or by
+// derived priority descending when the listing asked for it.
+func sortGlobalRows(rows []taskRow, byPriority bool) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].ProjectID != rows[j].ProjectID {
+			return rows[i].ProjectID < rows[j].ProjectID
+		}
+		if byPriority {
+			return priorityOf(rows[i].Task) > priorityOf(rows[j].Task)
+		}
+		return rows[i].HarpID < rows[j].HarpID
+	})
 }
 
 // filterActiveDefault reproduces operations.ListTasks's default

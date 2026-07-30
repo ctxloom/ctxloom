@@ -118,21 +118,8 @@ func buildTagSchemaDoc(schema *tagschema.Schema) (*tagSchemaDoc, error) {
 	for _, target := range schema.Targets(tagschema.ArityFacet) {
 		get(target).Scalar = schema.IsScalar(target)
 	}
-	for _, target := range schema.Targets(tagschema.EnumFacet) {
-		enum, _, err := schema.Enum(target)
-		if err != nil {
-			return nil, fmt.Errorf("tag-schema resource: %w", err)
-		}
-		get(target).Enum = enum
-	}
-	for _, target := range schema.Targets(tagschema.RangeFacet) {
-		min, max, ok, err := schema.Range(target)
-		if err != nil {
-			return nil, fmt.Errorf("tag-schema resource: %w", err)
-		}
-		if ok {
-			get(target).Range = &tagSchemaRange{Min: min, Max: max}
-		}
+	if err := applyValueConstraints(schema, get); err != nil {
+		return nil, err
 	}
 	for _, target := range schema.Targets(tagschema.PriorityFnFacet) {
 		fn, _ := schema.Get(tagschema.PriorityFnFacet, target)
@@ -142,17 +129,48 @@ func buildTagSchemaDoc(schema *tagschema.Schema) (*tagSchemaDoc, error) {
 		fn, _ := schema.Get(tagschema.DecayFnFacet, target)
 		get(target).DecayFn = fn
 	}
+	return &tagSchemaDoc{Targets: sortedTargetDocs(entries)}, nil
+}
 
+// applyValueConstraints fills in the two facets that constrain a tag's VALUE
+// — enum membership and numeric range — onto the entry get returns for each
+// target. These are the only facets whose declaration can itself be
+// malformed, so they are the only ones that can fail: a schema this resource
+// cannot describe is an error, never a silently thinner document.
+func applyValueConstraints(schema *tagschema.Schema, get func(string) *tagSchemaTargetDoc) error {
+	for _, target := range schema.Targets(tagschema.EnumFacet) {
+		enum, _, err := schema.Enum(target)
+		if err != nil {
+			return fmt.Errorf("tag-schema resource: %w", err)
+		}
+		get(target).Enum = enum
+	}
+	for _, target := range schema.Targets(tagschema.RangeFacet) {
+		min, max, ok, err := schema.Range(target)
+		if err != nil {
+			return fmt.Errorf("tag-schema resource: %w", err)
+		}
+		if ok {
+			get(target).Range = &tagSchemaRange{Min: min, Max: max}
+		}
+	}
+	return nil
+}
+
+// sortedTargetDocs flattens the per-target accumulator into the resource's
+// payload order: target name ascending, so the document a client caches is
+// stable across calls rather than following Go's map iteration.
+func sortedTargetDocs(entries map[string]*tagSchemaTargetDoc) []tagSchemaTargetDoc {
 	names := make([]string, 0, len(entries))
 	for name := range entries {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	doc := &tagSchemaDoc{Targets: make([]tagSchemaTargetDoc, 0, len(names))}
+	out := make([]tagSchemaTargetDoc, 0, len(names))
 	for _, name := range names {
-		doc.Targets = append(doc.Targets, *entries[name])
+		out = append(out, *entries[name])
 	}
-	return doc, nil
+	return out
 }
 
 // tagVocabularyDoc is the tag-vocabulary resource's payload: the CLI-visible

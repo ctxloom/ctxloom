@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,180** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,181** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 87 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **716** |
+| `open` | no commit names this ID | **715** |
 
-**Totals: 2268 findings across 162 units — 1,180 resolved, 716 still open, 372 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,181 resolved, 715 still open, 372 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
-| MED | 999 | 389 | 410 | 47 | 58 | 95 |
+| MED | 999 | 390 | 409 | 47 | 58 | 95 |
 | LOW | 871 | 440 | 281 | 30 | 69 | 51 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1784,7 +1784,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U120-F06 | **PARTIAL** `30308c54` | `log.go:306-329` | SILENTNOOP | `append` validates nothing about the event it writes: a zero-value `Event` is written successfully and then makes every future `fold` fail with "record has no op field". | U120.md |
 | U120-F07 | **RESOLVED** `e5caa040` | `log.go:314-328` | CORRECTNESS | `append` fsyncs the file but never the parent directory, so the doc's promise ("a power loss must not drop a just-confirmed event", log.go:325-327) does not hold for the first event written to a ne... | U120.md |
 | U120-F12 | **RESOLVED** `068b41f9` | `task.go:157-311, type_comparator.go` | COHESION | `task.go` holds two unrelated concerns: the `Task` domain value type + status taxonomy, and a ~155-line tagma query-engine adapter (`ErrTagQuery`, `filterTasks`, `presenceNamespace`, `typeConfigIte... | U120.md |
-| U120-F17 | open | `log.go:180, task.go:194` | COMPLEXITY | Two owned functions exceed the CCN ≤ 10 gate that CI declares as blocking, with no `nolint` and no `continue-on-error`. | U120.md |
+| U120-F17 | **RESOLVED** `56f37a1e` | `log.go:180, task.go:194` | COMPLEXITY | Two owned functions exceed the CCN ≤ 10 gate that CI declares as blocking, with no `nolint` and no `continue-on-error`. | U120.md |
 | U121-F02 | open | `lint.go:197-211`, `lint.go:126-132` | CORRECTNESS | `groupByTarget` does not dedupe values, so two *different raw tag strings* that parse to the *same* (target, value) produce a **false scalar violation** reading `"triage:kind carries 2 distinct val... | U121.md |
 | U121-F04 | **RESOLVED** `b35a226d` | `lint.go:149` | DUPLICATE | `formulaPlaceholderPattern` is the **third** verbatim copy of one regexp. All three are `\{\{\s*([^{}]+?)\s*}}`, and two of the three carry comments explicitly justifying the copy | U121.md |
 | U121-F05 | open | `lint.go:75-78`, `tagschema.go:215-229` | CORRECTNESS | An enum declaration whose value contains no non-empty member yields an **empty but present** member list, and `Lint` then flags *every* value on that target with the message "… is not one of the de... | U121.md |

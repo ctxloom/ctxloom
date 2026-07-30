@@ -317,6 +317,15 @@ func buildRunSpec(image, name, projectDir, home string, command []string, contai
 // policy docs). The transport is unix-socket-over-bind-mount only (Linux, shared
 // kernel) since 0.7 — the forked TCP-over-loopback listener gate was deleted with
 // the fork.
+//
+// The PLUGIN_ arm is a PREFIX match, deliberately: go-plugin owns that namespace
+// and a version that adds a handshake var must not silently lose it here. That
+// makes the "never the host's environment" half a property of the CALLER, not of
+// this function — cmdEnv must carry go-plugin's own vars and nothing else, which
+// pb.ContainerClientConfig guarantees with SkipHostEnv (without it go-plugin
+// seeds the Cmd from os.Environ() and an ambient host PLUGIN_* would cross the
+// boundary, onto a `run` argv that is world-readable via /proc/<pid>/cmdline).
+// Non-PLUGIN_ host keys are dropped here regardless, as defence in depth.
 func containerHandshakeEnv(cmdEnv []string, containerSocketDir string) []string {
 	var out []string
 	for _, kv := range cmdEnv {

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -423,4 +424,99 @@ func iso2GitRun(t *testing.T, dir string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
+}
+
+// TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced pins U083-F07. The posture
+// rule itself is deliberate — the plain `ctxloom acp` entry never isolates,
+// whatever --workspace says — but a user who TYPED `--workspace worktree` and
+// got a shared-checkout session was told nothing at all. An isolation posture
+// silently weaker than the one asked for is the one belief that is actively
+// dangerous to hold wrongly (this file's own `coder`-typo scenario), so the
+// discard has to be stated. The VALUE is unchanged: still "".
+func TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced(t *testing.T) {
+	warnings := captureWarnings(t)
+	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{}), "", "", "worktree")
+	assert.Equal(t, isolation.WorkspaceAxis(""), got, "the posture rule is unchanged — no --agent, no isolation")
+
+	out := warnings.String()
+	assert.Contains(t, out, "worktree", "the warning names the value that was ignored")
+	assert.Contains(t, out, "--agent", "…and what would honor it")
+}
+
+// TestAcpWorkspaceAxis_SilentWhenNothingWasAsked: the project-wide
+// `workspace:` default being ignored by the plain entry is the documented
+// posture, not a discarded request — nobody typed anything, so nothing is
+// said. Only an explicit flag earns the warning.
+func TestAcpWorkspaceAxis_SilentWhenNothingWasAsked(t *testing.T) {
+	warnings := captureWarnings(t)
+	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{Workspace: "worktree"}), "", "", "")
+	assert.Equal(t, isolation.WorkspaceAxis(""), got)
+	assert.Empty(t, warnings.String())
+}
+
+// stubAssignSession swaps the harp-minting seam for one that always fails,
+// restoring the production seam on cleanup.
+func stubAssignSession(t *testing.T, err error) {
+	t.Helper()
+	prev := assignSession
+	assignSession = func(string, string) (sessions.Entry, error) { return sessions.Entry{}, err }
+	t.Cleanup(func() { assignSession = prev })
+}
+
+// TestOpenEngineSession_FailedHarpMintNamesEveryConsequence pins U083-F18. A
+// failed AssignSession degrades to harp == "", and that single empty string
+// switches off THREE separate facilities at once: session recording (so no
+// resume, and no MarkSessionEnded), CTXLOOM_SESSION_HARP for the engine and
+// its SessionStart hooks, and the coordinator reach-back trio (so the session
+// cannot delegate at all). The warning named only the first, leaving the other
+// two to be discovered as unexplained absences mid-session.
+func TestOpenEngineSession_FailedHarpMintNamesEveryConsequence(t *testing.T) {
+	requireGit(t)
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	repo := writeACPTestProject(t, "")
+	warnings := captureWarnings(t)
+	stubAssignSession(t, assert.AnError)
+
+	client := &fakeACPEngineClient{}
+	stubACPEngineClient(t, client)
+
+	chat, err := OpenEngineSession(context.Background(), OpenRequest{Cwd: repo}, fakeEngineSessionCoord{}, "", "", "", "")
+	require.NoError(t, err, "a failed mint degrades; it never refuses the editor's session")
+	require.NotNil(t, chat)
+	t.Cleanup(chat.Close)
+
+	assert.Empty(t, chat.Harp, "the session really is unrecorded")
+	require.NotNil(t, client.gotReq)
+	_, hasHarp := client.gotReq.Env["CTXLOOM_SESSION_HARP"]
+	assert.False(t, hasHarp, "and the engine really does run without the harp env")
+
+	out := warnings.String()
+	assert.Contains(t, out, "resum", "the warning names the recording/resume consequence")
+	assert.Contains(t, out, "CTXLOOM_SESSION_HARP", "…the engine/hook env consequence")
+	assert.Contains(t, out, "delegation", "…and the delegation reach-back consequence")
+}
+
+// TestOpenEngineSession_NilCoordinatorOpensUnisolated pins U083-F25. The
+// opener dereferenced acpCoord twice (SessionEnv, WatchChildren) with no nil
+// guard, so an exported, frontend-neutral entry point forced every caller
+// that legitimately hosts no coordinator to hand in a no-op implementation
+// just to avoid a panic — while "no coordinator stood up" is a state the
+// interface's own contract already models with nil returns. A nil coordinator
+// now means exactly that: no reach-back trio, no child-update watch, session
+// opens.
+func TestOpenEngineSession_NilCoordinatorOpensUnisolated(t *testing.T) {
+	requireGit(t)
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	repo := writeACPTestProject(t, "")
+
+	client := &fakeACPEngineClient{}
+	stubACPEngineClient(t, client)
+
+	chat, err := OpenEngineSession(context.Background(), OpenRequest{Cwd: repo}, nil, "", "", "", "")
+	require.NoError(t, err)
+	require.NotNil(t, chat)
+	t.Cleanup(chat.Close)
+	assert.Nil(t, chat.WatchChildren, "no coordinator means no child-update push")
 }

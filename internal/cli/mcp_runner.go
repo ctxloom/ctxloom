@@ -355,6 +355,16 @@ func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd stri
 		return err
 	}
 	for _, spec := range tools {
+		// The routing table decides where this tool's arguments go, and
+		// mcpschema.Route's zero value is RouteCoordination — so a bare
+		// lookup cannot tell a MISSING classification from a deliberate
+		// coordination one. Asked explicitly, before the leaf gate: a tool a
+		// leaf withholds is still part of the surface this runner vouches
+		// for.
+		route, classified := routes[spec.Name]
+		if !classified {
+			return fmt.Errorf("runner MCP: generated tool %q is not classified in mcpschema.Routes — classify it or drop its binding", spec.Name)
+		}
 		// Trust-boundary gate: a LEAF session must not receive the
 		// coordinator-only tools (agent_run/roster/agent_stop/
 		// agent_fetch_artifact) — a leaf holding an agent_recv inbox plus a
@@ -367,7 +377,7 @@ func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd stri
 			registered[spec.Name] = true
 			continue
 		}
-		h, herr := generatedToolHandler(home, harp, cwd, routes[spec.Name], spec.Name)
+		h, herr := generatedToolHandler(home, harp, cwd, route, spec.Name)
 		if herr != nil {
 			return herr
 		}

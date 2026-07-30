@@ -198,7 +198,7 @@ func resolveComposeBase(devcontainerPath string, dc devcontainerFile, service st
 // the spec allows as either a single string or an array of strings. A value
 // that is neither returns the ARRAY decode's error: the caller reports "could
 // not parse dockerComposeFile", and without a cause the human is told the file
-// is wrong but never what about it is wrong (U063-F18).
+// is wrong but never what about it is wrong.
 func decodeComposeFileList(raw json.RawMessage) ([]string, error) {
 	var single string
 	if err := json.Unmarshal(raw, &single); err == nil {
@@ -298,8 +298,8 @@ func stripJSONC(src []byte) []byte {
 // and an escaped backslash does not escape the quote after it.
 //
 // The single string-aware step both JSONC strippers share: everything either
-// of them does is "outside a string", so this is the whole of the state they
-// used to each carry (U063-F20).
+// of them does is "outside a string", so this is the whole of the string
+// state either of them needs.
 func copyStringLiteral(src []byte, i int, out []byte) (int, []byte) {
 	out = append(out, src[i])
 	escaped := false

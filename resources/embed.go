@@ -4,6 +4,7 @@ package resources
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"strings"
 )
 
@@ -155,19 +156,33 @@ func splitCommandFrontmatter(content string) (description, body string) {
 	return description, body
 }
 
-// ListBuiltinCommands returns the names of all embedded builtin commands.
-func ListBuiltinCommands() ([]string, error) {
-	entries, err := resourcesFS.ReadDir("commands")
+// listEmbeddedNames returns the extension-stripped names of every file
+// directly under dir whose name ends in ext, in ReadDir's (sorted) order. It
+// is the one implementation the per-kind listers below share.
+//
+// The length check is not redundant with the suffix check: a file whose ENTIRE
+// name is the extension (".md") suffixes correctly and strips to the empty
+// string, which is not a name any caller can then look up. Such a file is not
+// a named item and is skipped, as are directories.
+func listEmbeddedNames(fsys fs.FS, dir, ext string) ([]string, error) {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil, err
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && len(e.Name()) > 3 && e.Name()[len(e.Name())-3:] == ".md" {
-			names = append(names, e.Name()[:len(e.Name())-3])
+		n := e.Name()
+		if e.IsDir() || len(n) <= len(ext) || !strings.HasSuffix(n, ext) {
+			continue
 		}
+		names = append(names, strings.TrimSuffix(n, ext))
 	}
 	return names, nil
+}
+
+// ListBuiltinCommands returns the names of all embedded builtin commands.
+func ListBuiltinCommands() ([]string, error) {
+	return listEmbeddedNames(resourcesFS, "commands", ".md")
 }
 
 // GetBuiltinBundle returns the raw YAML bytes for a built-in bundle embedded
@@ -181,19 +196,5 @@ func GetBuiltinBundle(name string) ([]byte, error) {
 // ListBuiltinBundles returns the names of all built-in bundles embedded in
 // the binary.
 func ListBuiltinBundles() ([]string, error) {
-	entries, err := resourcesFS.ReadDir("builtin_bundles")
-	if err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		n := e.Name()
-		if len(n) > 5 && n[len(n)-5:] == ".yaml" {
-			names = append(names, n[:len(n)-5])
-		}
-	}
-	return names, nil
+	return listEmbeddedNames(resourcesFS, "builtin_bundles", ".yaml")
 }

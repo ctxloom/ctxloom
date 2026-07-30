@@ -80,17 +80,25 @@ func Resolve(name string) (string, error) {
 	if strings.ContainsRune(name, os.PathSeparator) {
 		return name, nil
 	}
-	if p, err := exec.LookPath(name); err == nil {
+	// Kept, not re-derived. exec.LookPath stats every directory in PATH, and
+	// on the failure path it was previously called a second time purely to
+	// reconstruct the error the first call had already produced and dropped —
+	// paying the whole PATH walk again for a value that was in hand. Holding
+	// it also makes the promise above literal: the error a caller sees is the
+	// one that actually happened, not a fresh one from a re-run that could
+	// disagree with it.
+	p, lookErr := exec.LookPath(name)
+	if lookErr == nil {
 		return p, nil
 	}
 	pathEnv, err := loginShellPath()
 	if err != nil || pathEnv == "" {
-		return exec.LookPath(name) // preserve the original, informative error
+		return "", lookErr
 	}
 	if p, err := lookPathIn(name, pathEnv); err == nil {
 		return p, nil
 	}
-	return exec.LookPath(name)
+	return "", lookErr
 }
 
 // lookPathIn searches name across the directories in pathEnv (a

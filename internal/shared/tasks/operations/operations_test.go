@@ -41,7 +41,7 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 		t.Fatalf("log not written at %s: %v", logPath, err)
 	}
 
-	list, err := ListTasks(tc, nil, "", false, true, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeSummary: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestMissingLogWarnsWhenSiblingIDHasLogAtSamePath(t *testing.T) {
 	// A session resolves (or is pinned) to empty-id instead -- its own log
 	// was never written, but nothing here DISAGREES about identity, so the
 	// existing pinned-vs-cwd check stays silent.
-	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "empty-id"}, nil, "", false, false, 0)
+	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "empty-id"}, ListOptions{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestMissingLogStaysSilentWithoutASibling(t *testing.T) {
 		t.Fatalf("adopt only-id: %v", err)
 	}
 
-	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "only-id"}, nil, "", false, false, 0)
+	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "only-id"}, ListOptions{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestMissingLogStaysSilentWithoutASibling(t *testing.T) {
 // TestAddTaskWithTagsThenListTagQuery covers the whole tag-query wiring at
 // the layer both the CLI and MCP surfaces call into: AddTaskWithTags stamps
 // initial tags, TagTask adds/removes on an existing task, and
-// ListTasksWithTagQuery filters using tagma's postfix grammar.
+// ListTasks filters using tagma's postfix grammar.
 func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 	taskstest.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
@@ -283,7 +283,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 		t.Fatalf("add untagged: %v", err)
 	}
 
-	list, err := ListTasksWithTagQuery(tc, nil, "", "urgent/release/and", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{TagQuery: "urgent/release/and", IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list urgent/release/and: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 		t.Fatalf("and-query = %+v, want only %s", list.Tasks, both.Task.HarpID)
 	}
 
-	list, err = ListTasksWithTagQuery(tc, nil, "", "urgent/release/or", true, false, 0)
+	list, err = ListTasks(tc, ListOptions{TagQuery: "urgent/release/or", IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list urgent/release/or: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 		t.Fatalf("tag task add: %v", err)
 	}
 
-	list, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false, 0)
+	list, err = ListTasks(tc, ListOptions{TagQuery: "release", IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list release: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 	}
 
 	// Plain ListTasks (no tag query) is unaffected — still sees all three.
-	list, err = ListTasks(tc, nil, "", true, false, 0)
+	list, err = ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list (no tag query): %v", err)
 	}
@@ -325,16 +325,16 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 	}
 }
 
-// TestListTasksWithTagQueryMalformedErrors pins the fail-loud contract at the
+// TestListTasksTagQueryMalformedErrors pins the fail-loud contract at the
 // operations layer: a malformed tag query is a user-facing error, not a
 // silently empty or unfiltered listing.
-func TestListTasksWithTagQueryMalformedErrors(t *testing.T) {
+func TestListTasksTagQueryMalformedErrors(t *testing.T) {
 	taskstest.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p"}
 	if _, err := AddTask(tc, "a task", "", ""); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if _, err := ListTasksWithTagQuery(tc, nil, "", "and", true, false, 0); err == nil {
+	if _, err := ListTasks(tc, ListOptions{TagQuery: "and", IncludeDone: true}); err == nil {
 		t.Fatal("expected an error for a malformed tag query")
 	}
 }
@@ -382,7 +382,7 @@ func TestListTasksHiddenMatchCounts(t *testing.T) {
 	}
 
 	// Default view + tag query: one visible, one completed + one deferred hidden.
-	res, err := ListTasksWithTagQuery(tc, nil, "", "release", false, false, 0)
+	res, err := ListTasks(tc, ListOptions{TagQuery: "release"})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestListTasksHiddenMatchCounts(t *testing.T) {
 	}
 
 	// includeDone disables the view filter: nothing hidden, all three shown.
-	res, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false, 0)
+	res, err = ListTasks(tc, ListOptions{TagQuery: "release", IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list --all: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestListTasksHiddenMatchCounts(t *testing.T) {
 	}
 
 	// An explicit status filter is honored verbatim: no view filter, no counts.
-	res, err = ListTasksWithTagQuery(tc, []string{"Done"}, "", "release", false, false, 0)
+	res, err = ListTasks(tc, ListOptions{Statuses: []string{"Done"}, TagQuery: "release"})
 	if err != nil {
 		t.Fatalf("list --status Done: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestListTasksLimitCapsRowsButNotSummaryCounts(t *testing.T) {
 	}
 
 	// limit=0 (default): no cap, today's exact behavior.
-	res, err := ListTasks(tc, nil, "", false, true, 0)
+	res, err := ListTasks(tc, ListOptions{IncludeSummary: true})
 	if err != nil {
 		t.Fatalf("list limit=0: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestListTasksLimitCapsRowsButNotSummaryCounts(t *testing.T) {
 	// summary's counts still cover all 5 — the query layer's include_summary
 	// is computed independently of the (now-truncated) row list.
 	const limit = 2
-	res, err = ListTasks(tc, nil, "", false, true, limit)
+	res, err = ListTasks(tc, ListOptions{IncludeSummary: true, Limit: limit})
 	if err != nil {
 		t.Fatalf("list limit=%d: %v", limit, err)
 	}
@@ -463,7 +463,7 @@ func TestListTasksLimitCapsRowsButNotSummaryCounts(t *testing.T) {
 	}
 
 	// limit larger than the result: no truncation, nothing omitted.
-	res, err = ListTasks(tc, nil, "", false, false, total+10)
+	res, err = ListTasks(tc, ListOptions{Limit: total + 10})
 	if err != nil {
 		t.Fatalf("list limit>total: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestAddTaskWithTagsRejectsUnqueryableTags(t *testing.T) {
 
 	// Neither rejected call should have written anything: the store stays
 	// empty.
-	list, err := ListTasks(tc, nil, "", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestTagTaskRejectsUnqueryableAddedTags(t *testing.T) {
 		t.Fatal("expected an error adding a reserved-word tag via TagTask")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -857,7 +857,7 @@ func TestAddTaskWithTagsRejectsDeclaredSemverTypeViolation(t *testing.T) {
 		t.Fatal("expected an error adding a tag whose value isn't a valid SemVer 2.0.0 version")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -891,7 +891,7 @@ func TestAddTaskWithTagsRejectsDeclaredEnumViolation(t *testing.T) {
 		t.Fatal("expected an error adding a tag whose value violates the declared enum")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -908,7 +908,7 @@ func TestAddTaskWithTagsRejectsDeclaredRangeViolation(t *testing.T) {
 		t.Fatal("expected an error adding a tag whose value is outside the declared range")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -931,7 +931,7 @@ func TestTagTaskRejectsDeclaredEnumViolation(t *testing.T) {
 		t.Fatal("expected an error adding an enum-violating tag via TagTask")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false, 0)
+	list, err := ListTasks(tc, ListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -1587,7 +1587,7 @@ func TestMissingLogSiblingNote_SaysWhenItCouldNotLook(t *testing.T) {
 		writeRegistry(t, "projects: [this is not a registry\n")
 		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
 
-		got, err := ListTasks(tc, nil, "", false, false, 0)
+		got, err := ListTasks(tc, ListOptions{})
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
@@ -1602,7 +1602,7 @@ func TestMissingLogSiblingNote_SaysWhenItCouldNotLook(t *testing.T) {
 		writeRegistry(t, "projects:\n  - project_id: \"../escape\"\n    path: "+work+"\n")
 		tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
 
-		got, err := ListTasks(tc, nil, "", false, false, 0)
+		got, err := ListTasks(tc, ListOptions{})
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}

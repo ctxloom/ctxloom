@@ -332,7 +332,7 @@ func TestHandleTaskList_MalformedTagQueryErrorMatchesTheCLI(t *testing.T) {
 	require.NoError(t, err)
 	tc, err = resolveHoming(tc)
 	require.NoError(t, err)
-	_, cliErr := operations.ListTasksWithTagQuery(tc, nil, "", "and", false, false, 0)
+	_, cliErr := operations.ListTasks(tc, operations.ListOptions{TagQuery: "and"})
 	require.Error(t, cliErr)
 
 	assert.Equal(t, wrapTagQueryError(cliErr).Error(), mcpErr.Error())

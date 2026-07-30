@@ -47,7 +47,7 @@ directly. In a non-interactive shell a task harp id is required.`,
 		if err != nil {
 			return err
 		}
-		res, err := operations.ListTasks(tc, nil, "", true, false, 0)
+		res, err := operations.ListTasks(tc, operations.ListOptions{IncludeDone: true})
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}

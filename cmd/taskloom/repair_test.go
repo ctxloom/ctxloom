@@ -36,7 +36,7 @@ func TestRunRepairCmd_ReintroducesDisplacedTaskAndUnblocksList(t *testing.T) {
 	require.NoError(t, os.WriteFile(logPath, []byte(raw), 0o644))
 
 	// Pre-repair: every read fails loud, exactly the case `repair` exists for.
-	_, listErr := operations.ListTasks(tc, nil, "", false, false, 0)
+	_, listErr := operations.ListTasks(tc, operations.ListOptions{})
 	require.Error(t, listErr, "precondition: an unresolved collision must fail every read")
 
 	var out strings.Builder
@@ -44,7 +44,7 @@ func TestRunRepairCmd_ReintroducesDisplacedTaskAndUnblocksList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "repair complete")
 
-	res, err := operations.ListTasks(tc, nil, "", false, false, 0)
+	res, err := operations.ListTasks(tc, operations.ListOptions{})
 	require.NoError(t, err, "list must succeed after repair")
 	require.Len(t, res.Tasks, 2)
 	var texts []string
@@ -69,7 +69,7 @@ func TestRunRepairCmd_NoOpOnCleanLog(t *testing.T) {
 	err = runRepairCmd(&out, tc)
 	require.NoError(t, err)
 
-	res, err := operations.ListTasks(tc, nil, "", false, false, 0)
+	res, err := operations.ListTasks(tc, operations.ListOptions{})
 	require.NoError(t, err)
 	require.Len(t, res.Tasks, 1)
 	assert.Equal(t, "just one task", res.Tasks[0].Text)

@@ -158,8 +158,14 @@ func listOneProjectScoped(tc operations.TaskContext, opts listOptions) (*scopedL
 	if err != nil {
 		return nil, err
 	}
-	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery,
-		opts.All, opts.IncludeSummary, opts.Limit)
+	res, err := operations.ListTasks(tc, operations.ListOptions{
+		Statuses:       opts.Statuses,
+		Term:           opts.Term,
+		TagQuery:       opts.TagQuery,
+		IncludeDone:    opts.All,
+		IncludeSummary: opts.IncludeSummary,
+		Limit:          opts.Limit,
+	})
 	if err != nil {
 		return nil, wrapTagQueryError(err)
 	}
@@ -300,7 +306,7 @@ func globalScopeLimitationNote(workDir string, fs *pflag.FlagSet, homingFlagValu
 // globalListResult is the render-agnostic result of listing across every
 // project: one row per visible task tagged with its project, the number of
 // project stores scanned, and the same hidden-completed/hidden-deferred
-// counts operations.ListTasksWithTagQuery reports per project, summed.
+// counts operations.ListTasks reports per project, summed.
 type globalListResult struct {
 	Rows            []taskRow
 	ProjectCount    int
@@ -327,7 +333,7 @@ type globalListResult struct {
 // listAllProjects aggregates every project's task log under ~/.ctxloom/tasks
 // (one <project-id>.jsonl per project), applying the same
 // status/term/tag-query filter and default active-only view
-// operations.ListTasksWithTagQuery applies for a single project. Rows are
+// operations.ListTasks applies for a single project. Rows are
 // grouped by project-id (renderGlobalTaskTable relies on that grouping being
 // consecutive); WITHIN a group they're ordered by harp-id, or — when
 // sortPriority is set — by derived priority descending instead. Priority is
@@ -419,14 +425,14 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, byPr
 	return out, nil
 }
 
-// filterActiveDefault reproduces operations.ListTasksWithTagQuery's default
+// filterActiveDefault reproduces operations.ListTasks's default
 // active-only view for a raw task list already filtered by status/term/tag: a
 // completed (Done/Archived) or Deferred task is hidden unless includeDone is
 // set or an explicit status filter was already given (that filter is itself
 // the opt-in, honored verbatim by the store). Duplicated here — rather than
 // exported from internal/shared/tasks/operations — because a --global
 // aggregation opens each project's store directly via tasks.OpenLog and must
-// apply the identical rule per project; operations.ListTasksWithTagQuery
+// apply the identical rule per project; operations.ListTasks
 // itself only ever resolves exactly one project.
 func filterActiveDefault(list []tasks.Task, includeDone bool, statuses []string) (visible []tasks.Task, hiddenCompleted, hiddenDeferred int) {
 	if includeDone || len(statuses) > 0 {

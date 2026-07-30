@@ -585,7 +585,7 @@ var summaryCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		res, err := operations.ListTasks(tc, nil, "", false, true, 0)
+		res, err := operations.ListTasks(tc, operations.ListOptions{IncludeSummary: true})
 		if err != nil {
 			return err
 		}

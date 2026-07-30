@@ -165,14 +165,10 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 	return projectID, logPath, nil
 }
 
-// ListOptions names what a task listing filters and returns. It replaces a
-// six-positional-argument call whose middle held two ADJACENT same-typed
-// booleans and a bare integer: at a call site `(tc, nil, "", true, false, 0)`
-// said nothing about which flag was which, the two orderings compiled
-// identically, and this repo genuinely used both (`show`/`run` wanted
-// (includeDone, !includeSummary), `summary` the exact transposition). A named
-// field says what each one means, mirroring cmd/taskloom's own listOptions,
-// which exists for the same reason.
+// ListOptions names what a task listing filters and returns. IncludeDone and
+// IncludeSummary are independent, same-typed switches that callers set in both
+// combinations, so they are named rather than positional: a transposition must
+// not be able to compile. It mirrors cmd/taskloom's own listOptions.
 //
 // The zero value is the default listing: no filters, active-only, no summary,
 // no cap.
@@ -197,25 +193,20 @@ type ListOptions struct {
 }
 
 // ListTasks resolves the project's task log and returns its tasks, filtered
-// and shaped by opts — see ListOptions and listTasks.
+// and shaped by opts. opts.Limit caps the row COUNT of the result's Tasks —
+// applied last, after status/term/tag-query filtering and the default
+// active-only pass, so it truncates exactly what a caller would otherwise
+// have seen in full. A limit <= 0 means no cap. opts.IncludeSummary's counts
+// are computed by store.Summarize() straight from the store, independent of
+// the listing and the limit — they always cover every task, never just the
+// (possibly truncated) page returned here.
 func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
-	return listTasks(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.IncludeDone, opts.IncludeSummary, opts.Limit)
-}
-
-// listTasks is the shared body of ListTasks/ListTasksWithTagQuery. limit caps
-// the row COUNT of the result's Tasks — applied last, after status/term/
-// tag-query filtering and the default active-only pass, so it truncates
-// exactly what a caller would otherwise have seen in full. A limit <= 0 means
-// no cap (today's behavior, unchanged for every caller that doesn't pass one).
-// include_summary's counts are computed by store.Summarize() straight from
-// the store, independent of `list`/the limit — they always cover every task,
-// never just the (possibly truncated) page returned here.
-func listTasks(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool, limit int) (*TaskListResult, error) {
+	statuses, includeDone, includeSummary, limit := opts.Statuses, opts.IncludeDone, opts.IncludeSummary, opts.Limit
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
 	}
-	list, err := store.ListWithTagQuery(statuses, term, tagQuery, tc.TagSchema)
+	list, err := store.ListWithTagQuery(statuses, opts.Term, opts.TagQuery, tc.TagSchema)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}

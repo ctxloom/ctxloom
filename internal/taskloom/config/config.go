@@ -281,6 +281,15 @@ func loadRaw(workDir string, fs *pflag.FlagSet) (map[string]any, error) {
 	var src confload.Sources
 	if hp, herr := homeConfigPath(); herr == nil {
 		src.HomePath = hp
+	} else {
+		// Losing a whole config LAYER is not the same class of event as a
+		// layer being absent, and it must not be silent: an existing
+		// ~/.taskloom/config.yaml stops applying, so taskloom can resolve a
+		// different homing mode — a different task store — than it did on the
+		// previous run. Degrade to project-only anyway, matching the
+		// one-bad-input-never-blocks-startup policy the override warning above
+		// applies.
+		clidiag.Warn("taskloom", "home config location unresolved (%v): %s/%s not read", herr, DirName, FileName)
 	}
 	src.ProjectPath = projectConfigPath(workDir)
 

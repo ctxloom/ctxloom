@@ -496,3 +496,27 @@ func TestOpenEngineSession_FailedHarpMintNamesEveryConsequence(t *testing.T) {
 	assert.Contains(t, out, "CTXLOOM_SESSION_HARP", "…the engine/hook env consequence")
 	assert.Contains(t, out, "delegation", "…and the delegation reach-back consequence")
 }
+
+// TestOpenEngineSession_NilCoordinatorOpensUnisolated pins U083-F25. The
+// opener dereferenced acpCoord twice (SessionEnv, WatchChildren) with no nil
+// guard, so an exported, frontend-neutral entry point forced every caller
+// that legitimately hosts no coordinator to hand in a no-op implementation
+// just to avoid a panic — while "no coordinator stood up" is a state the
+// interface's own contract already models with nil returns. A nil coordinator
+// now means exactly that: no reach-back trio, no child-update watch, session
+// opens.
+func TestOpenEngineSession_NilCoordinatorOpensUnisolated(t *testing.T) {
+	requireGit(t)
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	repo := writeACPTestProject(t, "")
+
+	client := &fakeACPEngineClient{}
+	stubACPEngineClient(t, client)
+
+	chat, err := OpenEngineSession(context.Background(), OpenRequest{Cwd: repo}, nil, "", "", "", "")
+	require.NoError(t, err)
+	require.NotNil(t, chat)
+	t.Cleanup(chat.Close)
+	assert.Nil(t, chat.WatchChildren, "no coordinator means no child-update push")
+}

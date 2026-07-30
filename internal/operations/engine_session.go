@@ -51,6 +51,22 @@ type EngineSessionCoordinator interface {
 	WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func())
 }
 
+// noEngineSessionCoordinator is the nil coordinator: a frontend that hosts no
+// runtime coordinator at all passes nil, and OpenEngineSession substitutes
+// this. Its answers are exactly the ones the interface already documents for
+// "no coordinator stood up" — no reach-back trio, no child-update watch — so
+// the degraded path is the SAME one a live-but-unstood-up coordinator takes,
+// rather than a second one reached by a nil check at each call.
+type noEngineSessionCoordinator struct{}
+
+func (noEngineSessionCoordinator) SessionEnv(*config.Config, string, string) map[string]string {
+	return nil
+}
+
+func (noEngineSessionCoordinator) WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func()) {
+	return nil
+}
+
 // assignSession is OpenEngineSession's seam onto AssignSession (a package
 // var, like newACPEngineClient below): minting a harp touches the real
 // session store, and the DEGRADE this opener takes when it fails — three
@@ -78,12 +94,19 @@ var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv
 // the recorded harp's history: the entries replay to the ACP client, and a
 // rendered transcript primes the fresh engine via the first-turn lead block.
 //
+// acpCoord may be nil: a frontend that hosts no runtime coordinator gets the
+// same degraded behaviour as one whose coordinator never stood up (no
+// delegation reach-back, no child-update push) rather than a panic.
+//
 // ISO2 (WORKSPACE axis): flagWorkspace is the session-level --workspace
 // override (isolation.WorkspaceAxis values "none"|"worktree", mirroring
 // `ctxloom run`'s flag), honored ONLY for a session bound to an EXPLICIT
 // flagAgent — never the plain `ctxloom acp` entry — see prepareACPWorkspace's
 // doc for why and how that gate is drawn.
 func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride, flagWorkspace string) (*EngineChat, error) {
+	if acpCoord == nil {
+		acpCoord = noEngineSessionCoordinator{}
+	}
 	var (
 		cfg             *config.Config
 		profile         string

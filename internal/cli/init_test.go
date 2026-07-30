@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -176,4 +177,26 @@ func TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup(t *testing.T) {
 	assert.Less(t, di, si, "profiles must precede agent setup — profiles are the setup's inputs")
 	assert.Equal(t, got, ctxloomInitPrompt,
 		"nil config returns the built-in six-phase body verbatim")
+}
+
+// TestSetupPromptDoors_EmitTheSameBody is the parity gate across the setup
+// doors: what `ctxloom init prompt` writes to stdout must be byte-identical to
+// what the init discovery session is handed. They are the "one body, N doors"
+// invariant's two independently-coded halves — one guards a nil config, the
+// other guards a config LOAD ERROR — and a body that diverges between them is
+// a session set up against instructions no other door ever emits.
+func TestSetupPromptDoors_EmitTheSameBody(t *testing.T) {
+	testsupport.Isolate(t)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+
+	cfg, _ := GetConfig()
+
+	var out strings.Builder
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	require.NoError(t, runSetupPromptCmd(cmd, nil))
+
+	assert.Equal(t, discoverySessionPrompt(cfg)+"\n", out.String(),
+		"`init prompt` and the discovery session must emit the same setup body")
 }

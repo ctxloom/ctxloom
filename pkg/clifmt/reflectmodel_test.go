@@ -246,3 +246,47 @@ func TestScalarStringUsesPointerReceiverStringer(t *testing.T) {
 		}
 	})
 }
+
+type embeddedInner struct {
+	Deep string `json:"deep"`
+}
+
+type embeddingRow struct {
+	*embeddedInner
+	Top string `json:"top"`
+}
+
+// TestBuildTableNilEmbeddedPointerRendersEmptyCell pins the invariant
+// buildTable's FieldByIndexErr swallow encodes: a nil embedded pointer along a
+// promoted field's index path is "nothing to show" for that ONE cell, not an
+// error and not a lost column. The column must still appear in the header, the
+// cell must be empty, and sibling fields on the same row must be unaffected.
+// Without this pin the swallow is indistinguishable from a dropped error.
+func TestBuildTableNilEmbeddedPointerRendersEmptyCell(t *testing.T) {
+	rows := []embeddingRow{
+		{embeddedInner: &embeddedInner{Deep: "present"}, Top: "one"},
+		{embeddedInner: nil, Top: "two"},
+	}
+	tbl, err := buildTable(reflect.ValueOf(rows))
+	if err != nil {
+		t.Fatalf("buildTable: %v", err)
+	}
+	deep := -1
+	for i, c := range tbl.Columns {
+		if c == "Deep" {
+			deep = i
+		}
+	}
+	if deep == -1 {
+		t.Fatalf("promoted column Deep missing from %v", tbl.Columns)
+	}
+	if got := tbl.Rows[0][deep]; got != "present" {
+		t.Errorf("row 0 Deep = %q, want %q", got, "present")
+	}
+	if got := tbl.Rows[1][deep]; got != "" {
+		t.Errorf("row 1 Deep = %q, want an empty cell for the nil embedded pointer", got)
+	}
+	if got := tbl.Rows[1][len(tbl.Columns)-1]; got != "two" {
+		t.Errorf("row 1 last column = %q; a nil embedded pointer must not disturb sibling fields", got)
+	}
+}

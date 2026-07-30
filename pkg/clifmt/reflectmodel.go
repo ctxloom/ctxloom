@@ -178,6 +178,13 @@ func buildTable(v reflect.Value) (*Table, error) {
 			}
 			fv, err := elem.FieldByIndexErr(index)
 			if err != nil {
+				// A nil embedded pointer along this promoted field's index
+				// path: nothing to show for this ONE cell. The column stays
+				// in the header and the cell stays empty (row is pre-zeroed),
+				// so a row that cannot reach a promoted field still lines up
+				// with its siblings. Mirrors buildNode's swallow, where the
+				// same condition drops the field entirely because a Node has
+				// no fixed column set to keep aligned.
 				continue
 			}
 			row[c] = tableCellString(fv)

@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -73,4 +74,28 @@ func TestContainerProfileBackend_MapsKnownAliases(t *testing.T) {
 	for in, want := range cases {
 		assert.Equal(t, want, containerProfileBackend(in), "agent_engine %q", in)
 	}
+}
+
+// TestSpawnTransport_RoutesOnTheLaunchNotOnLeftoverBackendState pins that the
+// host/container decision belongs to the launch being made, not to whatever a
+// previous argv build left on the backend. Building a CONTAINER chat's argv must
+// not turn a subsequent HOST launch into a container launch: routing on residue
+// makes correctness depend on Go's argument-evaluation order at one call site in
+// session.go, which nothing at this seam can enforce.
+//
+// PATH is stripped so no container runtime is reachable on any host: if the call
+// wrongly routes to the container transport, it says so in the error.
+func TestSpawnTransport_RoutesOnTheLaunchNotOnLeftoverBackendState(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	b := NewACP()
+	b.command = "some-agent-acp"
+	b.BinaryPath = filepath.Join(t.TempDir(), "no-such-agent-acp")
+
+	_ = b.chatArgv(agent.ChatRequest{Runtime: agent.RuntimeContainer})
+
+	_, err := b.spawnTransport(context.Background(), nil, nil, t.TempDir())
+	require.Error(t, err, "the binary does not exist, so the host spawn must fail")
+	assert.NotContains(t, err.Error(), "no container runtime is reachable",
+		"a host launch must not be routed into the container transport")
 }

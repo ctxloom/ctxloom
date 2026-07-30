@@ -326,3 +326,26 @@ func TestJSONCompressor_PreservesBigIntegers(t *testing.T) {
 	assert.Contains(t, result.Content, "9223372036854775807",
 		"big integer IDs must round-trip verbatim, not as float64 scientific notation")
 }
+
+// U046-F07 called the key reordering and duplicate-key collapse a correctness
+// defect. Both are properties of decoding JSON into Go values, and both are
+// what RFC 8259 licenses: an object is an UNORDERED collection, and a repeated
+// name is undefined behaviour that encoding/json resolves last-wins. What would
+// be a defect is losing a key, which is what this pins alongside the two
+// documented behaviours — so a future ordered-map representation is a
+// deliberate change, not an accident, and the "reordering is data loss" reading
+// cannot be re-applied without this test disagreeing.
+func TestJSONCompressor_KeyOrderIsNotSemantic(t *testing.T) {
+	c := NewJSONCompressor()
+
+	result, err := c.Compress(context.Background(), ContentTypeJSON, `{"zulu":1,"alpha":2,"mike":3}`)
+	require.NoError(t, err)
+	assert.Equal(t, "{\n  \"alpha\": 2,\n  \"mike\": 3,\n  \"zulu\": 1\n}", result.Content,
+		"keys are re-emitted in sorted order — every one of them, none dropped")
+
+	dup, err := c.Compress(context.Background(), ContentTypeJSON, `{"a":1,"a":2}`)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal([]byte(dup.Content), &decoded))
+	assert.Equal(t, float64(2), decoded["a"], "a duplicate name resolves last-wins, as encoding/json does")
+}

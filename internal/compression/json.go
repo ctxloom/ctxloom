@@ -14,6 +14,11 @@ import (
 
 // JSONCompressor compresses JSON while preserving structure (keys, types).
 // It truncates long string values while keeping high-entropy identifiers.
+//
+// Structure, not layout: the document is decoded into Go values and re-encoded,
+// so object keys come back in SORTED order and a duplicate key resolves to its
+// last occurrence — RFC 8259's own reading, objects being unordered and
+// duplicate names undefined. Every key survives; only their order does not.
 type JSONCompressor struct {
 	// MaxValueLength is the maximum length for string values before truncation.
 	MaxValueLength int

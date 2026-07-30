@@ -380,4 +380,3 @@ func TestNoArgManager_TargetsTheAmbientProject(t *testing.T) {
 	require.NoError(t, err, "a no-arg Manager must have written the ambient project's own config.yaml")
 	assert.Contains(t, string(data), "ambient")
 }
-

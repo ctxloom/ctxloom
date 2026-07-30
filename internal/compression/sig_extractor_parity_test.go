@@ -20,9 +20,9 @@ import (
 // distilled output has no way to tell.
 func TestSignatureExtractors_NestedMatchesTopLevel(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		ct      ContentType
-		source  string
+		name     string
+		ct       ContentType
+		source   string
 		mustHave []string
 	}{
 		{

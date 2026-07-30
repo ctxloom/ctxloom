@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,159** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 75 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 126 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 127 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 145 |
-| `open` | no commit names this ID | **763** |
+| `open` | no commit names this ID | **762** |
 
-**Totals: 2268 findings across 162 units — 1,159 resolved, 763 still open, 346 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,159 resolved, 762 still open, 347 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 377 | 436 | 41 | 54 | 91 |
+| MED | 999 | 377 | 435 | 41 | 55 | 91 |
 | LOW | 871 | 432 | 301 | 24 | 64 | 50 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
@@ -1749,7 +1749,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U111-F05 | open | `harp.go:42`, `:49`, `:79` | ERRHANDLING | Two panics fire from a package-level variable initializer, so any defect in the embedded word lists is an unconditional crash of **every** family binary before `main()` runs, with no degradation path. | U111.md |
 | U111-F06 | open | `harp.go:146-160` | CORRECTNESS | `normalize` silently rewrites user-supplied values instead of rejecting them, so a CLI user gets an answer to a question they did not ask. | U111.md |
 | U111-F07 | open | `harp.go:211-219` | CORRECTNESS | An unsatisfiable `MaxElementLength` makes every generated name a **constant**, silently — including through `UniqueFrom`, which then cannot possibly find a unique id. | U111.md |
-| U112-F02 | open | **`marker.go:36-41`** | SILENTNOOP | `Format("")` returns `""`, delegating the "is this a real marker?" decision to every caller. The identity channel the package doc calls the reliable fallback is silently skipped, with no signal at ... | U112.md |
+| U112-F02 | **REFUTED** `PENDING` | **`marker.go:36-41`** | SILENTNOOP | `Format("")` returns `""`, delegating the "is this a real marker?" decision to every caller. The identity channel the package doc calls the reliable fallback is silently skipped, with no signal at ... | U112.md |
 | U112-F03 | **RESOLVED** `3ec03f97` | **`marker.go:40`** | CORRECTNESS | `Format` performs no validation or escaping of `harp`. A name containing `"` produces a malformed element that `nameRe`'s `[^"]+` truncates; a name containing `>` produces an element `markerRe` can... | U112.md |
 | U112-F04 | open | **`marker.go:60-61`** | CORRECTNESS | `Scan` searches the **entire** transcript line — including user-authored message content — for a marker, and checks the raw bytes *first*. A marker string that a user pasted into a prompt therefore... | U112.md |
 | U112-F05 | open | **`marker.go:73-101`** | COMPLEXITY | `findInValue` has CCN 12 against a CI gate that fails above 10, with no `nolint` and no exclusion. Either the gate is not being run or it is failing. | U112.md |

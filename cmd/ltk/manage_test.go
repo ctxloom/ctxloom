@@ -398,6 +398,139 @@ func TestManageGlobal_UninstallMatchesWhatInstallWrote(t *testing.T) {
 	}
 }
 
+// newUninstallCmd's RunE had no test at all beyond the empty --bin refusal,
+// which returns before any of it runs. Its two early returns are the ones that
+// decide whether the user's settings file is rewritten, and both are silent
+// no-ops by design — exactly the shape that fails without anyone noticing.
+func TestUninstall_EarlyReturnsDoNotTouchTheSettingsFile(t *testing.T) {
+	t.Run("absent settings file: says so, creates nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+
+		var errBuf bytes.Buffer
+		c := newUninstallCmd()
+		c.SetArgs([]string{"--engine", "claude-code"})
+		c.SetOut(io.Discard)
+		c.SetErr(&errBuf)
+		if err := c.Execute(); err != nil {
+			t.Fatalf("uninstall with no settings file must succeed quietly: %v", err)
+		}
+		if !strings.Contains(errBuf.String(), "nothing to uninstall") {
+			t.Errorf("the user must be told nothing was there, got %q", errBuf.String())
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.json")); !os.IsNotExist(err) {
+			t.Error("uninstall created a settings file that did not exist")
+		}
+	})
+
+	t.Run("no matching hook: settings left byte-identical", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		settings := filepath.Join(dir, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Deliberately idiosyncratic formatting: a rewrite would re-serialize
+		// it even when nothing was removed.
+		original := "{\n    \"permissions\":{\"allow\":[\"Bash(ls:*)\"]},\n    \"model\":\"opus\"\n}\n"
+		if err := os.WriteFile(settings, []byte(original), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		var errBuf bytes.Buffer
+		c := newUninstallCmd()
+		c.SetArgs([]string{"--engine", "claude-code"})
+		c.SetOut(io.Discard)
+		c.SetErr(&errBuf)
+		if err := c.Execute(); err != nil {
+			t.Fatalf("uninstall with no matching hook must succeed: %v", err)
+		}
+		if !strings.Contains(errBuf.String(), "no matching hook found") {
+			t.Errorf("the user must be told nothing was removed, got %q", errBuf.String())
+		}
+		got, err := os.ReadFile(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != original {
+			t.Errorf("a removal that did not happen rewrote the user's settings:\n%s", got)
+		}
+	})
+
+	t.Run("matching hook: removed, and the user's other settings survive", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		settings := filepath.Join(dir, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(settings, []byte(`{"model":"opus"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		inst := newInstallCmd()
+		inst.SetArgs([]string{"--engine", "claude-code"})
+		inst.SetOut(io.Discard)
+		inst.SetErr(io.Discard)
+		if err := inst.Execute(); err != nil {
+			t.Fatalf("install: %v", err)
+		}
+		if b, _ := os.ReadFile(settings); !strings.Contains(string(b), "ltk evaluate") {
+			t.Fatalf("precondition: install did not write the hook:\n%s", b)
+		}
+
+		var errBuf bytes.Buffer
+		un := newUninstallCmd()
+		un.SetArgs([]string{"--engine", "claude-code"})
+		un.SetOut(io.Discard)
+		un.SetErr(&errBuf)
+		if err := un.Execute(); err != nil {
+			t.Fatalf("uninstall: %v", err)
+		}
+		if !strings.Contains(errBuf.String(), "removed hook") {
+			t.Errorf("a real removal must be reported, got %q", errBuf.String())
+		}
+		got, err := os.ReadFile(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(got), "ltk evaluate") {
+			t.Errorf("the hook survived uninstall:\n%s", got)
+		}
+		if !strings.Contains(string(got), "opus") {
+			t.Errorf("uninstall dropped the user's unrelated settings:\n%s", got)
+		}
+	})
+
+	t.Run("--print writes the would-be settings and touches nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		settings := filepath.Join(dir, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		original := `{"model":"opus"}`
+		if err := os.WriteFile(settings, []byte(original), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		var out bytes.Buffer
+		c := newUninstallCmd()
+		c.SetArgs([]string{"--engine", "claude-code", "--print"})
+		c.SetOut(&out)
+		c.SetErr(io.Discard)
+		if err := c.Execute(); err != nil {
+			t.Fatalf("uninstall --print: %v", err)
+		}
+		if out.Len() == 0 {
+			t.Error("--print produced no output")
+		}
+		if got, _ := os.ReadFile(settings); string(got) != original {
+			t.Errorf("--print rewrote the settings file:\n%s", got)
+		}
+	})
+}
+
 // --print is a dry run: it must not scaffold the rules file (or any other
 // filesystem state) while printing the would-be settings.
 func TestInstallPrintDoesNotScaffoldRules(t *testing.T) {

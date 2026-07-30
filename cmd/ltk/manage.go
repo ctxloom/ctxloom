@@ -121,7 +121,7 @@ func newInstallCmd() *cobra.Command {
 			}
 			rulesPath := f.hookRulesPath()
 			if rulesPath != f.configPath {
-				fmt.Fprintf(os.Stderr, "%s: --global installs apply in every project, so the hook is installed "+
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --global installs apply in every project, so the hook is installed "+
 					"without --config %s; each project's rules are found by evaluate's own search\n", progName, f.configPath)
 			}
 			command := eng.HookCommand(f.bin, rulesPath)
@@ -141,7 +141,7 @@ func newInstallCmd() *cobra.Command {
 				return err
 			}
 			if note != "" {
-				fmt.Fprintf(os.Stderr, progName+": %s\n", note)
+				fmt.Fprintf(cmd.ErrOrStderr(), progName+": %s\n", note)
 			}
 			if f.printOnly {
 				_, err := cmd.OutOrStdout().Write(merged)
@@ -150,7 +150,7 @@ func newInstallCmd() *cobra.Command {
 			if err := writeFile(path, merged); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
 			return nil
 		},
 	}
@@ -164,7 +164,7 @@ func newUninstallCmd() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove the pre-tool hook from the LLM config",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			eng, path, err := f.resolve()
 			if err != nil {
 				return err
@@ -175,7 +175,7 @@ func newUninstallCmd() *cobra.Command {
 				return err
 			}
 			if existing == nil {
-				fmt.Fprintf(os.Stderr, progName+": nothing to uninstall (%s not found)\n", path)
+				fmt.Fprintf(cmd.ErrOrStderr(), progName+": nothing to uninstall (%s not found)\n", path)
 				return nil
 			}
 			updated, removed, err := eng.Uninstall(existing, command)
@@ -183,20 +183,22 @@ func newUninstallCmd() *cobra.Command {
 				return err
 			}
 			if f.printOnly {
-				_, err := os.Stdout.Write(updated)
+				_, err := cmd.OutOrStdout().Write(updated)
 				return err
 			}
 			// No matching hook (e.g. installed under different --bin/--config flags
 			// than these): don't rewrite the user's settings file or claim a removal
-			// that didn't happen.
+			// that didn't happen. Rewriting would re-serialize the user's whole
+			// settings document — key order, indentation and all — for a removal
+			// that never took place.
 			if !removed {
-				fmt.Fprintf(os.Stderr, progName+": no matching hook found in %s (nothing removed)\n", path)
+				fmt.Fprintf(cmd.ErrOrStderr(), progName+": no matching hook found in %s (nothing removed)\n", path)
 				return nil
 			}
 			if err := writeFile(path, updated); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, progName+": removed hook for %s from %s\n", eng.Name(), path)
+			fmt.Fprintf(cmd.ErrOrStderr(), progName+": removed hook for %s from %s\n", eng.Name(), path)
 			return nil
 		},
 	}

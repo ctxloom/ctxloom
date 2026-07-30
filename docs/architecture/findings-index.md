@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,230** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 104 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 155 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 156 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 157 |
-| `open` | no commit names this ID | **622** |
+| `open` | no commit names this ID | **621** |
 
-**Totals: 2268 findings across 162 units — 1,230 resolved, 622 still open, 416 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,230 resolved, 621 still open, 417 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
 | MED | 999 | 423 | 346 | 58 | 72 | 100 |
-| LOW | 871 | 451 | 259 | 33 | 75 | 53 |
+| LOW | 871 | 451 | 258 | 33 | 76 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2792,7 +2792,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U150-F11 | **RESOLVED** `5fdf8767` | `internal/trust/trust.go:173` | TRIVIAL | `Ref.Kind`'s comment reads "Kind is the item kind (fragment \ | U150.md |
 | U150-F12 | **REFUTED** `7da54a86` | `internal/trust/trust.go:186-189` | CORRECTNESS | `IsBuiltin`'s "Mutually exclusive with `IsLocal`" is an **unenforced invariant**, and if both were set the store key and the reported source would disagree. | U150.md |
 | U150-F13 | **RESOLVED** `e3096ce1` | `internal/trust/trust.go:226` | NOPAY | The `"www.github.com": true` entry in `knownCaseFoldForges` buys nothing. Its only effect is to lowercase the path of a URL whose host (`www.github.com`) already canonicalizes to a **different key*... | U150.md |
-| U150-F14 | open | `internal/trust/trust.go:204-219` | SILENTNOOP | A zero-valued `Ref` produces a syntactically valid store address rather than failing: `Ref{}.Key()` = `"#/"`, `Ref{}.CanonicalURL()` = `""`, so `countersignRef(Ref{})` = `"\ | U150.md |
+| U150-F14 | **REFUTED** `84f586b8` | `internal/trust/trust.go:204-219` | SILENTNOOP | A zero-valued `Ref` produces a syntactically valid store address rather than failing: `Ref{}.Key()` = `"#/"`, `Ref{}.CanonicalURL()` = `""`, so `countersignRef(Ref{})` = `"\ | U150.md |
 | U151-F05 | **RESOLVED** `2ccce4df` | `vpio.go:16-30`, `vpio.go:84` | NOPAY | The package doc — which is most of this file's substance — is stale in two places and now actively misdescribes the system. | U151.md |
 | U152-F06 | open | `dockerexec.go:185` | ERRHANDLING | `Resize` discards `pty.Setsize`'s error, so a resize that never reaches the container is invisible — no error, no warning, no log. | U152.md |
 | U152-F07 | open | `dockerexec.go:77-79`, `dockerexec.go:96-101` | CORRECTNESS | Neither `NewLauncher` nor `buildExecCmd` validates anything, so an empty `Backend`, `StartPath`, or `containerName` renders a well-formed command that is meaningless, and the failure surfaces from ... | U152.md |

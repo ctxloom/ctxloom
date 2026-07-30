@@ -448,7 +448,7 @@ func deleteItem(ref string, itemType ItemType) error {
 // distillation leaves the item with NO distilled form (falls back to raw in
 // distilled-mode assembly) rather than a WRONG one. See docs at those
 // functions for the invariant this relies on.
-func editItem(ref string, itemType ItemType, noDistill bool) error {
+func editItem(out io.Writer, ref string, itemType ItemType, noDistill bool) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -492,13 +492,13 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 		return err
 	}
 
-	fmt.Printf("Updated %s %q in bundle %q", itemType, itemName, bundleName)
+	fmt.Fprintf(out, "Updated %s %q in bundle %q", itemType, itemName, bundleName)
 	if res.Distilled {
-		fmt.Print(" (re-distilled)")
+		fmt.Fprint(out, " (re-distilled)")
 	}
-	fmt.Println()
-	fmt.Print(editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
-	printPushReminder(bundleName)
+	fmt.Fprintln(out)
+	fmt.Fprint(out, editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
+	printPushReminder(out, bundleName)
 	return nil
 }
 

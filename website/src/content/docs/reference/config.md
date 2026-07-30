@@ -210,7 +210,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] |  |
-| `binary_path` | string |  |
+| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `env` | map → string |  |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
@@ -223,7 +223,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] |  |
-| `binary_path` | string |  |
+| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `env` | map → string |  |
 | `model` | string | Examples: `gemini-3-pro`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
@@ -235,7 +235,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] |  |
-| `binary_path` | string |  |
+| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `env` | map → string |  |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
@@ -250,7 +250,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `agent` | string | Kiro custom agent selected via --agent (default "ctxloom"). |
 | `agent_engine` | string | Kiro harness version via --agent-engine. Allowed values: `v1`, `v2`, `v3`. |
 | `args` | string[] |  |
-| `binary_path` | string |  |
+| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `effort` | string | Kiro reasoning effort via --effort. Allowed values: `low`, `medium`, `high`, `xhigh`, `max`. |
 | `env` | map → string |  |
 | `model` | string |  |
@@ -266,7 +266,7 @@ opencode driven over its first-party `opencode acp` mode (host-only chat spine).
 | Field | Type | Description |
 |-------|------|-------------|
 | `args` | string[] |  |
-| `binary_path` | string |  |
+| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `env` | map → string |  |
 | `model` | string | opencode model string (provider/model); written into the run's opencode.json. Examples: `openrouter/meta-llama/llama-3.3-70b-instruct:free`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
@@ -293,7 +293,7 @@ Generic Agent Client Protocol client: drives any ACP-capable agent chosen by con
 | `agent` | string | Selects a named agent on the target CLI via `--agent`. |
 | `agent_engine` | string | Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`. |
 | `args` | string[] |  |
-| `binary_path` | string |  |
+| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `command` | string | The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. "kiro-cli acp"). |
 | `env` | map → string |  |
 | `model` | string | Passed to the spawned agent via `--model` when set. |

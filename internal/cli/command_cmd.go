@@ -103,7 +103,7 @@ Examples:
   ctxloom command edit core#commands/code-review --no-distill`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(args[0], ItemTypeCommand, commandEditNoDistill)
+		return editItem(cmd.OutOrStdout(), args[0], ItemTypeCommand, commandEditNoDistill)
 	},
 }
 

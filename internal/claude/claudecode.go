@@ -276,36 +276,63 @@ func sessionNameArgs(env map[string]string) []string {
 	return nil
 }
 
+// permissionArgs maps the generalized permission posture onto claude's flags.
+// bypass is the blanket skip; acceptEdits/plan use --permission-mode; default
+// leaves the engine's normal prompting and adds nothing.
+//
+// plan ALSO gets a conservative --disallowedTools belt-and-suspenders
+// (LIVE VERIFIED 2026-07-15, authenticated claude 2.1.210: `--permission-mode
+// plan --disallowedTools "Bash,Edit,Write,NotebookEdit"` denied a
+// sentinel-file overwrite — byte-unchanged, model explicitly cited BOTH
+// plan mode and the missing write tools). --permission-mode plan is
+// already a genuine read-only posture on its own (unlike agy/kiro's
+// collapsed read-only, this is the LESS broken of the under-mapped
+// engines), so this is defense-in-depth, not the fix itself: if a future
+// claude release ever narrows plan's own semantics, the explicit deny
+// list still holds. tangy-fox has no per-tool policy input yet, so the
+// set is a fixed, conservative write/exec list — Bash (arbitrary exec,
+// including file writes via shell), Edit, Write, NotebookEdit (every
+// built-in mutating tool this codebase's own tool vocabulary names).
+func permissionArgs(mode agent.PermissionMode) []string {
+	switch mode {
+	case agent.PermissionBypass:
+		return []string{flagSkipPermissions}
+	case agent.PermissionAcceptEdits:
+		return []string{flagPermissionMode, "acceptEdits"}
+	case agent.PermissionPlan:
+		return []string{flagPermissionMode, "plan", flagDisallowedTools, "Bash,Edit,Write,NotebookEdit"}
+	}
+	return nil
+}
+
+// minimalModeArgs is the distill/compaction posture: skip every unnecessary
+// startup path while keeping the requested model in force.
+func minimalModeArgs(model string) []string {
+	return []string{
+		// JSON envelope carries the resolved model id (modelUsage), letting
+		// Execute record the real model instead of guessing. The result is
+		// machine-consumed here, so we lose nothing by buffering it.
+		flagOutputFormat, "json",
+		flagTools, "", // Disable all tools
+		flagNoSlashCommands,  // No slash commands
+		flagNoSessionPersist, // Don't save session
+		flagStrictMCPConfig,  // ignore .mcp.json / external MCP servers
+		flagSystemPrompt, "", // drop CLAUDE.md/memory/identity so they don't pollute the result
+		// Isolate via in-line overrides rather than `--setting-sources ""`:
+		// an empty source list also drops the model config, so the CLI routes
+		// generation to its built-in fast model regardless of --model. These
+		// overrides disable hooks/MCP/attribution while leaving the requested
+		// model in force.
+		flagSettings, minimalSettings(model),
+	}
+}
+
 // buildArgs constructs the command-line arguments.
 func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	// Map the generalized permission posture onto claude's flags. bypass is the
-	// blanket skip; acceptEdits/plan use --permission-mode; default leaves the
-	// engine's normal prompting.
-	//
-	// plan ALSO gets a conservative --disallowedTools belt-and-suspenders
-	// (LIVE VERIFIED 2026-07-15, authenticated claude 2.1.210: `--permission-mode
-	// plan --disallowedTools "Bash,Edit,Write,NotebookEdit"` denied a
-	// sentinel-file overwrite — byte-unchanged, model explicitly cited BOTH
-	// plan mode and the missing write tools). --permission-mode plan is
-	// already a genuine read-only posture on its own (unlike agy/kiro's
-	// collapsed read-only, this is the LESS broken of the under-mapped
-	// engines), so this is defense-in-depth, not the fix itself: if a future
-	// claude release ever narrows plan's own semantics, the explicit deny
-	// list still holds. tangy-fox has no per-tool policy input yet, so the
-	// set is a fixed, conservative write/exec list — Bash (arbitrary exec,
-	// including file writes via shell), Edit, Write, NotebookEdit (every
-	// built-in mutating tool this codebase's own tool vocabulary names).
-	switch req.Permissions {
-	case agent.PermissionBypass:
-		args = append(args, flagSkipPermissions)
-	case agent.PermissionAcceptEdits:
-		args = append(args, flagPermissionMode, "acceptEdits")
-	case agent.PermissionPlan:
-		args = append(args, flagPermissionMode, "plan", flagDisallowedTools, "Bash,Edit,Write,NotebookEdit")
-	}
+	args = append(args, permissionArgs(req.Permissions)...)
 
 	// The model is resolved by the caller (the fast role's labeled config for
 	// compression, the primary role's for coding); the backend no longer
@@ -341,42 +368,12 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// no flags are needed. Skipped in minimal/distill mode (SkipSetup), which drops
 	// context and supplies its own --settings/--strict-mcp-config below.
 	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
-		if s := b.surfaces.Context; s != nil {
-			if p := s.Path(); p != "" {
-				args = append(args, flagAppendSystemFile, p)
-			}
-		}
-		if s := b.surfaces.MCP; s != nil {
-			if p := s.Path(); p != "" {
-				args = append(args, flagMCPConfig, p)
-			}
-		}
-		if s := b.surfaces.Settings; s != nil {
-			if p := s.Path(); p != "" {
-				args = append(args, flagSettings, p)
-			}
-		}
+		args = append(args, b.surfaces.flagArgs()...)
 	}
 
 	// Minimal mode for distillation/compaction - skip all unnecessary startup.
 	if req.SkipSetup {
-		args = append(args,
-			// JSON envelope carries the resolved model id (modelUsage), letting
-			// Execute record the real model instead of guessing. The result is
-			// machine-consumed here, so we lose nothing by buffering it.
-			flagOutputFormat, "json",
-			flagTools, "", // Disable all tools
-			flagNoSlashCommands,  // No slash commands
-			flagNoSessionPersist, // Don't save session
-			flagStrictMCPConfig,  // ignore .mcp.json / external MCP servers
-			flagSystemPrompt, "", // drop CLAUDE.md/memory/identity so they don't pollute the result
-			// Isolate via in-line overrides rather than `--setting-sources ""`:
-			// an empty source list also drops the model config, so the CLI routes
-			// generation to its built-in fast model regardless of --model. These
-			// overrides disable hooks/MCP/attribution while leaving the requested
-			// model in force.
-			flagSettings, minimalSettings(req.Model),
-		)
+		args = append(args, minimalModeArgs(req.Model)...)
 	}
 
 	// Interactive delivers the initial prompt as an argv positional (it's short —

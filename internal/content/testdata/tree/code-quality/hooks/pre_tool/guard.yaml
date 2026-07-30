@@ -1,0 +1,4 @@
+matcher: Bash
+type: command
+command: ltk guard
+timeout: 30

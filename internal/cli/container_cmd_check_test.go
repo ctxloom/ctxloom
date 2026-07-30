@@ -2,9 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -70,4 +73,62 @@ func TestRenderTooling(t *testing.T) {
 		assert.Contains(t, out, "### go-tools#commands/tooling")
 		assert.Contains(t, out, "Install golangci-lint.")
 	})
+}
+
+// TestRenderContainerCheck_UnresolvedBackend pins U035-F04's rendering half:
+// with no backend argument and an unloadable config the backend genuinely does
+// not resolve, and the header must say so rather than printing an empty
+// parenthesis that reads as a formatting bug.
+func TestRenderContainerCheck_UnresolvedBackend(t *testing.T) {
+	var buf bytes.Buffer
+	assert.NoError(t, renderContainerCheck(&buf, "", isolation.Diagnosis{Runtime: "none", SharedFS: "unprobed: no runtime"}))
+	assert.Contains(t, buf.String(), "backend: (unresolved)")
+	assert.NotContains(t, buf.String(), "backend: )")
+}
+
+// TestContainerCheckConfigGap pins U035-F04: `container check` discarded BOTH
+// GetConfig errors, so an unloadable config produced a report about the empty
+// backend (or, with a backend named, one that silently ignored the project's
+// isolation_images override) and still exited 0 with no mention of the config
+// at all.
+func TestContainerCheckConfigGap(t *testing.T) {
+	base := isolation.Diagnosis{Runtime: "docker", Reachable: true, Guidance: []string{"pre-existing guidance"}}
+
+	t.Run("no backend given", func(t *testing.T) {
+		d := containerCheckConfigGap(base, false, errors.New("config.yaml: yaml: line 3: mapping values are not allowed"))
+		require.Len(t, d.Guidance, 2, "the pre-existing guidance must survive")
+		assert.Equal(t, "pre-existing guidance", d.Guidance[0])
+		assert.Contains(t, d.Guidance[1], "mapping values are not allowed", "the config error itself must reach the user")
+		assert.Contains(t, d.Guidance[1], "container check <backend>", "with the recovery a user can act on")
+	})
+
+	t.Run("backend given", func(t *testing.T) {
+		d := containerCheckConfigGap(base, true, errors.New("boom"))
+		require.Len(t, d.Guidance, 2)
+		assert.Contains(t, d.Guidance[1], "isolation_images")
+		assert.Contains(t, d.Guidance[1], "boom")
+	})
+
+	t.Run("config loaded: unchanged", func(t *testing.T) {
+		d := containerCheckConfigGap(base, false, nil)
+		assert.Equal(t, base.Guidance, d.Guidance, "a healthy config must add no noise")
+	})
+}
+
+// TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit pins U035-F22:
+// `container check` and `doctor` both advertised "always exits 0", yet both
+// end in `return emit(...)`, which propagates cliemit.Resolve's error for an
+// unrenderable --format (pinned by TestEmit_UnknownFormat_WrapsErrUnsupported
+// Format in format_test.go), and `container check` also rejects an unknown
+// backend argument. A promise of exit 0 invites `ctxloom doctor || exit 1`
+// wrappers that read any non-zero exit as a broken machine.
+func TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit(t *testing.T) {
+	for _, c := range []*cobra.Command{containerCheckCmd, doctorCmd} {
+		t.Run(c.Name(), func(t *testing.T) {
+			assert.NotContains(t, c.Long, "always exits 0",
+				"the command ends in emit(), which errors on an unrenderable --format")
+			assert.Contains(t, c.Long, "usage error",
+				"the exception must be documented where the promise was")
+		})
+	}
 }

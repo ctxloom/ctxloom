@@ -16,8 +16,9 @@ Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
 Run ctxloom's deterministic setup checks — this IS the init-as-skill setup
 skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
 .ctxloom marker + config validity; required binaries on PATH (git, each
-configured engine's own client, a container runtime, and — recommended, not
-required — ssh/ssh-keygen); whether the ACP adapter binary (claude-code-acp/
+configured engine's own client, a container runtime when this project runs
+'runtime: container' agents, and — recommended, not required — ssh/ssh-keygen);
+whether the ACP adapter binary (claude-code-acp/
 codex-acp) each configured claude-code/codex engine needs for HOST-runtime
 structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
@@ -44,9 +45,10 @@ no agents/profiles/hooks/trust checks, so it reads clean on a project that
 hasn't been set up yet. This is the mode init's PRIME and the setup skill's
 phase 1 use, before there's anything else to check.
 
-Diagnostic only: always exits 0, never blocks or changes anything. A "warn"
-status IS this command's fail-loud signal — read the report, don't grep the
-exit code.
+Diagnostic only: no check outcome ever fails the command, and nothing is
+blocked or changed. A "warn" status IS this command's fail-loud signal — read
+the report, don't grep the exit code. A usage error is still an error (e.g. a
+--format value this build cannot render).
 
 ```
 ctxloom doctor [flags]

@@ -610,3 +610,42 @@ func TestExecuteEnv_MergesExtraEnv(t *testing.T) {
 	assert.Equal(t, "1", env["KEEP"], "request env is preserved")
 	assert.Equal(t, filepath.Join("/w", ".codex"), env["CODEX_HOME"], "the contributor's env is merged in")
 }
+
+// TestSetup_SurfaceContext_FragmentsAssemblingToNothingIsLoud pins the guard on
+// the SURFACE context path. The raw-cache path has always refused this input
+// (Provide → WriteContextFile → ErrNoContext), on the stated grounds that "the
+// user configured no context" and "every fragment the user configured resolved
+// to nothing" are different facts. A surface-delivering backend read the same
+// empty string, built its surface set around it, wrote no context file, emitted
+// no launch flag and returned nil — the two paths disagreed about the same fact.
+func TestSetup_SurfaceContext_FragmentsAssemblingToNothingIsLoud(t *testing.T) {
+	order := []string{}
+	set := &recordSet{order: &order}
+	b := newCellBackend(set, false, false)
+
+	err := b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   t.TempDir(),
+		Fragments: []*Fragment{{Name: "rules", Content: ""}, {Name: "style", Content: " \n\t"}},
+		Managed:   &ManagedConfig{},
+		CellKind:  CellKindShared,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoContext, "the surface path must report the same fact the raw-cache path does")
+	assert.Empty(t, b.delivered, "no surface may be delivered off a context the backend could not assemble")
+}
+
+// TestSetup_SurfaceContext_NoFragmentsStillSetsUp is the other half: a project
+// that configured NO context is not an error, and every non-context surface is
+// still delivered.
+func TestSetup_SurfaceContext_NoFragmentsStillSetsUp(t *testing.T) {
+	order := []string{}
+	set := &recordSet{order: &order}
+	b := newCellBackend(set, false, false)
+
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:  t.TempDir(),
+		Managed:  &ManagedConfig{},
+		CellKind: CellKindShared,
+	}))
+	assert.NotEmpty(t, b.delivered, "no context configured is not a reason to skip the other surfaces")
+}

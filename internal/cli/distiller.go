@@ -5,15 +5,18 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // newLLMDistiller builds an operations.Distiller backed by the fast-role LLM
 // and distill prompt. It is the single construction point shared by every CLI
 // frontend (bundle/fragment/prompt distill and item edits) so distillation
-// wiring lives in one place. Returns nil when no LLM or distill prompt is
-// available — the operations layer then stores raw content (fault-tolerant).
+// wiring lives in one place. Returns nil when no LLM resolves — the operations
+// layer then stores raw content (fault-tolerant), and the caller is told why on
+// stderr.
 func newLLMDistiller(cfg *config.Config) operations.Distiller {
 	if cfg == nil {
+		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
 		return nil
 	}
 	return newLLMDistillerForLabel(cfg, cfg.FastLabel())
@@ -21,18 +24,29 @@ func newLLMDistiller(cfg *config.Config) operations.Distiller {
 
 // newLLMDistillerForLabel is newLLMDistiller for an explicit config label
 // (e.g. `bundle distill --llm <label>`). The label resolves to its backend +
-// model via the registry; env comes from the same labeled entry. Returns nil
-// when no backend/prompt resolves.
+// model via the registry; env comes from the same labeled entry.
+//
+// Returning nil means "this content will be stored RAW", which every caller
+// treats as success — so the reason is warned rather than swallowed: a distill
+// command that reports "distilled 4 items" while storing four raw ones is
+// indistinguishable from working. There is exactly ONE reachable reason: no
+// label resolves, i.e. neither llm.defaults.fast nor llm.defaults.primary is
+// set and llm.configs does not hold exactly one entry (config.PrimaryLabel).
+// The backend guard below is defensive only — config.ResolveLLM degrades a
+// missing label and an empty type to the built-in default backend
+// (LLMConfig.EffectiveType) and never yields "".
 func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distiller {
-	if cfg == nil || label == "" {
+	if cfg == nil {
+		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
 		return nil
 	}
-	prompt, err := loadDistillPrompt()
-	if err != nil {
+	if label == "" {
+		clidiag.Warn("ctxloom", "no LLM label resolves for distillation (set llm.defaults.fast or llm.defaults.primary in config.yaml, or keep exactly one llm.configs entry): content will be stored RAW (undistilled)")
 		return nil
 	}
 	backend, model := cfg.ResolveLLM(label)
 	if backend == "" {
+		clidiag.Warn("ctxloom", "llm label %q resolves to no backend: content will be stored RAW (undistilled)", label)
 		return nil
 	}
 	return &llmDistiller{
@@ -40,7 +54,7 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distil
 		llmLabel: label,
 		llmEnv:   llmEnvFor(cfg, label),
 		model:    model,
-		prompt:   prompt,
+		prompt:   loadDistillPrompt(),
 	}
 }
 

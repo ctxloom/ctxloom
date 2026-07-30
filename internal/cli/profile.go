@@ -408,7 +408,7 @@ Examples:
   ctxloom profile edit my-profile`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editProfileFile(args[0])
+		return editProfileFile(cmd.OutOrStdout(), args[0])
 	},
 }
 

@@ -22,7 +22,9 @@ Report whether containerized agents ('runtime: container') can launch here:
     that detects docker-outside-of-docker, where bind mounts silently
     resolve against the WRONG filesystem and launches hang
 
-Diagnostic only: always exits 0 and never builds images or changes state.
+Diagnostic only: no probe outcome fails the command, and nothing is built or
+changed — read the report, not the exit code. A usage error is still an error
+(an unknown backend argument, or a --format this build cannot render).
 Run it inside a dev container to learn whether to enable docker-in-docker
 or keep agents on 'runtime: host'.
 

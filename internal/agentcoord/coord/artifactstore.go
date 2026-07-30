@@ -151,26 +151,36 @@ func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte, declaredSiz
 	if err := tmp.Close(); err != nil {
 		return "", 0, fmt.Errorf("coord: artifact store: close: %w", err)
 	}
-	final := s.path(shaHex)
-	if _, statErr := os.Stat(final); statErr == nil {
-		// Free dedupe: identical content already stored under this hash.
-		return shaHex, n, nil
-	}
-	if err := os.Rename(tmpPath, final); err != nil {
-		return "", 0, fmt.Errorf("coord: artifact store: publish: %w", err)
-	}
-	// The blob's CONTENT is durable (tmp.Sync above) but its NAME is not
-	// until the directory entry is fsynced — and the manifest that will
-	// reference this blob IS fsynced, by the journal, before its own
-	// response returns (journal.go's Store.execLocked). Without this the
-	// durable reference can outlive its referent across a crash: the
-	// manifest names a blob whose rename never landed, and every later
-	// download of it answers NOT_FOUND forever. A receipt that asserts
-	// durability must not be issued before durability holds.
-	if err := syncArtifactDir(s.dir); err != nil {
-		return "", 0, fmt.Errorf("coord: artifact store: fsync dir: %w", err)
+	if err := s.publish(tmpPath, shaHex); err != nil {
+		return "", 0, err
 	}
 	return shaHex, n, nil
+}
+
+// publish moves a fully drained, verified temp file into place under its
+// content hash and makes that name durable.
+//
+// The blob's CONTENT is already durable (writeAtomic's tmp.Sync) but its
+// NAME is not until the directory entry is fsynced — and the manifest that
+// will reference this blob IS fsynced, by the journal, before its own
+// response returns (journal.go's Store.execLocked). Without the directory
+// sync the durable reference can outlive its referent across a crash: a
+// manifest naming a blob whose rename never landed, answering NOT_FOUND for
+// the rest of its life.
+func (s *artifactStore) publish(tmpPath, shaHex string) error {
+	final := s.path(shaHex)
+	if _, statErr := os.Stat(final); statErr == nil {
+		// Free dedupe: identical content already stored under this hash, and
+		// no new directory entry to make durable.
+		return nil
+	}
+	if err := os.Rename(tmpPath, final); err != nil {
+		return fmt.Errorf("coord: artifact store: publish: %w", err)
+	}
+	if err := syncArtifactDir(s.dir); err != nil {
+		return fmt.Errorf("coord: artifact store: fsync dir: %w", err)
+	}
+	return nil
 }
 
 // open opens a stored blob for reading by its hex sha256 (os.ErrNotExist on

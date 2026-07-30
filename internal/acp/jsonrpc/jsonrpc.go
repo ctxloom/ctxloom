@@ -407,8 +407,13 @@ func (c *Conn) failPending() {
 	}
 }
 
+// closedErr renders the reason a parked caller was released. An end-of-stream
+// is a normal hangup and reports as ErrConnClosed; anything else is a real
+// transport failure and travels verbatim. EOF is matched with errors.Is
+// because a reader in the chain may annotate it, and an annotated hangup is
+// still a hangup.
 func (c *Conn) closedErr() error {
-	if p := c.readErr.Load(); p != nil && *p != nil && *p != io.EOF {
+	if p := c.readErr.Load(); p != nil && *p != nil && !errors.Is(*p, io.EOF) {
 		return *p
 	}
 	return ErrConnClosed

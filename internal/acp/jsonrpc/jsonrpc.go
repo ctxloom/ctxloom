@@ -344,9 +344,9 @@ func (c *Conn) routeResponse(m rpcMessage) {
 		}
 		return
 	}
-	var id int64
-	if err := json.Unmarshal(m.ID, &id); err != nil {
-		warnf("acp: dropping response with non-integer id %s", m.ID)
+	id, ok := responseID(m.ID)
+	if !ok {
+		warnf("acp: dropping response with an id that matches no outstanding request: %s", m.ID)
 		return
 	}
 	c.pendingMu.Lock()
@@ -366,6 +366,29 @@ func (c *Conn) routeResponse(m rpcMessage) {
 	default:
 		warnf("acp: dropping duplicate response for id %d (one response per id was already routed)", id)
 	}
+}
+
+// responseID resolves a response frame's id member to the integer id this
+// codec allocated for the waiting caller. JSON-RPC 2.0 permits a String id,
+// and a peer that echoes our numeric id back stringified ("1") is answering
+// the request we sent: refusing to recognise it parks the caller until its
+// deadline for a turn that actually completed. Only the MATCHING side is
+// lenient — outbound ids stay integers. false means the member is neither an
+// integer nor an integer-valued string.
+func responseID(raw json.RawMessage) (int64, bool) {
+	var id int64
+	if err := json.Unmarshal(raw, &id); err == nil {
+		return id, true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // isNullID reports whether a frame's id member is the JSON literal null. The

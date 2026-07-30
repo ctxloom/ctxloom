@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,129** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,130** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 68 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 117 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 141 |
-| `open` | no commit names this ID | **813** |
+| `open` | no commit names this ID | **812** |
 
-**Totals: 2268 findings across 162 units — 1,129 resolved, 813 still open, 326 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,130 resolved, 812 still open, 326 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -331,7 +331,7 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
+| HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 359 | 466 | 38 | 47 | 89 |
 | LOW | 871 | 420 | 321 | 20 | 62 | 48 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
@@ -797,7 +797,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U092-F03 | **RESOLVED** `2976b043` | `projectroot.go:78-106 vs `internal/taskloom/workdir/workdir.go:32-121` | DUPLICATE | **The resolution chain is implemented three times.** `WorkDir`, `RootFromFallback`, and `taskloom/workdir.resolveBase` each independently encode `CTXLOOM_ROOT → git root → cwd → "."`, with a duplic... | U092.md |
 | U093-F01 | **RESOLVED** `ae02bb16` | **`bundle_reader.go:185; fetch_ref.go:26`** | SILENTNOOP | An empty `entry.SHA` silently converts a *pinned* read into a *latest* read — the pin, which is the security control, evaporates with no error. | U093.md |
 | U093-F02 | **RESOLVED** `5b68d6ee` | **`lockfile.go:66-101`** | SILENTNOOP | A present-but-empty `lock.yaml` loads as a valid empty lockfile with a nil error, and every remote bundle then vanishes from the session with no diagnostic. | U093.md |
-| U093-F04 | open | `detect.go:66-86` | CORRECTNESS | `DetectForge` rejects scp-style SSH URLs that the rest of the package documents and accepts, so a bundle whose lockfile key uses that form cannot be read at all. | U093.md |
+| U093-F04 | **RESOLVED** `d73ee810` | `detect.go:66-86` | CORRECTNESS | `DetectForge` rejects scp-style SSH URLs that the rest of the package documents and accepts, so a bundle whose lockfile key uses that form cannot be read at all. | U093.md |
 | U094-F02 | **RESOLVED** `deee1e67` | **`publish.go:201-211, 274-279, 331`** | SILENTNOOP | Publishing a **0-byte** bundle file succeeds, overwrites the remote bundle with nothing, and produces a **valid publisher signature over zero bytes**. | U094.md |
 | U094-F05 | **RESOLVED** `93beec3b` | **`pull.go:367, 374-376`** | SILENTNOOP | A lockfile save failure is demoted to a printed warning while `Pull` returns success — for bundles the lockfile is the **only** on-disk record, so the pull persists nothing and reports a `SHA` and ... | U094.md |
 | U094-F16 | **RESOLVED** `6b265cf5` | **`pull.go:314, 211`** | ERRHANDLING / CORRECTNESS | The retraction check **fails open**: any failure to obtain or parse the remote manifest is indistinguishable from "not retracted", and `confirmRetraction` additionally discards the error. | U094.md |

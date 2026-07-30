@@ -246,8 +246,30 @@ func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	// alone would never surface); Execute checks b.credentialErr FIRST and
 	// refuses to launch codex at all when set, instead of the historical
 	// silent 401/exit-0.
-	b.credentialErr = ensureCodexCredentials(dir, source)
+	b.credentialErr = ensureCodexCredentials(dir, source, resolveOpenAIAPIKey(req.Env, b.Env))
 	return b.LaunchBackend.Setup(ctx, req)
+}
+
+// openAIAPIKeyEnv is codex's envTrigger — the variable that authenticates codex
+// without any auth.json at all (internal/lm/isolation/auth.go's
+// credentialSeedSpecs["codex"] names the same one).
+const openAIAPIKeyEnv = "OPENAI_API_KEY"
+
+// resolveOpenAIAPIKey answers what the CHILD will see for OPENAI_API_KEY, in
+// BaseBackend.BuildEnv's own precedence: the run env (SetupRequest/
+// ExecuteRequest.Env) wins over the backend's configured env (CodexConfig.Env),
+// which wins over the ambient process env — the later assignment wins there, so
+// the first map that DECLARES the key owns the value, including when it
+// declares it empty. Reading only the ambient env would make a per-agent `env:`
+// key invisible to the credential gate and refuse a run that authenticates.
+func resolveOpenAIAPIKey(reqEnv, backendEnv map[string]string) string {
+	if v, ok := reqEnv[openAIAPIKeyEnv]; ok {
+		return v
+	}
+	if v, ok := backendEnv[openAIAPIKeyEnv]; ok {
+		return v
+	}
+	return os.Getenv(openAIAPIKeyEnv)
 }
 
 // ensureCodexCredentials makes sure the CODEX_HOME this run is about to use
@@ -270,12 +292,15 @@ func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 //     VERIFIES the mount landed rather than re-seeding.
 //
 // Either way, no usable credential (and no OPENAI_API_KEY override) returns
-// a clear, actionable error naming the fix.
-func ensureCodexCredentials(dir string, source codexHomeSource) error {
+// a clear, actionable error naming the fix. apiKey is the value the CHILD will
+// see for OPENAI_API_KEY (resolveOpenAIAPIKey), which is not necessarily this
+// process's own: a per-agent `env:` key authenticates the child just as well as
+// an ambient one.
+func ensureCodexCredentials(dir string, source codexHomeSource, apiKey string) error {
 	if source == codexHomeIsolationProvided {
 		return nil
 	}
-	if os.Getenv("OPENAI_API_KEY") != "" {
+	if apiKey != "" {
 		return nil // codex's envTrigger — auth rides the env, nothing to seed/verify
 	}
 	if source == codexHomeContainerFresh {

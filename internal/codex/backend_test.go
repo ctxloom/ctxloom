@@ -327,7 +327,7 @@ func TestEnsureCodexCredentials_IsolationProvided_NoOp(t *testing.T) {
 		return false, nil
 	})
 	defer restoreSeed()
-	assert.NoError(t, ensureCodexCredentials("/tmp/ctxloom-cfg-x", codexHomeIsolationProvided))
+	assert.NoError(t, ensureCodexCredentials("/tmp/ctxloom-cfg-x", codexHomeIsolationProvided, resolveOpenAIAPIKey(nil, nil)))
 }
 
 // TestEnsureCodexCredentials_EnvTrigger_SkipsEverything pins OPENAI_API_KEY
@@ -341,8 +341,8 @@ func TestEnsureCodexCredentials_EnvTrigger_SkipsEverything(t *testing.T) {
 		return false, nil
 	})
 	defer restoreSeed()
-	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeInTree))
-	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeContainerFresh))
+	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeInTree, resolveOpenAIAPIKey(nil, nil)))
+	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil)))
 }
 
 // TestEnsureCodexCredentials_InTree_SeedsViaIsolation is warm-yodel's core
@@ -354,7 +354,7 @@ func TestEnsureCodexCredentials_InTree_SeedsViaIsolation(t *testing.T) {
 		return false, nil
 	})
 	defer restoreSeed()
-	assert.NoError(t, ensureCodexCredentials("/tmp/proj", codexHomeInTree))
+	assert.NoError(t, ensureCodexCredentials("/tmp/proj", codexHomeInTree, resolveOpenAIAPIKey(nil, nil)))
 	assert.Equal(t, "/tmp/proj", calledWith)
 }
 
@@ -366,7 +366,7 @@ func TestEnsureCodexCredentials_InTree_SeedFailureIsLoud(t *testing.T) {
 		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found")
 	})
 	defer restoreSeed()
-	err := ensureCodexCredentials("/tmp/proj", codexHomeInTree)
+	err := ensureCodexCredentials("/tmp/proj", codexHomeInTree, resolveOpenAIAPIKey(nil, nil))
 	assert.ErrorContains(t, err, "no host ~/.codex/auth.json credentials found")
 }
 
@@ -382,14 +382,62 @@ func TestEnsureCodexCredentials_ContainerFresh_VerifiesMount(t *testing.T) {
 
 	home := t.TempDir()
 	// No auth.json yet — the mount "didn't land".
-	err := ensureCodexCredentials(home, codexHomeContainerFresh)
+	err := ensureCodexCredentials(home, codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil))
 	assert.ErrorContains(t, err, "codex auth mount did not land")
 
 	// Now simulate the mount having landed.
 	codexDir := filepath.Join(home, ".codex")
 	assert.NoError(t, os.MkdirAll(codexDir, 0o700))
 	assert.NoError(t, os.WriteFile(filepath.Join(codexDir, codexAuthFileName), []byte(`{}`), 0o600))
-	assert.NoError(t, ensureCodexCredentials(home, codexHomeContainerFresh))
+	assert.NoError(t, ensureCodexCredentials(home, codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil)))
+}
+
+// TestCodex_Setup_PerAgentEnvKeyAuthenticates pins the credential gate against
+// the env the CHILD will actually receive, not the ambient process env. A
+// per-agent `env:` OPENAI_API_KEY reaches the child two ways — the run env
+// (SetupRequest.Env, which is also where the gate's sibling resolution reads
+// CODEX_HOME from) and the backend config env (CodexConfig.Env, applied by
+// BaseBackend.BuildEnv) — so a gate that consults only os.Getenv refuses to
+// launch a run that would have authenticated perfectly well.
+func TestCodex_Setup_PerAgentEnvKeyAuthenticates(t *testing.T) {
+	seedFailure := func(string) (bool, error) {
+		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found")
+	}
+
+	t.Run("run env", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "")
+		defer stubSeedCodexHomeFn(t, seedFailure)()
+
+		b := NewCodex()
+		_ = b.Setup(context.Background(), &agent.SetupRequest{
+			WorkDir: "/proj",
+			Env:     map[string]string{"OPENAI_API_KEY": "sk-per-agent"},
+		})
+		assert.NoError(t, b.credentialErr, "the run env carries the key onto the child, so codex authenticates")
+	})
+
+	t.Run("backend config env", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "")
+		defer stubSeedCodexHomeFn(t, seedFailure)()
+
+		b := NewCodex()
+		b.Configure(&CodexConfig{Env: map[string]string{"OPENAI_API_KEY": "sk-per-agent"}})
+		_ = b.Setup(context.Background(), &agent.SetupRequest{WorkDir: "/proj"})
+		assert.NoError(t, b.credentialErr, "BuildEnv puts the config env on the child, so codex authenticates")
+	})
+
+	t.Run("run env wins an empty override", func(t *testing.T) {
+		t.Setenv("OPENAI_API_KEY", "sk-ambient")
+		var seeded bool
+		defer stubSeedCodexHomeFn(t, func(string) (bool, error) { seeded = true; return false, nil })()
+
+		b := NewCodex()
+		_ = b.Setup(context.Background(), &agent.SetupRequest{
+			WorkDir: "/proj",
+			Env:     map[string]string{"OPENAI_API_KEY": ""},
+		})
+		assert.True(t, seeded, "an explicit empty run-env value overrides the ambient key on the child, so the seed must still run")
+	})
 }
 
 // stubSeedCodexHomeFn substitutes the package-level seedCodexHomeFn seam for

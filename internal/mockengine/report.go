@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -177,11 +179,52 @@ type Report struct {
 const headLimit = 256
 
 // head returns a bounded, printable prefix of b for human debugging.
+//
+// Bounded on a RUNE boundary, not a byte offset: a probed surface is arbitrary
+// vendor content, and half a multi-byte rune is not a prefix of anything. And
+// printable in fact, not just in the doc — a probed path can be a binary file,
+// and its raw control bytes have no business riding into a report a person
+// reads or a terminal renders. Newlines and tabs survive; everything else
+// non-graphic becomes the replacement character. Plain text — the ordinary
+// case — passes through byte for byte.
 func head(b []byte) string {
-	if len(b) > headLimit {
-		return string(b[:headLimit])
+	return printablePrefix(string(b), headLimit)
+}
+
+// printablePrefix takes at most limit BYTES of s, cutting only between runes,
+// and substitutes the replacement character for anything non-graphic. Ranging
+// over a string already decodes an invalid byte as one RuneError, so an
+// undecodable surface degrades to visible replacement characters instead of raw
+// bytes, and never to a truncated sequence.
+func printablePrefix(s string, limit int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		w := utf8.RuneLen(r)
+		if w < 0 {
+			w = 1
+		}
+		if n+w > limit {
+			break
+		}
+		n += w
+		if isPrintableInReport(r) {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune(utf8.RuneError)
 	}
-	return string(b)
+	return b.String()
+}
+
+// isPrintableInReport keeps the whitespace that carries meaning when eyeballing
+// a config file and rejects the rest of the non-graphic range.
+func isPrintableInReport(r rune) bool {
+	switch r {
+	case '\n', '\t':
+		return true
+	}
+	return unicode.IsPrint(r)
 }
 
 // hashBytes is sha256 lowercase hex over raw bytes, no normalization — the one

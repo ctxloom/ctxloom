@@ -2,10 +2,13 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/doccapture"
 )
 
 func TestLoadCaptures_GroupsByScenarioName(t *testing.T) {
@@ -69,4 +72,27 @@ func TestLoadCaptures_InvalidJSONErrors(t *testing.T) {
 
 	_, err := LoadCaptures(dir)
 	assert.Error(t, err)
+}
+
+// TestDocCaptureIsTheSharedContract pins that this package's DocCapture and
+// DocCaptureStep remain ALIASES of internal/shared/doccapture rather than
+// re-declared copies. The reader (this package) and the writer
+// (tests/acceptance/steps_doc_capture.go) sit on opposite sides of a process
+// boundary and cannot import each other, so the two struct sets were once
+// declared twice, byte-for-byte identical down to the json tags, held in sync
+// only by a comment demanding it. internal/shared is the one tree both a
+// tests/ package and a scripts/ package can import; re-declaring a local copy
+// here would silently re-open the drift.
+func TestDocCaptureIsTheSharedContract(t *testing.T) {
+	if got, want := reflect.TypeOf(DocCapture{}), reflect.TypeOf(doccapture.DocCapture{}); got != want {
+		t.Errorf("DocCapture is %v, not the shared %v — a local copy has been re-declared", got, want)
+	}
+	if got, want := reflect.TypeOf(DocCaptureStep{}), reflect.TypeOf(doccapture.DocCaptureStep{}); got != want {
+		t.Errorf("DocCaptureStep is %v, not the shared %v — a local copy has been re-declared", got, want)
+	}
+	// Compile-time half: assignment between two DISTINCT named struct types is
+	// illegal in Go even when their underlying types are identical, so these
+	// stop compiling the moment either name stops being an alias.
+	var _ doccapture.DocCapture = DocCapture{}
+	var _ doccapture.DocCaptureStep = DocCaptureStep{}
 }

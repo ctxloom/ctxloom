@@ -262,3 +262,62 @@ func TestExportRunnerMCPSocket(t *testing.T) {
 	require.Error(t, err, "a failed export must be reported, not dropped")
 	assert.Contains(t, err.Error(), coord.EnvMCPSocket)
 }
+
+// The three tests below are the characterization set for U037-F20's split of
+// standUpRunner into named concerns. Behaviour is unchanged by definition, so no
+// test can discriminate the refactor (template §4, case 2: pure complexity
+// reduction) — their job is to be green before AND after, covering every arm the
+// split moves that is reachable without a live coordinator.
+//
+// The arms deliberately NOT covered here, and why: dial-home failure,
+// EngineHost creation, and serveRunnerMCP failure all need a real coordinator
+// endpoint (coord.NewHome retries with backoff), which is integration territory,
+// not a unit gate. The two fail-loud decisions those arms guard are pinned
+// directly instead — runnerMustRefuseNoConfigReachBack and
+// exportRunnerMCPSocket, above.
+
+// TestStandUpRunner_NoReachBackIsAQuietNoOp: with no coordinator trio in the
+// environment there is nothing to dial or host, and that is a success — a
+// top-level `llm serve`, or a `llm host` launched by hand.
+func TestStandUpRunner_NoReachBackIsAQuietNoOp(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t)
+
+	cmd, _ := testCmd()
+	standup, err := standUpRunner(cmd, backends.NewMock(), "mock", "")
+
+	require.NoError(t, err)
+	require.NotNil(t, standup)
+	assert.Nil(t, standup.home, "nothing was dialed")
+	assert.Nil(t, standup.engineHost, "no delegated run is hosted")
+	assert.Nil(t, standup.endpointClose, "no runner-local MCP endpoint was stood up")
+	standup.teardown() // must be safe on an all-nil standup
+}
+
+// TestStandUpRunner_ConfiguresEvenWithoutAReachBack: the config-load and
+// backend-configure concern runs before the reach-back decision, so an
+// unconnected runner is still configured from its label.
+func TestStandUpRunner_ConfiguresEvenWithoutAReachBack(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t)
+
+	backend := &labelCapturingBackend{Mock: backends.NewMock()}
+	cmd, _ := testCmd()
+	_, err := standUpRunner(cmd, backend, "mock", "beta")
+
+	require.NoError(t, err)
+	require.NotNil(t, backend.got, "the backend is configured regardless of reach-back")
+}
+
+// TestStandUpRunner_UnconfigurableBackendIsNotAnError: a backend that does not
+// implement backends.Configurable takes the same path with no config applied.
+func TestStandUpRunner_UnconfigurableBackendIsNotAnError(t *testing.T) {
+	twoMockLabelProject(t)
+	testsupport.Isolate(t)
+
+	cmd, _ := testCmd()
+	standup, err := standUpRunner(cmd, backends.NewMock(), "mock", "beta")
+
+	require.NoError(t, err)
+	require.NotNil(t, standup)
+}

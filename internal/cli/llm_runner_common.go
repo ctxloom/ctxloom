@@ -44,25 +44,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	}
 	homeCfg := reach.home
 
-	cfg, cfgErr := config.Load()
-	if cfgErr != nil {
-		clidiag.Warn("ctxloom", "config load failed; serving %s unconfigured: %v", backendName, cfgErr)
-	}
-	if cfg != nil {
-		// U037-F03: config.Load downgrades an unreadable/malformed/schema-invalid
-		// config.yaml to warnings rather than an error — surface them (and
-		// record the fatal-class findings the RunE's failOnFindings gate below
-		// checks) so a corrupted config never silently launches an
-		// empty/partial-context engine. Mirrors GetConfig/GetConfigForUpdate
-		// (root.go) and runMCPServerSDK (mcp_server.go), the other
-		// process-owning entry points.
-		printConfigWarnings(os.Stderr, cfg.GetWarnings())
-		if bc := serveBackendConfig(cfg, backendName, label); bc != nil {
-			if c, ok := backend.(backends.Configurable); ok {
-				c.Configure(bc)
-			}
-		}
-	}
+	cfg, cfgErr := loadAndConfigureBackend(backend, backendName, label)
 
 	standup := &runnerStandup{}
 	if homeCfg.URL == "" || homeCfg.Token == "" {
@@ -84,42 +66,9 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	}
 	standup.home = h
 
-	switch {
-	case cfg != nil:
-		endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, reach.leaf, reach.cellWorkDir)
-		if merr == nil {
-			// The child's shim keys off CTXLOOM_MCP_SOCKET in THIS process's env
-			// (every engine spawn path builds the harness env over os.Environ), so
-			// a failed export leaves the endpoint standing and unreachable — the
-			// same end state as no endpoint at all, and treated as the same
-			// failure below rather than swallowed.
-			merr = exportRunnerMCPSocket(os.Setenv, endpoint.socketPath)
-			if merr != nil {
-				endpoint.close()
-			}
-		}
-		switch {
-		case merr != nil && standup.engineHost != nil:
-			// FAIL LOUD (icy-value): a runner that HOSTS a delegated run must
-			// not launch its engine without this endpoint — the child's shim
-			// keys entirely off CTXLOOM_MCP_SOCKET and would otherwise stand up
-			// a rogue local coordinator nobody reads.
-			h.Close(1, "")
-			return nil, fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", homeCfg.RunID, merr)
-		case merr != nil:
-			clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
-		default:
-			standup.endpointClose = endpoint.close
-		}
-	case runnerMustRefuseNoConfigReachBack(cfg, standup.engineHost):
-		// U037-F05: config.Load failed (cfg == nil), so there is no
-		// runner-local MCP to stand up or dial — exactly the same
-		// "hosted delegated run with no reach-back" condition the merr branch
-		// above refuses for. Hoist the identical fail-loud here instead of
-		// falling through to BIND LAST below and binding EngineHost with
-		// CTXLOOM_MCP_SOCKET never exported (the same end state, silently).
+	if err := attachRunnerMCP(standup, cfg, cfgErr, reach, h); err != nil {
 		h.Close(1, "")
-		return nil, fmt.Errorf("config load failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", homeCfg.RunID, cfgErr)
+		return nil, err
 	}
 	// BIND LAST — strictly after the MCP socket exists and its env is exported
 	// (icy-value): BindHome unblocks EngineHost.Handle, and StartRun is what
@@ -129,6 +78,76 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 		standup.engineHost.BindHome(h)
 	}
 	return standup, nil
+}
+
+// loadAndConfigureBackend loads this process's config and applies the labeled
+// LLM entry to the backend, returning both the config and the load error so the
+// caller can tell "degraded config" (non-nil cfg carrying warnings) from "no
+// config at all" (nil cfg) — a distinction the reach-back decisions below turn on.
+//
+// U037-F03: config.Load downgrades an unreadable/malformed/schema-invalid
+// config.yaml to warnings rather than an error, so the warnings are surfaced here
+// (which also records the fatal-class findings each RunE's failOnFindings gate
+// checks) — a corrupted config must never silently launch an empty/partial-context
+// engine. Mirrors GetConfig/GetConfigForUpdate (root.go) and runMCPServerSDK
+// (mcp_server.go), the other process-owning entry points.
+func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (*config.Config, error) {
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		clidiag.Warn("ctxloom", "config load failed; serving %s unconfigured: %v", backendName, cfgErr)
+	}
+	if cfg == nil {
+		return nil, cfgErr
+	}
+	printConfigWarnings(os.Stderr, cfg.GetWarnings())
+	if bc := serveBackendConfig(cfg, backendName, label); bc != nil {
+		if c, ok := backend.(backends.Configurable); ok {
+			c.Configure(bc)
+		}
+	}
+	return cfg, cfgErr
+}
+
+// attachRunnerMCP stands up the runner-local MCP endpoint and publishes its
+// socket into this process's environment, recording the endpoint's closer on
+// standup. It returns a non-nil error ONLY when the runner must refuse to launch
+// its engine: this runner hosts a delegated run (engineHost != nil) and has no
+// reach-back for it. The caller owns closing home on that error.
+//
+// The two refusal conditions are the same condition reached two ways, which is
+// why they answer identically (icy-value): the child's shim keys entirely off
+// CTXLOOM_MCP_SOCKET, so an endpoint that failed to come up, an endpoint that
+// could not be published, and a config too broken to build one from all leave the
+// engine reaching a rogue local coordinator nobody reads. Without a hosted run
+// there is nothing to refuse for and the shim's own local fallback is correct, so
+// it degrades with a warning.
+func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, reach coordinatorReachBack, h *coord.Home) error {
+	if cfg == nil {
+		if runnerMustRefuseNoConfigReachBack(cfg, standup.engineHost) {
+			return fmt.Errorf("config load failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", reach.home.RunID, cfgErr)
+		}
+		return nil
+	}
+	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, reach.leaf, reach.cellWorkDir)
+	if merr == nil {
+		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
+		// (every engine spawn path builds the harness env over os.Environ), so a
+		// failed export leaves the endpoint standing and unaddressable — the same
+		// end state as no endpoint at all, and treated as the same failure.
+		if merr = exportRunnerMCPSocket(os.Setenv, endpoint.socketPath); merr != nil {
+			endpoint.close()
+		}
+	}
+	switch {
+	case merr == nil:
+		standup.endpointClose = endpoint.close
+		return nil
+	case standup.engineHost != nil:
+		return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", reach.home.RunID, merr)
+	default:
+		clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
+		return nil
+	}
 }
 
 // coordinatorReachBack is the per-spawn coordinator credential set a runner

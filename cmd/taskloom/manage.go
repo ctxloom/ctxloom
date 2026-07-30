@@ -142,6 +142,18 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 		if existing == nil {
 			continue
 		}
+		// Only a config that actually carries the entry is rewritten. Without
+		// this, "removed MCP server from <engine>" is printed for a backend
+		// that never had it — a success message for a no-op — and the user's
+		// config is reformatted by a write that changes nothing.
+		installed, err := e.Installed(existing, engine.TaskloomName)
+		if err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		if !installed {
+			fmt.Fprintf(errOut, "taskloom: not registered with %s, nothing to remove\n  config: %s\n", e.Name(), path)
+			continue
+		}
 		cleaned, err := e.Uninstall(existing, engine.TaskloomName)
 		if err != nil {
 			return fmt.Errorf("%s: %w", e.Name(), err)

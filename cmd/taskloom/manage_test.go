@@ -193,3 +193,31 @@ func TestManageUninstall_RemovesKiroEntry(t *testing.T) {
 	servers := readServers(t, filepath.Join(proj, ".kiro", "settings", "mcp.json"))
 	assert.NotContains(t, servers, "taskloom")
 }
+
+// Uninstalling from a config that never carried the taskloom entry is a
+// no-op, and must not be reported as a removal — nor rewrite the user's
+// config file. "removed MCP server from claude-code" for a backend that was
+// never registered is a success message for work that did not happen, and the
+// rewrite reformats a file the user never asked us to touch.
+func TestManageUninstall_NotRegisteredIsNotReportedAsRemoved(t *testing.T) {
+	fakeHome(t)
+	proj := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents"), 0o755))
+	path := filepath.Join(proj, ".agents", "mcp_config.json")
+	// A real config carrying somebody else's server, deliberately formatted
+	// unlike our writer's output so a rewrite is visible byte-for-byte.
+	original := "{\n  \"mcpServers\": {\n    \"other\": {\"command\": \"x\"}\n  }\n}\n"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	var errOut bytes.Buffer
+	require.NoError(t, manageUninstall("antigravity", proj, false, &errOut))
+
+	assert.NotContains(t, errOut.String(), "removed MCP server",
+		"reporting a removal that never happened is a success message for a no-op")
+	assert.Contains(t, errOut.String(), "not registered",
+		"the honest empty state must be stated, not left silent")
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(got),
+		"a config with no taskloom entry must not be rewritten at all")
+}

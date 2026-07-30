@@ -119,18 +119,11 @@ type signCmdTarget struct {
 // resolve target(s), sign, report — is exercisable without a real ssh-agent
 // or git binary.
 func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discoverer, ref string, all bool, keyFlag string) error {
-	if all && ref != "" {
-		return fmt.Errorf("ctxloom sign: --all cannot be combined with a ref")
-	}
-	if !all && ref == "" {
-		return fmt.Errorf("ctxloom sign: a ref is required (or pass --all)")
+	if err := validateSignRequest(ref, all); err != nil {
+		return err
 	}
 
-	explicit := keyFlag
-	if explicit == "" && cfg != nil {
-		explicit = cfg.SignKey()
-	}
-	discovered, err := discoverer.Discover(cmd.Context(), explicit)
+	discovered, err := discoverer.Discover(cmd.Context(), resolveSignKeyOverride(cfg, keyFlag))
 	if err != nil {
 		return err
 	}
@@ -139,19 +132,8 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 	if err != nil {
 		return err
 	}
-	// U042-F26: this used to print "no local bundles to sign" and exit 0, so
-	// signing NOTHING looked exactly like having nothing to sign. `sign --all`
-	// is how a publishing repo signs its shipped content; a run that signed
-	// none of it is a failed run, and naming the directories searched is what
-	// turns "it printed something reassuring" into a diagnosable answer. (It is
-	// also the visible face of the GetBundleDirs-points-at-cache/bundles
-	// defect, which this exit code stops hiding.)
 	if len(targets) == 0 {
-		searched := cfg.GetBundleDirs()
-		if len(searched) == 0 {
-			return fmt.Errorf("sign --all: no local bundle directories exist to search (expected an authored %s tree)", paths.LocalBundlesPath(paths.AppDirName))
-		}
-		return fmt.Errorf("sign --all: no local bundles found in %s — nothing was signed", strings.Join(searched, ", "))
+		return noSignTargetsError(cfg)
 	}
 
 	result := signCmdResult{Signed: make([]signCmdTarget, 0, len(targets))}
@@ -179,6 +161,51 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 		}
 		return nil
 	})
+}
+
+// validateSignRequest rejects the two argument shapes `ctxloom sign` cannot
+// act on: a ref together with --all (two different answers to "sign what?"),
+// and neither of them (no answer at all). Split out of runSign, which was
+// carrying argument validation, key-override precedence, target resolution,
+// the empty-target diagnostic, the signing loop and rendering in one body
+// (U042-F10) — every guard here is a pre-flight check on the caller's argv,
+// answerable before any key or bundle is touched.
+func validateSignRequest(ref string, all bool) error {
+	if all && ref != "" {
+		return fmt.Errorf("ctxloom sign: --all cannot be combined with a ref")
+	}
+	if !all && ref == "" {
+		return fmt.Errorf("ctxloom sign: a ref is required (or pass --all)")
+	}
+	return nil
+}
+
+// resolveSignKeyOverride applies the explicit-key precedence rule (spec
+// §7A.4): --key wins, then the sign.key config value, then nothing — which
+// leaves agentkey.Discoverer to fall back to git config user.signingkey and a
+// sole ssh-agent identity. A nil cfg (no project loaded) contributes nothing
+// rather than panicking.
+func resolveSignKeyOverride(cfg *config.Config, keyFlag string) string {
+	if keyFlag != "" || cfg == nil {
+		return keyFlag
+	}
+	return cfg.SignKey()
+}
+
+// noSignTargetsError explains a `sign --all` that matched nothing. U042-F26:
+// this used to print "no local bundles to sign" and exit 0, so signing NOTHING
+// looked exactly like having nothing to sign. `sign --all` is how a publishing
+// repo signs its shipped content; a run that signed none of it is a failed
+// run, and naming the directories searched is what turns "it printed something
+// reassuring" into a diagnosable answer. (It is also the visible face of the
+// GetBundleDirs-points-at-cache/bundles defect, which this exit code stops
+// hiding.)
+func noSignTargetsError(cfg *config.Config) error {
+	searched := cfg.GetBundleDirs()
+	if len(searched) == 0 {
+		return fmt.Errorf("sign --all: no local bundle directories exist to search (expected an authored %s tree)", paths.LocalBundlesPath(paths.AppDirName))
+	}
+	return fmt.Errorf("sign --all: no local bundles found in %s — nothing was signed", strings.Join(searched, ", "))
 }
 
 // resolveSignTargets expands ref/--all into the SignTarget list to sign,

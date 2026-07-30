@@ -24,7 +24,7 @@ import (
 // Reproduces the real shape of the live failure (session d9c76e71-...,
 // harp wild-timid-snout): a session-index entry binds a backend-native
 // SessionID (a UUID) to a harp, but the harp's own transcript.jsonl was never
-// captured (claude-code is a RetiredScraperBackends entry, so there is no
+// captured (claude-code is a retired-scraper backend, so there is no
 // legacy leg to fall back to). recover_session is called with the bound
 // SessionID, exactly as handleRecoverSession does — not the harp directly —
 // so this exercises CanonicalFallbackSource's sessionID->harp reverse lookup,

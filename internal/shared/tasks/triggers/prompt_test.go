@@ -215,6 +215,37 @@ func TestWriteRepoState_RendersOnlyTheHalvesThatHaveContent(t *testing.T) {
 	}
 }
 
+// TestWriteRepoState_TruncationIsDeclared pins U053-F11. Both repo-state
+// lists are BOUNDED and cut alphabetically, so on a large repo the tail
+// simply disappears — and rendered without a word about it, a partial
+// inventory reads to the model as a complete one. An existence trigger over a
+// name in the missing tail then gets a confident, wrong not-fired. The
+// truncation must be stated in the same place the list is shown, exactly as
+// queryGitLogPath declares its own truncated commit window inconclusive.
+func TestWriteRepoState_TruncationIsDeclared(t *testing.T) {
+	t.Run("a truncated directory inventory says so", func(t *testing.T) {
+		var sb strings.Builder
+		writeRepoState(&sb, RepoState{Dirs: []string{"internal/a"}, DirsTruncated: true})
+		got := sb.String()
+		assert.Contains(t, got, "internal/a")
+		assert.Contains(t, strings.ToLower(got), "truncated",
+			"a bounded list rendered as complete is how absence of evidence becomes evidence of absence")
+		assert.Contains(t, strings.ToLower(got), "not evidence")
+	})
+
+	t.Run("a truncated working-changes list says so", func(t *testing.T) {
+		var sb strings.Builder
+		writeRepoState(&sb, RepoState{WorkingChanges: []string{"?? a.go"}, WorkingChangesTruncated: true})
+		assert.Contains(t, strings.ToLower(sb.String()), "truncated")
+	})
+
+	t.Run("a complete listing claims nothing about truncation", func(t *testing.T) {
+		var sb strings.Builder
+		writeRepoState(&sb, RepoState{Dirs: []string{"internal/a"}, WorkingChanges: []string{"?? a.go"}})
+		assert.NotContains(t, strings.ToLower(sb.String()), "truncated")
+	})
+}
+
 // describeQuery is how the model sees its own round-1 request echoed back in
 // round 2. A label that misnames the query it answers silently attributes
 // evidence to the wrong question.

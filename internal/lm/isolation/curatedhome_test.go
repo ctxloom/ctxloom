@@ -136,10 +136,39 @@ func TestProvisionCuratedHome_WarnsOnSymlinkFailure(t *testing.T) {
 
 // TestProvisionCuratedHome_AllowlistIsExactlyGitconfigAndSSH locks the
 // allowlist scope: extending it is a deliberate decision (a concrete
-// breakage), never speculative widening. netrc/npmrc/gnupg carry plaintext
-// tokens of their own and must NEVER be added implicitly.
+// breakage), never speculative widening.
 func TestProvisionCuratedHome_AllowlistIsExactlyGitconfigAndSSH(t *testing.T) {
 	assert.ElementsMatch(t, []string{".gitconfig", ".ssh"}, curatedHomeAllowlist)
+}
+
+// TestProvisionCuratedHome_ExclusionIsMinimalismNotContainment is U062-F13's
+// pin. The row read the allowlist as a confidentiality boundary and found it
+// self-contradictory: all of ~/.ssh (every private key) admitted, while
+// ~/.netrc is excluded for "carrying plaintext tokens". The premise is what is
+// wrong. A curated HOME is only ever the HOME env var of a HOST process running
+// as the SAME UID with no namespace (worktreeWorkspace.Env), so an excluded
+// dotfile stays readable by absolute path regardless — omitting it withholds
+// nothing, and admitting ~/.ssh grants nothing that was not already reachable.
+//
+// Measured here rather than argued, so that if a curated HOME ever DOES become
+// a real boundary (a namespace, a different uid), this test stops being true and
+// the allowlist's rationale has to be revisited deliberately.
+func TestProvisionCuratedHome_ExclusionIsMinimalismNotContainment(t *testing.T) {
+	hostHome := withFakeHome(t)
+	netrc := filepath.Join(hostHome, ".netrc")
+	require.NoError(t, os.WriteFile(netrc, []byte("machine example.com password hunter2\n"), 0o600))
+
+	home := filepath.Join(t.TempDir(), "curated-home")
+	require.NoError(t, provisionCuratedHome(home))
+
+	_, err := os.Lstat(filepath.Join(home, ".netrc"))
+	assert.True(t, os.IsNotExist(err), "an excluded dotfile is not linked into the curated HOME")
+
+	// …and yet it is still fully readable from this very process, which is the
+	// same uid the engine runs as. The exclusion contains nothing.
+	got, err := os.ReadFile(netrc)
+	require.NoError(t, err, "a same-uid host process reaches an excluded dotfile by absolute path")
+	assert.Contains(t, string(got), "hunter2")
 }
 
 // TestCuratedHomeSpecs_OpencodeNotRegistered pins the dispatch decision
@@ -339,4 +368,30 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 			assert.NotContains(t, buf.String(), "AUTHENTICATION IS NOT", "%s must not fire the curated-home partial-lever finding", tc.backend)
 		})
 	}
+}
+
+// TestIsolationRegistries_AreDisjoint is U062-F14's pin. The antigravity
+// measurement narrative — HOME relocates config/session state, the D-Bus keyring
+// escapes it, `agy -p` ignores the launch cwd — was written out in full in this
+// file's package doc AND retold in auth.go's credentialSeedSpecs doc, two
+// independently-driftable copies of one measurement. auth.go now states only the
+// DECISION and points here for the evidence.
+//
+// Nothing executable can be red on a comment, so what is pinned is the invariant
+// that corrected prose asserts: the two registries are mutually exclusive, and
+// antigravity is on the curated-HOME side of the split. PrepareWorkspace consults
+// curatedHomeSpecs FIRST, so an engine in both would have its scoped-var lever
+// silently shadowed by a blanket HOME override — the split is load-bearing, not
+// bookkeeping.
+func TestIsolationRegistries_AreDisjoint(t *testing.T) {
+	for name := range curatedHomeSpecs {
+		_, alsoSeeded := credentialSeedSpecs[name]
+		assert.False(t, alsoSeeded,
+			"%q is in BOTH registries; curatedHomeSpecs is consulted first and would shadow its scoped-var lever", name)
+	}
+
+	_, curated := curatedHomeSpecs["antigravity"]
+	assert.True(t, curated, "antigravity's only lever is HOME itself — it belongs to the curated-HOME registry")
+	_, seeded := credentialSeedSpecs["antigravity"]
+	assert.False(t, seeded, "antigravity has no scoped isolation var for credentials to be seeded into")
 }

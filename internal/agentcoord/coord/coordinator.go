@@ -35,6 +35,11 @@ const (
 	DeliveryNewTurn       = "new-turn"       // woke an idle child into a new turn
 	DeliveryQueued        = "queued"         // queued for the child's next turn boundary
 	DeliveryResumed       = "resumed"        // relaunched an ended session, the text as its next turn
+	// DeliveryRejected is the plane-2 arrival the mailbox route could never
+	// produce: the target was reached, understood the steer, and DECLINED it
+	// (paused, foremost). It exists so a refusal is never printed as a queue —
+	// the mailbox vocabulary had no way to say "it did not land".
+	DeliveryRejected = "rejected"
 )
 
 // Options configures a Coordinator.
@@ -172,6 +177,14 @@ type Coordinator struct {
 	// out at DECLINE (fix/approval-reconnect-race). Cleaned per-role at terminal
 	// (clearReqTrack); lazily initialized.
 	reqTrack map[reqKey]*inflightReq
+	// downTrack is reqTrack's mirror in the DOWN direction: outstanding
+	// coordinator→agent control requests, keyed by the same (role, request_id).
+	// It lives here rather than on runChan for the same reason — a request
+	// survives the channel it was queued on and is reissued on the role's next
+	// attach — and it is where the DRAIN SEAM's capability re-validation reads
+	// from (control.go's redrainDownRequests). Cleaned per-role at terminal
+	// (clearDownTrack); lazily initialized.
+	downTrack map[reqKey]*downReq
 	// onApprovalMailQueued, when set, is called by relayApproval immediately
 	// after the relay mail becomes OBSERVABLE to the parent. It is the test
 	// seam for the register-before-publish ordering (pulpy-whiff): the whole
@@ -818,35 +831,54 @@ func (c *Coordinator) AgentStop(caller Identity, harp string) (string, error) {
 	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", harp), nil
 }
 
-// Inject delivers user-typed text into a child by the same §6a
-// delivery-by-state rules as a parent agent_send, with sender identity
-// UserSender. INVARIANT (decision O3): the KindUserInjected mirror notice to
-// the target's parent fires on EVERY successful injection — a coordinator's
-// picture of its child never diverges without a trace.
+// Inject delivers user-typed text into a child. It is now a thin wrapper over
+// ControlSteer with a HUMAN initiator — same verb, one implementation — which
+// is the Wave-D2 convergence: an attached, migrated target that advertises
+// `steer` rides plane 2 and gets a correlated acknowledgement; everything else
+// takes §5.6's mailbox route, which is this method's ORIGINAL behaviour,
+// preserved as a strict superset so no target loses anything.
+//
+// The signature is deliberately unchanged (caller: run_terminal_ui.go): the
+// TUI's contract is a Delivery* mode string, so the plane-2 SteerResult is
+// mapped back onto that vocabulary here rather than pushed onto the caller.
+//
+// INVARIANT (decision O3), unchanged on both routes: the KindUserInjected
+// mirror notice to the target's parent fires on EVERY successful injection — a
+// coordinator's picture of its child never diverges without a trace.
 func (c *Coordinator) Inject(harp, text string) (string, error) {
-	var rec *RunRecord
-	c.runs.View(func() {
-		if r := c.runsF.currentRun(harp); r != nil {
-			cp := *r
-			rec = &cp
-		}
-	})
-	if rec == nil {
-		return "", fmt.Errorf("inject: %q is not a child of this coordinator: %w", harp, ErrNotInjectable)
-	}
-	c.audit("inject", UserSender, map[string]string{"harp": harp})
-	_, completed, err := c.queueMail(UserSender, harp, "", text)
+	out, err := c.ControlSteer(context.Background(), ControlInitiator{
+		Kind: agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN,
+	}, harp, text)
 	if err != nil {
+		// ErrNotInjectable is the TUI's typed refusal and must survive the
+		// indirection; ControlSteer already wraps it.
 		return "", err
 	}
-	if _, _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
-		clidiag.Warn("ctxloom", "inject %s: mirror notice: %v", harp, merr)
+	if out.Fallback != "" {
+		return out.Fallback, nil
 	}
-	if completed {
-		return DeliveryCompletedRecv, nil
+	return steerAppliedToDelivery(out.Applied), nil
+}
+
+// steerAppliedToDelivery maps a plane-2 acknowledgement onto the Delivery*
+// vocabulary the viewer speaks. APPLIED_IMMEDIATE means the target was IDLE and
+// a new turn started now — which is exactly DeliveryNewTurn — and
+// APPLIED_NEXT_TURN means it was mid-turn, which is DeliveryQueued. There is no
+// Delivery* value meaning "the target refused", so a rejection is reported as
+// the queue it is NOT: it maps to DeliveryQueued only when the runner actually
+// queued it, and REJECTED is surfaced as its own string so the TUI cannot
+// print a success for a refusal.
+func steerAppliedToDelivery(applied agentcoordpb.SteerResult_Applied) string {
+	switch applied {
+	case agentcoordpb.SteerResult_APPLIED_IMMEDIATE:
+		return DeliveryNewTurn
+	case agentcoordpb.SteerResult_APPLIED_NEXT_TURN:
+		return DeliveryQueued
+	case agentcoordpb.SteerResult_APPLIED_REJECTED:
+		return DeliveryRejected
+	default:
+		return DeliveryQueued
 	}
-	mode, _ := deliveryDisposition(c.driveQueued(harp))
-	return mode, nil
 }
 
 // injectDigestRunes bounds the mirror notice body: enough for the parent to

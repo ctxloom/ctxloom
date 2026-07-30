@@ -251,6 +251,38 @@ func TestOverlayContainerfile(t *testing.T) {
 	assert.Contains(t, noValidate, "RUN /usr/local/bin/ctxloom version\n", "the ctxloom gate always runs")
 }
 
+// TestBuildSources_OverrideWithoutValidateWarns pins U063-F22, the sibling of
+// U063-F02: the overlay Containerfile emits its client-validation `RUN` only
+// when the profile HAS a validate command, and the default (unprofiled)
+// profile has none. `ctxloom container build <unprofiled> --base-image X`
+// therefore shipped an agent image whose engine was never proven to exist —
+// it builds, tags, passes every ctxloom/companion gate, and fails at run time
+// with the engine binary simply absent. The rendering is correct (there is no
+// command to run); the silence about it was not.
+func TestBuildSources_OverrideWithoutValidateWarns(t *testing.T) {
+	p := containerProfileFor("mock")
+	require.Empty(t, p.validate, "precondition: the default profile has no client validate command")
+
+	buf := captureWarnings(t)
+	sources := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
+	require.Len(t, sources, 1, "the override still wins outright — this must stay a warning, not a refusal")
+	assert.NotContains(t, string(sources[0].containerfile), "RUN \n", "no empty validate RUN is rendered")
+
+	warning := buf.String()
+	assert.Contains(t, warning, "my-base:latest")
+	assert.Contains(t, warning, "client-validation", "the warning names the missing client-validation gate")
+}
+
+// TestBuildSources_OverrideWithValidateIsSilent: a profiled backend's override
+// DOES get its validate gate, so it must not draw the U063-F22 warning.
+func TestBuildSources_OverrideWithValidateIsSilent(t *testing.T) {
+	buf := captureWarnings(t)
+	sources := buildSources(containerProfileFor("claude-code"), buildSourcesOptions{baseOverride: "my-base:latest"})
+	require.Len(t, sources, 1)
+	assert.Contains(t, string(sources[0].containerfile), "RUN claude --version\n")
+	assert.Empty(t, buf.String(), "a profile that CAN validate its client warns about nothing")
+}
+
 // TestOverlayUserGate_FailsTheBuildWithAFixIt: a base that cannot grow the
 // identity machinery (the ctxloom user, and setpriv or gosu+usermod+groupmod)
 // must FAIL the build with a fix-it — the old all-`|| true` layer shipped an
@@ -694,6 +726,58 @@ func forceProvenance(t *testing.T) {
 	})
 }
 
+// clearProvenanceCache empties the process-global provenance memo WITHOUT
+// seeding it, so the next computation runs against whatever resolveSelfExe is
+// installed at that moment. forceProvenance's inverse: it exists because
+// seeding first and breaking resolveSelfExe afterwards builds a state
+// production can never reach (production resolves the digest lazily, through
+// the SAME seam the build path later uses), which is how an unreachable
+// branch can look covered.
+func clearProvenanceCache(t *testing.T) {
+	t.Helper()
+	provenanceOnce = sync.Once{}
+	provenanceCached = ""
+	t.Cleanup(func() {
+		provenanceOnce = sync.Once{}
+		provenanceCached = ""
+	})
+}
+
+// TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins U063-F23: the
+// staleness gate must not FAIL OPEN. When the wanted provenance digest cannot
+// be computed at all — an unresolvable host binary, an unreadable base
+// Containerfile — imageStale answers "not stale", and accepting that as
+// "current" let ANY present image, however old, satisfy a container request
+// with no warning and no finding. It also made the unbuildable-stale finding
+// (TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding) unreachable
+// in production: an unresolvable binary is exactly what empties the digest, so
+// the gate returned before that branch could ever run.
+func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
+	resetStrictness(t)
+	clearProvenanceCache(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-docker")
+	writeInspectOKBuildFailScript(t, script, `{"ctxloom.provenance":"whatever-was-baked"}`)
+
+	orig := resolveSelfExe
+	resolveSelfExe = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { resolveSelfExe = orig })
+
+	c := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-unverifiable-provenance-test:latest",
+		profile: containerProfile{engineInstall: []byte("RUN echo fake-install\n")},
+	}
+	require.NoError(t, c.ensureImage(context.Background()),
+		"an unverifiable image still launches — this must never take the container axis down")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1,
+		"a present image whose provenance cannot be computed must not pass silently as current")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].FixIt, "--degraded")
+}
+
 // TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins site 4: a PRESENT
 // but STALE image whose refresh build fails still LAUNCHES the stale image
 // (ensureImage returns nil — the container axis is never taken down), but in
@@ -850,4 +934,146 @@ func TestSelfLinuxExe_ResolvedELFOrAnError(t *testing.T) {
 	f, oerr := elf.Open(exe)
 	require.NoError(t, oerr, "the gate only passes an ELF")
 	require.NoError(t, f.Close())
+}
+
+// TestBuildAgentImage_Characterization covers BuildAgentImage's guard arms
+// before U063-F19's split: the mutually-exclusive base flags, an unresolvable
+// devcontainer, a backend with no local build recipe, and the no-runtime
+// refusal. Complexity reduction cannot make any test go red — behaviour is
+// unchanged by definition — so these must be green on both sides of it.
+func TestBuildAgentImage_Characterization(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("base image and base containerfile are mutually exclusive", func(t *testing.T) {
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{
+			BaseImage: "some/base:1", BaseContainerfile: "/tmp/Containerfile",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("an unresolvable project devcontainer is a hard error", func(t *testing.T) {
+		root := t.TempDir()
+		writeDevcontainer(t, root, `{ this is not json }`)
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{AppRoot: root})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "project devcontainer")
+	})
+
+	t.Run("a backend with no local build recipe is refused", func(t *testing.T) {
+		_, err := BuildAgentImage(ctx, "mock", ImageBuildOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no local build recipe")
+	})
+
+	t.Run("no reachable runtime is refused before any build", func(t *testing.T) {
+		orig := selectRuntimeProbe
+		selectRuntimeProbe = func(string) Runtime { return Host{} }
+		t.Cleanup(func() { selectRuntimeProbe = orig })
+
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no container runtime")
+	})
+
+	t.Run("every source failing returns the last error", func(t *testing.T) {
+		withFakeSelfExe(t)
+		dir := t.TempDir()
+		script := filepath.Join(dir, "fake-docker")
+		writeAbsentBuildFailScript(t, script)
+		orig := selectRuntimeProbe
+		selectRuntimeProbe = func(string) Runtime {
+			return fakeRuntime{name: "docker", binary: script, available: true}
+		}
+		t.Cleanup(func() { selectRuntimeProbe = orig })
+
+		_, err := BuildAgentImage(ctx, "claude-code", ImageBuildOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "build")
+	})
+}
+
+// TestEnsureImage_FlightKeyDiscriminatesByRuntime completes the pin on
+// U063-F06's subject, the ensureImage single-flight key. The claim text is
+// TRUNCATED in the findings index — a literal '|' in the quoted key
+// (`runtime.Binary() + "` … ) ends the table cell — so only the key's
+// composition is legible, with no defect stated. Read against the code the
+// visible fragment is simply accurate.
+//
+// TestEnsureImage_ParallelCallersShareOneBuild already pins the tag half of
+// that key (dedup for one tag; a different tag is its own flight). This pins
+// the RUNTIME half: the same tag under two different runtime binaries is two
+// images in two different daemons, so it must be two flights, never one
+// caller silently inheriting the other daemon's outcome.
+func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
+	withFakeSelfExe(t)
+	t.Setenv("PATH", t.TempDir())
+
+	dir := t.TempDir()
+	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	_, provenance, ok := composedIdentity(profile, "", nil, nil)
+	require.True(t, ok)
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
+
+	newRuntime := func(name string) (Runtime, string) {
+		log := filepath.Join(dir, name+".log")
+		script := filepath.Join(dir, "fake-"+name)
+		writeFakeRuntimeScript(t, script, log, t.TempDir(), labels)
+		return fakeRuntime{name: name, binary: script, available: true}, log
+	}
+
+	dockerRT, dockerLog := newRuntime("docker")
+	podmanRT, podmanLog := newRuntime("podman")
+
+	image := "ctxloom-agent-flightkey-test:latest"
+	require.NoError(t, (Container{runtime: dockerRT, image: image, profile: profile}).ensureImage(context.Background()))
+	require.NoError(t, (Container{runtime: podmanRT, image: image, profile: profile}).ensureImage(context.Background()))
+
+	assert.Len(t, buildInvocations(t, dockerLog), 2, "the first daemon builds base + agent stage")
+	assert.Len(t, buildInvocations(t, podmanLog), 2,
+		"the same tag in a DIFFERENT daemon is a different image and must build there too")
+}
+
+// TestBaseContentKeysBothTags PARTIALLY refutes U063-F10, which observed that
+// buildBaseImage reads the base Containerfile a SECOND time after
+// composedIdentity's read and concluded the tag is derived from a read the
+// rest of the build may not share. The two reads are real. The consequence is
+// not: BOTH tags are content-keyed off the same bytes, so a file that changes
+// between the reads cannot produce a wrongly-labelled image anyone launches —
+// the next resolution computes a DIFFERENT agent tag, which is simply absent
+// and therefore built, and a provenance mismatch forces exactly one rebuild.
+// The divergence is self-correcting by construction rather than latent.
+//
+// The genuine residue was that buildBaseImage re-implemented the read instead
+// of using baseStage.content(); that is now routed through the accessor. This
+// pins the property that makes the consequence false.
+func TestBaseContentKeysBothTags(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Containerfile.base")
+	require.NoError(t, os.WriteFile(path, []byte("FROM debian:13\n"), 0o644))
+
+	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+	stage := userBaseStage(path)
+
+	firstContent, err := stage.content()
+	require.NoError(t, err)
+	firstAgentTag, firstProvenance, ok := composedIdentity(profile, path, nil, nil)
+	require.True(t, ok)
+	firstBaseTag := baseImageTagFor(firstContent)
+
+	require.NoError(t, os.WriteFile(path, []byte("FROM debian:12\n"), 0o644))
+
+	secondContent, err := stage.content()
+	require.NoError(t, err)
+	secondAgentTag, secondProvenance, ok := composedIdentity(profile, path, nil, nil)
+	require.True(t, ok)
+
+	assert.NotEqual(t, firstBaseTag, baseImageTagFor(secondContent),
+		"the base tag tracks the base file's content")
+	assert.NotEqual(t, firstAgentTag, secondAgentTag,
+		"so does the composed agent tag — an edit lands on a fresh, absent tag rather than reusing a stale one")
+	if firstProvenance != "" {
+		assert.NotEqual(t, firstProvenance, secondProvenance,
+			"and the provenance label, so a mismatched image is flagged stale exactly once")
+	}
 }

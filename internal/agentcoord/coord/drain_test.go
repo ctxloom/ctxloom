@@ -34,19 +34,30 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
-	// Reach a live, journaled run: at least the run_started item must have
-	// landed before we manufacture a synthetic run_completed for the SAME
-	// (run_id, channel) — this is what makes the hook's injected event
-	// indistinguishable from a genuine late arrival.
-	require.Eventually(t, func() bool {
-		var seq uint64
-		c.mu.Lock()
-		if ch := c.chans[out.Harp]; ch != nil {
-			seq = ch.ackSeq
-		}
-		c.mu.Unlock()
-		return seq > 0
-	}, conformanceWait, 5*time.Millisecond, "the RunChannel must be live and have processed at least one event")
+	// Reach a live, journaled AND QUIESCENT run before manufacturing a
+	// synthetic run_completed for the SAME (run_id, channel) — quiescence is
+	// what makes the hook's injected event indistinguishable from a genuine
+	// late arrival AND what makes the seq it picks safe.
+	//
+	// This used to wait for `ackSeq > 0`, which the FIRST standup event
+	// (run_started, seq 1) satisfies while the SECOND (the engine's
+	// harness-session custom event, seq 2) is still in flight. The hook below
+	// then samples ackSeq, computes ackSeq+1, releases c.mu, and by the time
+	// handleAgentEvent re-takes it the real seq 2 has landed — so the
+	// injection is deduped as a duplicate (`seq <= ch.ackSeq`, runchannel.go),
+	// ch.completed never closes, the drain burns its whole 500ms window and
+	// the items fold holds zero run_completed. That is exactly the "expected
+	// 1, actual 0" at 0.53s this test produced on the merge path: not a slow
+	// condition — it costs ~0.05s loaded — but the fixture racing the run's
+	// own standup, with the budget merely hiding it.
+	//
+	// The journaled harness session id is the join: it is written from the
+	// LAST event standup emits. The scripted engine is parked on turnGate from
+	// its first turn onward and no emitter here is timer-driven, so once that
+	// fact is durable the channel is genuinely quiet and ackSeq+1 is a seq
+	// nothing else can claim.
+	require.Eventually(t, func() bool { return harnessSessionID(c, out.Harp) != "" }, conformanceWait, 5*time.Millisecond,
+		"the RunChannel must be live and have processed the whole of standup")
 
 	var credHash string
 	c.runs.View(func() {
@@ -61,6 +72,13 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	// item from inside it, exactly the "arrives during the drain window"
 	// shape the fix is built to absorb.
 	hookFired := make(chan struct{})
+	// injected records that the synthetic frame was actually TAKEN by the
+	// channel rather than deduped away. Written and read on the test's own
+	// goroutine: drainTerminalTail calls the hook synchronously, inside the
+	// handleRunExited call below. Without it, a fixture that loses its
+	// injection is indistinguishable from the production drop this test
+	// exists to catch — which is how the last occurrence cost a triage cycle.
+	var injected bool
 	c.drainHook = func(role string) {
 		defer close(hookFired)
 		if role != out.Harp {
@@ -68,9 +86,11 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 		}
 		c.mu.Lock()
 		ch := c.chans[role]
-		seq := ch.ackSeq + 1
 		c.mu.Unlock()
 		require.NotNil(t, ch)
+		c.mu.Lock()
+		seq := ch.ackSeq + 1
+		c.mu.Unlock()
 		c.handleAgentEvent(ch, &agentcoordpb.AgentEvent{
 			RunId: out.RunID,
 			Seq:   seq,
@@ -78,6 +98,13 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 				Result: &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED},
 			}},
 		})
+		// ch.completed closes exactly when a run_completed item is journaled
+		// on this channel, so it is the one unambiguous receipt.
+		select {
+		case <-ch.completed:
+			injected = true
+		default:
+		}
 	}
 
 	// The explicit RunExited path (CauseRunnerExit) — the ONLY cause the fix
@@ -95,6 +122,8 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	default:
 		t.Fatal("drainHook never fired — terminateRun did not reach the D4 drain wait for CauseRunnerExit")
 	}
+	require.True(t, injected,
+		"the fixture's synthetic run_completed was deduped by the channel watermark, so this run never posed the question the test asks — a fixture fault, NOT the C1 drop")
 
 	var counts map[string]int
 	c.items.View(func() { counts = c.itemsF.countsFor(out.RunID) })

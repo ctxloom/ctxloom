@@ -1552,6 +1552,10 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// surviving (runchannel.go); drop this harp's at terminal so they don't
 	// accumulate across the process's lifetime.
 	c.clearReqTrack(rec.Harp)
+	// The DOWN direction's outstanding requests are settled, not merely
+	// dropped: their callers are blocked on an answer this run will never
+	// give, and the terminal is the fact that decides it.
+	c.clearDownTrack(rec.Harp)
 
 	// D4 (damp-pupil 1): drain BEFORE anything below that can tear the
 	// RunChannel's underlying connection down — closeFn (engine.Kill) closes

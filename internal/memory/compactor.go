@@ -177,14 +177,14 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		// degrades to the legacy-only reader rather than failing compaction
 		// outright; distillation must never block on the canonical layer.
 		//
-		// Tough-cloud S5: config.Backend may be a pb.RetiredScraperBackends entry
+		// Tough-cloud S5: config.Backend may be a retired-scraper backend
 		// (codex/kiro/antigravity/claude-code — scraper deleted outright). Such a
 		// backend's plugin-side History() is now nil, so `reader` used as the
 		// legacy leg would only ever error; pass nil instead so
 		// CanonicalFallbackSource serves canonical-only and never makes that
 		// doomed round trip.
 		var legacy pb.SessionSource
-		if !pb.RetiredScraperBackends[config.Backend] {
+		if !pb.IsRetiredScraperBackend(config.Backend) {
 			legacy = reader
 		}
 		if store, sErr := sessions.Open(""); sErr == nil {

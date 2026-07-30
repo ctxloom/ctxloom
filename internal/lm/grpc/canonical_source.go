@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -30,7 +31,7 @@ import (
 // tough-cloud S5: the four broken per-engine scrapers (codex, kiro,
 // antigravity, claude-code) were DELETED outright (the user's explicit
 // decision — not demoted to a fixture-pinned importer, §4c/§4d of the
-// tough-cloud plan). RetiredScraperBackends names them. A caller building a
+// tough-cloud plan). retiredScraperBackends names them. A caller building a
 // source for one of those backends passes legacy=nil: canonical capture is
 // the ONLY source, matching the delete decision (no legacy leg to ever fall
 // back to, since there is no reader left to fall back onto). opencode is
@@ -38,7 +39,7 @@ import (
 // (internal/opencode/capabilities.go) is correct and stays wired as the
 // fallback leg.
 
-// RetiredScraperBackends names the backends whose legacy per-engine
+// retiredScraperBackends names the backends whose legacy per-engine
 // SessionHistory scraper was removed in tough-cloud S5 (proven broken:
 // lived-zone's codex envelope-vs-flat parse, tall-grab's claude
 // wrong-filename / kiro v1-vs-v2-sqlite / antigravity global-store mis-key).
@@ -47,11 +48,33 @@ import (
 // for it must not construct a legacy leg at all (there is nothing there to
 // ask). Every other backend (opencode's native reader, acp's inert
 // not-yet-supported stub, any future backend) keeps its legacy leg.
-var RetiredScraperBackends = map[string]bool{
+//
+// Unexported: a roster is data this package owns, and an exported map is
+// writable by every importer. Reach it through IsRetiredScraperBackend or
+// RetiredScraperBackendNames — the same shape the sibling engine rosters use
+// (operations.VendorImportEngineNames, isolation.ComposableEngines).
+var retiredScraperBackends = map[string]bool{
 	"codex":       true,
 	"kiro":        true,
 	"antigravity": true,
 	"claude-code": true,
+}
+
+// IsRetiredScraperBackend reports whether backendName lost its legacy scraper
+// in S5, i.e. whether a SessionSource for it must be built with legacy=nil.
+func IsRetiredScraperBackend(backendName string) bool {
+	return retiredScraperBackends[backendName]
+}
+
+// RetiredScraperBackendNames returns the roster, sorted, as a fresh slice the
+// caller may keep or reorder without reaching this package's own copy.
+func RetiredScraperBackendNames() []string {
+	names := make([]string, 0, len(retiredScraperBackends))
+	for name := range retiredScraperBackends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // CanonicalFallbackSource wraps a legacy SessionSource with canonical-first
@@ -61,7 +84,7 @@ var RetiredScraperBackends = map[string]bool{
 // codebase — can still be checked against the canonical store, which is
 // harp-keyed.
 //
-// legacy may be nil (S5): for a RetiredScraperBackends entry there is no
+// legacy may be nil (S5): for a retired-scraper backend there is no
 // legacy reader to fall back to at all, so every method serves canonical-only
 // and degrades to canonical's own "not found"/"empty" contract instead of
 // ever dereferencing legacy.
@@ -76,7 +99,7 @@ var _ SessionSource = (*CanonicalFallbackSource)(nil)
 // NewCanonicalFallbackSource returns a CanonicalFallbackSource scoped to
 // workDir (the project the canonical enumeration/CurrentSession is limited
 // to, matching legacy's own self-situated project scoping). Pass legacy=nil
-// for a RetiredScraperBackends entry (S5) — canonical becomes the sole
+// for a retired-scraper backend (S5) — canonical becomes the sole
 // source, never falling back.
 func NewCanonicalFallbackSource(legacy SessionSource, workDir string, store sessions.Store) *CanonicalFallbackSource {
 	return &CanonicalFallbackSource{
@@ -110,7 +133,7 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 // backend-native session id, see below — and prefers the canonical
 // transcript when one is captured; otherwise falls back to the legacy source
 // keyed directly by id, unchanged from pre-S4 behavior. When legacy is nil
-// (S5, a RetiredScraperBackends entry) there is nothing to fall back to: no
+// (S5, a retired-scraper backend) there is nothing to fall back to: no
 // canonical transcript for a resolvable harp, or an unresolvable id, is a
 // genuine "no session" rather than a scrape attempt.
 //
@@ -128,11 +151,21 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 // and changes nothing about which session an already-working call resolves
 // to.
 func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*agent.Session, error) {
-	if sess, err := f.canonical.GetSession(ctx, id); err == nil {
+	sess, firstErr := f.canonical.GetSession(ctx, id)
+	if firstErr == nil {
 		return sess, nil
 	}
 
+	// "This harp captured no transcript" is the selection rule saying "try the
+	// other leg", not a failure. Any OTHER canonical error — corrupt, truncated,
+	// a schema this build refuses to guess at — is a real one, and reporting it
+	// as absence tells the user to stop looking for a transcript that is right
+	// there on disk.
 	var lastErr error
+	var uncaptured *transcript.NoCanonicalTranscriptError
+	if !errors.As(firstErr, &uncaptured) {
+		lastErr = firstErr
+	}
 	if harp := f.harpForSessionID(id); harp != "" {
 		sess, err := f.canonical.GetSession(ctx, harp)
 		if err == nil {
@@ -185,7 +218,7 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 	canonMetas, canonErr := f.canonical.ListSessions(ctx)
 
 	if f.legacy == nil {
-		// No legacy leg to fall back to (RetiredScraperBackends: codex, kiro,
+		// No legacy leg to fall back to (retired scrapers: codex, kiro,
 		// antigravity, claude-code): a failed canonical read is the WHOLE
 		// listing's failure, not "zero sessions" (U059-F03). Discarding canonErr
 		// here used to report a confident empty list indistinguishable from a
@@ -199,11 +232,24 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 		return canonMetas, nil
 	}
 
+	// One index read for the whole dedup set, not one per canonical session:
+	// every Find re-reads and re-parses the entire index file, so the per-session
+	// lookup made the cost of a listing grow with the size of the project for
+	// data a single read already carries. An unreadable index simply covers
+	// nothing, exactly as a failing Find did.
 	covered := make(map[string]bool, len(canonMetas))
-	if f.store != nil {
-		for _, m := range canonMetas {
-			if entry, _ := f.store.Find(m.ID); entry != nil && entry.SessionID != "" {
-				covered[entry.SessionID] = true
+	if f.store != nil && len(canonMetas) > 0 {
+		if idx, err := f.store.Load(); err == nil {
+			sessionIDByHarp := make(map[string]string, len(idx.Sessions))
+			for _, e := range idx.Sessions {
+				if e.SessionID != "" {
+					sessionIDByHarp[e.HarpName] = e.SessionID
+				}
+			}
+			for _, m := range canonMetas {
+				if sessionID := sessionIDByHarp[m.ID]; sessionID != "" {
+					covered[sessionID] = true
+				}
 			}
 		}
 	}

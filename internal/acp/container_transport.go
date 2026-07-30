@@ -107,13 +107,6 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("acp: reach-back for %q: %w", engine, err)
 	}
-	// The chat's own model/session env (envOverlay's product, already curated —
-	// never the full host os.Environ(): the container gets a fresh, minimal
-	// env by design, unlike spawnHostTransport's os.Environ() passthrough).
-	for k, v := range env {
-		extraEnv = append(extraEnv, k+"="+v)
-	}
-
 	spec, err := pol.ExecSpec(ws, command, extraEnv, extraMounts)
 	if err != nil {
 		if reachBackClose != nil {
@@ -123,7 +116,14 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		return nil, fmt.Errorf("acp: container isolation for %q: %w", engine, err)
 	}
 
-	ac, err := isolation.RunAttached(ctx, rt, spec)
+	// The chat's own model/session env (envOverlay's product, already curated —
+	// never the full host os.Environ(): the container gets a fresh, minimal env
+	// by design, unlike spawnHostTransport's os.Environ() passthrough) rides
+	// RunAttached's value-carrying channel, so each key crosses as a bare-name
+	// `-e NAME` and its VALUE stays off the world-readable `run` argv. This map
+	// is caller-supplied and its contents are not ours to vet, so it never goes
+	// through spec.Env's KEY=VAL form.
+	ac, err := isolation.RunAttached(ctx, rt, spec, env)
 	if err != nil {
 		if reachBackClose != nil {
 			_ = reachBackClose()

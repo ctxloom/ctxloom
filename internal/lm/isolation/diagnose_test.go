@@ -136,3 +136,52 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 		assert.Equal(t, "ok", d.SharedFS)
 	})
 }
+
+// TestDiagnoseStaleness_NamesTheNotCheckedCases pins the in-scope half of
+// U063-F12: `ImageStale bool json:"image_stale,omitempty"` cannot distinguish
+// "not stale" from "not checked", and there are TWO ways to reach not-checked
+// — a user-owned isolation_images override (no build sources, so ctxloom never
+// inspects it) and an unresolvable expected provenance (the same fail-open
+// U063-F23 closed on the run path). Both used to report false with the report
+// saying nothing about it. The field's ambiguity is a JSON payload shape
+// question and is escalated separately; the guidance must at minimum SAY which
+// case produced the false.
+func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
+	profile := containerProfile{engineInstall: []byte("RUN echo fake-install\n")}
+
+	t.Run("user-owned override is never inspected", func(t *testing.T) {
+		c := Container{
+			runtime: fakeRuntime{name: "docker", binary: "true", available: true},
+			image:   "my-registry/my-kiro:v2",
+		}
+		d := &Diagnosis{ImagePresent: true}
+		diagnoseStaleness(context.Background(), c, "kiro", nil, nil, d)
+
+		assert.False(t, d.ImageStale)
+		require.NotEmpty(t, d.Guidance, "a never-inspected image must not report a bare false")
+		assert.Contains(t, strings.Join(d.Guidance, "\n"), "isolation_images")
+	})
+
+	t.Run("unresolvable provenance is not checked", func(t *testing.T) {
+		clearProvenanceCache(t)
+		orig := resolveSelfExe
+		resolveSelfExe = func() (string, error) { return "", errors.New("no linux ctxloom here") }
+		t.Cleanup(func() { resolveSelfExe = orig })
+
+		c := Container{
+			runtime: fakeRuntime{name: "docker", binary: "true", available: true},
+			image:   "ctxloom-agent-diagnose-unverifiable:latest",
+			profile: profile,
+		}
+		sources, devBase, _ := c.containerBuildSources("")
+		require.NotEmpty(t, sources, "precondition: a composable profile has build sources")
+
+		d := &Diagnosis{ImagePresent: true}
+		diagnoseStaleness(context.Background(), c, "kiro", sources, devBase, d)
+
+		assert.False(t, d.ImageStale)
+		require.NotEmpty(t, d.Guidance)
+		assert.Contains(t, strings.Join(d.Guidance, "\n"), "could not be checked",
+			"an unverifiable image must say so rather than read as up to date")
+	})
+}

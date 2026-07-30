@@ -27,9 +27,17 @@ type Diagnosis struct {
 	// exists locally (Diagnose never builds it).
 	Image        string `json:"image,omitempty"`
 	ImagePresent bool   `json:"image_present"`
-	// ImageStale is meaningful only when ImagePresent + locally buildable: the
-	// image's baked ctxloom/companion binaries no longer match the host's, so
-	// the next containerized run rebuilds it. Diagnose reports; it never builds.
+	// ImageStale is true only when staleness was CHECKED and came back stale:
+	// the image is present, locally buildable, and its baked ctxloom/companion
+	// binaries no longer match the host's, so the next containerized run
+	// rebuilds it. Diagnose reports; it never builds.
+	//
+	// A false is NOT the same as "verified up to date". Being a plain bool it
+	// cannot express the third state — a user-owned isolation_images override
+	// is never inspected, and an unresolvable expected provenance leaves
+	// nothing to compare against — and both of those report false. Read
+	// Guidance, which always names which case produced it; diagnoseStaleness
+	// is where that distinction is made.
 	ImageStale bool `json:"image_stale,omitempty"`
 	// SharedFS reports whether the daemon shares this process's filesystem:
 	// "ok" (marker probe passed), "mismatch: …" (probe failed — the
@@ -68,14 +76,7 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	}
 
 	if d.ImagePresent {
-		// Staleness is meaningful only for a locally-buildable image; a
-		// user-owned isolation_images override (no build sources) is run as-is
-		// and never flagged stale.
-		if len(sources) > 0 && imageStale(c.imageLabels(ctx), c.provenanceFor(devBase)) {
-			d.ImageStale = true
-			d.Guidance = append(d.Guidance,
-				fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries (or base Containerfile/devcontainer/engine-set config) than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
-		}
+		diagnoseStaleness(ctx, c, backend, sources, devBase, &d)
 		diagnoseProbe(ctx, rt, c.image, diagnoseProbeRoots(), &d)
 	} else {
 		diagnoseAdvisory(ctx, rt, &d)
@@ -83,6 +84,36 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 			fmt.Sprintf("agent image %s is not present; a containerized run builds it on first use (or run `ctxloom container build %s`)", c.image, backend))
 	}
 	return d
+}
+
+// diagnoseStaleness folds the present image's staleness verdict into the
+// diagnosis. Staleness is meaningful only for a locally-buildable image whose
+// EXPECTED provenance can actually be computed; a user-owned isolation_images
+// override is run as-is and never inspected, and an unresolvable host binary
+// or unreadable base Containerfile leaves nothing to compare against.
+//
+// ImageStale is a plain bool, so all three outcomes — stale, verified current,
+// and NOT CHECKED — collapse onto two values, and both not-checked cases read
+// as "false". Neither can be silent about it: the guidance names which case
+// produced the false, so "not stale" is never mistaken for "verified up to
+// date". Diagnose reports; it never builds.
+func diagnoseStaleness(ctx context.Context, c Container, backend string, sources []buildSource, devBase *baseStage, d *Diagnosis) {
+	if len(sources) == 0 {
+		d.Guidance = append(d.Guidance,
+			fmt.Sprintf("agent image %s is a user-owned override (isolation_images): ctxloom runs it as-is and never inspects or rebuilds it, so its staleness is NOT CHECKED here", c.image))
+		return
+	}
+	wantProvenance := c.provenanceFor(devBase)
+	if wantProvenance == "" {
+		d.Guidance = append(d.Guidance,
+			fmt.Sprintf("agent image %s: staleness could not be checked — the expected provenance is unresolvable on this host (the running ctxloom/companion binaries or the base Containerfile could not be read), so a containerized run cannot tell whether this image matches", c.image))
+		return
+	}
+	if imageStale(c.imageLabels(ctx), wantProvenance) {
+		d.ImageStale = true
+		d.Guidance = append(d.Guidance,
+			fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries (or base Containerfile/devcontainer/engine-set config) than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
+	}
 }
 
 // diagnoseProbeRoots is `ctxloom container check`'s best-effort mount-root

@@ -56,8 +56,41 @@ type Model struct {
 	injectHarp string // the explicit target, latched when the line opens
 	injectText string
 
-	status string
-	errMsg string
+	// The hint bar carries one line, chosen in this order: the last action's
+	// failure, the roster's own failure, then status. Each slot is owned by
+	// exactly one producer so that none of them outlives its subject:
+	// rosterErr is retired by the next successful fetch, and an action
+	// replaces both of its own slots at once.
+	status    string // the last action's outcome, or a roster-owned note
+	errMsg    string // the last action's failure
+	rosterErr string // the roster fetch's failure, while it persists
+}
+
+// The roster pane owns these two status lines. It refreshes every
+// rosterRefreshEvery, so it may only ever clear a line it wrote itself —
+// anything else it clears has a lifetime of at most that tick.
+const (
+	statusLoading    = "loading agents…"
+	statusNoSessions = "no observable sessions"
+)
+
+// reportOK and reportErr record an action's outcome. An action produces
+// exactly one outcome, so each writes BOTH slots: otherwise an earlier
+// failure outlives the success that superseded it and — since View prefers
+// errMsg — hides it.
+func (m *Model) reportOK(s string)  { m.status, m.errMsg = s, "" }
+func (m *Model) reportErr(s string) { m.status, m.errMsg = "", s }
+
+// hintNote picks the single line the hint bar carries.
+func (m Model) hintNote() string {
+	switch {
+	case m.errMsg != "":
+		return m.errMsg
+	case m.rosterErr != "":
+		return m.rosterErr
+	default:
+		return m.status
+	}
 }
 
 // Messages.
@@ -98,7 +131,7 @@ func NewModel(ctx context.Context, src Sources, geo termui.OverlayGeometry, pref
 		firstKey:  true,
 		follow:    true,
 		expanded:  map[int]bool{},
-		status:    "loading agents…",
+		status:    statusLoading,
 	}
 	m.vp = viewport.New(m.feedWidth(), m.contentHeight())
 	return m
@@ -166,7 +199,13 @@ func waitEventCmd(harp string, f *Feed) tea.Cmd {
 	}
 }
 
-// openFeedCmd cancels the current watch and opens the newly selected harp's.
+// openFeed cancels the current watch and opens the newly selected harp's.
+//
+// It mutates the receiver, so a caller must complete the call before the model
+// value it returns is taken. `return m, m.openFeed(...)` does not: Go orders
+// the function calls within a return statement, but not a plain operand
+// against them, so whether the returned Model is the one openFeed just reset
+// is left to the compiler. Bind the command to a variable first.
 func (m *Model) openFeed(harp string) tea.Cmd {
 	if m.feed != nil && m.feed.Cancel != nil {
 		m.feed.Cancel()
@@ -178,6 +217,9 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 	m.expanded = map[int]bool{}
 	m.cursor = 0
 	m.follow = true
+	// The pane's notes describe the feed being replaced ("feed ended", a
+	// watch error): they do not survive the switch.
+	m.reportOK("")
 	m.refreshFeed()
 	src, ctx := m.src, m.ctx
 	return func() tea.Msg {
@@ -189,93 +231,118 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 	}
 }
 
+// Update dispatches one message. Every arm's handling lives in its own
+// method: the dispatch stays readable as the message family grows, and each
+// arm can be reasoned about (and read) on its own.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.updateKey(msg)
-
 	case rosterMsg:
-		hadRows := len(m.rows) > 0
-		keep := ""
-		if hadRows && m.sel < len(m.rows) {
-			keep = m.rows[m.sel].Harp
-		}
-		m.rows = msg.rows
-		m.sel = 0
-		for i, r := range m.rows {
-			if r.Harp == keep {
-				m.sel = i
-				break
-			}
-		}
-		if len(m.rows) > 0 {
-			m.status = ""
-			if !hadRows {
-				return m, m.openFeed(m.rows[m.sel].Harp)
-			}
-		} else {
-			m.status = "no observable sessions"
-		}
-		return m, nil
-
+		return m.applyRoster(msg)
 	case rosterErrMsg:
-		m.errMsg = fmt.Sprintf("roster: %v", msg.err)
+		m.rosterErr = fmt.Sprintf("roster: %v", msg.err)
 		return m, nil
-
 	case rosterTickMsg:
 		return m, tea.Batch(m.fetchRosterCmd(), rosterTick())
-
 	case feedOpenedMsg:
-		if msg.harp != m.feedHarp {
-			// Stale open (selection moved on): release it.
-			if msg.feed.Cancel != nil {
-				msg.feed.Cancel()
-			}
-			return m, nil
-		}
-		m.feed = msg.feed
-		m.feedSource = msg.feed.Source
-		return m, waitEventCmd(msg.harp, msg.feed)
-
+		return m.applyFeedOpened(msg)
 	case feedErrMsg:
-		if msg.harp == m.feedHarp {
-			m.errMsg = fmt.Sprintf("feed %s: %v", msg.harp, msg.err)
-		}
-		return m, nil
-
+		return m.applyFeedErr(msg)
 	case feedEventMsg:
-		if msg.harp != m.feedHarp || m.feed == nil {
-			return m, nil
-		}
-		if add := itemsFromFeedEvent(msg.ev); len(add) > 0 {
-			m.items = append(m.items, add...)
-			if m.follow {
-				m.cursor = len(m.items) - 1
-			}
-			m.refreshFeed()
-		}
-		return m, waitEventCmd(msg.harp, m.feed)
-
+		return m.applyFeedEvent(msg)
 	case feedClosedMsg:
-		if msg.harp == m.feedHarp {
-			if msg.err != nil {
-				m.errMsg = fmt.Sprintf("feed ended: %v", msg.err)
-			} else {
-				m.status = "feed ended (agent exited)"
-			}
-			m.feed = nil
-		}
-		return m, nil
-
+		return m.applyFeedClosed(msg)
 	case injectResultMsg:
-		if msg.err != nil {
-			m.errMsg = fmt.Sprintf("inject %s: %v", msg.harp, msg.err)
-		} else {
-			m.status = fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode)
-			m.errMsg = ""
+		return m.applyInjectResult(msg)
+	}
+	return m, nil
+}
+
+func (m Model) applyFeedErr(msg feedErrMsg) (tea.Model, tea.Cmd) {
+	if msg.harp == m.feedHarp {
+		m.errMsg = fmt.Sprintf("feed %s: %v", msg.harp, msg.err)
+	}
+	return m, nil
+}
+
+func (m Model) applyInjectResult(msg injectResultMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.reportErr(fmt.Sprintf("inject %s: %v", msg.harp, msg.err))
+	} else {
+		m.reportOK(fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode))
+	}
+	return m, nil
+}
+
+// applyRoster adopts a refreshed roster, keeping the selection on the harp it
+// was on. The FIRST roster to arrive also opens the selection's feed.
+func (m Model) applyRoster(msg rosterMsg) (tea.Model, tea.Cmd) {
+	hadRows := len(m.rows) > 0
+	keep := ""
+	if hadRows && m.sel < len(m.rows) {
+		keep = m.rows[m.sel].Harp
+	}
+	m.rows = msg.rows
+	m.sel = 0
+	for i, r := range m.rows {
+		if r.Harp == keep {
+			m.sel = i
+			break
+		}
+	}
+	m.rosterErr = ""
+	if len(m.rows) == 0 {
+		m.status = statusNoSessions
+		return m, nil
+	}
+	if m.status == statusLoading || m.status == statusNoSessions {
+		m.status = ""
+	}
+	if hadRows {
+		return m, nil
+	}
+	cmd := m.openFeed(m.rows[m.sel].Harp)
+	return m, cmd
+}
+
+func (m Model) applyFeedOpened(msg feedOpenedMsg) (tea.Model, tea.Cmd) {
+	if msg.harp != m.feedHarp {
+		// Stale open (selection moved on): release it.
+		if msg.feed.Cancel != nil {
+			msg.feed.Cancel()
 		}
 		return m, nil
 	}
+	m.feed = msg.feed
+	m.feedSource = msg.feed.Source
+	return m, waitEventCmd(msg.harp, msg.feed)
+}
+
+func (m Model) applyFeedEvent(msg feedEventMsg) (tea.Model, tea.Cmd) {
+	if msg.harp != m.feedHarp || m.feed == nil {
+		return m, nil
+	}
+	if add := itemsFromFeedEvent(msg.ev); len(add) > 0 {
+		m.items = append(m.items, add...)
+		if m.follow {
+			m.cursor = len(m.items) - 1
+		}
+		m.refreshFeed()
+	}
+	return m, waitEventCmd(msg.harp, m.feed)
+}
+
+func (m Model) applyFeedClosed(msg feedClosedMsg) (tea.Model, tea.Cmd) {
+	if msg.harp != m.feedHarp {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.errMsg = fmt.Sprintf("feed ended: %v", msg.err)
+	} else {
+		m.status = "feed ended (agent exited)"
+	}
+	m.feed = nil
 	return m, nil
 }
 
@@ -358,18 +425,17 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // text mid-composition.
 func (m Model) openInject() (tea.Model, tea.Cmd) {
 	if m.feedHarp == "" {
-		m.status = "no agent selected to inject into"
+		m.reportOK("no agent selected to inject into")
 		return m, nil
 	}
 	if m.src.Inject == nil {
-		m.errMsg = "inject unavailable (no agent bus for this session)"
+		m.reportErr("inject unavailable (no agent bus for this session)")
 		return m, nil
 	}
 	m.injecting = true
 	m.injectHarp = m.feedHarp
 	m.injectText = ""
-	m.status = ""
-	m.errMsg = ""
+	m.reportOK("")
 	return m, nil
 }
 
@@ -432,7 +498,8 @@ func (m Model) moveDown() (tea.Model, tea.Cmd) {
 	if m.focus == focusRoster {
 		if m.sel < len(m.rows)-1 {
 			m.sel++
-			return m, m.openFeed(m.rows[m.sel].Harp)
+			cmd := m.openFeed(m.rows[m.sel].Harp)
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -447,7 +514,8 @@ func (m Model) moveUp() (tea.Model, tea.Cmd) {
 	if m.focus == focusRoster {
 		if m.sel > 0 {
 			m.sel--
-			return m, m.openFeed(m.rows[m.sel].Harp)
+			cmd := m.openFeed(m.rows[m.sel].Harp)
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -461,30 +529,30 @@ func (m Model) moveUp() (tea.Model, tea.Cmd) {
 
 func (m Model) export(kind string) (tea.Model, tea.Cmd) {
 	if m.feedHarp == "" || len(m.items) == 0 {
-		m.status = "nothing to export yet"
+		m.reportOK("nothing to export yet")
 		return m, nil
 	}
 	if m.src.ExportDir == nil {
-		m.errMsg = "export unavailable (no session dir)"
+		m.reportErr("export unavailable (no session dir)")
 		return m, nil
 	}
 	dir, err := m.src.ExportDir(m.feedHarp)
 	if err != nil {
-		m.errMsg = fmt.Sprintf("export: %v", err)
+		m.reportErr(fmt.Sprintf("export: %v", err))
 		return m, nil
 	}
 	path, err := exportTranscript(dir, m.feedHarp, kind, m.items, m.src.now())
 	if err != nil {
-		m.errMsg = fmt.Sprintf("export: %v", err)
+		m.reportErr(fmt.Sprintf("export: %v", err))
 		return m, nil
 	}
-	m.status = "saved " + path
+	m.reportOK("saved " + path)
 	return m, nil
 }
 
 func (m Model) copySelection() (tea.Model, tea.Cmd) {
 	if len(m.items) == 0 {
-		m.status = "nothing to copy yet"
+		m.reportOK("nothing to copy yet")
 		return m, nil
 	}
 	text := copyText(m.items, m.cursor, m.focus == focusFeed)
@@ -493,7 +561,7 @@ func (m Model) copySelection() (tea.Model, tea.Cmd) {
 	// success. The feed has items, but they rendered to nothing (a feed of
 	// pure viewer chrome), so there is nothing to copy — say so.
 	if text == "" {
-		m.status = "nothing to copy: the selection holds no transcript content"
+		m.reportOK("nothing to copy: the selection holds no transcript content")
 		return m, nil
 	}
 
@@ -576,64 +644,82 @@ var (
 	styleDim      = lipgloss.NewStyle().Faint(true)
 )
 
-// View renders exactly totalHeight lines: header, roster│feed content, hints.
+// View renders exactly totalHeight lines of at most geo.Cols cells: header,
+// roster│feed content, hints. The overlay paints over a live engine session
+// and the controller has cleared exactly that many rows for it, so an extra
+// line — or a line the terminal wraps because it is too wide — lands on a row
+// nothing will repaint. The budget therefore governs: the content rows take
+// what the header and hints leave, and both of those are dropped in turn
+// rather than allowed to overflow.
 func (m Model) View() string {
-	contentH := m.contentHeight()
+	total := m.totalHeight()
+	if total < 1 {
+		return ""
+	}
+	cols := m.geo.Cols
+	contentH := max(total-2, 0)
 	feedW := m.feedWidth()
 
-	title := "feed: —"
-	if m.feedHarp != "" {
-		r := m.selectedRow()
-		meta := r.Agent
-		if r.Engine != "" {
-			if meta != "" {
-				meta += "·"
-			}
-			meta += r.Engine
-		}
-		title = "feed: " + m.feedHarp
-		if meta != "" {
-			title += " (" + meta + ")"
-		}
-		if m.feedSource != "" {
-			title += " · " + m.feedSource
-		}
-		if m.follow {
-			title += " · ▼ follow"
-		}
-	}
-	header := padCell(" agents", rosterPaneWidth) + "│" + padCell(" "+title, feedW)
-
+	header := padCell(" agents", rosterPaneWidth) + "│" + padCell(" "+m.feedTitle(), feedW)
 	rosterLines := m.rosterLines(contentH)
 	feedLines := splitPad(m.vp.View(), contentH)
 
-	var b strings.Builder
-	b.WriteString(styleHeader.Render(header))
-	b.WriteByte('\n')
+	out := make([]string, 0, total)
+	out = append(out, styleHeader.Render(padCell(header, cols)))
 	for i := 0; i < contentH; i++ {
-		b.WriteString(padCell(rosterLines[i], rosterPaneWidth))
-		b.WriteString("│")
-		b.WriteString(padCell(feedLines[i], feedW))
-		b.WriteByte('\n')
+		row := padCell(rosterLines[i], rosterPaneWidth) + "│" + padCell(feedLines[i], feedW)
+		out = append(out, padCell(row, cols))
 	}
+	out = append(out, m.footerLine(cols))
+	// One row of budget buys the header; the hint line is what a two-row panel
+	// gives up last.
+	if len(out) > total {
+		out = out[:total]
+	}
+	return strings.Join(out, "\n")
+}
+
+// feedTitle names the feed under view and what is known about its agent.
+func (m Model) feedTitle() string {
+	if m.feedHarp == "" {
+		return "feed: —"
+	}
+	r := m.selectedRow()
+	meta := r.Agent
+	if r.Engine != "" {
+		if meta != "" {
+			meta += "·"
+		}
+		meta += r.Engine
+	}
+	title := "feed: " + m.feedHarp
+	if meta != "" {
+		title += " (" + meta + ")"
+	}
+	if m.feedSource != "" {
+		title += " · " + m.feedSource
+	}
+	if m.follow {
+		title += " · ▼ follow"
+	}
+	return title
+}
+
+// footerLine is the panel's bottom row: the inject input while it is open,
+// otherwise the key hints plus the current note.
+func (m Model) footerLine(cols int) string {
 	if m.injecting {
 		// The inject line replaces the hints while open: explicit target, the
 		// text so far, and its own key hints. Deliberately not dimmed — it is
 		// the focused input.
-		b.WriteString(padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", m.geo.Cols))
-		return b.String()
+		return padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", cols)
 	}
 	hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
 		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
-	note := m.status
-	if m.errMsg != "" {
-		note = m.errMsg
-	}
-	if note != "" {
+	if note := m.hintNote(); note != "" {
 		hints += "  ─ " + note
 	}
-	b.WriteString(styleDim.Render(padCell(hints, m.geo.Cols)))
-	return b.String()
+	return styleDim.Render(padCell(hints, cols))
 }
 
 func (m Model) selectedRow() RosterRow {
@@ -670,16 +756,36 @@ func (m Model) rosterLines(height int) []string {
 	return lines
 }
 
-// padCell rune-pads/truncates s to exactly w cells (single-width content).
+// padCell pads/truncates s to exactly w terminal COLUMNS. Columns, not runes:
+// the material framed here is engine transcript content, which carries
+// double-width runes, and lipgloss-styled roster rows, whose SGR escapes are
+// runes that occupy no column at all. Either one shears the pane divider off
+// its column when counted as runes.
 func padCell(s string, w int) string {
-	r := []rune(s)
-	if len(r) > w {
-		if w < 1 {
-			return ""
-		}
-		return string(r[:w-1]) + "…"
+	if w < 1 {
+		return ""
 	}
-	return s + strings.Repeat(" ", w-len(r))
+	if n := lipgloss.Width(s); n <= w {
+		return s + strings.Repeat(" ", w-n)
+	}
+	t := truncateCells(s, w-1) + "…"
+	return t + strings.Repeat(" ", w-lipgloss.Width(t))
+}
+
+// truncateCells returns the longest prefix of s occupying at most w columns.
+func truncateCells(s string, w int) string {
+	if w < 1 {
+		return ""
+	}
+	used := 0
+	for i, r := range s {
+		rw := lipgloss.Width(string(r))
+		if used+rw > w {
+			return s[:i]
+		}
+		used += rw
+	}
+	return s
 }
 
 func splitPad(s string, h int) []string {

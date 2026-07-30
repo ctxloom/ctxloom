@@ -96,3 +96,47 @@ func TestUnsupportedFormatErrorParity(t *testing.T) {
 		}
 	}
 }
+
+// TestFormatEnumerationsAgree pins that every place clifmt enumerates its
+// format set answers consistently for the SAME format. The set used to be
+// spelled out independently in the const block, Valid's switch, ParseFormat's
+// switch, Render's switch and Structured's switch, with nothing failing if one
+// were updated and another not. Green before the collapse onto a single table
+// and green after; red if any one of the five ever stops covering a format the
+// others cover.
+func TestFormatEnumerationsAgree(t *testing.T) {
+	formats := SupportedFormats()
+	if len(formats) == 0 {
+		t.Fatal("SupportedFormats() is empty")
+	}
+	structured := map[Format]bool{FormatJSON: true, FormatYAML: true, FormatTOML: true}
+
+	for _, f := range formats {
+		if !f.Valid() {
+			t.Errorf("%q is in SupportedFormats but Valid() says no", f)
+		}
+		got, err := ParseFormat(string(f))
+		if err != nil || got != f {
+			t.Errorf("ParseFormat(%q) = (%q, %v); want (%q, nil)", f, got, err, f)
+		}
+		if err := Render(io.Discard, simpleFixture{Name: "n", Count: 1}, f); err != nil {
+			t.Errorf("Render(%q) = %v; a supported format must dispatch", f, err)
+		}
+		if f.Structured() != structured[f] {
+			t.Errorf("%q.Structured() = %v, want %v", f, f.Structured(), structured[f])
+		}
+	}
+
+	if len(formats) != len(structured)+2 {
+		t.Errorf("SupportedFormats() = %v; this test's structured/human split covers %d+2 formats and must be updated", formats, len(structured))
+	}
+	if Format("bogus").Valid() || Format("bogus").Structured() {
+		t.Error("an unknown format must be neither valid nor structured")
+	}
+	for alias, want := range map[string]Format{"yml": FormatYAML, "txt": FormatText, "md": FormatMarkdown} {
+		got, err := ParseFormat(alias)
+		if err != nil || got != want {
+			t.Errorf("ParseFormat(%q) = (%q, %v); want (%q, nil)", alias, got, err, want)
+		}
+	}
+}

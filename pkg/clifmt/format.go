@@ -3,6 +3,7 @@ package clifmt
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -22,14 +23,85 @@ const (
 // matching on error strings, since the message includes the offending input.
 var ErrUnsupportedFormat = errors.New("clifmt: unsupported format")
 
-// Valid reports whether f is one of the five formats clifmt renders.
-func (f Format) Valid() bool {
-	switch f {
-	case FormatJSON, FormatYAML, FormatTOML, FormatText, FormatMarkdown:
-		return true
-	default:
-		return false
+// formatSpec is the single declaration of one output format: its canonical
+// name, the extra input spellings ParseFormat accepts for it, whether it is a
+// data-interchange format a script parses rather than one meant for a human
+// terminal, and the renderer Render dispatches to.
+type formatSpec struct {
+	format     Format
+	aliases    []string
+	structured bool
+	render     func(io.Writer, any) error
+}
+
+// formatTable is the ONE enumeration of clifmt's format set, in the canonical
+// order the formats are named to users. Valid, Structured, ParseFormat,
+// Render, SupportedFormats and UnsupportedFormatError all read it, so adding a
+// format is one entry here and none of them can be left behind. Previously
+// each kept its own parallel list and nothing failed when they disagreed.
+var formatTable = []formatSpec{
+	{format: FormatJSON, structured: true, render: renderJSON},
+	{format: FormatYAML, aliases: []string{"yml"}, structured: true, render: renderYAML},
+	{format: FormatTOML, structured: true, render: renderTOML},
+	{format: FormatText, aliases: []string{"txt"}, render: renderText},
+	{format: FormatMarkdown, aliases: []string{"md"}, render: renderMarkdown},
+}
+
+// formatByName maps every accepted input spelling — canonical names and
+// aliases alike — to its Format, derived from formatTable so ParseFormat
+// cannot know a format the rest of the package does not.
+var formatByName = func() map[string]Format {
+	m := make(map[string]Format, len(formatTable)*2)
+	for _, spec := range formatTable {
+		m[string(spec.format)] = spec.format
+		for _, a := range spec.aliases {
+			m[a] = spec.format
+		}
 	}
+	return m
+}()
+
+// specFor returns f's entry in formatTable, or false if f names no format.
+func specFor(f Format) (formatSpec, bool) {
+	for _, spec := range formatTable {
+		if spec.format == f {
+			return spec, true
+		}
+	}
+	return formatSpec{}, false
+}
+
+// SupportedFormats returns the formats clifmt renders, in the canonical order
+// they are named to users. Callers that need to enumerate the set - a
+// --format flag's help text, a table-driven test - read it here rather than
+// writing their own copy of the list.
+func SupportedFormats() []Format {
+	out := make([]Format, len(formatTable))
+	for i, spec := range formatTable {
+		out[i] = spec.format
+	}
+	return out
+}
+
+// UnsupportedFormatError builds the canonical error for input that names no
+// known format: the ErrUnsupportedFormat sentinel, the offending input, and
+// the supported list derived from SupportedFormats. Every producer of that
+// error uses this - clifmt's own ParseFormat and Render, and first-party CLIs
+// validating a Format they were handed - so the message cannot drift between
+// them and adding a format cannot leave one of them naming the old set.
+func UnsupportedFormatError(s string) error {
+	formats := SupportedFormats()
+	names := make([]string, len(formats))
+	for i, f := range formats {
+		names[i] = string(f)
+	}
+	return fmt.Errorf("%w: %q (supported: %s)", ErrUnsupportedFormat, s, strings.Join(names, ", "))
+}
+
+// Valid reports whether f is one of the formats clifmt renders.
+func (f Format) Valid() bool {
+	_, ok := specFor(f)
+	return ok
 }
 
 func (f Format) String() string {
@@ -43,12 +115,8 @@ func (f Format) String() string {
 // switch is the first one — key off this instead of hand-rolling their own
 // three-way OR.
 func (f Format) Structured() bool {
-	switch f {
-	case FormatJSON, FormatYAML, FormatTOML:
-		return true
-	default:
-		return false
-	}
+	spec, ok := specFor(f)
+	return ok && spec.structured
 }
 
 // ParseFormat maps a user-supplied string (e.g. a --format flag value) to a
@@ -56,18 +124,8 @@ func (f Format) Structured() bool {
 // input returns an error wrapping ErrUnsupportedFormat so callers can test
 // for it with errors.Is instead of matching strings.
 func ParseFormat(s string) (Format, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "json":
-		return FormatJSON, nil
-	case "yaml", "yml":
-		return FormatYAML, nil
-	case "toml":
-		return FormatTOML, nil
-	case "text", "txt":
-		return FormatText, nil
-	case "markdown", "md":
-		return FormatMarkdown, nil
-	default:
-		return "", fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", ErrUnsupportedFormat, s)
+	if f, ok := formatByName[strings.ToLower(strings.TrimSpace(s))]; ok {
+		return f, nil
 	}
+	return "", UnsupportedFormatError(s)
 }

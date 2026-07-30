@@ -91,10 +91,17 @@ func nextLevel(level int) int {
 	return level + 1
 }
 
-// writeMarkdownTable renders a Table as a GFM pipe table. Cell values are
-// escaped so an embedded "|" can't corrupt the table structure.
+// writeMarkdownTable renders a Table as a GFM pipe table. Header and cell
+// values alike are escaped so an embedded "|" can't corrupt the table
+// structure: a header carrying an unescaped pipe declares more columns than
+// the separator row below it, and GFM then stops treating the block as a
+// table at all.
 func writeMarkdownTable(w io.Writer, tbl *Table) error {
-	if _, err := fmt.Fprintf(w, "| %s |\n", strings.Join(tbl.Columns, " | ")); err != nil {
+	headers := make([]string, len(tbl.Columns))
+	for i, c := range tbl.Columns {
+		headers[i] = mdEscapeCell(c)
+	}
+	if _, err := fmt.Fprintf(w, "| %s |\n", strings.Join(headers, " | ")); err != nil {
 		return err
 	}
 	seps := make([]string, len(tbl.Columns))

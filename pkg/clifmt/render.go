@@ -26,18 +26,9 @@ func Render(w io.Writer, v any, f Format) error {
 		}
 	}
 
-	switch f {
-	case FormatJSON:
-		return renderJSON(w, v)
-	case FormatYAML:
-		return renderYAML(w, v)
-	case FormatTOML:
-		return renderTOML(w, v)
-	case FormatText:
-		return renderText(w, v)
-	case FormatMarkdown:
-		return renderMarkdown(w, v)
-	default:
-		return fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", ErrUnsupportedFormat, f)
+	spec, ok := specFor(f)
+	if !ok {
+		return UnsupportedFormatError(string(f))
 	}
+	return spec.render(w, v)
 }

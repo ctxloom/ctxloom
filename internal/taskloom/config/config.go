@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
@@ -228,17 +229,27 @@ func product(validator *schema.ConfigValidator) confload.Product {
 	}
 }
 
-// newValidator compiles taskloom's own embedded config JSON Schema
+// newValidator returns taskloom's own embedded config JSON Schema
 // (resources/schema/input/taskloom-config-schema.json, via resources.GetSchema
 // — see docsgen.go:12-18's doc for why the generator, and this validator,
-// walk the hand-authored schema rather than reflecting the Config struct).
-func newValidator() (*schema.ConfigValidator, error) {
+// walk the hand-authored schema rather than reflecting the Config struct),
+// compiled ONCE per process.
+//
+// The schema is a resource baked into the binary: it cannot change while the
+// process runs, so the compile has exactly one possible outcome and repeating
+// it buys nothing. It was repeated four times per command — loadRaw and Load
+// each compile it, and every command resolves the config twice — which is
+// pure waste on the startup path of a CLI that mostly does one small thing
+// and exits. The compiled validator is stateless and safe to share; both the
+// value and the error are cached, because a failing compile fails
+// identically every time.
+var newValidator = sync.OnceValues(func() (*schema.ConfigValidator, error) {
 	data, err := resources.GetSchema(SchemaResourceName)
 	if err != nil {
 		return nil, fmt.Errorf("load taskloom config schema: %w", err)
 	}
 	return schema.NewValidatorFromSchema(data)
-}
+})
 
 // homeConfigPath returns ~/.taskloom/config.yaml.
 func homeConfigPath() (string, error) {
@@ -281,6 +292,15 @@ func loadRaw(workDir string, fs *pflag.FlagSet) (map[string]any, error) {
 	var src confload.Sources
 	if hp, herr := homeConfigPath(); herr == nil {
 		src.HomePath = hp
+	} else {
+		// Losing a whole config LAYER is not the same class of event as a
+		// layer being absent, and it must not be silent: an existing
+		// ~/.taskloom/config.yaml stops applying, so taskloom can resolve a
+		// different homing mode — a different task store — than it did on the
+		// previous run. Degrade to project-only anyway, matching the
+		// one-bad-input-never-blocks-startup policy the override warning above
+		// applies.
+		clidiag.Warn("taskloom", "home config location unresolved (%v): %s/%s not read", herr, DirName, FileName)
 	}
 	src.ProjectPath = projectConfigPath(workDir)
 
@@ -328,7 +348,11 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 		return Config{}, fmt.Errorf("taskloom: load config schema: %w", verr)
 	}
 	if err := v.ValidateBytes(data); err != nil {
-		return cfg, fmt.Errorf("taskloom: config error: %w", err)
+		// Config{}, not cfg: on error this function yields no config at all,
+		// the same as every other error return above. Handing back the value
+		// the schema just rejected invites a caller that mishandles the error
+		// to act on content that failed validation.
+		return Config{}, fmt.Errorf("taskloom: config error: %w", err)
 	}
 	return cfg, nil
 }
@@ -356,7 +380,18 @@ func ResolveMode(workDir string, fs *pflag.FlagSet, flagValue string) (paths.Mod
 	if err != nil {
 		return "", err
 	}
-	value := cfg.Homing
+	return cfg.ResolveMode(flagValue)
+}
+
+// ResolveMode is the flag-vs-config half of the package-level ResolveMode,
+// split out so a caller that needs BOTH the homing mode and the tag-schema
+// can resolve them from ONE Load instead of layering the whole config twice
+// (cmd/taskloom's taskContextSingle is that caller, and it is on the startup
+// path of every command that touches a single project's store). It performs
+// no I/O of its own; see ResolveMode for the precedence chain and the
+// default.
+func (c Config) ResolveMode(flagValue string) (paths.Mode, error) {
+	value := c.Homing
 	if flagValue != "" {
 		value = flagValue
 	}

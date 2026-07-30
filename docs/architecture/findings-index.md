@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **949** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **960** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 36 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 72 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,085** |
+| `open` | no commit names this ID | **1,074** |
 
-**Totals: 2268 findings across 162 units — 949 resolved, 1,085 still open, 234 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 960 resolved, 1,074 still open, 234 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 260 | 621 | 14 | 24 | 80 |
-| LOW | 871 | 339 | 438 | 12 | 40 | 42 |
+| MED | 999 | 265 | 616 | 14 | 24 | 80 |
+| LOW | 871 | 345 | 432 | 12 | 40 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1118,12 +1118,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U035-F07 | open | **`config.go:40-72`, `format_coverage_test.go:256-259`** | SILENTNOOP | `config show`/`config get` **ignore the global `--format` flag entirely** — they always write YAML. `--format`'s own help text advertises "json, yaml, toml, text, or markdown" (`format.go:63`), so ... | U035.md |
 | U035-F08 | **RESOLVED** `6e3ab795` | `command_cmd.go:130-172` vs `bundle_transfer.go:12-44` | DUPLICATE | `command push` is a full second copy of `bundle push`: four parallel flag vars (`commandPushPR/Message/Sign/NoSign` vs `bundlePush*`), four duplicate `Flags()` registrations, and an identical arg-u... | U035.md |
 | U035-F09 | open | `doctor_cmd.go:206`, `:551`, `:390`, `bundle_view.go:116` | COMPLEXITY | Four functions in this unit exceed the project's declared cyclomatic gate: `doctorCheckDeps` CCN 14, `doctorCheckHooksTrust` 13, `renderBundleViewItem` 12, `gitIdentityDetail` 11. CI declares the g... | U035.md |
-| U036-F03 | open | `hook_inject_context.go:100-103, 211-220` | CORRECTNESS | When the context file is missing under a **chunked** hook set, `ChunkContext("")` returns `nil`, every part is out of range, and each `part>1` invocation still calls `agent.AwaitTurn`, which blocks... | U036.md |
-| U036-F05 | open | **`init.go:618, 659-666`** | CORRECTNESS | `--engine` is read then **discarded** on the re-init path: `engineFromExistingConfig` returns the config's engine whenever one is set, so `ctxloom init --engine codex` in an existing project silent... | U036.md |
-| U036-F06 | open | **`init.go:660, 970, 988, 1009, 1030`** | CORRECTNESS | Five post-scaffold steps use the **bare ambient** `config.Load()`, which discovers `.ctxloom` from the cwd (`config.go:1170 findAppDir`), not the `appDir` init just wrote. Running `ctxloom init --h... | U036.md |
+| U036-F03 | **RESOLVED** `dedc48bf` | `hook_inject_context.go:100-103, 211-220` | CORRECTNESS | When the context file is missing under a **chunked** hook set, `ChunkContext("")` returns `nil`, every part is out of range, and each `part>1` invocation still calls `agent.AwaitTurn`, which blocks... | U036.md |
+| U036-F05 | **RESOLVED** `840be5e3` | **`init.go:618, 659-666`** | CORRECTNESS | `--engine` is read then **discarded** on the re-init path: `engineFromExistingConfig` returns the config's engine whenever one is set, so `ctxloom init --engine codex` in an existing project silent... | U036.md |
+| U036-F06 | **RESOLVED** `c04784fa` | **`init.go:660, 970, 988, 1009, 1030`** | CORRECTNESS | Five post-scaffold steps use the **bare ambient** `config.Load()`, which discovers `.ctxloom` from the cwd (`config.go:1170 findAppDir`), not the `appDir` init just wrote. Running `ctxloom init --h... | U036.md |
 | U036-F08 | **RESOLVED** `c2351593` | **`init.go:150-151, 168`** | DEAD | `initPrompts.oldState` is written once and **never read**, giving the type a phantom terminal-restore responsibility it does not discharge. | U036.md |
-| U036-F09 | open | **`init.go:121-146; whole file`** | COHESION | `init.go` is 1160 lines spanning six unrelated concerns, and hosts four terminal predicates whose **only** consumers are outside this unit. | U036.md |
-| U036-F11 | open | **`init.go:493`** | COUPLING | Connascence of meaning: the "which handler needs an ack" rule is the string literal `"commit"`, duplicated across `dirtyTreeHandlerOptions[0].value`, the comparison, and `internal/operations/delega... | U036.md |
+| U036-F09 | **RESOLVED** `72a10f32` | **`init.go:121-146; whole file`** | COHESION | `init.go` is 1160 lines spanning six unrelated concerns, and hosts four terminal predicates whose **only** consumers are outside this unit. | U036.md |
+| U036-F11 | **RESOLVED** `3ddcc59f` | **`init.go:493`** | COUPLING | Connascence of meaning: the "which handler needs an ack" rule is the string literal `"commit"`, duplicated across `dirtyTreeHandlerOptions[0].value`, the comparison, and `internal/operations/delega... | U036.md |
 | U037-F06 | **RESOLVED** `e595df13` | `item_helpers.go:246-264` | SILENTNOOP | `fragment list --bundle nosuchbundle` prints `Fragments (0):` and exits 0 with no indication the bundle name was wrong. The empty-result branch tests the **unfiltered** slice. | U037.md |
 | U037-F07 | **RESOLVED** `a629f147` | `item_helpers.go:180, 306` | SILENTNOOP | Two switches over `ItemType` fall through to `return nil, nil` / `return "", "", nil` — success with zero payload — instead of erroring on an unrecognised kind. Unreachable today (only two constant... | U037.md |
 | U037-F08 | open | `llm_turn.go:104-138` | SILENTNOOP | Neither side of the RunStart handoff validates that the payload carries anything. `readRunStartHandoff`'s doc comment claims "*never a silent empty RunStart (which would run the engine context-free... | U037.md |
@@ -2122,17 +2122,17 @@ Full evidence and the suggested action for any row live in its source review at 
 | U035-F22 | open | `container_cmd.go:298`, `doctor_cmd.go:141` | CORRECTNESS | Both commands document "always exits 0" / "Diagnostic only: always exits 0", but both `return emit(...)`, which returns an error (→ exit 1) for an unparseable `--format`; `container check` addition... | U035.md |
 | U035-F23 | open | `coord_acp.go:18` | COUPLING | `acpCoordinator` satisfies `operations.EngineSessionCoordinator` purely structurally, with no compile-time assertion on either side. A signature change to `SessionEnv`/`WatchChildren` surfaces as a... | U035.md |
 | U035-F24 | **RESOLVED** `2402a8b7` | **`format.go:51-53`** | TRIVIAL | `resolveFormat` is a pure one-line pass-through to `cliemit.Resolve` with 3 production call sites and no added meaning — and the name is *already* independently redefined in `cmd/harp/root.go:113`,... | U035.md |
-| U036-F07 | open | **`init.go:1043`** | SILENTNOOP | `fmt.Printf("Applied hooks for: %v\n", result.Backends)` prints `Applied hooks for: []` when nothing was applied — a success message with an empty payload. | U036.md |
-| U036-F10 | open | `hook_stamp_plan.go:40-43` | ERRHANDLING | `parseEditPayload`'s error is discarded without a warning, breaking this file's own stated convention that hooks "warn and continue". | U036.md |
-| U036-F12 | open | **`init.go:196, 225-227`** | CORRECTNESS | `readCleanLine` drops every non-ASCII byte, so a UTF-8 repo name or path typed at an init prompt is silently mangled rather than rejected. | U036.md |
+| U036-F07 | **RESOLVED** `3bcd846d` | **`init.go:1043`** | SILENTNOOP | `fmt.Printf("Applied hooks for: %v\n", result.Backends)` prints `Applied hooks for: []` when nothing was applied — a success message with an empty payload. | U036.md |
+| U036-F10 | **RESOLVED** `453b58de` | `hook_stamp_plan.go:40-43` | ERRHANDLING | `parseEditPayload`'s error is discarded without a warning, breaking this file's own stated convention that hooks "warn and continue". | U036.md |
+| U036-F12 | **RESOLVED** `c4527cc6` | **`init.go:196, 225-227`** | CORRECTNESS | `readCleanLine` drops every non-ASCII byte, so a UTF-8 repo name or path typed at an init prompt is silently mangled rather than rejected. | U036.md |
 | U036-F13 | **RESOLVED** `52fb5d6c` | `hook_inject_context.go:27` | DEAD | `HookInput` is a one-use alias. | U036.md |
-| U036-F14 | open | **`init.go:353`** | CORRECTNESS | `append(primary, secondary...)` may write into `primary`'s backing array. Safe **only** because `getAvailableEngines` happens to return `cap==len` slices today; a `make([]string, 0, N)` refactor th... | U036.md |
+| U036-F14 | **RESOLVED** `4d5a2e4d` | **`init.go:353`** | CORRECTNESS | `append(primary, secondary...)` may write into `primary`'s backing array. Safe **only** because `getAvailableEngines` happens to return `cap==len` slices today; a `make([]string, 0, N)` refactor th... | U036.md |
 | U036-F15 | **RESOLVED** `3b27eef4` | **`init.go:511-516 vs agent.go:201-203`** | DUPLICATE | Two near-identical setup-prompt resolvers: `discoverySessionPrompt(cfg)` guards `cfg==nil`; `runSetupPromptCmd` inlines `GetConfig()` + `ResolveSetupPrompt`. Same intent, two bodies. | U036.md |
 | U036-F16 | **RESOLVED** `08611eba` | **`init.go:497`** | DEAD | Orphaned doc comment for a function that no longer exists: `// generateConfig creates a config.yaml with the selected engine and options.` followed by a blank line and an unrelated function. | U036.md |
 | U036-F17 | **RESOLVED** `0e5a5973` | **`init.go:112, 154, hook_inject_context.go:201`** | TRIVIAL | Three inline candidates. `bindInitFlags` has one caller and a **stale** rationale ("shared with `manage init`" — `manage_test.go:43` asserts `manage init` was deleted). `newInitPrompts` is a one-li... | U036.md |
 | U036-F18 | **RESOLVED** `5791eeeb` | `fragment.go:137-158, 172-203` | NOPAY | `fragment search` and `fragment push` are Deprecated shims that duplicate `search --type fragment` and `bundle push` — carrying ~55 lines of help text and 5 flags each. The project's standing rule ... | U036.md |
-| U036-F19 | open | `fragment.go:156` | COUPLING | Magic string `"fragment"` where the typed constant exists. | U036.md |
-| U036-F20 | open | `hook_inject_context.go:67-73` | ERRHANDLING | The panic recovery leaves `RunE`'s unnamed error result at `nil`, so a **panicking** hook exits 0. | U036.md |
+| U036-F19 | **RESOLVED** `5791eeeb` | `fragment.go:156` | COUPLING | Magic string `"fragment"` where the typed constant exists. | U036.md |
+| U036-F20 | **RESOLVED** `9b83ff35` | `hook_inject_context.go:67-73` | ERRHANDLING | The panic recovery leaves `RunE`'s unnamed error result at `nil`, so a **panicking** hook exits 0. | U036.md |
 | U037-F11 | open | `llm_default.go:76-82` | DUPLICATE | `isKnownLLM` restates the membership test of `operations.AvailableLLMNames`, which the very next line uses to build the error message. Two definitions of "known LLM" that must agree. | U037.md |
 | U037-F16 | **RESOLVED** `6a77d3ab` | `mcp_discovery.go:45` | DEAD | `runnerDiscoveryMarker.Harp` is written but never read anywhere in the repo, including tests. | U037.md |
 | U037-F21 | open | **`mcp.go:48-53, 59-77`** | CORRECTNESS | `mcpCmd` carefully sets `Args: cobra.NoArgs` with a comment explaining that otherwise a stale invocation "*would silently start a stdio MCP server that sits waiting on stdin*" — but `mcpServeCmd` (... | U037.md |

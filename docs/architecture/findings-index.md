@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,253** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 112 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 164 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,258** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 115 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 165 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **574** |
+| `open` | no commit names this ID | **565** |
 
-**Totals: 2268 findings across 162 units — 1,253 resolved, 574 still open, 441 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,258 resolved, 565 still open, 445 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 437 | 318 | 63 | 77 | 104 |
-| LOW | 871 | 459 | 244 | 34 | 79 | 55 |
+| MED | 999 | 440 | 313 | 65 | 77 | 104 |
+| LOW | 871 | 461 | 240 | 35 | 80 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -969,15 +969,15 @@ Full evidence and the suggested action for any row live in its source review at 
 
 | ID | Status | Loc | Category | Claim | Source |
 |---|---|---|---|---|---|
-| U001-F01 | open | **`engine.go:108-116`** | CORRECTNESS | `closeOnce` can panic with "send on closed channel": it `close(events)` while the `runHarnessEngine` goroutine may be blocked in `emit`'s `select { case events <- ev: case <-ctx.Done(): }`. `cancel... | U001.md |
-| U001-F03 | open | **`engine.go:150-257`** | COMPLEXITY / DUPLICATE | `runTurn` is CCN 34 (repo maximum) and two of its six branches are structural clones. `SentinelCancelMe` (152-169) and `SentinelRaceComplete` (170-195) differ only in one content string and the fin... | U001.md |
+| U001-F01 | **RESOLVED** `239532f1` | **`engine.go:108-116`** | CORRECTNESS | `closeOnce` can panic with "send on closed channel": it `close(events)` while the `runHarnessEngine` goroutine may be blocked in `emit`'s `select { case events <- ev: case <-ctx.Done(): }`. `cancel... | U001.md |
+| U001-F03 | **RESOLVED** `5f9f0913` | **`engine.go:150-257`** | COMPLEXITY / DUPLICATE | `runTurn` is CCN 34 (repo maximum) and two of its six branches are structural clones. `SentinelCancelMe` (152-169) and `SentinelRaceComplete` (170-195) differ only in one content string and the fin... | U001.md |
 | U002-F01 | open | **`main.go:38`, `main.go:42`** | ERRHANDLING | Both logger constructors have their error discarded into `_`, and both return `(nil, err)` on failure. A nil `logger` then flows into `zap.ReplaceGlobals(nil)` (line 44) — which installs a nil glob... | U002.md |
 | U002-F03 | **ESCALATED** `6c89e42f` | **`main.go:36-45`** | DUPLICATE | ctxloom carries **two** diagnostics systems, and this 10-line block is the entire reason the zap dependency exists in the shipped binary. Measured: `zap.L()`/`zap.S()` appears at **16** call sites ... | U002.md |
 | U003-F02 | **RESOLVED** `9a61c77e` | **`main.go:3-7` vs `main.go:19-23`** | CORRECTNESS | The package doc comment asserts a safety net that **does not exist**, and contradicts a comment 15 lines below it. It says: "The schemas are checked in and a CI step (`just gen-schemas-check`) rege... | U003.md |
 | U003-F03 | **ESCALATED** `18a8c154` | **`main.go:23` (whole unit)`** | NOPAY | **Nothing reads the generated schemas.** 70 files / 284 KB are generated on every container build and CI run and embedded into the shipped binary, and I can find no consumer. `resources.GetSchema` ... | U003.md |
-| U003-F04 | open | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
-| U003-F05 | open | **`main.go:30`** | CORRECTNESS | The generator never prunes, so a renamed or deleted result type leaves its old schema on disk forever — and, because `//go:embed all:schema` sweeps the directory, **ships it inside the binary as a ... | U003.md |
-| U004-F02 | open | **`root.go:94-99`, `root.go:61,65`** | CORRECTNESS | The CLI advertises validity ranges it never enforces, and the library it calls **silently clamps** rather than rejecting. `--components`'s help says "number of words (2-16)" and `--group`'s help en... | U004.md |
+| U003-F04 | **RESOLVED** `434fcd12` | **`main.go:34`** | CORRECTNESS | The success message counts **targets**, not files written, so it cannot detect the one failure `Generate` is silently capable of: two targets resolving to the same name overwrite each other on disk... | U003.md |
+| U003-F05 | **PARTIAL** `17fcbd1b` | **`main.go:30`** | CORRECTNESS | The generator never prunes, so a renamed or deleted result type leaves its old schema on disk forever — and, because `//go:embed all:schema` sweeps the directory, **ships it inside the binary as a ... | U003.md |
+| U004-F02 | **PARTIAL** `0335ffa9` | **`root.go:94-99`, `root.go:61,65`** | CORRECTNESS | The CLI advertises validity ranges it never enforces, and the library it calls **silently clamps** rather than rejecting. `--components`'s help says "number of words (2-16)" and `--group`'s help en... | U004.md |
 | U004-F03 | **RESOLVED** `31d9d8d0` | **`root.go:113-116`** | DUPLICATE | `resolveFormat` re-implements a shared helper that already exists, and the copy has drifted. `internal/shared/cliemit.Resolve` (`cliemit.go:42-50`) does the same job and additionally (a) treats an ... | U004.md |
 | U005-F03 | **RESOLVED** `bfd6abca` | **`manage.go:167-193`** | SILENTNOOP | `scaffoldConfig` writes the embedded defaults with no check that they contain any rules, and reports "wrote rules file". A defaults file that lost its rules installs a guard that gates nothing, lou... | U005.md |
 | U005-F05 | open | **`manage.go:40-41` + `evaluate.go:113-122`** | CORRECTNESS | `manage install --global` bakes a **relative** `--config .ltk/config.yaml` into the *user-level* settings, and a missing explicit `--config` fail-closes. Result: in every project on the machine wit... | U005.md |
@@ -1973,15 +1973,15 @@ Full evidence and the suggested action for any row live in its source review at 
 
 | ID | Status | Loc | Category | Claim | Source |
 |---|---|---|---|---|---|
-| U001-F02 | open | **`engine.go:108-116`** | CORRECTNESS | The `select`/`default` guard is a non-atomic imitation of `sync.Once`; two concurrent `Close()` calls can both observe `default` and both `close(closed)` → panic. Currently unexploited (`closeAllSe... | U001.md |
-| U001-F04 | open | **`engine.go:165,191,223,250,255` + `216-221`, `243-248`** | ERRHANDLING | `emit`'s "session died, stop scripting" return value is checked at 6 call sites and silently discarded at the other 6, with no stated rule for which. Worst case: at 216-221 a discarded `false` is f... | U001.md |
+| U001-F02 | **PARTIAL** `ec5b6608` | **`engine.go:108-116`** | CORRECTNESS | The `select`/`default` guard is a non-atomic imitation of `sync.Once`; two concurrent `Close()` calls can both observe `default` and both `close(closed)` → panic. Currently unexploited (`closeAllSe... | U001.md |
+| U001-F04 | **RESOLVED** `bff45f9a` | **`engine.go:165,191,223,250,255` + `216-221`, `243-248`** | ERRHANDLING | `emit`'s "session died, stop scripting" return value is checked at 6 call sites and silently discarded at the other 6, with no stated rule for which. Worst case: at 216-221 a discarded `false` is f... | U001.md |
 | U001-F05 | **RESOLVED** `c6b66a47` | **`engine.go:23,31,35,39,46,51`** | NOPAY | Six identifiers are **exported from a `main` package**, which is unimportable by construction, so the export can never be consumed. `rg -w` across the repo excluding `cmd/acpl1harness/` finds zero ... | U001.md |
-| U001-F06 | open | **`engine.go:86-127`** | CORRECTNESS | `openHarnessEngine` ignores `req.Cwd`, `req.Profile`, `req.MCPServers`, `req.FsUpstreamAddr` and `req.ForwardTerminal`, and leaves `Modes`, `Commands`, `LLMs`, `AssembleMode`, `WatchChildren` and `... | U001.md |
+| U001-F06 | **REFUTED** `235757cb` | **`engine.go:86-127`** | CORRECTNESS | `openHarnessEngine` ignores `req.Cwd`, `req.Profile`, `req.MCPServers`, `req.FsUpstreamAddr` and `req.ForwardTerminal`, and leaves `Modes`, `Commands`, `LLMs`, `AssembleMode`, `WatchChildren` and `... | U001.md |
 | U002-F02 | open | **`main.go:45`** | ERRHANDLING | `defer func() { _ = logger.Sync() }()` is unreachable on every error path. `internal/cli.Execute` calls `os.Exit(exitErr.Code)` at `root.go:165` and `os.Exit(1)` at `root.go:175`; `os.Exit` does no... | U002.md |
 | U002-F04 | open | **`main.go:21,31,37`** | COUPLING | Three env switches are matched with `== "1"` exactly. `CTXLOOM_VERBOSE=true`, `=yes`, or `=on` are silently ignored — no warning, no error, the user just gets no verbose output and no way to tell w... | U002.md |
 | U002-F05 | **REFUTED** (cross-package/product decision; see wave-2 report) | **`main.go:37-43` vs docs`** | NOPAY | `CTXLOOM_VERBOSE` under-delivers against its documentation to a degree the docs themselves have had to paper over three separate times. It only raises the level of a logger read by 16 call sites in... | U002.md |
 | U003-F06 | **RESOLVED** `5e857241` | **`main.go:23`** | COUPLING | `schemaDir` is a path relative to the process CWD, so correctness depends on the invocation site's directory — connascence of execution context that nothing checks. Run from a subdirectory, the too... | U003.md |
-| U004-F04 | open | **`root.go:114`** | ERRHANDLING | `raw, _ := cmd.Flags().GetString("format")` discards the lookup error. The only way it fires is a missing or wrongly-typed flag — a programming error — but the resulting user-visible message is `un... | U004.md |
+| U004-F04 | **RESOLVED** `31d9d8d0` | **`root.go:114`** | ERRHANDLING | `raw, _ := cmd.Flags().GetString("format")` discards the lookup error. The only way it fires is a missing or wrongly-typed flag — a programming error — but the resulting user-visible message is `un... | U004.md |
 | U005-F08 | open | `evaluate.go:79`, `check.go:64` | ERRHANDLING | Two swallowed errors, one of them inconsistent with the line above it. | U005.md |
 | U005-F12 | **RESOLVED** `24e4e92e` | `check.go:74-76` | TRIVIAL | Duplicate format validation: unreachable from the CLI. | U005.md |
 | U005-F13 | open | **`manage.go:196-202`** | CORRECTNESS | The `--force` backup is written at a hardcoded `0o644`, discarding the source's mode. A `0600` rules file is backed up world-readable. | U005.md |

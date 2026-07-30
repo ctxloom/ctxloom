@@ -44,7 +44,11 @@ type Target struct {
 // anywhere) — determinism here is worth having for its own sake, not because
 // of a gate that isn't real. An unrepresentable type is a hard error — a
 // silently dropped field would be a lying contract.
-func Generate(dir string, targets []Target) error {
+//
+// It returns the number of files it wrote, so a caller reports what was
+// generated rather than what it asked for; the two can only differ when
+// something went wrong, and the caller's own count could never disclose that.
+func Generate(dir string, targets []Target) (int, error) {
 	// U097-F02: zero targets used to succeed silently — MkdirAll, a no-op sort,
 	// a loop over nothing, return nil — and the caller printed "wrote 0
 	// schemas" and exited 0. Both target providers sit behind `//go:build
@@ -54,18 +58,25 @@ func Generate(dir string, targets []Target) error {
 	// schemas. A generator with nothing to generate is a broken build, not a
 	// finished one.
 	if len(targets) == 0 {
-		return errors.New("schemagen: no targets — refusing to report success having generated nothing")
+		return 0, errors.New("schemagen: no targets — refusing to report success having generated nothing")
+	}
+	// Two targets resolving to the same file base would write one $id with two
+	// different shapes, last writer wins — a lying contract, and one no count of
+	// TARGETS can ever disclose. Refuse before anything reaches disk.
+	if err := rejectNameCollisions(targets); err != nil {
+		return 0, err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	sort.Slice(targets, func(i, j int) bool { return name(targets[i]) < name(targets[j]) })
 
+	written := 0
 	for _, t := range targets {
 		n := name(t)
 		schema, err := jsonschema.ForType(t.Type, nil)
 		if err != nil {
-			return fmt.Errorf("reflect %s: %w", t.Type, err)
+			return written, fmt.Errorf("reflect %s: %w", t.Type, err)
 		}
 		schema.Schema = draft
 		schema.ID = idBase + n + ".json"
@@ -75,13 +86,28 @@ func Generate(dir string, targets []Target) error {
 
 		data, err := json.MarshalIndent(schema, "", "  ")
 		if err != nil {
-			return fmt.Errorf("marshal %s: %w", n, err)
+			return written, fmt.Errorf("marshal %s: %w", n, err)
 		}
 		data = append(data, '\n')
 		path := filepath.Join(dir, n+"-schema.json")
 		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", path, err)
+			return written, fmt.Errorf("write %s: %w", path, err)
 		}
+		written++
+	}
+	return written, nil
+}
+
+// rejectNameCollisions reports an error when two targets resolve to the same
+// schema name, naming both Go types so the clash is fixable without a bisect.
+func rejectNameCollisions(targets []Target) error {
+	seen := make(map[string]reflect.Type, len(targets))
+	for _, t := range targets {
+		n := name(t)
+		if prev, dup := seen[n]; dup {
+			return fmt.Errorf("schemagen: %s and %s both resolve to schema %q — one would silently overwrite the other on disk", prev, t.Type, n)
+		}
+		seen[n] = t.Type
 	}
 	return nil
 }

@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"reflect"
 	"strings"
@@ -320,4 +322,35 @@ func TestListBuiltinCommands_IncludesCtxloomInit(t *testing.T) {
 		}
 	}
 	t.Errorf("ListBuiltinCommands missing \"ctxloom-init\"; got %v", names)
+}
+
+// TestEmbeddedFS_ExcludesGeneratedSchemas pins the half of U003-F05 that the
+// deletion register already settled: `just gen-schemas` never prunes, so a
+// renamed or deleted result type leaves its old schema in resources/schema/gen
+// forever — but that directory is NOT embedded, so a stale file cannot reach a
+// shipped binary. It was `all:schema` once, and reverting to that pattern is
+// what re-opens the question; this test is red the moment it does.
+//
+// The schema/input assertion is not decoration: without it this would pass just
+// as happily if the whole schema tree stopped being embedded.
+func TestEmbeddedFS_ExcludesGeneratedSchemas(t *testing.T) {
+	sawInput := false
+	err := fs.WalkDir(resourcesFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(path, "schema/gen") {
+			return fmt.Errorf("generated schema %q is embedded in the binary: schema/gen is a gitignored build artifact nothing reads back", path)
+		}
+		if !d.IsDir() && strings.HasPrefix(path, "schema/input/") {
+			sawInput = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawInput {
+		t.Fatal("no schema/input file is embedded — the hand-authored schemas GetSchema resolves have gone missing")
+	}
 }

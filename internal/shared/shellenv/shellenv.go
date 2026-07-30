@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
@@ -33,6 +34,12 @@ import (
 // never stalls an engine launch — mirrors ctxloom-vscode's
 // RESOLVE_TIMEOUT_MS.
 const resolveTimeout = 10 * time.Second
+
+// probeStderrBudget bounds how much of the shell's stderr is retained and
+// then reported. Enough to carry the rc-file line that names the failure;
+// small enough that the error stays readable wherever it surfaces, since a
+// startup file can print a great deal on the way to failing.
+const probeStderrBudget = 512
 
 // execCommandContext is the seam tests override to avoid actually spawning a
 // shell — production points it at exec.CommandContext (the same pattern
@@ -161,8 +168,20 @@ func probeLoginShellPath() (string, error) {
 	cmd := execCommandContext(ctx, shell, loginShellArgs(shell, probe)...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
+	// The probe sources the user's REAL rc files, so a failure has almost
+	// always already been diagnosed by the shell itself — a syntax error with
+	// a file and line, an nvm/rbenv init that aborted, a missing command. An
+	// exit status alone cannot name which startup file broke a feature whose
+	// whole point is to be invisible when it works. Captured, not tee'd: this
+	// runs on every engine launch, so rc-file noise must not reach the
+	// operator's terminal on the paths that succeed.
+	stderr := stderrtail.New(probeStderrBudget)
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("login shell PATH probe (%s) failed: %w", shell, err)
+		if tail := stderr.Tail(); tail != "" {
+			return "", fmt.Errorf("login shell PATH probe (%s) failed: %w: %s", shell, err, textutil.TruncateBytes(tail, probeStderrBudget))
+		}
+		return "", fmt.Errorf("login shell PATH probe (%s) failed: %w (the shell wrote nothing to stderr)", shell, err)
 	}
 	return extractFencedPath(out.String())
 }

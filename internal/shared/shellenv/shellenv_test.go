@@ -300,3 +300,32 @@ func TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "definitely-does-not-exist-anywhere-xyz")
 }
+
+// TestProbeLoginShellPath_FailureCarriesTheShellsStderr pins U117-F02. The
+// probe runs the user's REAL login shell against their REAL rc files, so
+// when it fails the shell has almost always already said why -- "command not
+// found", a syntax error with a file and line, an nvm/rbenv init that
+// aborted. Discarding that stream leaves the operator an exit status and no
+// way to learn which of their startup files broke a feature whose entire
+// purpose is to be invisible when it works.
+func TestProbeLoginShellPath_FailureCarriesTheShellsStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell PATH resolution is POSIX-only")
+	}
+	orig := execCommandContext
+	execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "/bin/sh", "-c",
+			`printf 'zshrc:42: command not found: nvm\n' >&2; exit 127`)
+	}
+	resetCacheForTest()
+	t.Cleanup(func() {
+		execCommandContext = orig
+		resetCacheForTest()
+	})
+
+	_, err := probeLoginShellPath()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "zshrc:42: command not found: nvm",
+		"the shell's own diagnosis is the only thing that names the broken startup file")
+	assert.Contains(t, err.Error(), "127", "the exit status must survive alongside it")
+}

@@ -293,7 +293,11 @@ func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextRep
 	rel := filepath.Join(kiroDir, "steering", steeringFileName)
 
 	if content == "" {
-		if exists, _ := afero.Exists(fs, path); exists {
+		exists, err := afero.Exists(fs, path)
+		if err != nil {
+			return agent.ContextReport{}, fmt.Errorf("failed to check %s: %w", path, err)
+		}
+		if exists {
 			if err := fs.Remove(path); err != nil {
 				return agent.ContextReport{}, err
 			}
@@ -335,8 +339,13 @@ func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 func (w *KiroWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 
-	if exists, _ := afero.Exists(fs, w.agentPath(projectDir)); exists {
-		if err := fs.Remove(w.agentPath(projectDir)); err != nil {
+	agentPath := w.agentPath(projectDir)
+	exists, err := afero.Exists(fs, agentPath)
+	if err != nil {
+		return fmt.Errorf("failed to check %s: %w", agentPath, err)
+	}
+	if exists {
+		if err := fs.Remove(agentPath); err != nil {
 			return err
 		}
 	}

@@ -193,6 +193,42 @@ func TestKiroWriter_Status_UnreadableSteeringIsAnError(t *testing.T) {
 	require.Error(t, err, "an undeterminable steering file must not silently read as 'no managed hook'")
 }
 
+// TestKiroWriter_RemoveSettings_UndeterminableAgentFileIsAnError is the other
+// half of U055-F12's claim: RemoveSettings drops afero.Exists' error exactly as
+// Present drops os.Stat's, so an agent config that exists but cannot be stat'ed
+// is silently skipped and uninstall reports success with the ctxloom-owned file
+// still on disk — exit 0, success message, nothing removed.
+func TestKiroWriter_RemoveSettings_UndeterminableAgentFileIsAnError(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, "/proj/.kiro/agents/ctxloom.json", []byte("{}"), 0o644))
+	w := &KiroWriter{FS: &statFailFs{Fs: base, failOn: "/proj/.kiro/agents/ctxloom.json"}}
+
+	err := w.RemoveSettings("/proj")
+	require.Error(t, err, "uninstall must not report success over a file it could not even look at")
+
+	exists, _ := afero.Exists(base, "/proj/.kiro/agents/ctxloom.json")
+	assert.True(t, exists, "the file really is still there — the success report was the lie")
+}
+
+// TestKiroWriter_WriteContext_UndeterminableSteeringIsAnError covers the third
+// site of the same swallow, and the loudest one: writeSteering's empty-content
+// arm skipped the removal when Exists failed and STILL returned
+// ContextReport{Removed: ...}. It reported having removed a file it had not
+// touched — the payload lie, not merely a missing diagnostic.
+func TestKiroWriter_WriteContext_UndeterminableSteeringIsAnError(t *testing.T) {
+	base := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(base, "/proj/.kiro/steering/ctxloom-context.md", []byte("old"), 0o644))
+	w := &KiroWriter{FS: &statFailFs{Fs: base, failOn: "/proj/.kiro/steering/ctxloom-context.md"}}
+
+	report, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: "/proj"})
+	require.Error(t, err)
+	assert.Empty(t, report.Removed, "nothing may be reported removed when removal never happened")
+
+	data, rerr := afero.ReadFile(base, "/proj/.kiro/steering/ctxloom-context.md")
+	require.NoError(t, rerr)
+	assert.Equal(t, "old", string(data), "the previous delivery is still on disk")
+}
+
 // readFailFs fails Open for one exact path with a non-NotExist error, modelling
 // EACCES on an otherwise-present file.
 type readFailFs struct {

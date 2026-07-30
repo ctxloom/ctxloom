@@ -477,29 +477,49 @@ type copySnapshot struct {
 	sourceDir string
 }
 
-// boundDirtyChanges truncates changes to maxDirtyFilesListed, reporting how
-// many were dropped. A WorkingChanges error yields (nil, 0): the caller still
-// proceeds (best-effort), just without a file list to show.
-func boundDirtyChanges(changes []string, err error) (listed []string, more int) {
-	if err != nil {
-		return nil, 0
-	}
-	listed = changes
-	if len(listed) > maxDirtyFilesListed {
-		more = len(listed) - maxDirtyFilesListed
-		listed = listed[:maxDirtyFilesListed]
-	}
-	return listed, more
+// dirtyFileList is the bounded file listing every dirty-tree message shows,
+// together with the one fact a bare []string cannot carry: whether the
+// listing that produced it succeeded. A WorkingChanges failure rendering as
+// the empty set is a lie in exactly the messages that exist to say WHICH
+// files are at stake — the refusal that claims uncommitted work would be
+// invisible to the child, and the preview shown immediately before
+// auto-committing the user's branch.
+type dirtyFileList struct {
+	listed []string
+	more   int
+	err    error
 }
 
-// writeDirtyFileList appends the bounded file listing (one indented path per
-// line, "+N more" tail) shared by every dirty-tree message.
-func writeDirtyFileList(b *strings.Builder, listed []string, more int) {
-	for _, c := range listed {
+// boundDirtyChanges truncates changes to maxDirtyFilesListed, recording how
+// many were dropped. A WorkingChanges error is CARRIED, not swallowed: every
+// caller still proceeds (best-effort), but says plainly that it could not
+// find out rather than showing an empty list. Takes the (changes, err) pair
+// so a caller can forward git's return directly.
+func boundDirtyChanges(changes []string, err error) dirtyFileList {
+	if err != nil {
+		return dirtyFileList{err: err}
+	}
+	out := dirtyFileList{listed: changes}
+	if len(out.listed) > maxDirtyFilesListed {
+		out.more = len(out.listed) - maxDirtyFilesListed
+		out.listed = out.listed[:maxDirtyFilesListed]
+	}
+	return out
+}
+
+// writeTo appends the bounded file listing (one indented path per line, "+N
+// more" tail) shared by every dirty-tree message, or the reason there is no
+// listing to show.
+func (d dirtyFileList) writeTo(b *strings.Builder) {
+	if d.err != nil {
+		fmt.Fprintf(b, "  (could not list the changed files: %v — the paths below are unknown, NOT empty)\n", d.err)
+		return
+	}
+	for _, c := range d.listed {
 		fmt.Fprintf(b, "  %s\n", c)
 	}
-	if more > 0 {
-		fmt.Fprintf(b, "  (+%d more)\n", more)
+	if d.more > 0 {
+		fmt.Fprintf(b, "  (+%d more)\n", d.more)
 	}
 }
 
@@ -537,17 +557,16 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 	if err != nil || !dirty {
 		return dirtyTreeOutcome{}, nil
 	}
-	changes, cerr := gitClient.WorkingChanges(ctx, workDir, 0)
-	listed, more := boundDirtyChanges(changes, cerr)
+	files := boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0))
 
 	switch handler {
 	case DirtyTreeHandlerFail:
-		return dirtyTreeOutcome{}, dirtyTreeFailError(agentName, workDir, listed, more)
+		return dirtyTreeOutcome{}, dirtyTreeFailError(agentName, workDir, files)
 
 	case DirtyTreeHandlerStale:
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: agent %q is spawning into a worktree while %s has uncommitted changes (dirty_tree_handler: \"stale\") — the child will NOT see these changes, only committed state:\n", agentName, workDir)
-		writeDirtyFileList(&b, listed, more)
+		files.writeTo(&b)
 		b.WriteString(`change dirty_tree_handler to "commit" or "copy" to carry these across, or pass workspace: "none" for this call to run against the live checkout instead`)
 		clidiag.Warn("ctxloom", "%s", b.String())
 		return dirtyTreeOutcome{}, nil
@@ -564,23 +583,23 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 		return dirtyTreeOutcome{copy: &copySnapshot{patch: patch, untracked: untracked, sourceDir: workDir}}, nil
 
 	case DirtyTreeHandlerCommit:
-		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, listed, more)
+		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
 
 	default:
 		// resolveDirtyTreeHandler already normalizes unrecognized values
 		// before calling here; this default only guards against a future
 		// caller bypassing it.
-		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, listed, more)
+		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
 	}
 }
 
 // dirtyTreeFailError renders the "fail" handler's refusal — this gate's
 // original, only behavior before the other three handlers existed. Kept
 // byte-for-byte compatible with that original message.
-func dirtyTreeFailError(agentName, workDir string, listed []string, more int) error {
+func dirtyTreeFailError(agentName, workDir string, files dirtyFileList) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "agent_run: refusing to spawn agent %q into a worktree — %s has uncommitted changes a worktree checkout cannot see (git worktree add checks out committed state only: HEAD and everything reachable from it, nothing you haven't committed yet). These changes would be invisible to the child:\n", agentName, workDir)
-	writeDirtyFileList(&b, listed, more)
+	files.writeTo(&b)
 	b.WriteString(`commit the changes, or pass workspace: "none" for this agent_run call to run it against the live checkout instead`)
 	return errors.New(b.String())
 }
@@ -611,7 +630,7 @@ const commitDirtyTreeAckKey = "dirty_tree_commit_ack"
 // len(changed)==0 case) — this codebase has a documented history of commits
 // landing EMPTY due to an index-clobbering pre-commit-hook bug (since
 // fixed), and a post-commit stat is not proof a commit landed.
-func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, listed []string, more int) error {
+func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, files dirtyFileList) error {
 	branch, berr := gitClient.CurrentBranch(ctx, workDir)
 	// U083-F03: an error here used to be discarded (`branch, _ :=`), leaving
 	// branch=="" — which is NOT "HEAD", so the detached-HEAD guard below never
@@ -628,13 +647,13 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 	if !cfg.GetDirtyTreeCommitAck() {
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this project has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
-		writeDirtyFileList(&b, listed, more)
+		files.writeTo(&b)
 		fmt.Fprintf(&b, "\nThe \"commit\" handler WOULD stage and commit these to branch %q so the child could see them. To allow this, a human must add to .ctxloom/config.yaml:\n  %s: true\n\n", branch, commitDirtyTreeAckKey)
 		b.WriteString(`Or, for this call, choose a different handler instead: dirty_tree_handler: "copy" (reproduce these changes as uncommitted WIP inside the child's worktree — nothing committed), "stale" (spawn the child without these changes), "fail" (refuse the spawn outright).`)
 		return errors.New(b.String())
 	}
 
-	preview := renderCommitPreview(agentName, workDir, branch, listed, more)
+	preview := renderCommitPreview(agentName, workDir, branch, files)
 	clidiag.Warn("ctxloom", "%s", preview)
 
 	sha, changed, cerr := gitClient.CommitAll(ctx, workDir, renderCommitMessage(agentName))
@@ -653,10 +672,10 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 // mutation visible). Names the branch, the bounded file list, that this is a
 // configured-handler side effect (not an incidental one), and the
 // alternatives.
-func renderCommitPreview(agentName, workDir, branch string, listed []string, more int) string {
+func renderCommitPreview(agentName, workDir, branch string, files dirtyFileList) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "agent_run: dirty_tree_handler \"commit\" is about to commit %s's uncommitted changes on branch %q so delegated agent %q can see them in its own git worktree (a worktree checkout only ever contains committed state):\n", workDir, branch, agentName)
-	writeDirtyFileList(&b, listed, more)
+	files.writeTo(&b)
 	b.WriteString(`This is happening because dirty_tree_handler is configured to "commit" (the default, acknowledged via `)
 	b.WriteString(commitDirtyTreeAckKey)
 	b.WriteString(` in .ctxloom/config.yaml). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)

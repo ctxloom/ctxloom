@@ -1359,3 +1359,53 @@ func TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured(t *testing.
 	assert.Contains(t, err.Error(), `dirty_tree_handler "copy"`)
 	assert.Contains(t, err.Error(), "stale", "and names the handlers that DO work for this backend")
 }
+
+// TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview pins
+// U083-F15. The "commit" handler prints a preview naming the files it is
+// about to commit on the user's branch, and boundDirtyChanges turned a
+// WorkingChanges FAILURE into an empty list — so the preview immediately
+// before an auto-commit of the user's tree said, with no qualification, that
+// there was nothing to name. "I could not find out" must not render as the
+// empty set in the one message whose job is to show what is about to be
+// committed.
+func TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	fake := &git.Fake{
+		Dirty:            map[string]bool{"/proj": true},
+		ChangesErr:       assert.AnError,
+		CommitAllChanged: []string{"internal/foo.go"},
+	}
+	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	require.NoError(t, err, "a listing failure stays best-effort: it must not block the configured commit")
+	assert.Contains(t, warnings.String(), "could not list",
+		"the preview must SAY the file listing failed rather than showing an empty list")
+}
+
+// TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal is the
+// same U083-F15 defect on the refusal path: "fail" exists to tell the caller
+// WHICH uncommitted paths the child would not see, and a swallowed listing
+// error made it name none of them while asserting they exist.
+func TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, ChangesErr: assert.AnError}
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not list",
+		"the refusal must distinguish an unreadable listing from an empty one")
+}
+
+// TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning covers
+// the third U083-F15 message: "stale" promises to list what the child will
+// NOT see.
+func TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, ChangesErr: assert.AnError}
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
+	require.NoError(t, err)
+	assert.Contains(t, warnings.String(), "could not list")
+}

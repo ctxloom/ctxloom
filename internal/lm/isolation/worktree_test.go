@@ -1061,3 +1061,56 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 		assert.True(t, written[pat], "the exclude block carries %q", pat)
 	}
 }
+
+// TestWorktreeCleanup_NoResourceStrandedByTheDirGuard is U065-F08's pin, and
+// the row is REFUTED on its consequence. The claim: Cleanup's idempotence guard
+// `if w.dir == "" { return nil }` also short-circuits removal of configHome,
+// curatedHome and scratchDir, which are independent resources.
+//
+// The guard does gate all four — that half is true. The leak it implies is
+// unreachable by construction, and this pins the two properties that make it
+// so: (1) the only production construction of a worktreeWorkspace sets dir
+// FIRST and non-empty, before any scratch home exists to strand, and (2) one
+// Cleanup clears every field and removes every resource, so a second call has
+// nothing left to reach. Either property breaking — a construction that leaves
+// dir empty, or a Cleanup arm that stops clearing its field — turns the shared
+// guard into the leak the row describes, and turns this red.
+func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+
+	for _, backend := range []string{"claude-code", "antigravity"} {
+		t.Run(backend, func(t *testing.T) {
+			resetStrictness(t)
+			f := &git.Fake{CommonDirValue: t.TempDir()}
+			ws, err := NewWorktree(f, backend).PrepareWorkspace(context.Background(), "/proj", "member-"+backend)
+			require.NoError(t, err)
+			requireCleanWorkspace(t, ws)
+			concrete, ok := ws.(*worktreeWorkspace)
+			require.True(t, ok)
+			if concrete.curatedHome != "" {
+				t.Cleanup(func() { _ = os.RemoveAll(concrete.curatedHome) })
+			}
+
+			require.NotEmpty(t, concrete.dir,
+				"the guard's own field is set before any scratch home exists to be stranded by it")
+			var live []string
+			for _, r := range []string{concrete.configHome, concrete.curatedHome, concrete.scratchDir} {
+				if r != "" {
+					live = append(live, r)
+				}
+			}
+			require.NotEmpty(t, live, "%q must provision a scratch home for this pin to mean anything", backend)
+
+			require.NoError(t, ws.Cleanup())
+
+			assert.Empty(t, concrete.dir, "dir is cleared")
+			assert.Empty(t, concrete.configHome, "configHome is cleared in the SAME call, never left for a second one")
+			assert.Empty(t, concrete.curatedHome, "curatedHome is cleared in the SAME call")
+			assert.Empty(t, concrete.scratchDir, "scratchDir is cleared in the SAME call")
+			for _, r := range live {
+				assert.NoDirExists(t, r, "Cleanup removed %q from disk", r)
+			}
+		})
+	}
+}

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,210** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 97 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 98 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 150 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 155 |
-| `open` | no commit names this ID | **656** |
+| `open` | no commit names this ID | **655** |
 
-**Totals: 2268 findings across 162 units — 1,210 resolved, 656 still open, 402 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,210 resolved, 655 still open, 403 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 409 | 369 | 55 | 69 | 97 |
+| MED | 999 | 409 | 368 | 56 | 69 | 97 |
 | LOW | 871 | 445 | 273 | 28 | 73 | 52 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1844,7 +1844,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U134-F06 | **ESCALATED** `4adcbedf` | `payload.go:175,192,206` | NOPAY | The three trap-proof wrappers — the API whose entire justification is that a caller *cannot* pass a ref where none belongs — have **zero production callers**. The only production writer hand-builds... | U134.md |
 | U134-F07 | **REFUTED** `898aac6e` | `payload.go:56` | CORRECTNESS | **Confirms the preimage-instability finding from the signing side.** `ExecPreimageContract` declares a versioned canonicalization contract, but this package contains no builder, no canonicalizer, n... | U134.md |
 | U134-F08 | **REFUTED** `b5eb473b` | `countersign_verify.go:42-63` | ERRHANDLING | `VerifyCountersignature` collapses six distinct failure modes into `("", false)` with **zero diagnostics**, so a legitimately corrupted record on disk is indistinguishable from an absent one and th... | U134.md |
-| U134-F09 | open | `payload.go:146,175` | SILENTNOOP | An "approval of nothing" is constructible and signable: `ApproveCountersignPayload(kind, ref, form, nil)` produces a valid frame with `len: 0`, and `Sign` will sign it (F01). | U134.md |
+| U134-F09 | **PARTIAL** `pending` | `payload.go:146,175` | SILENTNOOP | An "approval of nothing" is constructible and signable: `ApproveCountersignPayload(kind, ref, form, nil)` produces a valid frame with `len: 0`, and `Sign` will sign it (F01). | U134.md |
 | U135-F04 | **RESOLVED** `874b286d` | `337, 364` | NOPAY | `ctx` is threaded into `resolveGitSigningKey` and `resolveSoleAgentIdentity` and never used — while the *actual* blocking I/O (agent dial + RPC) has no cancellation or deadline at all. `dialEnvAgen... | U135.md |
 | U135-F05 | open | `221-225` | ERRHANDLING | The unix socket opened for ssh-agent is never closed; `Discovered` exposes no `Close`. | U135.md |
 | U135-F06 | open | `168-181 vs 237` | CORRECTNESS | Field docs promise defaults that `Discover` does not apply — a partially-constructed `Discoverer` nil-func panics instead of degrading. | U135.md |

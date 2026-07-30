@@ -137,3 +137,28 @@ func TestRouteResponse_NullIDErrorIsSurfaced(t *testing.T) {
 	assert.Contains(t, got, "Parse error", "the peer's error message must survive")
 	assert.NotContains(t, got, "unknown id 0", "a null id is not id 0")
 }
+
+// TestRouteResponse_StringEchoedIDIsMatched pins U013-F15: JSON-RPC 2.0 permits
+// a String id, and peers that echo our numeric id back stringified ("1") are
+// common enough to matter. routeResponse unmarshalled the member into an int64
+// and dropped anything else, so such a response never reached its caller — the
+// call then parked until the connection died or its deadline expired, reporting
+// a transport failure for a turn the peer had actually answered. We still SEND
+// integer ids; this is only about recognising our own id coming back.
+func TestRouteResponse_StringEchoedIDIsMatched(t *testing.T) {
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0","id":"1","result":{"stopReason":"end_turn"}}`,
+	}, &mockHandler{})
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var got struct {
+		StopReason string `json:"stopReason"`
+	}
+	require.NoError(t, await(ctx, &got), "a stringified echo of our own id must still match its caller")
+	assert.Equal(t, "end_turn", got.StopReason)
+}

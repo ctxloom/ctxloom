@@ -96,6 +96,21 @@ func TestPipeline_Run_Idempotent_SecondRunIsNoOp(t *testing.T) {
 	assert.Equal(t, string(once), string(twice))
 }
 
+// A multi-document stream must survive Run byte-for-byte. yaml.Unmarshal into a
+// yaml.Node silently decodes only the FIRST document of a stream and reports no
+// error, so re-encoding that node emits a single-document file: every later
+// document is deleted. The upgraded bytes are handed to the caller as
+// Pending.Data and written verbatim over the user's file on consent, so the loss
+// is permanent and silent.
+func TestPipeline_Run_MultiDocumentStream_ReturnsVerbatim(t *testing.T) {
+	in := []byte("one: x\n---\nsecond: doc\n")
+	p := Pipeline{renameUpgrade{name: "a", from: "one", to: "two"}}
+	out, applied := p.Run(in)
+
+	assert.Empty(t, applied, "a multi-document stream must not report an upgrade it cannot safely re-encode")
+	assert.Equal(t, string(in), string(out), "every document in the stream must survive")
+}
+
 func TestVersion_MissingIsZero_RoundTrips(t *testing.T) {
 	p := Pipeline{versionStampUpgrade{target: 2}}
 

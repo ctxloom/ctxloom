@@ -13,6 +13,8 @@ package upgrade
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
@@ -45,13 +47,14 @@ type Pipeline []Upgrader
 
 // Run is the byte driver: it parses data into a YAML document, applies the
 // pipeline to the root mapping node, and re-encodes only if some stage changed
-// it. When nothing changes — or the input is malformed or not a mapping — the
-// original bytes are returned verbatim (no reserialization), leaving the normal
-// parse path to surface any real error. applied lists the names of the stages
-// that fired, in order, for the caller's rewrite prompt.
+// it. When nothing changes — or the input is malformed, not a mapping, or
+// carries more than one document — the original bytes are returned verbatim (no
+// reserialization), leaving the normal parse path to surface any real error.
+// applied lists the names of the stages that fired, in order, for the caller's
+// rewrite prompt.
 func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	doc, ok := singleDocument(data)
+	if !ok {
 		return data, nil
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
@@ -76,6 +79,25 @@ func (p Pipeline) Run(data []byte) (out []byte, applied []string) {
 	}
 	_ = enc.Close()
 	return buf.Bytes(), applied
+}
+
+// singleDocument parses data as a YAML stream carrying EXACTLY ONE document and
+// returns that document's node. A stream carrying a second document is refused
+// (ok == false), because Run re-encodes the node it parsed: a decode that keeps
+// only the first document would emit a single-document file, silently deleting
+// every later one from bytes the caller then persists verbatim. The pipeline
+// upgrades a document in place or does nothing at all — it never narrows a
+// stream.
+func singleDocument(data []byte) (doc yaml.Node, ok bool) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&doc); err != nil {
+		return doc, false
+	}
+	var next yaml.Node
+	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
+		return doc, false
+	}
+	return doc, true
 }
 
 // Pending records that loading upgraded an older on-disk document to the

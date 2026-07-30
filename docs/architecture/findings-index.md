@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,211** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,212** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 94 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 148 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **665** |
+| `open` | no commit names this ID | **664** |
 
-**Totals: 2268 findings across 162 units — 1,211 resolved, 665 still open, 392 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,212 resolved, 664 still open, 392 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
 | MED | 999 | 411 | 373 | 53 | 67 | 95 |
-| LOW | 871 | 444 | 275 | 28 | 73 | 51 |
+| LOW | 871 | 445 | 274 | 28 | 73 | 51 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2699,7 +2699,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U128-F08 | **RESOLVED** `8ca2a0bd` | `verdict.go:42` | TRIVIAL | `(Outcome).String()` has zero explicit callers and adds nothing: `Outcome` is a string newtype, so `%s`/`%q` format identically with or without it. | U128.md |
 | U128-F09 | **RESOLVED** `d5662fc9` | `prompt.go:110-113 vs prompt.go:210-214` | DUPLICATE | The round-2 response contract is written inline, duplicating `writeResponseContract`'s structure and repeating one line verbatim: `"Include every task listed above, using its exact harp_id. Do not ... | U128.md |
 | U128-F10 | **REFUTED** `8ca2a0bd` | `triggers.go:1-7` | NOPAY | The package doc justifies the purity constraint with "so taskloom can import it safely", but nothing under `cmd/taskloom` imports this package. | U128.md |
-| U128-F11 | open | `evidence.go:91-94` | CORRECTNESS | `FollowupBatch` carries no `RepoState` and no `OtherTasks`, so round 2 sees *less* global evidence than round 1 — the escalation round loses exactly the existence evidence `RepoState` exists to sup... | U128.md |
+| U128-F11 | **RESOLVED** `bdbd470c` | `evidence.go:91-94` | CORRECTNESS | `FollowupBatch` carries no `RepoState` and no `OtherTasks`, so round 2 sees *less* global evidence than round 1 — the escalation round loses exactly the existence evidence `RepoState` exists to sup... | U128.md |
 | U128-F12 | open | `query.go:137-139` | ERRHANDLING | `SanitizeQueries` drops every invalid query silently — the caller cannot distinguish "the model asked for nothing" from "the model asked for four things and all four were rejected", and the two mea... | U128.md |
 | U130-F05 | **RESOLVED** `659eab02` | **`internal/memory/compactor.go:1127-1129`** | TRIVIAL | `estimateTokens` is a pure one-line pass-through to `tokens.Estimate`, adding nothing — a third name for the same operation, alongside the F02 alias. | U130.md |
 | U131-F07 | open | **`upgrade.go:103-113`** | CORRECTNESS | `Version` collapses "key absent" and "key present but unparseable" into the same `0`, so `version: banana` silently re-runs every migration from generation 0 over a document that is probably corrupt. | U131.md |

@@ -477,6 +477,7 @@ func runStartedConfig(spec *agentcoordpb.HarnessSpec) *structpb.Struct {
 		"resumed_from_harness_session_id": spec.GetResumeSessionId(),
 	})
 	if err != nil {
+		clidiag.Warn("ctxloom", "engine host: RunStarted config echo for harness %q: %v", spec.GetHarness(), err)
 		return nil
 	}
 	return cfg
@@ -697,8 +698,12 @@ func classifyApprovalKind(kind string) agentcoordpb.ApprovalRequest_ApprovalKind
 
 // structFromJSON best-effort projects a permission request's raw tool input
 // onto a Struct payload: a JSON object marshals directly; any other JSON
-// shape (array, scalar) or empty/invalid input wraps as {"value": ...} (or
-// nil) so a non-object input never fails the whole approval.
+// shape (array, scalar) wraps as {"value": ...} so a non-object input never
+// fails the whole approval. Input that is not valid JSON at all wraps as its
+// own RAW TEXT under the same key rather than vanishing — this payload is
+// what a human on the escalation ladder reads to decide, and a nil payload
+// left them the tool name and nothing about what it was asked to do. Only
+// genuinely empty input yields no payload.
 func structFromJSON(raw json.RawMessage) *structpb.Struct {
 	if len(raw) == 0 {
 		return nil
@@ -709,10 +714,14 @@ func structFromJSON(raw json.RawMessage) *structpb.Struct {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil
+		// Not JSON. Carry the bytes as text, UTF-8-repaired: a Struct holding
+		// invalid UTF-8 marshals nowhere, so an unrepaired string would drop
+		// the payload again one layer further out.
+		v = strings.ToValidUTF8(string(raw), "�")
 	}
 	wrapped, err := structpb.NewStruct(map[string]any{"value": v})
 	if err != nil {
+		clidiag.Warn("ctxloom", "engine host: approval payload could not be projected onto a Struct (%d bytes dropped): %v", len(raw), err)
 		return nil
 	}
 	return wrapped

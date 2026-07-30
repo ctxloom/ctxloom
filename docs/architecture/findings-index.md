@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,116** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 62 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 110 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 139 |
-| `open` | no commit names this ID | **841** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,121** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 63 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 114 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 140 |
+| `open` | no commit names this ID | **830** |
 
-**Totals: 2268 findings across 162 units — 1,116 resolved, 841 still open, 311 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,121 resolved, 830 still open, 317 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 351 | 485 | 32 | 43 | 88 |
-| LOW | 871 | 415 | 330 | 20 | 59 | 47 |
+| MED | 999 | 353 | 477 | 33 | 47 | 89 |
+| LOW | 871 | 418 | 327 | 20 | 59 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1552,15 +1552,15 @@ Full evidence and the suggested action for any row live in its source review at 
 | U088-F12 | **ESCALATED** (gn/vital-deaf-stunt) | `task_triggers.go:141, task_triggers_query.go:190, sync.go:101, task_triggers.go:615` | COMPLEXITY | Four functions exceed the project's CCN-10 CI gate: `EvaluateTriggers` 25/133, `queryGrep` 18/58, `SyncDependencies` 15/64, `escalateNeedsInvestigation` 12/56 (plus `buildBatch` 11, `queryGitLogPat... | U088.md |
 | U088-F13 | **RESOLVED** `2ff701e0` (defensive — threaded error currently unreachable) | `tooling.go:58-61` | SILENTNOOP | **A `ListAllCommands` failure is rendered to the user as an affirmative "no bundle declares tooling"** — the reader degrades to empty and the CLI treats empty as authoritative. | U088.md |
 | U088-F14 | **RESOLVED** `2572fada` | `task_triggers_query.go:254-267` | CORRECTNESS | **`maxGrepFilesScanned` does not bound the walk** — it bounds files *read*. `scanned` is incremented only after the scope filter, so a glob matching nothing (e.g. `**/*.rs` in a Go repo) walks the ... | U088.md |
-| U089-F04 | open | `vendorimport_kiro.go:43-45, 88-90` | CORRECTNESS | The kiro SessionID fast path **short-circuits the candidate-db loop with an unvalidated locator**, so a bound session in the host db is never found once any isolated db exists. | U089.md |
-| U089-F05 | open | `vendorimport.go:127, 141-143` | CORRECTNESS | A **partially-written** conversion is permanent and thereafter invisible: the harp is reported as *Skipped*, not *Failed*. | U089.md |
-| U089-F06 | open | `trust.go:704, 712, 717` | ERRHANDLING | `SetBlacklist` reports `{"status":"rejected"}` while having **silently written no content-scoped rejection**, defeating the documented "a renamed or moved identical copy stays rejected" guarantee. | U089.md |
-| U089-F07 | open | `trust.go:601, 605` | SILENTNOOP | `SetItemTrust` **countersigns a zero-byte raw payload** and reports "approved" — pre-authorizing any future gutting of that item. | U089.md |
-| U089-F08 | open | `trust.go:284-287 vs trust.go:1091, trust_gate.go:17` | COMPLEXITY | Two doc comments claim the gate/stamper do "no per-item file I/O"; **both are false** — every production `EffectiveTrust` call reads and YAML-parses lock.yaml. | U089.md |
-| U089-F09 | open | `trust.go:554-625 vs 667-735; upgrade.go:56-88 vs lockfile.go:103-138` | DUPLICATE | Two near-identical code pairs, and in **both** pairs one copy has a fix the other lacks. | U089.md |
+| U089-F04 | **RESOLVED** `40f4633d` | `vendorimport_kiro.go:43-45, 88-90` | CORRECTNESS | The kiro SessionID fast path **short-circuits the candidate-db loop with an unvalidated locator**, so a bound session in the host db is never found once any isolated db exists. | U089.md |
+| U089-F05 | **REFUTED** `BOOKKEEP` | `vendorimport.go:127, 141-143` | CORRECTNESS | A **partially-written** conversion is permanent and thereafter invisible: the harp is reported as *Skipped*, not *Failed*. | U089.md |
+| U089-F06 | **REFUTED** `74762ea1` | `trust.go:704, 712, 717` | ERRHANDLING | `SetBlacklist` reports `{"status":"rejected"}` while having **silently written no content-scoped rejection**, defeating the documented "a renamed or moved identical copy stays rejected" guarantee. | U089.md |
+| U089-F07 | **REFUTED** `74762ea1` | `trust.go:601, 605` | SILENTNOOP | `SetItemTrust` **countersigns a zero-byte raw payload** and reports "approved" — pre-authorizing any future gutting of that item. | U089.md |
+| U089-F08 | **RESOLVED** `3966602b` | `trust.go:284-287 vs trust.go:1091, trust_gate.go:17` | COMPLEXITY | Two doc comments claim the gate/stamper do "no per-item file I/O"; **both are false** — every production `EffectiveTrust` call reads and YAML-parses lock.yaml. | U089.md |
+| U089-F09 | **PARTIAL** `BOOKKEEP` | `trust.go:554-625 vs 667-735; upgrade.go:56-88 vs lockfile.go:103-138` | DUPLICATE | Two near-identical code pairs, and in **both** pairs one copy has a fix the other lacks. | U089.md |
 | U089-F10 | **RESOLVED** `4c0ceb8b` | **`upgrade.go:25, 36, 90`** | COUPLING | `UpgradeDependencies` is **fs-injection-blind** in three independent ways, while `trust.go:397` in the same unit does it correctly. | U089.md |
-| U089-F11 | open | `trust_gate.go:26-51` | COHESION | `contentGate` is two types: a trust gate and a withheld-item ledger. | U089.md |
-| U089-F12 | open | `trust.go:791-812` | CORRECTNESS | `looksLikeSourceRef` is a **deny-list guarding a fail-open default** — it recognises three "this was meant to be a source ref" markers and treats everything else as a locally-authored, auto-trusted... | U089.md |
+| U089-F11 | **REFUTED** `74762ea1` | `trust_gate.go:26-51` | COHESION | `contentGate` is two types: a trust gate and a withheld-item ledger. | U089.md |
+| U089-F12 | **ESCALATED** `BOOKKEEP` | `trust.go:791-812` | CORRECTNESS | `looksLikeSourceRef` is a **deny-list guarding a fail-open default** — it recognises three "this was meant to be a source ref" markers and treats everything else as a locally-authored, auto-trusted... | U089.md |
 | U090-F02 | open | **`paths.go:343,348,353,362,382,407,423,428,434,447,454,463,468,473,478,483,492`** | CORRECTNESS | The entire `appPath`-family silently resolves to **cwd-relative** paths when `appPath == ""`; nothing errors. A caller that fails to resolve an app dir writes `config.yaml`/`lock.yaml`/`cache/` int... | U090.md |
 | U090-F03 | open | **`paths.go:307-310`** | ERRHANDLING | `ProjectSessionsDir` swallows the `os.Getwd()` error and returns the bare relative `".ctxloom/sessions"`, so a caller that later `Chdir`s or resolves it from a different cwd reads/writes a differen... | U090.md |
 | U090-F04 | open | **`paths.go:285,292`** | ERRHANDLING | `ResolveHarpCanonicalTranscriptPath` treats **every** `os.Stat` failure as "file absent", not just `IsNotExist`. A permission error or a broken symlink on the current-name file silently promotes th... | U090.md |
@@ -2504,10 +2504,10 @@ Full evidence and the suggested action for any row live in its source review at 
 | U089-F15 | **RESOLVED** `5b4a9aad` | `trust.go:997, 438` | DEAD | Two declared test seams that no test uses in the claimed way. | U089.md |
 | U089-F16 | **RESOLVED** `9f84aa35` | `trust.go:357, 413; upgrade.go:143` | TRIVIAL | Three single-expression helpers with exactly one call site each. | U089.md |
 | U089-F17 | **REFUTED** (cross-package/product decision; see wave-2 report) | `trust_gate.go:184-214` | NOPAY | `ExecutableTrustGate` is a one-field wrapper whose only value-add over `*contentGate` is nil-receiver tolerance. | U089.md |
-| U089-F18 | open | `trust.go:1041` | CORRECTNESS | Doc drift in a security comment: `ForLocalMCP` says the local exemption is "step 2"; it is step 3. | U089.md |
+| U089-F18 | **RESOLVED** `95932a14` | `trust.go:1041` | CORRECTNESS | Doc drift in a security comment: `ForLocalMCP` says the local exemption is "step 2"; it is step 3. | U089.md |
 | U089-F19 | **RESOLVED** `cb2b8396` `127539ad` | `trust.go:582, 622` | TRIVIAL | `SetItemTrust` computes `ssh.FingerprintSHA256(signer.PublicKey())` twice. | U089.md |
-| U089-F20 | open | `vendorimport_kiro.go:97` | ERRHANDLING | A corrupt or locked kiro sqlite db is reported as "nothing to convert". | U089.md |
-| U089-F21 | open | `vendorimport_backfill.go:37-53` | ERRHANDLING | `BackfillVendorTranscripts` never checks `ctx` between entries; a cancelled backfill produces N rows of `failed: <harp> (context canceled)`. | U089.md |
+| U089-F20 | **RESOLVED** `9eca2051` | `vendorimport_kiro.go:97` | ERRHANDLING | A corrupt or locked kiro sqlite db is reported as "nothing to convert". | U089.md |
+| U089-F21 | **RESOLVED** `92aab92b` | `vendorimport_backfill.go:37-53` | ERRHANDLING | `BackfillVendorTranscripts` never checks `ctx` between entries; a cancelled backfill produces N rows of `failed: <harp> (context canceled)`. | U089.md |
 | U090-F05 | **RESOLVED** `9f84aa35` | **`paths.go:288-291`** | TRIVIAL | The legacy-path error branch is effectively unreachable defensive code, and the whole two-call structure re-resolves the home dir three times for one lookup. | U090.md |
 | U090-F06 | open | **`paths.go:165, 175, 185, 195, 205, 215, 226, 247, 259, 283, 320, 336, 372, 392, 417`** | ERRHANDLING | Every home-rooted resolver returns `os.UserHomeDir()`'s error verbatim with **no wrapping and no operation context**. The user sees `$HOME is not defined` with no clue which of 15 resolvers produce... | U090.md |
 | U090-F10 | open | **`paths.go:338, 493`** | COUPLING | Two path segments are inline string literals while all 24 of their peers are named constants — `"triggers"` and `"objects"`. The package's whole contract is "no scattered literals"; these are scatt... | U090.md |

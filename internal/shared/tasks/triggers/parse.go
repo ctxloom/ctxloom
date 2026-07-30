@@ -81,8 +81,12 @@ func stripCodeFence(s string) string {
 		return s
 	}
 	rest := strings.TrimPrefix(s, "```")
-	if nl := strings.Index(rest, "\n"); nl != -1 {
-		// Drop the fence-opener line itself (e.g. a bare "json" tag).
+	if nl := strings.Index(rest, "\n"); nl != -1 && !strings.ContainsAny(rest[:nl], "[{") {
+		// Drop the fence-opener line, but only when it carries nothing but an
+		// info string (e.g. a bare "json" tag). A model that writes the array
+		// on the opener line puts the ENTIRE payload there, and dropping the
+		// line would delete the whole response rather than a tag; the bracket
+		// scan downstream tolerates an info string left in front of it.
 		rest = rest[nl+1:]
 	}
 	if end := strings.LastIndex(rest, "```"); end != -1 {

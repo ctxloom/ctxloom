@@ -790,12 +790,28 @@ func (w *worktreeWorkspace) unsafeToRemove(ctx context.Context, dir string) (uns
 // falling back to a same-file stat comparison only when both paths exist.
 // nestedUnder returns the worktrees strictly nested inside target, DEEPEST-FIRST
 // (by path-separator depth) so inner worktrees are handled before their parents.
+//
+// Matching considers target under BOTH the spelling the caller holds and its
+// realpath resolution: `git worktree list --porcelain` reports every path
+// symlink-resolved, while target is whatever scratchBase built — os.TempDir()
+// on macOS is /var/folders/… behind the /var → /private/var symlink, and a
+// symlinked HOME does the same to the session ephemeral dir. A raw prefix
+// match against one spelling then finds nothing nested. Resolution is
+// best-effort: an unresolvable target (a path already removed, or one that
+// never existed — several callers pass synthetic paths) simply keeps the raw
+// comparison.
 func nestedUnder(list []git.Worktree, target string) []git.Worktree {
-	prefix := target + string(os.PathSeparator)
+	prefixes := []string{target + string(os.PathSeparator)}
+	if resolved, err := filepath.EvalSymlinks(target); err == nil && resolved != target {
+		prefixes = append(prefixes, resolved+string(os.PathSeparator))
+	}
 	var nested []git.Worktree
 	for _, wt := range list {
-		if wt.Path != target && strings.HasPrefix(wt.Path, prefix) {
-			nested = append(nested, wt)
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(wt.Path, prefix) {
+				nested = append(nested, wt)
+				break
+			}
 		}
 	}
 	sep := string(os.PathSeparator)

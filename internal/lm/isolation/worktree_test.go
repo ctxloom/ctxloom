@@ -960,3 +960,30 @@ func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
 	}
 	assert.Empty(t, left, "recovery leaves no checkout, config-home, scratch dir or owner marker behind")
 }
+
+// TestNestedUnder_MatchesRealpathResolvedPaths is U065-F10's red-first pin.
+// `git worktree list --porcelain` reports every path REALPATH-RESOLVED, while
+// the target teardown is given is whatever scratchBase built — os.TempDir() on
+// macOS is /var/folders/… behind the /var → /private/var symlink, and a
+// symlinked HOME does the same to the session ephemeral dir. Matching by raw
+// string prefix then finds nothing nested, so the inner-first removal never
+// happens.
+func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(real, link))
+
+	outer := filepath.Join(real, "ctxloom-wt-outer")
+	inner := filepath.Join(outer, ".claude", "worktrees", "inner")
+	require.NoError(t, os.MkdirAll(inner, 0o755))
+
+	list := []git.Worktree{{Path: outer}, {Path: inner}}
+
+	nested := nestedUnder(list, filepath.Join(link, "ctxloom-wt-outer"))
+	require.Len(t, nested, 1, "the inner is nested under the target however the target is spelled")
+	assert.Equal(t, inner, nested[0].Path)
+
+	assert.Empty(t, nestedUnder(list, filepath.Join(link, "ctxloom-wt-elsewhere")),
+		"resolving the target must not widen the match to unrelated trees")
+}

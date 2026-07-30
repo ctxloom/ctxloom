@@ -1135,3 +1135,56 @@ func TestClaudeCodeHookWriter_AbsentMCPConfig_StillWrites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "ctxloom-added")
 }
+
+// TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped pins the invariant
+// U032-F16 got backwards: saveSettings's "skip corrupted field" branch is NOT
+// unreachable. settings.Other holds json.RawMessage slices lifted out of a
+// document that parsed, so the bytes are always VALID JSON — but valid JSON is
+// not the same as decodable into `any`: a number outside float64's range
+// (`1e1000`) parses fine and then fails to unmarshal. The old warn+continue
+// therefore deleted a real, user-authored key from settings.json on the way
+// past, silently, on the same file whose loadSettings was hardened precisely
+// because "a warning is not a guard".
+//
+// The payload assertion is on the FILE: a write that returns nil having
+// dropped the key is the failure mode, so asserting the error alone would not
+// catch a regression that writes and then errors.
+func TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	original := `{"awkwardNumber": 1e1000, "env": {"A": "b"}}`
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(original), 0644))
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	err := writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project")
+	require.Error(t, err, "a setting ctxloom cannot re-encode must abort the write, not be dropped from it")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "awkwardNumber",
+		"the user's own setting must still be in the file — dropping it is silent data loss")
+}
+
+// TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped is the
+// permissions-block twin of the above, and the worse half: the dropped sibling
+// keys there are allow/ask/defaultMode — a SECURITY surface. loadSettings
+// already refuses to proceed when it cannot PARSE that block; the write path
+// must not quietly discard what the read path went to that trouble to keep.
+func TestSaveSettings_UnencodablePermissionsSiblingIsRefusedNotDropped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	original := `{"permissions": {"allow": ["Read"], "awkwardNumber": 1e1000}}`
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(original), 0644))
+
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	err := writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project")
+	require.Error(t, err, "a permissions sibling ctxloom cannot re-encode must abort the write")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "awkwardNumber",
+		"the user's own permissions rule must still be in the file")
+	assert.Contains(t, string(data), "Read", "the surrounding allow list must be untouched too")
+}

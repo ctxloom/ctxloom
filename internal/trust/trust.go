@@ -192,8 +192,14 @@ type Ref struct {
 	// Name is the item name within the bundle, e.g. "solid".
 	Name string
 
-	// IsLocal marks a ctxloom:local (project-authored) item. Local content
-	// (fragment/prompt) is auto-allowed; local executables (mcp) are not.
+	// IsLocal marks a ctxloom:local (project-authored) item. EVERY local kind
+	// is auto-allowed at the decision function's local tier — fragment,
+	// prompt and skill content AND the mcp/hook executable surfaces the user
+	// configured in this project themselves. Kind does not enter that tier at
+	// all: only locality exempts, which is why IsContent (below) explicitly
+	// does not govern it. See ItemKind's own doc, EffectiveTrust step 3, and
+	// the "local mcp auto-allowed (project-authored executable)" case in
+	// operations' decision-function table.
 	IsLocal bool
 
 	// IsBuiltin marks an item shipped inside the ctxloom binary itself

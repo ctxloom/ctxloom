@@ -6,10 +6,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -84,4 +86,57 @@ func TestPersistentPreRun_SetsClidiagStructuredFromFormat(t *testing.T) {
 				"--format=%s: Fwarn output %q", c.format, buf.String())
 		})
 	}
+}
+
+// U104-F09 claimed Execute()'s error path resolves --format from rootCmd,
+// "where the --json shorthand does not exist", so a --json invocation that
+// fails gets JSON-shaped output on the happy path and plain text on the error
+// path. Both halves were measured against the code and neither survives for
+// the ctxloom binary:
+//
+//  1. --format is a PERSISTENT flag on rootCmd, so parsing a subcommand's
+//     invocation sets the very pflag.Flag object rootCmd owns. Resolving from
+//     the root after a failing subcommand therefore yields the SAME format the
+//     command itself would resolve — measured, not reasoned about.
+//  2. `ctxloom` registers no --json flag at all, anywhere in its command tree.
+//     The shorthand is a cmd/taskloom affordance; nothing here can reach the
+//     divergence the row describes.
+//
+// The second half is what makes the row latent rather than live, so it is the
+// half worth pinning: this goes red the moment a --json flag is added under
+// rootCmd, which is exactly when Execute()'s root-scoped Resolve would start
+// to lie.
+func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *testing.T) {
+	var withJSON []string
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		if c.Flags().Lookup("json") != nil || c.PersistentFlags().Lookup("json") != nil {
+			withJSON = append(withJSON, c.CommandPath())
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
+	assert.Empty(t, withJSON,
+		"Execute() resolves --format from rootCmd, which cannot see a subcommand-local --json; "+
+			"adding one re-opens U104-F09 and must move the resolve to the executed command")
+
+	root := &cobra.Command{Use: "probe", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().String("format", formatText, "")
+	sub := &cobra.Command{Use: "boom", RunE: func(*cobra.Command, []string) error {
+		return errors.New("kaboom")
+	}}
+	root.AddCommand(sub)
+	root.SetArgs([]string{"boom", "--format", "json"})
+	require.Error(t, root.Execute())
+
+	fromRoot, err := cliemit.Resolve(root)
+	require.NoError(t, err)
+	fromSub, err := cliemit.Resolve(sub)
+	require.NoError(t, err)
+	assert.Equal(t, clifmt.FormatJSON, fromRoot,
+		"a persistent --format parsed on a subcommand is visible from the root it belongs to")
+	assert.Equal(t, fromSub, fromRoot,
+		"root-scoped and command-scoped resolution must not diverge for --format")
 }

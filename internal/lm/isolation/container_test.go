@@ -306,3 +306,33 @@ func TestContainer_NilBaseIsUnreachable(t *testing.T) {
 			"a bare Container{} stops at the runtime gate, long before the base")
 	})
 }
+
+// TestContainer_ExecSpecRefusesEmptyCommand is U062-F19's regression. ExecSpec
+// used to accept a nil/empty command and hand back a perfectly valid-looking
+// RunSpec whose Command was nil — renderRunSpec then emits nothing after the
+// image, so the container silently runs the IMAGE's default entrypoint instead
+// of what the caller asked for. That is this project's signature failure: a
+// success return with zero payload delivered, and the caller (internal/acp's
+// container transport) would go on to speak JSON-RPC at whatever the image's
+// entrypoint happens to be. The refusal must assert on the PAYLOAD (no spec, an
+// error naming the empty command), never on an exit code.
+func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
+	ws := &containerWorkspace{dir: t.TempDir(), agentID: "m"}
+
+	for name, command := range map[string][]string{
+		"nil":   nil,
+		"empty": {},
+	} {
+		spec, err := c.ExecSpec(ws, command, nil, nil)
+		require.Error(t, err, "%s command must be refused, never silently run the image entrypoint", name)
+		assert.Contains(t, err.Error(), "empty command")
+		assert.Nil(t, spec.Command, "no spec is handed back on refusal")
+		assert.Empty(t, spec.Image, "no spec is handed back on refusal")
+	}
+
+	// A real command still renders unchanged.
+	spec, err := c.ExecSpec(ws, []string{"claude-code-acp"}, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
+}

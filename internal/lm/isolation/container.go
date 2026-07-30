@@ -382,6 +382,13 @@ func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, e
 	if !ok {
 		return RunSpec{}, fmt.Errorf("container exec: unexpected workspace %T (expected a container workspace)", ws)
 	}
+	// An empty command renders as NOTHING after the image (renderRunSpec), so the
+	// container would start the image's own default entrypoint while this returned
+	// a valid-looking spec — a success with zero payload, and the caller then
+	// speaks its protocol at whatever that entrypoint is. Refuse instead.
+	if len(command) == 0 {
+		return RunSpec{}, fmt.Errorf("container exec: empty command (the container would run the image's default entrypoint instead)")
+	}
 	mounts := make([]Mount, 0, 1+len(cw.extraMounts)+len(extraMounts))
 	mounts = append(mounts, c.runtime.ExposeIdentical(cw.dir, false))
 	mounts = append(mounts, cw.extraMounts...)

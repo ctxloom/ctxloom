@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
@@ -649,7 +650,7 @@ func printPushResult(w io.Writer, r *operations.PushBundleResult) error {
 		return err
 	}
 	if r.CommitSHA != "" {
-		if _, err := fmt.Fprintf(w, "Commit: %s\n", shortSHA(r.CommitSHA)); err != nil {
+		if _, err := fmt.Fprintf(w, "Commit: %s\n", gitutil.ShortSHA(r.CommitSHA)); err != nil {
 			return err
 		}
 	}

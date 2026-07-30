@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 func sampleBatch() Batch {
@@ -257,10 +259,10 @@ func TestWriteQueryResults_EveryRequestIsAccountedFor(t *testing.T) {
 }
 
 func TestShortSHA(t *testing.T) {
-	assert.Equal(t, "abcdef1234", shortSHA("abcdef1234567890"), "a full hash is trimmed to a recognizable prefix")
-	assert.Equal(t, "abcdef1234", shortSHA("abcdef1234"), "a hash already at the limit is returned whole")
-	assert.Equal(t, "abc", shortSHA("abc"), "a short hash is returned as-is, never sliced past its end")
-	assert.Equal(t, "", shortSHA(""))
+	assert.Equal(t, "abcdef1234", gitutil.AbbrevSHA("abcdef1234567890", promptSHALen), "a full hash is trimmed to a recognizable prefix")
+	assert.Equal(t, "abcdef1234", gitutil.AbbrevSHA("abcdef1234", promptSHALen), "a hash already at the limit is returned whole")
+	assert.Equal(t, "abc", gitutil.AbbrevSHA("abc", promptSHALen), "a short hash is returned as-is, never sliced past its end")
+	assert.Equal(t, "", gitutil.AbbrevSHA("", promptSHALen))
 }
 
 func sampleFollowupBatch() FollowupBatch {

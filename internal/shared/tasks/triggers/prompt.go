@@ -3,6 +3,8 @@ package triggers
 import (
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // timeLayout is the human-readable stamp used throughout the prompt — date
@@ -195,7 +197,7 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 	} else {
 		sb.WriteString("Commits since deferred:\n")
 		for _, c := range t.CommitsSince {
-			fmt.Fprintf(sb, "  - %s %s %s\n", shortSHA(c.SHA), c.Date.UTC().Format(dateLayout), c.Subject)
+			fmt.Fprintf(sb, "  - %s %s %s\n", gitutil.AbbrevSHA(c.SHA, promptSHALen), c.Date.UTC().Format(dateLayout), c.Subject)
 		}
 	}
 	if len(t.ChangedFiles) > 0 {
@@ -221,11 +223,8 @@ func writeResponseContract(sb *strings.Builder, allowInvestigation bool) {
 	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
 }
 
-// shortSHA trims a commit hash to a readable prefix for the prompt (evidence
-// only needs enough to be recognizable, not the full 40 chars).
-func shortSHA(sha string) string {
-	if len(sha) > 10 {
-		return sha[:10]
-	}
-	return sha
-}
+// promptSHALen trims a commit hash to a readable prefix for the prompt:
+// evidence only needs enough to be recognizable, not the full 40 chars, but a
+// wider prefix than ordinary output carries so a reader can match it against a
+// log by eye.
+const promptSHALen = 10

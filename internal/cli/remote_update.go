@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 var updateApply bool
@@ -218,12 +219,12 @@ func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string) boo
 		fmt.Fprintf(out, "%s not found in lockfile, checking latest version...\n", refStr)
 		return false
 	case latestSHA:
-		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
+		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, gitutil.ShortSHA(latestSHA))
 		return true
 	default:
 		fmt.Fprintf(out, "%s has update available:\n", refStr)
-		fmt.Fprintf(out, "  Current: %s\n", shortSHA(currentSHA))
-		fmt.Fprintf(out, "  Latest:  %s\n", shortSHA(latestSHA))
+		fmt.Fprintf(out, "  Current: %s\n", gitutil.ShortSHA(currentSHA))
+		fmt.Fprintf(out, "  Latest:  %s\n", gitutil.ShortSHA(latestSHA))
 		return false
 	}
 }
@@ -469,7 +470,7 @@ func printAvailableUpdates(out io.Writer, bundleUpdates []updateInfo) {
 		fmt.Fprintln(out, "Bundles:")
 		for _, u := range bundleUpdates {
 			fmt.Fprintf(out, "  %s  (%s)\n", u.Ref, u.selectorLabel())
-			fmt.Fprintf(out, "    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
+			fmt.Fprintf(out, "    Current: %s → Latest: %s\n", gitutil.ShortSHA(u.CurrentSHA), gitutil.ShortSHA(u.LatestSHA))
 		}
 	}
 }
@@ -513,7 +514,7 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 			}
 			continue
 		}
-		fmt.Fprintf(out, "  Updated to %s\n", shortSHA(result.SHA))
+		fmt.Fprintf(out, "  Updated to %s\n", gitutil.ShortSHA(result.SHA))
 		updated++
 	}
 	return updated, failed, removed
@@ -587,13 +588,6 @@ func reportMissingDefaults(out io.Writer, missing []string) {
 		fmt.Fprintf(out, "  - %s\n", name)
 	}
 	fmt.Fprintln(out, "\nUpdate your ctxloom.yaml to fix the defaults.profiles list.")
-}
-
-func shortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }
 
 // pullOutcome describes how a per-item Pull error should be reported.

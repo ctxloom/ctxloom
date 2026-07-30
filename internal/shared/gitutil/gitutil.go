@@ -119,3 +119,24 @@ func FindRoot(startPath string) (string, error) {
 
 	return wt.Filesystem.Root(), nil
 }
+
+// DefaultShortSHALen is the abbreviation width for a commit SHA in ordinary
+// output — git's own default.
+const DefaultShortSHALen = 7
+
+// ShortSHA abbreviates a commit SHA to DefaultShortSHALen characters. This is
+// the width every listing, status line and lockfile report uses.
+func ShortSHA(sha string) string { return AbbrevSHA(sha, DefaultShortSHALen) }
+
+// AbbrevSHA abbreviates a commit SHA to n characters, returning it unchanged
+// when it is already that short. It never slices past the end: these values
+// come from lockfiles and git output, so a malformed or truncated hash must
+// render, not panic. Callers that need a width other than the default (a
+// prompt whose evidence lines want a longer prefix) name it here rather than
+// growing another copy of the rule.
+func AbbrevSHA(sha string, n int) string {
+	if len(sha) > n {
+		return sha[:n]
+	}
+	return sha
+}

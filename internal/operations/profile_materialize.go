@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -82,8 +83,12 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 
 	// Gate the executable surfaces (bundle MCP / hooks / command exports) at their
 	// own choke, exactly as ApplyHooks does. Set before resolving any of them.
+	// Scoped to THIS call: cfg belongs to the caller, and a gate left installed
+	// on it silently governs every later consumer of that config.
 	execGate := NewExecutableTrustGate(cfg)
+	callersGate := cfg.ExecutableTrustGate()
 	cfg.SetExecutableTrustGate(execGate.Gate())
+	defer cfg.SetExecutableTrustGate(callersGate)
 
 	// context is the one HARD-error surface: an explicit profile set makes
 	// resolution failures fatal (the caller named these profiles), and the
@@ -91,6 +96,14 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: req.Profiles})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
+	}
+	// An assembly that RESOLVED but carries nothing is a failed assembly too.
+	// The caller NAMED these profiles, and a target built from an empty payload
+	// gets no native context file at all while the result still reports the
+	// context surface as written — a success message over zero delivered bytes.
+	if strings.TrimSpace(asm.Context) == "" {
+		return nil, fmt.Errorf("empty context: profile set %v assembled to nothing — refusing to materialize %s into %s (check the profile's fragments/bundles resolve, and that none are withheld pending review)",
+			req.Profiles, backend, req.Target)
 	}
 
 	// Build the backend's OWN SurfaceSet from the assembled pieces and deliver

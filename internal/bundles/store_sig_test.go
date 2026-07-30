@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -101,4 +102,60 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	got, err := store.Load("plain")
 	require.NoError(t, err)
 	assert.Equal(t, "two", got.Fragments["a"].Content)
+}
+
+// TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent is U031-F12.
+//
+// invalidateStaleSignature read the sibling `.sig` and treated EVERY error as
+// "no signature, nothing to invalidate". A `.sig` that exists but cannot be
+// read — permissions, an I/O error, a directory sitting at that path — is not
+// the same as no signature at all: the save then returns success having left a
+// broken pair on disk, which is precisely the outcome this function's own doc
+// comment says is a hard error ("we will not return success having left a
+// broken pair on disk").
+//
+// Downstream, that stale pair is indistinguishable from tampering: a trusted
+// key over non-matching bytes, so every consumer withholds the bundle and the
+// publisher hears about it from a stranger.
+func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	dir := "/bundles"
+	path := filepath.Join(dir, "opaque.yaml")
+	sigPath := path + SigSuffix
+
+	// A signature exists on disk — it just cannot be read.
+	require.NoError(t, mem.MkdirAll(dir, 0o755))
+	require.NoError(t, afero.WriteFile(mem, sigPath, []byte("armored-signature-bytes"), 0o644))
+
+	var warnings bytes.Buffer
+	store := NewFSStore([]string{dir}, false,
+		WithFS(&openFailFs{Fs: mem, failPath: sigPath}),
+		WithWarnWriter(&warnings))
+
+	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
+	err := store.Save(b)
+
+	require.Error(t, err, "an unreadable signature must not be silently assumed absent")
+	assert.Contains(t, err.Error(), "opaque.yaml.sig")
+
+	// The signature is still there — nothing was invalidated, so the pair on
+	// disk is exactly as broken as the error says it is.
+	still, rerr := afero.Exists(mem, sigPath)
+	require.NoError(t, rerr)
+	assert.True(t, still)
+}
+
+// TestFSStore_Save_MissingSignatureStaysSilent pins the other side of U031-F12:
+// a genuinely absent `.sig` is the common case and must stay silent, so the fix
+// discriminates not-exist from every other read failure rather than turning the
+// common case loud.
+func TestFSStore_Save_MissingSignatureStaysSilent(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	dir := "/bundles"
+	var warnings bytes.Buffer
+	store := NewFSStore([]string{dir}, false, WithFS(mem), WithWarnWriter(&warnings))
+
+	b := &Bundle{Path: filepath.Join(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
+	require.NoError(t, store.Save(b), "no signature at all is the common case and must not be an error")
+	assert.Empty(t, warnings.String())
 }

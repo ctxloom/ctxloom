@@ -1,11 +1,14 @@
 package acp
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
 )
 
 // TestContainerReachBackEnv_NoSocket_ReturnsNothing pins the existing no-op
@@ -105,7 +110,7 @@ func TestContainerReachBackEnv_NonLinux_BridgesToTCP(t *testing.T) {
 		assert.Nil(t, mounts, "no bind mount off Linux — the fallback replaces it")
 		require.Len(t, env, 1)
 
-		addr, ok := strings.CutPrefix(env[0], mcpSocketEnvVar+"="+reachBackTCPPrefix)
+		addr, ok := strings.CutPrefix(env[0], mcpSocketEnvVar+"="+mcpsocket.TCPPrefix)
 		require.True(t, ok, "env value %q must carry the tcp:// form", env[0])
 		host, portStr, serr := net.SplitHostPort(addr)
 		require.NoError(t, serr)
@@ -131,4 +136,72 @@ func TestContainerReachBackEnv_NonLinux_BridgesToTCP(t *testing.T) {
 
 		require.NoError(t, closeFn())
 	}
+}
+
+// TestContainerReachBackEnv_NoSocket_SaysSo is the payload half of the no-socket
+// case: delivering NOTHING is the correct behaviour (there is no endpoint to
+// share), but it must not be silent. This path is only ever reached under
+// container isolation, and its consequence is that the in-container engine gets
+// no ctxloom MCP surface at all — every ctxloom tool the session's loadout
+// promised is simply absent, with the session otherwise looking healthy.
+func TestContainerReachBackEnv_NoSocket_SaysSo(t *testing.T) {
+	t.Setenv(mcpSocketEnvVar, "unused-placeholder")
+	require.NoError(t, os.Unsetenv(mcpSocketEnvVar))
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	env, mounts, closeFn, err := containerReachBackEnv(isolation.Docker{}, "linux")
+	require.NoError(t, err, "a missing endpoint is a degraded session, not a failed one")
+	assert.Nil(t, env)
+	assert.Nil(t, mounts)
+	assert.Nil(t, closeFn)
+
+	assert.Contains(t, warnings.String(), mcpSocketEnvVar, "the warning names the variable that was unset")
+	assert.Contains(t, warnings.String(), "no ctxloom MCP", "and what the in-container engine therefore loses")
+}
+
+// syncBuffer is a warning sink a background goroutine writes while the test
+// body reads it (clidiag.Warn runs on the bridge's own goroutine).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// TestReachBackBridge_UnreachableSocketIsDiagnosed pins the bridge's failure
+// diagnostic. When the runner's socket cannot be dialled the accepted connection
+// is closed, so the in-container MCP shim sees an unexplained connection reset —
+// a container-side symptom whose cause is entirely on the host side and, without
+// this, appears in no log anywhere.
+func TestReachBackBridge_UnreachableSocketIsDiagnosed(t *testing.T) {
+	sink := &syncBuffer{}
+	restore := clidiag.SetSink(sink)
+	t.Cleanup(restore)
+
+	// A path with no listener behind it: dialling it always fails.
+	sock := filepath.Join(t.TempDir(), "never-bound.sock")
+	bridge, err := startReachBackBridge(sock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bridge.Close() })
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", bridge.port), 2*time.Second)
+	require.NoError(t, err, "the bridge accepts before it discovers the socket is dead")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	require.Eventually(t, func() bool { return strings.Contains(sink.String(), "reach-back") }, 3*time.Second, 10*time.Millisecond,
+		"the failed dial must be diagnosed, not just reset: got %q", sink.String())
+	assert.Contains(t, sink.String(), sock, "the warning names the socket that could not be dialled")
 }

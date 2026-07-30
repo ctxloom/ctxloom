@@ -99,12 +99,14 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 
 // rawOnlyEvent marshals u (expected to have exactly one of the IR3-allowlisted
 // variants set) into a raw-only ChatEvent — Entry/Complete/Session/Permission
-// all nil, only Raw populated. A marshal failure (never expected for a
-// well-formed decoded union) drops the frame rather than panicking or
-// fabricating a malformed one.
+// all nil, only Raw populated. A marshal failure drops the frame rather than
+// panicking or fabricating a malformed one, and says so: the drop is otherwise
+// indistinguishable from an update the engine never sent, which is why every
+// analogous decode failure in session.go warns too.
 func rawOnlyEvent(u *api.SessionUpdate) []agent.ChatEvent {
 	b, err := json.Marshal(u)
 	if err != nil {
+		warnf("acp: dropping unmarshalable session/update passthrough frame: %v", err)
 		return nil
 	}
 	return []agent.ChatEvent{{Raw: b}}
@@ -187,7 +189,12 @@ func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 		output = rawText(tu.RawOutput)
 	}
 	terminal := status == api.ToolCallStatusCompleted || status == api.ToolCallStatusFailed
-	if output == "" && !terminal {
+	// Structured content counts as something to report even when it flattens to
+	// no text: terminal content carries only a terminal id (its output is fetched
+	// over terminal/output — see toolContentText), and that id is exactly how a
+	// frontend learns WHERE this tool's live output is going. Judging the frame
+	// by the flattened string alone dropped it as status noise.
+	if output == "" && len(tu.Content) == 0 && !terminal {
 		return nil
 	}
 	title := ""
@@ -461,6 +468,14 @@ func toolContentToIR(content []api.ToolCallContent) []agent.ToolContentBlock {
 // unions_generated.go and this file's prior revision). The union carries no
 // discriminator field of its own — dispatch switches on which variant
 // pointer is non-nil.
+//
+// TERMINAL content contributes NO text, deliberately: the ACP terminal variant
+// carries only a terminal id, whose output is fetched over terminal/output
+// rather than delivered inline, so there is nothing here to flatten and
+// inventing a placeholder would fabricate tool output. Its identity survives
+// structurally in toolContentToIR's "terminal" block (TerminalID), and
+// mapToolCallUpdate treats the presence of content — not this string — as the
+// signal that a frame is worth emitting.
 func toolContentText(content []api.ToolCallContent) string {
 	var parts []string
 	for _, tcc := range content {

@@ -170,7 +170,7 @@ func (b *baseStage) content() ([]byte, error) {
 
 // defaultBaseStage is the embedded shared base (container/base/Containerfile).
 func defaultBaseStage() *baseStage {
-	return &baseStage{desc: "default base Containerfile", containerfile: containerfiles.Base}
+	return &baseStage{desc: "default base Containerfile", containerfile: containerfiles.Base()}
 }
 
 // userBaseStage is a user-provided base Containerfile on disk
@@ -580,7 +580,7 @@ func combineProvenance(binariesDigest, baseContainerfile string) string {
 // (isolation_base_containerfile), or the embedded default.
 func baseContent(baseContainerfile string) ([]byte, error) {
 	if baseContainerfile == "" {
-		return containerfiles.Base, nil
+		return containerfiles.Base(), nil
 	}
 	return os.ReadFile(baseContainerfile)
 }
@@ -1092,7 +1092,7 @@ func buildImage(ctx context.Context, rt Runtime, image string, containerfile []b
 	if err := copyExecutable(selfExe, filepath.Join(dir, "ctxloom")); err != nil {
 		return fmt.Errorf("image build context: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "ctxloom-entrypoint"), containerfiles.Entrypoint, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ctxloom-entrypoint"), containerfiles.Entrypoint(), 0o755); err != nil {
 		return fmt.Errorf("image build context: %w", err)
 	}
 	if err := stageCompanions(dir); err != nil {

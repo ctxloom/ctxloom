@@ -57,7 +57,7 @@ func TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig(t *testing.T) {
 	require.NoError(t, err)
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
-	assert.Equal(t, string(container.Base), string(b), "the scaffold starts from the embedded default base")
+	assert.Equal(t, string(container.Base()), string(b), "the scaffold starts from the embedded default base")
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestScaffoldContainerBase_AdoptsExistingFile(t *testing.T) {
 	_, err = ScaffoldContainerBase(mgr, cfg, "", true)
 	require.NoError(t, err)
 	b, _ = os.ReadFile(path)
-	assert.Equal(t, string(container.Base), string(b), "force rewrites from the embedded base")
+	assert.Equal(t, string(container.Base()), string(b), "force rewrites from the embedded base")
 }
 
 // TestScaffoldContainerBase_AlreadyConfiguredIsNoOp: a config that already
@@ -133,5 +133,5 @@ func TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing(t *testin
 
 	b, err := os.ReadFile(target)
 	require.NoError(t, err, "the configured base Containerfile must actually be written, not just reported as present")
-	assert.Equal(t, string(container.Base), string(b))
+	assert.Equal(t, string(container.Base()), string(b))
 }

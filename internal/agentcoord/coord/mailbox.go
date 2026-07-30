@@ -84,13 +84,19 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // a reply quoting the id can already arrive. relayApproval is the case that
 // forced it; see its comment (pulpy-whiff).
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
-	// A message with NO payload is refused here, at the one chokepoint every
-	// send goes through. Queued, it is journaled as a durable fact, completes a
-	// parked recv, and is answered with the ordinary success disposition — a
-	// recipient woken for a turn whose content is nothing at all, with every
-	// signal green. A structured companion IS payload (the relayed
-	// ApprovalRequest projection and its replies carry it), so only a message
-	// with neither is empty.
+	// Role "" is undrainable by construction — agent_recv drains the caller's
+	// own harp and no session has the empty harp — so queuing it fsyncs a fact
+	// that is replayed on every relaunch and read by nobody. Refused here, at
+	// the one point every sender funnels through, rather than at each sender.
+	if to == "" {
+		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+	}
+	// A message with NO payload is refused at the same chokepoint. Queued, it is
+	// journaled as a durable fact, completes a parked recv, and is answered with
+	// the ordinary success disposition — a recipient woken for a turn whose
+	// content is nothing at all, with every signal green. A structured companion
+	// IS payload (the relayed ApprovalRequest projection and its replies carry
+	// it), so only a message with neither is empty.
 	if strings.TrimSpace(body) == "" && len(structured) == 0 {
 		return "", false, fmt.Errorf("mailbox: refusing to queue an empty message from %q to %q (kind %q): "+
 			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+

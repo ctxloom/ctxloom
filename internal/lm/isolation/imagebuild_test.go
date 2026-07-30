@@ -600,7 +600,7 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 // hash, naming the base generation the image rode on.
 func TestCombineProvenance_CoversBaseConfig(t *testing.T) {
 	deflt := combineProvenance("bin-digest", "")
-	assert.Equal(t, "bin-digest-"+baseContentHash(containerfiles.Base), deflt)
+	assert.Equal(t, "bin-digest-"+baseContentHash(containerfiles.Base()), deflt)
 
 	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
 	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))

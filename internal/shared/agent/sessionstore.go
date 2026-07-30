@@ -19,7 +19,7 @@ import (
 // tough-cloud S5: the claude/codex/antigravity SessionHistory readers that
 // used to embed this were deleted outright (proven broken, see each
 // package's backend.go doc). opencode's native reader still embeds it, as
-// does antigravity's agyConversationMap (capabilities.go) — a live
+// does antigravity's agyConversationMap (conversationmap.go) — a live
 // continuation lookup, not a transcript reader, that only wants the
 // FS/HomeDir test-injection seam.
 type SessionStore struct {

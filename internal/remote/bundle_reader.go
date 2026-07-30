@@ -186,7 +186,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 		return nil, fmt.Errorf("create fetcher for %s: %w", repoURL, ferr)
 	}
 
-	owner, repo, perr := ParseRepoURL(repoURL)
+	owner, repo, perr := ParseOwnerRepo(repoURL)
 	if perr != nil {
 		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, perr)
 	}

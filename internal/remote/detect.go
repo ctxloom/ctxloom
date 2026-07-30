@@ -136,7 +136,8 @@ func forgeForHost(host, base string) (ForgeType, string, error) {
 	return ForgeGitGeneric, base, nil
 }
 
-// ParseRepoURL extracts owner and repo name from a URL or shorthand.
+// ParseOwnerRepo extracts owner and repo name from a URL or shorthand — the
+// two segments a forge API path is built from.
 // Supports:
 //   - "alice/ctxloom" (shorthand)
 //   - "https://github.com/alice/ctxloom"
@@ -145,83 +146,35 @@ func forgeForHost(host, base string) (ForgeType, string, error) {
 // Both returned segments are non-empty on success: "alice/" and "/ctxloom" name
 // no repository, and a caller handed "" would build a request path with a hole
 // in it.
-func ParseRepoURL(repoURL string) (owner, repo string, err error) {
-	// Handle shorthand notation
-	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
-		parts := strings.Split(repoURL, "/")
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return parts[0], parts[1], nil
-		}
-		return "", "", fmt.Errorf("invalid shorthand format, expected 'owner/repo': %s", repoURL)
-	}
-
-	// Handle SSH URLs (git@github.com:owner/repo.git)
-	if strings.HasPrefix(repoURL, "git@") {
-		// git@github.com:owner/repo.git -> owner/repo
-		idx := strings.Index(repoURL, ":")
-		if idx == -1 {
-			return "", "", fmt.Errorf("invalid SSH URL format: %s", repoURL)
-		}
-		path := repoURL[idx+1:]
-		path = strings.TrimSuffix(path, ".git")
-		parts := strings.Split(path, "/")
-		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
-			return parts[0], parts[1], nil
-		}
-		return "", "", fmt.Errorf("invalid SSH URL path: %s", repoURL)
-	}
-
-	// Handle HTTPS URLs
-	u, err := url.Parse(repoURL)
+//
+// This is the API-PATH renderer over the shared ParseRepoURL grammar
+// (repourl.go). It was the fifth independent re-implementation of that grammar
+// — it was named ParseRepoURL, and had its own shorthand arm, its own scp arm
+// and its own .git handling, which is why "alice/ctxloom.git" used to yield the
+// repo name "ctxloom.git" while every other consumer trimmed the suffix.
+func ParseOwnerRepo(repoURL string) (owner, repo string, err error) {
+	parsed, err := ParseRepoURL(repoURL)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid URL: %w", err)
+		return "", "", err
 	}
-
-	path := strings.Trim(u.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-	parts := strings.Split(path, "/")
-
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("URL path must contain owner/repo: %s", repoURL)
-	}
-
-	return parts[0], parts[1], nil
+	return parsed.OwnerRepo()
 }
 
-// NormalizeURL ensures a URL has a scheme and removes the trailing .git for
-// HTTP(S) remotes. A URL that already carries an explicit non-HTTP scheme
-// (file://, ssh://, git://) is preserved verbatim: those transports clone the
-// path as given, and a local bare repository is literally named "<name>.git",
-// so stripping the suffix or forcing https:// would break the clone.
+// NormalizeURL renders a repository URL's IDENTITY: one https spelling per
+// repository, whatever transport syntax it was written in. It is the input to
+// trust.CanonicalRepoURL (the trust namespace key), to remotes.yaml lookups
+// and to lockfile keys.
+//
+// The grammar itself lives in ParseRepoURL (repourl.go) — this is the identity
+// renderer over it. It used to be a hand-rolled arm-per-shape function with a
+// sibling, normalizeCloneURL, that had the same arms guarded differently; see
+// repourl.go's header for what that cost.
+//
+// An empty input yields an empty string (it previously yielded "https://").
 func NormalizeURL(repoURL string) string {
-	// Ingest boundary: a repo URL reaching here came from argv, remotes.yaml or
-	// a lockfile. Its normalised form becomes the trust key (trust.CanonicalRepoURL
-	// builds on this function) and the left half of the countersign ref, so it is
-	// held to the same no-control-characters rule as any other reference.
-	repoURL = NormalizeRef(repoURL)
-	// Shorthand owner/repo -> github.
-	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
-		if strings.Contains(repoURL, "/") {
-			return "https://github.com/" + strings.TrimSuffix(repoURL, ".git")
-		}
+	parsed, err := ParseRepoURL(repoURL)
+	if err != nil {
+		return ""
 	}
-
-	// SSH scp-like syntax (git@host:owner/repo[.git]) -> https.
-	if strings.HasPrefix(repoURL, "git@") {
-		repoURL = strings.TrimPrefix(repoURL, "git@")
-		repoURL = strings.Replace(repoURL, ":", "/", 1)
-		return "https://" + strings.TrimSuffix(repoURL, ".git")
-	}
-
-	// Already carries an explicit scheme. Only HTTP(S) gets the cosmetic .git
-	// trim (a GitHub convention); every other transport keeps its path intact.
-	if strings.Contains(repoURL, "://") {
-		if strings.HasPrefix(repoURL, "http://") || strings.HasPrefix(repoURL, "https://") {
-			return strings.TrimSuffix(repoURL, ".git")
-		}
-		return repoURL
-	}
-
-	// No scheme, not shorthand, not scp-like: assume an HTTPS host.
-	return "https://" + strings.TrimSuffix(repoURL, ".git")
+	return parsed.Normalized()
 }

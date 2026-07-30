@@ -167,7 +167,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		}
 	}
 
-	owner, repo, err := remote.ParseRepoURL(req.URL)
+	owner, repo, err := remote.ParseOwnerRepo(req.URL)
 	if err != nil {
 		rollbackAdd(registry, req.Name)
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -493,7 +493,7 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 			return nil, "", "", fmt.Errorf("failed to create fetcher: %w", err)
 		}
 	}
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	owner, repo, err := remote.ParseOwnerRepo(rem.URL)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("invalid remote URL: %w", err)
 	}
@@ -827,7 +827,7 @@ func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Rem
 		return nil, err
 	}
 
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	owner, repo, err := remote.ParseOwnerRepo(rem.URL)
 	if err != nil {
 		return nil, err
 	}

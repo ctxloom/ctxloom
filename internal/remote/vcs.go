@@ -413,7 +413,7 @@ func ClonedRepoVCSFactory(cache *RepoCache) VCSFactory {
 		if err != nil {
 			return nil, fmt.Errorf("detect forge for %s: %w", loc, err)
 		}
-		owner, repo, err := ParseRepoURL(loc)
+		owner, repo, err := ParseOwnerRepo(loc)
 		if err != nil {
 			return nil, fmt.Errorf("parse repo URL %s: %w", loc, err)
 		}
@@ -437,7 +437,7 @@ func ClonedRepoVCSFactory(cache *RepoCache) VCSFactory {
 // cloned once and never re-fetched per call — see operations.NewCachedFetcherFactory.
 func GitForgeVCSFactory(factory FetcherFactory, auth AuthConfig) VCSFactory {
 	return func(loc string) (VCS, error) {
-		owner, repo, err := ParseRepoURL(loc)
+		owner, repo, err := ParseOwnerRepo(loc)
 		if err != nil {
 			return nil, fmt.Errorf("parse repo URL %s: %w", loc, err)
 		}

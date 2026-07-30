@@ -45,7 +45,7 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		}
 		var rv remote.RepoVersions
 		if f, err := factory(url, auth); err == nil {
-			if owner, repo, perr := remote.ParseRepoURL(url); perr == nil {
+			if owner, repo, perr := remote.ParseOwnerRepo(url); perr == nil {
 				rv = remote.NewFetcherRepoVersions(f, owner, repo)
 			}
 		}

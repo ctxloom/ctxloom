@@ -212,7 +212,7 @@ func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType It
 	if err != nil {
 		return false, "", time.Time{}, fmt.Errorf("failed to create fetcher: %w", err)
 	}
-	owner, repo, err := ParseRepoURL(repoURL)
+	owner, repo, err := ParseOwnerRepo(repoURL)
 	if err != nil {
 		return false, "", time.Time{}, fmt.Errorf("invalid remote URL: %w", err)
 	}
@@ -270,7 +270,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 		return nil, fmt.Errorf("failed to create fetcher: %w", err)
 	}
 
-	owner, repo, err := ParseRepoURL(repoURL)
+	owner, repo, err := ParseOwnerRepo(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}

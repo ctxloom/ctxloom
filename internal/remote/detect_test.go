@@ -66,7 +66,7 @@ func TestDetectForge(t *testing.T) {
 	}
 }
 
-func TestParseRepoURL(t *testing.T) {
+func TestParseOwnerRepo(t *testing.T) {
 	tests := []struct {
 		name        string
 		url         string
@@ -111,7 +111,7 @@ func TestParseRepoURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			owner, repo, err := ParseRepoURL(tt.url)
+			owner, repo, err := ParseOwnerRepo(tt.url)
 			if tt.expectErr {
 				require.Error(t, err)
 				return
@@ -143,8 +143,26 @@ func TestNormalizeURL(t *testing.T) {
 		{"https with .git", "https://github.com/owner/repo.git", "https://github.com/owner/repo"},
 		{"http gets kept", "http://github.com/owner/repo", "http://github.com/owner/repo"},
 
-		// No scheme (but has domain) - treated as shorthand owner/repo
-		{"domain no scheme gets double-prefixed", "github.com/owner/repo", "https://github.com/github.com/owner/repo"},
+		// No scheme but host-qualified: the first segment carries a ".", so it
+		// is a HOSTNAME, not a GitHub owner (GitHub owner names cannot contain
+		// one). This used to be pinned in the opposite direction, under the
+		// name "domain no scheme gets double-prefixed", because NormalizeURL's
+		// shorthand arm had no guard and sent it to
+		// "https://github.com/gitlab.com/alice/repo" — a repository that
+		// cannot exist. That was starry-debtor / U093-F06, and the human ruled
+		// on it: standardize on the correct answer.
+		//
+		// It is the one input class in this suite whose trust-namespace key
+		// MOVES. Nobody can hold an approval under the old key, because no
+		// content was ever fetchable from it.
+		{"host-qualified, scheme omitted", "github.com/owner/repo", "https://github.com/owner/repo"},
+		{"host-qualified other forge", "gitlab.com/alice/repo", "https://gitlab.com/alice/repo"},
+		{"host-qualified with .git", "gitlab.com/alice/repo.git", "https://gitlab.com/alice/repo"},
+
+		// ...while a dot in a LATER segment leaves it shorthand. The sibling
+		// normalizeCloneURL rejected shorthand on a dot ANYWHERE, so this one
+		// came back bare and `git clone` read it as a local directory.
+		{"shorthand with a dotted repo name", "owner/repo.js", "https://github.com/owner/repo.js"},
 	}
 
 	for _, tt := range tests {

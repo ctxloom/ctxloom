@@ -203,7 +203,16 @@ type Ref struct {
 	IsLocal bool
 
 	// IsBuiltin marks an item shipped inside the ctxloom binary itself
-	// (resources/builtin_bundles). Mutually exclusive with IsLocal. Builtin
+	// (resources/builtin_bundles). Mutually exclusive with IsLocal — every
+	// site that builds a Ref sets at most one of the two as a literal, and the
+	// single site that copies both from data (content.Provenance.stamp) is
+	// refused at construction by Provenance.validate, "provenance cannot be
+	// both local and builtin". Neither field is assigned anywhere else, so the
+	// exclusion is a checked property rather than a convention. It matters
+	// because the two flags are read at DIFFERENT layers: CanonicalURL keys
+	// builtin first, while the decision function reaches its local tier first,
+	// so a Ref carrying both would key under one identity and report the
+	// other. Builtin
 	// items key under BuiltinSigner (never remote.LocalSource) so they cannot
 	// collide with a project-local bundle of the same name, and so a rejection
 	// recorded against a builtin item is addressed unambiguously.

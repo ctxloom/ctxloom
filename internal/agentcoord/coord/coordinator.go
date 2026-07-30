@@ -494,18 +494,29 @@ func (c *Coordinator) Close() {
 }
 
 // closePartial releases what New acquired so far (also Close's tail).
+//
+// A journal that fails to CLOSE is warned about, naming it: Store.Close closes
+// the file handle, so this is the last moment an ENOSPC/EIO on the final flush
+// can be observed at all — and such a failure retracts the durability the
+// coordinator already claimed to every command it answered. Teardown proceeds
+// regardless (there is nothing left to retry) and Close reports no error to
+// its caller, so the warning is the whole signal.
 func (c *Coordinator) closePartial() {
-	if c.runs != nil {
-		_ = c.runs.Close()
+	var errs []error
+	shut := func(name string, s *Store) {
+		if s == nil {
+			return
+		}
+		if err := s.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
 	}
-	if c.mail != nil {
-		_ = c.mail.Close()
-	}
-	if c.items != nil {
-		_ = c.items.Close()
-	}
-	if c.auditJ != nil {
-		_ = c.auditJ.Close()
+	shut("runs.jsonl", c.runs)
+	shut("mailbox.jsonl", c.mail)
+	shut("items.jsonl", c.items)
+	shut("interactions.jsonl", c.auditJ)
+	if len(errs) > 0 {
+		clidiag.Warn("ctxloom", "coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}
 	if c.releaseOwner != nil {
 		c.releaseOwner()

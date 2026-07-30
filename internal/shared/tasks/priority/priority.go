@@ -459,6 +459,19 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 			continue
 		}
 		target := tagschema.Target(t)
+		if strings.Contains(target, "=") {
+			// The three key kinds below share ONE flat namespace, which is
+			// unambiguous only while a target cannot contain '='. tagma's
+			// quoting extension lets it (`ns:"impact=3"=7` has Key
+			// "impact=3"), and such a target's bare entry lands on exactly
+			// the slot `ns:impact=3` occupies as a composite presence key —
+			// so a formula's presence test would read that tag's arbitrary
+			// value instead of 1.0-or-absent. No placeholder can name such a
+			// target unambiguously anyway (any `{{a=b}}` reads as the
+			// composite form), so it contributes nothing rather than
+			// redefining a key that IS referenceable.
+			continue
+		}
 		out[target+"=*"] = 1.0
 		if t.Value == nil {
 			out[target] = 1.0

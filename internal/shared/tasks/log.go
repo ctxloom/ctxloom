@@ -334,14 +334,29 @@ func (l *eventLog) append(ev Event) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+	dir := filepath.Dir(l.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	_, statErr := os.Stat(l.path)
+	created := errors.Is(statErr, os.ErrNotExist)
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
+	if created {
+		// The log file did not exist a moment ago, so this open just created
+		// its directory entry — and appendLine's fsync below makes the file's
+		// CONTENTS durable, never the entry that names them. Flush the entry
+		// first, so a power loss can lose the whole file or nothing, never
+		// leave a confirmed event in a file with no name. Done BEFORE the
+		// event is written so a failure here is unambiguous: nothing was
+		// appended, and the caller's error means exactly that.
+		if err := syncDir(dir); err != nil {
+			return fmt.Errorf("sync task log directory %s: %w", dir, err)
+		}
+	}
 	return appendLine(f, append(b, '\n'))
 }
 

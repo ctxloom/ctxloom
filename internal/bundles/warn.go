@@ -2,7 +2,6 @@ package bundles
 
 import (
 	"io"
-	"os"
 	"strings"
 	"sync"
 
@@ -15,10 +14,15 @@ import (
 // independent Loader, so dedup must outlive any single loader. Hence a
 // process-scoped warner rather than per-Loader state; the warning is pure
 // diagnostics, so suppressing repeats after the first is safe.
+//
+// DEDUP is process-scoped; the SINK is not. Each emission takes the writer of
+// the loader that asked, because "where do my diagnostics go" is that caller's
+// decision (WithWarnWriter) while "have I said this already" is the process's.
+// Holding a writer in here instead made the second question answer the first,
+// and a loader that redirected its diagnostics still lost these two to stderr.
 type bundleWarner struct {
 	mu   sync.Mutex
 	seen map[warnKey]struct{}
-	out  io.Writer
 }
 
 // warnKey namespaces a warner's dedup set by warning KIND as a separate field,
@@ -30,8 +34,8 @@ type warnKey struct {
 	name string
 }
 
-func newBundleWarner(out io.Writer) *bundleWarner {
-	return &bundleWarner{seen: make(map[warnKey]struct{}), out: out}
+func newBundleWarner() *bundleWarner {
+	return &bundleWarner{seen: make(map[warnKey]struct{})}
 }
 
 // first reports whether this (kind, name) has not been warned about yet, and
@@ -47,23 +51,36 @@ func (b *bundleWarner) first(kind, name string) bool {
 	return true
 }
 
-// unresolved warns that ref did not resolve, once per ref for this warner's life.
-func (b *bundleWarner) unresolved(ref string, err error) {
+// unresolved warns to out that ref did not resolve, once per ref for this
+// warner's life.
+func (b *bundleWarner) unresolved(out io.Writer, ref string, err error) {
 	if !b.first("unresolved", ref) {
 		return
 	}
-	clidiag.Fwarn(b.out, "ctxloom", "skipping unresolved bundle %q: %v", ref, err)
+	clidiag.Fwarn(out, "ctxloom", "skipping unresolved bundle %q: %v", ref, err)
 }
 
-// ambiguous warns that a bare fragment ask matched several bundles, once per
-// name for this warner's life.
-func (b *bundleWarner) ambiguous(name string, matches []string, chosen string) {
+// ambiguous warns to out that a bare fragment ask matched several bundles, once
+// per name for this warner's life.
+func (b *bundleWarner) ambiguous(out io.Writer, name string, matches []string, chosen string) {
 	if !b.first("ambiguous", name) {
 		return
 	}
-	clidiag.Fwarn(b.out, "ctxloom", "fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly",
+	clidiag.Fwarn(out, "ctxloom", "fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly",
 		name, strings.Join(matches, ", "), chosen)
 }
 
-// unresolvedBundleWarner is the process-wide default, writing to stderr.
-var unresolvedBundleWarner = newBundleWarner(os.Stderr)
+// unresolvedBundleWarner is the process-wide dedup set. It holds no writer:
+// every emission goes to the warn writer of the loader that asked.
+var unresolvedBundleWarner = newBundleWarner()
+
+// warnUnresolvedBundle and warnAmbiguousFragment are the loader's only route to
+// the process-wide warner, so every one of its user-facing diagnostics honours
+// WithWarnWriter (os.Stderr by default) exactly as fsStore.Save's does.
+func (l *Loader) warnUnresolvedBundle(ref string, err error) {
+	unresolvedBundleWarner.unresolved(l.warnOut, ref, err)
+}
+
+func (l *Loader) warnAmbiguousFragment(name string, matches []string, chosen string) {
+	unresolvedBundleWarner.ambiguous(l.warnOut, name, matches, chosen)
+}

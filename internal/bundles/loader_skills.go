@@ -64,7 +64,7 @@ func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 		// indistinguishable from a bundle that ships none (U030-F07). The
 		// sibling expandBundleRef already warns here through this same warner;
 		// that inconsistency was the tell.
-		unresolvedBundleWarner.unresolved(bundleRef, err)
+		l.warnUnresolvedBundle(bundleRef, err)
 		return nil
 	}
 	names := make([]string, 0, len(bundle.Skills))

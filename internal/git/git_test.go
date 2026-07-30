@@ -307,6 +307,45 @@ func TestExecGit_CommitAll_StagesAndVerifies(t *testing.T) {
 	assert.False(t, dirty, "nothing left uncommitted")
 }
 
+// TestExecGit_CommitAll_UnbornHEAD pins U053-F14. In a repository with zero
+// commits HEAD is UNBORN: `git rev-parse HEAD` fails, and CommitAll resolved
+// the pre-commit HEAD unconditionally, so it refused outright. That is the
+// one moment a project has the most unpreserved work and the least history to
+// lose — CommitAll must create the ROOT commit and still report the files it
+// captured, since its caller refuses any commit reporting no content.
+func TestExecGit_CommitAll_UnbornHEAD(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping CommitAll integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepoUnborn(t)
+
+	require.NoError(t, writeFile(filepath.Join(repo, "README.md"), "first"))
+	require.NoError(t, writeFile(filepath.Join(repo, "pkg/a.go"), "package pkg"))
+
+	sha, changed, err := g.CommitAll(ctx, repo, "initial commit")
+	require.NoError(t, err, "a zero-commit repo must still be committable")
+	assert.NotEmpty(t, sha, "the root commit's SHA is reported")
+	assert.ElementsMatch(t, []string{"README.md", "pkg/a.go"}, changed,
+		"a root commit's changed-file list is every file in it, not the empty list its caller treats as a failed commit")
+
+	dirty, err := g.IsDirty(ctx, repo)
+	require.NoError(t, err)
+	assert.False(t, dirty, "nothing left uncommitted")
+}
+
+// TestExecGit_CommitAll_NonRepoStillFails pins the other half: the unborn-HEAD
+// accommodation must not turn a genuinely broken target (a bare directory that
+// is no repository at all) into a silent success.
+func TestExecGit_CommitAll_NonRepoStillFails(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping CommitAll integration test")
+	}
+	_, _, err := NewExec().CommitAll(context.Background(), t.TempDir(), "nope")
+	require.Error(t, err, "a directory that is not a repository must fail loudly")
+}
+
 // TestExecGit_DiffPatch_ApplyPatch_RoundTrip proves the copy handler's
 // tracked-changes mechanism end to end: a patch captured from one checkout
 // (modification + deletion) applies cleanly to a SEPARATE checkout at the

@@ -246,11 +246,10 @@ func (execGit) CurrentBranch(ctx context.Context, dir string) (string, error) {
 // see the Git interface doc for why the caller needs that second return
 // rather than trusting a bare "commit succeeded".
 func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []string, error) {
-	preOut, err := output(ctx, dir, "rev-parse", "HEAD")
+	preSHA, err := preCommitHead(ctx, dir)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolving pre-commit HEAD: %w", err)
 	}
-	preSHA := strings.TrimSpace(preOut)
 
 	if err := run(ctx, dir, "add", "-A"); err != nil {
 		return "", nil, fmt.Errorf("staging changes: %w", err)
@@ -265,7 +264,7 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 	}
 	postSHA := strings.TrimSpace(postOut)
 
-	changed, err := diffNameOnly(ctx, dir, preSHA, postSHA)
+	changed, err := commitContents(ctx, dir, preSHA, postSHA)
 	if err != nil {
 		// The commit itself landed (postSHA is real) — surface it even
 		// though verification couldn't complete, rather than discarding a
@@ -273,6 +272,39 @@ func (g execGit) CommitAll(ctx context.Context, dir, message string) (string, []
 		return postSHA, nil, fmt.Errorf("commit %s landed but verifying its content failed: %w", postSHA, err)
 	}
 	return postSHA, changed, nil
+}
+
+// preCommitHead resolves dir's current HEAD commit, or "" when HEAD is UNBORN
+// — a repository with zero commits, where HEAD names a branch ref that does
+// not exist yet. `git rev-parse HEAD` fails identically for "unborn" and "not
+// a repository at all", and only the first is a state CommitAll may proceed
+// from, so the two are told apart by symbolic-ref: it resolves only inside a
+// repository whose HEAD points at a (possibly unborn) branch.
+func preCommitHead(ctx context.Context, dir string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "HEAD")
+	if err == nil {
+		return strings.TrimSpace(out), nil
+	}
+	if _, serr := output(ctx, dir, "symbolic-ref", "--quiet", "HEAD"); serr != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+// commitContents returns the files postSHA carries versus preSHA. An empty
+// preSHA means postSHA is a ROOT commit (see preCommitHead), which has no
+// parent to diff against — --root makes git list the whole commit instead,
+// rather than yielding the empty list CommitAll's caller treats as evidence
+// the commit landed with no content.
+func commitContents(ctx context.Context, dir, preSHA, postSHA string) ([]string, error) {
+	if preSHA == "" {
+		out, err := output(ctx, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", postSHA)
+		if err != nil {
+			return nil, err
+		}
+		return splitNonEmptyLines(out), nil
+	}
+	return diffNameOnly(ctx, dir, preSHA, postSHA)
 }
 
 // diffNameOnly returns the names of files that differ between two refs.

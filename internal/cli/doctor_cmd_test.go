@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -863,4 +864,81 @@ func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing
 		"a trust store the loader could not fully read must not report ok")
 	assert.Contains(t, check.Detail, "grant NO trust")
 	assert.Contains(t, check.Detail, appDir)
+}
+
+// --- U035-F21: a container runtime is required only where containers run ---
+
+// TestDoctorContainerRuntimeRequired pins U035-F21. DEPS-a1 bucketed
+// docker/podman as unconditionally REQUIRED ("git, every configured engine's
+// client, and a container runtime are all on PATH (required)"), but ctxloom runs
+// engines on the host by default: a project with no container agents needs no
+// container runtime, and warning it does trains the user to ignore the report.
+func TestDoctorContainerRuntimeRequired(t *testing.T) {
+	hostAgent := agents.Agent{Engine: "claude-code", Runtime: "host"}
+	containerAgent := agents.Agent{Engine: "claude-code", Runtime: "container"}
+	inheritingAgent := agents.Agent{Engine: "claude-code"}
+
+	for _, tc := range []struct {
+		name    string
+		fixture config.Fixture
+		want    bool
+	}{
+		{"no config at all", config.Fixture{}, false},
+		{"host agents only", config.Fixture{Agents: map[string]agents.Agent{"a": hostAgent}}, false},
+		{"one container agent", config.Fixture{Agents: map[string]agents.Agent{"a": hostAgent, "b": containerAgent}}, true},
+		{"project default is container", config.Fixture{Runtime: "container"}, true},
+		{"agent inherits a container project default", config.Fixture{
+			Runtime: "container", Agents: map[string]agents.Agent{"a": inheritingAgent},
+		}, true},
+		{"agent overrides a container project default back to host", config.Fixture{
+			Runtime: "host", Agents: map[string]agents.Agent{"a": inheritingAgent},
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, doctorContainerRuntimeRequired(config.NewFixture(tc.fixture)))
+		})
+	}
+
+	assert.False(t, doctorContainerRuntimeRequired(nil), "a nil config must not claim a hard dependency")
+}
+
+// TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired is the
+// end-to-end half: with git/ssh/ssh-keygen present and NO container runtime
+// reachable, a host-only project must report the runtime as recommended.
+func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *testing.T) {
+	dir := t.TempDir()
+	for _, bin := range []string{"ssh", "ssh-keygen", "git", "claude"} {
+		writeFakeExecutable(t, dir, bin)
+	}
+	t.Setenv("PATH", dir) // no docker, no podman
+
+	check := doctorCheckDeps(config.NewFixture(config.Fixture{
+		Agents: map[string]agents.Agent{"a": {Engine: "claude-code", Runtime: "host"}},
+	}))
+
+	assert.Equal(t, "warn", check.Status, "a missing recommended dep still warns")
+	assert.Contains(t, check.Detail, "container runtime")
+	assert.NotContains(t, check.Detail, "missing (required)",
+		"a host-only project has NOTHING required missing here:\n%s", check.Detail)
+	assert.Contains(t, check.Detail, "missing (recommended")
+}
+
+// TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired is the control: the
+// project that DOES run containers keeps the hard-dependency reading.
+func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
+	dir := t.TempDir()
+	for _, bin := range []string{"ssh", "ssh-keygen", "git", "claude"} {
+		writeFakeExecutable(t, dir, bin)
+	}
+	t.Setenv("PATH", dir) // no docker, no podman
+
+	check := doctorCheckDeps(config.NewFixture(config.Fixture{
+		Agents: map[string]agents.Agent{"a": {Engine: "claude-code", Runtime: "container"}},
+	}))
+
+	assert.Equal(t, "warn", check.Status)
+	required, _, _ := strings.Cut(check.Detail, "; missing (recommended")
+	assert.Contains(t, required, "missing (required)")
+	assert.Contains(t, required, "container runtime",
+		"a project that runs container agents genuinely needs one:\n%s", check.Detail)
 }

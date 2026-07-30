@@ -110,8 +110,9 @@ var doctorCmd = &cobra.Command{
 	Long: `Run ctxloom's deterministic setup checks — this IS the init-as-skill setup
 skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
 .ctxloom marker + config validity; required binaries on PATH (git, each
-configured engine's own client, a container runtime, and — recommended, not
-required — ssh/ssh-keygen); whether the ACP adapter binary (claude-code-acp/
+configured engine's own client, a container runtime when this project runs
+'runtime: container' agents, and — recommended, not required — ssh/ssh-keygen);
+whether the ACP adapter binary (claude-code-acp/
 codex-acp) each configured claude-code/codex engine needs for HOST-runtime
 structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
@@ -197,13 +198,46 @@ func doctorConfiguredEngines(cfg *config.Config) []string {
 	return out
 }
 
+// doctorContainerRuntimeRequired reports whether a container runtime is a HARD
+// dependency for THIS project. It is one only when something would actually try
+// to launch a container: the project's `runtime:` default is container, or at
+// least one configured agent declares `runtime: container`. The effective axis
+// is resolved exactly as operations.ResolveAgent resolves it (agents.go: the
+// agent's own choice wins, else the project default, else host), so doctor and
+// the launcher cannot disagree about what this project runs.
+//
+// Everywhere else a container runtime is a convenience: a host-runtime project
+// never touches one, and calling it "required" there manufactures a warn on a
+// perfectly healthy machine — the fastest way to teach a user to ignore doctor.
+func doctorContainerRuntimeRequired(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	projectDefault := cfg.GetRuntime()
+	if projectDefault == agent.RuntimeContainer {
+		return true
+	}
+	for _, a := range cfg.GetConfiguredAgents() {
+		runtime := a.Runtime
+		if runtime == "" {
+			runtime = projectDefault
+		}
+		if runtime == agent.RuntimeContainer {
+			return true
+		}
+	}
+	return false
+}
+
 // doctorCheckDeps probes PATH for git (worktree isolation + remote clone/
-// pull + init/manage install's own clone), each configured engine's native
-// client, and a reachable container runtime — all genuinely REQUIRED — plus
-// ssh/ssh-keygen, which are RECOMMENDED but not required (see
-// doctorDepBinariesRecommended's doc for why: ctxloom never execs either;
-// signing is pure Go). The two buckets are reported separately so "missing"
-// never conflates an optional convenience with a real hard dependency.
+// pull + init/manage install's own clone) and each configured engine's native
+// client — both genuinely REQUIRED — plus ssh/ssh-keygen, which are RECOMMENDED
+// but not required (see doctorDepBinariesRecommended's doc for why: ctxloom
+// never execs either; signing is pure Go). A container runtime lands in
+// whichever bucket THIS project's configuration puts it in
+// (doctorContainerRuntimeRequired). The two buckets are reported separately so
+// "missing" never conflates an optional convenience with a real hard
+// dependency.
 func doctorCheckDeps(cfg *config.Config) doctorCheck {
 	var missingRequired []string
 	for _, bin := range doctorDepBinariesRequired {
@@ -227,11 +261,17 @@ func doctorCheckDeps(cfg *config.Config) doctorCheck {
 		}
 	}
 	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
-		missingRequired = append(missingRequired, "docker/podman (container runtime)")
+		if doctorContainerRuntimeRequired(cfg) {
+			missingRequired = append(missingRequired,
+				"docker/podman (container runtime — this project runs container agents)")
+		} else {
+			missingRecommended = append(missingRecommended,
+				"docker/podman (container runtime — needed only to run `runtime: container` agents, which this project configures none of)")
+		}
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
 		return doctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "ok",
-			Detail: "git, every configured engine's client, and a container runtime are all on PATH (required); ssh and ssh-keygen are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either)"}
+			Detail: "git and every configured engine's client are on PATH (required); ssh, ssh-keygen and a container runtime are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either; a container runtime is required only for `runtime: container` agents)"}
 	}
 	sort.Strings(missingRequired)
 	sort.Strings(missingRecommended)

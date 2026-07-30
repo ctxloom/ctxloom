@@ -392,6 +392,35 @@ func TestEnsureCodexCredentials_ContainerFresh_VerifiesMount(t *testing.T) {
 	assert.NoError(t, ensureCodexCredentials(home, codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil)))
 }
 
+// TestResolveCodexProjectDir_UnexpectedShape_IsAnnounced pins that the one
+// resolution branch that does NOT deliver what it was handed says so. A user's
+// `env: {CODEX_HOME: /custom/home}` rides llmEnvFor -> RunOptions.Env -> here
+// (internal/cli/llm_resolve.go), and codex nests its own ".codex" under it, so
+// the child receives /custom/home/.codex — never the requested path. The
+// nesting is deliberate (every cell-scoped writer joins ConfigDirName itself);
+// doing it without a word was not.
+func TestResolveCodexProjectDir_UnexpectedShape_IsAnnounced(t *testing.T) {
+	var dir string
+	out := captureStderr(t, func() {
+		dir, _ = resolveCodexProjectDir(map[string]string{CodexHomeEnv: "/custom/home"}, "/proj", agent.CellKindShared)
+	})
+	assert.Equal(t, "/custom/home", dir)
+	assert.Contains(t, out, "/custom/home", "the warning names the requested CODEX_HOME")
+	assert.Contains(t, out, filepath.Join("/custom/home", ConfigDirName), "and the one the child actually gets")
+}
+
+// The expected "/.codex"-suffixed shape (every isolation-provided value) is
+// delivered verbatim and must stay silent — a warning on the normal path would
+// fire on every isolated run.
+func TestResolveCodexProjectDir_ExpectedShape_IsSilent(t *testing.T) {
+	out := captureStderr(t, func() {
+		dir, src := resolveCodexProjectDir(map[string]string{CodexHomeEnv: "/cfg/home/.codex"}, "/proj", agent.CellKindShared)
+		assert.Equal(t, "/cfg/home", dir)
+		assert.Equal(t, codexHomeIsolationProvided, src)
+	})
+	assert.Empty(t, out)
+}
+
 // TestCodex_Setup_PerAgentEnvKeyAuthenticates pins the credential gate against
 // the env the CHILD will actually receive, not the ambient process env. A
 // per-agent `env:` OPENAI_API_KEY reaches the child two ways — the run env

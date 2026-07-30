@@ -160,12 +160,16 @@ func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agen
 		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+ConfigDirName); stripped != home {
 			return stripped, codexHomeIsolationProvided
 		}
-		// An isolation-provided CODEX_HOME not in the expected "/.codex" shape
-		// (a caller override, or a future spec whose Subdir changes) — use it
-		// AS the project dir directly. cellScopedCodexHome will nest an extra
-		// ".codex" under it, which is at least self-consistent (Setup and
-		// Execute still agree) even if it doesn't match what the isolation
-		// layer intended.
+		// A CODEX_HOME not in the expected "/.codex" shape — a future spec whose
+		// Subdir changes, or (reachably) a user's own `env: {CODEX_HOME: ...}`,
+		// which rides llmEnvFor into this run's env. Use it AS the project dir
+		// directly: cellScopedCodexHome nests an extra ".codex" under it, which
+		// is at least self-consistent (Setup and Execute still agree) even
+		// though it is not the path that was asked for. Say so — the child gets
+		// a home the caller never named, and silently is the one way that must
+		// not happen.
+		clidiag.Warn("ctxloom", "%s=%q does not end in %q; codex will read %s instead — name the %s directory itself to be delivered into it",
+			CodexHomeEnv, home, string(filepath.Separator)+ConfigDirName, cellScopedCodexHome(home), ConfigDirName)
 		return home, codexHomeIsolationProvided
 	}
 	if cellKind == agent.CellKindProcessIsolated {

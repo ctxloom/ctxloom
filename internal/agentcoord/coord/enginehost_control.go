@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -184,24 +185,59 @@ func (eh *EngineHost) handleSteer(ctx context.Context, home engineHome, reqID st
 
 	eh.mu.Lock()
 	busy := eh.inTurn
+	runCtx := eh.runCtx
 	eh.mu.Unlock()
 
-	if err := eh.enqueueTurn(ctx, turnTag{kind: "steer", reqID: reqID}, (&agentcoordpb.SteerPendingReminder{}).XmlLike()); err != nil {
-		// The reminder never landed. The body stays parked in a run that is
-		// ending or has stopped taking turns; say the steer was REJECTED
-		// rather than report a queue that does not exist.
-		return &agentcoordpb.AgentResponse{
-			Status: statusErr(codes.FailedPrecondition, fmt.Sprintf("steer: the engine took no turn: %v", err)),
-			Kind: &agentcoordpb.AgentResponse_Steer{Steer: &agentcoordpb.SteerResult{
-				Applied: agentcoordpb.SteerResult_APPLIED_REJECTED,
-			}},
-		}
-	}
+	// The hand-off runs on its own goroutine, bounded by the RUN's context
+	// rather than this request's: the caller's 60-second budget must not be
+	// able to abandon a reminder that is already committed and queued. A
+	// mid-turn hand-off blocks until the boundary, which can be minutes away —
+	// answering only then would burn the whole budget on an outcome already
+	// known.
+	handed := make(chan error, 1)
+	eh.goTracked(func() {
+		handed <- eh.enqueueTurn(runCtx, turnTag{kind: "steer", reqID: reqID}, (&agentcoordpb.SteerPendingReminder{}).XmlLike())
+	})
 
-	applied := agentcoordpb.SteerResult_APPLIED_IMMEDIATE
 	if busy {
-		applied = agentcoordpb.SteerResult_APPLIED_NEXT_TURN
+		// The engine is mid-turn. No surface ctxloom drives takes a concurrent
+		// prompt, so the driver queues the reminder to the next boundary — and
+		// the acknowledgement SAYS SO rather than implying it landed.
+		return steerAck(agentcoordpb.SteerResult_APPLIED_NEXT_TURN)
 	}
+	// The engine is idle, so the hand-off is a send onto a channel the driver
+	// is already waiting on: it completes now or the engine was not as idle as
+	// it looked. `applied` therefore reports what was OBSERVED, never a guess.
+	select {
+	case err := <-handed:
+		if err != nil {
+			// The reminder never landed — the run is ending or has stopped
+			// taking turns. REJECTED, not a queue that does not exist.
+			return &agentcoordpb.AgentResponse{
+				Status: statusErr(codes.FailedPrecondition, fmt.Sprintf("steer: the engine took no turn: %v", err)),
+				Kind: &agentcoordpb.AgentResponse_Steer{Steer: &agentcoordpb.SteerResult{
+					Applied: agentcoordpb.SteerResult_APPLIED_REJECTED,
+				}},
+			}
+		}
+		return steerAck(agentcoordpb.SteerResult_APPLIED_IMMEDIATE)
+	case <-time.After(steerHandoffWindow):
+		// It became busy under us. The reminder is still queued and still
+		// lands; the honest report is the boundary, not the immediacy.
+		return steerAck(agentcoordpb.SteerResult_APPLIED_NEXT_TURN)
+	case <-ctx.Done():
+		return steerAck(agentcoordpb.SteerResult_APPLIED_NEXT_TURN)
+	}
+}
+
+// steerHandoffWindow bounds how long an IDLE target's hand-off is watched
+// before the answer degrades to "queued for the next boundary". It is short on
+// purpose: handing a turn to a driver that is already blocked on its input
+// channel is a channel send, so anything slower means the engine started a turn
+// between the check and the send — which is exactly what NEXT_TURN describes.
+const steerHandoffWindow = 2 * time.Second
+
+func steerAck(applied agentcoordpb.SteerResult_Applied) *agentcoordpb.AgentResponse {
 	return &agentcoordpb.AgentResponse{
 		Status: okStatus(""),
 		Kind:   &agentcoordpb.AgentResponse_Steer{Steer: &agentcoordpb.SteerResult{Applied: applied}},

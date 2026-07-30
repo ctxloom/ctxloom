@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -305,4 +306,56 @@ func TestMountProbeRoots(t *testing.T) {
 	before, err := os.ReadFile(authFile)
 	require.NoError(t, err)
 	assert.Equal(t, "secret", string(before), "deriving the probe root never touches the real credential file's content")
+}
+
+// TestProbeOneRoot_SweepsAbandonedProbeDirs pins U064-F12. The probe's scratch
+// dir is created INSIDE the live mount root — the project directory itself —
+// deliberately: a Docker Desktop custom file-sharing list grants sharing per
+// host PATH, so probing anywhere else proves nothing about the path a run
+// actually mounts (mountProbeRoots' doc). Normal teardown removes it, but the
+// deferred RemoveAll cannot run if the process is killed, so a hard kill left
+// `ctxloom-fsprobe-*` debris in the user's project dir — where it shows up in
+// git status and, in this project, meets a dirty-tree gate.
+//
+// The probe therefore sweeps its own abandoned dirs before creating a new one.
+// The sweep is age-bounded because concurrent ctxloom processes probe the same
+// roots: only debris far older than a probe could possibly still be running is
+// touched, so a live sibling's scratch dir is never destroyed.
+func TestProbeOneRoot_SweepsAbandonedProbeDirs(t *testing.T) {
+	root := t.TempDir()
+
+	abandoned := filepath.Join(root, "ctxloom-fsprobe-1234567")
+	require.NoError(t, os.MkdirAll(abandoned, 0o755))
+	old := time.Now().Add(-24 * time.Hour)
+	require.NoError(t, os.Chtimes(abandoned, old, old))
+
+	// A sibling process's probe, in flight right now: must survive.
+	live := filepath.Join(root, "ctxloom-fsprobe-7654321")
+	require.NoError(t, os.MkdirAll(live, 0o755))
+
+	// Unrelated user content that merely sorts nearby: must never be touched.
+	keep := filepath.Join(root, "ctxloom-fsprobe.md")
+	require.NoError(t, os.WriteFile(keep, []byte("notes"), 0o644))
+	require.NoError(t, os.Chtimes(keep, old, old))
+
+	stubProbeExec(t, func(markerPath string) (string, error) {
+		raw, err := os.ReadFile(markerPath)
+		return string(raw), err
+	})
+	require.NoError(t, probeOneRoot(context.Background(), probeRuntime{}, "img", root))
+
+	assert.NoDirExists(t, abandoned, "a probe dir far older than any live probe is debris and must be swept")
+	assert.DirExists(t, live, "a concurrent process's in-flight probe dir must never be destroyed")
+	assert.FileExists(t, keep, "only directories with the probe's own prefix are swept")
+
+	// And the probe's own dir is gone on the ordinary path, as before.
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	var probeDirs int
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "ctxloom-fsprobe-") {
+			probeDirs++
+		}
+	}
+	assert.Equal(t, 1, probeDirs, "only the sibling's live dir remains; this probe removed its own")
 }

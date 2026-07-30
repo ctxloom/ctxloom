@@ -623,3 +623,28 @@ func TestContainerRunnerFunc_IsADefinedType(t *testing.T) {
 	cfg.RunnerFunc = f
 	assert.Nil(t, cfg.RunnerFunc)
 }
+
+// TestContainerClientConfig_SkipsHostEnv pins U064-F03's fix at the seam where
+// the container transport's environment is decided. containerHandshakeEnv (the
+// isolation runner's curation) promises "ONLY the go-plugin handshake vars …
+// never the host's full environment", but its third arm is a PLUGIN_ PREFIX
+// match, which is a promise about the ENV IT IS HANDED, not about go-plugin.
+// go-plugin appends os.Environ() ahead of its own handshake vars unless
+// SkipHostEnv is set, so without this an ambient host PLUGIN_* variable crosses
+// into the container and onto the `docker run` argv, which is world-readable
+// via /proc/<pid>/cmdline. SkipHostEnv makes the curation's description true by
+// construction rather than by hope.
+func TestContainerClientConfig_SkipsHostEnv(t *testing.T) {
+	rf := ContainerRunnerFunc(func(hclog.Logger, *exec.Cmd, string) (runner.Runner, error) {
+		return nil, nil
+	})
+	cfg := ContainerClientConfig(rf, "/tmp/sock", hclog.NewNullLogger())
+
+	assert.True(t, cfg.SkipHostEnv,
+		"the container transport must not seed the plugin Cmd's env from this process's environment: the runner's PLUGIN_ prefix curation would forward an ambient host PLUGIN_* var into the container")
+	assert.NotNil(t, cfg.RunnerFunc, "the container transport still launches through the caller's runner")
+	require.NotNil(t, cfg.UnixSocketConfig)
+	assert.Equal(t, "/tmp/sock", cfg.UnixSocketConfig.TempDir)
+	assert.Equal(t, HandshakeConfig.MagicCookieKey, cfg.MagicCookieKey,
+		"the magic cookie is set by go-plugin itself and survives SkipHostEnv — it is not a host var")
+}

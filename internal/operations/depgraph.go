@@ -175,6 +175,18 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
 	// carried forward (stability), and a resolution failure falls back to its last
 	// known SHA rather than dropping the item. Lock mode (reResolve=false).
+	//
+	// The error is dropped BY DECISION, not by oversight, and this is the one
+	// place that decision is recorded. FlattenDependencies (this function's
+	// only caller) builds its profile loader first, and that seeds remote
+	// bundles from this same lockfile — config.loadRemoteBundleSeed reports an
+	// unreadable one fatal-class, naming the file and the fix, before this load
+	// is ever reached. Repeating it here would say the same thing twice, and
+	// this function cannot do anything better with it: FlattenDependencies
+	// returns no error, and an anchorless rebuild is barred from being
+	// PERSISTED downstream by Save's unreadable-file refusal (U085-F01) rather
+	// than by anything decidable here. A nil lockfile resolves as no anchor,
+	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(getBaseDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
 	return flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
@@ -194,6 +206,7 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		pins:        map[string]PinnedRef{},
 		hashes:      map[string]map[string]struct{}{},
 		visited:     map[string]struct{}{},
+		unexpanded:  map[string]struct{}{},
 	}
 	for _, p := range roots {
 		// A local root resolves its short sibling refs to ctxloom:local.
@@ -225,15 +238,15 @@ type depWalker struct {
 	// could not be read or parsed during the walk: their subtrees are MISSING
 	// from pins, so the closure is incomplete. Callers that rebuild the lockfile
 	// wholesale consult this to avoid erasing entries under a failed subtree.
+	// Initialised with the other three maps at construction — every one of this
+	// walker's maps is owned by whoever builds it, so no method has to decide
+	// whether it exists yet.
 	unexpanded map[string]struct{}
 }
 
 // markUnexpanded records identity as a parent (local OR remote) whose
 // subtree could not be walked, and emits the project-standard warning.
 func (w *depWalker) markUnexpanded(identity string, cause error) {
-	if w.unexpanded == nil {
-		w.unexpanded = map[string]struct{}{}
-	}
 	w.unexpanded[identity] = struct{}{}
 	clidiag.Warn("ctxloom", "could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)", identity, cause)
 }
@@ -334,7 +347,16 @@ func (w *depWalker) recurseParent(parentRef string) {
 		w.markUnexpanded(parentRef, errors.New("not a bundle-profile reference (<url>@bundles/x#profiles/y) — top-level @profiles/ parents are retired"))
 		return
 	}
+	w.recurseBundleProfile(bundleRef, profName)
+}
 
+// recurseBundleProfile pins a bundle-profile parent's underlying BUNDLE, then
+// reads the named profile out of that bundle at the resolved commit and walks
+// its own closure. Split from recurseParent so the local/remote dispatch above
+// reads as the two-way choice it is, with the remote half's fetch-parse-lookup
+// chain — four distinct ways to end up with an unexpanded subtree — kept
+// whole and by itself.
+func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	rec := w.record(bundleRef, remote.ItemTypeBundle)
 	if rec == nil {
 		return

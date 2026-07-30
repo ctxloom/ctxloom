@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1161,4 +1162,419 @@ func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Error("expected the wedged client to be Kill()ed (via reapLateChatDial) once its dial was declared failed")
 	}
+}
+
+// TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"
+// reproduces an untracked SYMLINK, not just an untracked regular file
+// (U083-F11). `git ls-files --others` lists symlinks exactly like regular
+// files, so a parent tree whose uncommitted work includes a new symlink used
+// to have that link dropped on the floor — no error, no warning, a worktree
+// that silently differs from what the copy handler promised to reproduce.
+// applyCopySnapshot's contract is "never half-applies and continues", and a
+// skipped symlink is precisely a half-application.
+func TestApplyCopySnapshot_ReproducesUntrackedSymlink(t *testing.T) {
+	resetStrictness(t)
+	parent := t.TempDir()
+	target := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(parent, "real.go"), []byte("package real"), 0o644))
+	require.NoError(t, os.Symlink("real.go", filepath.Join(parent, "link.go")))
+	require.NoError(t, os.MkdirAll(filepath.Join(parent, "nested"), 0o755))
+	require.NoError(t, os.Symlink("../real.go", filepath.Join(parent, "nested", "deep.go")))
+
+	snap := &copySnapshot{
+		untracked: []string{"real.go", "link.go", "nested/deep.go"},
+		sourceDir: parent,
+	}
+	require.NoError(t, applyCopySnapshot(context.Background(), &git.Fake{}, target, snap))
+
+	info, err := os.Lstat(filepath.Join(target, "link.go"))
+	require.NoError(t, err, "the untracked symlink must exist in the worktree")
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "and must still be a symlink, not a materialized copy of its target")
+	dest, err := os.Readlink(filepath.Join(target, "link.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "real.go", dest, "the link target is reproduced verbatim (never resolved to an absolute host path)")
+
+	deep, err := os.Readlink(filepath.Join(target, "nested", "deep.go"))
+	require.NoError(t, err, "a symlink under a subdirectory needs its parent dirs created too")
+	assert.Equal(t, "../real.go", deep)
+}
+
+// TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud pins the other
+// half of U083-F11: an untracked path that is NEITHER a regular file nor a
+// symlink (a fifo, a socket, a device node) must REFUSE rather than be
+// skipped in silence. The copy handler's whole promise is that the child's
+// worktree reproduces the parent's uncommitted state; anything it cannot
+// reproduce is a fact the caller is entitled to.
+func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
+	resetStrictness(t)
+	parent := t.TempDir()
+	target := t.TempDir()
+	fifo := filepath.Join(parent, "pipe")
+	if out, err := exec.Command("mkfifo", fifo).CombinedOutput(); err != nil {
+		t.Skipf("mkfifo unavailable: %v (%s)", err, out)
+	}
+
+	snap := &copySnapshot{untracked: []string{"pipe"}, sourceDir: parent}
+	err := applyCopySnapshot(context.Background(), &git.Fake{}, target, snap)
+	require.Error(t, err, "an unreproducible entry must fail loud, never be skipped silently")
+	assert.Contains(t, err.Error(), "pipe", "the refusal names the path it could not reproduce")
+}
+
+// TestStartOneshot_CloseTerminatesTheDriverGoroutine pins U083-F05's real
+// half: AgentChatLaunch.Close is the orchestrator's "this child is over"
+// lever (coord.terminateRun calls it for agent_stop, launch failure and
+// every other terminal cause), and on the oneshot fallback it used to only
+// cancel the per-turn context — the driver goroutine stayed parked on its
+// input channel forever, so Events/Errs never closed and the coordinator's
+// driveChild select stayed alive until the whole coordinator shut down.
+//
+// The claimed DEADLOCK (endChild draining Errs before closing In) is a
+// DIFFERENT proposition and is refuted by construction: endChild is only
+// reached when Events closes, and on this path Events closing already
+// implies In was closed. What was real is the parked goroutine, which is
+// what this pins — Close alone must wind the launch down.
+func TestStartOneshot_CloseTerminatesTheDriverGoroutine(t *testing.T) {
+	resetStrictness(t)
+	p := &PreparedAgentChat{
+		cfg:     config.NewFixture(config.Fixture{}),
+		oneshot: true,
+		req: AgentChatRequest{
+			Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast"},
+			WorkDir:  t.TempDir(),
+		},
+	}
+	launch := p.startOneshot(context.Background())
+	require.True(t, launch.Oneshot)
+
+	launch.Close()
+
+	select {
+	case _, ok := <-launch.Events:
+		assert.False(t, ok, "Events must be CLOSED, not carrying a late event")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Events never closed after Close() — the oneshot driver goroutine is parked forever")
+	}
+	select {
+	case _, ok := <-launch.Errs:
+		assert.False(t, ok, "Errs must be CLOSED")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Errs never closed after Close()")
+	}
+}
+
+// TestStartOneshot_ClosingInStillTerminates keeps the pre-existing wind-down
+// route working: the orchestrator (coord.endChild) closes In as its own
+// last act, and that must still close Events and Errs. Close() gaining its
+// own exit must not become the ONLY way out — and, critically, Close must
+// never itself close In, because endChild closes In too and a second close
+// would panic.
+func TestStartOneshot_ClosingInStillTerminates(t *testing.T) {
+	resetStrictness(t)
+	p := &PreparedAgentChat{
+		cfg:     config.NewFixture(config.Fixture{}),
+		oneshot: true,
+		req: AgentChatRequest{
+			Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast"},
+			WorkDir:  t.TempDir(),
+		},
+	}
+	launch := p.startOneshot(context.Background())
+
+	in := launch.In
+	close(in)
+	launch.Close() // the orchestrator's real order: close In, THEN Close — must not double-close
+
+	select {
+	case _, ok := <-launch.Events:
+		assert.False(t, ok)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Events never closed after In was closed")
+	}
+}
+
+// TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking pins
+// U083-F13. The two spawn seams are independent — Factory fakes the legacy
+// go-plugin Chat dial, Starter fakes the StartRun runner launch — and a
+// non-nil Factory skips the whole isolation block that would otherwise BIND
+// a production starter. A caller that supplies only Factory and then takes
+// the StartRun path therefore reached StartEngine with p.starter == nil and
+// called it: a nil-func panic, from an exported method, naming nothing.
+//
+// (The register's stated mechanism — "p.starter is assigned only inside the
+// p.factory == nil branch" — no longer holds: req.Starter is copied across
+// unconditionally. The reachable defect is the unset case pinned here.)
+func TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking(t *testing.T) {
+	resetStrictness(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	require.Nil(t, p.starter, "the Factory seam deliberately binds no production starter")
+
+	proc, serr := p.StartEngine(context.Background())
+	require.Error(t, serr, "StartEngine must refuse a launch it has no starter for, not panic")
+	assert.Nil(t, proc)
+	assert.Contains(t, serr.Error(), "Starter", "the refusal names the seam that was not supplied")
+}
+
+// TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured is
+// U083-F24's pin, and the row is REFUTED. The claim was that the
+// oneshot+"copy" refusal firing on an EMPTY capture turns a harmless spawn
+// into an error, so it should be suppressed when there is nothing to
+// reproduce. It should not:
+//
+//   - the refusal is about a CONFIGURATION the fallback path cannot honor
+//     ("copy" needs a durable worktree; the oneshot fallback carves and tears
+//     down a fresh one per turn), which is equally true whether this
+//     particular parent tree had one dirty file or a thousand;
+//   - suppressing it would make the same misconfiguration refuse or proceed
+//     depending on the parent tree's momentary contents — the caller learns
+//     about an unsatisfiable request only sometimes;
+//   - and the "harmless" premise needs a tree git reports DIRTY while both
+//     `git diff HEAD` and `git ls-files --others --exclude-standard` come
+//     back empty, which real git does not produce for any ordinary edit.
+//
+// This pin goes red the moment the refusal is made conditional on the
+// snapshot's contents.
+func TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: []string{" M f.go"},
+		// The row's premise, made explicit: nothing at all is captured.
+		DiffPatchValue: "",
+		UntrackedList:  nil,
+	}
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved:         &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
+		WorkDir:          "/proj",
+		DirtyTreeHandler: DirtyTreeHandlerCopy,
+		Git:              fake,
+	})
+	require.Error(t, err, "an unsatisfiable copy request is refused on the configuration, not on the snapshot's contents")
+	assert.Nil(t, p)
+	assert.Contains(t, err.Error(), `dirty_tree_handler "copy"`)
+	assert.Contains(t, err.Error(), "stale", "and names the handlers that DO work for this backend")
+}
+
+// TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview pins
+// U083-F15. The "commit" handler prints a preview naming the files it is
+// about to commit on the user's branch, and boundDirtyChanges turned a
+// WorkingChanges FAILURE into an empty list — so the preview immediately
+// before an auto-commit of the user's tree said, with no qualification, that
+// there was nothing to name. "I could not find out" must not render as the
+// empty set in the one message whose job is to show what is about to be
+// committed.
+func TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	fake := &git.Fake{
+		Dirty:            map[string]bool{"/proj": true},
+		ChangesErr:       assert.AnError,
+		CommitAllChanged: []string{"internal/foo.go"},
+	}
+	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	require.NoError(t, err, "a listing failure stays best-effort: it must not block the configured commit")
+	assert.Contains(t, warnings.String(), "could not list",
+		"the preview must SAY the file listing failed rather than showing an empty list")
+}
+
+// TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal is the
+// same U083-F15 defect on the refusal path: "fail" exists to tell the caller
+// WHICH uncommitted paths the child would not see, and a swallowed listing
+// error made it name none of them while asserting they exist.
+func TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, ChangesErr: assert.AnError}
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not list",
+		"the refusal must distinguish an unreadable listing from an empty one")
+}
+
+// TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning covers
+// the third U083-F15 message: "stale" promises to list what the child will
+// NOT see.
+func TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, ChangesErr: assert.AnError}
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
+	require.NoError(t, err)
+	assert.Contains(t, warnings.String(), "could not list")
+}
+
+// reportingWorkspace mirrors the production Workspace contract every policy
+// implements: a teardown failure is REPORTED from inside Cleanup (see
+// isolation.warnCleanupResidue — it names the residue path, the likely cause
+// and the manual fix) and only then, for the container policy, also returned.
+type reportingWorkspace struct{ dir, residue string }
+
+func (w reportingWorkspace) Dir() string { return w.dir }
+func (w reportingWorkspace) Cleanup() error {
+	clidiag.Warn("ctxloom", "container scratch %s could not be removed (%v)", w.residue, assert.AnError)
+	return fmt.Errorf("remove container scratch %s: %w", w.residue, assert.AnError)
+}
+
+// TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce is U083-F12's
+// pin, and the row is REFUTED. The claim — "both workspace teardowns discard
+// ws.Cleanup()'s error, so a failed worktree removal is invisible" — has a
+// true mechanism and a false consequence:
+//
+//   - isolation's worktreeWorkspace.Cleanup returns nil UNCONDITIONALLY. Every
+//     failure it can have (an unremovable per-agent config-home/curated
+//     HOME/scratch dir, a teardown it must abandon to protect nested WIP) is
+//     already streamed from inside. There is no error to discard.
+//   - containerWorkspace.Cleanup does return one, and its own doc settles the
+//     question in tree: it warns via warnCleanupResidue AND returns, with
+//     "callers discard the returned error by contract" (SD3).
+//   - oneshot.go carries the matching decision block for why the caller must
+//     NOT re-record it: this teardown runs outside the checkpoint→gate window,
+//     so a finding raised here lands in an orphaned window nothing watches.
+//
+// So the report is not missing, and adding a caller-side one would print the
+// same residue twice. This pins that: exactly one report per teardown.
+func TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	const residue = "/scratch/ctxloom-abcd"
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }},
+			reportingWorkspace{dir: projectDir, residue: residue}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{Workspace: "worktree"}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	p.Abort()
+
+	assert.Equal(t, 1, strings.Count(warnings.String(), residue),
+		"the workspace reports its own teardown failure; a caller-side report would say it twice")
+	p.Abort() // idempotent: Abort clears its cleanup, so no second teardown either
+	assert.Equal(t, 1, strings.Count(warnings.String(), residue))
+}
+
+// TestPrepareAgentChat_EmptyComposedContextIsAnnounced pins U083-F08. Both
+// delegated launch paths funnel through PrepareAgentChat, and it resolved the
+// lead context with no floor: req.Context, else rs.Context, else nothing at
+// all. leadContextIn then prepends "" — the child runs with ZERO ctxloom
+// bytes while agent_run reports a healthy spawn. That is this project's
+// signature failure mode (exit 0, success message, nothing delivered), and
+// the composed-context case is NOT covered by resolveAgentBinding's existing
+// "declares no profiles" warning: here profiles ARE declared and assembly
+// SUCCEEDED, producing nothing.
+func TestPrepareAgentChat_EmptyComposedContextIsAnnounced(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host",
+			Profiles: []string{"reviewer"}, Context: ""},
+		WorkDir: t.TempDir(),
+		Factory: func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err, "an empty context stays fault-tolerant: it warns, it does not refuse")
+	defer p.Abort()
+
+	out := warnings.String()
+	assert.Contains(t, out, "coder", "the warning names the agent")
+	assert.Contains(t, out, "reviewer", "…and the profiles that composed to nothing")
+}
+
+// TestPrepareAgentChat_ComposedContextPresentIsSilent is the other half: the
+// warning must fire on the EMPTY case only, or it is noise every spawn learns
+// to ignore.
+func TestPrepareAgentChat_ComposedContextPresentIsSilent(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host",
+			Context: "# composed context\n"},
+		WorkDir: t.TempDir(),
+		Factory: func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.NotContains(t, warnings.String(), "zero bytes")
+}
+
+// TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext pins that the
+// floor reads what is actually DELIVERED: a resume primes req.Context with a
+// rendered transcript, which is real ctxloom content even when the agent's
+// own composed context is empty.
+func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
+	resetStrictness(t)
+	warnings := captureWarnings(t)
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		Context:  "## resumed transcript\n",
+		WorkDir:  t.TempDir(),
+		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.NotContains(t, warnings.String(), "zero bytes")
+}
+
+// TestPrepareAgentChat_BothLaunchPathsShareOneResolution is U083-F14's pin,
+// and the row is REFUTED. The claim is that AgentChatRequest and
+// PreparedAgentChat are each "two objects" — a legacy-Chat prep and a
+// StartRun prep — because a few fields (contextText, and the request's
+// Context/MCPServers/ResumeSessionID/ChatDialTimeout) are read by only one of
+// them.
+//
+// One shape, deliberately. Everything load-bearing is SHARED and resolved
+// exactly once: the workspace axis and its dirty-parent-tree decision, the
+// isolation prepare, the resolved (never-aliased) model, the MCP command
+// override, the workspace env and the teardown. That is the point —
+// coord/spawner.go composes both paths' request through ONE chatRequest
+// helper whose doc states the reason ("so a field cannot land on one path and
+// be forgotten on the other"), and each per-path field carries a doc saying
+// which path reads it. Splitting the type would give the two launch paths two
+// preps that can drift, reintroducing exactly what the shared shape prevents;
+// and nothing is lost on the StartRun side, which receives the same composed
+// context through runChildViaStartRun rather than through this field.
+//
+// So this pins the invariant instead: both launch halves report the SAME
+// resolution. It goes red the moment a split lets one path resolve its own.
+func TestPrepareAgentChat_BothLaunchPathsShareOneResolution(t *testing.T) {
+	resetStrictness(t)
+	workDir := t.TempDir()
+	client := &fakeACPEngineClient{}
+	started := false
+	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host", Model: "resolved-model", Context: "lead"},
+		WorkDir:  workDir,
+		Env:      map[string]string{"CTXLOOM_SESSION_HARP": "ample-tidy-quail"},
+		Factory:  func(string, string, int) (pb.Client, error) { return client, nil },
+		Starter: func(context.Context) (*isolation.RunnerHandle, error) {
+			started = true
+			return &isolation.RunnerHandle{Name: "fake", Kill: func() {}}, nil
+		},
+	})
+	require.NoError(t, err)
+
+	launch, serr := p.Start(context.Background())
+	require.NoError(t, serr)
+	require.NotNil(t, launch)
+	require.NotNil(t, client.gotReq, "the legacy dial must have opened")
+
+	eng, eerr := p.StartEngine(context.Background())
+	require.NoError(t, eerr)
+	require.True(t, started, "the StartRun half must have launched its runner")
+
+	assert.Equal(t, client.gotReq.WorkDir, eng.WorkDir, "both halves run the child in the SAME resolved workspace")
+	assert.Equal(t, client.gotReq.Model, eng.Model, "…against the same resolved model")
+	assert.Equal(t, "ample-tidy-quail", client.gotReq.Env["CTXLOOM_SESSION_HARP"], "…with the same ambient identity")
+	assert.Equal(t, "ample-tidy-quail", eng.Env["CTXLOOM_SESSION_HARP"])
 }

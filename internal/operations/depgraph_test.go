@@ -2,6 +2,9 @@ package operations
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,9 +29,10 @@ func newTestWalker(fetcher remote.Fetcher) *depWalker {
 		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 			return ref.ContentVersion, "", "", true
 		},
-		pins:    map[string]PinnedRef{},
-		hashes:  map[string]map[string]struct{}{},
-		visited: map[string]struct{}{},
+		pins:       map[string]PinnedRef{},
+		hashes:     map[string]map[string]struct{}{},
+		visited:    map[string]struct{}{},
+		unexpanded: map[string]struct{}{},
 	}
 }
 
@@ -197,4 +201,60 @@ func TestConflictError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bundles/demo")
 	assert.Contains(t, err.Error(), "aaaaaaa") // short form
+}
+
+// TestFlattenDependencies_UnreadableLockfileIsReported is U083-F09's pin, and
+// the row is PARTIAL: the mechanism is real, the consequence is not.
+//
+// Real: flattenProfileRoots loads the active lockfile with `active, _ :=`,
+// discarding the error, and that lockfile is the closure walk's RESOLUTION
+// ANCHOR — a held or unchanged-constraint entry is carried forward, and a
+// resolution failure falls back to its last known SHA rather than dropping the
+// item. Not real: "silently". FlattenDependencies builds its profile loader
+// FIRST, and that seeds remote bundles from the same lockfile
+// (config.loadRemoteBundleSeed), which reports an unreadable one fatal-class
+// (strictness ClassBundle) naming the file and the fix — every time, before
+// this load is ever reached. In strict mode the session refuses outright; in
+// degraded mode the anchorless rebuild is still barred from being PERSISTED by
+// Save's unreadable-file refusal (U085-F01).
+//
+// The comparison to the sibling upgrade path is also not actionable here:
+// FlattenDependencies returns no error at all, and its signature is a public
+// contract this row is not entitled to change. So this pins the property that
+// makes the discard a decision rather than an oversight: the failure IS
+// reported, exactly once, before resolution runs anchorless.
+func TestFlattenDependencies_UnreadableLockfileIsReported(t *testing.T) {
+	resetStrictness(t)
+	tmp := t.TempDir()
+	writeLocalProfile(t, tmp, "default",
+		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	cfg := testConfigWithSCMPath(tmp)
+
+	lockPath := remote.NewLockfileManager(tmp).Path()
+	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
+	require.NoError(t, os.WriteFile(lockPath, []byte("   \n"), 0o644))
+
+	warnings := captureWarnings(t)
+	FlattenDependencies(context.Background(), cfg, nil)
+
+	out := warnings.String()
+	assert.Contains(t, out, lockPath, "the failure names the file that could not be read")
+	assert.Contains(t, out, "lockfile", "…as a lockfile failure, not some downstream symptom")
+	assert.Equal(t, 1, strings.Count(out, "failed to load the remote lockfile"),
+		"reported once — a second report from the resolution anchor's own load would say the same thing twice")
+}
+
+// TestFlattenDependencies_MissingLockfileIsSilent: no lock.yaml at all is the
+// ordinary first-lock state, not a failure — Load hands back a fresh empty
+// lockfile and nothing is lost, so nothing about the lockfile is said.
+func TestFlattenDependencies_MissingLockfileIsSilent(t *testing.T) {
+	resetStrictness(t)
+	tmp := t.TempDir()
+	writeLocalProfile(t, tmp, "default",
+		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	cfg := testConfigWithSCMPath(tmp)
+
+	warnings := captureWarnings(t)
+	FlattenDependencies(context.Background(), cfg, nil)
+	assert.NotContains(t, warnings.String(), "lockfile")
 }

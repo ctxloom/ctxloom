@@ -183,51 +183,17 @@ func (p *PreparedAgentChat) MCPCommandOverride() string { return p.mcpCommandOve
 // own findings log (bumpy-tree).
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
-	// GAP 2: the caller's per-agent_run workspace choice overrides the
-	// project default; empty (no override supplied) falls back to
-	// cfg.GetWorkspace().
-	//
-	// DELEGATED-CHILD DEFAULT (this is the one place that default is
-	// decided — internal/cli/run.go's top-level `ctxloom run` axes are a
-	// separate call site untouched by this function): when NEITHER the
-	// caller NOR the project config says anything explicit, a delegated
-	// child now defaults to its OWN worktree instead of inheriting the
-	// none/shared-checkout default the top-level run still uses. An
-	// explicit choice at either level — a per-call Workspace or a project
-	// `workspace:` setting, "none" or "worktree" — always wins; this only
-	// fills the silence.
-	//
-	// This is a WORKSPACE-axis (file-level) change only. It narrows a
-	// delegated child's blast radius on the PROJECT CHECKOUT — it does NOT
-	// isolate the engine's global config/credential/conversation store,
-	// which some engines keep outside any per-agent config-home env lever
-	// entirely (see EnvWorkspace's doc and the antigravity fail-loud gate
-	// in isolation.go). Do not read a worktree default as "delegated
-	// children are now sandboxed from the user's engine state" — they are
-	// not.
-	workspace := cfg.GetWorkspace()
-	if req.Workspace != "" {
-		workspace = req.Workspace
-	} else if workspace == "" {
-		workspace = string(isolation.WorkspaceWorktree)
-	}
-	chatDialTimeout := req.ChatDialTimeout
-	if chatDialTimeout <= 0 {
-		chatDialTimeout = defaultChatDialTimeout
-	}
 	p := &PreparedAgentChat{
-		cfg:         cfg,
-		req:         req,
-		contextText: req.Context,
-		axes: isolation.Axes{
-			Workspace: isolation.WorkspaceAxis(workspace),
-			Runtime:   isolation.RuntimeAxis(rs.Runtime),
-		},
-		chatDialTimeout: chatDialTimeout,
+		cfg:             cfg,
+		req:             req,
+		contextText:     req.Context,
+		axes:            delegatedAxes(cfg, req),
+		chatDialTimeout: resolveChatDialTimeout(req),
 	}
 	if p.contextText == "" {
 		p.contextText = rs.Context
 	}
+	warnOnEmptyLeadContext(rs, p.contextText)
 
 	// DIRTY-PARENT-TREE SPAWN HANDLING (see handleDirtyParentTree's doc): a
 	// worktree checkout only ever sees COMMITTED state, so a delegated child
@@ -238,19 +204,9 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	// a SPAWN-time decision, not a per-turn one. "copy" defers actual file
 	// reproduction until the worktree exists (pendingCopy, applied below,
 	// chat path only — see its doc).
-	var gitClient git.Git
-	var pendingCopy *copySnapshot
-	if p.axes.Workspace == isolation.WorkspaceWorktree {
-		gitClient = req.Git
-		if gitClient == nil {
-			gitClient = git.NewExec()
-		}
-		handler := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
-		outcome, err := handleDirtyParentTree(ctx, cfg, gitClient, req.WorkDir, rs.Name, handler)
-		if err != nil {
-			return nil, err
-		}
-		pendingCopy = outcome.copy
+	gitClient, pendingCopy, err := decideDirtyParentTree(ctx, cfg, req, p.axes)
+	if err != nil {
+		return nil, err
 	}
 
 	if _, ok := backends.Get(rs.Backend).(agent.StructuredChat); !ok {
@@ -269,39 +225,8 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	p.starter = req.Starter
 	p.workDir = req.WorkDir
 	if p.factory == nil {
-		mark := strictness.Checkpoint()
-		policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), req.WorkDir, rs.Name, isolation.SessionStateFromEnv(req.Env))
-		found := strictness.Since(mark)
-		strictness.Close(mark)
-		p.workDir = ws.Dir()
-		p.workspaceEnv = isolation.WorkspaceEnv(ws)
-		p.cleanup = func() { _ = ws.Cleanup() }
-		if gerr := isolationGateErr(found); gerr != nil {
-			p.Abort()
+		if gerr := p.bindIsolatedSpawn(ctx, cfg); gerr != nil {
 			return nil, gerr
-		}
-		p.factory = isolation.FactoryForWorkspace(policy, ws, req.RunnerEnv)
-		// The StartRun spawn half (StartEngine) rides the docker-direct /
-		// bare-host runner starter, NOT the go-plugin factory above (which
-		// stays for the legacy Chat path, Start). A test-supplied req.Starter
-		// wins, exactly as req.Factory does for the Chat path.
-		if p.starter == nil {
-			p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, req.Verbosity, req.RunnerEnv)
-		}
-		// U098-F04: plan.MCPServers (req.MCPServers) was composed by the
-		// caller BEFORE this policy was known — coord/spawner.go's
-		// childMCPServers resolves it once at Resolve time, and the
-		// top-level `ctxloom run` path stamps its own override earlier still
-		// (cli/run.go's MCPCommandOverrideForPolicy call). Patch the
-		// auto-registered ctxloom entry's Command now that the real policy
-		// is in hand, so a runtime:container child's structured chat gets
-		// the in-container path instead of the host self-exec path baked in
-		// at composition time. p.mcpCommandOverride is also exposed via
-		// MCPCommandOverride() for StartEngine's caller (coord/spawner.go),
-		// which builds its own MCPServers copy outside of Start/p.req.
-		p.mcpCommandOverride = MCPCommandOverrideForPolicy(policy)
-		if p.mcpCommandOverride != "" {
-			p.req.MCPServers = agent.PatchManagedCommand(p.req.MCPServers, p.mcpCommandOverride)
 		}
 	}
 	if pendingCopy != nil {
@@ -311,6 +236,147 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		}
 	}
 	return p, nil
+}
+
+// warnOnEmptyLeadContext is the delegated child's zero-context floor. Both
+// launch paths funnel through PrepareAgentChat, and both deliver whatever it
+// resolved: the legacy Chat dial prepends it to the first turn (leadContextIn,
+// which prepends "" without comment), StartRun joins it ahead of the prompt.
+// Neither can tell "this agent composes nothing" from "ctxloom is working" —
+// the child simply runs with no ctxloom bytes at all while the spawn reports
+// success, which is this codebase's signature failure mode.
+//
+// Fault-tolerant by design (warn, never refuse): a legitimately context-free
+// agent must still launch. resolveAgentBinding already warns for an agent
+// declaring NO profiles; this covers the case it cannot see — profiles
+// declared, assembly SUCCEEDED, and the composed result is empty. Once per
+// distinct message, so a fan of ten children says it once.
+func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
+	if strings.TrimSpace(lead) != "" {
+		return
+	}
+	profiles := "none declared"
+	if len(rs.Profiles) > 0 {
+		profiles = strings.Join(rs.Profiles, ", ")
+	}
+	clidiag.WarnOnce("ctxloom", "agent_run: agent %q launches with ZERO bytes of ctxloom context (profiles: %s) — the child runs with no composed context at all; check the agent's profiles with `ctxloom agent show %s`",
+		rs.Name, profiles, rs.Name)
+}
+
+// delegatedAxes resolves the isolation axes one delegated child launches on.
+//
+// GAP 2: the caller's per-agent_run workspace choice overrides the project
+// default; empty (no override supplied) falls back to cfg.GetWorkspace().
+//
+// DELEGATED-CHILD DEFAULT (this is the one place that default is decided —
+// internal/cli/run.go's top-level `ctxloom run` axes are a separate call site
+// untouched by this function): when NEITHER the caller NOR the project config
+// says anything explicit, a delegated child defaults to its OWN worktree
+// instead of inheriting the none/shared-checkout default the top-level run
+// still uses. An explicit choice at either level — a per-call Workspace or a
+// project `workspace:` setting, "none" or "worktree" — always wins; this only
+// fills the silence.
+//
+// This is a WORKSPACE-axis (file-level) default only. It narrows a delegated
+// child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
+// engine's global config/credential/conversation store, which some engines
+// keep outside any per-agent config-home env lever entirely (see
+// EnvWorkspace's doc and the antigravity fail-loud gate in isolation.go). Do
+// not read a worktree default as "delegated children are now sandboxed from
+// the user's engine state" — they are not.
+//
+// The RUNTIME axis carries the agent's own resolved choice through untouched:
+// it is an agent trait, not an invocation one.
+func delegatedAxes(cfg *config.Config, req AgentChatRequest) isolation.Axes {
+	workspace := cfg.GetWorkspace()
+	if req.Workspace != "" {
+		workspace = req.Workspace
+	} else if workspace == "" {
+		workspace = string(isolation.WorkspaceWorktree)
+	}
+	return isolation.Axes{
+		Workspace: isolation.WorkspaceAxis(workspace),
+		Runtime:   isolation.RuntimeAxis(req.Resolved.Runtime),
+	}
+}
+
+// resolveChatDialTimeout applies the package default to an unset per-request
+// budget — see AgentChatRequest.ChatDialTimeout and Start's doc. Never zero.
+func resolveChatDialTimeout(req AgentChatRequest) time.Duration {
+	if req.ChatDialTimeout <= 0 {
+		return defaultChatDialTimeout
+	}
+	return req.ChatDialTimeout
+}
+
+// decideDirtyParentTree runs the DIRTY-PARENT-TREE SPAWN HANDLING decision
+// (see handleDirtyParentTree's doc): a worktree checkout only ever sees
+// COMMITTED state, so a delegated child spawned into one while the parent tree
+// carries uncommitted changes needs an explicit decision — commit, copy,
+// proceed stale, or refuse. Decided ONCE per spawn, for BOTH the
+// structured-chat path and the oneshot fallback (both derive from the same
+// axes resolution) — never per turn. "copy" defers actual file reproduction
+// until the worktree exists, so it returns the captured snapshot plus the git
+// client that captured it, for applyCopySnapshot to use later.
+func decideDirtyParentTree(ctx context.Context, cfg *config.Config, req AgentChatRequest, axes isolation.Axes) (git.Git, *copySnapshot, error) {
+	if axes.Workspace != isolation.WorkspaceWorktree {
+		return nil, nil, nil
+	}
+	gitClient := req.Git
+	if gitClient == nil {
+		gitClient = git.NewExec()
+	}
+	handler := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
+	outcome, err := handleDirtyParentTree(ctx, cfg, gitClient, req.WorkDir, req.Resolved.Name, handler)
+	if err != nil {
+		return nil, nil, err
+	}
+	return gitClient, outcome.copy, nil
+}
+
+// bindIsolatedSpawn runs the checkpoint→isolation.Prepare→gate window and
+// binds everything the resolved policy decides: the workspace directory and
+// its env, the teardown, BOTH spawn halves, and the MCP command override. It
+// runs only when no caller-supplied Factory has already replaced isolation
+// wholesale. A gate finding tears the prepared workspace back down before
+// returning.
+func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.Config) error {
+	rs := p.req.Resolved
+	mark := strictness.Checkpoint()
+	policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), p.req.WorkDir, rs.Name, isolation.SessionStateFromEnv(p.req.Env))
+	found := strictness.Since(mark)
+	strictness.Close(mark)
+	p.workDir = ws.Dir()
+	p.workspaceEnv = isolation.WorkspaceEnv(ws)
+	p.cleanup = func() { _ = ws.Cleanup() }
+	if gerr := isolationGateErr(found); gerr != nil {
+		p.Abort()
+		return gerr
+	}
+	p.factory = isolation.FactoryForWorkspace(policy, ws, p.req.RunnerEnv)
+	// The StartRun spawn half (StartEngine) rides the docker-direct /
+	// bare-host runner starter, NOT the go-plugin factory above (which stays
+	// for the legacy Chat path, Start). A test-supplied req.Starter wins,
+	// exactly as req.Factory does for the Chat path.
+	if p.starter == nil {
+		p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, p.req.Verbosity, p.req.RunnerEnv)
+	}
+	// U098-F04: plan.MCPServers (req.MCPServers) was composed by the caller
+	// BEFORE this policy was known — coord/spawner.go's childMCPServers
+	// resolves it once at Resolve time, and the top-level `ctxloom run` path
+	// stamps its own override earlier still (cli/run.go's
+	// MCPCommandOverrideForPolicy call). Patch the auto-registered ctxloom
+	// entry's Command now that the real policy is in hand, so a
+	// runtime:container child's structured chat gets the in-container path
+	// instead of the host self-exec path baked in at composition time.
+	// p.mcpCommandOverride is also exposed via MCPCommandOverride() for
+	// StartEngine's caller (coord/spawner.go), which builds its own
+	// MCPServers copy outside of Start/p.req.
+	p.mcpCommandOverride = MCPCommandOverrideForPolicy(policy)
+	if p.mcpCommandOverride != "" {
+		p.req.MCPServers = agent.PatchManagedCommand(p.req.MCPServers, p.mcpCommandOverride)
+	}
+	return nil
 }
 
 // resolveChatModel resolves a delegated child's model into the concrete,
@@ -477,29 +543,49 @@ type copySnapshot struct {
 	sourceDir string
 }
 
-// boundDirtyChanges truncates changes to maxDirtyFilesListed, reporting how
-// many were dropped. A WorkingChanges error yields (nil, 0): the caller still
-// proceeds (best-effort), just without a file list to show.
-func boundDirtyChanges(changes []string, err error) (listed []string, more int) {
-	if err != nil {
-		return nil, 0
-	}
-	listed = changes
-	if len(listed) > maxDirtyFilesListed {
-		more = len(listed) - maxDirtyFilesListed
-		listed = listed[:maxDirtyFilesListed]
-	}
-	return listed, more
+// dirtyFileList is the bounded file listing every dirty-tree message shows,
+// together with the one fact a bare []string cannot carry: whether the
+// listing that produced it succeeded. A WorkingChanges failure rendering as
+// the empty set is a lie in exactly the messages that exist to say WHICH
+// files are at stake — the refusal that claims uncommitted work would be
+// invisible to the child, and the preview shown immediately before
+// auto-committing the user's branch.
+type dirtyFileList struct {
+	listed []string
+	more   int
+	err    error
 }
 
-// writeDirtyFileList appends the bounded file listing (one indented path per
-// line, "+N more" tail) shared by every dirty-tree message.
-func writeDirtyFileList(b *strings.Builder, listed []string, more int) {
-	for _, c := range listed {
+// boundDirtyChanges truncates changes to maxDirtyFilesListed, recording how
+// many were dropped. A WorkingChanges error is CARRIED, not swallowed: every
+// caller still proceeds (best-effort), but says plainly that it could not
+// find out rather than showing an empty list. Takes the (changes, err) pair
+// so a caller can forward git's return directly.
+func boundDirtyChanges(changes []string, err error) dirtyFileList {
+	if err != nil {
+		return dirtyFileList{err: err}
+	}
+	out := dirtyFileList{listed: changes}
+	if len(out.listed) > maxDirtyFilesListed {
+		out.more = len(out.listed) - maxDirtyFilesListed
+		out.listed = out.listed[:maxDirtyFilesListed]
+	}
+	return out
+}
+
+// writeTo appends the bounded file listing (one indented path per line, "+N
+// more" tail) shared by every dirty-tree message, or the reason there is no
+// listing to show.
+func (d dirtyFileList) writeTo(b *strings.Builder) {
+	if d.err != nil {
+		fmt.Fprintf(b, "  (could not list the changed files: %v — the paths below are unknown, NOT empty)\n", d.err)
+		return
+	}
+	for _, c := range d.listed {
 		fmt.Fprintf(b, "  %s\n", c)
 	}
-	if more > 0 {
-		fmt.Fprintf(b, "  (+%d more)\n", more)
+	if d.more > 0 {
+		fmt.Fprintf(b, "  (+%d more)\n", d.more)
 	}
 }
 
@@ -537,17 +623,16 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 	if err != nil || !dirty {
 		return dirtyTreeOutcome{}, nil
 	}
-	changes, cerr := gitClient.WorkingChanges(ctx, workDir, 0)
-	listed, more := boundDirtyChanges(changes, cerr)
+	files := boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0))
 
 	switch handler {
 	case DirtyTreeHandlerFail:
-		return dirtyTreeOutcome{}, dirtyTreeFailError(agentName, workDir, listed, more)
+		return dirtyTreeOutcome{}, dirtyTreeFailError(agentName, workDir, files)
 
 	case DirtyTreeHandlerStale:
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: agent %q is spawning into a worktree while %s has uncommitted changes (dirty_tree_handler: \"stale\") — the child will NOT see these changes, only committed state:\n", agentName, workDir)
-		writeDirtyFileList(&b, listed, more)
+		files.writeTo(&b)
 		b.WriteString(`change dirty_tree_handler to "commit" or "copy" to carry these across, or pass workspace: "none" for this call to run against the live checkout instead`)
 		clidiag.Warn("ctxloom", "%s", b.String())
 		return dirtyTreeOutcome{}, nil
@@ -564,23 +649,23 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 		return dirtyTreeOutcome{copy: &copySnapshot{patch: patch, untracked: untracked, sourceDir: workDir}}, nil
 
 	case DirtyTreeHandlerCommit:
-		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, listed, more)
+		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
 
 	default:
 		// resolveDirtyTreeHandler already normalizes unrecognized values
 		// before calling here; this default only guards against a future
 		// caller bypassing it.
-		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, listed, more)
+		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
 	}
 }
 
 // dirtyTreeFailError renders the "fail" handler's refusal — this gate's
 // original, only behavior before the other three handlers existed. Kept
 // byte-for-byte compatible with that original message.
-func dirtyTreeFailError(agentName, workDir string, listed []string, more int) error {
+func dirtyTreeFailError(agentName, workDir string, files dirtyFileList) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "agent_run: refusing to spawn agent %q into a worktree — %s has uncommitted changes a worktree checkout cannot see (git worktree add checks out committed state only: HEAD and everything reachable from it, nothing you haven't committed yet). These changes would be invisible to the child:\n", agentName, workDir)
-	writeDirtyFileList(&b, listed, more)
+	files.writeTo(&b)
 	b.WriteString(`commit the changes, or pass workspace: "none" for this agent_run call to run it against the live checkout instead`)
 	return errors.New(b.String())
 }
@@ -611,7 +696,7 @@ const commitDirtyTreeAckKey = "dirty_tree_commit_ack"
 // len(changed)==0 case) — this codebase has a documented history of commits
 // landing EMPTY due to an index-clobbering pre-commit-hook bug (since
 // fixed), and a post-commit stat is not proof a commit landed.
-func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, listed []string, more int) error {
+func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, files dirtyFileList) error {
 	branch, berr := gitClient.CurrentBranch(ctx, workDir)
 	// U083-F03: an error here used to be discarded (`branch, _ :=`), leaving
 	// branch=="" — which is NOT "HEAD", so the detached-HEAD guard below never
@@ -628,13 +713,13 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 	if !cfg.GetDirtyTreeCommitAck() {
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this project has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
-		writeDirtyFileList(&b, listed, more)
+		files.writeTo(&b)
 		fmt.Fprintf(&b, "\nThe \"commit\" handler WOULD stage and commit these to branch %q so the child could see them. To allow this, a human must add to .ctxloom/config.yaml:\n  %s: true\n\n", branch, commitDirtyTreeAckKey)
 		b.WriteString(`Or, for this call, choose a different handler instead: dirty_tree_handler: "copy" (reproduce these changes as uncommitted WIP inside the child's worktree — nothing committed), "stale" (spawn the child without these changes), "fail" (refuse the spawn outright).`)
 		return errors.New(b.String())
 	}
 
-	preview := renderCommitPreview(agentName, workDir, branch, listed, more)
+	preview := renderCommitPreview(agentName, workDir, branch, files)
 	clidiag.Warn("ctxloom", "%s", preview)
 
 	sha, changed, cerr := gitClient.CommitAll(ctx, workDir, renderCommitMessage(agentName))
@@ -653,10 +738,10 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 // mutation visible). Names the branch, the bounded file list, that this is a
 // configured-handler side effect (not an incidental one), and the
 // alternatives.
-func renderCommitPreview(agentName, workDir, branch string, listed []string, more int) string {
+func renderCommitPreview(agentName, workDir, branch string, files dirtyFileList) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "agent_run: dirty_tree_handler \"commit\" is about to commit %s's uncommitted changes on branch %q so delegated agent %q can see them in its own git worktree (a worktree checkout only ever contains committed state):\n", workDir, branch, agentName)
-	writeDirtyFileList(&b, listed, more)
+	files.writeTo(&b)
 	b.WriteString(`This is happening because dirty_tree_handler is configured to "commit" (the default, acknowledged via `)
 	b.WriteString(commitDirtyTreeAckKey)
 	b.WriteString(` in .ctxloom/config.yaml). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)
@@ -713,23 +798,40 @@ func applyCopySnapshot(ctx context.Context, gitClient git.Git, targetDir string,
 	return nil
 }
 
-// copyUntrackedFile copies one untracked file verbatim (bytes + mode) from
-// sourceDir/rel to targetDir/rel, creating any needed parent directories.
+// copyUntrackedFile reproduces one untracked entry from sourceDir/rel at
+// targetDir/rel, creating any needed parent directories. `git ls-files
+// --others` lists exactly two kinds of entry, and both are reproduced: a
+// regular file (bytes + permission bits) and a SYMLINK (recreated as a link
+// carrying the same target text — never dereferenced into a copy of what it
+// points at, which would silently turn a link into a file and, for a link
+// pointing outside the tree, bake a host path into the child's worktree).
+// Anything else cannot be reproduced, and is refused rather than skipped:
+// applyCopySnapshot's contract is that it never half-applies and continues.
 func copyUntrackedFile(sourceDir, targetDir, rel string) error {
 	src := filepath.Join(sourceDir, rel)
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
+	dst := filepath.Join(targetDir, rel)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, rerr := os.Readlink(src)
+		if rerr != nil {
+			return rerr
+		}
+		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return os.Symlink(target, dst)
+	}
 	if !info.Mode().IsRegular() {
-		return nil // defensive: `git ls-files` only lists regular files/symlinks; skip anything else silently
+		return fmt.Errorf("not a regular file or symlink (mode %s) — ctxloom cannot reproduce it in the child's worktree", info.Mode().Type())
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return err
-	}
-	dst := filepath.Join(targetDir, rel)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(dst, data, info.Mode().Perm())
@@ -784,6 +886,14 @@ type AgentEngineProcess struct {
 func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProcess, error) {
 	if p.oneshot {
 		return nil, errors.New("delegate: this backend has no structured chat; the oneshot fallback hosts no engine process for StartRun")
+	}
+	if p.starter == nil {
+		// The two spawn seams are independent: a caller-supplied Factory
+		// (legacy Chat dial) skips the isolation block that BINDS the
+		// production starter, so a caller taking the StartRun path with only
+		// Factory set arrives here with nothing to launch. Refusing by name
+		// beats the nil-func panic an exported method has no business raising.
+		return nil, errors.New("delegate: no engine Starter for this launch — a caller-supplied AgentChatRequest.Factory replaces the isolation-bound starter, so the StartRun path needs AgentChatRequest.Starter supplied too")
 	}
 	rs := p.req.Resolved
 	handle, err := p.starter(ctx)
@@ -1012,6 +1122,11 @@ func leadContextIn(in chan<- agent.ChatMessage, lead string, done <-chan struct{
 // tail (runResolvedAgent — per-turn isolation window, headless permission
 // floor), its captured stdout emitted as an assistant entry + turn Complete.
 // There is no session continuity between turns beyond the composed context.
+//
+// The returned launch winds down on EITHER of the two routes its orchestrator
+// uses: In closing (the stream ended on its own) or Close (every other
+// terminal cause). Both end the driver goroutine, which closes Events and
+// Errs; Close never closes In, whose single closer is the orchestrator.
 func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 	rs := p.req.Resolved
 	in := make(chan agent.ChatMessage)
@@ -1021,7 +1136,25 @@ func (p *PreparedAgentChat) startOneshot(ctx context.Context) *AgentChatLaunch {
 	go func() {
 		defer close(errs)
 		defer close(events)
-		for msg := range in {
+		for {
+			var msg agent.ChatMessage
+			var ok bool
+			select {
+			case msg, ok = <-in:
+				if !ok {
+					return
+				}
+			case <-turnCtx.Done():
+				// Close() (= cancel) is the orchestrator's terminal lever for
+				// every cause that is not "the stream ended on its own"
+				// (agent_stop, launch failure, coordinator teardown). It must
+				// wind this launch down on its own: the orchestrator closes In
+				// only from the path that observes Events CLOSING, so waiting
+				// for In here would park this goroutine for the rest of the
+				// process's life. Close deliberately does NOT close In itself —
+				// In has exactly one closer, the orchestrator.
+				return
+			}
 			if msg.Text == "" {
 				continue
 			}

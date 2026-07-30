@@ -826,20 +826,28 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 		// registry entry says so), say it — this is exactly how tasks end up
 		// filed under the wrong project from a session that cd'd elsewhere.
 		if tc.ProjectID != "" && tc.WorkDir != "" {
-			cwdID, _ := projectid.ReadMarker(tc.WorkDir)
+			// ReadMarker's error is the one signal that the tree's own marker
+			// was REFUSED (crafted to escape the tasks directory, or
+			// unreadable) rather than simply absent. Discarding it made those
+			// two states indistinguishable, so the check fell through to the
+			// registry and, finding nothing, stayed silent about a marker
+			// someone had planted. The pin still wins — this is a diagnostic,
+			// not a refusal.
+			cwdID, merr := projectid.ReadMarker(tc.WorkDir)
+			if merr != nil {
+				warning = appendNote(warning, fmt.Sprintf(
+					"acting on pinned project %s; %s carries a project marker that was refused (%v), so it could not be checked against the pin",
+					proj.ID, tc.WorkDir, merr))
+			}
 			if cwdID == "" {
 				if e, lerr := pm.ResolveByPath(tc.WorkDir); lerr == nil && e != nil {
 					cwdID = e.ProjectID
 				}
 			}
 			if cwdID != "" && cwdID != proj.ID {
-				note := fmt.Sprintf("acting on pinned project %s, but %s belongs to project %s — pass --project %s to target it",
-					proj.ID, tc.WorkDir, cwdID, cwdID)
-				if warning != "" {
-					warning += "; " + note
-				} else {
-					warning = note
-				}
+				warning = appendNote(warning, fmt.Sprintf(
+					"acting on pinned project %s, but %s belongs to project %s — pass --project %s to target it",
+					proj.ID, tc.WorkDir, cwdID, cwdID))
 			}
 		}
 	}
@@ -857,19 +865,28 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 	// registered at this same path already has a real backlog sitting right
 	// there. Say so instead of staying silent; see missingLogSiblingNote.
 	if pmErr == nil && tc.WorkDir != "" {
-		if note := missingLogSiblingNote(pm, tc.WorkDir, proj.ID, logPath); note != "" {
-			if warning != "" {
-				warning += "; " + note
-			} else {
-				warning = note
-			}
-		}
+		warning = appendNote(warning, missingLogSiblingNote(pm, tc.WorkDir, proj.ID, logPath))
 	}
 	store, err = tasks.OpenLog(logPath, tc.SessionHarp)
 	if err != nil {
 		return nil, proj, warning, err
 	}
 	return store, proj, warning, nil
+}
+
+// appendNote joins a resolution note onto the warning a frontend will
+// surface, semicolon-separated. An empty note adds nothing, so a caller never
+// has to guard the call; an empty warning is replaced rather than prefixed
+// with a stray separator.
+func appendNote(warning, note string) string {
+	switch {
+	case note == "":
+		return warning
+	case warning == "":
+		return note
+	default:
+		return warning + "; " + note
+	}
 }
 
 // missingLogSiblingNote reports a human-facing note when resolvedID's own

@@ -1530,3 +1530,29 @@ func TestResolveProjectIdentity_NamesTheStageThatFailed(t *testing.T) {
 		t.Fatalf("error %q lost the underlying cause", err.Error())
 	}
 }
+
+// TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead pins U122-F03. The
+// pin-vs-cwd mismatch check reads the working directory's own marker with
+// `cwdID, _ := projectid.ReadMarker(...)`, discarding the error from the one
+// function written specifically to REJECT a hostile marker. A rejected marker
+// then looks exactly like no marker at all: the check silently falls through
+// to the registry and, when that has nothing either, says nothing — so a
+// tree carrying a marker crafted to escape the tasks directory produces the
+// same silence as a perfectly ordinary tree.
+func TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead(t *testing.T) {
+	taskstest.Isolate(t)
+	work := t.TempDir()
+	writeHostileMarker(t, work)
+	tc := TaskContext{WorkDir: work, ProjectID: "pinned-project", SessionHarp: "sess"}
+
+	got, err := AddTask(tc, "a task", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !strings.Contains(got.Warning, "marker") {
+		t.Fatalf("warning = %q; a marker ReadMarker refused must be reported, not silently treated as absent", got.Warning)
+	}
+	if got.ProjectID != "pinned-project" {
+		t.Fatalf("project = %q; the pin must still win — this is a diagnostic, not a refusal", got.ProjectID)
+	}
+}

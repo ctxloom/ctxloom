@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,227** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 103 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 151 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 154 |
-| `open` | no commit names this ID | **633** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 155 |
+| `open` | no commit names this ID | **632** |
 
-**Totals: 2268 findings across 162 units — 1,227 resolved, 633 still open, 408 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,227 resolved, 632 still open, 409 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
-| MED | 999 | 420 | 356 | 57 | 69 | 97 |
+| MED | 999 | 420 | 355 | 57 | 69 | 98 |
 | LOW | 871 | 451 | 260 | 33 | 74 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
@@ -1869,7 +1869,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U138-F06 | **RESOLVED** `fd3185eb` | `:285-287` | SILENTNOOP | When `os.UserHomeDir` fails, **the entire home-config layer is silently dropped** and the merge proceeds project-only, with no warning — so a user's `~/.taskloom/config.yaml` setting `homing: repo`... | U138.md |
 | U138-F07 | open | `:322-325` | ERRHANDLING | `Load` returns a **populated `Config` alongside a non-nil error** on the validation-failure path — the only error return in the function that does not zero its value | U138.md |
 | U138-F08 | open | `:169-179` | COUPLING | `DefaultTagSchema` hard-codes, inside two ~300-character formula strings, identifiers owned by three other packages — with nothing but prose linking them | U138.md |
-| U138-F10 | open | `:202-207` | CORRECTNESS | An **explicitly empty** `tag_schema: []` is indistinguishable from the key being unset, and silently gets the full `DefaultTagSchema` back — so there is no way to run taskloom with tag-schema enfor... | U138.md |
+| U138-F10 | **ESCALATED** `0000000a` | `:202-207` | CORRECTNESS | An **explicitly empty** `tag_schema: []` is indistinguishable from the key being unset, and silently gets the full `DefaultTagSchema` back — so there is no way to run taskloom with tag-schema enfor... | U138.md |
 | U139-F01 | **RESOLVED** `462ffed8` | `:33-41` | TRIVIAL | `engines()` and `All()` are the same function. `All` is a one-line pass-through, and `engines` has no caller outside this file | U139.md |
 | U139-F02 | **RESOLVED** `ffe68453` | `:34-63` vs `internal/ltk/engine/engine.go:119-147` | DUPLICATE | **This is the second engine registry in the repo, and the two are near-identical code** — two packages named `engine`, two `Get(name)` functions with the same body and the same comment, two `engine... | U139.md |
 | U139-F03 | open | `:34-36` | CORRECTNESS | The registry claims to be "the registry of known engines" but silently omits **opencode**, which the repo carries as a first-class backend — so an opencode user running `taskloom manage install` is... | U139.md |

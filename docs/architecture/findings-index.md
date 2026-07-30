@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,240** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,241** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 104 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 153 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 154 |
-| `open` | no commit names this ID | **617** |
+| `open` | no commit names this ID | **616** |
 
-**Totals: 2268 findings across 162 units — 1,240 resolved, 617 still open, 411 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,241 resolved, 616 still open, 411 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 4 | 10 | 6 | 4 |
 | MED | 999 | 429 | 345 | 57 | 71 | 97 |
-| LOW | 871 | 455 | 255 | 34 | 74 | 53 |
+| LOW | 871 | 456 | 254 | 34 | 74 | 53 |
 | (unparsed) | 22 | 4 | 13 | 3 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2814,7 +2814,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U156-F04 | open | **`main.go:40`** | CORRECTNESS | `ctxloomProduct()` calls `cli.NewDocMCPServer()`, which **panics** on two internal failure paths — so a bug in the runner MCP assembly surfaces as a panic from a function whose name and signature p... | U156.md |
 | U156-F05 | open | **`main.go:36-37`** | COUPLING | `Unhide: []string{"bundle"}` is a hand-maintained list keyed on a command's `Hidden` flag living in another package. A second command marked `Hidden: true` for the same "advanced but documented" re... | U156.md |
 | U157-F04 | **RESOLVED** `f0749b6e` | `capture.go:17-19; feature.go:28` | NOPAY | Four fields are parsed and never read: `DocCapture.Outline`, `DocCapture.Feature`, `DocCapture.Tags`, and `Scenario.Keyword`. `Tags` is especially notable — the rendered page shows `sc.Tags` (from ... | U157.md |
-| U157-F08 | open | `feature.go:39 (CCN 23), main.go:54 (CCN 17)` | COMPLEXITY | Two functions exceed the project's own CI gate of CCN 10 — `ParseFeature` at 23 and `run` at 17 | U157.md |
+| U157-F08 | **RESOLVED** `e1849d6c` | `feature.go:39 (CCN 23), main.go:54 (CCN 17)` | COMPLEXITY | Two functions exceed the project's own CI gate of CCN 10 — `ParseFeature` at 23 and `run` at 17 | U157.md |
 | U157-F09 | **RESOLVED** `cb2b8396` `127539ad` | **`main.go:33-36`** | TRIVIAL | `fileExists` is a one-expression wrapper used once, three lines above a `LoadNarration` call that already handles the not-exist case itself | U157.md |
 | U158-F03 | **RESOLVED** `ddb7e9ee` | `isolation_probe.go:743-744` | NOPAY | `probeResult.HostBefore`/`HostAfter` are written but never read — only `HostDiff` is consumed | U158.md |
 | U158-F04 | **RESOLVED** `b8cfbe38` | `isolation_probe.go:635` | ERRHANDLING | `probeConfigYAML` indexes `liveAgents[key]` with no `ok` check; an unregistered engine yields a zero `liveAgent` and a config with an empty base, producing a confusing downstream failure rather tha... | U158.md |

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **985** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 38 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 76 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **999** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 39 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 77 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 126 |
-| `open` | no commit names this ID | **1,043** |
+| `open` | no commit names this ID | **1,027** |
 
-**Totals: 2268 findings across 162 units — 985 resolved, 1,043 still open, 240 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 999 resolved, 1,027 still open, 242 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 277 | 599 | 16 | 27 | 80 |
-| LOW | 871 | 358 | 418 | 12 | 41 | 42 |
+| MED | 999 | 285 | 589 | 17 | 28 | 80 |
+| LOW | 871 | 364 | 412 | 12 | 41 | 42 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1126,17 +1126,17 @@ Full evidence and the suggested action for any row live in its source review at 
 | U036-F11 | **RESOLVED** `3ddcc59f` | **`init.go:493`** | COUPLING | Connascence of meaning: the "which handler needs an ack" rule is the string literal `"commit"`, duplicated across `dirtyTreeHandlerOptions[0].value`, the comparison, and `internal/operations/delega... | U036.md |
 | U037-F06 | **RESOLVED** `e595df13` | `item_helpers.go:246-264` | SILENTNOOP | `fragment list --bundle nosuchbundle` prints `Fragments (0):` and exits 0 with no indication the bundle name was wrong. The empty-result branch tests the **unfiltered** slice. | U037.md |
 | U037-F07 | **RESOLVED** `a629f147` | `item_helpers.go:180, 306` | SILENTNOOP | Two switches over `ItemType` fall through to `return nil, nil` / `return "", "", nil` — success with zero payload — instead of erroring on an unrecognised kind. Unreachable today (only two constant... | U037.md |
-| U037-F08 | open | `llm_turn.go:104-138` | SILENTNOOP | Neither side of the RunStart handoff validates that the payload carries anything. `readRunStartHandoff`'s doc comment claims "*never a silent empty RunStart (which would run the engine context-free... | U037.md |
-| U037-F09 | open | `item_helpers.go:31-36 vs operations/items.go:22-27` | DUPLICATE | `cli.ItemType` is a verbatim duplicate of `operations.ItemKind` (same two string literals), cross-converted at four sites. Two enums must stay in sync with no compiler help. | U037.md |
-| U037-F10 | open | `item_helpers.go:269-307 vs operations/items.go:60-74` | DUPLICATE | `loadBundleForItem` + `itemDisplayContent` (both single-caller helpers of `showItem`) re-implement `operations.GetItemContent`: load bundle by name, look up the item by kind, return content+distill... | U037.md |
+| U037-F08 | **RESOLVED** `20461eb4` | `llm_turn.go:104-138` | SILENTNOOP | Neither side of the RunStart handoff validates that the payload carries anything. `readRunStartHandoff`'s doc comment claims "*never a silent empty RunStart (which would run the engine context-free... | U037.md |
+| U037-F09 | **RESOLVED** `9dd103f9` | `item_helpers.go:31-36 vs operations/items.go:22-27` | DUPLICATE | `cli.ItemType` is a verbatim duplicate of `operations.ItemKind` (same two string literals), cross-converted at four sites. Two enums must stay in sync with no compiler help. | U037.md |
+| U037-F10 | **RESOLVED** `2b146910` | `item_helpers.go:269-307 vs operations/items.go:60-74` | DUPLICATE | `loadBundleForItem` + `itemDisplayContent` (both single-caller helpers of `showItem`) re-implement `operations.GetItemContent`: load bundle by name, look up the item by kind, return content+distill... | U037.md |
 | U037-F12 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`manage.go:301-352, 397-452, 500-521`** | NOPAY | ~110 lines of `manage.go` plus 4 duplicated `*cobra.Command` values in `mcp.go` exist **solely** to keep deprecated aliases alive, which contradicts the project's standing "no backward-compat shims... | U037.md |
-| U037-F13 | open | `manage.go, item_helpers.go, mcp.go` | COHESION | `item_helpers.go` is a 627-line grab bag holding seven unrelated command bodies plus a shared enum; `manage.go` mixes the harness-install namespace with two deprecated alias trees and the companion... | U037.md |
-| U037-F14 | open | **`mcp.go:139-153`** | COUPLING | `stampMCPTrust` pairs `servers[i]` with `rows[i]` positionally across a function boundary — connascence of position with no length check. Safe only by the caller's construction. | U037.md |
-| U037-F15 | open | `mcp_discovery.go:53-68` | CORRECTNESS | `discoveryMarkerName` ignores `cwd` for the container tier and returns the fixed `"current.json"`, so a marker written by one cell can be found by a shim in a *different* workspace. The "exactly ON... | U037.md |
-| U037-F17 | open | **`mcp.go:330-352`** | CORRECTNESS | `mcp server show <missing>` is an error on the text path but exits **0** with `--format json`. The not-found check lives inside the `emit` text closure, which `cliemit.Emit` skips for every non-tex... | U037.md |
-| U037-F18 | open | **`manage.go:81, 144, 251, 277, 465; mcp.go:217, 271; item_helpers.go:349, 375, 416, 501`** | SILENTNOOP | Eleven commands in this unit ignore the global persistent `--format` flag: they print human text via bare `fmt.Printf` and exit 0. `ctxloom manage install --format json` and `ctxloom mcp server add... | U037.md |
-| U037-F19 | open | `llm_runner_common.go:53-55, 110` | ERRHANDLING | Two `_ =`-swallowed syscalls in `standUpRunner` guard security- and correctness-critical invariants. `os.Unsetenv` failing means the coordinator credential is **not** scrubbed and is inherited by t... | U037.md |
-| U037-F20 | open | `llm_runner_common.go:35-121` | COMPLEXITY | `standUpRunner` is CCN 17 against a stated gate of 10 — the highest in the unit — and it interleaves four separable concerns: credential consumption+scrub, backend configuration, coordinator dial-h... | U037.md |
+| U037-F13 | **RESOLVED** `238e5e11` | `manage.go, item_helpers.go, mcp.go` | COHESION | `item_helpers.go` is a 627-line grab bag holding seven unrelated command bodies plus a shared enum; `manage.go` mixes the harness-install namespace with two deprecated alias trees and the companion... | U037.md |
+| U037-F14 | **RESOLVED** `c8ae7c17` | **`mcp.go:139-153`** | COUPLING | `stampMCPTrust` pairs `servers[i]` with `rows[i]` positionally across a function boundary — connascence of position with no length check. Safe only by the caller's construction. | U037.md |
+| U037-F15 | **REFUTED** `4caca721` | `mcp_discovery.go:53-68` | CORRECTNESS | `discoveryMarkerName` ignores `cwd` for the container tier and returns the fixed `"current.json"`, so a marker written by one cell can be found by a shim in a *different* workspace. The "exactly ON... | U037.md |
+| U037-F17 | **RESOLVED** `9ce99d24` | **`mcp.go:330-352`** | CORRECTNESS | `mcp server show <missing>` is an error on the text path but exits **0** with `--format json`. The not-found check lives inside the `emit` text closure, which `cliemit.Emit` skips for every non-tex... | U037.md |
+| U037-F18 | **PARTIAL** `7db8d6bf` | **`manage.go:81, 144, 251, 277, 465; mcp.go:217, 271; item_helpers.go:349, 375, 416, 501`** | SILENTNOOP | Eleven commands in this unit ignore the global persistent `--format` flag: they print human text via bare `fmt.Printf` and exit 0. `ctxloom manage install --format json` and `ctxloom mcp server add... | U037.md |
+| U037-F19 | **RESOLVED** `e2b70317` | `llm_runner_common.go:53-55, 110` | ERRHANDLING | Two `_ =`-swallowed syscalls in `standUpRunner` guard security- and correctness-critical invariants. `os.Unsetenv` failing means the coordinator credential is **not** scrubbed and is inherited by t... | U037.md |
+| U037-F20 | **RESOLVED** `dd5cf4c2` | `llm_runner_common.go:35-121` | COMPLEXITY | `standUpRunner` is CCN 17 against a stated gate of 10 — the highest in the unit — and it interleaves four separable concerns: credential consumption+scrub, backend configuration, coordinator dial-h... | U037.md |
 | U038-F04 | open | `mcp_runner.go:121` | ERRHANDLING | A post-startup HTTP serve failure is invisible: the runner keeps running and keeps advertising a socket nothing answers on. | U038.md |
 | U038-F05 | **RESOLVED** `564418d5` | `mcp_runner.go:497-511 vs mcp_tools_agents.go:135-137,260-266 vs `mcpschema/binding.go:99-109` | DUPLICATE | The `agent_recv` `wait` contract is hand-written three times across two packages, including the default/clamp arithmetic verbatim twice. | U038.md |
 | U038-F06 | **RESOLVED** `553d6347` | `mcp_runner.go:323-330` | DUPLICATE | Five of six host-relay tool descriptions are verbatim string copies of literals in `mcp_tools_memory.go`, kept honest only by a test — while the sixth simply aliases the real constant, proving the ... | U038.md |
@@ -2133,13 +2133,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U036-F18 | **RESOLVED** `5791eeeb` | `fragment.go:137-158, 172-203` | NOPAY | `fragment search` and `fragment push` are Deprecated shims that duplicate `search --type fragment` and `bundle push` — carrying ~55 lines of help text and 5 flags each. The project's standing rule ... | U036.md |
 | U036-F19 | **RESOLVED** `5791eeeb` | `fragment.go:156` | COUPLING | Magic string `"fragment"` where the typed constant exists. | U036.md |
 | U036-F20 | **RESOLVED** `9b83ff35` | `hook_inject_context.go:67-73` | ERRHANDLING | The panic recovery leaves `RunE`'s unnamed error result at `nil`, so a **panicking** hook exits 0. | U036.md |
-| U037-F11 | open | `llm_default.go:76-82` | DUPLICATE | `isKnownLLM` restates the membership test of `operations.AvailableLLMNames`, which the very next line uses to build the error message. Two definitions of "known LLM" that must agree. | U037.md |
+| U037-F11 | **RESOLVED** `353b935a` | `llm_default.go:76-82` | DUPLICATE | `isKnownLLM` restates the membership test of `operations.AvailableLLMNames`, which the very next line uses to build the error message. Two definitions of "known LLM" that must agree. | U037.md |
 | U037-F16 | **RESOLVED** `6a77d3ab` | `mcp_discovery.go:45` | DEAD | `runnerDiscoveryMarker.Harp` is written but never read anywhere in the repo, including tests. | U037.md |
-| U037-F21 | open | **`mcp.go:48-53, 59-77`** | CORRECTNESS | `mcpCmd` carefully sets `Args: cobra.NoArgs` with a comment explaining that otherwise a stale invocation "*would silently start a stdio MCP server that sits waiting on stdin*" — but `mcpServeCmd` (... | U037.md |
-| U037-F22 | open | **`manage.go:88-101, 484`** | CORRECTNESS | `manage install --engine <x>` is silently ignored when `.ctxloom` already exists — the flag is only read inside the `if !ctxloomDirExists(appDir)` branch. Re-running install to change the recorded ... | U037.md |
-| U037-F23 | open | `llm_host.go:41-43, llm_turn.go:57-59` | COUPLING | `llm host` and `llm turn` each copy their own `--label` into `llm serve`'s package-global `llmServeLabel` because `standUpRunner` reads that global rather than taking a parameter. Three commands sh... | U037.md |
-| U037-F24 | open | `llm_turn.go:127-137` | ERRHANDLING | `readRunStartHandoff` registers `defer os.Remove(path)` before the decode, so a **corrupt** handoff file is deleted on the way out — destroying the only evidence of why the turn failed and making t... | U037.md |
-| U037-F25 | open | `item_helpers.go:29-32, mcp.go:32` | ERRHANDLING | `decodeBackendConfig`'s gemini-successor hint writes to `os.Stderr` with a raw `fmt.Fprintf` while the line immediately above it uses `clidiag.Warn` — two diagnostic channels in one function, and t... | U037.md |
+| U037-F21 | **RESOLVED** `53e406ce` | **`mcp.go:48-53, 59-77`** | CORRECTNESS | `mcpCmd` carefully sets `Args: cobra.NoArgs` with a comment explaining that otherwise a stale invocation "*would silently start a stdio MCP server that sits waiting on stdin*" — but `mcpServeCmd` (... | U037.md |
+| U037-F22 | **RESOLVED** `3ce0482f` | **`manage.go:88-101, 484`** | CORRECTNESS | `manage install --engine <x>` is silently ignored when `.ctxloom` already exists — the flag is only read inside the `if !ctxloomDirExists(appDir)` branch. Re-running install to change the recorded ... | U037.md |
+| U037-F23 | **RESOLVED** `84dbf292` | `llm_host.go:41-43, llm_turn.go:57-59` | COUPLING | `llm host` and `llm turn` each copy their own `--label` into `llm serve`'s package-global `llmServeLabel` because `standUpRunner` reads that global rather than taking a parameter. Three commands sh... | U037.md |
+| U037-F24 | **RESOLVED** `78526d4c` | `llm_turn.go:127-137` | ERRHANDLING | `readRunStartHandoff` registers `defer os.Remove(path)` before the decode, so a **corrupt** handoff file is deleted on the way out — destroying the only evidence of why the turn failed and making t... | U037.md |
+| U037-F25 | **RESOLVED** `ad1f53fe` | `item_helpers.go:29-32, mcp.go:32` | ERRHANDLING | `decodeBackendConfig`'s gemini-successor hint writes to `os.Stderr` with a raw `fmt.Fprintf` while the line immediately above it uses `clidiag.Warn` — two diagnostic channels in one function, and t... | U037.md |
 | U037-F26 | **RESOLVED** `24e4e92e` | `item_helpers.go:498-500` | TRIVIAL | An orphaned doc comment for a function that no longer exists sits directly above `distillItem`, so the type's real doc is preceded by documentation of something else. | U037.md |
 | U038-F12 | open | `mcp_server.go:218-225` | ERRHANDLING | The config-load failure message is printed to stderr twice. | U038.md |
 | U038-F13 | open | `mcp_forward.go:35` | COUPLING | `reachBackTCPPrefix` is a hand-synced duplicate of `internal/acp/container_transport.go:227`, with the comment instructing humans to keep them in sync. | U038.md |

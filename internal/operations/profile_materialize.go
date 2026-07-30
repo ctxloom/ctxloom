@@ -38,6 +38,30 @@ type MaterializeProfileResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+// resolveMaterializeTarget validates the request and resolves the backend whose
+// native surfaces will be written. "" and the "claude" alias both mean
+// claude-code; anything unregistered is an error, as is a missing config,
+// target or profile set.
+func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest) (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("config is required")
+	}
+	if req.Target == "" {
+		return "", fmt.Errorf("target dir is required")
+	}
+	if len(req.Profiles) == 0 {
+		return "", fmt.Errorf("at least one profile is required")
+	}
+	backend := req.Backend
+	if backend == "" || backend == "claude" {
+		backend = DefaultMaterializeBackend
+	}
+	if !backends.Exists(backend) {
+		return "", fmt.Errorf("unknown backend %q", backend)
+	}
+	return backend, nil
+}
+
 // MaterializeProfile writes the assembled profile(s) into Target as the backend's
 // native files, OVERWRITING each managed surface every run (the export is the
 // source of truth for the target's managed files):
@@ -56,21 +80,9 @@ type MaterializeProfileResult struct {
 // ("partial success is success"). Bad arguments and a failed context assembly
 // (the core payload) stay hard errors regardless of mode.
 func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("config is required")
-	}
-	if req.Target == "" {
-		return nil, fmt.Errorf("target dir is required")
-	}
-	if len(req.Profiles) == 0 {
-		return nil, fmt.Errorf("at least one profile is required")
-	}
-	backend := req.Backend
-	if backend == "" || backend == "claude" {
-		backend = DefaultMaterializeBackend
-	}
-	if !backends.Exists(backend) {
-		return nil, fmt.Errorf("unknown backend %q", backend)
+	backend, err := resolveMaterializeTarget(cfg, req)
+	if err != nil {
+		return nil, err
 	}
 	fs := getFS(req.FS)
 	// The target is ours to create: materialize's whole point is standing up a

@@ -144,11 +144,15 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 // if that ever stops being true — for instance if the LLM service were moved
 // onto a plain grpc.NewServer of our own.
 func TestPluginTransport_ServesHealthAndReflection(t *testing.T) {
-	client, server := plugin.TestPluginGRPCConn(t, false, PluginMap)
-	t.Cleanup(func() {
-		_ = client.Close()
-		server.Stop()
-	})
+	client, _ := plugin.TestPluginGRPCConn(t, false, PluginMap)
+	// Close() is the ONLY teardown call here, and the omission is load-bearing.
+	// go-plugin's GRPCServer.Stop is not safe to call concurrently with itself:
+	// it reads s.broker, closes it, then writes s.broker = nil, with no lock
+	// (go-plugin v1.7.0 grpc_server.go:118-126). Client.Close() issues the
+	// controller's Shutdown RPC, whose handler calls Stop on go-plugin's own
+	// goroutine — so a second, direct Stop() from this cleanup races that one
+	// inside the library. The race detector caught exactly that pairing.
+	t.Cleanup(func() { _ = client.Close() })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

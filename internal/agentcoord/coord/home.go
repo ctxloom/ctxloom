@@ -428,11 +428,14 @@ const turnQueueCap = 256
 // whether the engine accepted it (false = engine gone; the message returns
 // to the buffer). Already-buffered messages (queued before the engine
 // started) drain through the sink first, in arrival order. One sink per
-// Home — a runner hosts one run.
+// Home — a runner hosts one run, so a second registration is a wiring bug: the
+// FIRST sink keeps the queue and the second engine would sit turnless forever,
+// which is why the refusal warns instead of returning quietly.
 func (h *Home) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
 	h.mu.Lock()
 	if h.turnQ != nil {
 		h.mu.Unlock()
+		clidiag.Warn("ctxloom", "runner: a turn sink is already registered for this run; the second registration is refused and that engine will receive no turns")
 		return
 	}
 	q := make(chan *agentcoordpb.PeerMessage, turnQueueCap)
@@ -656,11 +659,22 @@ func (h *Home) unpark() {
 	}
 }
 
-// emitCustomEvent emits one ctxloom/* custom event on the event plane.
+// emitCustomEvent emits one ctxloom/* custom event on the event plane. An
+// event whose value does not encode is DROPPED, not emitted valueless: every
+// value-carrying member of this vocabulary IS its value (mail_consumed's
+// message_ids are the consumption cursor, harness_session's id is the resume
+// handle), so a valueless copy is a lie the coordinator would act on. Dropping
+// it leaves the underlying state unacknowledged — for mail that re-delivers,
+// the safe direction — and warns rather than passing silently.
 func (h *Home) emitCustomEvent(name string, value map[string]any) {
 	var v *structpb.Struct
 	if value != nil {
-		v, _ = structpb.NewStruct(value)
+		var err error
+		v, err = structpb.NewStruct(value)
+		if err != nil {
+			clidiag.Warn("ctxloom", "runner: %s event value does not encode: %v (event dropped; the underlying state stays unacknowledged)", name, err)
+			return
+		}
 	}
 	h.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{
 		Name:  name,
@@ -686,7 +700,13 @@ func (h *Home) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
 // Report files a summary (+ artifact manifests) as plane-1 events and waits
 // for the cumulative Ack to cover them — the coordinator fsyncs the facts
 // before acking, so a returned Report is durably journaled.
+// An empty report — no summary, no artifacts — is REFUSED: there is nothing to
+// journal, so a nil return would assert durability for facts that were never
+// filed.
 func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifacts []*agentcoordpb.ArtifactProduced) error {
+	if summary == nil && len(artifacts) == 0 {
+		return errors.New("coord: report needs a summary or at least one artifact (nothing was filed)")
+	}
 	var last uint64
 	for _, a := range artifacts {
 		last = h.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ArtifactProduced{ArtifactProduced: a}})
@@ -694,30 +714,63 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 	if summary != nil {
 		last = h.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Summary{Summary: summary}})
 	}
-	if last == 0 {
-		return nil
-	}
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
 		defer cancel()
 	}
+	return h.awaitAck(ctx, last)
+}
+
+// awaitAck blocks until the cumulative Ack watermark covers seq — the point at
+// which the coordinator has fsynced those facts. A quiet stretch re-issues the
+// unacked events rather than waiting on in silence, because the watermark that would end
+// this wait is droppable in flight (see reissueUnacked).
+func (h *Home) awaitAck(ctx context.Context, seq uint64) error {
 	started := time.Now()
 	for {
 		h.mu.Lock()
 		acked := h.acked
 		ch := h.ackCh
 		h.mu.Unlock()
-		if acked >= last {
+		if acked >= seq {
 			return nil
 		}
+		prod := time.NewTimer(ackReissueInterval)
 		select {
 		case <-ch:
+		case <-prod.C:
+			h.reissueUnacked()
 		case <-ctx.Done():
+			prod.Stop()
 			return h.requestFailure(ctx, time.Since(started))
 		case <-h.ctx.Done():
+			prod.Stop()
 			return ErrCoordinatorUnreachable
 		}
+		prod.Stop()
+	}
+}
+
+// ackReissueInterval paces the re-issue that recovers a LOST Ack. Long enough
+// that a coordinator merely busy fsyncing is never re-prompted, short enough
+// that nobody waits out the request budget for a watermark that will never come.
+const ackReissueInterval = 2 * time.Second
+
+// reissueUnacked re-sends every event still awaiting an Ack. The coordinator's
+// ack send is deliberately non-blocking and DROPS the frame when its outbound
+// buffer is full — cumulative watermarks make that safe only for a stream that
+// keeps flowing. A waiter has nothing else in flight to carry the next
+// watermark, so a dropped one is indistinguishable from "not durable yet";
+// re-issuing is what resolves the two. It costs nothing: (run, seq) is the
+// coordinator's idempotency key, so a seq it already processed is re-acked
+// rather than re-journaled — the same reissue the post-Hello reattach performs.
+func (h *Home) reissueUnacked() {
+	h.mu.Lock()
+	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
+	h.mu.Unlock()
+	for _, ev := range events {
+		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
 }
 

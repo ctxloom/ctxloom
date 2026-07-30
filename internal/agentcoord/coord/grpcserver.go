@@ -45,6 +45,12 @@ type runnerSession struct {
 
 	reqMu   sync.Mutex
 	pending map[string]chan *agentcoordpb.RunnerResponse
+	// ended marks a session whose pending requests have already been failed:
+	// its channel is gone, so nothing will ever resolve a waiter registered
+	// after that point. Guarded by reqMu together with pending, because the
+	// two decisions ("is this session still answering" and "record my
+	// waiter") must be one atomic step — see requestRunner.
+	ended bool
 }
 
 // newRunnerSession builds a runnerSession ready to register.
@@ -61,11 +67,14 @@ func newRunnerSession(credHash, runID string, lastBeat time.Time, cancel context
 
 // failPending resolves every in-flight request with an UNAVAILABLE response
 // (the session died before an answer arrived) so no requestRunner caller
-// hangs past the session's end.
+// hangs past the session's end. It also marks the session ended, which is what
+// keeps a caller that read the session just before its teardown from
+// registering a waiter nobody is left to resolve.
 func (rs *runnerSession) failPending() {
 	rs.reqMu.Lock()
 	pending := rs.pending
 	rs.pending = make(map[string]chan *agentcoordpb.RunnerResponse)
+	rs.ended = true
 	rs.reqMu.Unlock()
 	for id, ch := range pending {
 		ch <- &agentcoordpb.RunnerResponse{RequestId: id, Status: statusErr(codes.Unavailable, "runner session ended before answering")}
@@ -410,6 +419,14 @@ func (c *Coordinator) requestRunner(ctx context.Context, credHash string, req *a
 	}
 	ch := make(chan *agentcoordpb.RunnerResponse, 1)
 	rs.reqMu.Lock()
+	if rs.ended {
+		// The session was torn down between the lookup above and here: its
+		// pending map has already been swapped out and its send pump is gone,
+		// so registering now would buy a full-budget wait for an answer that
+		// cannot come.
+		rs.reqMu.Unlock()
+		return nil, errors.New("coord: the runner session ended before this request could be issued")
+	}
 	rs.pending[req.RequestId] = ch
 	rs.reqMu.Unlock()
 

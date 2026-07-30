@@ -113,6 +113,65 @@ func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	}, PrivateStatePatterns)
 }
 
+// TestWorktreeArtifactPatterns_MatchExpectedSet pins U054-F13. This is the set
+// whose incompleteness has twice been implicated in destroying agent work: a
+// ctxloom-written file missing from it stays visible to `git status` inside a
+// per-agent worktree, which false-dirties the worktree and makes teardown
+// (correctly) refuse to remove it — orphaning it permanently — or, in the
+// mirror case, rides an agent's merge-back. PrivateStatePatterns, whose worst
+// failure is a noisy diff, had an exact-membership pin; this one had two spot
+// checks. Membership is the invariant, so membership is what is pinned.
+func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		".mcp.json",
+		".claude/",
+		".agents/",
+		".codex/config.toml",
+		".codex/auth.json",
+		".kiro/",
+		".ctxloom/cache/",
+		"CLAUDE.md",
+		"AGENTS.md",
+		".opencode/",
+		"opencode.json",
+		".ctxloom-opencode-managed",
+		"*.ctxloom.bak",
+	}, WorktreeArtifactPatterns)
+}
+
+// TestWorktreeArtifactPatterns_CoverTransientOnes pins U054-F08. The two sets
+// are documented as standing in a definite relationship — WorktreeArtifact is
+// "the BROADENED set … must keep EVERY ctxloom-written config out of a
+// developer member's merge-back" — but nothing enforced it, and the sets had
+// in fact drifted: the per-file hook backups (*.ctxloom.bak) were ignored in
+// the project .gitignore and NOT hidden inside a per-agent worktree, where
+// hook application writes them just the same. The BROADENING direction is by
+// design (.mcp.json, .claude/ and CLAUDE.md are deliberately the project's
+// choice in a plain checkout); the containment direction is the invariant.
+func TestWorktreeArtifactPatterns_CoverTransientOnes(t *testing.T) {
+	for _, p := range TransientArtifactPatterns {
+		assert.Contains(t, WorktreeArtifactPatterns, p,
+			"every artifact ctxloom keeps out of a plain checkout must also be kept out of a per-agent worktree's merge-back")
+	}
+}
+
+// TestPatternSets_AreNonEmpty pins U054-F12 and U053-F10, whose shared premise
+// is a pattern list arriving empty. Every production call site of Ensure /
+// EnsureFile passes one of these package-level sets verbatim, so an empty list
+// is not something a caller can construct — but if one of these sets were ever
+// emptied, the failure would be silent twice over: EnsureFile returns nil for
+// an empty list ("ensured" nothing), and git.ListTracked treats an empty
+// pathspec list as "match nothing", so isolation's skip-worktree merge-isolation
+// pass (which passes WorktreeArtifactPatterns as its pathspecs) would quietly
+// become a no-op rather than failing.
+func TestPatternSets_AreNonEmpty(t *testing.T) {
+	assert.NotEmpty(t, PrivateStatePatterns)
+	assert.NotEmpty(t, TransientArtifactPatterns)
+	assert.NotEmpty(t, WorktreeArtifactPatterns,
+		"isolation passes this as git.ListTracked's pathspec list, where empty means MATCH NOTHING")
+	assert.NotEmpty(t, SupersededPatterns)
+}
+
 // TestTransientArtifactPatterns_IgnoreCodexCredential pins the second half of
 // U045-F01: internal/lm/isolation/auth.go's SeedCodexHome actively copies the
 // host's ~/.codex/auth.json into <workDir>/.codex/auth.json on every plain

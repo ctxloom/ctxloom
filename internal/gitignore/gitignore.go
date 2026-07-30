@@ -93,6 +93,12 @@ var WorktreeArtifactPatterns = []string{
 	".opencode/",
 	"opencode.json",
 	".ctxloom-opencode-managed",
+	// The per-file settings backups hook application writes. They were
+	// ignored in the project .gitignore (TransientArtifactPatterns) but not
+	// hidden inside a per-agent worktree, where hook application writes them
+	// just the same: this set must COVER that one, which is asserted rather
+	// than merely documented (TestWorktreeArtifactPatterns_CoverTransientOnes).
+	"*.ctxloom.bak",
 }
 
 // SupersededPatterns are ignore rules written by older ctxloom versions that a

@@ -470,3 +470,32 @@ func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
 	assert.FileExists(t, filepath.Join(proj, ".ctxloom", "cache", "landed"),
 		"a target that gained content is never removed")
 }
+
+// TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture
+// U062-F22 re-opens. The row's facts are correct: the entire git common dir is
+// bind-mounted READ-WRITE at its identical path, so a low-trust
+// container-worktree member can reach the main checkout's refs/objects/index and
+// every other worktree's admin dir. That exposure is real and was adjudicated in
+// the tree before this wave (see gitCommonDirMount's own DECISION block): the
+// per-worktree admin dir a linked checkout needs is a SUBDIRECTORY of the common
+// dir, git needs write access to refs/logs and the packed-refs/objects layout,
+// and a surgical partial mount is fragile in ways that are easy to get subtly
+// wrong. Narrowing it is a per-agent-git-isolation design decision, not a sweep's
+// call — escalated, not changed here.
+//
+// What this pins is the posture itself, in both directions: read-only would
+// break every linked-worktree container run, and a non-identical path would
+// break the `gitdir:` pointer that made the mount necessary. A change to either
+// must be deliberate.
+func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
+	const common = "/repo/.git"
+	m, err := gitCommonDirMount(context.Background(),
+		fakeRuntime{name: "docker", available: true},
+		&git.Fake{CommonDirValue: common}, "/repo/wt")
+	require.NoError(t, err)
+
+	assert.Equal(t, common, m.Host, "the WHOLE common dir is the mount source (accepted blast radius)")
+	assert.Equal(t, common, m.Container, "identical-path, so a `gitdir:` pointer file resolves in-container")
+	assert.False(t, m.ReadOnly,
+		"read-write by design: a linked checkout writes its own admin files under <common>/worktrees/<name>")
+}

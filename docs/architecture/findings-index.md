@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,060** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 43 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 95 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **937** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,073** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 46 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 96 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 134 |
+| `open` | no commit names this ID | **919** |
 
-**Totals: 2268 findings across 162 units — 1,060 resolved, 937 still open, 271 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,073 resolved, 919 still open, 276 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 315 | 549 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 362 | 15 | 52 | 47 |
+| MED | 999 | 324 | 536 | 21 | 35 | 83 |
+| LOW | 871 | 399 | 357 | 15 | 53 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1329,20 +1329,20 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F08 | open | `sessionhistory.go:246, 250, 260, 264; sessionwatch.go:106; plans.go:88; server.go:71, 134` | ERRHANDLING | No hand-written server handler or client method uses `google.golang.org/grpc/status`. Every error crosses the wire as `codes.Unknown` with a flattened string, so a caller cannot distinguish "this b... | U061.md |
 | U061-F09 | open | `mock_client.go:44-51, 59, 80, 89, 132` | CORRECTNESS | `MockClient`'s mutex guards 3 of its 7 counters. `RunCalls`, `WatchSessionCalls` and `KillCalls` take `m.mu`; `InfoCalls`, `RunWithModelInfoCalls`, `GetSessionCalls` and `ListSessionsCalls` do not.... | U061.md |
 | U061-F10 | open | `sessionwatch.go:52-87` | CORRECTNESS | `sessionWatcher.step` assumes the transcript never shrinks. If a poll returns fewer entries than the high-water mark (a rewritten/compacted/rotated transcript), the watcher silently wedges: `n > w.... | U061.md |
-| U062-F02 | open | **`auth.go:876, auth.go:909`** | CORRECTNESS | The documented "copies src to dst at **0600** (owner-only)" and `MkdirAll(destDir, 0o700)` guarantees are **not enforced on a pre-existing destination** — Go applies the perm argument only at creat... | U062.md |
-| U062-F04 | open | `attach.go:51-55` | CORRECTNESS | `interactiveRunArgs` panics with index-out-of-range on an empty slice, and the invariant its own comment asserts is **false**. | U062.md |
-| U062-F05 | open | `attach.go:39, 95-109` | ERRHANDLING | `AttachedContainer.Close` returns a non-nil error on essentially **every normal teardown**, so the caller cannot distinguish a clean shutdown from a failure. | U062.md |
-| U062-F06 | open | `attach.go:72` | COUPLING | `RunAttached` silently depends on **not** setting `cmd.Env`, because the auth passthrough forwards env **names only** and the value must come from this process's own environment. Nothing asserts or... | U062.md |
-| U062-F07 | open | `attach.go:71` | CORRECTNESS | `RunAttached` offers **no `SpawnEnv`-equivalent channel**, so its callers must push every env var through `spec.Env` → `-e KEY=VAL` → the world-readable argv — precisely the exposure the rest of th... | U062.md |
-| U062-F08 | open | `container.go:531-535` | ERRHANDLING | `gitdirMirrorMount` conflates a **stat error** with "`.git` is a directory, no mirror needed", so an unreadable `.git` silently yields no mount and the container gets a broken git. | U062.md |
-| U062-F09 | open | **`auth.go:865-868`** | ERRHANDLING | `hostCredentialSeed` discards `os.UserHomeDir`'s error and reports the result as `seedNoSource`, so a real environment fault is surfaced to the user as "no credentials found". | U062.md |
-| U062-F10 | open | **`auth.go:391-397, 459-465`** | ERRHANDLING | The credential-copy mount builders collapse "no host credential exists" and "we had the credential but the copy failed" into the same `ok=false`, producing an actively false diagnostic. | U062.md |
+| U062-F02 | **RESOLVED** `87563a3a` | **`auth.go:876, auth.go:909`** | CORRECTNESS | The documented "copies src to dst at **0600** (owner-only)" and `MkdirAll(destDir, 0o700)` guarantees are **not enforced on a pre-existing destination** — Go applies the perm argument only at creat... | U062.md |
+| U062-F04 | **RESOLVED** `f0758025` | `attach.go:51-55` | CORRECTNESS | `interactiveRunArgs` panics with index-out-of-range on an empty slice, and the invariant its own comment asserts is **false**. | U062.md |
+| U062-F05 | **PARTIAL** `a357cd06` | `attach.go:39, 95-109` | ERRHANDLING | `AttachedContainer.Close` returns a non-nil error on essentially **every normal teardown**, so the caller cannot distinguish a clean shutdown from a failure. | U062.md |
+| U062-F06 | **RESOLVED** `07fe540e` | `attach.go:72` | COUPLING | `RunAttached` silently depends on **not** setting `cmd.Env`, because the auth passthrough forwards env **names only** and the value must come from this process's own environment. Nothing asserts or... | U062.md |
+| U062-F07 | **RESOLVED** `07fe540e` | `attach.go:71` | CORRECTNESS | `RunAttached` offers **no `SpawnEnv`-equivalent channel**, so its callers must push every env var through `spec.Env` → `-e KEY=VAL` → the world-readable argv — precisely the exposure the rest of th... | U062.md |
+| U062-F08 | **RESOLVED** `2f48c079` | `container.go:531-535` | ERRHANDLING | `gitdirMirrorMount` conflates a **stat error** with "`.git` is a directory, no mirror needed", so an unreadable `.git` silently yields no mount and the container gets a broken git. | U062.md |
+| U062-F09 | **RESOLVED** `87563a3a` | **`auth.go:865-868`** | ERRHANDLING | `hostCredentialSeed` discards `os.UserHomeDir`'s error and reports the result as `seedNoSource`, so a real environment fault is surfaced to the user as "no credentials found". | U062.md |
+| U062-F10 | **RESOLVED** `87563a3a` | **`auth.go:391-397, 459-465`** | ERRHANDLING | The credential-copy mount builders collapse "no host credential exists" and "we had the credential but the copy failed" into the same `ok=false`, producing an actively false diagnostic. | U062.md |
 | U062-F11 | open | `container.go:70-119, 164-183` | COHESION | `Container` carries five image-build fields that form a disjoint method partition, and `ImageConfig` already names exactly that group. | U062.md |
-| U062-F12 | open | `container.go:361-364` | CORRECTNESS | `WithImage` swaps in a caller-supplied image **without** nilling the profile's build recipe, so `runAsIs()` stays false and `checkRunAsIsIdentity` never runs on it — the exact inverse of `container... | U062.md |
-| U062-F13 | open | `curatedhome.go:58-65` | CORRECTNESS | The curated-HOME allowlist includes the whole of `~/.ssh` (every private key) while the same comment excludes `.netrc`/`.npmrc`/`.gnupg` on the stated grounds that they "carry plaintext tokens/keys... | U062.md |
-| U062-F14 | open | `curatedhome.go:12-56; auth.go:596-609; profile.go:474-499` | DUPLICATE | The same antigravity measurement narrative (HOME relocates config/session state, the D-Bus keyring escapes it, `agy -p` ignores the launch cwd) is written out three times in three files, each with ... | U062.md |
-| U062-F15 | open | **`auth.go:861-897`** | COMPLEXITY | `hostCredentialSeed` sits at CCN 13 against the project's own enforcing gate of 10. | U062.md |
-| U062-F22 | open | `container.go:768-808` | CORRECTNESS | `gitCommonDirMount` bind-mounts the **entire** git common dir read-write at its identical path, so a low-trust `container-worktree` member can rewrite the main checkout's refs/objects/index and eve... | U062.md |
+| U062-F12 | **RESOLVED** `18bdf149` | `container.go:361-364` | CORRECTNESS | `WithImage` swaps in a caller-supplied image **without** nilling the profile's build recipe, so `runAsIs()` stays false and `checkRunAsIsIdentity` never runs on it — the exact inverse of `container... | U062.md |
+| U062-F13 | **PARTIAL** `0bd71ddb` | `curatedhome.go:58-65` | CORRECTNESS | The curated-HOME allowlist includes the whole of `~/.ssh` (every private key) while the same comment excludes `.netrc`/`.npmrc`/`.gnupg` on the stated grounds that they "carry plaintext tokens/keys... | U062.md |
+| U062-F14 | **PARTIAL** `bdd78213` | `curatedhome.go:12-56; auth.go:596-609; profile.go:474-499` | DUPLICATE | The same antigravity measurement narrative (HOME relocates config/session state, the D-Bus keyring escapes it, `agy -p` ignores the launch cwd) is written out three times in three files, each with ... | U062.md |
+| U062-F15 | **RESOLVED** `553b31c5` | **`auth.go:861-897`** | COMPLEXITY | `hostCredentialSeed` sits at CCN 13 against the project's own enforcing gate of 10. | U062.md |
+| U062-F22 | **ESCALATED** `PENDING` | `container.go:768-808` | CORRECTNESS | `gitCommonDirMount` bind-mounts the **entire** git common dir read-write at its identical path, so a low-trust `container-worktree` member can rewrite the main checkout's refs/objects/index and eve... | U062.md |
 | U063-F03 | **RESOLVED** `047490b3` | `isolation.go:58-78, 102` | DEAD | The entire `Approvals` axis is dead: the type, both constants, `String()`, `Policy.Approvals()`, and all four implementations. | U063.md |
 | U063-F04 | **RESOLVED** `047490b3` | `isolation.go:391-393` | DEAD | `Resolve` has **zero production call sites** — it is test-only. Its doc's stated purpose ("Callers that need only the policy identity up front (e.g. run's approvals gating)") describes a consumer t... | U063.md |
 | U063-F05 | open | **`pidalive_unix.go:12 + pidalive_windows.go:10`** | DUPLICATE | The build-tagged `pidAlive` pair is **byte-identical apart from the `//go:build` line** and both delegate to `pidalive.Alive` — a package that already owns the platform split. The build tags buy no... | U063.md |
@@ -2315,11 +2315,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F16 | open | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
 | U061-F17 | open | `procsession_unix.go:86-104` | CORRECTNESS | `killSessionExcept` has a pid-reuse TOCTOU: between `procSessionID(pid)` (:99) and `syscall.Kill(pid, SIGKILL)` (:102) the target can exit and its pid be reused by an unrelated process, which then ... | U061.md |
 | U061-F18 | **RESOLVED** `12f375ce` | `mock_client.go:158-160` | TRIVIAL | `NewMockClient` is a one-expression constructor (`return &MockClient{}`) used only by tests, and only two of them. | U061.md |
-| U062-F16 | open | `container.go:999-1006` | DUPLICATE | `containerName` re-implements `sanitizeAgentID` verbatim rather than calling it. | U062.md |
-| U062-F17 | open | `container.go:217-222 vs 259` | CORRECTNESS | `Name()` defends against a nil `base` that `PrepareWorkspace` would panic on — the guard is in the harmless method and absent from the dangerous one. | U062.md |
-| U062-F18 | open | `container.go:956-970` | ERRHANDLING | `containerWorkspace.Cleanup` discards `baseCleanup()`'s error and asserts it "never contributes an error" — true only because `worktreeWorkspace.Cleanup` unconditionally returns nil while *warning*... | U062.md |
-| U062-F19 | open | `container.go:385-409` | SILENTNOOP | `ExecSpec` accepts an empty/nil `command` and returns a valid-looking `RunSpec` whose `Command` is nil, so the container runs the image's default entrypoint instead of what the caller asked for. | U062.md |
-| U062-F20 | open | `container.go:756-762` | CORRECTNESS | `containerConfigOverlay` creates managed-config directories inside the **host project** as a side effect of preparing a container run and never removes them; `Cleanup` removes only the scratch tree. | U062.md |
+| U062-F16 | **RESOLVED** `a57b2533` | `container.go:999-1006` | DUPLICATE | `containerName` re-implements `sanitizeAgentID` verbatim rather than calling it. | U062.md |
+| U062-F17 | **REFUTED** `4929fd9d` | `container.go:217-222 vs 259` | CORRECTNESS | `Name()` defends against a nil `base` that `PrepareWorkspace` would panic on — the guard is in the harmless method and absent from the dangerous one. | U062.md |
+| U062-F18 | **RESOLVED** `974198d2` | `container.go:956-970` | ERRHANDLING | `containerWorkspace.Cleanup` discards `baseCleanup()`'s error and asserts it "never contributes an error" — true only because `worktreeWorkspace.Cleanup` unconditionally returns nil while *warning*... | U062.md |
+| U062-F19 | **RESOLVED** `64362c38` | `container.go:385-409` | SILENTNOOP | `ExecSpec` accepts an empty/nil `command` and returns a valid-looking `RunSpec` whose `Command` is nil, so the container runs the image's default entrypoint instead of what the caller asked for. | U062.md |
+| U062-F20 | **RESOLVED** `afb355aa` | `container.go:756-762` | CORRECTNESS | `containerConfigOverlay` creates managed-config directories inside the **host project** as a side effect of preparing a container run and never removes them; `Cleanup` removes only the scratch tree. | U062.md |
 | U062-F21 | **RESOLVED** `6e95d55f` | `curatedhome.go:83-89; worktree.go:263` | NOPAY | `curatedHomeSpec.authIsolated` describes an engine shape that does not exist, and the branch that consumes it is unreachable in production. | U062.md |
 | U063-F11 | open | `isolation.go:355-373, devcontainer.go:84` | CORRECTNESS | `ImageConfig`'s zero value is self-contradictory: `NoDevcontainerBase: false` says "auto-detect ON" while `AppRoot: ""` independently forces it OFF, with no diagnostic. A config-load failure (`Isol... | U063.md |
 | U063-F12 | open | `diagnose.go:33` | CORRECTNESS | `ImageStale bool json:"image_stale,omitempty"` makes "not stale" and "not checked" indistinguishable in the JSON output. A user-owned `isolation_images` override is never checked (imagebuild.go:701... | U063.md |

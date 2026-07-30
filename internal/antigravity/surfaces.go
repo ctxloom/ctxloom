@@ -145,8 +145,9 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
 
 // agy's commands surface — Agent Skill directories under .agents/skills/
-// (`<name>/SKILL.md`, generated frontmatter, capabilities.go
-// renderAntigravitySkillFile) — is the shared agent.ManagedCommandsDelivery
+// (`<name>/SKILL.md`, frontmatter from the shared
+// agent.RenderCommandAsSkillFile that capabilities.go's WriteCommandFiles hands
+// to the managed-command writer) — is the shared agent.ManagedCommandsDelivery
 // bound to agy's manifest-scoped WriteCommandFiles (built in NewSurfaces);
 // its write-then-revert-with-nil shape is identical across engines, so it
 // lives in internal/shared/agent, not here.

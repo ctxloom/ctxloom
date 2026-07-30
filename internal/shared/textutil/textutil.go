@@ -19,13 +19,24 @@ func TruncateBytes(s string, maxBytes int) string {
 	// incomplete sequence that decodes as RuneError with size 1. Drop those
 	// trailing partial bytes until the final rune is whole. A legitimately
 	// encoded U+FFFD decodes with size 3, so it is left intact.
-	for len(cut) > 0 {
+	//
+	// The backoff is bounded at utf8.UTFMax-1 because that is the most bytes a
+	// split rune can leave behind. Past three, the trailing bytes are not a
+	// severed rune but input that was already invalid, and dropping them
+	// deletes real content — an unbounded loop walks the whole prefix away and
+	// answers "" for a string that had plenty in it. Invalid bytes in, invalid
+	// bytes out: this function caps length on rune boundaries, it does not
+	// sanitize (a byte the caller supplied mid-string is passed through today
+	// too).
+	for dropped := 0; len(cut) > 0; dropped++ {
 		r, size := utf8.DecodeLastRuneInString(cut)
-		if r == utf8.RuneError && size <= 1 {
-			cut = cut[:len(cut)-1]
-			continue
+		if r != utf8.RuneError || size > 1 {
+			return cut
 		}
-		break
+		if dropped == utf8.UTFMax-1 {
+			return s[:maxBytes]
+		}
+		cut = cut[:len(cut)-1]
 	}
 	return cut
 }

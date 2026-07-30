@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
@@ -104,19 +105,45 @@ func sanitizeKey(k string) string {
 // live coordinator process.
 var errStateOwned = errors.New("coord: project state is owned by another live coordinator")
 
+// writeOwnerPID stamps pid into a freshly created owner-lock file and closes
+// it, reporting the FIRST of the write's or the close's failure.
+//
+// Indirected so a test can drive that failure: on a real filesystem the write
+// and the close only fail on conditions a test cannot provoke (a full or
+// failing device), while the consequence of ignoring them — a lock file that
+// carries no pid — is exactly what claimOwner must never leave behind.
+var writeOwnerPID = func(f *os.File, pid int) error {
+	_, err := fmt.Fprintf(f, "%d\n", pid)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // claimOwner takes the project state dir's exclusive-owner lock. The journal
 // discipline demands a single writer per journal, and that holds ACROSS
 // processes too: two concurrent session-owning processes for one project must
 // not share journals. The second claimant gets errStateOwned and falls back
 // to an ephemeral per-session state dir (no adoption, warned by the caller).
 // A dead owner's stale lock is replaced (liveness = signal 0 probe).
+//
+// A lock file this function creates but cannot STAMP is removed again before it
+// declines (U024-F10): an owner.pid with no pid in it reads to the next
+// claimant as a dead owner — strconv.Atoi("") fails, so the lock is treated as
+// stale and deleted — and two live coordinators would then share one project's
+// journals, the single outcome this lock exists to prevent. Declining a claim
+// costs this session adoption; leaving an unstamped lock costs the journal its
+// single writer.
 func claimOwner(dir string) (release func(), err error) {
 	lock := filepath.Join(dir, "owner.pid")
 	for range 2 {
 		f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
-			fmt.Fprintf(f, "%d\n", os.Getpid())
-			_ = f.Close()
+			if werr := writeOwnerPID(f, os.Getpid()); werr != nil {
+				_ = os.Remove(lock)
+				clidiag.Warn("ctxloom", "coordinator: could not stamp the project state lock %s (%v); declining the claim rather than leaving a lock that reads as a dead owner", lock, werr)
+				return nil, errStateOwned
+			}
 			return func() { _ = os.Remove(lock) }, nil
 		}
 		raw, rerr := os.ReadFile(lock)

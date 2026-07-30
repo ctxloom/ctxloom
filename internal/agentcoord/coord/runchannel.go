@@ -711,14 +711,48 @@ func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentReq
 	})
 }
 
+// responseQueueWindow bounds how long a plane-2 response waits for room on a
+// saturated writer pump before it is given up on. The wait itself never runs on
+// the channel's receive goroutine — see respond.
+const responseQueueWindow = 5 * time.Second
+
 // respond queues one response frame on the channel's writer pump.
+//
+// A saturated pump must NOT block the caller (U024-F08). respond runs on the
+// channel's own RECEIVE goroutine for two paths — a request arriving with no
+// request_id, and re-delivery of an already-cached response to a reissue — and
+// waiting there stalls every inbound frame on that channel behind one slow
+// writer: acks, mail-consumption facts, park and turn-state transitions. The
+// bounded wait is therefore handed to a tracked goroutine, which is also what
+// makes the wait worth anything: a pump that drains inside the window now
+// DELIVERS the response instead of dropping it after five seconds of holding
+// the receive loop still.
+//
+// Ordering is not a casualty: every response is correlated by request_id
+// (reqTrack), so one that is overtaken while its pump was full is still matched
+// to its own request.
+//
+// The give-up notice states what actually happens, which the old wording did
+// not: the runner does not reissue on a live channel — Home.Request is bounded
+// by its own defaultRequestTimeout and fails the call — and only a RECONNECT
+// reissues, at which point reqTrack re-delivers the cached response.
 func (c *Coordinator) respond(ch *runChan, resp *agentcoordpb.CoordinatorResponse) {
 	frame := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Response{Response: resp}}
 	select {
 	case ch.send <- frame:
-	case <-time.After(5 * time.Second):
-		clidiag.Warn("ctxloom", "coordinator: response to %s stalled; dropping (the runner reissues on reconnect)", ch.role)
+		return
+	default:
 	}
+	role := ch.role
+	c.goTracked(func() {
+		select {
+		case ch.send <- frame:
+		case <-c.baseCtx.Done():
+		case <-time.After(responseQueueWindow):
+			clidiag.Warn("ctxloom", "coordinator: response to %s found its send pump full for %s and was dropped; the runner's request fails at its own timeout — only a reconnect reissues it, and the cached response is re-delivered then",
+				role, responseQueueWindow)
+		}
+	})
 }
 
 // respondRole queues a response on the role's CURRENT live channel — the

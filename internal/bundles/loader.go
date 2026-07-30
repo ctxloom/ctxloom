@@ -146,10 +146,14 @@ func WithVersionResolver(resolver BundleVersionResolver) LoaderOption {
 }
 
 // WithWarnWriter redirects this loader/store's user-facing diagnostics (the
-// clidiag "ctxloom: warning:" lines — e.g. the signature a Save invalidated)
-// away from stderr, so tests can read what the user would have been told. The
-// default is os.Stderr: a warning nobody sees is the bug these diagnostics
-// exist to prevent.
+// clidiag "ctxloom: warning:" lines) away from stderr, so tests can read what
+// the user would have been told. The default is os.Stderr: a warning nobody
+// sees is the bug these diagnostics exist to prevent.
+//
+// ALL of them: the signature a Save invalidated, an unresolved bundle ref, and
+// an ambiguous bare fragment ask. The last two dedup process-wide (see
+// bundleWarner) but still emit through this writer — dedup is the process's
+// business, the sink is the caller's.
 func WithWarnWriter(w io.Writer) LoaderOption {
 	return func(l *Loader) {
 		l.warnOut = w

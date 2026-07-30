@@ -330,24 +330,11 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan agent.ChatEvent, chatErr <-chan error) {
 	var (
 		inTurn    bool
-		openMsg   string
-		openType  agent.SessionEntryType
-		msgSeq    int
-		toolSeq   int
-		toolFIFO  []string
 		lastMeta  *agent.TurnMeta
 		turns     int
 		sessionID string
 	)
-	closeOpenMsg := func() {
-		if openMsg == "" {
-			return
-		}
-		home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageCompleted{MessageCompleted: &agentcoordpb.MessageCompleted{
-			MessageId: openMsg,
-		}}})
-		openMsg = ""
-	}
+	items := &itemStream{home: home}
 	for ev := range out {
 		switch {
 		case ev.Session != nil:
@@ -370,60 +357,9 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 				inTurn = true
 				home.emitCustomEvent(CustomTurnStarted, nil)
 			}
-			e := ev.Entry
-			switch e.Type {
-			case agent.EntryTypeToolUse:
-				closeOpenMsg()
-				toolSeq++
-				id := fmt.Sprintf("tc-%d", toolSeq)
-				toolFIFO = append(toolFIFO, id)
-				home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallStarted{ToolCallStarted: &agentcoordpb.ToolCallStarted{
-					ToolCallId: id,
-					ToolName:   e.ToolName,
-				}}})
-				if len(e.ToolInput) > 0 {
-					home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallArgsDelta{ToolCallArgsDelta: &agentcoordpb.ToolCallArgsDelta{
-						ToolCallId:       id,
-						ArgsJsonFragment: string(e.ToolInput),
-					}}})
-				}
-			case agent.EntryTypeToolResult:
-				closeOpenMsg()
-				var id string
-				if len(toolFIFO) > 0 {
-					id, toolFIFO = toolFIFO[0], toolFIFO[1:]
-				} else {
-					toolSeq++
-					id = fmt.Sprintf("tc-unpaired-%d", toolSeq)
-				}
-				home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallCompleted{ToolCallCompleted: &agentcoordpb.ToolCallCompleted{
-					ToolCallId: id,
-					IsError:    e.IsError,
-					ResultText: e.ToolOutput,
-				}}})
-			default:
-				if e.Content == "" {
-					continue
-				}
-				if openMsg == "" || openType != e.Type {
-					closeOpenMsg()
-					msgSeq++
-					openMsg = fmt.Sprintf("m-%d", msgSeq)
-					openType = e.Type
-					role, channel := messageRouting(e.Type)
-					home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageStarted{MessageStarted: &agentcoordpb.MessageStarted{
-						MessageId: openMsg,
-						Role:      role,
-						Channel:   channel,
-					}}})
-				}
-				home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageDelta{MessageDelta: &agentcoordpb.MessageDelta{
-					MessageId: openMsg,
-					Text:      e.Content,
-				}}})
-			}
+			items.entry(ev.Entry)
 		case ev.Complete != nil:
-			closeOpenMsg()
+			items.closeOpen()
 			lastMeta = ev.Complete
 			turns++
 			inTurn = false
@@ -438,29 +374,135 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			eh.goTracked(func() { eh.resolveApproval(ctx, home, ev.Permission) })
 		}
 	}
-	closeOpenMsg()
+	items.closeOpen()
 
-	err := <-chatErr
+	result, exitCode := terminalResult(<-chatErr, ctx.Err(), lastMeta, turns)
+	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
+		Result: result,
+	}}})
+	home.ReportRunExited(exitCode, sessionID)
+}
+
+// terminalResult classifies one ended engine stream: chatErr is what
+// backend.Chat returned, ctxErr the run context's own state. Cancellation wins
+// over the error Chat reports for it — a cancelled engine's error IS the
+// cancellation, not a failure — and only a genuine failure exits non-zero.
+func terminalResult(chatErr, ctxErr error, lastMeta *agent.TurnMeta, turns int) (*agentcoordpb.Result, int) {
 	status := agentcoordpb.Result_RUN_STATUS_SUCCEEDED
 	text := ""
 	exitCode := 0
-	if err != nil && ctx.Err() == nil {
-		status = agentcoordpb.Result_RUN_STATUS_FAILED
-		text = err.Error()
-		exitCode = 1
-	} else if ctx.Err() != nil {
+	switch {
+	case ctxErr != nil:
 		status = agentcoordpb.Result_RUN_STATUS_CANCELLED
 		text = "engine cancelled"
+	case chatErr != nil:
+		status = agentcoordpb.Result_RUN_STATUS_FAILED
+		text = chatErr.Error()
+		exitCode = 1
 	}
-	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
-		Result: &agentcoordpb.Result{
-			Status:   status,
-			Text:     text,
-			Usage:    usageFromMeta(lastMeta),
-			NumTurns: uint32(turns),
-		},
+	return &agentcoordpb.Result{
+		Status:   status,
+		Text:     text,
+		Usage:    usageFromMeta(lastMeta),
+		NumTurns: uint32(turns),
+	}, exitCode
+}
+
+// itemStream is adapt's per-run ITEM state: the currently open message and the
+// tool-call FIFO. It owns the contract's started→delta*→completed lifecycle
+// (contiguous same-type entries share one message) and the FIFO pairing of tool
+// results to starts; adapt itself keeps only turn and session state.
+type itemStream struct {
+	home     engineHome
+	openMsg  string
+	openType agent.SessionEntryType
+	msgSeq   int
+	toolSeq  int
+	toolFIFO []string
+}
+
+// entry adapts ONE native session entry.
+func (s *itemStream) entry(e *agent.SessionEntry) {
+	switch e.Type {
+	case agent.EntryTypeToolUse:
+		s.toolUse(e)
+	case agent.EntryTypeToolResult:
+		s.toolResult(e)
+	default:
+		s.text(e)
+	}
+}
+
+// closeOpen completes the open message, if any.
+func (s *itemStream) closeOpen() {
+	if s.openMsg == "" {
+		return
+	}
+	s.home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageCompleted{MessageCompleted: &agentcoordpb.MessageCompleted{
+		MessageId: s.openMsg,
 	}}})
-	home.ReportRunExited(exitCode, sessionID)
+	s.openMsg = ""
+}
+
+func (s *itemStream) toolUse(e *agent.SessionEntry) {
+	s.closeOpen()
+	s.toolSeq++
+	id := fmt.Sprintf("tc-%d", s.toolSeq)
+	s.toolFIFO = append(s.toolFIFO, id)
+	s.home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallStarted{ToolCallStarted: &agentcoordpb.ToolCallStarted{
+		ToolCallId: id,
+		ToolName:   e.ToolName,
+	}}})
+	if len(e.ToolInput) > 0 {
+		s.home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallArgsDelta{ToolCallArgsDelta: &agentcoordpb.ToolCallArgsDelta{
+			ToolCallId:       id,
+			ArgsJsonFragment: string(e.ToolInput),
+		}}})
+	}
+}
+
+// toolResult pairs a result to the oldest unpaired start (agent.SessionEntry
+// carries no tool-call id — the synthesized-id latitude call, approved). A
+// result with nothing to pair to still reports, under its own id.
+func (s *itemStream) toolResult(e *agent.SessionEntry) {
+	s.closeOpen()
+	var id string
+	if len(s.toolFIFO) > 0 {
+		id, s.toolFIFO = s.toolFIFO[0], s.toolFIFO[1:]
+	} else {
+		s.toolSeq++
+		id = fmt.Sprintf("tc-unpaired-%d", s.toolSeq)
+	}
+	s.home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallCompleted{ToolCallCompleted: &agentcoordpb.ToolCallCompleted{
+		ToolCallId: id,
+		IsError:    e.IsError,
+		ResultText: e.ToolOutput,
+	}}})
+}
+
+// text appends to the open message, opening a new one when the entry TYPE
+// changes (role/channel are per-message, so a thinking entry cannot continue an
+// assistant message). An empty entry is not a message at all.
+func (s *itemStream) text(e *agent.SessionEntry) {
+	if e.Content == "" {
+		return
+	}
+	if s.openMsg == "" || s.openType != e.Type {
+		s.closeOpen()
+		s.msgSeq++
+		s.openMsg = fmt.Sprintf("m-%d", s.msgSeq)
+		s.openType = e.Type
+		role, channel := messageRouting(e.Type)
+		s.home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageStarted{MessageStarted: &agentcoordpb.MessageStarted{
+			MessageId: s.openMsg,
+			Role:      role,
+			Channel:   channel,
+		}}})
+	}
+	s.home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageDelta{MessageDelta: &agentcoordpb.MessageDelta{
+		MessageId: s.openMsg,
+		Text:      e.Content,
+	}}})
 }
 
 // runStartedConfig echoes the HarnessSpec into RunStarted.config so the log
@@ -477,6 +519,7 @@ func runStartedConfig(spec *agentcoordpb.HarnessSpec) *structpb.Struct {
 		"resumed_from_harness_session_id": spec.GetResumeSessionId(),
 	})
 	if err != nil {
+		clidiag.Warn("ctxloom", "engine host: RunStarted config echo for harness %q: %v", spec.GetHarness(), err)
 		return nil
 	}
 	return cfg
@@ -524,11 +567,22 @@ func nonNegU64(n int) uint64 {
 // usdToMicros converts a harness-reported float dollar amount to micro-USD
 // with round-half-even. Non-finite or negative input reads as 0 (costs are
 // non-negative by construction; a poisoned float must not wrap).
+//
+// MAGNITUDE saturates as well as sign: Go leaves a float→integer conversion
+// whose value is out of the target's range implementation-defined, so a cost
+// above ~1.8e13 USD (uint64 micros' ceiling) yielded an arbitrary number —
+// on amd64 a value SMALLER than the truthful one, journaled as if measured.
+// A saturated MaxUint64 is at least monotone in the input and unmistakably
+// out-of-band.
 func usdToMicros(usd float64) uint64 {
 	if usd <= 0 || math.IsNaN(usd) || math.IsInf(usd, 0) {
 		return 0
 	}
-	return uint64(math.RoundToEven(usd * 1e6))
+	micros := math.RoundToEven(usd * 1e6)
+	if micros >= math.MaxUint64 {
+		return math.MaxUint64
+	}
+	return uint64(micros)
 }
 
 // frameCoordinatorMessage renders one coordinator-delivered mailbox message
@@ -686,8 +740,12 @@ func classifyApprovalKind(kind string) agentcoordpb.ApprovalRequest_ApprovalKind
 
 // structFromJSON best-effort projects a permission request's raw tool input
 // onto a Struct payload: a JSON object marshals directly; any other JSON
-// shape (array, scalar) or empty/invalid input wraps as {"value": ...} (or
-// nil) so a non-object input never fails the whole approval.
+// shape (array, scalar) wraps as {"value": ...} so a non-object input never
+// fails the whole approval. Input that is not valid JSON at all wraps as its
+// own RAW TEXT under the same key rather than vanishing — this payload is
+// what a human on the escalation ladder reads to decide, and a nil payload
+// left them the tool name and nothing about what it was asked to do. Only
+// genuinely empty input yields no payload.
 func structFromJSON(raw json.RawMessage) *structpb.Struct {
 	if len(raw) == 0 {
 		return nil
@@ -698,10 +756,14 @@ func structFromJSON(raw json.RawMessage) *structpb.Struct {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil
+		// Not JSON. Carry the bytes as text, UTF-8-repaired: a Struct holding
+		// invalid UTF-8 marshals nowhere, so an unrepaired string would drop
+		// the payload again one layer further out.
+		v = strings.ToValidUTF8(string(raw), "�")
 	}
 	wrapped, err := structpb.NewStruct(map[string]any{"value": v})
 	if err != nil {
+		clidiag.Warn("ctxloom", "engine host: approval payload could not be projected onto a Struct (%d bytes dropped): %v", len(raw), err)
 		return nil
 	}
 	return wrapped

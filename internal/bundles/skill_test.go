@@ -3,7 +3,10 @@ package bundles
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -401,4 +404,90 @@ func TestResolveSkillDir_RejectsPathEscape(t *testing.T) {
 func TestResolveSkillDir_RejectsAbsolutePath(t *testing.T) {
 	_, err := ResolveSkillDir("/bundle", "evil", BundleSkill{Path: "/etc/passwd"})
 	require.Error(t, err)
+}
+
+// =============================================================================
+// U031 findings-sweep additions
+// =============================================================================
+
+// openFailFs fails Open for one exact path, so a test can make a single file in
+// an otherwise-valid skill tree unreadable without depending on real filesystem
+// permissions (afero.ReadFile goes through Open).
+type openFailFs struct {
+	afero.Fs
+	failPath string
+}
+
+func (f *openFailFs) Open(name string) (afero.File, error) {
+	if filepath.ToSlash(name) == f.failPath {
+		return nil, fmt.Errorf("simulated permission denied")
+	}
+	return f.Fs.Open(name)
+}
+
+// TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile is U031-F18.
+//
+// buildSkillManifest returned walkErr, relErr and readErr completely
+// unwrapped, so a mid-walk failure surfaced as a bare "simulated permission
+// denied" with no indication of which skill was being parsed or which file
+// failed — while the size-cap check two lines away carries `skill directory
+// %q`. ParseSkillPackage is reached from bundle loading, skill sync, export and
+// install, so the caller has no other way to know which of a bundle's skills
+// broke.
+func TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	dir := "/src/skills/humanize"
+	writeSkillFixture(t, mem, dir, "humanize")
+
+	fsys := &openFailFs{Fs: mem, failPath: dir + "/scripts/run.sh"}
+
+	_, err := ParseSkillPackage(fsys, dir, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "humanize",
+		"the failing skill must be named: a bundle can ship many skills and only one of them broke")
+	assert.Contains(t, err.Error(), "scripts/run.sh",
+		"the failing file must be named, relative to the package root")
+	assert.Contains(t, err.Error(), "simulated permission denied",
+		"the underlying cause must still be wrapped, not replaced")
+}
+
+// TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests is U031-F06.
+//
+// Serialize's error fallback is a SIGNATURE PREIMAGE: PublisherSkillSignature
+// Verifier.VerifyManifestSignature verifies a detached signature over exactly
+// these bytes, and operations.ExportSkill signs exactly these bytes. One
+// constant standing in for every manifest therefore means one signature would
+// verify against ANY manifest that hit the fallback — which is precisely the
+// defect the sibling BundleMCP/BundleHook fallbacks call out in their own
+// comments ("to a digest DISTINCT per server/failure, not a shared constant:
+// one constant standing in for many different items is the T4 defect"), even
+// though this comment claimed to be following that precedent.
+//
+// Different manifests must produce different fallback bytes.
+func TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests(t *testing.T) {
+	a := SkillManifest{{Path: "SKILL.md", SHA256: "sha256:aaa", Mode: "0644"}}
+	b := SkillManifest{{Path: "scripts/run.sh", SHA256: "sha256:bbb", Mode: "0755"}}
+
+	boom := errors.New("simulated marshal failure")
+	assert.NotEqual(t, string(skillManifestSerializeFallback(a, boom)), string(skillManifestSerializeFallback(b, boom)),
+		"two different manifests must not share one preimage — a signature over that preimage would cover both")
+	assert.Equal(t, string(skillManifestSerializeFallback(a, boom)), string(skillManifestSerializeFallback(a, boom)),
+		"the fallback must still be deterministic for a given manifest")
+}
+
+// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail is the MEASURED
+// reason Serialize's error branch is unreachable today, turned into a gate:
+// encoding/json cannot fail on a slice of structs whose every field is a
+// string, so no live signature can carry the fallback preimage. This test goes
+// red the moment a field of some other kind (a channel, a func, a
+// map[interface{}]…) is added — i.e. the moment the branch becomes reachable
+// and its bytes start to matter.
+func TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail(t *testing.T) {
+	typ := reflect.TypeOf(SkillManifestEntry{})
+	require.Positive(t, typ.NumField())
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		assert.Equal(t, reflect.String, f.Type.Kind(),
+			"field %s is not a string: json.Marshal can now fail, so Serialize's fallback preimage is reachable and must be reviewed", f.Name)
+	}
 }

@@ -30,16 +30,16 @@ import (
 // be loud.
 // ---------------------------------------------------------------------------
 
-// captureBundleWarner swaps the process-wide unresolved-bundle warner for one
-// writing to a buffer, and restores it. It also gives each test a FRESH dedup
-// set — the production warner dedups per ref for the life of the process, so a
-// second test asking about the same ref would otherwise see silence and read it
-// as "no warning emitted".
+// captureBundleWarner gives the calling test a FRESH process-wide dedup set —
+// the production warner dedups per ref for the life of the process, so a second
+// test asking about the same ref would otherwise see silence and read it as "no
+// warning emitted" — and returns the buffer the test must hand the loader via
+// WithWarnWriter, which is where the warner now emits.
 func captureBundleWarner(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	prev := unresolvedBundleWarner
-	unresolvedBundleWarner = newBundleWarner(&buf)
+	unresolvedBundleWarner = newBundleWarner()
 	t.Cleanup(func() { unresolvedBundleWarner = prev })
 	return &buf
 }
@@ -53,7 +53,7 @@ func captureBundleWarner(t *testing.T) *bytes.Buffer {
 // the identical warner; the inconsistency was the tell.
 func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()))
+	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
 
 	got := l.CommandsFromBundleRef("no-such-bundle-cmds")
 
@@ -68,7 +68,7 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 // the same defect, the same export path, the same silence.
 func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()))
+	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
 
 	got := l.SkillsFromBundleRef("no-such-bundle-skills")
 

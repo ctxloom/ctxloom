@@ -111,7 +111,7 @@ func TestSpawnTransport_CloseReapsDetachedWorker(t *testing.T) {
 	b := &ACP{shutdownGrace: 20 * time.Millisecond}
 	b.BinaryPath = "/bin/sh"
 
-	tr, err := b.spawnTransport(context.Background(), []string{script, pidFile}, nil, dir)
+	tr, err := b.spawnTransport(context.Background(), transportRequest{argv: []string{script, pidFile}, workDir: dir})
 	require.NoError(t, err)
 
 	workerPID, err := strconv.Atoi(waitForFile(t, pidFile, 5*time.Second))
@@ -159,7 +159,7 @@ func TestSpawnTransport_CloseGivesFlushGracePeriod(t *testing.T) {
 	b := &ACP{shutdownGrace: time.Second} // comfortably longer than the script's 0.2s "flush"
 	b.BinaryPath = "/bin/sh"
 
-	tr, err := b.spawnTransport(context.Background(), []string{script, markerFile}, nil, dir)
+	tr, err := b.spawnTransport(context.Background(), transportRequest{argv: []string{script, markerFile}, workDir: dir})
 	require.NoError(t, err)
 
 	_ = tr.close()
@@ -180,7 +180,7 @@ func TestSpawnTransport_CloseKillsAfterGraceExpires(t *testing.T) {
 	b := &ACP{shutdownGrace: 50 * time.Millisecond}
 	b.BinaryPath = "/bin/sh"
 
-	tr, err := b.spawnTransport(context.Background(), []string{script}, nil, dir)
+	tr, err := b.spawnTransport(context.Background(), transportRequest{argv: []string{script}, workDir: dir})
 	require.NoError(t, err)
 
 	done := make(chan struct{})

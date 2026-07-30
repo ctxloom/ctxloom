@@ -475,8 +475,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // rejected, regardless of what the final accept/reject verdict ends up being.
 func TestProcessArchiveEntry_RemainingBudgetAccountsForPriorTotal(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	var topDir string
-	total := int64(30) // bytes already consumed by prior entries
+	st := extractState{total: 30} // bytes already consumed by prior entries
 	opts := ExtractOptions{MaxTotalBytes: 100, MaxEntries: 10}.normalized()
 
 	// Correct remaining budget: 100 - 30 + 1 = 71. This entry's "content" is
@@ -485,8 +484,7 @@ func TestProcessArchiveEntry_RemainingBudgetAccountsForPriorTotal(t *testing.T) 
 	bigContent := bytes.Repeat([]byte("Q"), 10_000)
 	spy := &countingReader{r: bytes.NewReader(bigContent)}
 
-	var filesWritten int
-	err := processArchiveEntry(fsys, "/out/skill", &topDir, "myskill/bomb.bin", kindFile, 0o644, spy, &total, &filesWritten, opts)
+	err := processArchiveEntry(fsys, "/out/skill", &st, "myskill/bomb.bin", kindFile, 0o644, spy, opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decompression-bomb")
 
@@ -1025,4 +1023,560 @@ func TestImportSkillArchive_ValidatorSeesTheFinalSkillName(t *testing.T) {
 		"the staged tree must carry the skill's real directory name")
 	assert.NotEqual(t, "/imported/humanize", seen,
 		"validation must run BEFORE the tree reaches its destination")
+}
+
+// =============================================================================
+// U031 findings-sweep additions
+// =============================================================================
+
+// TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot pins that a
+// format rejection is a pure no-op on the filesystem. HardenedExtract used to
+// create destDir before it looked at `format`, so an unsupported-format
+// rejection returned an error having already made a directory the caller never
+// asked for — and ImportSkillArchive computes its staging path from destDir, so
+// a leftover root is exactly the debris a retry then has to reason about.
+// Reject first, touch the filesystem second.
+func TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+
+	_, err := HardenedExtract(fsys, []byte("not an archive"), FormatUnknown, "/out/skill", ExtractOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported archive format")
+
+	exists, serr := afero.DirExists(fsys, "/out/skill")
+	require.NoError(t, serr)
+	assert.False(t, exists,
+		"a rejected format must not leave an extraction root behind: nothing was extracted, so nothing should have been created")
+}
+
+// TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty is U031-F05:
+// this project's characteristic bug, in the export path. ExportSkillZip's only
+// guard was `pkg == nil`, so a SkillPackage whose Manifest is empty walked
+// straight past it, the pack loop never ran, and the function returned a
+// perfectly valid 22-byte end-of-central-directory-only zip with a nil error.
+// Downstream (operations.ExportSkill) that lands on disk as a `<name>.zip` a
+// user would reasonably believe holds their skill.
+//
+// Asserts the PAYLOAD, not the exit code: the failure mode being pinned IS a
+// successful return, so only the bytes can tell the two apart.
+func TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+
+	pkg := &SkillPackage{
+		Name:        "humanize",
+		Frontmatter: SkillFrontmatter{Name: "humanize", Description: "d"},
+	}
+
+	zipBytes, err := ExportSkillZip(fsys, "/src/skills/humanize", pkg)
+
+	require.Error(t, err, "a skill package with no files must not export as a valid, empty zip")
+	assert.Contains(t, err.Error(), "humanize")
+	assert.Empty(t, zipBytes, "a rejected export must not hand back packable-looking bytes")
+}
+
+// TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile is the payload half
+// of U031-F05: whatever ExportSkillZip returns without an error must actually
+// contain one zip entry per manifest entry. A zero-entry archive returned with
+// a nil error is the exact shape the guard above rejects, and this pins that a
+// non-empty package still round-trips every file.
+func TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile(t *testing.T) {
+	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
+
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	require.NoError(t, err)
+	require.NotEmpty(t, pkg.Manifest)
+	assert.Len(t, zr.File, len(pkg.Manifest),
+		"every manifest entry must be present as a zip entry — an archive with fewer entries than the manifest is a silent partial export")
+}
+
+// TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes is U031-F09.
+//
+// parseSkillFileMode used fmt.Sscanf(mode, "%o", &perm), which stops at the
+// first byte it cannot consume and still reports success: MEASURED, Sscanf
+// returns n=1, err=nil for "0755zzz", "0755 0644", "0755;rm -rf /" and
+// " 0755", and — worse — for "0o755" it consumes the leading "0", reports
+// success, and yields mode 0000, silently stripping the exec bit off a
+// scripts/ file. SkillManifestEntry.Mode is bundle-tree data and therefore
+// potentially remote-originated, so the parser must consume the WHOLE string
+// or reject it. A mode string is either entirely octal digits or it is not a
+// mode.
+func TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes(t *testing.T) {
+	rejected := []string{
+		"0755zzz",
+		"0755 0644",
+		"0755;rm -rf /",
+		" 0755",
+		"0755\n",
+		"0o755",
+		"755x",
+	}
+	for _, in := range rejected {
+		t.Run(fmt.Sprintf("rejects %q", in), func(t *testing.T) {
+			_, err := parseSkillFileMode(in)
+			require.Error(t, err, "a mode string that is not entirely octal digits must be rejected, not partially consumed")
+			assert.Contains(t, err.Error(), "invalid manifest mode")
+		})
+	}
+
+	// The accepted forms must keep working, digit-for-digit.
+	accepted := map[string]os.FileMode{
+		"0755":  0o755,
+		"755":   0o755,
+		"0644":  0o644,
+		"0000":  0,
+		"04755": 0o755, // setuid bit is masked off, exactly as before
+	}
+	for in, want := range accepted {
+		t.Run(fmt.Sprintf("accepts %q", in), func(t *testing.T) {
+			got, err := parseSkillFileMode(in)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// mkdirFailFs fails MkdirAll for any path containing failOn, so a test can
+// drive the two directory-creation error paths inside processArchiveEntry
+// without depending on real filesystem permissions.
+type mkdirFailFs struct {
+	afero.Fs
+	failOn string
+}
+
+func (f *mkdirFailFs) MkdirAll(p string, perm os.FileMode) error {
+	if strings.Contains(filepath.ToSlash(p), f.failOn) {
+		return fmt.Errorf("simulated mkdir failure")
+	}
+	return f.Fs.MkdirAll(p, perm)
+}
+
+// TestHardenedExtract_MkdirFailureNamesTheEntry is U031-F16. Both MkdirAll
+// failures inside processArchiveEntry were returned bare — `return
+// fsys.MkdirAll(target, 0o755)` and `return err` — so a mid-extraction
+// directory failure surfaced as "simulated mkdir failure" with no indication of
+// WHICH archive entry could not be created, while every other error on this
+// path names its entry. For an adversarial-input extractor the failing entry is
+// the whole diagnostic value: it is the difference between "this archive is
+// hostile at path X" and "something went wrong".
+func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
+	t.Run("explicit directory entry", func(t *testing.T) {
+		archive := buildRawZip(t, []rawZipEntry{
+			{name: "myskill/SKILL.md", content: []byte("body\n")},
+			{name: "myskill/scripts/", mode: os.ModeDir | 0o755},
+		})
+		fsys := &mkdirFailFs{Fs: afero.NewMemMapFs(), failOn: "scripts"}
+
+		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "myskill/scripts/",
+			"a directory entry that could not be created must name the entry")
+	})
+
+	t.Run("a file's parent directory", func(t *testing.T) {
+		archive := buildRawZip(t, []rawZipEntry{
+			{name: "myskill/scripts/run.sh", content: []byte("#!/bin/sh\n"), mode: 0o755},
+		})
+		fsys := &mkdirFailFs{Fs: afero.NewMemMapFs(), failOn: "scripts"}
+
+		_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "myskill/scripts/run.sh",
+			"a file whose parent directory could not be created must name the entry")
+	})
+}
+
+// TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten is U031-F20.
+//
+// entryKind's zero value used to be kindFile — i.e. the UNSAFE default for a
+// hardened extractor was "write these bytes to disk". Both current producers
+// (zipEntryKind, tarEntryKind) return a kind explicitly, so nothing reached
+// processArchiveEntry unclassified; the defect is that the type's default made
+// writing the fallback rather than rejecting. A third format, or an early
+// `var kind entryKind` in a future refactor, would have written an
+// unclassified entry to disk in silence.
+//
+// The test drives entryKind's zero value on purpose. It asserts the PAYLOAD:
+// before this fix the call returned nil and the file appeared on disk.
+func TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	var st extractState
+	opts := ExtractOptions{}.normalized()
+
+	err := processArchiveEntry(fsys, "/out/skill", &st, "myskill/payload.sh",
+		entryKind(0), 0o755, bytes.NewReader([]byte("#!/bin/sh\nrm -rf /\n")), opts)
+
+	require.Error(t, err, "entryKind's zero value must be an unclassified entry, and an unclassified entry must be rejected")
+	exists, serr := afero.Exists(fsys, "/out/skill/payload.sh")
+	require.NoError(t, serr)
+	assert.False(t, exists, "an unclassified entry must never reach the filesystem")
+	assert.Zero(t, st.filesWritten)
+}
+
+// renameFailFs fails Rename for a chosen source and/or destination path, so a
+// test can make exactly one rename on the import path fail while every other
+// rename still works.
+type renameFailFs struct {
+	afero.Fs
+	failOldName string
+	failNewName string
+}
+
+func (f *renameFailFs) Rename(oldname, newname string) error {
+	if f.failOldName != "" && filepath.ToSlash(oldname) == f.failOldName {
+		return fmt.Errorf("simulated rename failure")
+	}
+	if f.failNewName != "" && filepath.ToSlash(newname) == f.failNewName {
+		return fmt.Errorf("simulated rename failure")
+	}
+	return f.Fs.Rename(oldname, newname)
+}
+
+// TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact is U031-F11.
+//
+// ImportSkillArchive did RemoveAll(final) and THEN Rename(staged, final). The
+// window between those two calls is the whole defect: if the rename fails —
+// cross-device, EACCES, a concurrent hold on the directory — the previously
+// good skill tree has already been deleted and the replacement never arrives,
+// so the user is left with NEITHER. The existing
+// FailedValidationLeavesDestinationIntact test covers a rejection BEFORE the
+// destination is touched; this covers a failure DURING the swap, which the
+// staging design did not protect against.
+//
+// Asserts the PAYLOAD: the original file's bytes must still be readable.
+func TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	mem := afero.NewMemMapFs()
+
+	existing := "/imported/humanize/SKILL.md"
+	require.NoError(t, mem.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(mem, existing, []byte("the good tree\n"), 0o644))
+
+	// Fail only the staged -> final swap, the one rename the old code did
+	// AFTER it had already deleted the destination.
+	fsys := &renameFailFs{Fs: mem, failOldName: "/imported/.ctxloom-import-staging/humanize"}
+
+	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	require.Error(t, err, "a failed swap must be reported, not swallowed")
+
+	got, rerr := afero.ReadFile(mem, existing)
+	require.NoError(t, rerr, "the previously-good tree must survive a failed swap — it was the only copy")
+	assert.Equal(t, "the good tree\n", string(got),
+		"a failed import must never leave the user with neither the old tree nor the new one")
+
+	leftover, _ := afero.Exists(mem, "/imported/.ctxloom-import-staging")
+	assert.False(t, leftover, "staging must be cleaned up even when the swap fails")
+}
+
+// TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup pins the
+// other half of U031-F11's fix: the aside-and-swap must still be a clean
+// REPLACEMENT on the happy path — the new tree wins, files the old tree had
+// and the new one does not are gone, and no backup debris is left behind.
+func TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup(t *testing.T) {
+	zipBytes, _, files := buildValidSkillZip(t, "humanize")
+	fsys := afero.NewMemMapFs()
+
+	require.NoError(t, fsys.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(fsys, "/imported/humanize/SKILL.md", []byte("stale\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, "/imported/humanize/leftover.txt", []byte("gone\n"), 0o644))
+
+	final, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join("/imported", "humanize"), final)
+
+	got, rerr := afero.ReadFile(fsys, filepath.Join(final, "SKILL.md"))
+	require.NoError(t, rerr)
+	assert.Equal(t, string(files["SKILL.md"]), string(got), "the imported tree must replace the old one")
+
+	stale, _ := afero.Exists(fsys, filepath.Join(final, "leftover.txt"))
+	assert.False(t, stale, "a replacement import must not leave the old tree's extra files behind")
+
+	staging, _ := afero.Exists(fsys, "/imported/.ctxloom-import-staging")
+	assert.False(t, staging, "no staging or backup debris may survive a successful import")
+}
+
+// TestImportSkillArchive_UnrestorableTreeSaysWhereItIs covers the worst branch
+// of U031-F11's fix: the swap failed AND the aside copy could not be put back.
+// Reporting only the swap failure would send the user to look at an empty
+// destination with no idea their tree is still on disk and recoverable, so the
+// error must name where the only surviving copy is.
+func TestImportSkillArchive_UnrestorableTreeSaysWhereItIs(t *testing.T) {
+	zipBytes, _, _ := buildValidSkillZip(t, "humanize")
+	mem := afero.NewMemMapFs()
+
+	require.NoError(t, mem.MkdirAll("/imported/humanize", 0o755))
+	require.NoError(t, afero.WriteFile(mem, "/imported/humanize/SKILL.md", []byte("the good tree\n"), 0o644))
+
+	// Every rename INTO the destination fails: the swap, and then the restore.
+	fsys := &renameFailFs{Fs: mem, failNewName: "/imported/humanize"}
+
+	_, err := ImportSkillArchive(fsys, zipBytes, "/imported", ExtractOptions{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could NOT be restored")
+	assert.Contains(t, err.Error(), ".replaced",
+		"an unrestorable tree must be reported WITH the path it is still recoverable from")
+
+	got, rerr := afero.ReadFile(mem, "/imported/.ctxloom-import-staging/.replaced/SKILL.md")
+	require.NoError(t, rerr, "the surviving copy must not be cleaned up out from under the user")
+	assert.Equal(t, "the good tree\n", string(got))
+}
+
+// -----------------------------------------------------------------------------
+// U031-F21 — direct unit tests for the three confinement helpers
+// -----------------------------------------------------------------------------
+//
+// tarEntryKind, symlinkEscapesRoot and resolveSymlinkChain each carry part of
+// HardenedExtract's confinement guarantee, and each was previously reachable
+// only through a full extraction. That is not enough for security-load-bearing
+// code: an escape branch exercised only incidentally is an escape branch whose
+// boundaries nobody has stated. These tests pin the classification table and
+// the resolution semantics directly, so a change in either is caught here
+// rather than by whichever end-to-end fixture happens to notice.
+//
+// The symlink tests use a REAL filesystem on purpose: afero.MemMapFs cannot
+// represent a symlink at all (its LstatIfPossible always reports ok=false), so
+// a MemMapFs test of these two functions would assert nothing.
+
+// TestTarEntryKind pins tar's typeflag classification exhaustively — including
+// that every typeflag the codec does not specifically recognize falls to
+// kindOther (reject), never to a writable kind.
+func TestTarEntryKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		typeflag byte
+		want     entryKind
+	}{
+		{"regular file", tar.TypeReg, kindFile},
+		{"directory", tar.TypeDir, kindDir},
+		{"symlink", tar.TypeSymlink, kindSymlink},
+		{"hardlink", tar.TypeLink, kindOther},
+		{"char device", tar.TypeChar, kindOther},
+		{"block device", tar.TypeBlock, kindOther},
+		{"fifo", tar.TypeFifo, kindOther},
+		{"pax extended header", tar.TypeXHeader, kindOther},
+		{"pax global header", tar.TypeXGlobalHeader, kindOther},
+		{"gnu sparse", tar.TypeGNUSparse, kindOther},
+		{"gnu long name", tar.TypeGNULongName, kindOther},
+		// The deprecated TypeRegA ('\x00'): Go's tar reader normalizes it to
+		// TypeReg before we ever see it, so reaching this function with it
+		// means something unexpected happened — fail closed.
+		{"deprecated TypeRegA is not silently treated as a regular file", 0x00, kindOther},
+		{"an entirely unknown typeflag", 'Q', kindOther},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tarEntryKind(&tar.Header{Typeflag: tt.typeflag}))
+		})
+	}
+}
+
+// osFsRoot returns a real OsFs plus a symlink-free absolute root directory, so
+// filepath.Rel arithmetic in the functions under test is not confused by a
+// symlinked temp dir.
+func osFsRoot(t *testing.T) (afero.Fs, string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return afero.NewOsFs(), root
+}
+
+func TestSymlinkEscapesRoot(t *testing.T) {
+	t.Run("an ordinary nested path does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		require.NoError(t, fsys.MkdirAll(filepath.Join(root, "skill", "scripts"), 0o755))
+
+		escapes, err := symlinkEscapesRoot(fsys, root, filepath.Join(root, "skill", "scripts", "run.sh"))
+		require.NoError(t, err)
+		assert.False(t, escapes)
+	})
+
+	t.Run("target equal to root does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		escapes, err := symlinkEscapesRoot(fsys, root, root)
+		require.NoError(t, err)
+		assert.False(t, escapes, "rel == \".\" is the root itself, which is confined by definition")
+	})
+
+	t.Run("a not-yet-created path does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		escapes, err := symlinkEscapesRoot(fsys, root, filepath.Join(root, "nope", "deeper", "file.txt"))
+		require.NoError(t, err)
+		assert.False(t, escapes, "HardenedExtract is about to create these; nothing along the path can already be a symlink")
+	})
+
+	t.Run("an ancestor symlink pointing OUTSIDE root escapes", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		outside := filepath.Join(root, "outside")
+		inside := filepath.Join(root, "dest")
+		require.NoError(t, fsys.MkdirAll(outside, 0o755))
+		require.NoError(t, fsys.MkdirAll(inside, 0o755))
+		linker, ok := fsys.(afero.Linker)
+		require.True(t, ok)
+		require.NoError(t, linker.SymlinkIfPossible(outside, filepath.Join(inside, "escape")))
+
+		escapes, err := symlinkEscapesRoot(fsys, inside, filepath.Join(inside, "escape", "pwned"))
+		require.NoError(t, err)
+		assert.True(t, escapes, "a pre-existing ancestor symlink out of the extraction root must be caught")
+	})
+
+	t.Run("an ancestor symlink pointing INSIDE root does not escape", func(t *testing.T) {
+		fsys, root := osFsRoot(t)
+		require.NoError(t, fsys.MkdirAll(filepath.Join(root, "real"), 0o755))
+		linker, ok := fsys.(afero.Linker)
+		require.True(t, ok)
+		require.NoError(t, linker.SymlinkIfPossible(filepath.Join(root, "real"), filepath.Join(root, "alias")))
+
+		escapes, err := symlinkEscapesRoot(fsys, root, filepath.Join(root, "alias", "file.txt"))
+		require.NoError(t, err)
+		assert.False(t, escapes, "a symlink that resolves back inside the root is confined")
+	})
+
+	t.Run("a filesystem that cannot represent symlinks has nothing to check", func(t *testing.T) {
+		escapes, err := symlinkEscapesRoot(afero.NewMemMapFs(), "/out", "/out/skill/file.txt")
+		require.NoError(t, err)
+		assert.False(t, escapes, "MemMapFs is not an afero.Lstater, so no symlink escape can exist there")
+	})
+}
+
+func TestResolveSymlinkChain(t *testing.T) {
+	newFs := func(t *testing.T) (afero.Fs, afero.Lstater, afero.Linker, string) {
+		t.Helper()
+		fsys, root := osFsRoot(t)
+		lstater, ok := fsys.(afero.Lstater)
+		require.True(t, ok)
+		linker, ok := fsys.(afero.Linker)
+		require.True(t, ok)
+		return fsys, lstater, linker, root
+	}
+
+	t.Run("a regular file resolves to itself", func(t *testing.T) {
+		fsys, lstater, _, root := newFs(t)
+		p := filepath.Join(root, "plain.txt")
+		require.NoError(t, afero.WriteFile(fsys, p, []byte("x"), 0o644))
+
+		got, err := resolveSymlinkChain(fsys, lstater, p)
+		require.NoError(t, err)
+		assert.Equal(t, p, got)
+	})
+
+	t.Run("a path that does not exist resolves to itself", func(t *testing.T) {
+		fsys, lstater, _, root := newFs(t)
+		p := filepath.Join(root, "not-created-yet.txt")
+
+		got, err := resolveSymlinkChain(fsys, lstater, p)
+		require.NoError(t, err)
+		assert.Equal(t, p, got, "a component HardenedExtract is about to create is not an error")
+	})
+
+	t.Run("a multi-hop chain resolves to its final target", func(t *testing.T) {
+		fsys, lstater, linker, root := newFs(t)
+		final := filepath.Join(root, "final.txt")
+		require.NoError(t, afero.WriteFile(fsys, final, []byte("x"), 0o644))
+		require.NoError(t, linker.SymlinkIfPossible(final, filepath.Join(root, "hop2")))
+		require.NoError(t, linker.SymlinkIfPossible(filepath.Join(root, "hop2"), filepath.Join(root, "hop1")))
+
+		got, err := resolveSymlinkChain(fsys, lstater, filepath.Join(root, "hop1"))
+		require.NoError(t, err)
+		assert.Equal(t, final, got, "every hop must be followed, not just the first")
+	})
+
+	t.Run("a relative link target resolves against the symlink's own directory", func(t *testing.T) {
+		fsys, lstater, linker, root := newFs(t)
+		require.NoError(t, fsys.MkdirAll(filepath.Join(root, "sub"), 0o755))
+		target := filepath.Join(root, "sub", "target.txt")
+		require.NoError(t, afero.WriteFile(fsys, target, []byte("x"), 0o644))
+		// "target.txt" is relative: it must resolve inside root/sub, NOT
+		// against the process working directory.
+		require.NoError(t, linker.SymlinkIfPossible("target.txt", filepath.Join(root, "sub", "link")))
+
+		got, err := resolveSymlinkChain(fsys, lstater, filepath.Join(root, "sub", "link"))
+		require.NoError(t, err)
+		assert.Equal(t, target, got)
+	})
+
+	t.Run("a symlink loop is bounded, not hung", func(t *testing.T) {
+		_, lstater, linker, root := newFs(t)
+		fsys := afero.NewOsFs()
+		a := filepath.Join(root, "a")
+		b := filepath.Join(root, "b")
+		require.NoError(t, linker.SymlinkIfPossible(b, a))
+		require.NoError(t, linker.SymlinkIfPossible(a, b))
+
+		_, err := resolveSymlinkChain(fsys, lstater, a)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "symlink chain too deep",
+			"a planted loop must be rejected by the depth cap, mirroring the OS's own ELOOP")
+	})
+}
+
+// -----------------------------------------------------------------------------
+// U031-F10 — characterization tests for processArchiveEntry's remaining arms
+// -----------------------------------------------------------------------------
+//
+// U031-F10 is a pure complexity reduction: processArchiveEntry sits at CCN 23
+// against this project's own CCN-10 gate, with ten parameters, two of them
+// mutable accumulators threaded through both format loops. Behaviour is
+// unchanged by definition, so no test can discriminate before from after — per
+// the sweep's contract these are CHARACTERIZATION tests that must be green on
+// both sides. The arms already covered elsewhere in this file (traversal,
+// absolute paths, symlinks, hardlinks/devices, a second top-level directory,
+// the byte and entry caps, the directory marker, a pre-existing symlink escape,
+// an unclassified kind, and both MkdirAll failures) are not duplicated here;
+// these three are the ones nothing reached.
+
+// lstatErrFs is an afero.Lstater whose LstatIfPossible fails for a chosen path,
+// so the symlink-escape CHECK's own error path can be exercised — distinct from
+// the check reporting an escape.
+type lstatErrFs struct {
+	afero.Fs
+	failOn string
+}
+
+func (f *lstatErrFs) LstatIfPossible(name string) (os.FileInfo, bool, error) {
+	if strings.Contains(filepath.ToSlash(name), f.failOn) {
+		return nil, false, fmt.Errorf("simulated lstat failure")
+	}
+	fi, err := f.Stat(name)
+	return fi, false, err
+}
+
+func TestProcessArchiveEntry_EmptyEntryNameIsRejected(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	var st extractState
+
+	err := processArchiveEntry(fsys, "/out/skill", &st, "", kindFile, 0o644,
+		bytes.NewReader([]byte("x")), ExtractOptions{}.normalized())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty name")
+	assert.Zero(t, st.filesWritten)
+}
+
+func TestProcessArchiveEntry_NameCleaningToDotIsRejected(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	var st extractState
+
+	// "./" cleans to "." — a name that addresses the extraction root itself
+	// rather than anything inside it.
+	err := processArchiveEntry(fsys, "/out/skill", &st, "./", kindDir, 0o755,
+		bytes.NewReader(nil), ExtractOptions{}.normalized())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolves to an empty path")
+	assert.Empty(t, st.topDir, "a rejected name must not become the archive's top-level directory")
+}
+
+func TestHardenedExtract_SymlinkCheckFailureIsReportedNotIgnored(t *testing.T) {
+	archive := buildRawZip(t, []rawZipEntry{
+		{name: "myskill/SKILL.md", content: []byte("body\n")},
+	})
+	fsys := &lstatErrFs{Fs: afero.NewMemMapFs(), failOn: "SKILL.md"}
+
+	_, err := HardenedExtract(fsys, archive, FormatZip, "/out/skill", ExtractOptions{})
+	require.Error(t, err, "a confinement check that cannot run must fail closed, never be treated as 'no escape'")
+	assert.Contains(t, err.Error(), "checking for a pre-existing symlink escape")
+	assert.Contains(t, err.Error(), "myskill/SKILL.md")
+
+	written, serr := afero.Exists(fsys, "/out/skill/SKILL.md")
+	require.NoError(t, serr)
+	assert.False(t, written, "nothing may be written when confinement could not be established")
 }

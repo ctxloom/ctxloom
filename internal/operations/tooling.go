@@ -126,7 +126,7 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		if merr := fs.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
-		if werr := afero.WriteFile(fs, existing, container.Base, 0o644); werr != nil {
+		if werr := afero.WriteFile(fs, existing, container.Base(), 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}
 		return existing, nil
@@ -160,7 +160,7 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		if merr := fs.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
-		if werr := afero.WriteFile(fs, abs, container.Base, 0o644); werr != nil {
+		if werr := afero.WriteFile(fs, abs, container.Base(), 0o644); werr != nil {
 			return "", fmt.Errorf("write base Containerfile: %w", werr)
 		}
 	}

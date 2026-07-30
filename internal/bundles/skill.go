@@ -112,11 +112,28 @@ func (m SkillManifest) sorted() SkillManifest {
 func (m SkillManifest) Serialize() []byte {
 	data, err := json.Marshal(m.sorted())
 	if err != nil {
-		// Unreachable: the struct holds only strings. Fail closed to a stable
-		// digest rather than panic, matching BundleMCP/BundleHook precedent.
-		return []byte("ctxloom:skill-manifest-serialize-error")
+		return skillManifestSerializeFallback(m, err)
 	}
 	return data
+}
+
+// skillManifestSerializeFallback is Serialize's fallback for a marshal error
+// that cannot currently happen: SkillManifestEntry holds only strings, and
+// encoding/json cannot fail on those (pinned by
+// TestSkillManifestEntry_HoldsOnlyStringsSoMarshalCannotFail).
+//
+// It is factored out so it can be exercised directly, and it is DISTINCT per
+// manifest rather than a shared constant, for the same reason BundleMCP/
+// BundleHook's ComputeContentHash fallbacks are distinct per server: these
+// bytes are a signature PREIMAGE, so one constant standing in for many
+// different manifests would make a single signature verify against all of them.
+func skillManifestSerializeFallback(m SkillManifest, err error) []byte {
+	identity := make([]string, 0, len(m))
+	for _, e := range m.sorted() {
+		identity = append(identity, e.Path+"@"+e.SHA256+"@"+e.Mode)
+	}
+	return fmt.Appendf(nil, "ctxloom:skill-manifest-serialize-error:%d:%s:%v",
+		len(m), strings.Join(identity, ","), err)
 }
 
 // Hash returns the sha256 digest of Serialize() — the manifest hash B2's
@@ -252,16 +269,19 @@ func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillM
 	var manifest SkillManifest
 	var total int64
 
+	// Every failure below names the skill and the file, like the size-cap error
+	// does: a bundle ships many skills, and a bare "permission denied" says
+	// which of them the caller must go fix only by accident.
 	err := afero.Walk(fsys, dir, func(p string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			return fmt.Errorf("skill directory %q: walking %s: %w", name, p, walkErr)
 		}
 		if info.IsDir() {
 			return nil
 		}
 		rel, relErr := filepath.Rel(dir, p)
 		if relErr != nil {
-			return relErr
+			return fmt.Errorf("skill directory %q: locating %s within the package: %w", name, p, relErr)
 		}
 		rel = filepath.ToSlash(rel)
 
@@ -272,7 +292,7 @@ func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillM
 
 		data, readErr := afero.ReadFile(fsys, p)
 		if readErr != nil {
-			return readErr
+			return fmt.Errorf("skill directory %q: reading %s: %w", name, rel, readErr)
 		}
 
 		manifest = append(manifest, SkillManifestEntry{

@@ -49,7 +49,12 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	if open == nil {
 		open = b.spawnTransport
 	}
-	tr, err := open(ctx, b.chatArgv(req), b.spawnEnv(req), req.WorkDir)
+	tr, err := open(ctx, transportRequest{
+		argv:    b.chatArgv(req),
+		env:     b.envOverlay(req),
+		workDir: req.WorkDir,
+		runtime: req.Runtime,
+	})
 	if err != nil {
 		return err
 	}
@@ -248,13 +253,13 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	}
 }
 
-// spawnEnv is the adapter subprocess's env overlay: the caller's env, plus —
+// envOverlay is the adapter subprocess's env overlay: the caller's env, plus —
 // when the embedding backend configured ModelEnvVar — the requested model
 // under the engine's native env variable (see ACPConfig.ModelEnvVar: the
 // `--model` argv is not honored by every adapter, and a session silently
 // running on the user's saved interactive default is exactly the failure the
 // model gate exists to prevent). The caller's map is copied, never mutated.
-func (b *ACP) spawnEnv(req agent.ChatRequest) map[string]string {
+func (b *ACP) envOverlay(req agent.ChatRequest) map[string]string {
 	if b.modelEnvVar == "" || req.Model == "" {
 		return req.Env
 	}

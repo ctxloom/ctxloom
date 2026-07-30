@@ -225,3 +225,60 @@ func TestRunConfigInit_WritesTheScaffoldPayload(t *testing.T) {
 	// Second run refuses rather than clobbering what it just wrote.
 	require.Error(t, runConfigInit(cmd, nil))
 }
+
+// TestConfigShowGet_HonorEveryFormatWithARealPayload is U035-F07's pin. The
+// row's SILENTNOOP framing is refuted — U104-F01's PersistentPostRunE guard
+// already turns `config show --format json` into a loud exit-1 refusal (see
+// format_test.go's TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly) rather
+// than a silent YAML-instead-of-JSON lie — but the underlying gap was real, and
+// this is what paying it down has to deliver: EVERY format carries the actual
+// configuration, never an empty envelope. Config's fields are unexported and it
+// renders via MarshalYAML, so the naive `emit(cmd, cfg, ...)` wiring would emit
+// "{}" for json/toml and exit 0: a textbook silent no-op.
+func TestConfigShowGet_HonorEveryFormatWithARealPayload(t *testing.T) {
+	for _, format := range []string{"text", "json", "yaml", "toml", "markdown"} {
+		t.Run(format, func(t *testing.T) {
+			cmd, buf := formatCmd(format)
+			payload, err := configPayload(fixtureConfig())
+			require.NoError(t, err)
+			require.NoError(t, emit(cmd, payload, func() error { return renderConfigYAML(fixtureConfig(), cmd.OutOrStdout()) }))
+
+			out := buf.String()
+			require.NotEmpty(t, out, "%s rendered zero bytes", format)
+			assert.Contains(t, out, "8000", "%s must carry the compaction_chunks sentinel, not an empty envelope", format)
+			assert.Contains(t, out, "gemini-3-pro", "%s must carry the llm sentinel", format)
+		})
+	}
+}
+
+// TestConfigPayload_SectionKeysStaySnakeCase pins that `config get`'s payload
+// keeps the yaml spelling in every encoding: the section structs carry yaml
+// tags only, so a json/toml encoder reading them directly would rename every
+// key to its Go field name.
+func TestConfigPayload_SectionKeysStaySnakeCase(t *testing.T) {
+	section, err := resolveConfigSection(fixtureConfig(), "config")
+	require.NoError(t, err)
+	payload, err := configPayload(section)
+	require.NoError(t, err)
+
+	m, ok := payload.(map[string]any)
+	require.True(t, ok, "a section payload must be a plain map, got %T", payload)
+	assert.Contains(t, m, "compaction_chunks")
+	assert.NotContains(t, m, "CompactionChunks")
+}
+
+// TestConfigInitWritesItsSuccessLineToTheCommandWriter pins U035-F17 for
+// `config init`: the "Wrote <path>" line went to os.Stdout via a bare
+// fmt.Printf, so it was invisible to this package's cobra output-capture tests
+// and unredirectable by any embedding frontend.
+func TestConfigInitWritesItsSuccessLineToTheCommandWriter(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	require.NoError(t, runConfigInit(cmd, nil))
+
+	assert.Contains(t, buf.String(), "Wrote ")
+	assert.Contains(t, buf.String(), filepath.Join(dir, ".ctxloom", "config.yaml"))
+}

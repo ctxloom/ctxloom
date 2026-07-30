@@ -114,7 +114,7 @@ instead, set isolation_images in config — those are run as-is and never built.
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Built %s for backend %s\n", image, backend)
+		fmt.Fprintf(cmd.OutOrStdout(), "Built %s for backend %s\n", image, backend)
 		return nil
 	},
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -87,9 +88,14 @@ func TestEditItem_NoDistillClearsDistilledAndWarns(t *testing.T) {
 			setFakeEditor(t, "v2")
 
 			ref := "demo#" + tc.itemType.prefix() + "x"
-			out := captureStdout(t, func() {
-				require.NoError(t, editItem(ref, tc.itemType, true))
-			})
+			// The edit's own writer, not os.Stdout (U035-F17): the command's
+			// output is only observable — and redirectable by an embedding
+			// frontend — because it goes through the writer it is handed.
+			var buf bytes.Buffer
+			require.NoError(t, editItem(&buf, ref, tc.itemType, true))
+			out := buf.String()
+			assert.Contains(t, out, "Updated", "the edit's own success line must reach the command's writer")
+			assert.Contains(t, out, "ctxloom bundle push demo", "as must the push reminder")
 
 			wantWarn := "warning: distilled form not refreshed (--no-distill); run `ctxloom " +
 				string(tc.itemType) + " distill " + ref + "`"
@@ -122,9 +128,9 @@ func TestEditItem_NoDistillRedundantOnAlreadyNoDistillItem(t *testing.T) {
 	require.NoError(t, err)
 	setFakeEditor(t, "v2")
 
-	out := captureStdout(t, func() {
-		require.NoError(t, editItem("demo#fragments/x", ItemTypeFragment, true))
-	})
+	var buf bytes.Buffer
+	require.NoError(t, editItem(&buf, "demo#fragments/x", ItemTypeFragment, true))
+	out := buf.String()
 
 	assert.NotContains(t, out, "warning: distilled form not refreshed",
 		"an already no_distill item's --no-distill edit changes nothing about distillation; no warning needed")

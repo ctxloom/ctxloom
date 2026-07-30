@@ -109,3 +109,25 @@ func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, buf.Bytes())
 }
+
+// The comment above loadout.yaml's session_start hook promises the bind lands
+// on PreToolUse for Antigravity — the only harness with no session-start
+// event. That promise is carried by exactly one bit, `pre_tool_fallback`, and
+// it is invisible in every other assertion this file makes: an edit that drops
+// it leaves a loadout that still parses, still installs, still names the right
+// command, and silently never binds a session on agy.
+//
+// This pins taskloom's END of the chain only. The rest of it is pinned where
+// it lives: the wire crossing by the total-struct parity sweep in
+// internal/lm/grpc/arch_test.go (build tag `arch`), and the divert itself by
+// TestAntigravityHookWriter_PreToolFallbackDiverts.
+func TestLoadout_SessionBindKeepsPreToolFallback(t *testing.T) {
+	b, err := bundles.ParseBundle(loadoutYAML)
+	require.NoError(t, err)
+
+	require.Len(t, b.Hooks.SessionStart, 1)
+	h := b.Hooks.SessionStart[0]
+	require.Contains(t, h.Command, "session-bind")
+	assert.True(t, h.PreToolFallback,
+		"session-bind must keep pre_tool_fallback: without it the session never binds on Antigravity")
+}

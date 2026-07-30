@@ -138,6 +138,14 @@ func (c *JSONCompressor) compressArray(arr []any, depth int) []any {
 }
 
 func (c *JSONCompressor) compressString(s string) string {
+	// An unset budget means "do not truncate", never "delete". At or below
+	// zero every guard below is bypassed and the value is handed to Ellipsize
+	// with no room at all, which yields the empty string — the document keeps
+	// its shape, the compressor reports success, and the payload is gone.
+	if c.MaxValueLength <= 0 {
+		return s
+	}
+
 	// Keep short strings
 	if len(s) <= c.MaxValueLength {
 		return s

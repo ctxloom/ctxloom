@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,071** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 46 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 95 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,080** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 50 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 100 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 134 |
-| `open` | no commit names this ID | **922** |
+| `open` | no commit names this ID | **904** |
 
-**Totals: 2268 findings across 162 units — 1,071 resolved, 922 still open, 275 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,080 resolved, 904 still open, 284 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 322 | 540 | 19 | 35 | 83 |
-| LOW | 871 | 399 | 356 | 17 | 52 | 47 |
+| MED | 999 | 328 | 529 | 22 | 37 | 83 |
+| LOW | 871 | 402 | 349 | 18 | 55 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1345,18 +1345,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U062-F22 | open | `container.go:768-808` | CORRECTNESS | `gitCommonDirMount` bind-mounts the **entire** git common dir read-write at its identical path, so a low-trust `container-worktree` member can rewrite the main checkout's refs/objects/index and eve... | U062.md |
 | U063-F03 | **RESOLVED** `047490b3` | `isolation.go:58-78, 102` | DEAD | The entire `Approvals` axis is dead: the type, both constants, `String()`, `Policy.Approvals()`, and all four implementations. | U063.md |
 | U063-F04 | **RESOLVED** `047490b3` | `isolation.go:391-393` | DEAD | `Resolve` has **zero production call sites** — it is test-only. Its doc's stated purpose ("Callers that need only the policy identity up front (e.g. run's approvals gating)") describes a consumer t... | U063.md |
-| U063-F05 | open | **`pidalive_unix.go:12 + pidalive_windows.go:10`** | DUPLICATE | The build-tagged `pidAlive` pair is **byte-identical apart from the `//go:build` line** and both delegate to `pidalive.Alive` — a package that already owns the platform split. The build tags buy no... | U063.md |
-| U063-F06 | open | `imagebuild.go:661` | CORRECTNESS | The `ensureImage` single-flight key is `runtime.Binary() + " | U063.md |
-| U063-F07 | open | `imagebuild.go:921-956 vs isolation.go:355-373` | DUPLICATE | `ImageBuildOptions` and `ImageConfig` duplicate 6 of the same concepts under different names, with no shared type. | U063.md |
-| U063-F08 | open | `none.go:54-62 vs none.go:75-83` | DUPLICATE | `None.SpawnClient` and `None.StartRunner` share a byte-identical 9-line spawn-env copy + `CTXLOOM_CELL_WORKDIR` stamp. A fix to one (this env is a known discovery-marker hazard) can silently miss t... | U063.md |
-| U063-F09 | open | `isolation.go:147, direct_runner.go:142-152` | ERRHANDLING | `RunnerHandle.Kill` is `func()` — it cannot report a failed teardown. A container that survives `rm -f` is only a stderr warning; the caller (which is often ending a run and may be about to exit) h... | U063.md |
-| U063-F10 | open | `imagebuild.go:880-897` | CORRECTNESS | `buildBaseImage` reads the base Containerfile a **second** time (line 887) after `content()` may already have read it (line 107 via `composedIdentity`). The tag is derived from the second read whil... | U063.md |
-| U063-F13 | open | `isolation.go:470-472` | COUPLING | `IsContainerPolicyName` — the predicate every security-relevant "did we keep the boundary?" check funnels through — matches on **duplicated string literals** rather than the constants the policies ... | U063.md |
-| U063-F19 | open | `devcontainer.go:279,322,215; imagebuild.go:698,991` | COMPLEXITY | Five functions in this unit exceed the project's own CI complexity gate (CCN 10): `stripComments` 18, `runEnsureImage` 17, `stripTrailingCommas` 16, `composeServiceStage` 14, `BuildAgentImage` 11. | U063.md |
-| U063-F20 | open | `devcontainer.go:279-317 vs 322-357` | DUPLICATE | `stripComments` and `stripTrailingCommas` each hand-roll the *same* 14-line string-aware scanner prologue (`inString`/`escaped` state machine); only the non-string body differs. Together they are t... | U063.md |
+| U063-F05 | **REFUTED** `73438bde` | **`pidalive_unix.go:12 + pidalive_windows.go:10`** | DUPLICATE | The build-tagged `pidAlive` pair is **byte-identical apart from the `//go:build` line** and both delegate to `pidalive.Alive` — a package that already owns the platform split. The build tags buy no... | U063.md |
+| U063-F06 | **PARTIAL** `73438bde` | `imagebuild.go:661` | CORRECTNESS | The `ensureImage` single-flight key is `runtime.Binary() + " | U063.md |
+| U063-F07 | **PARTIAL** `73438bde` | `imagebuild.go:921-956 vs isolation.go:355-373` | DUPLICATE | `ImageBuildOptions` and `ImageConfig` duplicate 6 of the same concepts under different names, with no shared type. | U063.md |
+| U063-F08 | **RESOLVED** `9c30034b` | `none.go:54-62 vs none.go:75-83` | DUPLICATE | `None.SpawnClient` and `None.StartRunner` share a byte-identical 9-line spawn-env copy + `CTXLOOM_CELL_WORKDIR` stamp. A fix to one (this env is a known discovery-marker hazard) can silently miss t... | U063.md |
+| U063-F09 | **REFUTED** `40ae7af7` | `isolation.go:147, direct_runner.go:142-152` | ERRHANDLING | `RunnerHandle.Kill` is `func()` — it cannot report a failed teardown. A container that survives `rm -f` is only a stderr warning; the caller (which is often ending a run and may be about to exit) h... | U063.md |
+| U063-F10 | **PARTIAL** `73438bde` | `imagebuild.go:880-897` | CORRECTNESS | `buildBaseImage` reads the base Containerfile a **second** time (line 887) after `content()` may already have read it (line 107 via `composedIdentity`). The tag is derived from the second read whil... | U063.md |
+| U063-F13 | **RESOLVED** `6d6a436d` | `isolation.go:470-472` | COUPLING | `IsContainerPolicyName` — the predicate every security-relevant "did we keep the boundary?" check funnels through — matches on **duplicated string literals** rather than the constants the policies ... | U063.md |
+| U063-F19 | **RESOLVED** `84b858eb` | `devcontainer.go:279,322,215; imagebuild.go:698,991` | COMPLEXITY | Five functions in this unit exceed the project's own CI complexity gate (CCN 10): `stripComments` 18, `runEnsureImage` 17, `stripTrailingCommas` 16, `composeServiceStage` 14, `BuildAgentImage` 11. | U063.md |
+| U063-F20 | **RESOLVED** `2f6d006c` | `devcontainer.go:279-317 vs 322-357` | DUPLICATE | `stripComments` and `stripTrailingCommas` each hand-roll the *same* 14-line string-aware scanner prologue (`inString`/`escaped` state machine); only the non-string body differs. Together they are t... | U063.md |
 | U063-F21 | **RESOLVED** `7ba7ac5c` | `imagebuild.go:283-304` | NOPAY | The entire non-composable branch of `buildSources` (three `append` blocks, ~22 lines) is unreachable in production: **no profile sets `officialImage` or `containerfile`**, so for any non-composable... | U063.md |
-| U063-F22 | open | `imagebuild.go:353-355` | SILENTNOOP | `overlayContainerfile` emits the client-validation `RUN <validate>` **only when `validate != ""`**. For the default (unprofiled) backend `validate` is `""`, so `ctxloom container build <unprofiled-... | U063.md |
-| U063-F23 | open | `imagebuild.go:571-580, 788-793` | CORRECTNESS | The staleness gate **fails open**: an unresolvable host binary or unreadable base Containerfile yields `""`, and `imageStale("" want)` returns `false` — i.e. "not stale", so *any* present image (ho... | U063.md |
+| U063-F22 | **RESOLVED** `522559c8` | `imagebuild.go:353-355` | SILENTNOOP | `overlayContainerfile` emits the client-validation `RUN <validate>` **only when `validate != ""`**. For the default (unprofiled) backend `validate` is `""`, so `ctxloom container build <unprofiled-... | U063.md |
+| U063-F23 | **RESOLVED** `7f5acef4` | `imagebuild.go:571-580, 788-793` | CORRECTNESS | The staleness gate **fails open**: an unresolvable host binary or unreadable base Containerfile yields `""`, and `imageStale("" want)` returns `false` — i.e. "not stale", so *any* present image (ho... | U063.md |
 | U064-F03 | open | `runner.go:331-333` | CORRECTNESS | `containerHandshakeEnv`'s doc promises "ONLY the go-plugin handshake vars … never the host's full environment", but the third case is a **prefix match** (`strings.HasPrefix(key, "PLUGIN_")`) over a... | U064.md |
 | U064-F04 | open | `traceprobe.go:186-193` | CORRECTNESS | `ParseStraceReads` records `Result:"ok"` whenever the errno group is empty, **ignoring the captured return value** — so a failed syscall whose errno strace did not name is reported as a success, in... | U064.md |
 | U064-F05 | open | `statemounts.go:99-105` | SILENTNOOP | When `profile.transcriptStoreRel == ""` the transcript mount is skipped with **no warning and no error** — the run succeeds, the container writes a transcript, and it dies at `--rm` teardown with n... | U064.md |
@@ -2321,13 +2321,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U062-F19 | open | `container.go:385-409` | SILENTNOOP | `ExecSpec` accepts an empty/nil `command` and returns a valid-looking `RunSpec` whose `Command` is nil, so the container runs the image's default entrypoint instead of what the caller asked for. | U062.md |
 | U062-F20 | open | `container.go:756-762` | CORRECTNESS | `containerConfigOverlay` creates managed-config directories inside the **host project** as a side effect of preparing a container run and never removes them; `Cleanup` removes only the scratch tree. | U062.md |
 | U062-F21 | **RESOLVED** `6e95d55f` | `curatedhome.go:83-89; worktree.go:263` | NOPAY | `curatedHomeSpec.authIsolated` describes an engine shape that does not exist, and the branch that consumes it is unreachable in production. | U062.md |
-| U063-F11 | open | `isolation.go:355-373, devcontainer.go:84` | CORRECTNESS | `ImageConfig`'s zero value is self-contradictory: `NoDevcontainerBase: false` says "auto-detect ON" while `AppRoot: ""` independently forces it OFF, with no diagnostic. A config-load failure (`Isol... | U063.md |
-| U063-F12 | open | `diagnose.go:33` | CORRECTNESS | `ImageStale bool json:"image_stale,omitempty"` makes "not stale" and "not checked" indistinguishable in the JSON output. A user-owned `isolation_images` override is never checked (imagebuild.go:701... | U063.md |
-| U063-F14 | open | `none.go:17` | COUPLING | `envCellWorkDir = "CTXLOOM_CELL_WORKDIR"` duplicates `coord.EnvCellWorkDir` by value to break a documented import cycle, but **nothing guards the two staying equal** — a drift here silently disable... | U063.md |
-| U063-F15 | open | `isolation.go:555` | ERRHANDLING | `ws, _ := None{}.PrepareWorkspace(ctx, projectDir, agentID)` discards an error at the last line of the degrade chain. Defensible today (None cannot fail) but it is the one place a total failure wou... | U063.md |
-| U063-F16 | open | `none.go:88-90` | ERRHANDLING | `None.StartRunner` returns `pb.StartHostRunner`'s error verbatim — no backend/label context. The caller sees a bare exec failure with no idea which agent's runner died. | U063.md |
-| U063-F17 | open | `direct_runner.go:39, 120` | CORRECTNESS | `Container.StartRunner` takes `_ context.Context` and `startDirectRunner` uses `exec.Command`, not `CommandContext` — a cancelled context does **not** tear down the runner container. Teardown is on... | U063.md |
-| U063-F18 | open | `devcontainer.go:204` | ERRHANDLING | `_ = json.Unmarshal(raw, &list)` discards the array-decode error, so a malformed `dockerComposeFile` surfaces as the generic "could not parse dockerComposeFile" with no cause. | U063.md |
+| U063-F11 | **REFUTED** `73438bde` | `isolation.go:355-373, devcontainer.go:84` | CORRECTNESS | `ImageConfig`'s zero value is self-contradictory: `NoDevcontainerBase: false` says "auto-detect ON" while `AppRoot: ""` independently forces it OFF, with no diagnostic. A config-load failure (`Isol... | U063.md |
+| U063-F12 | **PARTIAL** `1b9acc1e` | `diagnose.go:33` | CORRECTNESS | `ImageStale bool json:"image_stale,omitempty"` makes "not stale" and "not checked" indistinguishable in the JSON output. A user-owned `isolation_images` override is never checked (imagebuild.go:701... | U063.md |
+| U063-F14 | **RESOLVED** `6d6a436d` | `none.go:17` | COUPLING | `envCellWorkDir = "CTXLOOM_CELL_WORKDIR"` duplicates `coord.EnvCellWorkDir` by value to break a documented import cycle, but **nothing guards the two staying equal** — a drift here silently disable... | U063.md |
+| U063-F15 | **REFUTED** `73438bde` | `isolation.go:555` | ERRHANDLING | `ws, _ := None{}.PrepareWorkspace(ctx, projectDir, agentID)` discards an error at the last line of the degrade chain. Defensible today (None cannot fail) but it is the one place a total failure wou... | U063.md |
+| U063-F16 | **RESOLVED** `9c30034b` | `none.go:88-90` | ERRHANDLING | `None.StartRunner` returns `pb.StartHostRunner`'s error verbatim — no backend/label context. The caller sees a bare exec failure with no idea which agent's runner died. | U063.md |
+| U063-F17 | **REFUTED** `40ae7af7` | `direct_runner.go:39, 120` | CORRECTNESS | `Container.StartRunner` takes `_ context.Context` and `startDirectRunner` uses `exec.Command`, not `CommandContext` — a cancelled context does **not** tear down the runner container. Teardown is on... | U063.md |
+| U063-F18 | **RESOLVED** `2f6d006c` | `devcontainer.go:204` | ERRHANDLING | `_ = json.Unmarshal(raw, &list)` discards the array-decode error, so a malformed `dockerComposeFile` surfaces as the generic "could not parse dockerComposeFile" with no cause. | U063.md |
 | U064-F10 | open | **`pidalive_windows.go:1-13`** | DUPLICATE / TRIVIAL | `pidalive_windows.go` and `pidalive_unix.go` have **byte-identical bodies** (`return pidalive.Alive(pid)`) and differ only in build tag and comment — the platform split already lives in the leaf pa... | U064.md |
 | U064-F12 | open | `sharedfs.go:198, 110-127` | CORRECTNESS | The probe creates a scratch dir **inside the live project directory** (and every other mount root). Normal teardown removes it, but a killed process leaves `ctxloom-fsprobe-*` debris in the user's ... | U064.md |
 | U064-F13 | open | `runner.go:110-118` | ERRHANDLING | `containerRunner.Kill` unconditionally returns `nil` and swallows `r.cmd.Process.Kill()`, so go-plugin can never observe a failed teardown; the only signal is a streamed warning from `removeContain... | U064.md |

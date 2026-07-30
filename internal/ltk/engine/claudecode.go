@@ -74,24 +74,11 @@ func ccShellForTool(tool string) ir.Shell {
 
 // Encode renders a denial as a PreToolUse permission decision on stdout with
 // exit 0. An allow produces a zero Output: no bytes, exit 0, which lets Claude
-// Code's normal permission flow proceed (it does NOT auto-approve).
+// Code's normal permission flow proceed (it does NOT auto-approve). The
+// allow/unanalyzed/deny arms are the shared contract; only the deny bytes are
+// Claude Code's own.
 func (ClaudeCode) Encode(resp Response) (Output, error) {
-	if resp.Allow {
-		if resp.Unanalyzed {
-			// Nothing to deny, but nothing was fully checked either — a silent
-			// zero Output here is byte-identical to a clean allow (U005-F01), so
-			// this is the one caller of the previously-unused Stderr channel
-			// (U067-F03). The host still proceeds (exit 0, no stdout document);
-			// this is diagnostic only.
-			return Output{Stderr: []byte(unanalyzedNote(resp))}, nil
-		}
-		return Output{}, nil
-	}
-	body, err := claudecli.EncodeDeny(resp.Message())
-	if err != nil {
-		return Output{}, err
-	}
-	return Output{Stdout: body, ExitCode: 0}, nil
+	return encodeDecision(resp, claudecli.EncodeDeny)
 }
 
 // --- management surface (Claude Code specific) ---

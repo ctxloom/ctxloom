@@ -314,7 +314,39 @@ func EnsureFile(path, comment string, patterns ...string) error {
 	if len(missing) == 0 {
 		return nil
 	}
+	warnOverriddenNegations(path, content, missing)
 	return appendBlock(path, content, comment, missing)
+}
+
+// warnOverriddenNegations reports patterns being appended that will silently
+// take precedence over a re-include (`!`) line the user already wrote.
+//
+// .gitignore is LAST-MATCH-WINS and this package only ever APPENDS, so a
+// pattern written at the end of the file beats every earlier line — including
+// a deliberate negation of the very path being ignored. Reordering is not
+// available as a remedy: git cannot re-include a path whose parent DIRECTORY
+// is excluded at all, so for a directory pattern the user's negation is dead
+// however the file is ordered. What is available is not doing it silently —
+// their line is still sitting there looking effective.
+//
+// Only negations the appended pattern actually shadows are reported: the
+// same path, or anything beneath it when the pattern names a directory.
+func warnOverriddenNegations(path string, content []byte, appended []string) {
+	for line := range strings.SplitSeq(string(content), "\n") {
+		neg := strings.TrimSpace(line)
+		if !strings.HasPrefix(neg, "!") {
+			continue
+		}
+		target := strings.TrimPrefix(neg, "!")
+		for _, p := range appended {
+			if target != p && !(strings.HasSuffix(p, "/") && strings.HasPrefix(target, p)) {
+				continue
+			}
+			clidiag.Warn("ctxloom",
+				"%s already contains %q, but ctxloom just appended %q below it. .gitignore is last-match-wins, so the ctxloom rule now takes precedence and your re-include no longer has any effect (git also cannot re-include a path whose parent directory is excluded, so moving the lines will not restore it). Your line was left untouched — remove or rework it if you meant to keep that path tracked.",
+				path, neg, p)
+		}
+	}
 }
 
 // missingPatterns returns the patterns not already present in content, matched

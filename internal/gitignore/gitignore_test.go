@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -498,6 +499,54 @@ func TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules(t *testing.T) {
 	for _, p := range TransientArtifactPatterns {
 		assert.Contains(t, got, p, "the caller's own patterns must still be written: %s", p)
 	}
+}
+
+// TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins U054-F05. .gitignore
+// is LAST-MATCH-WINS and Ensure only ever appends at the end of the file, so a
+// pattern ctxloom appends silently overrides a user's earlier `!` re-include
+// of the same path — against the package doc's promise to append "without
+// disturbing user entries".
+//
+// Reordering is not the remedy and the row's framing overstates what one is
+// available: git cannot re-include a path whose PARENT DIRECTORY is excluded
+// at all, so for a directory pattern like .ctxloom/cache/ the user's negation
+// is dead however the file is ordered. What ctxloom can do is stop doing it
+// silently — the user's line is still there, still looks effective, and only
+// a warning tells them it no longer is.
+func TestEnsureFile_WarnsWhenAppendingOverAUserNegation(t *testing.T) {
+	var warnings strings.Builder
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("# keep my scratch notes\n!.ctxloom/cache/notes.md\n"), 0644))
+
+	require.NoError(t, EnsureFile(path, testComment, ".ctxloom/cache/"))
+
+	got := warnings.String()
+	assert.Contains(t, got, ".ctxloom/cache/", "the warning must name the pattern ctxloom added")
+	assert.Contains(t, got, "!.ctxloom/cache/notes.md", "and the user line it overrides")
+
+	// The user's line survives — this warns, it never edits user entries.
+	assert.Contains(t, readGitignore(t, dir), "!.ctxloom/cache/notes.md")
+}
+
+// TestEnsureFile_DoesNotWarnWithoutAnAffectedNegation is the over-warning
+// guard: an unrelated negation, or one the appended pattern cannot possibly
+// shadow, must stay silent.
+func TestEnsureFile_DoesNotWarnWithoutAnAffectedNegation(t *testing.T) {
+	var warnings strings.Builder
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte("*.log\n!important.log\n!src/vendor/keep.go\n"), 0644))
+
+	require.NoError(t, EnsureFile(path, testComment, ".ctxloom/cache/", ".agents/"))
+
+	assert.Empty(t, warnings.String(), "an unrelated re-include is none of ctxloom's business")
 }
 
 // TestEnsure_NoBlanketRule_DoesNotInjectPrivateState pins the converse: Ensure

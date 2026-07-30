@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,182** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,183** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 87 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 136 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **713** |
+| `open` | no commit names this ID | **712** |
 
-**Totals: 2268 findings across 162 units — 1,182 resolved, 713 still open, 373 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,183 resolved, 712 still open, 373 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 391 | 408 | 47 | 58 | 95 |
-| LOW | 871 | 440 | 280 | 30 | 70 | 51 |
+| LOW | 871 | 441 | 279 | 30 | 70 | 51 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2680,7 +2680,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U122-F06 | open | `:828-830`, `:836-838` | ERRHANDLING | `missingLogSiblingNote` swallows two errors into `return ""` / `continue`, so a registry read failure produces the same silence as "nothing to report" | U122.md |
 | U122-F07 | **REFUTED** `392838f1` | `:330-335` | SILENTNOOP | The `if len(addTags) > 0` guard leaves a path where `TagTask` returns `TaskResult{Task: tasks.Task{}}` with a **nil error** — success carrying an empty task | U122.md |
 | U122-F08 | **RESOLVED** `cac52a3e` `d4ea1e4e` | `:560-567` | DUPLICATE | `containsString` reimplements `slices.Contains` and duplicates `lint.contains` | U122.md |
-| U122-F09 | open | `:115-125` | ERRHANDLING | `ResolveProjectIdentity` is the only function in the file that returns errors unwrapped, so its two failure modes are indistinguishable to its four callers | U122.md |
+| U122-F09 | **RESOLVED** `90507280` | `:115-125` | ERRHANDLING | `ResolveProjectIdentity` is the only function in the file that returns errors unwrapped, so its two failure modes are indistinguishable to its four callers | U122.md |
 | U122-F10 | **RESOLVED** `d4ea1e4e` | `:247`, `:278`, `:343`, `:581`, `:596`, `:654` | DUPLICATE | The same six-field result literal is written out six times | U122.md |
 | U123-F04 | **RESOLVED** `56d16c7a` | **`paths.go:121` + `operations.go:136,144`** | DUPLICATE | The `Mode` switch inside `TasksLogPath` re-decides a branch the caller has already taken; and `operations.go:859` re-implements `TasksLogPath`'s own empty-root guard with a near-duplicate message. | U123.md |
 | U123-F05 | **REFUTED** `78751323` | **`paths.go:127`** | DEAD | The `""` arm of `case ModeHome, "":` is unreachable from production; it is exercised only by a test. | U123.md |

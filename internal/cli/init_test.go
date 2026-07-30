@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,7 +133,8 @@ func TestRunInit_ExistingDir_HonoursRemoteFlags(t *testing.T) {
 	var gotRepos []string
 	var gotForge string
 	origAdd := addPersonalRemotesFn
-	addPersonalRemotesFn = func(cmd *cobra.Command, repos []string, forge string) {
+	addPersonalRemotesFn = func(_ *cobra.Command, gotAppDir string, repos []string, forge string) {
+		assert.Equal(t, appDir, gotAppDir, "remotes must be added to the .ctxloom this init targets")
 		gotRepos = repos
 		gotForge = forge
 	}
@@ -257,6 +259,18 @@ func TestPromptAllEngines_LeavesTheCallersSliceAlone(t *testing.T) {
 		"the combined menu must not be built through the caller's backing array")
 }
 
+// writeEngineConfig scaffolds a real config.yaml naming engine as its primary
+// backend, built by the same operations.BuildInitialConfig `ctxloom init` writes
+// — so what the resolver reads back is the shape init actually produces, not a
+// hand-rolled approximation of it.
+func writeEngineConfig(t *testing.T, appDir, engine string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	body, err := operations.BuildInitialConfig(engine, "", false)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), body, 0o644))
+}
+
 // TestEngineForExistingDir (U036-F05) pins the engine precedence on the
 // RE-INIT path. `ctxloom init --engine codex` in a project whose config names
 // another engine used to launch the CONFIG's engine: the resolver consulted the
@@ -269,15 +283,59 @@ func TestEngineForExistingDir(t *testing.T) {
 	testsupport.Isolate(t)
 	dir := t.TempDir()
 	appDir := filepath.Join(dir, ".ctxloom")
-	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
-		[]byte("version: 5\nllm:\n  claude-code:\n    type: claude-code\nllm_defaults:\n  primary: claude-code\n"), 0o644))
+	writeEngineConfig(t, appDir, "claude-code")
 	t.Chdir(dir)
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 
-	require.Equal(t, "claude-code", engineForExistingDir(""),
+	require.Equal(t, "claude-code", engineForExistingDir("", appDir),
 		"with no flag, the engine recorded in the existing config is used")
-	assert.Equal(t, "codex", engineForExistingDir("codex"),
+	assert.Equal(t, "codex", engineForExistingDir("codex", appDir),
 		"an explicit --engine must win over the engine recorded in the config")
+}
+
+// TestInitPostScaffoldStepsUseTheDirTheyJustWrote (U036-F06) pins that init's
+// post-scaffold steps read the config for the .ctxloom THIS init targets, not
+// whatever .ctxloom the ambient discovery walk finds from the cwd. The two are
+// different directories whenever `ctxloom init --home` runs inside a project (or
+// CTXLOOM_ROOT points elsewhere): init then wrote one config and applied
+// remotes, dependencies and hooks against a DIFFERENT one — a whole init's
+// worth of work landing in the wrong project, reported as success.
+//
+// Both halves are asserted at the two sites whose resolved config is
+// observable: the engine resolver (its return value) and the hook apply (the
+// config handed to operations.ApplyHooks). cloneConfiguredRemotes,
+// pullSeededDependencies and addPersonalRemotes take the identical one-line
+// change.
+func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
+	testsupport.Isolate(t)
+
+	// The ambient project the cwd discovers: names claude-code.
+	project := t.TempDir()
+	projectApp := filepath.Join(project, ".ctxloom")
+	writeEngineConfig(t, projectApp, "claude-code")
+	t.Chdir(project)
+
+	// The .ctxloom this init actually targets: names codex.
+	target := t.TempDir()
+	targetApp := filepath.Join(target, ".ctxloom")
+	writeEngineConfig(t, targetApp, "codex")
+
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+
+	assert.Equal(t, "codex", engineForExistingDir("", targetApp),
+		"the engine must come from the .ctxloom this init targets")
+
+	var gotAppDir string
+	orig := applyHooksFn
+	applyHooksFn = func(_ context.Context, cfg *config.Config, _ operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
+		gotAppDir = cfg.GetAppDir()
+		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"codex"}}, nil
+	}
+	t.Cleanup(func() { applyHooksFn = orig })
+
+	captureStdout(t, func() { applyInitHooks(&cobra.Command{}, targetApp) })
+	assert.Equal(t, targetApp, gotAppDir,
+		"hooks must be applied from the config this init wrote, not the ambient one")
 }

@@ -154,7 +154,7 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 // will ever reach ctxloom's MCP server or context hook — the one outcome init
 // must not report as done.
 func TestApplyInitHooks_EmptyBackendListIsNotSuccess(t *testing.T) {
-	testsupport.Isolate(t)
+	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
 
 	orig := applyHooksFn
 	applyHooksFn = func(context.Context, *config.Config, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
@@ -165,7 +165,7 @@ func TestApplyInitHooks_EmptyBackendListIsNotSuccess(t *testing.T) {
 	var warnings strings.Builder
 	t.Cleanup(clidiag.SetSink(&warnings))
 
-	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}) })
+	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
 
 	assert.NotContains(t, out, "Applied hooks for",
 		"an apply that touched no backend must not print a success line")
@@ -176,7 +176,7 @@ func TestApplyInitHooks_EmptyBackendListIsNotSuccess(t *testing.T) {
 // TestApplyInitHooks_ReportsTheBackendsItWrote is the counterpart: a real
 // payload still gets the success line, unchanged.
 func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
-	testsupport.Isolate(t)
+	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
 
 	orig := applyHooksFn
 	applyHooksFn = func(context.Context, *config.Config, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
@@ -187,7 +187,7 @@ func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
 	var warnings strings.Builder
 	t.Cleanup(clidiag.SetSink(&warnings))
 
-	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}) })
+	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
 
 	assert.Contains(t, out, "Applied hooks for: [claude-code codex]")
 	assert.Empty(t, warnings.String())

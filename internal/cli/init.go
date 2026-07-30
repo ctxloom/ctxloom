@@ -611,14 +611,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	interactive := isInteractiveTerminal() && !initNonInteractive
 	selectedEngine := initEngine
 	if alreadyExists {
-		selectedEngine = engineForExistingDir(selectedEngine)
+		selectedEngine = engineForExistingDir(selectedEngine, appDir)
 		// U036-F04: --remote/--forge were silently ignored here — the only
 		// consumer of initRemotes/initForge (addPersonalRemotes) lived
 		// exclusively inside setupNewCtxloomDir's fresh-init branch below,
 		// so `ctxloom init --remote <repo>` against an existing .ctxloom
 		// exited 0, printed "ctxloom directory already exists", and added
 		// zero remotes. Honour the flags here too, on a pre-existing dir.
-		addPersonalRemotesFn(cmd, initRemotes, initForge)
+		addPersonalRemotesFn(cmd, appDir, initRemotes, initForge)
 	} else {
 		selectedEngine, err = setupNewCtxloomDir(cmd, appDir, selectedEngine, interactive)
 		if err != nil {
@@ -663,11 +663,11 @@ func ctxloomDirExists(appDir string) bool {
 // doing so read the flag and then discarded it, with nothing said. Otherwise the
 // engine recorded in the existing config applies, and if that is unreadable or
 // names none the choice falls through to pickDefaultEngine.
-func engineForExistingDir(selected string) string {
+func engineForExistingDir(selected, appDir string) string {
 	if selected != "" {
 		return selected
 	}
-	if cfg, err := config.Load(); err == nil {
+	if cfg, err := config.Load(config.WithAppDir(appDir)); err == nil {
 		return cfg.GetDefaultLLM()
 	}
 	return ""
@@ -829,10 +829,10 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
-	addPersonalRemotesFn(cmd, append(append([]string{}, initRemotes...), personalRepos...), initForge)
-	cloneConfiguredRemotes(cmd)
-	pullSeededDependencies(cmd)
-	applyInitHooks(cmd)
+	addPersonalRemotesFn(cmd, appDir, append(append([]string{}, initRemotes...), personalRepos...), initForge)
+	cloneConfiguredRemotes(cmd, appDir)
+	pullSeededDependencies(cmd, appDir)
+	applyInitHooks(cmd, appDir)
 
 	// Exclude ctxloom's private working state from version control.
 	if err := gitignore.Ensure(filepath.Dir(appDir), gitignore.Comment, gitignore.PrivateStatePatterns...); err != nil {
@@ -923,16 +923,18 @@ func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler 
 //
 // It EXPLICITLY invalidates the ambient config memo on success, rather than
 // relying on the memo's own stat-based self-correction (config.Load's mtime
-// +size check): the rest of init (addPersonalRemotes, cloneConfiguredRemotes,
-// pullSeededDependencies, applyInitHooks) all read the config right back via
-// the bare, memoized config.Load() in the SAME process, and a stat check has
-// only mtime+size granularity to key on — theoretically indistinguishable
-// from the pre-write state on a filesystem coarse enough, or if a PRIOR
-// config.Load() in this same init run (e.g. engineForExistingDir probing
-// for a pre-existing config before this write happens) already memoized a
-// "missing" stamp whose invalidation this write's own stat SHOULD, but need
-// not provably, trigger. Invalidate() removes that dependency: the very next
-// Load anywhere in the process re-reads from disk unconditionally.
+// +size check). init's own post-scaffold steps (addPersonalRemotes,
+// cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) read the
+// config back appDir-SCOPED, which is never served from the memo at all — but
+// the AMBIENT readers that follow in the same process are (GetConfig in
+// launchDiscovery and launchEngineWithPrompt), and a stat check has only
+// mtime+size granularity to key on: theoretically indistinguishable from the
+// pre-write state on a filesystem coarse enough, or if a PRIOR config.Load in
+// this same init run (e.g. engineForExistingDir probing for a pre-existing
+// config before this write happens) already memoized a "missing" stamp whose
+// invalidation this write's own stat SHOULD, but need not provably, trigger.
+// Invalidate() removes that dependency: the very next Load anywhere in the
+// process re-reads from disk unconditionally.
 func writeInitialConfig(appDir, engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) error {
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
 		AppDir:             appDir,
@@ -969,19 +971,22 @@ func personalRemoteRequests(repos []string, forge string) []operations.AddRemote
 	return reqs
 }
 
-// addPersonalRemotes registers the user's personal repos. Failures warn and
-// continue (an unknown --forge label rolls that single remote back).
+// addPersonalRemotes registers the user's personal repos in the .ctxloom at
+// appDir — the one THIS init targets, never whatever .ctxloom an ambient
+// discovery walk would find from the cwd (they differ under `init --home` inside
+// a project, or with CTXLOOM_ROOT set elsewhere). Failures warn and continue (an
+// unknown --forge label rolls that single remote back).
 // addPersonalRemotesFn is a package var seam over addPersonalRemotes: tests
 // stub it to verify runInit's/setupNewCtxloomDir's branching reaches it (with
 // the right args) without exercising the real remote-add machinery (registry
 // + network fetch/clone). Defaults to the real function.
 var addPersonalRemotesFn = addPersonalRemotes
 
-func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
+func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge string) {
 	if len(repos) == 0 {
 		return
 	}
-	cfg, loadErr := config.Load()
+	cfg, loadErr := config.Load(config.WithAppDir(appDir))
 	if loadErr != nil {
 		clidiag.Warn("ctxloom", "failed to load config for remote: %v", loadErr)
 		return
@@ -995,11 +1000,12 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 	}
 }
 
-// cloneConfiguredRemotes eagerly clones every configured remote so discovery
-// (search_library, browse) can read them offline. Fault-tolerant: per-remote
-// failures warn and continue.
-func cloneConfiguredRemotes(cmd *cobra.Command) {
-	cfg, loadErr := config.Load()
+// cloneConfiguredRemotes eagerly clones every remote configured in the .ctxloom
+// at appDir (see addPersonalRemotes on why the dir is passed, not discovered) so
+// discovery (search_library, browse) can read them offline. Fault-tolerant:
+// per-remote failures warn and continue.
+func cloneConfiguredRemotes(cmd *cobra.Command, appDir string) {
+	cfg, loadErr := config.Load(config.WithAppDir(appDir))
 	if loadErr != nil {
 		clidiag.Warn("ctxloom", "failed to load config for cloning remotes: %v", loadErr)
 		return
@@ -1015,12 +1021,13 @@ func cloneConfiguredRemotes(cmd *cobra.Command) {
 }
 
 // pullSeededDependencies pulls and locks the remote dependencies the fresh
-// config references — most importantly the seeded default profile, which
+// config at appDir references (see addPersonalRemotes on why the dir is passed,
+// not discovered) — most importantly the seeded default profile, which
 // resolves only through a lockfile entry. Without this step the very first
 // `ctxloom run` after init fails to assemble. Fault-tolerant: failures warn
 // and continue (offline init still completes; run degrades per assembly).
-func pullSeededDependencies(cmd *cobra.Command) {
-	cfg, err := config.Load()
+func pullSeededDependencies(cmd *cobra.Command, appDir string) {
+	cfg, err := config.Load(config.WithAppDir(appDir))
 	if err != nil {
 		clidiag.Warn("ctxloom", "failed to load config for dependency pull: %v", err)
 		return
@@ -1045,13 +1052,15 @@ func pullSeededDependencies(cmd *cobra.Command) {
 // function.
 var applyHooksFn = operations.ApplyHooks
 
-// applyInitHooks registers the ctxloom MCP server with every backend. Failures
+// applyInitHooks registers the ctxloom MCP server with every backend, from the
+// config at appDir (see addPersonalRemotes on why the dir is passed, not
+// discovered). Failures
 // warn and continue (fault tolerant). An apply that touched NO backend is
 // reported as the failure it is: the engine settings surfaces are what make
 // ctxloom reachable from a session at all, so "applied to nothing" must never
 // render as a success line with an empty payload.
-func applyInitHooks(cmd *cobra.Command) {
-	cfg, err := config.Load()
+func applyInitHooks(cmd *cobra.Command, appDir string) {
+	cfg, err := config.Load(config.WithAppDir(appDir))
 	if err != nil {
 		clidiag.Warn("ctxloom", "failed to load config: %v", err)
 		return

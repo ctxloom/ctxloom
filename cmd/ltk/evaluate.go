@@ -108,29 +108,7 @@ func emitDecision(out engine.Output, stdout, stderr io.Writer) error {
 func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) (engine.Output, error) {
 	adapter, err := engine.Get(engineName)
 	if err != nil {
-		// An unknown --engine in the installed hook (a manual edit or a cross-version
-		// rename) would otherwise exit 1, which both hosts treat as a silent allow.
-		// There is no adapter for the named engine to deny with. Guessing
-		// claude-code unconditionally was itself a bug (U005-F04): on an
-		// Antigravity host the deny then rides claude-code's wire format, which
-		// agy does not recognize, so the "fail closed" deny is invisible and the
-		// action proceeds anyway — the exact failure mode this branch exists to
-		// prevent. Try every registered engine's own Decode against the payload
-		// actually received; the first one that decodes something meaningful
-		// (a tool name, command, or file path) is presumably the real host, so
-		// fail closed in ITS wire format instead of guessing.
-		input, _ := io.ReadAll(stdin) // best-effort: an unreadable body just skips detection below
-		fallback := detectEngineFromPayload(input)
-		if fallback == nil {
-			var ferr error
-			fallback, ferr = engine.Get("claude-code")
-			if ferr != nil {
-				return engine.Output{}, err // unreachable in practice; nothing to deny with
-			}
-		}
-		return failClosed(fallback, fmt.Sprintf(
-			"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
-			progName, engineName))
+		return denyUnknownEngine(engineName, err, stdin)
 	}
 	// A typo'd --shell in the installed hook command would otherwise surface as
 	// ErrUnsupportedShell on every parse, which the default on_parse_error: allow
@@ -179,42 +157,80 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 		return failClosed(adapter, ungatedToolDenyReason(adapter, req))
 	}
 
-	resp := newDecider(cfg, forceShell).Decide(context.Background(), req)
-
-	// A denial may be lifted by "confirm by repeating" only when the rule that
-	// fired allows it (inviolate rules report Confirmable=false and never reach
-	// here, so repeating them never helps).
-	if !resp.Allow && resp.Confirmable && resp.ConfirmWindowSeconds > 0 {
-		// The override is keyed on what the agent repeats: the command, or the
-		// file path for a file-edit rule.
-		key := req.Command
-		if req.FilePath != "" {
-			key = "edit:" + req.FilePath
-		}
-		resp = confirmByRepeat(resp, key, statePath(resolved),
-			time.Duration(resp.ConfirmDelaySeconds)*time.Second,
-			time.Duration(resp.ConfirmWindowSeconds)*time.Second)
-	}
+	resp := applyConfirmOverride(newDecider(cfg, forceShell).Decide(context.Background(), req), req, resolved)
 
 	out, err := adapter.Encode(resp)
 	if err != nil {
 		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
-	if resolved == "" && len(out.Stderr) == 0 {
-		// No .ltk/config.yaml (or any of the legacy names) was found anywhere
-		// from cwd up to the repository root: loadConfig fell back to the
-		// built-in zero-rule config, which allows everything with NO error and
-		// — until now — no trace at all. That is a silent, total fail-open by
-		// design (a project that never configured ltk is not gated), but
-		// "by design" and "invisible" should not be the same thing: an operator
-		// who believes the hook is active would otherwise have no way to
-		// notice it is gating nothing. Diagnostic only — the decision itself
-		// (allow) is unchanged.
-		out.Stderr = []byte(fmt.Sprintf(
-			"%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
-			progName, strings.Join(configSearch, ", ")))
+	return noteWhenNothingIsGated(out, resolved), nil
+}
+
+// denyUnknownEngine fails closed for an --engine name no adapter answers to.
+//
+// An unknown --engine in the installed hook (a manual edit or a cross-version
+// rename) would otherwise exit 1, which both hosts treat as a silent allow, and
+// there is no adapter for the NAMED engine to deny with. Guessing claude-code
+// unconditionally was itself a bug (U005-F04): on an Antigravity host the deny
+// then rides claude-code's wire format, which agy does not recognize, so the
+// "fail closed" deny is invisible and the action proceeds anyway — the exact
+// failure mode this branch exists to prevent. Try every registered engine's own
+// Decode against the payload actually received; the first one that decodes
+// something meaningful (a tool name, command, or file path) is presumably the
+// real host, so fail closed in ITS wire format instead of guessing.
+//
+// lookupErr is returned unchanged in the one case with nothing to deny with.
+func denyUnknownEngine(engineName string, lookupErr error, stdin io.Reader) (engine.Output, error) {
+	input, _ := io.ReadAll(stdin) // best-effort: an unreadable body just skips detection below
+	fallback := detectEngineFromPayload(input)
+	if fallback == nil {
+		var ferr error
+		fallback, ferr = engine.Get("claude-code")
+		if ferr != nil {
+			return engine.Output{}, lookupErr // unreachable in practice; nothing to deny with
+		}
 	}
-	return out, nil
+	return failClosed(fallback, fmt.Sprintf(
+		"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
+		progName, engineName))
+}
+
+// applyConfirmOverride lifts a denial that "confirm by repeating" permits.
+// Only a rule that allows it qualifies — inviolate rules report
+// Confirmable=false, so repeating them never helps — and the override is keyed
+// on what the agent repeats: the command, or the file path for a file-edit
+// rule.
+func applyConfirmOverride(resp engine.Response, req engine.Request, resolvedConfig string) engine.Response {
+	if resp.Allow || !resp.Confirmable || resp.ConfirmWindowSeconds <= 0 {
+		return resp
+	}
+	key := req.Command
+	if req.FilePath != "" {
+		key = "edit:" + req.FilePath
+	}
+	return confirmByRepeat(resp, key, statePath(resolvedConfig),
+		time.Duration(resp.ConfirmDelaySeconds)*time.Second,
+		time.Duration(resp.ConfirmWindowSeconds)*time.Second)
+}
+
+// noteWhenNothingIsGated adds the "no rules config found" diagnostic when the
+// search came up empty (resolvedConfig == "") and nothing else has written to
+// stderr.
+//
+// loadConfig then fell back to the built-in zero-rule config, which allows
+// everything with NO error. That is a silent, total fail-open by design — a
+// project that never configured ltk is not gated — but "by design" and
+// "invisible" should not be the same thing: an operator who believes the hook
+// is active would otherwise have no way to notice it is gating nothing.
+// Diagnostic only; the decision is unchanged.
+func noteWhenNothingIsGated(out engine.Output, resolvedConfig string) engine.Output {
+	if resolvedConfig != "" || len(out.Stderr) > 0 {
+		return out
+	}
+	out.Stderr = []byte(fmt.Sprintf(
+		"%s: no rules config found (searched cwd and ancestors for %s); nothing is being gated\n",
+		progName, strings.Join(configSearch, ", ")))
+	return out
 }
 
 // newDecider builds the rules app both `evaluate` and `check` decide with.

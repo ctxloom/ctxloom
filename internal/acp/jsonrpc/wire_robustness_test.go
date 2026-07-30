@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -161,4 +163,32 @@ func TestRouteResponse_StringEchoedIDIsMatched(t *testing.T) {
 	}
 	require.NoError(t, await(ctx, &got), "a stringified echo of our own id must still match its caller")
 	assert.Equal(t, "end_turn", got.StopReason)
+}
+
+// eofAfter is a reader that ends the stream with err on its first Read, used to
+// stand in for a transport that annotates its end-of-stream.
+type eofAfter struct{ err error }
+
+func (r eofAfter) Read([]byte) (int, error) { return 0, r.err }
+
+// TestClosedErr_WrappedEOFIsAClosedConnection pins U013-F13: closedErr compared
+// the stored read error to io.EOF with !=, so a clean end-of-stream that
+// arrives WRAPPED — any reader in the chain that annotates its error, which is
+// the idiomatic thing for one to do — was reported to every parked caller as a
+// hard transport failure rather than ErrConnClosed. Callers branch on
+// ErrConnClosed to tell "the peer hung up" from "the peer broke", so the
+// distinction is the whole point of the function.
+func TestClosedErr_WrappedEOFIsAClosedConnection(t *testing.T) {
+	out := &lockedBuffer{}
+	conn := NewConn(eofAfter{err: fmt.Errorf("stdout pipe: %w", io.EOF)}, out, nil, &mockHandler{})
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	aerr := await(ctx, nil)
+	require.Error(t, aerr)
+	assert.ErrorIs(t, aerr, ErrConnClosed, "a wrapped EOF is still a closed connection, not a transport failure")
 }

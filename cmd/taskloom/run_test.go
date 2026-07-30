@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -97,7 +98,7 @@ func TestPickTask_SelectsFromDefaultOpenView(t *testing.T) {
 		task("c", "in progress", tasks.StatusInProgress, "h2"),
 	}
 	// Row 2 of the default (open-only) view is the In Progress task, not the Done one.
-	got, ok := pickTask(&bytes.Buffer{}, strings.NewReader("2\n"), all)
+	got, ok, _ := pickTask(&bytes.Buffer{}, strings.NewReader("2\n"), all)
 	require.True(t, ok)
 	assert.Equal(t, "c", got.HarpID, "default view must skip Done; row 2 = In Progress task")
 }
@@ -108,20 +109,20 @@ func TestPickTask_ToggleAllRevealsClosed(t *testing.T) {
 		task("b", "done thing", tasks.StatusDone, "h1"),
 	}
 	// "a" reveals all statuses, then row 2 is the Done task.
-	got, ok := pickTask(&bytes.Buffer{}, strings.NewReader("a\n2\n"), all)
+	got, ok, _ := pickTask(&bytes.Buffer{}, strings.NewReader("a\n2\n"), all)
 	require.True(t, ok)
 	assert.Equal(t, "b", got.HarpID)
 }
 
 func TestPickTask_QuitAndEmpty(t *testing.T) {
 	all := []tasks.Task{task("a", "open todo", tasks.StatusToDo, "h1")}
-	if _, ok := pickTask(&bytes.Buffer{}, strings.NewReader("q\n"), all); ok {
+	if _, ok, _ := pickTask(&bytes.Buffer{}, strings.NewReader("q\n"), all); ok {
 		t.Error("q must cancel")
 	}
-	if _, ok := pickTask(&bytes.Buffer{}, strings.NewReader(""), all); ok {
+	if _, ok, _ := pickTask(&bytes.Buffer{}, strings.NewReader(""), all); ok {
 		t.Error("EOF must cancel")
 	}
-	if _, ok := pickTask(&bytes.Buffer{}, strings.NewReader("1\n"), nil); ok {
+	if _, ok, _ := pickTask(&bytes.Buffer{}, strings.NewReader("1\n"), nil); ok {
 		t.Error("no tasks must cancel")
 	}
 }
@@ -137,4 +138,28 @@ func TestFindTask(t *testing.T) {
 	if _, ok := findTask(all, "z"); ok {
 		t.Error("missing id must report not found")
 	}
+}
+
+// errReader fails every read, standing in for a stdin that dies mid-session
+// (a closed pty, an I/O error on a pipe) rather than reaching a clean EOF.
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+// A stdin READ FAILURE is not a user quitting. pickTask consulted only
+// scanner.Scan()'s bool, which is false for both, so a broken stdin was
+// reported to the user as "taskloom: cancelled" and taskloom exited 0 — a
+// clean-shutdown story for an I/O fault. EOF stays a quit; an error does not.
+func TestPickTask_StdinReadFailureIsAnErrorNotAQuit(t *testing.T) {
+	all := []tasks.Task{{HarpID: "a", Text: "one", Status: tasks.StatusToDo}}
+
+	_, ok, err := pickTask(&bytes.Buffer{}, errReader{err: errors.New("stdin exploded")}, all)
+	assert.False(t, ok, "a failed read selects nothing")
+	require.Error(t, err, "a stdin read failure must surface, not read as a quit")
+	assert.Contains(t, err.Error(), "stdin exploded", "the underlying cause must survive")
+
+	// EOF is still an ordinary quit, not an error.
+	_, ok, err = pickTask(&bytes.Buffer{}, strings.NewReader(""), all)
+	assert.False(t, ok)
+	assert.NoError(t, err, "a clean EOF is a quit, not a failure")
 }

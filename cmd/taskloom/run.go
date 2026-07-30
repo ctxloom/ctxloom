@@ -63,7 +63,10 @@ directly. In a non-interactive shell a task harp id is required.`,
 			if !isInteractiveTerminal() {
 				return fmt.Errorf("no task harp id given and not a terminal; pass a task harp id (see `taskloom list`)")
 			}
-			pick, ok := pickTask(os.Stderr, os.Stdin, res.Tasks)
+			pick, ok, err := pickTask(os.Stderr, os.Stdin, res.Tasks)
+			if err != nil {
+				return err
+			}
 			if !ok {
 				fmt.Fprintln(os.Stderr, "taskloom: cancelled")
 				return nil
@@ -123,11 +126,13 @@ func launchTaskAgent(chosen tasks.Task, noStart bool) error {
 // pickTask renders a line-buffered task picker (plain stdin/stderr, no TUI
 // dependency) and returns the chosen task. The default view shows only open
 // work (To Do / In Progress); `a` toggles showing every status. Returns
-// ok=false when the user quits, EOF is hit, or there is nothing to show.
-func pickTask(out io.Writer, in io.Reader, all []tasks.Task) (tasks.Task, bool) {
+// ok=false when the user quits, EOF is hit, or there is nothing to show, and
+// a non-nil error only when reading stdin actually FAILED — which is not a
+// quit and must not be reported as one.
+func pickTask(out io.Writer, in io.Reader, all []tasks.Task) (tasks.Task, bool, error) {
 	if len(all) == 0 {
 		fmt.Fprintln(out, "(no tasks)")
-		return tasks.Task{}, false
+		return tasks.Task{}, false, nil
 	}
 	showAll := false
 	scanner := bufio.NewScanner(in)
@@ -135,11 +140,18 @@ func pickTask(out io.Writer, in io.Reader, all []tasks.Task) (tasks.Task, bool) 
 		view := filterOpen(all, showAll)
 		renderTaskPicker(out, view, showAll)
 		if !scanner.Scan() {
-			return tasks.Task{}, false
+			// Scan() reports false for BOTH a clean EOF (the user closed
+			// stdin — an ordinary quit) and a read failure. Only Err()
+			// separates them, and conflating the two reports an I/O fault as
+			// a cancellation at exit 0.
+			if err := scanner.Err(); err != nil {
+				return tasks.Task{}, false, fmt.Errorf("read task selection: %w", err)
+			}
+			return tasks.Task{}, false, nil
 		}
 		switch line := strings.TrimSpace(scanner.Text()); line {
 		case "", "q", "quit", "exit":
-			return tasks.Task{}, false
+			return tasks.Task{}, false, nil
 		case "a", "all":
 			showAll = !showAll
 		default:
@@ -148,7 +160,7 @@ func pickTask(out io.Writer, in io.Reader, all []tasks.Task) (tasks.Task, bool) 
 				fmt.Fprintln(out, "  (enter a row number, a to toggle all statuses, q to quit)")
 				continue
 			}
-			return view[n-1], true
+			return view[n-1], true, nil
 		}
 	}
 }

@@ -922,3 +922,41 @@ func requireNothingSeeded(t *testing.T, dir string) {
 	require.NoError(t, err, "the config-home subdirectory exists even when nothing was seeded")
 	assert.Empty(t, entries, "nothing is seeded when there is nothing to seed")
 }
+
+// panicAfterAddGit panics on CommonDir — the first git call PrepareWorkspace
+// makes AFTER the checkout exists and the leak-recovery defer is installed, so
+// it drives exactly the unwind that defer exists for.
+type panicAfterAddGit struct{ *git.Fake }
+
+func (panicAfterAddGit) CommonDir(context.Context, string) (string, error) {
+	panic("worktree provisioning blew up after the checkout existed")
+}
+
+// TestWorktree_PanicRecoveryPrunesRegistration is U065-F09's pin. The recovery
+// path removed the checkout with a raw os.RemoveAll and stopped there, so the
+// repo kept the worktree's administrative registration
+// (.git/worktrees/<name>) — one stale `git worktree list` entry per panic,
+// with the directory it names already gone. Recovery now prunes, which is what
+// the graceful teardown does after its own removal, and re-panics unchanged so
+// a real bug still crashes and a mutant still dies.
+func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+
+	f := &git.Fake{}
+	w := NewWorktree(panicAfterAddGit{Fake: f}, "")
+	assert.Panics(t, func() {
+		_, _ = w.PrepareWorkspace(context.Background(), "/proj", "member-panic")
+	}, "the original failure is preserved, not swallowed")
+
+	assert.Contains(t, f.Calls, "prune",
+		"recovery retires the checkout's registration, not just its directory")
+
+	entries, err := os.ReadDir(tmp)
+	require.NoError(t, err)
+	var left []string
+	for _, e := range entries {
+		left = append(left, e.Name())
+	}
+	assert.Empty(t, left, "recovery leaves no checkout, config-home, scratch dir or owner marker behind")
+}

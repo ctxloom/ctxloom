@@ -195,6 +195,16 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		if r := recover(); r != nil {
 			_ = os.RemoveAll(ws.dir)
 			removeWorktreeOwnerMarker(ws.dir)
+			// Removing the directory does not retire the repo's
+			// administrative registration of it (.git/worktrees/<name>) —
+			// that is what prune is for, and the graceful teardown below
+			// runs it for the same reason. Without it every recovered
+			// panic leaves a `git worktree list` entry naming a path that
+			// no longer exists. A FRESH context: the caller's may already
+			// be cancelled, and this unwind must still complete.
+			pruneCtx, cancelPrune := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
+			_ = w.git.WorktreePrune(pruneCtx, projectDir)
+			cancelPrune()
 			if ws.configHome != "" {
 				_ = os.RemoveAll(ws.configHome)
 			}

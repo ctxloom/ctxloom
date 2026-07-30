@@ -494,8 +494,8 @@ var formatDebtAllowlist = map[string]string{
 	"container scaffold": "container_cmd.go: containerScaffoldCmd's inline RunE must route through emit() instead of iox.ErrWriter Printf calls",
 
 	// --- fragment/command item surfaces (fragment.go, command_cmd.go, item_helpers.go) ---
-	"fragment show":    "item_helpers.go: showItem (used by fragment show) must route through emit()",
-	"command show":     "item_helpers.go: showItem (used by command show) must route through emit()",
+	"fragment show": "item_helpers.go: showItem (used by fragment show) must route through emit()",
+	"command show":  "item_helpers.go: showItem (used by command show) must route through emit()",
 
 	// --- agent/init surfaces (agent.go, init.go) ---
 	"agent remove":  "agent.go: the agent-remove RunE must route through emit()",

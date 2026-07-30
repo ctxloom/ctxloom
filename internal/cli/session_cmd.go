@@ -266,19 +266,31 @@ var sessionBindCmd = &cobra.Command{
 
 // emitHarpMarker writes the harp self-id marker to w as a SessionStart hook
 // output (the same envelope inject-context uses), so the backend injects it into
-// the session and it lands in the transcript. No-op when harp is empty.
+// the session and it lands in the transcript.
+//
+// The marker is the only index-independent statement of which harp owns a
+// transcript, so a run that emits none produces a transcript nothing can
+// attribute. Emitting it is still best-effort — a hook must never fail the host
+// backend's startup — but every way of emitting nothing is REPORTED on the
+// diagnostic channel. stdout stays the hook's contract channel and never
+// carries a diagnostic.
 func emitHarpMarker(w io.Writer, harp string) {
 	marker := harpmarker.Format(harp)
 	if marker == "" {
+		clidiag.Warn("ctxloom", "session-bind: no usable harp (CTXLOOM_SESSION_HARP=%q) — this session's transcript carries no harp self-id marker and cannot be attributed to a harp by content", harp)
 		return
 	}
 	out := HookOutput{HookSpecificOutput: &HookSpecificOutput{
 		HookEventName:     claude.HookEventSessionStart,
 		AdditionalContext: marker,
 	}}
-	// Best-effort: a marshal/write failure must not fail the bind hook.
-	if b, err := json.Marshal(out); err == nil {
-		_, _ = w.Write(append(b, '\n'))
+	b, err := json.Marshal(out)
+	if err != nil {
+		clidiag.Warn("ctxloom", "session-bind: harp %q: could not encode the harp self-id marker: %v — the transcript carries no owner tag", harp, err)
+		return
+	}
+	if _, err := w.Write(append(b, '\n')); err != nil {
+		clidiag.Warn("ctxloom", "session-bind: harp %q: could not write the harp self-id marker: %v — the transcript carries no owner tag", harp, err)
 	}
 }
 

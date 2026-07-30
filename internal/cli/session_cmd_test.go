@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,37 @@ func TestEmitHarpMarker(t *testing.T) {
 		var buf bytes.Buffer
 		emitHarpMarker(&buf, "")
 		assert.Empty(t, buf.Bytes())
+	})
+}
+
+// TestEmitHarpMarker_FailureIsReported is the SILENTNOOP half: the marker is
+// the ONLY index-independent way a transcript says which harp owns it, so a
+// run that emits zero marker bytes and says nothing leaves an operator with an
+// unattributable transcript and no trace of why. stdout stays the hook's
+// contract channel in every case — the report goes to the diagnostic channel.
+func TestEmitHarpMarker_FailureIsReported(t *testing.T) {
+	t.Run("no active harp is reported", func(t *testing.T) {
+		var diag bytes.Buffer
+		restore := clidiag.SetSink(&diag)
+		t.Cleanup(restore)
+
+		var buf bytes.Buffer
+		emitHarpMarker(&buf, "")
+
+		assert.Empty(t, buf.Bytes(), "stdout carries hook output only — never a diagnostic")
+		assert.Contains(t, diag.String(), "CTXLOOM_SESSION_HARP",
+			"a session that gets no harp self-id marker must say so, and name the input that was missing")
+	})
+
+	t.Run("a failed marker write is reported", func(t *testing.T) {
+		var diag bytes.Buffer
+		restore := clidiag.SetSink(&diag)
+		t.Cleanup(restore)
+
+		emitHarpMarker(&failingWriter{err: errors.New("stdout broke")}, "plump-loose-sash")
+
+		assert.Contains(t, diag.String(), "stdout broke",
+			"a marker that could not be written must be reported, not swallowed into an exit-0 no-op")
 	})
 }
 

@@ -108,10 +108,13 @@ func (c *CodeCompressor) extractPythonModuleDocstring(node *sitter.Node, source 
 	}
 }
 
-func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out *strings.Builder) {
-	// Build signature: def name(params) -> return_type:
-	var sig strings.Builder
-
+// writePythonFuncSig writes one function_definition's declared signature —
+// async, name, parameter list and return annotation — and renders its elided
+// body as body. ONE walker serves both the module-level and the class-nested
+// position; only the body rendering and the trailing blank line differ between
+// them, and a second walk of the same node kinds is only an opportunity to
+// recognize fewer.
+func (c *CodeCompressor) writePythonFuncSig(node *sitter.Node, source []byte, out *strings.Builder, body string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child == nil {
@@ -120,24 +123,23 @@ func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out
 
 		switch child.Type() {
 		case "async":
-			sig.WriteString("async ")
+			out.WriteString("async ")
 		case "def":
-			sig.WriteString("def ")
-		case "identifier":
-			sig.WriteString(c.nodeText(child, source))
-		case "parameters":
-			sig.WriteString(c.nodeText(child, source))
+			out.WriteString("def ")
+		case "identifier", "parameters":
+			out.WriteString(c.nodeText(child, source))
 		case "type":
-			sig.WriteString(" -> ")
-			sig.WriteString(c.nodeText(child, source))
-		case "block":
-			sig.WriteString(":\n    ...")
-		case ":":
-			// Skip, handled with block
+			out.WriteString(" -> ")
+			out.WriteString(c.nodeText(child, source))
+		case "block", ":":
+			// The body is the last child either way; rendered below.
 		}
 	}
+	out.WriteString(body)
+}
 
-	out.WriteString(sig.String())
+func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out *strings.Builder) {
+	c.writePythonFuncSig(node, source, out, ":\n    ...")
 	out.WriteString("\n\n")
 }
 
@@ -179,7 +181,8 @@ func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte
 
 		if child.Type() == "function_definition" {
 			out.WriteString("    ")
-			c.extractPythonFuncSignatureOnly(child, source, out)
+			c.writePythonFuncSig(child, source, out, ": ...")
+			out.WriteString("\n")
 		} else if child.Type() == "decorated_definition" {
 			for j := 0; j < int(child.ChildCount()); j++ {
 				dec := child.Child(j)
@@ -189,37 +192,10 @@ func (c *CodeCompressor) extractPythonClassBody(node *sitter.Node, source []byte
 					out.WriteString("\n")
 				} else if dec != nil && dec.Type() == "function_definition" {
 					out.WriteString("    ")
-					c.extractPythonFuncSignatureOnly(dec, source, out)
+					c.writePythonFuncSig(dec, source, out, ": ...")
+					out.WriteString("\n")
 				}
 			}
 		}
 	}
-}
-
-func (c *CodeCompressor) extractPythonFuncSignatureOnly(node *sitter.Node, source []byte, out *strings.Builder) {
-	var sig strings.Builder
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
-		if child == nil {
-			continue
-		}
-		switch child.Type() {
-		case "async":
-			sig.WriteString("async ")
-		case "def":
-			sig.WriteString("def ")
-		case "identifier":
-			sig.WriteString(c.nodeText(child, source))
-		case "parameters":
-			sig.WriteString(c.nodeText(child, source))
-		case "type":
-			sig.WriteString(" -> ")
-			sig.WriteString(c.nodeText(child, source))
-		case "block", ":":
-			// Stop at body
-		}
-	}
-	sig.WriteString(": ...")
-	out.WriteString(sig.String())
-	out.WriteString("\n")
 }

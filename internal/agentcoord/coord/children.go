@@ -874,7 +874,17 @@ func (c *Coordinator) onTurnStarted(role string) {
 	c.mu.Lock()
 	rt := c.byHarp[role]
 	c.mu.Unlock()
-	if rt == nil {
+	if rt == nil || c.runEnded(rt.runID) {
+		// A frame that was already in flight when the channel was severed is
+		// still dispatched: the RunChannel's receive goroutine outlives
+		// RunChannel's return, and severChan/terminateRun do not synchronise
+		// with it (U024-F09). c.byHarp keeps the ended run's childRt, so this
+		// would ACQUIRE a slot for a run whose terminal has already released
+		// everything it held — and nothing would ever give that slot back,
+		// shrinking the execution cap for the rest of the process's life. Its
+		// siblings are already guarded this way (onRoleUnpark on the fold state,
+		// onRolePark/releaseSlot on rt.slot); this arm and onTurnIdle's bridge
+		// were the two that were not.
 		return
 	}
 	if c.claimSlotIntent(rt) {
@@ -1089,7 +1099,13 @@ func (c *Coordinator) onTurnIdle(role string) {
 	c.mu.Lock()
 	rt := c.byHarp[role]
 	c.mu.Unlock()
-	if rt == nil {
+	if rt == nil || c.runEnded(rt.runID) {
+		// A turn boundary that lands after the run's terminal (U024-F09 — see
+		// onTurnStarted) must not bridge: the child already delivered its
+		// terminal notice, and bridgeTurnResult on an empty accumulator queues
+		// the parent a second, contradictory "turn produced no output" message
+		// about a run that has finished. setState and releaseSlot below were
+		// already inert for an ended run; the bridge was not.
 		return
 	}
 	// The MIGRATED path's turn boundary: bridge this turn's result to the
@@ -1370,6 +1386,18 @@ func (c *Coordinator) sampleExecGauge() {
 	var n int
 	c.runs.View(func() { n = c.queueF.executing })
 	c.execGaugeHook(n)
+}
+
+// runEnded reports whether the run's fold record is terminal. An UNKNOWN run
+// reports false: only a record that positively says "ended" suppresses work.
+func (c *Coordinator) runEnded(runID string) bool {
+	ended := false
+	c.runs.View(func() {
+		if r := c.runsF.run(runID); r != nil {
+			ended = r.Ended
+		}
+	})
+	return ended
 }
 
 // runState reads the run's fold state ("" when unknown).

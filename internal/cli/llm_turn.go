@@ -65,11 +65,6 @@ var llmTurnCmd = &cobra.Command{
 		if llmTurnStartPath == "" {
 			return fmt.Errorf("llm turn: --start (the RunStart handoff path) is required")
 		}
-		// standUpRunner reads llmServeLabel for the config lookup (shared seam).
-		if llmTurnLabel != "" {
-			llmServeLabel = llmTurnLabel
-		}
-
 		req, err := readRunStartHandoff(llmTurnStartPath)
 		if err != nil {
 			return err
@@ -83,7 +78,7 @@ var llmTurnCmd = &cobra.Command{
 		// it is a no-op, and an MCP hiccup on this interactive path degrades the
 		// shim to its local fallback rather than failing the turn (there is no
 		// hosted delegated run here — no RunID, so no EngineHost).
-		standup, serr := standUpRunner(cmd, backend, backendName)
+		standup, serr := standUpRunner(cmd, backend, backendName, llmTurnLabel)
 		if serr != nil {
 			clidiag.Warn("ctxloom", "runner MCP standup for interactive turn failed (continuing without it): %v", serr)
 			standup = &runnerStandup{}
@@ -118,6 +113,9 @@ var llmTurnCmd = &cobra.Command{
 // file — never argv/env — because RunStart can be large (fragments) and can
 // carry env values, and argv is world-readable.
 func writeRunStartHandoff(harp string, req *pb.RunStart) (string, error) {
+	if runStartCarriesNothing(req) {
+		return "", fmt.Errorf("run-start handoff: refusing to hand off a RunStart that carries no options, prompt, fragments or managed config — the turn would launch the engine context-free")
+	}
 	persist, err := paths.HarpPersistDir(harp)
 	if err != nil {
 		return "", fmt.Errorf("run-start handoff: %w", err)
@@ -136,21 +134,47 @@ func writeRunStartHandoff(harp string, req *pb.RunStart) (string, error) {
 	return path, nil
 }
 
-// readRunStartHandoff decodes the RunStart the host wrote and DELETES the file
-// so the payload does not linger in the bind-mounted dir. A missing/corrupt
-// file is a loud error — never a silent empty RunStart (which would run the
-// engine context-free, the project's signature silent-no-op).
+// readRunStartHandoff decodes the RunStart the host wrote and, ON SUCCESS,
+// DELETES the file so the payload does not linger in the bind-mounted dir. A
+// missing/corrupt file is a loud error — never a silent empty RunStart (which
+// would run the engine context-free, the project's signature silent-no-op).
+//
+// The unlink is deliberately NOT deferred: it scrubs a payload that reached the
+// engine, so a payload that failed to decode must survive as the only evidence
+// of why the turn failed and the only way to reproduce it.
 func readRunStartHandoff(path string) (*pb.RunStart, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("run-start handoff: read %s: %w", path, err)
 	}
-	defer func() { _ = os.Remove(path) }()
 	var req pb.RunStart
 	if err := protojson.Unmarshal(data, &req); err != nil {
 		return nil, fmt.Errorf("run-start handoff: decode %s: %w", path, err)
 	}
+	if runStartCarriesNothing(&req) {
+		return nil, fmt.Errorf("run-start handoff: %s decoded to a RunStart carrying no options, prompt, fragments or managed config — refusing to run the engine context-free", path)
+	}
+	_ = os.Remove(path)
 	return &req, nil
+}
+
+// runStartCarriesNothing reports whether req would deliver nothing at all to
+// the engine: no options (work dir / env), no prompt, no fragments and no
+// managed config. It is the floor BOTH halves of the handoff enforce, so an
+// empty payload cannot be published by the host nor consumed by the turn.
+//
+// The test is over the WHOLE message rather than any single field because each
+// field alone is legitimately absent: an interactive turn carries no prompt and
+// no fragments (the user types on the engine's own TTY), and a skip_setup run
+// carries no managed config. Only a wholly empty RunStart is a defect, and it
+// is one the production writer cannot produce (stampHostTerminalEnv always
+// stamps Options) — which is exactly why it read as success.
+func runStartCarriesNothing(req *pb.RunStart) bool {
+	return req == nil ||
+		(req.GetOptions() == nil &&
+			req.GetPrompt() == nil &&
+			len(req.GetFragments()) == 0 &&
+			req.GetManagedConfig() == nil)
 }
 
 // turnResize adapts the cross-platform watchResize (SIGWINCH-sourced

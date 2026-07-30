@@ -224,3 +224,21 @@ func TestQuotePathIfNeeded(t *testing.T) {
 		}
 	}
 }
+
+// TestClaudeInstall_PreservesLargeNumbers pins that installing the hook is a
+// read-modify-write that only ADDS: every number already in the user's
+// settings.json comes back out as the same literal. Decoding the document
+// generically before re-emitting it rounds anything past float64's exact
+// range, so merely registering a hook rewrote unrelated settings.
+func TestClaudeInstall_PreservesLargeNumbers(t *testing.T) {
+	original := []byte(`{"awkwardNumber": 1234567890123456789, "nested": {"id": 9223372036854775807}}`)
+	out, _, err := (ClaudeCode{}).Install(original, hookCmd)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	for _, want := range []string{"1234567890123456789", "9223372036854775807"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("number %s rewritten by a hook install:\n%s", want, out)
+		}
+	}
+}

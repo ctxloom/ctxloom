@@ -118,3 +118,27 @@ func TestMCPFileConfig_WriteServers_DedupesManagedNames(t *testing.T) {
 	}
 	assert.Equal(t, 1, count, "a name shadowed by a later source must appear exactly once in the ledger, not once per source")
 }
+
+// TestMCPFileConfig_WriteServers_PreservesLargeNumbers pins that the registry
+// rewrite is value-preserving: a number a user put in mcp.json — beside the
+// servers block or inside an unmanaged server's own config — must come back
+// out of the rewrite as the same literal. A generic decode on the way to the
+// canonicaliser rounds anything past float64's exact range, which rewrites the
+// user's file while reporting success.
+func TestMCPFileConfig_WriteServers_PreservesLargeNumbers(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	original := `{"timeoutMs": 1234567890123456789,` +
+		`"mcpServers": {"theirs": {"command": "x", "budget": 9223372036854775807}}}`
+	require.NoError(t, afero.WriteFile(fs, "/proj/mcp.json", []byte(original), 0644))
+	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerPath: "/proj/.mcp-ledger", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
+
+	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"ours": {Command: "ctxloom"}}}
+	require.NoError(t, c.WriteServers(mcp, nil))
+
+	data, err := afero.ReadFile(fs, "/proj/mcp.json")
+	require.NoError(t, err)
+	got := string(data)
+	assert.Contains(t, got, "1234567890123456789", "a preserved top-level number must survive the rewrite exactly")
+	assert.Contains(t, got, "9223372036854775807", "a number inside a preserved server's config must survive too")
+	assert.Contains(t, got, `"ours"`, "the managed server is still registered")
+}

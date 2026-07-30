@@ -286,9 +286,18 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 		delete(raw, "hooks")
 	}
 
-	// Extract statusLine separately
+	// Extract statusLine separately. Unreadable is refused, not degraded, for
+	// the same reason as hooks and permissions below: the delete runs
+	// unconditionally and saveSettings re-emits the statusLine only from the
+	// typed field, so "the user has none this code can recognize" ended as the
+	// user's own statusLine being replaced by the managed HUD — or, with the
+	// HUD opted out, deleted from the file outright.
 	if slRaw, ok := raw["statusLine"]; ok {
-		settings.StatusLine = parseStatusLine(slRaw)
+		sl, err := w.parseStatusLine(path, data, slRaw)
+		if err != nil {
+			return nil, err
+		}
+		settings.StatusLine = sl
 		delete(raw, "statusLine")
 	}
 
@@ -326,19 +335,20 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	return settings, nil
 }
 
-// parseStatusLine decodes the statusLine block, or nil when it cannot be read.
-// A statusLine is a single slot ctxloom either manages or leaves alone, so an
-// unreadable one degrades to "the user has none this code can recognize" and
-// ensureStatusLine decides from there — unlike the permissions block below,
-// whose unreadable siblings are refused outright because they are the user's
-// own security rules.
-func parseStatusLine(raw json.RawMessage) *claudeCodeStatusLine {
+// parseStatusLine decodes the statusLine block, refusing the whole read when
+// it cannot. A statusLine is a single slot, but "ctxloom does not recognize it"
+// is not the same as "the user has none": treating the two alike handed
+// ensureStatusLine an empty slot to fill, which overwrote a value only the user
+// had authored — and deleted it when the managed HUD is opted out. ctxloom is
+// the wrong party to decide the fate of a value it just failed to read, so this
+// takes the same stance as parsePermissions and the hooks block: back the
+// original up and abort before anything is written.
+func (w *ClaudeCodeHookWriter) parseStatusLine(path string, data []byte, raw json.RawMessage) (*claudeCodeStatusLine, error) {
 	var sl claudeCodeStatusLine
 	if err := json.Unmarshal(raw, &sl); err != nil {
-		agent.Warn("failed to parse statusLine in settings.json: %v", err)
-		return nil
+		return nil, w.corruptSettings(path, data, "statusLine", err, "to avoid replacing or deleting the statusline already in it")
 	}
-	return &sl
+	return &sl, nil
 }
 
 // parsePermissions splits the permissions block into the ctxloom-managed Deny
@@ -386,7 +396,9 @@ func permissionsOutput(path string, perm *claudeCodePermissions) (map[string]int
 		if err := json.Unmarshal(v, &val); err != nil {
 			return nil, preserveFailure(path, "permissions."+k, err)
 		}
-		out[k] = val
+		// The decode above is the GATE, not the value: what gets re-emitted is
+		// the user's original bytes. See saveSettings for why.
+		out[k] = json.RawMessage(v)
 	}
 	if len(perm.Deny) > 0 {
 		out["deny"] = perm.Deny
@@ -424,7 +436,14 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		if err := json.Unmarshal(v, &val); err != nil {
 			return preserveFailure(path, k, err)
 		}
-		output[k] = val
+		// A preserved key is re-emitted as its ORIGINAL bytes, and the decode
+		// above serves only as the gate that rejects what cannot be carried
+		// through (preserveFailure). Handing the DECODED value to the
+		// canonicaliser instead would round every number the user wrote past
+		// float64's exact range — 1234567890123456789 comes back
+		// 1234567890123456800 — a rewrite of the user's own file that no
+		// warning or exit code reports.
+		output[k] = json.RawMessage(v)
 	}
 
 	// Add hooks if non-empty

@@ -99,10 +99,10 @@ func findSilentFailureSites(t *testing.T) []string {
 // one never requires touching another.
 //
 // Confirmed by RUNNING the command against an induced failure (not just
-// reading the source): manage.go:140 (`manage install`) and manage.go:332
+// reading the source): manage.go:143 (`manage install`) and manage.go:308
 // (`manage hooks install`) both exit 0 with "permission denied" writing
 // backend settings; bundle_distill.go:129 (`bundle distill`) exits 0 against
-// a malformed bundle YAML. manage.go:205/368 (uninstall counterparts) and
+// a malformed bundle YAML. manage.go:224/344 (uninstall counterparts) and
 // remote_discover.go:62 share the identical shape by source inspection.
 //
 // Line numbers shifted (117/154/266/287 -> 140/205/332/368) during the
@@ -112,10 +112,10 @@ func findSilentFailureSites(t *testing.T) []string {
 // unchanged and out of that batch's scope (T9/R1, not T19); only the ledger
 // keys were re-pointed at the new line numbers.
 var silentFailureAllowlist = map[string]string{
-	"manage.go:140": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:205": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:140",
-	"manage.go:332": "`manage hooks install` inline RunE: ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:368": "`manage hooks uninstall` inline RunE: RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:332",
+	"manage.go:143": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:224": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:143",
+	"manage.go:308": "`manage hooks install` inline RunE: ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:344": "`manage hooks uninstall` inline RunE: RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:308",
 
 	"bundle_distill.go:129": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it.",
 

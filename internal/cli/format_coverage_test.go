@@ -298,15 +298,15 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 
 	// --- skip: not wired to emit() yet (pre-existing gap, outside this task's named stragglers) ---
 	"fragment show":    {skip: "not wired to emit() yet (item_helpers.go showItem)", formatDebt: true},
-	"fragment create":  {skip: "not wired to emit() yet", formatDebt: true},
-	"fragment delete":  {skip: "not wired to emit() yet", formatDebt: true},
-	"fragment edit":    {skip: "not wired to emit() yet", formatDebt: true},
-	"fragment distill": {skip: "not wired to emit() yet", formatDebt: true},
+	"fragment create":  {skip: "wired to emit(); mutating, exercised directly in item_format_test.go"},
+	"fragment delete":  {skip: "wired to emit(); destructive, exercised directly in item_format_test.go"},
+	"fragment edit":    {skip: "wired to emit(); opens $EDITOR, exercised directly in item_edit_test.go"},
+	"fragment distill": {skip: "wired to emit(); needs an LLM-backed distiller, exercised directly in item_format_test.go"},
 	"command show":     {skip: "not wired to emit() yet", formatDebt: true},
-	"command create":   {skip: "not wired to emit() yet", formatDebt: true},
-	"command delete":   {skip: "not wired to emit() yet", formatDebt: true},
-	"command edit":     {skip: "not wired to emit() yet", formatDebt: true},
-	"command distill":  {skip: "not wired to emit() yet", formatDebt: true},
+	"command create":   {skip: "wired to emit(); mutating, exercised directly in item_format_test.go"},
+	"command delete":   {skip: "wired to emit(); destructive, exercised directly in item_format_test.go"},
+	"command edit":     {skip: "wired to emit(); opens $EDITOR, exercised directly in item_edit_test.go"},
+	"command distill":  {skip: "wired to emit(); needs an LLM-backed distiller, exercised directly in item_format_test.go"},
 	"skill show":       {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
 	"skill create":     {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
 	"skill export":     {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
@@ -493,16 +493,8 @@ var formatDebtAllowlist = map[string]string{
 	"container scaffold": "container_cmd.go: containerScaffoldCmd's inline RunE must route through emit() instead of iox.ErrWriter Printf calls",
 
 	// --- fragment/command item surfaces (fragment.go, command_cmd.go, item_helpers.go) ---
-	"fragment show":    "item_helpers.go: showItem (used by fragment show) must route through emit()",
-	"fragment create":  "fragment.go: the create RunE must route through emit()",
-	"fragment delete":  "fragment.go: the delete RunE must route through emit()",
-	"fragment edit":    "fragment.go: the edit RunE must route through emit()",
-	"fragment distill": "fragment.go: the distill RunE must route through emit()",
-	"command show":     "command_cmd.go: the show RunE must route through emit()",
-	"command create":   "command_cmd.go: the create RunE must route through emit()",
-	"command delete":   "command_cmd.go: the delete RunE must route through emit()",
-	"command edit":     "command_cmd.go: the edit RunE must route through emit()",
-	"command distill":  "command_cmd.go: the distill RunE must route through emit()",
+	"fragment show": "item_helpers.go: showItem (used by fragment show) must route through emit()",
+	"command show":  "item_helpers.go: showItem (used by command show) must route through emit()",
 
 	// --- agent/init surfaces (agent.go, init.go) ---
 	"agent remove":  "agent.go: the agent-remove RunE must route through emit()",

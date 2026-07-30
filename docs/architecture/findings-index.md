@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,184** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,185** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 87 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 136 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
-| `open` | no commit names this ID | **711** |
+| `open` | no commit names this ID | **710** |
 
-**Totals: 2268 findings across 162 units — 1,184 resolved, 711 still open, 373 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,185 resolved, 710 still open, 373 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 392 | 407 | 47 | 58 | 95 |
-| LOW | 871 | 441 | 279 | 30 | 70 | 51 |
+| LOW | 871 | 442 | 278 | 30 | 70 | 51 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2677,7 +2677,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U120-F19 | **ESCALATED** `1326d21c` | `log.go:129-141` | COMPLEXITY | Every operation — read *and* write — reads and re-parses the entire log; there is no compaction, rotation, or size bound, and `opRemove` tombstones grow the file forever. | U120.md |
 | U121-F03 | **RESOLVED** `cac52a3e` `127539ad` | `lint.go:213-220` | TRIVIAL | `contains` reimplements `slices.Contains`, and has an identical twin in a sibling package | U121.md |
 | U121-F07 | open | `lint.go:92-133` | CORRECTNESS | `Lint` can emit exactly-duplicate `Violation` rows, and the final sort does not dedupe them | U121.md |
-| U122-F06 | open | `:828-830`, `:836-838` | ERRHANDLING | `missingLogSiblingNote` swallows two errors into `return ""` / `continue`, so a registry read failure produces the same silence as "nothing to report" | U122.md |
+| U122-F06 | **RESOLVED** `527e1717` | `:828-830`, `:836-838` | ERRHANDLING | `missingLogSiblingNote` swallows two errors into `return ""` / `continue`, so a registry read failure produces the same silence as "nothing to report" | U122.md |
 | U122-F07 | **REFUTED** `392838f1` | `:330-335` | SILENTNOOP | The `if len(addTags) > 0` guard leaves a path where `TagTask` returns `TaskResult{Task: tasks.Task{}}` with a **nil error** — success carrying an empty task | U122.md |
 | U122-F08 | **RESOLVED** `cac52a3e` `d4ea1e4e` | `:560-567` | DUPLICATE | `containsString` reimplements `slices.Contains` and duplicates `lint.contains` | U122.md |
 | U122-F09 | **RESOLVED** `90507280` | `:115-125` | ERRHANDLING | `ResolveProjectIdentity` is the only function in the file that returns errors unwrapped, so its two failure modes are indistinguishable to its four callers | U122.md |

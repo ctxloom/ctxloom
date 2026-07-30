@@ -1,7 +1,9 @@
 package bundles
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -92,8 +94,15 @@ const SigSuffix = ".sig"
 func (s *fsStore) invalidateStaleSignature(path string, data []byte) error {
 	sigPath := path + SigSuffix
 	sig, err := afero.ReadFile(s.fs, sigPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // No signature at all: the common case, nothing to invalidate.
+	}
 	if err != nil {
-		return nil // No signature (the common case), or none we can read: nothing to invalidate.
+		// A signature that EXISTS but cannot be read is not the same as none:
+		// returning success here leaves exactly the broken pair this function
+		// exists to prevent, and a broken pair reads downstream as an attack.
+		return fmt.Errorf("bundle %s was written, but its sibling signature %s could not be read to check whether it still covers those bytes "+
+			"(publishing a stale signature would make every consumer see tampering): %w", filepath.Base(path), filepath.Base(sigPath), err)
 	}
 	if signing.CoversBytes(data, sig, signing.NamespacePublish) == nil {
 		return nil // Still covers these exact bytes — an unchanged save. Leave it alone.

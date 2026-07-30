@@ -181,14 +181,23 @@ func projectAppDir(cfg *config.Config) string {
 	return ".ctxloom"
 }
 
-// refreshRemoteClone fetches the latest into the local clone so updates can be
-// detected. Fault-tolerant: a fetch failure warns and the stale clone is used.
+// refreshRemoteClone fetches the latest into one repo's local clone so updates
+// can be detected — the single-ref counterpart of refreshRemoteRepos.
 func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string) {
-	cache := operations.NewRepoCache(cfg)
-	if forgeType, _, ferr := remote.DetectForge(repoURL); ferr == nil {
-		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
-			clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
-		}
+	fetchIntoClone(ctx, operations.NewRepoCache(cfg), repoURL)
+}
+
+// fetchIntoClone refreshes one repository's local clone. Fault-tolerant, and
+// deliberately so on both arms: a fetch failure warns and leaves the stale
+// clone in place (a stale clone risks missing an update, never a crash), and a
+// URL whose forge cannot be detected has nothing to fetch from at all.
+func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, repoURL string) {
+	forgeType, _, ferr := remote.DetectForge(repoURL)
+	if ferr != nil {
+		return
+	}
+	if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
+		clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
 	}
 }
 
@@ -334,8 +343,10 @@ type pullRunner interface {
 }
 
 // refreshRemoteRepos fetches each unique remote git repo once so subsequent ref
-// resolution reads from a fresh clone. Best-effort: every failure is warned to
-// stderr and skipped — a stale repo just risks missing an update, never a crash.
+// resolution reads from a fresh clone (one git fetch per repo, not one per
+// entry). It adds only the batch concerns on top of fetchIntoClone: an entry
+// with no locked SHA was never pulled and so has nothing to compare against,
+// and an unparseable or URL-less reference is skipped.
 func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remote.Lockfile) {
 	cache := operations.NewRepoCache(cfg)
 	fetched := map[string]struct{}{}
@@ -347,18 +358,11 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 		if err != nil || ref.URL == "" {
 			continue
 		}
-		repoURL := ref.URL
-		if _, ok := fetched[repoURL]; ok {
+		if _, ok := fetched[ref.URL]; ok {
 			continue
 		}
-		fetched[repoURL] = struct{}{}
-		forgeType, _, ferr := remote.DetectForge(repoURL)
-		if ferr != nil {
-			continue
-		}
-		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
-			clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
-		}
+		fetched[ref.URL] = struct{}{}
+		fetchIntoClone(ctx, cache, ref.URL)
 	}
 }
 

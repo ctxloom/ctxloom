@@ -97,7 +97,7 @@ func ParseFeature(path string) (Feature, error) {
 					i++
 					continue
 				}
-				if strings.HasPrefix(s2, "@") {
+				if strings.HasPrefix(s2, "@") && tagsStartNewScenario(lines, i) {
 					break
 				}
 				if strings.HasPrefix(s2, "Scenario:") || strings.HasPrefix(s2, "Scenario Outline:") {
@@ -130,6 +130,24 @@ func ParseFeature(path string) (Feature, error) {
 		Tags:        featureTags,
 		Scenarios:   scenarios,
 	}, nil
+}
+
+// tagsStartNewScenario reports whether the tag line at index i belongs to a
+// NEW scenario rather than to the one being parsed. Gherkin attaches tags to
+// an Examples: block (they cannot attach to a single table row), so a run of
+// tags followed by "Examples:" is part of the current Scenario Outline, while
+// a run of tags followed by a Scenario header ends it. Blank lines, comments
+// and further tag lines are skipped on the way. A run of tags at end of file
+// belongs to nothing and is treated as a terminator.
+func tagsStartNewScenario(lines []string, i int) bool {
+	for ; i < len(lines); i++ {
+		s := strings.TrimSpace(lines[i])
+		if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "@") {
+			continue
+		}
+		return strings.HasPrefix(s, "Scenario:") || strings.HasPrefix(s, "Scenario Outline:")
+	}
+	return true
 }
 
 // DiscoverDocFeatures returns every @doc-tagged .feature file in dir, sorted

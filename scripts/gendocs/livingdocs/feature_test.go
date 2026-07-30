@@ -112,3 +112,56 @@ func TestDiscoverDocFeatures_EmptyDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, found)
 }
+
+// TestParseFeature_TaggedExamplesStayInTheBody pins that a @tag line ends a
+// scenario only when a NEW scenario follows it. Per-row tagging in Gherkin
+// attaches tags to an Examples: block (tags cannot attach to a single table
+// row), and this repo uses that shape — see
+// tests/acceptance/features/isolation_probe.feature, which has ten
+// individually-tagged one-row Examples blocks. Treating every @tag as a
+// terminator truncated such a scenario's Body at the first tag, so the raw
+// Gherkin published for an uncaptured scenario silently lost its Examples
+// tables — the only place Body is rendered.
+func TestParseFeature_TaggedExamplesStayInTheBody(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "probe.feature")
+	writeFile(t, path, `@doc
+Feature: Probe
+
+  @live
+  Scenario Outline: The probe runs for <engine>
+    Given the probe targets "<engine>"
+    Then it holds for "<engine>"
+
+    @claude-code @worktree
+    Examples:
+      | engine      |
+      | claude-code |
+
+    @codex @container
+    Examples:
+      | engine |
+      | codex  |
+
+  @wip
+  Scenario: A later scenario
+    Given something else
+`)
+
+	feat, err := ParseFeature(path)
+	require.NoError(t, err)
+	require.Len(t, feat.Scenarios, 2, "the tagged Examples blocks must not split the outline into extra scenarios")
+
+	outline := feat.Scenarios[0]
+	assert.Equal(t, "The probe runs for <engine>", outline.Name)
+	assert.Equal(t, []string{"@live"}, outline.Tags)
+	assert.Contains(t, outline.Body, "@claude-code @worktree", "the Examples block's own tags belong to the outline")
+	assert.Contains(t, outline.Body, "| claude-code |")
+	assert.Contains(t, outline.Body, "@codex @container")
+	assert.Contains(t, outline.Body, "| codex  |")
+	assert.NotContains(t, outline.Body, "A later scenario")
+	assert.NotContains(t, outline.Body, "@wip", "the NEXT scenario's tags must still terminate this one")
+
+	assert.Equal(t, "A later scenario", feat.Scenarios[1].Name)
+	assert.Equal(t, []string{"@wip"}, feat.Scenarios[1].Tags)
+}

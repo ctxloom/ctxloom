@@ -421,27 +421,30 @@ type dirtyTreeHandlerOption struct {
 }
 
 // dirtyTreeHandlerOptions is promptDirtyTreeHandler's menu, in display order.
-// Index 0 ("commit") is both the built-in default (operations package's
-// defaultDirtyTreeHandler) and what a bare Enter picks, mirroring
-// promptEngineSelection's "Enter for recommended" convention. Wording must
-// stay in lockstep with the real refusal/warning text a mismatched choice
-// would later hit — see internal/operations/delegate.go's
+// Index 0 (DirtyTreeHandlerCommit) is both the built-in default (operations
+// package's defaultDirtyTreeHandler) and what a bare Enter picks, mirroring
+// promptEngineSelection's "Enter for recommended" convention. The values are
+// the operations constants themselves, not copies of their text: this menu
+// writes dirty_tree_handler, and the handler that reads it back is the only
+// authority on what the four values are. Wording must stay in lockstep with
+// the real refusal/warning text a mismatched choice would later hit — see
+// internal/operations/delegate.go's
 // dirtyTreeFailError/commitDirtyTree/handleDirtyParentTree "stale" branch.
 var dirtyTreeHandlerOptions = []dirtyTreeHandlerOption{
 	{
-		value: "commit",
+		value: operations.DirtyTreeHandlerCommit,
 		label: "commit — ctxloom may commit your uncommitted changes onto your current branch on your behalf, so the child can see them (each such commit is announced when it happens) (Recommended)",
 	},
 	{
-		value: "copy",
+		value: operations.DirtyTreeHandlerCopy,
 		label: "copy — reproduce your uncommitted changes inside the child's own worktree as uncommitted WIP; nothing on your branch is ever touched",
 	},
 	{
-		value: "stale",
+		value: operations.DirtyTreeHandlerStale,
 		label: "stale — the child sees only your last commit; your uncommitted work stays invisible to it",
 	},
 	{
-		value: "fail",
+		value: operations.DirtyTreeHandlerFail,
 		label: "fail — refuse the delegation instead of guessing",
 	},
 }
@@ -452,7 +455,8 @@ var dirtyTreeHandlerOptions = []dirtyTreeHandlerOption{
 // commit your uncommitted work on your behalf" and "what should happen when
 // your tree is dirty" are the SAME choice among commit/copy/stale/fail, and
 // asking both would just rubber-stamp the first with the second (see this
-// task's brief). ack is true if and only if the chosen handler is "commit" —
+// task's brief). ack is true if and only if the chosen handler is the commit
+// handler (operations.DirtyTreeHandlerCommit) —
 // every other handler never mutates the user's repo and needs no
 // acknowledgement (config.Config.dirtyTreeCommitAck's doc).
 //
@@ -489,7 +493,7 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 			}
 			opt = dirtyTreeHandlerOptions[num-1]
 		}
-		return opt.value, opt.value == "commit", nil
+		return opt.value, opt.value == operations.DirtyTreeHandlerCommit, nil
 	}
 }
 

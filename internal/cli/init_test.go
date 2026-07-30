@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -338,4 +339,41 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	captureStdout(t, func() { applyInitHooks(&cobra.Command{}, targetApp) })
 	assert.Equal(t, targetApp, gotAppDir,
 		"hooks must be applied from the config this init wrote, not the ambient one")
+}
+
+// TestDirtyTreeHandlerOptions_AreTheOperationsHandlers (U036-F11) pins the
+// menu to the handler set that reads its answer back. The interview writes
+// dirty_tree_handler and internal/operations/delegate.go dispatches on it, so
+// "which four values exist" and "which one needs the commit acknowledgement"
+// are that package's rules; the menu had them as its own string literals, which
+// is a connascence of meaning across a package boundary — nothing links the two
+// lists, and a handler renamed or added there leaves this menu quietly writing
+// a value the dispatcher treats as absent.
+//
+// The literal values stay pinned in TestPromptDirtyTreeHandler_EachOptionAndDefault
+// (they are what lands in config.yaml); this test pins the correspondence.
+func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
+	values := make([]string, 0, len(dirtyTreeHandlerOptions))
+	for _, opt := range dirtyTreeHandlerOptions {
+		values = append(values, opt.value)
+	}
+	assert.Equal(t, []string{
+		operations.DirtyTreeHandlerCommit,
+		operations.DirtyTreeHandlerCopy,
+		operations.DirtyTreeHandlerStale,
+		operations.DirtyTreeHandlerFail,
+	}, values, "the menu must offer exactly the handlers operations dispatches on, in display order")
+
+	// And the ack rule keys on the SAME commit handler, for every arm.
+	for i, opt := range dirtyTreeHandlerOptions {
+		p := newInitPromptsFrom(strings.NewReader(strconv.Itoa(i+1) + "\n"))
+		var handler string
+		var ack bool
+		var err error
+		captureStdout(t, func() { handler, ack, err = p.promptDirtyTreeHandler() })
+		require.NoError(t, err)
+		assert.Equal(t, opt.value, handler)
+		assert.Equal(t, opt.value == operations.DirtyTreeHandlerCommit, ack,
+			"only the commit handler mutates the user's repo, so only it carries the ack")
+	}
 }

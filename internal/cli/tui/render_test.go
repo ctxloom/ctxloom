@@ -51,6 +51,22 @@ func TestRenderItem_ToolResultSummaryAndExpansion(t *testing.T) {
 	assert.Contains(t, strings.Join(expanded, "\n"), "line2")
 }
 
+// The "x expands" cue is an instruction to press a key that is only useful
+// while the entry is collapsed. Once it IS expanded, repeating the cue tells
+// the user to press the key they just pressed — and the same rendering is what
+// the txt export and the clipboard copy contain, where no key exists at all.
+// U044-F17: the expanded summary keeps the size cue and drops the key hint.
+func TestRenderItem_ExpandedToolResultDoesNotAdvertiseTheExpandKey(t *testing.T) {
+	it := feedItem{role: "tool_result", toolName: "Bash", toolOutput: "line1\nline2\nline3"}
+
+	collapsed := strings.Join(renderItem(it, 80, false), "\n")
+	assert.Contains(t, collapsed, "x expands", "collapsed still offers the key")
+
+	expanded := strings.Join(renderItem(it, 80, true), "\n")
+	assert.NotContains(t, expanded, "x expands")
+	assert.Contains(t, expanded, "ok (3 lines)", "the size cue survives")
+}
+
 func TestRenderItem_ThinkingCollapses(t *testing.T) {
 	it := feedItem{role: "thinking", text: "first thought\nsecond thought\nthird"}
 	collapsed := renderItem(it, 80, false)

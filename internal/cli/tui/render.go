@@ -79,9 +79,9 @@ func renderItem(it feedItem, width int, expanded bool) []string {
 		}
 		lines := splitLines(out)
 		if expanded {
-			raw = append([]string{resultSummary(it, lines)}, lines...)
+			raw = append([]string{resultSummary(it, lines, true)}, lines...)
 		} else {
-			raw = []string{resultSummary(it, lines)}
+			raw = []string{resultSummary(it, lines, false)}
 		}
 	case "thinking":
 		lines := splitLines(it.text)
@@ -114,8 +114,11 @@ func renderItem(it feedItem, width int, expanded bool) []string {
 	return out
 }
 
-// resultSummary is the tool_result one-liner: ok/error plus a size cue.
-func resultSummary(it feedItem, lines []string) string {
+// resultSummary is the tool_result one-liner: ok/error plus a size cue. The
+// "x expands" key hint belongs to the collapsed form only — the expanded form
+// already shows the body, and the same rendering is what the txt export and
+// the clipboard copy carry, where there is no key to press.
+func resultSummary(it feedItem, lines []string, expanded bool) string {
 	status := "ok"
 	if it.isError {
 		status = "error"
@@ -125,6 +128,8 @@ func resultSummary(it feedItem, lines []string) string {
 		return status
 	case len(lines) == 1:
 		return status + ": " + lines[0]
+	case expanded:
+		return fmt.Sprintf("%s (%d lines)", status, len(lines))
 	default:
 		return fmt.Sprintf("%s (%d lines) — x expands", status, len(lines))
 	}

@@ -66,10 +66,10 @@ func (b *Antigravity) Chat(ctx context.Context, req agent.ChatRequest, in <-chan
 		}
 	}
 
-	conversationID := req.ResumeSessionID
+	c := &chatTurns{b: b, ctx: ctx, req: req, send: send, conversationID: req.ResumeSessionID}
 
 	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{
-		SessionID:      conversationID,
+		SessionID:      c.conversationID,
 		Model:          req.Model,
 		PermissionMode: req.Permissions.String(),
 		MCPServers:     advisoryMCPStatus(req.MCPServers),
@@ -77,124 +77,195 @@ func (b *Antigravity) Chat(ctx context.Context, req agent.ChatRequest, in <-chan
 		return ctx.Err()
 	}
 
-	type turnResult struct {
-		text  string
-		start time.Time
-		err   error
-	}
-	var (
-		turnDone        chan turnResult // non-nil while a turn is in flight
-		cancelTurn      context.CancelFunc
-		cancelRequested bool
-		queued          []string // text messages that arrived mid-turn, in order
-		inChan          = in     // nil'd once the caller closes input
-	)
+	return c.run(in)
+}
 
-	startTurn := func(text string) {
-		turnCtx, cancel := context.WithCancel(ctx)
-		cancelTurn = cancel
-		done := make(chan turnResult, 1)
-		turnDone = done
-		start := time.Now()
-		go func() {
-			reply, err := b.runChatTurn(turnCtx, req, text, conversationID)
-			done <- turnResult{text: reply, start: start, err: err}
-		}()
-	}
+// chatTurns is one Chat call's turn state: the turn in flight (if any), the
+// messages that arrived while it ran, and the conversation id every later turn
+// resumes. The loop below is split across its methods so each arm stays legible
+// on its own; the state is shared by all of them, which is why it lives here
+// instead of being threaded through parameters.
+type chatTurns struct {
+	b    *Antigravity
+	ctx  context.Context
+	req  agent.ChatRequest
+	send func(agent.ChatEvent) bool
 
+	conversationID  string
+	turnDone        chan chatTurnResult // non-nil while a turn is in flight
+	cancelTurn      context.CancelFunc
+	cancelRequested bool
+	queued          []string // text messages that arrived mid-turn, in order
+}
+
+// chatTurnResult is one finished `agy -p` turn: its prose reply, when it
+// started, and why it ended if it failed.
+type chatTurnResult struct {
+	text  string
+	start time.Time
+	err   error
+}
+
+// run is Chat's event loop: keep a turn moving while there is one to run, then
+// service whichever of cancellation, a finished turn, or new input arrives
+// first. It returns nil once input is closed and nothing is left to drain.
+func (c *chatTurns) run(in <-chan agent.ChatMessage) error {
+	inChan := in // nil'd once the caller closes input
 	for {
-		if turnDone == nil {
-			if len(queued) > 0 {
-				next := queued[0]
-				queued = queued[1:]
-				startTurn(next)
-			} else if inChan == nil {
-				return nil
-			}
+		if !c.nextTurn(inChan != nil) {
+			return nil
 		}
 
 		select {
-		case <-ctx.Done():
-			if cancelTurn != nil {
-				cancelTurn()
-			}
-			return ctx.Err()
+		case <-c.ctx.Done():
+			c.cancelInFlight()
+			return c.ctx.Err()
 
-		case res := <-turnDone:
-			turnDone = nil
-			cancelTurn = nil
-			wasCancelled := cancelRequested
-			cancelRequested = false
-
-			if res.err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if wasCancelled {
-					if !send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "cancelled", Model: req.Model}}) {
-						return ctx.Err()
-					}
-					continue
-				}
-				return res.err
-			}
-
-			if !send(agent.ChatEvent{Entry: &agent.SessionEntry{
-				Type:      agent.EntryTypeAssistant,
-				Content:   res.text,
-				Timestamp: res.start,
-			}}) {
-				return ctx.Err()
-			}
-
-			// Resolve (or refresh) the conversation id via agy's own
-			// workspace->conversation map (conversationmap.go's agyConversationMap)
-			// — agy -p never prints it. Emitted as a
-			// follow-up Session event only when it changed, so a coordinator can
-			// journal SessionID for a later ResumeSessionID resume. R3
-			// (TOCTOU): this file is last-writer-wins under concurrent agy runs
-			// sharing a workDir; per-agent cwd isolation (worktree/container) is
-			// what actually protects this, not a lock here.
-			id, ok, err := b.resolveChatConversationID(req.WorkDir)
-			if err != nil {
-				agent.Warn("antigravity: %v — this turn's conversation id is unknown, so the next turn starts a fresh conversation instead of resuming", err)
-			}
-			if ok && id != conversationID {
-				conversationID = id
-				if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{
-					SessionID:      conversationID,
-					Model:          req.Model,
-					PermissionMode: req.Permissions.String(),
-				}}) {
-					return ctx.Err()
-				}
-			}
-
-			if !send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", Model: req.Model}}) {
-				return ctx.Err()
+		case res := <-c.turnDone:
+			if err := c.completeTurn(res); err != nil {
+				return err
 			}
 
 		case msg, ok := <-inChan:
 			if !ok {
 				// Input closed: finish the in-flight/queued turns, then return
-				// (the idle branch above exits once both drain).
+				// (nextTurn reports done once both drain).
 				inChan = nil
 				continue
 			}
-			switch {
-			case msg.CancelTurn:
-				if cancelTurn != nil {
-					cancelRequested = true
-					cancelTurn()
-				}
-			case msg.Permission != nil:
-				// Inert (see the doc comment above): agy -p never asks, so
-				// there is nothing to answer — the launch-time flags already
-				// decided the posture for every turn.
-			default:
-				queued = append(queued, msg.Text)
-			}
+			c.handleMessage(msg)
 		}
+	}
+}
+
+// nextTurn starts the next queued turn when none is in flight. It reports false
+// only when nothing is in flight, nothing is queued, and no more input is
+// coming — the loop's one non-error exit.
+func (c *chatTurns) nextTurn(inputOpen bool) bool {
+	if c.turnDone != nil {
+		return true
+	}
+	if len(c.queued) == 0 {
+		return inputOpen
+	}
+	next := c.queued[0]
+	c.queued = c.queued[1:]
+	c.startTurn(next)
+	return true
+}
+
+// startTurn spawns one turn against the current conversation id, under its own
+// cancellable context so a CancelTurn ends the turn rather than the Chat.
+func (c *chatTurns) startTurn(text string) {
+	turnCtx, cancel := context.WithCancel(c.ctx)
+	c.cancelTurn = cancel
+	done := make(chan chatTurnResult, 1)
+	c.turnDone = done
+	start := time.Now()
+	go func() {
+		reply, err := c.b.runChatTurn(turnCtx, c.req, text, c.conversationID)
+		done <- chatTurnResult{text: reply, start: start, err: err}
+	}()
+}
+
+// cancelInFlight cancels the turn in flight, if there is one.
+func (c *chatTurns) cancelInFlight() {
+	if c.cancelTurn != nil {
+		c.cancelTurn()
+	}
+}
+
+// completeTurn services a finished turn: emit the reply, refresh the
+// conversation id, close the turn out. nil continues the loop; an error is
+// terminal for the whole Chat.
+func (c *chatTurns) completeTurn(res chatTurnResult) error {
+	c.turnDone = nil
+	c.cancelTurn = nil
+	wasCancelled := c.cancelRequested
+	c.cancelRequested = false
+
+	if res.err != nil {
+		return c.failedTurn(res.err, wasCancelled)
+	}
+
+	if !c.send(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type:      agent.EntryTypeAssistant,
+		Content:   res.text,
+		Timestamp: res.start,
+	}}) {
+		return c.ctx.Err()
+	}
+
+	if err := c.refreshConversationID(); err != nil {
+		return err
+	}
+
+	if !c.send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", Model: c.req.Model}}) {
+		return c.ctx.Err()
+	}
+	return nil
+}
+
+// failedTurn resolves a turn that ended in error. A turn the caller cancelled
+// completes with StopReason "cancelled" and the conversation carries on (nil);
+// anything else ends the Chat with that error.
+func (c *chatTurns) failedTurn(err error, wasCancelled bool) error {
+	if c.ctx.Err() != nil {
+		return c.ctx.Err()
+	}
+	if !wasCancelled {
+		return err
+	}
+	if !c.send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "cancelled", Model: c.req.Model}}) {
+		return c.ctx.Err()
+	}
+	return nil
+}
+
+// refreshConversationID resolves (or refreshes) the conversation id via agy's
+// own workspace->conversation map (conversationmap.go's agyConversationMap) —
+// agy -p never prints it. A CHANGED id is emitted as a follow-up Session event,
+// so a coordinator can journal SessionID for a later ResumeSessionID resume. An
+// unreadable cache costs only the continuation, not the turn, so it is reported
+// and the loop carries on.
+//
+// R3 (TOCTOU): that cache file is last-writer-wins under concurrent agy runs
+// sharing a workDir; per-agent cwd isolation (worktree/container) is what
+// actually protects this, not a lock here.
+func (c *chatTurns) refreshConversationID() error {
+	id, ok, err := c.b.resolveChatConversationID(c.req.WorkDir)
+	if err != nil {
+		agent.Warn("antigravity: %v — this turn's conversation id is unknown, so the next turn starts a fresh conversation instead of resuming", err)
+	}
+	if !ok || id == c.conversationID {
+		return nil
+	}
+	c.conversationID = id
+	if !c.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{
+		SessionID:      c.conversationID,
+		Model:          c.req.Model,
+		PermissionMode: c.req.Permissions.String(),
+	}}) {
+		return c.ctx.Err()
+	}
+	return nil
+}
+
+// handleMessage services one inbound message: a cancel request kills the turn in
+// flight, a permission answer is inert, and anything else queues as a turn's
+// text.
+func (c *chatTurns) handleMessage(msg agent.ChatMessage) {
+	switch {
+	case msg.CancelTurn:
+		if c.cancelTurn != nil {
+			c.cancelRequested = true
+			c.cancelTurn()
+		}
+	case msg.Permission != nil:
+		// Inert (see Chat's doc comment): agy -p never asks, so there is nothing
+		// to answer — the launch-time flags decided the posture for every turn.
+	default:
+		c.queued = append(c.queued, msg.Text)
 	}
 }
 

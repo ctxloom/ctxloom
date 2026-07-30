@@ -148,9 +148,16 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 
 		switch output := resp.Output.(type) {
 		case *RunResponse_Stdout:
-			_, _ = stdout.Write(output.Stdout)
+			// A write the caller's sink refused (closed pipe, full disk) has
+			// lost engine output for good; continuing would hand back a clean
+			// exit code over a truncated transcript.
+			if _, werr := stdout.Write(output.Stdout); werr != nil {
+				return nil, fmt.Errorf("write engine stdout: %w", werr)
+			}
 		case *RunResponse_Stderr:
-			_, _ = stderr.Write(output.Stderr)
+			if _, werr := stderr.Write(output.Stderr); werr != nil {
+				return nil, fmt.Errorf("write engine stderr: %w", werr)
+			}
 		case *RunResponse_ExitCode:
 			result.ExitCode = output.ExitCode
 			// ModelInfo is sent with exit_code

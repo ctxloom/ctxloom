@@ -478,6 +478,45 @@ func TestLLMRunner_DelegatesSessionAndPlanOperations(t *testing.T) {
 	assert.Equal(t, "do the thing", plans[0].Content)
 }
 
+// failingWriter fails every Write — a closed pipe (`ctxloom run | head`) or a
+// full disk on a redirected run, as seen by the client's output plumbing.
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// TestGRPCClient_RunWithModelInfo_StdoutWriteErrorSurfaces pins U059-F17: the
+// client discarded the error from every write to the caller's stdout/stderr, so
+// a redirected run that could not persist its output still exited 0 with a
+// silently truncated transcript. The write failure is the run's failure.
+func TestGRPCClient_RunWithModelInfo_StdoutWriteErrorSurfaces(t *testing.T) {
+	want := errors.New("no space left on device")
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_Stdout{Stdout: []byte("output nobody can keep\n")}},
+		{Output: &RunResponse_ExitCode{ExitCode: 0}},
+	}}
+	c := &GRPCClient{client: &fakeLLMClient{runStream: stream}}
+
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, failingWriter{err: want}, io.Discard, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, want)
+}
+
+// TestGRPCClient_RunWithModelInfo_StderrWriteErrorSurfaces is the same defect on
+// the stderr leg — diagnostics that never reached the caller must not be
+// reported as delivered either.
+func TestGRPCClient_RunWithModelInfo_StderrWriteErrorSurfaces(t *testing.T) {
+	want := errors.New("broken pipe")
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_Stderr{Stderr: []byte("a warning nobody can keep\n")}},
+		{Output: &RunResponse_ExitCode{ExitCode: 0}},
+	}}
+	c := &GRPCClient{client: &fakeLLMClient{runStream: stream}}
+
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, io.Discard, failingWriter{err: want}, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, want)
+}
+
 // TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError pins U059-F05. The
 // server sends the exit code as the FINAL message of every completed run
 // (server.go's Run ends with exactly that Send), so a stream that reaches EOF

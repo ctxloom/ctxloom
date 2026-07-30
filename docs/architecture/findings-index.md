@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,075** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 48 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 99 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 136 |
-| `open` | no commit names this ID | **910** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,080** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 50 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 103 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 138 |
+| `open` | no commit names this ID | **897** |
 
-**Totals: 2268 findings across 162 units — 1,075 resolved, 910 still open, 283 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,080 resolved, 897 still open, 291 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 324 | 533 | 20 | 38 | 84 |
-| LOW | 871 | 401 | 351 | 18 | 53 | 48 |
+| MED | 999 | 327 | 525 | 22 | 40 | 85 |
+| LOW | 871 | 403 | 346 | 18 | 55 | 49 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1357,16 +1357,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U063-F21 | **RESOLVED** `7ba7ac5c` | `imagebuild.go:283-304` | NOPAY | The entire non-composable branch of `buildSources` (three `append` blocks, ~22 lines) is unreachable in production: **no profile sets `officialImage` or `containerfile`**, so for any non-composable... | U063.md |
 | U063-F22 | open | `imagebuild.go:353-355` | SILENTNOOP | `overlayContainerfile` emits the client-validation `RUN <validate>` **only when `validate != ""`**. For the default (unprofiled) backend `validate` is `""`, so `ctxloom container build <unprofiled-... | U063.md |
 | U063-F23 | open | `imagebuild.go:571-580, 788-793` | CORRECTNESS | The staleness gate **fails open**: an unresolvable host binary or unreadable base Containerfile yields `""`, and `imageStale("" want)` returns `false` — i.e. "not stale", so *any* present image (ho... | U063.md |
-| U064-F03 | open | `runner.go:331-333` | CORRECTNESS | `containerHandshakeEnv`'s doc promises "ONLY the go-plugin handshake vars … never the host's full environment", but the third case is a **prefix match** (`strings.HasPrefix(key, "PLUGIN_")`) over a... | U064.md |
-| U064-F04 | open | `traceprobe.go:186-193` | CORRECTNESS | `ParseStraceReads` records `Result:"ok"` whenever the errno group is empty, **ignoring the captured return value** — so a failed syscall whose errno strace did not name is reported as a success, in... | U064.md |
-| U064-F05 | open | `statemounts.go:99-105` | SILENTNOOP | When `profile.transcriptStoreRel == ""` the transcript mount is skipped with **no warning and no error** — the run succeeds, the container writes a transcript, and it dies at `--rm` teardown with n... | U064.md |
-| U064-F06 | open | `statemounts.go:80, 116` | SILENTNOOP | A missing harp or project id degrades transcript/persist/task durability behind `clidiag.WarnOnce` — in a fan-out (map/weave, agent_run) only the **first** affected member warns; every subsequent m... | U064.md |
-| U064-F07 | open | **`runtime.go:725-732`** | CORRECTNESS | An explicit runtime preference that is unknown or unavailable is **silently** replaced by auto-detection: a user who configured `podman` can get `docker` with no diagnostic. | U064.md |
+| U064-F03 | **RESOLVED** `b5ccfe46` | `runner.go:331-333` | CORRECTNESS | `containerHandshakeEnv`'s doc promises "ONLY the go-plugin handshake vars … never the host's full environment", but the third case is a **prefix match** (`strings.HasPrefix(key, "PLUGIN_")`) over a... | U064.md |
+| U064-F04 | **RESOLVED** `f111d19a` | `traceprobe.go:186-193` | CORRECTNESS | `ParseStraceReads` records `Result:"ok"` whenever the errno group is empty, **ignoring the captured return value** — so a failed syscall whose errno strace did not name is reported as a success, in... | U064.md |
+| U064-F05 | **REFUTED** `c60fc7a3` | `statemounts.go:99-105` | SILENTNOOP | When `profile.transcriptStoreRel == ""` the transcript mount is skipped with **no warning and no error** — the run succeeds, the container writes a transcript, and it dies at `--rm` teardown with n... | U064.md |
+| U064-F06 | **PARTIAL** `cbb2938a` | `statemounts.go:80, 116` | SILENTNOOP | A missing harp or project id degrades transcript/persist/task durability behind `clidiag.WarnOnce` — in a fan-out (map/weave, agent_run) only the **first** affected member warns; every subsequent m... | U064.md |
+| U064-F07 | **REFUTED** `c60fc7a3` | **`runtime.go:725-732`** | CORRECTNESS | An explicit runtime preference that is unknown or unavailable is **silently** replaced by auto-detection: a user who configured `podman` can get `docker` with no diagnostic. | U064.md |
 | U064-F08 | **RESOLVED** `31be43a9` | **`runtime.go:487-525`** | DEAD / NOPAY | `Chroot` (type + 11 methods, 39 lines) has **zero references** outside its own definition — not even a test. Its stated purpose is to prove the interface needs no shape change, which is a claim, no... | U064.md |
 | U064-F09 | **RESOLVED** `31be43a9` | **`runtime.go:108-109, 121`** | DEAD | `pathMapper.toHost` has no production caller; every implementation (`identityMapper`, and any future Windows/DooD mapper) must implement a method nothing invokes. | U064.md |
-| U064-F11 | open | `traceprobe.go:34-43, 95-99` | CORRECTNESS | The security doc claims the loosened seccomp profile is "structurally" unreachable from a normal run, but the gate is a plain `os.Getenv` — **any** parent process that exports `CTXLOOM_ISOLATION_PR... | U064.md |
-| U064-F16 | open | **`profile.go:268-278`** | COUPLING | The adapter binary name `"codex-acp"` is duplicated between this install fragment and `internal/lm/backends`' ACP transport descriptor, hand-synced by comment — connascence of meaning across a pack... | U064.md |
-| U064-F19 | open | **`runtime.go:22-77`** | COHESION | `Runtime` bundles four unrelated responsibilities (identity/availability, argv rendering, process launch, mount mapping); the implementations prove it — `Host` stubs 5 of 10 methods, `Chroot` 8 of 11. | U064.md |
+| U064-F11 | **RESOLVED** `17cef641` | `traceprobe.go:34-43, 95-99` | CORRECTNESS | The security doc claims the loosened seccomp profile is "structurally" unreachable from a normal run, but the gate is a plain `os.Getenv` — **any** parent process that exports `CTXLOOM_ISOLATION_PR... | U064.md |
+| U064-F16 | **PARTIAL** `33f59085` | **`profile.go:268-278`** | COUPLING | The adapter binary name `"codex-acp"` is duplicated between this install fragment and `internal/lm/backends`' ACP transport descriptor, hand-synced by comment — connascence of meaning across a pack... | U064.md |
+| U064-F19 | **ESCALATED** `PENDING1` | **`runtime.go:22-77`** | COHESION | `Runtime` bundles four unrelated responsibilities (identity/availability, argv rendering, process launch, mount mapping); the implementations prove it — `Host` stubs 5 of 10 methods, `Chroot` 8 of 11. | U064.md |
 | U065-F04 | open | **`worktree.go:531`** | CORRECTNESS | `Env()` points each `HomeVar` at `filepath.Join(configHome, hv.Subdir)` but **nothing creates those directories**. `provisionConfigHome` creates only the `configHome` root; `hostCredentialSeed` cre... | U065.md |
 | U065-F05 | open | **`worktree.go:406`** | SILENTNOOP | `excludeConfigFromMerge` reports success having written zero bytes when handed an empty pattern list — `gitignore.EnsureFile` returns `nil` before opening the file. The exclusion is the mechanism t... | U065.md |
 | U065-F06 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `worktree_reap.go:90-94, 157-159` | NOPAY | `WorktreeReapResult.Spared` and `.Skipped` are computed on every sweep and **never read in production**. `Spared` is the sweep's highest-value signal — an orphaned worktree from a crashed run that ... | U065.md |
@@ -2328,11 +2328,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U063-F16 | open | `none.go:88-90` | ERRHANDLING | `None.StartRunner` returns `pb.StartHostRunner`'s error verbatim — no backend/label context. The caller sees a bare exec failure with no idea which agent's runner died. | U063.md |
 | U063-F17 | open | `direct_runner.go:39, 120` | CORRECTNESS | `Container.StartRunner` takes `_ context.Context` and `startDirectRunner` uses `exec.Command`, not `CommandContext` — a cancelled context does **not** tear down the runner container. Teardown is on... | U063.md |
 | U063-F18 | open | `devcontainer.go:204` | ERRHANDLING | `_ = json.Unmarshal(raw, &list)` discards the array-decode error, so a malformed `dockerComposeFile` surfaces as the generic "could not parse dockerComposeFile" with no cause. | U063.md |
-| U064-F10 | open | **`pidalive_windows.go:1-13`** | DUPLICATE / TRIVIAL | `pidalive_windows.go` and `pidalive_unix.go` have **byte-identical bodies** (`return pidalive.Alive(pid)`) and differ only in build tag and comment — the platform split already lives in the leaf pa... | U064.md |
-| U064-F12 | open | `sharedfs.go:198, 110-127` | CORRECTNESS | The probe creates a scratch dir **inside the live project directory** (and every other mount root). Normal teardown removes it, but a killed process leaves `ctxloom-fsprobe-*` debris in the user's ... | U064.md |
-| U064-F13 | open | `runner.go:110-118` | ERRHANDLING | `containerRunner.Kill` unconditionally returns `nil` and swallows `r.cmd.Process.Kill()`, so go-plugin can never observe a failed teardown; the only signal is a streamed warning from `removeContain... | U064.md |
-| U064-F14 | open | `statemounts.go:118-136` | COUPLING | The task-log mount exposes `~/.ctxloom/tasks` — **every project's** task log — read-write into an isolated container, when the run only needs the one project's file. | U064.md |
-| U064-F15 | open | **`runtime.go:547-549`** | CORRECTNESS | `renderRunSpec` omits `-e HOME=` when `spec.Home == ""`, so a spec built without a home silently inherits the image's HOME — the "fresh HOME isolates engine global state" property is lost with no d... | U064.md |
+| U064-F10 | **RESOLVED** `72f7f6bf` | **`pidalive_windows.go:1-13`** | DUPLICATE / TRIVIAL | `pidalive_windows.go` and `pidalive_unix.go` have **byte-identical bodies** (`return pidalive.Alive(pid)`) and differ only in build tag and comment — the platform split already lives in the leaf pa... | U064.md |
+| U064-F12 | **RESOLVED** `a5c3e35a` | `sharedfs.go:198, 110-127` | CORRECTNESS | The probe creates a scratch dir **inside the live project directory** (and every other mount root). Normal teardown removes it, but a killed process leaves `ctxloom-fsprobe-*` debris in the user's ... | U064.md |
+| U064-F13 | **REFUTED** `f111d19a` | `runner.go:110-118` | ERRHANDLING | `containerRunner.Kill` unconditionally returns `nil` and swallows `r.cmd.Process.Kill()`, so go-plugin can never observe a failed teardown; the only signal is a streamed warning from `removeContain... | U064.md |
+| U064-F14 | **ESCALATED** `PENDING1` | `statemounts.go:118-136` | COUPLING | The task-log mount exposes `~/.ctxloom/tasks` — **every project's** task log — read-write into an isolated container, when the run only needs the one project's file. | U064.md |
+| U064-F15 | **REFUTED** `c60fc7a3` | **`runtime.go:547-549`** | CORRECTNESS | `renderRunSpec` omits `-e HOME=` when `spec.Home == ""`, so a spec built without a home silently inherits the image's HOME — the "fresh HOME isolates engine global state" property is lost with no d... | U064.md |
 | U065-F09 | open | **`worktree.go:187-202`** | CORRECTNESS | The panic-recovery path removes the checkout with `os.RemoveAll(ws.dir)` — not the git-aware teardown — and never calls `WorktreePrune`. The directory goes away but the repo keeps a stale `git work... | U065.md |
 | U065-F11 | **RESOLVED** `6e52dfa0` | **`worktree.go:57, 117, 168`** | NOPAY | `Worktree.baseRef` is a field that only ever holds the package constant `worktreeBaseRef` ("HEAD"). It is written once in `NewWorktree:117`, read once in `PrepareWorkspace:168`, and never varied by... | U065.md |
 | U065-F12 | open | **`worktree.go:565`** | CORRECTNESS | `gitIdentity` sanitizes `agentID` for the email local-part but interpolates the **raw** `agentID` into `GIT_AUTHOR_NAME`/`GIT_COMMITTER_NAME`. A name containing a newline or `<`/`>` would produce a... | U065.md |

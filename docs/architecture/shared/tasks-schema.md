@@ -132,7 +132,7 @@ Exactly one consumer: `operations.LintTasks`, called by exactly one frontend, `c
 - `Schema` is immutable after `Parse`; nothing mutates `facets` afterwards.
 - A `nil` `*Schema` is a legal value everywhere and means "nothing declared" — `Get`, `Targets`, and `HideFacts` are all nil-receiver-safe, and every consumer relies on that instead of nil-checking.
 - `tagschema.Target` is the one definition of tag identity that `operations`, `lint`, and `priority` must all agree with. They do not agree on *value* identity: `operations.scalarCollapse` compares raw strings, `lint.groupByTarget` compares parsed-but-undeduped values, `priority.resolveTagValues` uses composite string keys.
-- `add` accepts **any** `tagma.<anything>` namespace as a facet with no membership check, so a typo'd facet (`tagma.arty:…`) is stored under a facet nothing ever reads. The declaration is misfiled, not dropped — the same effect as losing it, with no signal. The taskloom config JSON Schema constrains `tag_schema` only to an array of strings, so nothing upstream catches it either.
+- `add` validates the facet against the closed set `tagschema.KnownFacets()` returns, so a typo'd facet (`tagma.arty:…`) is a returned error naming the facet and listing the known ones. Without that check the declaration was misfiled rather than dropped — the same effect as losing it, with no signal, and nothing upstream catches it: the taskloom config JSON Schema constrains `tag_schema` only to an array of strings.
 - `add` is last-wins on a duplicate `facet`+`target`, silently.
 
 **Malformed-declaration policy is not uniform**

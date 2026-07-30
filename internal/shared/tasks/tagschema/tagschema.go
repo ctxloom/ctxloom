@@ -72,6 +72,34 @@ const (
 	TypeFacet       = "type"
 )
 
+// knownFacets closes the facet set above. Every consumer reads a facet by
+// one of those constant names and nothing reads any other, so a declaration
+// under an unrecognised facet is MISFILED rather than dropped — the same
+// effect as losing it, with no signal at either end (nothing upstream
+// catches it either: the taskloom config JSON Schema constrains tag_schema
+// only to an array of strings). add rejects one instead.
+var knownFacets = map[string]bool{
+	ArityFacet:      true,
+	PriorityFnFacet: true,
+	DecayFnFacet:    true,
+	EnumFacet:       true,
+	RangeFacet:      true,
+	HideFacet:       true,
+	TypeFacet:       true,
+}
+
+// KnownFacets returns every facet a declaration may name, sorted — the
+// closed set add validates against, exported so an error message or a
+// config-authoring surface can name it rather than re-listing the constants.
+func KnownFacets() []string {
+	out := make([]string, 0, len(knownFacets))
+	for f := range knownFacets {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // SemverTypeName is the tagma.type value naming taskloom's semver
 // TypeComparator (tagma SPEC.md §9, "client-loadable type comparison"):
 // internal/shared/tasks registers a TypeComparator under this exact name, so
@@ -123,6 +151,10 @@ func (s *Schema) add(decl string) error {
 			decl, ns, FacetNamespace, FacetNamespace, ArityFacet)
 	}
 	facet := strings.TrimPrefix(ns, prefix)
+	if !knownFacets[facet] {
+		return fmt.Errorf("tag_schema: declaration %q names unknown facet %q (known: %s)",
+			decl, facet, strings.Join(KnownFacets(), ", "))
+	}
 	if tag.Value == nil {
 		return fmt.Errorf("tag_schema: declaration %q has no value (expected %s:%q=<value>)", decl, ns, tag.Key)
 	}

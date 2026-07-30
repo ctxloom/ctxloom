@@ -2,6 +2,8 @@ package clifmt
 
 import (
 	"bytes"
+	"io"
+	"math"
 	"strings"
 	"testing"
 )
@@ -91,5 +93,53 @@ func TestRenderJSONErrorOnUnmarshalable(t *testing.T) {
 	err := renderJSON(&buf, make(chan int))
 	if err == nil {
 		t.Fatal("expected an error marshaling an unsupported type, got nil")
+	}
+}
+
+// TestNormalizeNumbers_PreservesUint64BeyondInt64 pins that an integer too
+// large for int64 is never silently corrupted. normalizeNumbers reached for
+// Int64 and then Float64; a uint64 above math.MaxInt64 fails the first and
+// SUCCEEDS the second, so it used to arrive at the yaml/toml encoders as a
+// float64 and be written in exponent form with its low bits gone — while
+// json, which never round-trips through toGeneric, wrote the exact digits.
+// Two renderers disagreeing about the value of the same field is a
+// correctness defect, not a formatting one.
+//
+// json and yaml now carry the exact integer. TOML cannot: the format's
+// integers are signed 64-bit, so go-toml/v2 refuses the value outright — and
+// a loud refusal is the honest outcome for a value the format cannot
+// represent, where the lossy float was a value the reader had no way to know
+// was wrong.
+func TestNormalizeNumbers_PreservesUint64BeyondInt64(t *testing.T) {
+	type big struct {
+		N uint64 `json:"n"`
+	}
+	v := big{N: math.MaxUint64}
+	const exact = "18446744073709551615"
+	const lossy = "18446744073709552"
+
+	for _, tc := range []struct {
+		name   string
+		render func(io.Writer, any) error
+	}{
+		{"json", renderJSON},
+		{"yaml", renderYAML},
+	} {
+		var buf bytes.Buffer
+		if err := tc.render(&buf, v); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !strings.Contains(buf.String(), exact) {
+			t.Errorf("%s rendered %q; want the exact integer %s", tc.name, strings.TrimSpace(buf.String()), exact)
+		}
+	}
+
+	var tomlBuf bytes.Buffer
+	err := renderTOML(&tomlBuf, v)
+	if err == nil {
+		t.Errorf("renderTOML accepted an unrepresentable integer and wrote %q; want a refusal", strings.TrimSpace(tomlBuf.String()))
+	}
+	if strings.Contains(tomlBuf.String(), lossy) {
+		t.Errorf("renderTOML wrote a lossy approximation %q of %s", strings.TrimSpace(tomlBuf.String()), exact)
 	}
 }

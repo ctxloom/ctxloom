@@ -89,6 +89,10 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	}
 	projectDir := filepath.Dir(appDir)
 
+	if err := checkInstallEngineApplies(ctxloomDirExists(appDir), cmd.Flags().Changed("engine"), manageInstallEngine); err != nil {
+		return err
+	}
+
 	if manageInstallPrint {
 		type manageInstallPlanResult struct {
 			CtxloomDir       string `json:"ctxloom_dir"`
@@ -164,6 +168,22 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
 		return nil
 	})
+}
+
+// checkInstallEngineApplies rejects a `manage install --engine <x>` whose
+// engine choice cannot reach anything: the engine is recorded by
+// InitializeProject while it scaffolds, so on a project that already has a
+// .ctxloom the flag has no effect at all. Re-running install to re-apply hooks
+// stays supported — only an EXPLICITLY passed --engine is refused, and only
+// when there is nothing left to scaffold.
+//
+// The refusal names where the engine actually lives, because the flag reads like
+// the way to change it and silently was not.
+func checkInstallEngineApplies(dirExists, engineRequested bool, engine string) error {
+	if !dirExists || !engineRequested {
+		return nil
+	}
+	return fmt.Errorf("--engine %s cannot be applied: .ctxloom already exists, and the engine is only recorded while scaffolding it; change the default engine with `ctxloom llm default <name>` (or remove .ctxloom to re-scaffold)", engine)
 }
 
 // printInstallPlan lists the steps `manage install` would take without running them.

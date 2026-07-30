@@ -200,9 +200,9 @@ TOML integer round-trip does not fail verification.
 - `manage gitignore install` prints "Updated `<path>`" and exits 0 even when the
   write failed — `ensureHarnessGitignore:137` has no return value and swallows
   `gitignore.Ensure`'s error into a warning.
-- `manage install --engine <x>` is silently ignored when `.ctxloom` already
-  exists; the flag is read only inside the `if !ctxloomDirExists(appDir)` branch
-  (`manage.go:88-101`).
+- `manage install --engine <x>` on a project that already has a `.ctxloom` is a
+  hard error: the engine is recorded only while scaffolding, so the flag could
+  never have applied. Change the engine with `ctxloom llm default <name>`.
 - `container build --base-image X` hard-fails on any project that sets
   `isolation_base_containerfile`: the config value is copied into
   `opts.BaseContainerfile` without checking whether `--base-image` was given

@@ -13,6 +13,7 @@ package container
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"slices"
 )
 
@@ -47,14 +48,29 @@ func Entrypoint() []byte { return asset("entrypoint.sh") }
 // default profile untouched.
 func ProbeSeccomp() []byte { return asset("seccomp/probe-seccomp.json") }
 
-// asset reads one embedded file and returns a private copy of its bytes. A read
-// failure is a build-time bug (the file is compiled in), not a runtime
-// condition, so it panics rather than handing back nothing — mirroring
-// resources.MustGetPromptText.
-func asset(name string) []byte {
-	b, err := assets.ReadFile(name)
+// asset reads one embedded file and returns a private copy of its bytes.
+func asset(name string) []byte { return assetFrom(assets, name) }
+
+// assetFrom is asset over an injectable filesystem, so the guards below are
+// exercisable against a truncated asset that cannot be committed to this
+// package (an empty file here would only fail the build if it were MISSING).
+//
+// BOTH failures panic rather than returning bytes, mirroring
+// resources.MustGetPromptText: each is a build-time bug, not a runtime
+// condition, because the bytes are compiled into the binary.
+//   - unreadable: the embed pattern and the accessor name disagree.
+//   - EMPTY: `//go:embed` accepts a 0-byte file happily and fs.ReadFile reports
+//     success for it, so a truncated Containerfile would otherwise flow on as a
+//     zero-instruction build context, an empty entrypoint script, or an empty
+//     seccomp document — each failing far from its cause, and the seccomp one
+//     weakening the probe's confinement rather than failing at all.
+func assetFrom(fsys fs.FS, name string) []byte {
+	b, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		panic(fmt.Sprintf("container: embedded asset %q: %v", name, err))
+	}
+	if len(b) == 0 {
+		panic(fmt.Sprintf("container: embedded asset %q is empty — the file in the container/ package is truncated", name))
 	}
 	return slices.Clone(b)
 }

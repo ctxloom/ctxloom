@@ -312,6 +312,22 @@ func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
 // never surface as an error exit on the hook path: that would silently disable
 // every rule. Explicit user-facing commands (manage, --print) keep their
 // fail-loud exit-1 behavior; only `evaluate` fails closed.
+//
+// That guarantee is not absolute in the type system: this function, and
+// evaluate itself, still have `engine.Output{}, err` returns. They rest on two
+// properties, both pinned by
+// TestEvaluate_HookPathNeverReturnsAPlainError rather than assumed:
+//
+//   - every registered adapter's Encode is TOTAL. The deny bytes are
+//     json.Marshal over a struct of plain string fields, which has no failure
+//     mode (invalid UTF-8 is replaced, not rejected), so the encode-error
+//     returns are unreachable rather than merely unlikely.
+//   - engine.Get("claude-code") always resolves, so the last-resort fallback
+//     for an unknown --engine always has something to deny with.
+//
+// The moment an adapter grows a fallible encoder, the hook path stops being
+// fail-closed and this comment stops being true — which is exactly when that
+// test goes red.
 func failClosed(adapter engine.Adapter, reason string) (engine.Output, error) {
 	out, err := adapter.Encode(engine.Response{Allow: false, Reason: reason})
 	if err != nil {

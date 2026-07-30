@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
+	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
@@ -124,6 +125,90 @@ func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 		}
 		if out.ExitCode != 0 || !strings.Contains(string(out.Stdout), `"deny"`) {
 			t.Errorf("want deny decision with exit 0, got %+v", out)
+		}
+	})
+}
+
+// The hook path claims to be fail-CLOSED: never an error return, because both
+// hosts read a non-zero hook exit as an allow. evaluate and failClosed
+// nevertheless still carry `engine.Output{}, err` returns, and U005-F09 read
+// those as residual fail-open holes. They are not reachable — but "not
+// reachable" is a property of the adapters, not of this function, so it is
+// pinned here rather than asserted in a comment.
+//
+// Every arm below is a way the hook path can be driven, including a rule whose
+// message is hostile bytes. All must produce a DECISION and a nil error.
+func TestEvaluate_HookPathNeverReturnsAPlainError(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "rules.yaml")
+	// An invalid UTF-8 byte, a NUL, control characters and a long run — the
+	// inputs that would break a fallible encoder if one existed.
+	hostile := "bad \xff byte, NUL \x00, ctrl \x01\x02, " + strings.Repeat("x", 4096)
+	if err := os.WriteFile(good, []byte("version: 1\nrules:\n  - id: hostile\n    match: { command: [git, push] }\n    message: "+strconv.Quote(hostile)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	broken := filepath.Join(dir, "broken.yaml")
+	if err := os.WriteFile(broken, []byte("version: 1\nrulez:\n  - id: oops\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const bash = `{"tool_name":"Bash","tool_input":{"command":"git push"}}`
+
+	arms := []struct {
+		name       string
+		engineName string
+		cfgPath    string
+		shell      string
+		stdin      string
+	}{
+		{"deny with a hostile rule message", "claude-code", good, "", bash},
+		{"allow", "claude-code", good, "", `{"tool_name":"Bash","tool_input":{"command":"git status"}}`},
+		{"unknown engine", "no-such-engine", good, "", bash},
+		{"unknown engine, unreadable payload", "no-such-engine", good, "", ""},
+		{"unknown shell", "claude-code", good, "no-such-shell", bash},
+		{"broken config", "claude-code", broken, "", bash},
+		{"missing config", "claude-code", filepath.Join(dir, "nope.yaml"), "", bash},
+		{"undecodable payload", "claude-code", good, "", "not json"},
+		{"ungated tool name", "claude-code", good, "", `{"tool_name":"Unheard0f","tool_input":{"weird":"x"}}`},
+	}
+	for _, a := range arms {
+		t.Run(a.name, func(t *testing.T) {
+			out, err := evaluate(a.engineName, a.cfgPath, ir.Shell(a.shell), strings.NewReader(a.stdin))
+			if err != nil {
+				t.Fatalf("the hook path returned a plain error, which exits 1 and both hosts read as an allow: %v", err)
+			}
+			if out.ExitCode != 0 {
+				t.Errorf("a hook decision must exit 0, got %d", out.ExitCode)
+			}
+		})
+	}
+
+	// The two properties the residual error returns rest on.
+	t.Run("the last-resort fallback engine always resolves", func(t *testing.T) {
+		if _, err := engine.Get("claude-code"); err != nil {
+			t.Fatalf("evaluate's unknown-engine fallback has nothing to deny with: %v", err)
+		}
+	})
+
+	// Measured: the end-to-end arms above cannot actually deliver invalid
+	// UTF-8 to an encoder, because the YAML decoder sanitises a rule message
+	// on the way in. So this subtest — not the hostile-message arm — is the
+	// one carrying the totality invariant, and it is the one that goes red
+	// when an adapter grows a fallible encoder.
+	t.Run("every adapter's Encode is total", func(t *testing.T) {
+		for _, e := range engine.All() {
+			a, ok := e.(engine.Adapter)
+			if !ok {
+				t.Fatalf("%T does not implement engine.Adapter", e)
+			}
+			for _, resp := range []engine.Response{
+				{Allow: true},
+				{Reason: hostile, Suggest: hostile},
+				{},
+			} {
+				if _, err := a.Encode(resp); err != nil {
+					t.Fatalf("%s.Encode failed, so the hook path is no longer fail-closed: %v", a.Name(), err)
+				}
+			}
 		}
 	})
 }

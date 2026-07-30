@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/resources"
@@ -159,16 +160,16 @@ func ProbeCompanions() []CompanionStatus {
 	return out
 }
 
-// companionVersion runs `<path> version --format json` and extracts the version.
+// companionVersion runs `<path> version --format json` and extracts the
+// version. It decodes into cliversion.Info — the same struct every companion
+// marshals to PRODUCE that output — so the cross-binary contract has exactly
+// one declaration and cannot drift between its writer and its reader.
 func companionVersion(path string) (string, error) {
 	raw, err := companionVersionOutput(path)
 	if err != nil {
 		return "", fmt.Errorf("run version --format json: %w", err)
 	}
-	var info struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
+	var info cliversion.Info
 	if err := json.Unmarshal(raw, &info); err != nil {
 		return "", fmt.Errorf("parse version --format json output: %w", err)
 	}

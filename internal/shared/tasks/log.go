@@ -57,7 +57,7 @@ type eventLog struct {
 // folded is the in-memory projection of the log.
 type folded struct {
 	byID      map[string]*Task    // live tasks by harp
-	order     []string            // add order of harp ids (for stable file-order)
+	order     []string            // harp ids in replay order (ts-sorted; file order only breaks ties)
 	issued    map[string]struct{} // every harp ever used — never reused
 	repaired  map[string]struct{} // anomaly keys already resolved by a re-add
 	anomalies []Event             // displaced duplicate adds (same harp, different task)
@@ -200,80 +200,106 @@ func (l *eventLog) foldChecked() (*folded, error) {
 func (f *folded) apply(ev Event) error {
 	switch ev.Op {
 	case opAdd:
-		if ev.RepairOf != "" {
-			f.repaired[ev.RepairOf] = struct{}{}
-		}
-		if _, taken := f.issued[ev.Task]; taken {
-			// Identity already used — a displaced duplicate (concurrent-mint
-			// race, the post-100-draw fallback, or two branches that each
-			// independently minted this harp, later union-merged). Byte-
-			// identical duplicate lines never reach here — fold() dedupes
-			// those before apply() runs. So an event that DOES land here is
-			// a real collision: two different tasks claiming one identity.
-			// The first writer keeps the harp; this content is recorded as
-			// an anomaly rather than silently dropped or auto-repaired
-			// (reassigning a harp would break every reference to it).
-			// snapshot()/deferredSince() surface unresolved anomalies as a
-			// loud, actionable error (anomalyError) rather than letting the
-			// second task vanish with a clean exit code; a human runs
-			// Store.Repair() to re-add it under a fresh harp.
-			f.anomalies = append(f.anomalies, ev)
-			return nil
-		}
-		f.issued[ev.Task] = struct{}{}
-		t := &Task{
-			HarpID:        ev.Task,
-			Text:          strings.TrimSpace(ev.Text),
-			Status:        defaultStatus(ev.Status),
-			Trigger:       strings.TrimSpace(ev.Trigger),
-			OriginSession: ev.Session,
-		}
-		t.Checked = IsTerminalStatus(t.Status)
-		t.TextHash = hashText(t.Text)
-		t.Tags = normalizeTags(ev.Tags)
-		t.CreatedAt = ev.Ts
-		f.byID[ev.Task] = t
-		f.order = append(f.order, ev.Task)
-		if t.Status == StatusDeferred {
-			f.deferredSince[ev.Task] = ev.Ts
-		}
+		f.applyAdd(ev)
 	case opTag:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Tags = unionTags(t.Tags, ev.Tags)
-		}
+		f.retagLive(ev, unionTags)
 	case opUntag:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Tags = subtractTags(t.Tags, ev.Tags)
-		}
+		f.retagLive(ev, subtractTags)
 	case opStatus:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Status = ev.Status
-			t.Checked = IsTerminalStatus(ev.Status)
-			// A status event only carries a trigger when one was (re)set; an
-			// empty trigger never clears an existing condition.
-			if tr := strings.TrimSpace(ev.Trigger); tr != "" {
-				t.Trigger = tr
-			}
-			if ev.Status == StatusDeferred {
-				f.deferredSince[ev.Task] = ev.Ts
-			}
-		}
+		f.applyStatus(ev)
 	case opText:
-		if t := f.byID[ev.Task]; t != nil {
-			t.Text = strings.TrimSpace(ev.Text)
-			t.TextHash = hashText(t.Text)
-		}
+		f.applyText(ev)
 	case opRemove:
-		delete(f.byID, ev.Task)
 		// ev.Task stays in `issued`: a harp is never reused, so a stale
 		// reference can never resolve to a different task.
+		delete(f.byID, ev.Task)
+	case "":
+		return fmt.Errorf("record has no op field")
 	default:
-		if ev.Op == "" {
-			return fmt.Errorf("record has no op field")
-		}
 		return fmt.Errorf("unrecognized op %q — this log was likely written by a newer taskloom; upgrade this binary", ev.Op)
 	}
 	return nil
+}
+
+// applyAdd mints a task, or records a harp collision as an anomaly when the
+// identity is already claimed.
+func (f *folded) applyAdd(ev Event) {
+	if ev.RepairOf != "" {
+		f.repaired[ev.RepairOf] = struct{}{}
+	}
+	if _, taken := f.issued[ev.Task]; taken {
+		// Identity already used — a displaced duplicate (concurrent-mint
+		// race, the post-100-draw fallback, or two branches that each
+		// independently minted this harp, later union-merged). Byte-
+		// identical duplicate lines never reach here — fold() dedupes
+		// those before apply() runs. So an event that DOES land here is
+		// a real collision: two different tasks claiming one identity.
+		// The first writer keeps the harp; this content is recorded as
+		// an anomaly rather than silently dropped or auto-repaired
+		// (reassigning a harp would break every reference to it).
+		// snapshot()/deferredSince() surface unresolved anomalies as a
+		// loud, actionable error (anomalyError) rather than letting the
+		// second task vanish with a clean exit code; a human runs
+		// Store.Repair() to re-add it under a fresh harp.
+		f.anomalies = append(f.anomalies, ev)
+		return
+	}
+	f.issued[ev.Task] = struct{}{}
+	t := &Task{
+		HarpID:        ev.Task,
+		Text:          strings.TrimSpace(ev.Text),
+		Status:        defaultStatus(ev.Status),
+		Trigger:       strings.TrimSpace(ev.Trigger),
+		OriginSession: ev.Session,
+	}
+	t.Checked = IsTerminalStatus(t.Status)
+	t.TextHash = hashText(t.Text)
+	t.Tags = normalizeTags(ev.Tags)
+	t.CreatedAt = ev.Ts
+	f.byID[ev.Task] = t
+	f.order = append(f.order, ev.Task)
+	f.noteIfDeferred(ev, t.Status)
+}
+
+// retagLive applies a tag-set delta (union for `tag`, subtract for `untag`)
+// to a live task. An event addressed to a task that is not in byID — never
+// added, or already removed — applies to nothing; see
+// TestApply_EventsForAnUnknownHarpAreSilentlyDropped for what that costs and
+// why changing it is a persisted-format decision, not this function's.
+func (f *folded) retagLive(ev Event, delta func(base, arg []string) []string) {
+	if t := f.byID[ev.Task]; t != nil {
+		t.Tags = delta(t.Tags, ev.Tags)
+	}
+}
+
+func (f *folded) applyStatus(ev Event) {
+	t := f.byID[ev.Task]
+	if t == nil {
+		return
+	}
+	t.Status = ev.Status
+	t.Checked = IsTerminalStatus(ev.Status)
+	// A status event only carries a trigger when one was (re)set; an
+	// empty trigger never clears an existing condition.
+	if tr := strings.TrimSpace(ev.Trigger); tr != "" {
+		t.Trigger = tr
+	}
+	f.noteIfDeferred(ev, ev.Status)
+}
+
+func (f *folded) applyText(ev Event) {
+	if t := f.byID[ev.Task]; t != nil {
+		t.Text = strings.TrimSpace(ev.Text)
+		t.TextHash = hashText(t.Text)
+	}
+}
+
+// noteIfDeferred records when a task most recently entered Deferred, the one
+// fact both add and status contribute to deferredSince.
+func (f *folded) noteIfDeferred(ev Event, status string) {
+	if status == StatusDeferred {
+		f.deferredSince[ev.Task] = ev.Ts
+	}
 }
 
 // taskList returns live tasks in add order.
@@ -324,6 +350,9 @@ func (f *folded) anomalyError(path string) error {
 // append writes one event as a single JSON line under O_APPEND. The caller
 // holds the locks.
 func (l *eventLog) append(ev Event) error {
+	if err := admissible(ev); err != nil {
+		return err
+	}
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
@@ -331,15 +360,68 @@ func (l *eventLog) append(ev Event) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+	dir := filepath.Dir(l.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	_, statErr := os.Stat(l.path)
+	created := errors.Is(statErr, os.ErrNotExist)
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-	return appendLine(f, append(b, '\n'))
+	if created {
+		// The log file did not exist a moment ago, so this open just created
+		// its directory entry — and appendLine's fsync below makes the file's
+		// CONTENTS durable, never the entry that names them. Flush the entry
+		// first, so a power loss can lose the whole file or nothing, never
+		// leave a confirmed event in a file with no name. Done BEFORE the
+		// event is written so a failure here is unambiguous: nothing was
+		// appended, and the caller's error means exactly that.
+		if err := syncDir(dir); err != nil {
+			return closeAfter(f, fmt.Errorf("sync task log directory %s: %w", dir, err))
+		}
+	}
+	return closeAfter(f, appendLine(f, append(b, '\n')))
+}
+
+// closeAfter closes f and decides which error the caller should see. opErr
+// wins when it is non-nil: it is the diagnosis (a failed write, a failed
+// sync), and the close error that follows a failure is noise. When the
+// operation succeeded, the close error IS the result — this is the log's only
+// write path, and a close failure means the event the caller is about to be
+// told it wrote may not be there. Discarding it would report success for a
+// write that did not land.
+func closeAfter(f *os.File, opErr error) error {
+	cerr := f.Close()
+	if opErr != nil {
+		return opErr
+	}
+	return cerr
+}
+
+// admissible rejects an event this reader could never fold back. The write
+// seam is where such a record must be stopped: fold() treats an unreadable
+// record as fatal for the WHOLE log, so a single inadmissible line does not
+// cost one task, it costs the store — every later read and write fails until
+// a human edits the file. Only invariants every op shares are enforced here
+// (an op this binary knows, and an identity to address), never per-op
+// payload rules, which belong to the mutators that own them. This is a
+// write-time check by design and must never move onto the fold path: an
+// existing log already carrying such a line has to keep loading, exactly as
+// the reader stays lenient about tag shape (see tagsToTagmaTags).
+func admissible(ev Event) error {
+	switch ev.Op {
+	case opAdd, opStatus, opText, opRemove, opTag, opUntag:
+	case "":
+		return fmt.Errorf("refusing to write a task event with no op field: it would make every later read of this log fail")
+	default:
+		return fmt.Errorf("refusing to write a task event with unrecognized op %q", ev.Op)
+	}
+	if strings.TrimSpace(ev.Task) == "" {
+		return fmt.Errorf("refusing to write a %q event with no task id: every event addresses a task by harp", ev.Op)
+	}
+	return nil
 }
 
 // appendLine writes line to f — already opened O_APPEND, so the write always
@@ -613,9 +695,10 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	defer l.mu.Unlock()
 	// Take a SHARED cross-process lock for the read. Mutators hold the EXCLUSIVE
 	// lock while appending (see lock()), so without this a fold could observe a
-	// partially written final line from another process — the malformed-line skip
-	// would then silently drop a just-added task, surfacing as a transient
-	// "task not found" to a peer process. Best-effort: a lock failure falls back to
+	// partially written final line from another process. fold() treats any
+	// unparseable line as fatal for the WHOLE log, so that observation surfaces
+	// as a transient hard read failure hiding every task in the store — not as
+	// one silently missing task. Best-effort: a lock failure falls back to
 	// an unlocked read rather than failing, since reads must never block (the
 	// in-process mu still serializes same-process access).
 	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {

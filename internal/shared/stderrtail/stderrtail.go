@@ -46,26 +46,40 @@ type Ring struct {
 	max int
 }
 
-// New builds a Ring bounded to max bytes (DefaultBytes when max <= 0).
+// New builds a Ring bounded to max bytes (DefaultBytes when max <= 0). The
+// whole budget is allocated up front so Write never has to grow it: BOUNDED
+// is a memory property here, not just a property of what Tail reports.
 func New(max int) *Ring {
 	if max <= 0 {
 		max = DefaultBytes
 	}
-	return &Ring{max: max}
+	return &Ring{max: max, buf: make([]byte, 0, max)}
 }
 
 // Write appends p, discarding whatever falls off the front of the budget. It
 // never errors and never short-writes: a diagnostic sink that could fail
 // would put back-pressure on the child's stderr, which is the opposite of
-// what this is for.
+// what this is for. It also never allocates: at most the LAST max bytes of
+// any write can survive the budget, so an oversized write is clipped before
+// anything is copied in, and the surviving bytes are compacted into the
+// budget the ring already owns. Appending a write whole and re-slicing
+// afterwards would make the ring's footprint the size of the largest single
+// write — and keep it there, since the re-slice holds the oversized backing
+// array alive for the ring's whole life. TeeStderr hands this writer to an
+// io.MultiWriter that passes through whatever the caller writes, so no
+// chunk size may be assumed.
 func (r *Ring) Write(p []byte) (int, error) {
+	n := len(p)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.buf = append(r.buf, p...)
-	if len(r.buf) > r.max {
-		r.buf = r.buf[len(r.buf)-r.max:]
+	if len(p) > r.max {
+		p = p[len(p)-r.max:]
 	}
-	return len(p), nil
+	if drop := len(r.buf) + len(p) - r.max; drop > 0 {
+		r.buf = r.buf[:copy(r.buf, r.buf[drop:])]
+	}
+	r.buf = append(r.buf, p...)
+	return n, nil
 }
 
 // Tail returns the retained bytes, trimmed. Empty when the child said nothing.

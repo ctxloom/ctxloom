@@ -199,6 +199,72 @@ func TestCachingBundleReader(t *testing.T) {
 	})
 }
 
+// lockfreeSource is a BundleByteSource that serves bundles it knows about but
+// records no lockfile entries — exactly what BundleByteSource permits, since
+// LockEntryFor is documented as returning "(or zero+false)" and only
+// HasBundle/ListBundleNames answer "does this source know name".
+type lockfreeSource struct {
+	bytes map[string][]byte
+	calls int
+}
+
+func (s *lockfreeSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
+	s.calls++
+	data, ok := s.bytes[name]
+	if !ok {
+		return nil, ErrBundleNotInLockfile
+	}
+	return data, nil
+}
+
+func (s *lockfreeSource) LockEntryFor(string) (LockEntry, bool) { return LockEntry{}, false }
+
+func (s *lockfreeSource) ListBundleNames() []string {
+	names := make([]string, 0, len(s.bytes))
+	for k := range s.bytes {
+		names = append(names, k)
+	}
+	return names
+}
+
+func (s *lockfreeSource) HasBundle(name string) bool {
+	_, ok := s.bytes[name]
+	return ok
+}
+
+// TestCachingBundleReader_SourceWithoutLockEntries pins that wrapping a source
+// is never destructive.
+//
+// U093-F14: the decorator gated ReadBundleBytes on LockEntryFor returning true
+// and reported ErrBundleNotInLockfile otherwise, without ever asking the inner
+// source. That imposed a lockfile precondition BundleByteSource does not
+// require, so a legitimate source became unreadable purely by being wrapped.
+// Membership is HasBundle's question; the lock entry only supplies a cache key,
+// and with no SHA to key on there is nothing safe to memoize.
+func TestCachingBundleReader_SourceWithoutLockEntries(t *testing.T) {
+	inner := &lockfreeSource{bytes: map[string][]byte{"a/x": []byte("body")}}
+	cache := NewCachingBundleReader(inner)
+
+	require.True(t, cache.HasBundle("a/x"))
+	assert.ElementsMatch(t, []string{"a/x"}, cache.ListBundleNames())
+
+	data, err := cache.ReadBundleBytes(context.Background(), "a/x")
+	require.NoError(t, err, "wrapping a source must not make it unreadable")
+	assert.Equal(t, []byte("body"), data)
+
+	// A name the source does not know is still not-in-lockfile.
+	_, err = cache.ReadBundleBytes(context.Background(), "a/missing")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBundleNotInLockfile)
+
+	// Nothing is memoized without a SHA: an unpinned read must never be
+	// served from a stale slot.
+	before := inner.calls
+	_, err = cache.ReadBundleBytes(context.Background(), "a/x")
+	require.NoError(t, err)
+	assert.Greater(t, inner.calls, before, "an entry with no locked SHA must not be cached")
+}
+
 // TestCachingBundleReader_WithRealReader sanity-checks that the decorator
 // composes correctly with the concrete *BundleReader fetched via the
 // MockFetcher. Without this, the unit tests above could pass with a fake

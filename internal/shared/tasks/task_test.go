@@ -3,6 +3,7 @@ package tasks
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
@@ -386,5 +387,45 @@ func TestSummaryMarshalsSnakeCase(t *testing.T) {
 	}
 	if _, ok := got["in_progress"]; !ok {
 		t.Errorf("marshaled Summary missing in_progress; keys: %v", got)
+	}
+}
+
+// TestFilterTasksUnparseableStoredTagIsUnmatchableAndUnannounced measures the
+// consequence half of U120-F16, which the existing leniency pin
+// (TestFilterTasksTagQueryLenientOnUnparseableStoredTag) does not: a stored
+// tag tagma cannot parse is skipped at index time, so a query naming that
+// exact tag — spelled the one way tagma's grammar allows, quoted — matches
+// nothing and reports no error. The task itself stays visible via its other
+// tags; it is the malformed tag, not the task, that vanishes.
+//
+// Whether the reader should announce it is deliberately NOT settled here. The
+// reader's leniency is documented policy (tagsToTagmaTags, validateTag): a log
+// written before the write-time guard existed must keep loading, and the
+// designated place to surface such data is the advisory `taskloom lint` sweep.
+// This test exists so the gap is measurable rather than asserted.
+func TestFilterTasksUnparseableStoredTagIsUnmatchableAndUnannounced(t *testing.T) {
+	all := []Task{
+		{HarpID: "legacy", Text: "legacy", Status: StatusToDo, Tags: []string{"urgent", "has space"}},
+		{HarpID: "other", Text: "other", Status: StatusToDo, Tags: []string{"urgent"}},
+	}
+
+	got, err := filterTasks(all, nil, "", `"has space"`, nil)
+	if err != nil {
+		t.Fatalf("a quoted query atom is well-formed; want no error, got %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("the malformed stored tag is not indexed, so nothing can match it; got %+v", got)
+	}
+
+	got, err = filterTasks(all, nil, "", "urgent", nil)
+	if err != nil {
+		t.Fatalf("filterTasks must stay lenient: %v", err)
+	}
+	ids := make([]string, 0, len(got))
+	for _, task := range got {
+		ids = append(ids, task.HarpID)
+	}
+	if !slices.Contains(ids, "legacy") {
+		t.Fatalf("the task must stay visible via its parseable tags; ids = %v", ids)
 	}
 }

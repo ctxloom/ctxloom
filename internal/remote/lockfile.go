@@ -108,13 +108,44 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// longer exists on LockEntry, so re-marshalling drops it; persist the cleaned
 	// form up front rather than waiting for the next sync. Best-effort: a write
 	// failure leaves the (still-valid) in-memory lockfile untouched.
-	if strings.Contains(string(data), "ctxloom_version") {
+	//
+	// The trigger is the KEY, not the characters. A read that writes has to be
+	// sure it has something to clean: re-marshalling replaces the file with the
+	// struct's view of it, discarding comments and any key this version does not
+	// model, and a repository URL, a bundle path or a retraction reason may
+	// mention "ctxloom_version" without one existing anywhere.
+	if hasLegacySchemaField(data) {
 		if err := m.write(&lockfile); err != nil {
 			clidiag.Warn("ctxloom", "failed to clean legacy lockfile %s: %v", path, err)
 		}
 	}
 
 	return &lockfile, nil
+}
+
+// legacySchemaField is the retired per-entry schema-version key. Git tag/SHA is
+// the sole content version now; an entry still carrying it is pre-removal
+// residue.
+const legacySchemaField = "ctxloom_version"
+
+// hasLegacySchemaField reports whether any bundle entry in data carries the
+// retired key as a FIELD. Parsing the document is what separates a key from a
+// URL, a path or a sentence that happens to contain the same characters.
+// Unparseable input reports false: the loader's own yaml.Unmarshal will surface
+// that as an error, and a file nobody can read is not a file to rewrite.
+func hasLegacySchemaField(data []byte) bool {
+	var doc struct {
+		Bundles map[string]map[string]any `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	for _, entry := range doc.Bundles {
+		if _, ok := entry[legacySchemaField]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ErrLockfileWouldErase reports a refused write: the incoming lockfile is

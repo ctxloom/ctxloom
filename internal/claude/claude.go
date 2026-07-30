@@ -17,7 +17,7 @@ import (
 
 // NewWriter constructs the Claude Code settings writer.
 func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
-	return &ClaudeCodeHookWriter{FS: o.FS, statusLineDisabled: o.StatusLineDisabled}
+	return &ClaudeCodeHookWriter{FS: o.FS}
 }
 
 // ----- moved verbatim from internal/lm/backends (hooks.go + uninstall.go) -----

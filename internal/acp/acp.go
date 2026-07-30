@@ -379,12 +379,6 @@ func splitCommand(command string) (bin string, args []string) {
 
 // --- subprocess transport ---
 
-// engineStderrTailBytes bounds the ACP adapter's captured stderr tail. This
-// text is forwarded UP as a run-terminal reason (into the child's transcript
-// and its parent's mailbox), so it is deliberately a bounded tail and not a
-// stream: unbounded engine stderr in a transcript is its own problem.
-const engineStderrTailBytes = stderrtail.DefaultBytes
-
 // transport is the I/O seam for one ACP conversation: the child's stdin (we write
 // JSON-RPC frames here), the child's stdout (we read frames here), and teardown.
 // Tests inject in-memory pipes so they never spawn a process.
@@ -554,7 +548,11 @@ func startHostStdio(cmd *exec.Cmd) (io.WriteCloser, io.Reader, *stderrtail.Ring,
 		}
 		return nil, nil, nil, err
 	}
-	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)
+	// The adapter's stderr is forwarded UP as a run-terminal reason (into the
+	// child's transcript and its parent's mailbox), so it is deliberately a
+	// bounded tail and not a stream: unbounded engine stderr in a transcript
+	// is its own problem.
+	ring, sink := stderrtail.TeeStderr(stderrtail.DefaultBytes)
 	cmd.Stderr = sink
 	if err := cmd.Start(); err != nil {
 		return nil, nil, nil, err

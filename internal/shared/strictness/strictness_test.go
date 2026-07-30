@@ -1,12 +1,17 @@
 package strictness
 
 import (
+	"bytes"
 	"fmt"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // resetForTest restores pristine strict-mode state and registers cleanup so
@@ -100,6 +105,44 @@ func TestFailOnce_RefiresAcrossCheckpoints(t *testing.T) {
 	assert.Len(t, Since(mark2), 1, "within one window the recording dedup still applies")
 }
 
+// A finding whose message formats to nothing renders as a bare "  - " bullet
+// carrying a fix-it and no statement of what broke — the abort is loud but the
+// PAYLOAD is empty, which is this project's characteristic failure. The class
+// is the one thing still known at that point, so it is what the substitute has
+// to report. Asserted on the payload, never on the exit code.
+func TestFail_EmptyMessageStillSaysWhatBroke(t *testing.T) {
+	resetForTest(t)
+
+	mark := Checkpoint()
+	Fail(ClassConfig, "ctxloom manage config edit", "")
+
+	got := Since(mark)
+	require.Len(t, got, 1)
+	assert.NotEmpty(t, strings.TrimSpace(got[0].Message), "a finding must always say something")
+	assert.Contains(t, got[0].Message, string(ClassConfig), "the class is the only detail left to report")
+
+	err := FindingsError(mark)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "\n  - (fix:", "no bare bullet whose only content is the fix-it")
+}
+
+// The same guard covers the other two entry points, and a whitespace-only
+// message is as empty as "" once rendered into a bullet.
+func TestFailOnceAndRecord_BlankMessageStillSayWhatBroke(t *testing.T) {
+	resetForTest(t)
+
+	mark := Checkpoint()
+	FailOnce(ClassRef, "ctxloom remote pull", "")
+	Record(ClassSync, "", "   \n ")
+
+	got := Since(mark)
+	require.Len(t, got, 2)
+	for i, f := range got {
+		assert.NotEmpty(t, strings.TrimSpace(f.Message), "finding %d must say something", i)
+		assert.Contains(t, f.Message, string(f.Class))
+	}
+}
+
 // Record collects without printing — the variant for chokes that already own
 // their stderr reporting (the sync summary breakdown).
 func TestRecord_CollectsInStrict(t *testing.T) {
@@ -138,6 +181,212 @@ func TestSince_StaleMarkIsNil(t *testing.T) {
 	mark := Checkpoint()
 	Reset()
 	assert.Nil(t, Since(mark))
+}
+
+// FailOnce carries TWO dedups with different scopes, and conflating them is
+// how a reader reasons wrongly about this package: the WARNING line is deduped
+// process-wide and permanently (clidiag.WarnOnce), while the FINDING is deduped
+// only within one checkpoint window. Both halves of that sentence are asserted
+// here in one place, because the doc used to claim the finding was
+// per-process too — which would mean a refused-and-retried session opening
+// silently on broken context.
+func TestFailOnce_PrintDedupIsProcessWideRecordDedupIsPerWindow(t *testing.T) {
+	resetForTest(t)
+
+	var out bytes.Buffer
+	restore := clidiag.SetSink(&out)
+	t.Cleanup(restore)
+
+	const msg = "u119f07 probe: profile parent not installed"
+	mark1 := Checkpoint()
+	FailOnce(ClassRef, "ctxloom remote pull", "%s", msg)
+	_ = Checkpoint() // a new window: the retried session
+	FailOnce(ClassRef, "ctxloom remote pull", "%s", msg)
+
+	assert.Equal(t, 1, strings.Count(out.String(), msg),
+		"the warning LINE is deduped process-wide — it prints at most once whatever the window")
+	assert.Len(t, Since(mark1), 2,
+		"the FINDING is deduped only within a window, so the re-fire in the next window records again")
+}
+
+// strictness and clidiag dedup DIFFERENT things on DIFFERENT keys, and the
+// extra dimension is a contract rather than drift: clidiag dedups PRINTING on
+// the rendered line and has no notion of a failure class (giving it one would
+// invert the dependency — clidiag is the family-wide convention shared with
+// the companion binaries), while strictness dedups RECORDING on generation +
+// class + message. One message text raised under two classes therefore prints
+// ONE line and records TWO findings, each keeping its own class and its own
+// fix-it. Unifying the keys on the message alone would swallow a genuinely
+// different fault whose text happens to match, and take its fix-it with it.
+func TestFailOnce_SameMessageUnderTwoClassesRecordsBothButPrintsOnce(t *testing.T) {
+	resetForTest(t)
+
+	var out bytes.Buffer
+	restore := clidiag.SetSink(&out)
+	t.Cleanup(restore)
+
+	const msg = "u119f08 probe: could not be satisfied as requested"
+	mark := Checkpoint()
+	FailOnce(ClassIsolation, "ctxloom manage image build", "%s", msg)
+	FailOnce(ClassTask, "check the project task log", "%s", msg)
+
+	assert.Equal(t, 1, strings.Count(out.String(), msg),
+		"clidiag keys on the rendered line and has no class dimension, so the line prints once")
+
+	fixByClass := map[Class]string{}
+	for _, f := range Since(mark) {
+		fixByClass[f.Class] = f.FixIt
+	}
+	require.Len(t, fixByClass, 2, "the class dimension keeps two genuinely different faults apart")
+	assert.Equal(t, "ctxloom manage image build", fixByClass[ClassIsolation])
+	assert.Equal(t, "check the project task log", fixByClass[ClassTask],
+		"collapsing the keys onto the message alone would lose this fault and its fix-it entirely")
+}
+
+// mu co-guards the MODE and the COLLECTION on purpose: record's degraded check
+// and its append are ONE critical section, so entering degraded mode is
+// linearizable with respect to recording — once SetDegraded(true) returns, no
+// further finding can ever be collected. The mode is not "unrelated to the
+// collection"; it is the predicate that gates it. Moving degraded onto its own
+// lock or an atomic.Bool loses exactly this: a recorder that read the flag
+// before the flip can still be queued on mu and appends after, so the escape
+// hatch would no longer mean what it says. Pinned so the tidy-up is not
+// applied without noticing what it costs.
+func TestSetDegraded_IsLinearizableWithRecording(t *testing.T) {
+	resetForTest(t)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					Record(ClassSync, "", "racing finding")
+				}
+			}
+		}()
+	}
+	for len(All()) < 200 { // the recorders are demonstrably running
+		runtime.Gosched()
+	}
+
+	SetDegraded(true)
+	atFlip := len(All())
+	close(stop)
+	wg.Wait()
+
+	assert.Equal(t, atFlip, len(All()),
+		"nothing may be collected after SetDegraded(true) returns — record's mode check and its append are one critical section under mu")
+}
+
+// goroutineID's ParseInt cannot fail, so its swallowed error is a dead branch:
+// runtime.Stack always writes the fixed "goroutine <id> [<status>]:" preamble
+// for the CALLING goroutine, and even the widest id an int64 counter can reach
+// leaves the 64-byte buffer room to spare (asserted below). The hazard the
+// dead branch would create if it ever fired is worth pinning anyway, because
+// it is not the one it looks like: returning 0 for every goroutine would
+// collapse them onto ONE shared window — the cross-attribution defect the
+// window type exists to fix. Pin the observable property rather than the dead
+// branch: ids are nonzero, stable per goroutine, and distinct across
+// goroutines.
+func TestGoroutineID_IsNonZeroStableAndDistinctPerGoroutine(t *testing.T) {
+	assert.Less(t, len("goroutine 9223372036854775807 [running]:"), 64,
+		"the widest preamble Go can print still fits the buffer goroutineID reads into")
+
+	first := goroutineID()
+	require.NotZero(t, first, "a parse failure would return 0 here")
+	assert.Equal(t, first, goroutineID(), "one goroutine keeps ONE id, so Checkpoint and record share a window")
+
+	const n = 24
+	ids := make([]int64, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			ids[i] = goroutineID()
+		}(i)
+	}
+	wg.Wait()
+
+	seen := map[int64]int{}
+	for i, id := range ids {
+		require.NotZero(t, id, "goroutine %d must not fall back to the shared 0 window", i)
+		seen[id]++
+	}
+	assert.Len(t, seen, n,
+		"every goroutine must get its OWN id — a swallowed parse error collapses them all onto 0, which is exactly the cross-attribution defect windows exist to prevent")
+	assert.NotContains(t, seen, first, "the spawning goroutine's id is not reused by any child")
+}
+
+// Nested checkpoints on ONE goroutine share ONE window, so releasing the
+// registry entry when the INNER one closes silently detaches the still-live
+// OUTER mark: the next record builds a fresh window and Since(outer) reads the
+// orphaned old one, missing every finding recorded after the inner Close. That
+// is a fail-loudly gate going quiet, which is the one failure this package
+// exists to prevent — the registry entry may only be released when the LAST
+// bracketing checkpoint closes.
+func TestClose_InnerCloseDoesNotDetachAStillLiveOuterMark(t *testing.T) {
+	resetForTest(t)
+
+	outer := Checkpoint()
+	func() {
+		inner := Checkpoint()
+		defer Close(inner)
+		Fail(ClassConfig, "", "finding inside the inner bracket")
+	}()
+	Fail(ClassApply, "", "finding recorded after the inner Close")
+
+	got := Since(outer)
+	require.Len(t, got, 2, "the outer window must still collect after an inner Close")
+	assert.Equal(t, "finding inside the inner bracket", got[0].Message)
+	assert.Equal(t, "finding recorded after the inner Close", got[1].Message)
+}
+
+// The release is still a release: once the LAST bracketing checkpoint closes,
+// the goroutine-keyed registry entry is gone, so a long-lived process that
+// opens one window per request goroutine does not accumulate an entry forever.
+func TestClose_LastCloseStillReleasesTheRegistryEntry(t *testing.T) {
+	resetForTest(t)
+
+	outer := Checkpoint()
+	inner := Checkpoint()
+	gid := outer.w.gid
+	Close(inner)
+
+	windowsMu.Lock()
+	_, stillOpen := windows[gid]
+	windowsMu.Unlock()
+	require.True(t, stillOpen, "the outer bracket is still live, so the entry stays")
+
+	Close(outer)
+	windowsMu.Lock()
+	_, afterLast := windows[gid]
+	windowsMu.Unlock()
+	assert.False(t, afterLast, "the last Close releases the entry")
+}
+
+// Close is documented as safe to call more than once with the same Mark. It
+// must therefore be one-shot PER CHECKPOINT: a repeated Close of the inner
+// mark must not consume the outer bracket's release and re-open the detach
+// hazard above.
+func TestClose_RepeatedCloseOfTheSameMarkIsOneShot(t *testing.T) {
+	resetForTest(t)
+
+	outer := Checkpoint()
+	inner := Checkpoint()
+	Close(inner)
+	Close(inner)
+	Close(inner)
+	Fail(ClassSync, "", "recorded after three Closes of the inner mark")
+
+	assert.Len(t, Since(outer), 1, "repeated Close of one mark must not release the outer bracket")
+	assert.NotPanics(t, func() { Close(Mark{}) }, "a zero Mark stays a no-op")
 }
 
 // TestConcurrentWindows_NoCrossAttribution is the crux regression for the

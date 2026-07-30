@@ -221,3 +221,39 @@ func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 	require.NoError(t, rootCmd.Execute())
 	assert.NotEmpty(t, out.String())
 }
+
+// U104-F07 counted four format vocabularies for one flag and named the third
+// independent resolveFormat (cmd/harp) as the duplication. That copy is gone:
+// cmd/harp imports cliemit and its resolveFormat delegates to
+// cliemit.Resolve, pinned by cmd/harp/format_parity_test.go. What remains is
+// not a fourth implementation but a deliberate NARROWING, documented in this
+// file's const block: the streaming commands (session watch, plan watch,
+// run's structured stream) render one event at a time and cannot hand clifmt
+// a single result value, so they switch on text/json themselves.
+//
+// The real drift risk in that arrangement is a VALUE divergence, which
+// nothing pinned: these are plain strings, not clifmt.Format aliases, so if
+// clifmt's spellings ever changed the streaming commands would silently
+// reject a --format the rest of the CLI accepts. This pins the two
+// vocabularies to the same wire spellings, and pins the narrowing itself -
+// text and json are the only two the streaming switch admits, and every other
+// clifmt format must reach unknownFormatError.
+func TestStreamingFormatVocabularyAgreesWithClifmt(t *testing.T) {
+	assert.Equal(t, string(clifmt.FormatText), formatText,
+		"the streaming vocabulary and clifmt must spell text the same way")
+	assert.Equal(t, string(clifmt.FormatJSON), formatJSON,
+		"the streaming vocabulary and clifmt must spell json the same way")
+
+	narrowed := map[string]bool{formatText: true, formatJSON: true}
+	for _, f := range []clifmt.Format{
+		clifmt.FormatText, clifmt.FormatJSON, clifmt.FormatYAML, clifmt.FormatTOML, clifmt.FormatMarkdown,
+	} {
+		if narrowed[string(f)] {
+			continue
+		}
+		err := unknownFormatError(string(f))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), string(f),
+			"a format outside the streaming pair must be named in its own rejection")
+	}
+}

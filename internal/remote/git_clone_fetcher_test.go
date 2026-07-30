@@ -215,6 +215,41 @@ func TestGitCloneFetcher_GetDefaultBranch(t *testing.T) {
 	assert.NotEmpty(t, branch)
 }
 
+// TestGitCloneFetcher_GetDefaultBranch_UnresolvableIsAnError pins U093-F27: the
+// last arm used to return the literal "main" with a nil error, so a guess
+// arrived at the caller wearing the same clothes as an answer — and the callers
+// are `ctxloom publish` (which branch to commit to) and the retraction reader
+// (which branch to read the manifest from), where being wrong is silent and
+// consequential.
+//
+// The exhausted case is real: a detached HEAD with no remote-tracking refs, the
+// shape a bare fixture or a checkout-by-SHA leaves behind. There is nothing
+// further to try, and "I could not determine it" is the true answer.
+func TestGitCloneFetcher_GetDefaultBranch_UnresolvableIsAnError(t *testing.T) {
+	tmpDir := t.TempDir()
+	repoDir, _ := createTestRepoWithFiles(t, tmpDir)
+
+	repo, err := git.PlainOpen(repoDir)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	// Detach HEAD onto the same commit; no origin/* refs exist in this fixture.
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, head.Hash())))
+
+	fetcher, err := NewGitCloneFetcher(repoDir, "file://"+repoDir, ForgeGitHub, nil)
+	require.NoError(t, err)
+
+	branch, err := fetcher.GetDefaultBranch(context.Background(), "owner", "repo")
+	require.Error(t, err, "a guess must not be returned as an answer")
+	assert.Empty(t, branch)
+
+	// treeAtRef's empty-ref path owns this failure and must still resolve
+	// through the local HEAD, so an unknown default branch never costs a read.
+	data, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/core.yaml", "")
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+}
+
 func TestGitCloneFetcher_Forge(t *testing.T) {
 	tmpDir := t.TempDir()
 	repoDir, _ := createTestRepoWithFiles(t, tmpDir)

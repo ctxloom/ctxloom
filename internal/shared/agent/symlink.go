@@ -5,10 +5,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 )
 
 // cachedExecPath stores the resolved executable path (set once at startup).
-var cachedExecPath string
+// Guarded by execPathMu: this package is a dependency of every engine backend,
+// so nothing about the seam confines the memoizing write to one goroutine.
+var (
+	execPathMu     sync.RWMutex
+	cachedExecPath string
+)
 
 // GetExecutablePath returns the absolute path to the current ctxloom binary.
 // The path is resolved once and cached for the lifetime of the process.
@@ -23,8 +29,11 @@ var cachedExecPath string
 // different binary than the one running now is a live-skew signal worth a
 // warning regardless.
 func GetExecutablePath() (string, error) {
-	if cachedExecPath != "" {
-		return cachedExecPath, nil
+	execPathMu.RLock()
+	cached := cachedExecPath
+	execPathMu.RUnlock()
+	if cached != "" {
+		return cached, nil
 	}
 
 	execPath, err := os.Executable()
@@ -38,12 +47,18 @@ func GetExecutablePath() (string, error) {
 		return "", fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
+	execPathMu.Lock()
 	cachedExecPath = execPath
+	execPathMu.Unlock()
 	return execPath, nil
 }
 
 // SetExecutablePathForTesting allows tests to override the executable path.
+// It has no production caller and must not acquire one: the memoized answer is
+// a property of the running binary, not a knob.
 func SetExecutablePathForTesting(path string) {
+	execPathMu.Lock()
+	defer execPathMu.Unlock()
 	cachedExecPath = path
 }
 

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
@@ -114,6 +116,70 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 	if strings.Contains(string(onDisk), "ctxloom_version") {
 		t.Errorf("legacy ctxloom_version not stripped from disk:\n%s", onDisk)
 	}
+}
+
+// TestLockfileManager_LoadDoesNotRewriteOnAMereMention pins U093-F16's legible
+// half: the load-time self-heal must fire on the retired ctxloom_version KEY,
+// not on the characters appearing anywhere in the document.
+//
+// A read that writes is already a strong thing to do; triggering it off a raw
+// substring meant a repository URL, a bundle path or a retraction reason that
+// merely mentions the words rewrote the whole file through the struct —
+// discarding comments and any key the struct does not model.
+func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	path := manager.Path()
+
+	// "ctxloom_version" appears twice — in a bundle key and in free text — but
+	// never as an entry field.
+	original := "# hand-maintained; do not reformat\n" +
+		"version: 1\n" +
+		"bundles:\n" +
+		"  https://github.com/alice/repo@bundles/docs/ctxloom_version:\n" +
+		"    sha: abc1234\n" +
+		"    url: https://github.com/alice/repo\n" +
+		"    retracted_reason: the ctxloom_version field was dropped\n"
+	require.NoError(t, afero.WriteFile(fs, path, []byte(original), 0644))
+
+	loaded, err := manager.Load()
+	require.NoError(t, err)
+	_, ok := loaded.GetEntry(ItemTypeBundle, "https://github.com/alice/repo@bundles/docs/ctxloom_version")
+	require.True(t, ok, "the entry must still load")
+
+	onDisk, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(onDisk), "a read that finds no legacy field must not write")
+}
+
+// TestLockfileManager_SavePersistsVersionZero CHARACTERIZES today's behaviour
+// for U093-F35; it does not endorse it.
+//
+// The schema version is a bare literal at three construction sites
+// (remote/lockfile.go's absent-file path, operations/lockfile.go's rebuild and
+// operations/upgrade.go's), while other sites construct a Lockfile with no
+// Version at all — and Save neither stamps nor validates it, so "version: 0"
+// reaches disk as the sole on-disk record of every pin, hold and retraction.
+//
+// What a lockfile with an out-of-range version MEANS to a reader — stamp it,
+// refuse it, or migrate it — is a persisted-format decision, so it is
+// escalated rather than decided here. This test exists so the current answer
+// is written down and so whoever takes that decision sees it go red.
+func TestLockfileManager_SavePersistsVersionZero(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+
+	require.NoError(t, manager.Save(&Lockfile{
+		Bundles: map[string]LockEntry{"https://github.com/a/r@bundles/x": {SHA: "abc1234"}},
+	}))
+
+	onDisk, err := afero.ReadFile(fs, manager.Path())
+	require.NoError(t, err)
+	assert.Contains(t, string(onDisk), "version: 0")
+
+	reloaded, err := manager.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 0, reloaded.Version, "and it round-trips back unremarked")
 }
 
 func TestLockfile_AddEntry(t *testing.T) {
@@ -394,6 +460,33 @@ func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 	_, ok := lockfile.GetEntry(ItemType("unknown"), "test/bundle")
 	if ok {
 		t.Error("expected entry not to be found for unknown type")
+	}
+}
+
+// TestLockfile_OnlyBundlesAreDistributed pins the property that makes
+// AddEntry's non-bundle discard unreachable, and that U093-F32 read as a live
+// silent no-op.
+//
+// AddEntry does drop an entry whose itemType is not ItemTypeBundle, and it has
+// no return value with which to say so. But ItemTypeBundle is the ONLY ItemType
+// constant, no production code converts a string to an ItemType, and the single
+// parser that derives one from a ref — parseTypePathVersion, behind
+// ParseReference — accepts the literal segment "bundles" and rejects every
+// other spelling. So no caller can reach the discard except by fabricating a
+// type, which only this package's own tests do.
+//
+// The day a second distributed item type is introduced, this goes red — and
+// that is exactly the day AddEntry's silent drop becomes reachable and must
+// grow a way to report it.
+func TestLockfile_OnlyBundlesAreDistributed(t *testing.T) {
+	ref, err := ParseReference("https://github.com/alice/repo@bundles/core")
+	require.NoError(t, err)
+	assert.Equal(t, ItemTypeBundle, ref.ItemType)
+
+	for _, seg := range []string{"profiles", "fragments", "commands", "skills", "mcp", "hooks", "widgets"} {
+		_, err := ParseReference("https://github.com/alice/repo@" + seg + "/core")
+		require.Error(t, err, "segment %q must not name a distributed item type", seg)
+		assert.ErrorContains(t, err, "unknown item type")
 	}
 }
 

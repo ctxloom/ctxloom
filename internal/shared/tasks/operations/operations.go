@@ -115,13 +115,17 @@ type TaskResult struct {
 // notice for the frontend to surface. Used by `ctxloom run` pre-launch to
 // export CTXLOOM_PROJECT_ID into the session environment.
 func ResolveProjectIdentity(workDir string) (projectID, warning string, err error) {
+	// Both failures are wrapped with the stage that produced them, matching
+	// ResolveLogPath/resolveTaskStore: "the registry would not open" and
+	// "this tree's identity would not resolve" call for different operator
+	// action, and a bare error leaves the caller unable to tell them apart.
 	pm, err := projectid.Open("")
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("open project registry: %w", err)
 	}
 	res, err := pm.Resolve(workDir)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("resolve project id: %w", err)
 	}
 	return res.ProjectID, res.Warning, nil
 }
@@ -392,21 +396,26 @@ func scalarCollapse(schema *tagschema.Schema, existingTags, incoming []string) (
 	}
 
 	// surviving maps each scalar target that made it into toAdd to its
-	// (trimmed) raw tag string, so existingTags can be checked for a
-	// same-target-different-value tag that needs retracting.
+	// PARSED value, so existingTags can be checked for a
+	// same-target-different-value tag that needs retracting. Parsed, not raw:
+	// target identity is already decided by parsing, and tagma's grammar
+	// admits a quoted spelling of any component, so `k=v` and `k="v"` are one
+	// tag. Comparing raw strings makes the second look like a new value and
+	// retracts the first -- an untag written into an append-only log for a
+	// value that never changed.
 	surviving := map[string]string{}
 	for _, raw := range toAdd {
-		if target, scalar := scalarTargetOf(schema, raw); scalar {
-			surviving[target] = strings.TrimSpace(raw)
+		if target, value, scalar := scalarTagOf(schema, raw); scalar {
+			surviving[target] = value
 		}
 	}
 	for _, existing := range existingTags {
-		target, scalar := scalarTargetOf(schema, existing)
+		target, value, scalar := scalarTagOf(schema, existing)
 		if !scalar {
 			continue
 		}
-		newRaw, ok := surviving[target]
-		if ok && newRaw != strings.TrimSpace(existing) {
+		newValue, ok := surviving[target]
+		if ok && newValue != value {
 			toUntag = append(toUntag, existing)
 		}
 	}
@@ -422,16 +431,29 @@ func scalarCollapse(schema *tagschema.Schema, existingTags, incoming []string) (
 // isn't declared scalar reports (target, false) with a NON-empty target,
 // since IsScalar(target) is what decided false, not an absent namespace.
 func scalarTargetOf(schema *tagschema.Schema, raw string) (target string, scalar bool) {
+	target, _, scalar = scalarTagOf(schema, raw)
+	return target, scalar
+}
+
+// scalarTagOf is scalarTargetOf plus the tag's DECODED value ("" when the tag
+// carries none) -- the form any value comparison must use. Two tags spelled
+// differently but parsing to the same value ARE the same value: tagma decodes
+// a quoted component to its canonical content, so `k=v` and `k="v"` both
+// yield "v" here, while a raw-string comparison would call them different.
+func scalarTagOf(schema *tagschema.Schema, raw string) (target, value string, scalar bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", false
+		return "", "", false
 	}
 	parsed, err := tagma.ParseTag(trimmed)
 	if err != nil || parsed.Namespace == nil {
-		return "", false
+		return "", "", false
+	}
+	if parsed.Value != nil {
+		value = *parsed.Value
 	}
 	target = tagschema.Target(parsed)
-	return target, schema.IsScalar(target)
+	return target, value, schema.IsScalar(target)
 }
 
 // validateTags calls validateTag for every tag in tags, in order, against
@@ -785,74 +807,108 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 	if tc.HomingMode == paths.ModeRepo {
 		return resolveRepoHomedStore(tc)
 	}
-	proj.ID = tc.ProjectID
 	pm, pmErr := projectid.Open("")
-	if proj.ID == "" {
-		if pmErr != nil {
-			return nil, proj, "", fmt.Errorf("open project registry: %w", pmErr)
-		}
-		res, rerr := pm.Resolve(tc.WorkDir)
-		if rerr != nil {
-			return nil, proj, "", fmt.Errorf("resolve project id: %w", rerr)
-		}
-		proj.ID = res.ProjectID
-		warning = res.Warning
-	}
-	// Best-effort: name the registered root for the id so frontends can show
-	// where the store lives. A registry miss leaves Dir empty — never fatal.
-	if pmErr == nil {
-		if e, lerr := pm.ResolveByID(proj.ID); lerr == nil && e != nil {
-			proj.Dir = e.Path
-		}
-		// A pinned project-id silently wins over the working directory. When
-		// the cwd demonstrably belongs to a DIFFERENT project (its marker or
-		// registry entry says so), say it — this is exactly how tasks end up
-		// filed under the wrong project from a session that cd'd elsewhere.
-		if tc.ProjectID != "" && tc.WorkDir != "" {
-			cwdID, _ := projectid.ReadMarker(tc.WorkDir)
-			if cwdID == "" {
-				if e, lerr := pm.ResolveByPath(tc.WorkDir); lerr == nil && e != nil {
-					cwdID = e.ProjectID
-				}
-			}
-			if cwdID != "" && cwdID != proj.ID {
-				note := fmt.Sprintf("acting on pinned project %s, but %s belongs to project %s — pass --project %s to target it",
-					proj.ID, tc.WorkDir, cwdID, cwdID)
-				if warning != "" {
-					warning += "; " + note
-				} else {
-					warning = note
-				}
-			}
-		}
+	proj, warning, err = resolveProjectFor(tc, pm, pmErr)
+	if err != nil {
+		return nil, proj, "", err
 	}
 	logPath, err := paths.HomeTasksLogPath(proj.ID)
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}
-	// The resolution above ended in agreement (no pin-vs-cwd mismatch, or none
-	// to check) — that's exactly the case the note above never covers. But
-	// "resolved cleanly" and "has a task log" are different facts: a project-id
-	// can resolve normally to an id whose jsonl was simply never written (a
-	// fresh id adopted over a stale one, a lost/rebuilt registry, ...). Opened
-	// via tasks.OpenLog below with no existence check, that reads back as a
-	// plain empty project — "(no tasks)" — even when a DIFFERENT id also
-	// registered at this same path already has a real backlog sitting right
-	// there. Say so instead of staying silent; see missingLogSiblingNote.
+	// "Resolved cleanly" and "has a task log" are different facts: a
+	// project-id can resolve normally to an id whose jsonl was simply never
+	// written (a fresh id adopted over a stale one, a lost/rebuilt registry,
+	// ...). Opened via tasks.OpenLog below with no existence check, that
+	// reads back as a plain empty project — "(no tasks)" — even when a
+	// DIFFERENT id also registered at this same path already has a real
+	// backlog sitting right there. Say so instead of staying silent.
 	if pmErr == nil && tc.WorkDir != "" {
-		if note := missingLogSiblingNote(pm, tc.WorkDir, proj.ID, logPath); note != "" {
-			if warning != "" {
-				warning += "; " + note
-			} else {
-				warning = note
-			}
-		}
+		warning = appendNote(warning, missingLogSiblingNote(pm, tc.WorkDir, proj.ID, logPath))
 	}
 	store, err = tasks.OpenLog(logPath, tc.SessionHarp)
 	if err != nil {
 		return nil, proj, warning, err
 	}
 	return store, proj, warning, nil
+}
+
+// resolveProjectFor answers WHICH project a home-homed operation acts on: the
+// id pinned in tc (exported by `ctxloom run`) or a live registry resolution,
+// plus the registered root to display and any note the frontend should
+// surface. pmErr is the registry's own open failure, carried in rather than
+// re-derived: it is fatal only when the id has to be resolved live, and
+// merely disables the advisory lookups otherwise.
+func resolveProjectFor(tc TaskContext, pm *projectid.Manager, pmErr error) (proj projectIdentity, warning string, err error) {
+	proj.ID = tc.ProjectID
+	if proj.ID == "" {
+		if pmErr != nil {
+			return proj, "", fmt.Errorf("open project registry: %w", pmErr)
+		}
+		res, rerr := pm.Resolve(tc.WorkDir)
+		if rerr != nil {
+			return proj, "", fmt.Errorf("resolve project id: %w", rerr)
+		}
+		proj.ID = res.ProjectID
+		warning = res.Warning
+	}
+	if pmErr != nil {
+		return proj, warning, nil
+	}
+	// Best-effort: name the registered root for the id so frontends can show
+	// where the store lives. A registry miss leaves Dir empty — never fatal.
+	if e, lerr := pm.ResolveByID(proj.ID); lerr == nil && e != nil {
+		proj.Dir = e.Path
+	}
+	return proj, appendNote(warning, pinMismatchNote(tc, pm, proj.ID)), nil
+}
+
+// pinMismatchNote reports when a pinned project-id silently wins over a
+// working directory that demonstrably belongs to a DIFFERENT project — its
+// own marker or its registry entry says so. This is exactly how tasks end up
+// filed under the wrong project from a session that cd'd elsewhere. "" when
+// there is no pin, no working directory, or no disagreement.
+func pinMismatchNote(tc TaskContext, pm *projectid.Manager, resolvedID string) string {
+	if tc.ProjectID == "" || tc.WorkDir == "" {
+		return ""
+	}
+	// ReadMarker's error is the one signal that the tree's own marker was
+	// REFUSED (crafted to escape the tasks directory, or unreadable) rather
+	// than simply absent; the two states must not read alike. The pin still
+	// wins — this is a diagnostic, not a refusal.
+	note := ""
+	cwdID, merr := projectid.ReadMarker(tc.WorkDir)
+	if merr != nil {
+		note = fmt.Sprintf(
+			"acting on pinned project %s; %s carries a project marker that was refused (%v), so it could not be checked against the pin",
+			resolvedID, tc.WorkDir, merr)
+	}
+	if cwdID == "" {
+		if e, lerr := pm.ResolveByPath(tc.WorkDir); lerr == nil && e != nil {
+			cwdID = e.ProjectID
+		}
+	}
+	if cwdID == "" || cwdID == resolvedID {
+		return note
+	}
+	return appendNote(note, fmt.Sprintf(
+		"acting on pinned project %s, but %s belongs to project %s — pass --project %s to target it",
+		resolvedID, tc.WorkDir, cwdID, cwdID))
+}
+
+// appendNote joins a resolution note onto the warning a frontend will
+// surface, semicolon-separated. An empty note adds nothing, so a caller never
+// has to guard the call; an empty warning is replaced rather than prefixed
+// with a stray separator.
+func appendNote(warning, note string) string {
+	switch {
+	case note == "":
+		return warning
+	case warning == "":
+		return note
+	default:
+		return warning + "; " + note
+	}
 }
 
 // missingLogSiblingNote reports a human-facing note when resolvedID's own
@@ -871,9 +927,14 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 	if _, err := os.Stat(logPath); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return "" // resolvedID's own log exists (or its state is otherwise inconclusive) -- nothing hidden.
 	}
+	// A failure below is NOT "nothing to report": this note exists precisely
+	// so a project's real backlog cannot hide behind an honest-looking
+	// "(no tasks)", and answering "nothing hidden" when the check never
+	// managed to look is the one answer it must not give.
 	entries, err := pm.EntriesAtPath(workDir)
 	if err != nil {
-		return ""
+		return fmt.Sprintf("project %s has no task log yet, and %s's other registrations could not be read (%v) -- another project may hold this directory's tasks",
+			resolvedID, workDir, err)
 	}
 	for _, e := range entries {
 		if e.ProjectID == resolvedID {
@@ -881,7 +942,8 @@ func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath s
 		}
 		siblingPath, perr := paths.HomeTasksLogPath(e.ProjectID)
 		if perr != nil {
-			continue
+			return fmt.Sprintf("project %s has no task log yet, and %s is also registered under project id %q, which has no usable log path (%v)",
+				resolvedID, workDir, e.ProjectID, perr)
 		}
 		if _, serr := os.Stat(siblingPath); serr == nil {
 			return fmt.Sprintf("project %s has no task log yet, but %s is ALSO registered here under project %s, which has one -- pass --project %s to see those tasks",

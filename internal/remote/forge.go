@@ -2,7 +2,9 @@ package remote
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -69,6 +71,9 @@ type ResolvedForge struct {
 //  3. built-in github for github.com (and owner/repo shorthand)
 //  4. generic git for any other host
 //
+// Step 2 scans labels in ascending order, so when several forges share a
+// base_url host the lowest label wins — the same one on every run.
+//
 // forges may be nil; built-in defaults always apply.
 func resolveForge(remoteURL, forgeLabel string, forges map[string]ForgeConfig) ResolvedForge {
 	if forgeLabel != "" {
@@ -79,7 +84,11 @@ func resolveForge(remoteURL, forgeLabel string, forges map[string]ForgeConfig) R
 
 	host := forgeHost(remoteURL)
 	if host != "" {
-		for _, fc := range forges {
+		// Labels in ascending order, not map order: two forges may share a
+		// base_url host, and ranging the map would bind the remote to a
+		// different endpoint and a different token env from run to run.
+		for _, label := range slices.Sorted(maps.Keys(forges)) {
+			fc := forges[label]
 			if bh := forgeHost(fc.BaseURL()); bh != "" && bh == host {
 				return resolvedFromConfig(remoteURL, fc)
 			}

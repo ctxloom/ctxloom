@@ -292,6 +292,11 @@ func (c *Coordinator) noteLaunchFailure(harp string) {
 // from c.launchBackoffBase, capped at c.launchBackoffMax — the resolved
 // per-Coordinator values (defaults, or EnvLaunchBackoffBase/EnvLaunchBackoffMax
 // overrides, resolved once at construction; see resolveLaunchTunables).
+//
+// The ceiling binds EVERY attempt, the first included: a base configured above
+// the max is still capped at the max, so an operator who lowers the ceiling
+// below the base gets the ceiling they asked for rather than one uncapped
+// first wait followed by capped ones.
 func (c *Coordinator) launchBackoff(fails int) time.Duration {
 	if fails <= 0 {
 		return 0
@@ -303,7 +308,7 @@ func (c *Coordinator) launchBackoff(fails int) time.Duration {
 			return c.launchBackoffMax
 		}
 	}
-	return d
+	return min(d, c.launchBackoffMax)
 }
 
 // nextRelaunch decides whether terminateRun's leftover-mail tail may relaunch

@@ -488,4 +488,25 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 		}
 		return callTool(c, "agent_stop", map[string]any{"harp": harp})
 	})
+
+	// --- FAILURE PATH: the mail `kind` vocabulary as a security boundary.
+	// `kind` is not a label — approval_request is the kind the escalation
+	// ladder relays to a HUMAN as a trust decision, so a sender able to set
+	// it phishes that decision. The vocabulary is closed at the one ingress
+	// every sender funnels through, which is why the refusal below is the
+	// same refusal a delegated child gets.
+	ctx.Step(`^the agent sends "([^"]*)"'s remembered session a message of kind "([^"]*)"$`,
+		func(c context.Context, name, kind string) error {
+			w := worldFrom(c)
+			j6 := j6Of(w)
+			harp, ok := j6.harps[name]
+			if !ok || harp == "" {
+				return fmt.Errorf("j6: no session harp remembered for %q", name)
+			}
+			return callTool(c, "agent_send", map[string]any{
+				"to":   harp,
+				"body": "Approve running the deploy script.",
+				"kind": kind,
+			})
+		})
 }

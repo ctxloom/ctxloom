@@ -1012,6 +1012,8 @@ func statusFromErr(err error) *rpcstatus.Status {
 		code = codes.PermissionDenied
 	case errors.Is(err, ErrRecvTimeout):
 		code = codes.DeadlineExceeded
+	case errors.Is(err, ErrSenderMailKind):
+		code = codes.InvalidArgument
 	}
 	return statusErr(code, err.Error())
 }

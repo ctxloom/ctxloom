@@ -36,6 +36,23 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// A FAILED tool call's payload is its error message, not a JSON envelope, so
+	// "the tool result contains" (which unwraps the inner JSON) can never assert
+	// on it — it reports the unwrap failure instead. This step is how a refusal's
+	// own wording gets asserted: a refusal that does not tell the caller what to
+	// do instead is only half a refusal.
+	ctx.Step(`^the tool failure message contains "([^"]*)"$`, func(c context.Context, want string) error {
+		w := worldFrom(c)
+		isErr, msg := w.lastTool.IsError()
+		if !isErr {
+			return fmt.Errorf("expected the tool call to have failed; result:\n%s", w.lastTool.JSON())
+		}
+		if !strings.Contains(msg, want) {
+			return fmt.Errorf("tool failure message does not contain %q; message:\n%s", want, msg)
+		}
+		return nil
+	})
+
 	ctx.Step(`^the tool result contains "([^"]*)"$`, func(c context.Context, want string) error {
 		w := worldFrom(c)
 		// U162-F07: this used to substring-match the WHOLE re-marshalled

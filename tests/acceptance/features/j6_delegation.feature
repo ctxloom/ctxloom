@@ -139,3 +139,36 @@ Feature: Coordinator delegates isolated work
     When the agent calls tool "agent_stop" with:
       | harp | not-a-real-session-at-all |
     Then the tool call fails
+
+  # FAILURE PATH — a message's `kind` is a security boundary, not a label.
+  # approval_request is the kind the escalation ladder uses when it relays a
+  # child's permission request UP for a decision a human is expected to make;
+  # user_injected and exited are the coordinator's own notices. Until this
+  # scenario existed, `kind` was whatever the sender said it was: a delegated
+  # child could queue an "approval_request" into its coordinator's mailbox and
+  # phish a trust decision out of it, complete with a plausible body.
+  #
+  # WHAT THIS HARNESS CAN AND CANNOT SEE (same limit as the note at the top):
+  # it drives the COORDINATOR's own agent_send, never a child's — no tool here
+  # reaches a spawned child's runner socket. The refusal is identity-
+  # independent by construction (one ingress guard for both sender surfaces),
+  # and the child-identity case is pinned in the unit suite
+  # (TestServePeerSend_RefusesSpoofedApprovalRequest). What this proves at the
+  # real MCP surface is that the vocabulary is CLOSED and that the refusal
+  # tells the sender what it may use instead — and, in the same scenario, that
+  # it is not a blanket refusal: a documented kind still goes through.
+  Scenario: A sender cannot claim a coordinator-reserved message kind
+    When the agent calls tool "agent_run" with:
+      | agent  | fixer |
+      | prompt | go    |
+    Then the tool call succeeds
+    And "fixer"'s spawned session is remembered
+    When the agent sends "fixer"'s remembered session a message of kind "approval_request"
+    Then the tool call fails
+    And the tool failure message contains "reserved for the coordinator"
+    And the tool failure message contains "message | result | error | question"
+    When the agent sends "fixer"'s remembered session a message of kind "made_up_kind"
+    Then the tool call fails
+    And the tool failure message contains "is not a message kind"
+    When the agent sends "fixer"'s remembered session a message of kind "result"
+    Then the tool call succeeds

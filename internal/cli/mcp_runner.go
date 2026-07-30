@@ -120,12 +120,25 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
 	srv := &http.Server{Handler: mux}
-	go func() { _ = srv.Serve(ln) }()
+	go serveRunnerHTTP(srv, ln, path)
 	cleanup := func() {
 		cleanupMarker()
 		cleanupSocket()
 	}
 	return &runnerMCP{socketPath: path, httpSrv: srv, cleanup: cleanup}, nil
+}
+
+// serveRunnerHTTP runs the runner's MCP endpoint until it stops. http.Server's
+// Serve ALWAYS returns an error; on a deliberate shutdown that error is
+// http.ErrServerClosed, so any other value means the endpoint died while the
+// runner carried on running and carried on advertising a socket (and a
+// discovery marker) that nothing answers on. The harness's stdio shim then
+// dials a live-looking path, and every ctxloom tool in that session fails with
+// a transport error that names nothing about the real cause.
+func serveRunnerHTTP(srv *http.Server, ln net.Listener, socketPath string) {
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		clidiag.Warn("ctxloom", "runner MCP endpoint at %s stopped serving: %v (ctxloom tools in this session will fail until the runner is restarted)", socketPath, err)
+	}
 }
 
 // close shuts the endpoint down and removes its socket dir.

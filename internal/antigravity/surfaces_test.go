@@ -162,6 +162,31 @@ func TestHooksSurface_DeliverWritesHooksJSON(t *testing.T) {
 	assert.False(t, exists, "hooks surface never writes AGENTS.md")
 }
 
+// TestHooksSurface_NilFSDefaultsToOSFilesystem pins U029-F09: every other agy
+// surface hands its (possibly nil) fs to a writer and reads it back through
+// AntigravityHookWriter.getFS, which defaults nil to the OS filesystem, but the
+// hooks surface dereferenced s.fs directly for its MkdirAll — so a
+// zero-valued hooksSurface nil-panicked on the FIRST filesystem call instead of
+// behaving like its siblings.
+func TestHooksSurface_NilFSDefaultsToOSFilesystem(t *testing.T) {
+	dir := t.TempDir()
+	s := &hooksSurface{hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		PreTool: []wire.Hook{{Command: "ltk evaluate"}},
+	}}}
+
+	handle, err := s.Deliver(dir)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, AgentsDir, "hooks.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "ltk evaluate", "the managed hook landed on the OS filesystem")
+
+	require.NoError(t, handle.Cleanup())
+	data, err = os.ReadFile(filepath.Join(dir, AgentsDir, "hooks.json"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "ltk evaluate")
+}
+
 // ---- commands surface (.agents/skills/) ------------------------------------
 
 func TestCommandsSurface_DeliverWritesSkillFiles(t *testing.T) {

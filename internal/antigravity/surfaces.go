@@ -113,7 +113,7 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	w := &AntigravityHookWriter{FS: s.fs}
 	hooksPath := w.SettingsPath(dir)
-	if err := s.fs.MkdirAll(filepath.Dir(hooksPath), 0755); err != nil {
+	if err := w.getFS().MkdirAll(filepath.Dir(hooksPath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create %s directory: %w", AgentsDir, err)
 	}
 	hf, err := w.loadHooksFile(hooksPath)

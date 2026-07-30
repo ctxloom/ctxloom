@@ -213,6 +213,30 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 	}
 }
 
+// TestDescriptorTable_ConfigDecodesToItsOwnType is what makes every backend's
+// `cfg.(*XConfig); if !ok` arm unreachable in production, and is therefore the
+// invariant that must be pinned rather than the arm hardened (U055-F11).
+//
+// Both production Configure call sites pair a backend with a config chosen by
+// TYPE — ConfiguredBackend does Get(cfg.BackendType()), and cli's
+// serveBackendConfig only decodes an entry whose EffectiveType() equals the
+// backend name. So the ONLY way a backend can be handed a config it cannot read
+// is a descriptor whose decodeConfig builds some other backend's struct. That
+// mismatch is silent by construction: the wrong-typed config would be dropped
+// whole, and the run would launch on defaults with every override ignored.
+func TestDescriptorTable_ConfigDecodesToItsOwnType(t *testing.T) {
+	for name, d := range descriptors {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := d.decodeConfig(map[string]interface{}{})
+			require.NoError(t, err)
+			require.NotNil(t, cfg)
+			assert.Equal(t, name, cfg.BackendType(),
+				"descriptor %q decodes a config that identifies as %q — the backend Get() resolves for it could never read it",
+				name, cfg.BackendType())
+		})
+	}
+}
+
 // U057-F25: registerDescriptor must not silently overwrite an existing
 // same-name entry — a duplicate registration is a programming error at
 // init time (a future backend accidentally reusing a name), and the losing

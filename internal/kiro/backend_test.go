@@ -69,6 +69,16 @@ func TestNewKiro_Defaults(t *testing.T) {
 	assert.Equal(t, "kiro-cli", b.BinaryPath)
 }
 
+// TestNewKiro_HasNoSessionHistoryReader pins the fact several comments in this
+// package rest on (U055-F02): kiro's sessions/cli/*.jsonl scraper was DELETED,
+// not demoted — it was confirmed broken against the v2 SQLite store a real
+// `kiro-cli chat --no-interactive` writes, and canonical capture is the only
+// transcript source now. Anything reintroducing a reader here must revisit
+// those comments, and KIRO_HOME's scope with them.
+func TestNewKiro_HasNoSessionHistoryReader(t *testing.T) {
+	assert.Nil(t, NewKiro().History(), "kiro declares no session history; it must not answer an empty list nobody can tell from 'genuinely none'")
+}
+
 func TestKiro_Configure(t *testing.T) {
 	b := NewKiro()
 	b.Configure(&KiroConfig{
@@ -114,6 +124,100 @@ func TestKiro_ConfigureIgnoresForeignConfig(t *testing.T) {
 	b.Configure(nil)
 	assert.Equal(t, "kiro-cli", b.BinaryPath)
 	assert.Equal(t, defaultAgentName, b.agentName)
+}
+
+// foreignConfig is a BackendConfig this backend cannot read — the mis-wiring
+// shape Configure's type assertion guards against.
+type foreignConfig struct{}
+
+func (foreignConfig) BackendType() string { return "not-kiro" }
+
+// TestKiro_ConfigureForeignConfigIsWarned pins U055-F11: a config Configure
+// cannot read drops EVERY override (binary path, args, env, effort, agent,
+// agent-engine) and the run then launches on defaults. Staying silent about
+// that surfaces the mis-wiring a whole session later as a launch that ignored
+// the user's config, naming neither the cause nor the config that caused it —
+// the same reason internal/acp's Configure warns on its own foreign-config arm.
+// A nil config is the same class and must not panic while saying so.
+func TestKiro_ConfigureForeignConfigIsWarned(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cfg  agent.BackendConfig
+		want string
+	}{
+		{"foreign typed config", foreignConfig{}, "not-kiro"},
+		{"nil config", nil, "<nil>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+			orig := os.Stderr
+			os.Stderr = w
+
+			b := NewKiro()
+			b.Configure(tt.cfg)
+			_ = w.Close()
+			os.Stderr = orig
+
+			out, err := io.ReadAll(r)
+			require.NoError(t, err)
+			assert.Contains(t, string(out), tt.want,
+				"a config this backend cannot read must be reported, not silently dropped")
+			assert.Equal(t, "kiro-cli", b.BinaryPath, "no override may be applied from an unreadable config")
+		})
+	}
+}
+
+// TestKiro_Execute_RefusesEmptyOneshotPrompt pins the headless-turn invariant
+// the shared ACP-shaped path already enforces (agent.RunOneshotTurn: "an empty
+// prompt now refuses before the engine is ever invoked"). kiro's exec-style
+// oneshot appends `--no-interactive` unconditionally but appends the prompt only
+// when non-empty, so a blank prompt launched `kiro-cli chat --no-interactive`
+// with NO input positional and nil stdin — a headless turn that asks nothing,
+// the exit-0-with-zero-bytes shape. The engine must not be spawned at all.
+func TestKiro_Execute_RefusesEmptyOneshotPrompt(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		prompt *agent.Fragment
+	}{
+		{"nil prompt", nil},
+		{"empty prompt", &agent.Fragment{}},
+		{"whitespace-only prompt", &agent.Fragment{Content: " \n\t "}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			launched := false
+			b := NewKiro()
+			b.SetLauncher(func(context.Context, agent.LaunchSpec, io.Reader, io.Writer, io.Writer, <-chan agent.WindowSize) (int32, error) {
+				launched = true
+				return 0, nil
+			})
+
+			_, err := b.Execute(context.Background(),
+				&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: tt.prompt},
+				io.Discard, io.Discard)
+
+			require.Error(t, err, "a oneshot that asks nothing must be refused, not launched")
+			assert.False(t, launched, "the engine must never be spawned for an empty oneshot prompt")
+		})
+	}
+}
+
+// TestKiro_Execute_InteractiveEmptyPromptIsLegitimate is the other half: an
+// interactive launch with no prompt opens a session for the human to drive, so
+// it must keep working (cf. internal/cli/run.go's identical --print-only floor).
+func TestKiro_Execute_InteractiveEmptyPromptStillLaunches(t *testing.T) {
+	launched := false
+	b := NewKiro()
+	b.SetLauncher(func(context.Context, agent.LaunchSpec, io.Reader, io.Writer, io.Writer, <-chan agent.WindowSize) (int32, error) {
+		launched = true
+		return 0, nil
+	})
+
+	_, err := b.Execute(context.Background(),
+		&agent.ExecuteRequest{Mode: agent.ModeInteractive}, io.Discard, io.Discard)
+
+	require.NoError(t, err)
+	assert.True(t, launched, "an interactive session with no opening prompt is legitimate")
 }
 
 func TestKiro_BuildArgs(t *testing.T) {

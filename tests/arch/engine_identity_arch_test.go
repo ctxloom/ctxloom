@@ -2,7 +2,7 @@
 
 // T12: engine identity was enumerated in (at least) four independently
 // maintained rosters with four different memberships —
-// internal/lm/grpc.RetiredScraperBackends, internal/operations'
+// internal/lm/grpc.RetiredScraperBackendNames, internal/operations'
 // vendorImportRegistry, internal/lm/isolation's composableEngines, and
 // internal/lm/isolation's credentialSeedSpecs — and internal/operations (the
 // ADR-0026 core) imported internal/claude/codex/kiro directly to branch on
@@ -130,13 +130,8 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 			"nothing to validate against")
 	}
 
-	retiredScrapers := make([]string, 0, len(grpc.RetiredScraperBackends))
-	for name := range grpc.RetiredScraperBackends {
-		retiredScrapers = append(retiredScrapers, name)
-	}
-
 	rosters := []rosterCheck{
-		{source: "internal/lm/grpc.RetiredScraperBackends", members: retiredScrapers},
+		{source: "internal/lm/grpc.RetiredScraperBackendNames", members: grpc.RetiredScraperBackendNames()},
 		{source: "internal/operations.VendorImportEngineNames (vendorImportRegistry)", members: operations.VendorImportEngineNames()},
 		{source: "internal/lm/isolation.ComposableEngines (composableEngines)", members: isolation.ComposableEngines()},
 		{source: "internal/lm/isolation.CredentialSeedEngineNames (credentialSeedSpecs)", members: isolation.CredentialSeedEngineNames()},

@@ -3,8 +3,10 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -174,22 +176,37 @@ func permissionRequestFromProto(p *ChatPermissionRequest) *agent.PermissionReque
 	return out
 }
 
+// clampInt32 narrows a host-side int onto the wire's int32 without wrapping.
+// An unchecked conversion turns an out-of-range measurement into a small or
+// negative one that reads as a plausible reading; saturating keeps the sign and
+// puts the value at the edge of the range, where it is recognizable as a
+// ceiling rather than a measurement.
+func clampInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
+}
+
 func turnMetaToProto(m *agent.TurnMeta) *TurnMeta {
 	if m == nil {
 		return nil
 	}
 	return &TurnMeta{
-		InputTokens:         int32(m.InputTokens),
-		OutputTokens:        int32(m.OutputTokens),
-		CacheReadTokens:     int32(m.CacheReadTokens),
-		CacheCreationTokens: int32(m.CacheCreationTokens),
-		ContextWindow:       int32(m.ContextWindow),
-		MaxOutputTokens:     int32(m.MaxOutputTokens),
+		InputTokens:         clampInt32(m.InputTokens),
+		OutputTokens:        clampInt32(m.OutputTokens),
+		CacheReadTokens:     clampInt32(m.CacheReadTokens),
+		CacheCreationTokens: clampInt32(m.CacheCreationTokens),
+		ContextWindow:       clampInt32(m.ContextWindow),
+		MaxOutputTokens:     clampInt32(m.MaxOutputTokens),
 		CostUsd:             m.CostUSD,
 		Model:               m.Model,
 		StopReason:          m.StopReason,
-		DurationMs:          int32(m.DurationMs),
-		NumTurns:            int32(m.NumTurns),
+		DurationMs:          clampInt32(m.DurationMs),
+		NumTurns:            clampInt32(m.NumTurns),
 	}
 }
 
@@ -256,11 +273,17 @@ func chatSessionInfoFromProto(p *ChatSessionInfo) *agent.ChatSessionInfo {
 func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 	first, err := stream.Recv()
 	if err != nil {
+		// A client that half-closes before sending anything violated the
+		// protocol; anything else is the transport failing, and its own status
+		// code is the one the client needs to see.
+		if errors.Is(err, io.EOF) {
+			return status.Error(codes.InvalidArgument, "chat stream closed before the required start message")
+		}
 		return fmt.Errorf("receive chat start: %w", err)
 	}
 	start := first.GetStart()
 	if start == nil {
-		return fmt.Errorf("first Chat message must carry start")
+		return status.Error(codes.InvalidArgument, "first Chat message must carry start")
 	}
 
 	chat, ok := s.Impl.(agent.StructuredChat)
@@ -299,7 +322,17 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 
 	for ev := range out {
 		if serr := stream.Send(chatEventToProto(ev)); serr != nil {
-			return serr // client gone; stream ctx cancels, chat unwinds
+			// Client gone; the stream ctx cancels and chat unwinds. Keep
+			// consuming `out` until the backend closes it: a backend that
+			// writes to `out` with a plain channel send (no ctx select — the
+			// capability never required one) would otherwise stay blocked on
+			// that send forever, leaking a goroutine and the whole engine
+			// session it holds.
+			go func() {
+				for range out { //nolint:revive // draining, the values are unwanted
+				}
+			}()
+			return serr
 		}
 	}
 	return <-chatErr
@@ -333,133 +366,170 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	events := make(chan agent.ChatEvent)
 	errs := make(chan error, 1)
 
-	// Tough-cloud S2: capture this conversation's canonical transcript at the
-	// host boundary — this is THE host seam behind `ctxloom run --structured`
-	// and `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]:
-	// acp_cmd.go already stamps it there for the engine subprocess's own env,
-	// and it is equally available here without any ChatRequest field addition.
-	//
-	// S4 verified this env-var plumbing rather than adding to it: run.go's
-	// AssignSession (cmd/run.go, unconditional since well before S2/S4) mints
-	// activeHarp and stamps runEnv["CTXLOOM_SESSION_HARP"] regardless of
-	// --structured, and that env rides req.Options.Env straight into
-	// runStructuredREPL's agent.ChatRequest — so req.Env[SessionHarpEnv] is
-	// already populated on this path today. Confirmed end to end: a real
-	// `ctxloom run --structured` session mints a harp and writes a non-empty
-	// persist/transcript.jsonl.
-	//
-	// edgy-ivory: the recorder is opened HERE, once, and shared by both the
-	// inbound pump below (records the user's own turns — Tee only ever sees
-	// the OUTBOUND events channel, so without this tap a structured
-	// transcript carried assistant output but no `user` entries at all) and
-	// the outbound tee (records everything else). One Recorder, one seq
-	// counter, one file — a second NewRecorder here would race the first for
-	// the file and reset Seq to 0.
-	//
-	// outer-petal: those two producers used to call rec.Record (directly, or
-	// via transcript.RecordUserText/Tee) from their own independent
-	// goroutines — safe from data corruption (fileRecorder's own mutex) but
-	// with no coordination over record ORDER beyond raw mutex-acquisition
-	// scheduling (found via the H1b door-equivalence work, 2026-07-16: the
-	// same scripted conversation's transcript.jsonl could put the Session
-	// record before or after the first user turn across repeated runs of the
-	// identical script). A transcript.CoordinatedRecorder now owns rec
-	// exclusively: both producers Submit to it instead of calling Record
-	// themselves, so there is exactly one caller into the Recorder's seq
-	// counter, not two racing it. This does not (and safely cannot, without
-	// risking a deadlock against a hypothetical backend that withholds all
-	// output until it receives input) impose a strict cross-source
-	// precedence — genuinely concurrent, causally-unrelated events (e.g. the
-	// engine's own Session event vs. the very first user turn, sent before
-	// either side has seen anything from the other) can still interleave
-	// either way; see chat_test.go's TestGRPCClient_Chat_CapturesUserTurn for
-	// why that specific case has no observable effect on any transcript
-	// reader.
-	var rec transcript.Recorder
-	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
-		rec = c.openRecorder(ctx, harp, req.TranscriptRawPolicy)
-	}
-	var coord *transcript.CoordinatedRecorder
-	if rec != nil {
-		coord = transcript.NewCoordinatedRecorder(rec, 2) // inbound tap + outbound tee
-	}
+	capture := c.openChatCapture(ctx, req)
+	go pumpChatInput(ctx, stream, in, capture)
+	go pumpChatEvents(ctx, stream, events, errs)
 
+	return in, teeChatCapture(ctx, events, capture), errs, nil
+}
+
+// chatSendStream and chatRecvStream are the two directions of the chat client
+// stream, split so each pump can only reach the one it owns.
+type chatSendStream interface {
+	Send(*ChatInput) error
+	CloseSend() error
+}
+
+type chatRecvStream interface {
+	Recv() (*ChatEvent, error)
+}
+
+// openChatCapture opens this conversation's canonical transcript capture, or
+// returns nil when the conversation is not being captured (no harp) or the
+// recorder could not be opened — capture is best-effort and never blocks,
+// delays or alters the chat it shadows.
+//
+// Tough-cloud S2: this is THE host seam behind `ctxloom run --structured` and
+// `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]: acp_cmd.go
+// already stamps it there for the engine subprocess's own env, and it is
+// equally available here without any ChatRequest field addition.
+//
+// S4 verified this env-var plumbing rather than adding to it: run.go's
+// AssignSession (cmd/run.go, unconditional since well before S2/S4) mints
+// activeHarp and stamps runEnv["CTXLOOM_SESSION_HARP"] regardless of
+// --structured, and that env rides req.Options.Env straight into
+// runStructuredREPL's agent.ChatRequest — so req.Env[SessionHarpEnv] is
+// already populated on this path today. Confirmed end to end: a real
+// `ctxloom run --structured` session mints a harp and writes a non-empty
+// persist/transcript.jsonl.
+//
+// edgy-ivory: ONE recorder is opened here and shared by both producers — the
+// inbound pump (records the user's own turns; the outbound tee only ever sees
+// the OUTBOUND events channel, so without that tap a structured transcript
+// carried assistant output but no `user` entries at all) and the outbound tee
+// (records everything else). One Recorder, one seq counter, one file — a second
+// NewRecorder would race the first for the file and reset Seq to 0.
+//
+// outer-petal: those two producers used to call rec.Record (directly, or via
+// transcript.RecordUserText/Tee) from their own independent goroutines — safe
+// from data corruption (fileRecorder's own mutex) but with no coordination over
+// record ORDER beyond raw mutex-acquisition scheduling (found via the H1b
+// door-equivalence work, 2026-07-16: the same scripted conversation's
+// transcript.jsonl could put the Session record before or after the first user
+// turn across repeated runs of the identical script). A
+// transcript.CoordinatedRecorder owns rec exclusively: both producers Submit to
+// it instead of calling Record themselves, so there is exactly one caller into
+// the Recorder's seq counter, not two racing it. This does not (and safely
+// cannot, without risking a deadlock against a hypothetical backend that
+// withholds all output until it receives input) impose a strict cross-source
+// precedence — genuinely concurrent, causally-unrelated events (e.g. the
+// engine's own Session event vs. the very first user turn, sent before either
+// side has seen anything from the other) can still interleave either way; see
+// chat_test.go's TestGRPCClient_Chat_CapturesUserTurn for why that specific
+// case has no observable effect on any transcript reader.
+func (c *GRPCClient) openChatCapture(ctx context.Context, req agent.ChatRequest) *transcript.CoordinatedRecorder {
+	harp := req.Env[agent.SessionHarpEnv]
+	if harp == "" {
+		return nil
+	}
+	rec := c.openRecorder(ctx, harp, req.TranscriptRawPolicy)
+	if rec == nil {
+		return nil
+	}
+	return transcript.NewCoordinatedRecorder(rec, 2) // inbound tap + outbound tee
+}
+
+// pumpChatInput forwards the caller's messages onto the stream until the caller
+// closes `in`, taps user turns into the capture, and half-closes the send
+// direction so the backend completes.
+//
+// A failed Send does not release this pump: `in` is the channel the caller was
+// handed and told to write to, so abandoning it mid-conversation leaves every
+// later write blocked forever on a channel with no reader. It keeps draining
+// until the caller closes it. Nothing further is sent, and nothing further is
+// recorded either — an undelivered turn is not part of the conversation. The
+// broken stream itself surfaces on `errs`, whose pump fails on the same stream.
+func pumpChatInput(ctx context.Context, stream chatSendStream, in <-chan agent.ChatMessage, capture *transcript.CoordinatedRecorder) {
+	if capture != nil {
+		defer capture.ProducerDone()
+	}
+	sendFailed := false
+	for msg := range in {
+		if sendFailed {
+			continue
+		}
+		if capture != nil && msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn {
+			if entry := userTapEntry(msg); entry != nil {
+				capture.Submit(ctx, agent.ChatEvent{Entry: entry})
+			}
+		}
+		if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
+			sendFailed = true
+			clidiag.Warn("ctxloom", "chat: message not delivered to the engine: %v", serr)
+		}
+	}
+	_ = stream.CloseSend()
+}
+
+// pumpChatEvents publishes the backend's normalized events on `events` and any
+// fatal receive error on `errs`, closing both when the stream ends.
+func pumpChatEvents(ctx context.Context, stream chatRecvStream, events chan<- agent.ChatEvent, errs chan<- error) {
+	defer close(events)
+	defer close(errs)
+	for {
+		ev, rerr := stream.Recv()
+		if rerr == io.EOF {
+			return
+		}
+		if rerr != nil {
+			errs <- rerr
+			return
+		}
+		select {
+		case events <- chatEventFromProto(ev):
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// teeChatCapture returns the event channel the caller sees. Without a capture
+// that is `events` itself; with one, every event is submitted to the capture on
+// its way through, and the returned channel closes only once the capture is
+// durably complete — the completion barrier Chat's own doc promises.
+//
+// naval-snarl #3 / TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq:
+// this tee is only ONE of the capture's two registered producers — the inbound
+// pump (user turns) is the other, and its ProducerDone is keyed to when the
+// CALLER closes `in`, not to anything observable here. Closing the returned
+// channel as soon as this producer's own loop ended let a caller treat the
+// visible channel closing as "capture complete" and go read the transcript file
+// — even though the inbound tap could still be mid-Submit on its final user
+// turn. That is exactly the race
+// TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq catches
+// under load (79/80 records: the last user turn dropped). Blocking on
+// capture.Done() — which fires only once BOTH producers have called
+// ProducerDone AND every submitted record has actually been Record()'d — makes
+// the close a true completion barrier. ctx.Done() is still an escape hatch so
+// an abandoned/canceled call cannot hang here forever.
+func teeChatCapture(ctx context.Context, events <-chan agent.ChatEvent, capture *transcript.CoordinatedRecorder) <-chan agent.ChatEvent {
+	if capture == nil {
+		return events
+	}
+	teed := make(chan agent.ChatEvent)
 	go func() {
-		if coord != nil {
-			defer coord.ProducerDone()
+		defer close(teed)
+		for ev := range events {
+			capture.Submit(ctx, ev)
+			teed <- ev
 		}
-		for msg := range in {
-			if coord != nil && msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn {
-				if entry := userTapEntry(msg); entry != nil {
-					coord.Submit(ctx, agent.ChatEvent{Entry: entry})
-				}
-			}
-			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
-				break
-			}
-		}
-		_ = stream.CloseSend() // input done → half-close so the backend completes
-	}()
-
-	go func() {
-		defer close(events)
-		defer close(errs)
-		for {
-			ev, rerr := stream.Recv()
-			if rerr == io.EOF {
-				return
-			}
-			if rerr != nil {
-				errs <- rerr
-				return
-			}
-			select {
-			case events <- chatEventFromProto(ev):
-			case <-ctx.Done():
-				return
-			}
+		capture.ProducerDone()
+		select {
+		case <-capture.Done():
+		case <-ctx.Done():
 		}
 	}()
-
-	outEvents := (<-chan agent.ChatEvent)(events)
-	if coord != nil {
-		teed := make(chan agent.ChatEvent)
-		go func() {
-			defer close(teed)
-			for ev := range events {
-				coord.Submit(ctx, ev)
-				teed <- ev
-			}
-			coord.ProducerDone()
-			// naval-snarl #3 / TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq:
-			// this outbound tee is only ONE of coord's two registered
-			// producers — the inbound tap goroutine above (records user
-			// turns) is the other, and it has its own independent
-			// ProducerDone call keyed to when the CALLER closes `in`, not to
-			// anything observable here. Closing `teed` right after this
-			// producer's own loop ends (the old behavior, before this fix)
-			// let a caller treat the visible `events` channel closing as
-			// "capture complete" and go read the transcript file — even
-			// though the inbound tap could still be mid-Submit on its final
-			// user turn. That's exactly the race
-			// TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq
-			// catches under load (79/80 records: the last user turn
-			// dropped). Blocking here on coord.Done() — which only fires
-			// once BOTH producers have called ProducerDone AND every
-			// submitted record has actually been Record()'d — makes
-			// `events` closing a true completion barrier: a caller can now
-			// trust that once it sees `events` close, the transcript is
-			// durably complete. ctx.Done() is still an escape hatch so an
-			// abandoned/canceled call can't hang here forever.
-			select {
-			case <-coord.Done():
-			case <-ctx.Done():
-			}
-		}()
-		outEvents = teed
-	}
-
-	return in, outEvents, errs, nil
+	return teed
 }
 
 // openRecorder opens a transcript.Recorder for harp — keyed by the engine

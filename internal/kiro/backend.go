@@ -28,7 +28,9 @@ package kiro
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -112,6 +114,16 @@ func NewKiro() *Kiro {
 func (b *Kiro) Configure(cfg agent.BackendConfig) {
 	c, ok := cfg.(*KiroConfig)
 	if !ok {
+		// Never silently: with no KiroConfig applied, EVERY override (binary
+		// path, args, env, effort, agent, agent-engine) is dropped and the run
+		// launches on defaults — a mis-wiring that would otherwise surface a
+		// whole session later, naming neither the cause nor the config that
+		// caused it. Nil is the same class and must not panic while saying so.
+		declared := "<nil>"
+		if cfg != nil {
+			declared = cfg.BackendType()
+		}
+		clidiag.Warn("ctxloom", "kiro: ignoring a %q config this backend cannot read (want *kiro.KiroConfig) — the kiro backend is left unconfigured and every override in it is dropped", declared)
 		return
 	}
 	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
@@ -135,6 +147,17 @@ func (b *Kiro) Configure(cfg agent.BackendConfig) {
 
 // Execute runs the backend with the given request.
 func (b *Kiro) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	// A oneshot gets exactly one turn, so an empty prompt asks nothing at all:
+	// `kiro-cli chat --no-interactive` with no INPUT positional and no stdin is
+	// a launch that cannot produce an answer. Refuse before spawning, the same
+	// floor the shared ACP-shaped turn applies (agent.RunOneshotTurn). An
+	// INTERACTIVE launch with no prompt is legitimate — it opens a session.
+	// A dry run is a preview of the argv, not a turn, so it stays exempt.
+	if !req.DryRun && req.Mode == agent.ModeOneshot &&
+		strings.TrimSpace(agent.GetPromptContent(req.Prompt)) == "" {
+		return nil, errors.New("kiro: nothing to run — a one-shot gets exactly one turn and this one carries no prompt")
+	}
+
 	// Resolve the model: the role's labeled config supplies it via req.Model.
 	// Kiro routes every model through Amazon Bedrock (Claude, Nova, open-weight),
 	// so the provider is bedrock regardless of the model family — don't infer it

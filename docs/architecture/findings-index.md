@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,179** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 87 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 135 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 149 |
-| `open` | no commit names this ID | **718** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 150 |
+| `open` | no commit names this ID | **717** |
 
-**Totals: 2268 findings across 162 units — 1,179 resolved, 718 still open, 371 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,179 resolved, 717 still open, 372 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 388 | 411 | 47 | 58 | 95 |
-| LOW | 871 | 440 | 282 | 30 | 69 | 50 |
+| LOW | 871 | 440 | 281 | 30 | 69 | 51 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2674,7 +2674,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U120-F15 | **RESOLVED** `86e22106` | `task.go:32, 64, 69` | NOPAY | `ValidateStatusTrigger`, `ErrTriggerRequired`, and `DefaultStatusOrder` are exported but have **no consumer outside this package**. | U120.md |
 | U120-F16 | **PARTIAL** `3fb4a262` | `task.go:301-311` | ERRHANDLING | `tagsToTagmaTags` silently `continue`s on an unparseable tag, so a malformed stored tag makes a task invisible to any query naming it, with no signal. | U120.md |
 | U120-F18 | **RESOLVED** `847ea1c7` | `store.go (13 methods) + log.go:344, 617` | TRIVIAL | Three pure pass-through layers stack up on the read path: `Store.List` → `eventLog.list` → `eventLog.listWithTagQuery`, where `eventLog.list` only supplies `""` and `nil`. Similarly `Store.AddWithT... | U120.md |
-| U120-F19 | open | `log.go:129-141` | COMPLEXITY | Every operation — read *and* write — reads and re-parses the entire log; there is no compaction, rotation, or size bound, and `opRemove` tombstones grow the file forever. | U120.md |
+| U120-F19 | **ESCALATED** `PENDING02` | `log.go:129-141` | COMPLEXITY | Every operation — read *and* write — reads and re-parses the entire log; there is no compaction, rotation, or size bound, and `opRemove` tombstones grow the file forever. | U120.md |
 | U121-F03 | **RESOLVED** `cac52a3e` `127539ad` | `lint.go:213-220` | TRIVIAL | `contains` reimplements `slices.Contains`, and has an identical twin in a sibling package | U121.md |
 | U121-F07 | open | `lint.go:92-133` | CORRECTNESS | `Lint` can emit exactly-duplicate `Violation` rows, and the final sort does not dedupe them | U121.md |
 | U122-F06 | open | `:828-830`, `:836-838` | ERRHANDLING | `missingLogSiblingNote` swallows two errors into `return ""` / `continue`, so a registry read failure produces the same silence as "nothing to report" | U122.md |

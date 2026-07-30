@@ -324,8 +324,8 @@ func (c *Coordinator) recvMail(ctx context.Context, role string, wait time.Durat
 // journal a mail-consumed fact for a message no agent ever saw, and
 // undeliveredLocked would filter it out forever. Releasing the reservation is
 // what keeps at-least-once true for the one case where the message was already
-// spoken for (U023-F08); the timeout path keeps it, because there the caller is
-// still there to be given it.
+// spoken for; the timeout path keeps it, because there the caller is still
+// there to be given it.
 func (c *Coordinator) abandonPoll(role string, p *parkedPoll, err error, callerGone bool) ([]Message, error) {
 	c.mu.Lock()
 	if p.done {

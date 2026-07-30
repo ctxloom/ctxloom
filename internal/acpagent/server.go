@@ -1258,7 +1258,12 @@ func contentBlocksFromACP(blocks []api.ContentBlock) []agent.ContentBlock {
 		}
 		raw, err := json.Marshal(b)
 		if err != nil {
-			continue // never expected: b was itself just decoded from JSON
+			// Not expected on a block decoded off the wire, but dropping one
+			// in silence is the failure mode this whole function exists to
+			// prevent — so the drop is reported rather than inferred later
+			// from a turn that mysteriously lost an attachment.
+			clidiag.Warn("ctxloom", "acp agent: session/prompt: dropping a %q content block from the structured payload — it could not be re-encoded: %v", kind, err)
+			continue
 		}
 		out = append(out, agent.ContentBlock{Kind: kind, Text: text, Raw: raw})
 	}

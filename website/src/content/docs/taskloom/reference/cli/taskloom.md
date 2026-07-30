@@ -32,6 +32,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help                     help for taskloom
       --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
+      --json                     shorthand for --format json (for jq)
       --project string           Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
 ```
 

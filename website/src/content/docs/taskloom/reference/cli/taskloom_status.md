@@ -36,6 +36,7 @@ taskloom status <harp-id> <status> [flags]
       --config-set stringArray   Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
       --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
+      --json                     shorthand for --format json (for jq)
       --project string           Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
 ```
 

@@ -82,7 +82,6 @@ taskloom list [flags]
       --compact            emit compact rows (harp id, status, checked, tags, first-line headline) instead of full task bodies, for --format json/yaml/toml/markdown; ignored for the default text view, which is already one line per task
       --global             aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)
   -h, --help               help for list
-      --json               shorthand for --format json (for jq)
       --limit int          cap the number of rows returned (0 = no cap); omitted rows are reported on stderr, and status/summary counts are never affected
       --sort string        sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged
       --status strings     filter by status (repeatable)
@@ -96,6 +95,7 @@ taskloom list [flags]
       --config-set stringArray   Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
       --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
+      --json                     shorthand for --format json (for jq)
       --project string           Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
 ```
 

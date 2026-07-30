@@ -87,6 +87,47 @@ func TestDetectTiePrefersClaude(t *testing.T) {
 	}
 }
 
+// TestDetectTieIsAScoreTieWithAnOverride spells out the decision the test above
+// pins, because U067-F06 reads the same arrangement as a bug: a bare .claude/
+// scores as high as an actually-installed .agents/hooks.json, and registry
+// order then hands the tie to Claude Code.
+//
+// It is a tie by construction, not by accident — engines() documents "earlier
+// wins" and Antigravity.Detect documents scoring a bare .agents/ BELOW
+// ClaudeCode's .claude/ for exactly this reason — and `--engine` is the
+// documented way to name the other one. Asserting the raw scores here makes any
+// re-tiering (e.g. demoting a bare .claude/ to 1) a deliberate, visible change
+// rather than a silent one.
+func TestDetectTieIsAScoreTieWithAnOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agents", "hooks.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := (ClaudeCode{}).Detect(dir); got != 2 {
+		t.Errorf("a bare .claude/ scores %d; the tie-break decision assumes 2", got)
+	}
+	if got := (Antigravity{}).Detect(dir); got != 2 {
+		t.Errorf(".agents/hooks.json scores %d; the tie-break decision assumes 2", got)
+	}
+
+	// The override is what makes the tie-break acceptable: a user on an agy host
+	// is never stuck with the tie's winner.
+	eng, err := Get("antigravity")
+	if err != nil {
+		t.Fatalf("Get(antigravity): %v", err)
+	}
+	if eng.Name() != "antigravity" {
+		t.Fatalf("--engine antigravity resolved to %s", eng.Name())
+	}
+}
+
 func TestAntigravityInstallIntoEmpty(t *testing.T) {
 	out, _, err := Antigravity{}.Install(nil, agHookCmd)
 	if err != nil {

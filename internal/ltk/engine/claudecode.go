@@ -353,12 +353,15 @@ func decodeSettings(existing []byte) (map[string]any, error) {
 	return settings, nil
 }
 
+// childMap and childSlice read one sub-document out of the untyped settings
+// map, materializing an empty one when the key is absent. Neither STORES what
+// it returns: the caller writes the (possibly reallocated, in childSlice's
+// case) result back itself, so a single contract covers both and no half-built
+// document is left behind when a later step errors out.
 func childMap(m map[string]any, key string) (map[string]any, error) {
 	switch v := m[key].(type) {
 	case nil:
-		nm := map[string]any{}
-		m[key] = nm
-		return nm, nil
+		return map[string]any{}, nil
 	case map[string]any:
 		return v, nil
 	default:

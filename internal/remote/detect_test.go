@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,6 +152,31 @@ func TestNormalizeURL(t *testing.T) {
 			assert.Equal(t, tt.expected, NormalizeURL(tt.input))
 		})
 	}
+}
+
+// TestNormalizeURL_FinalHTTPSFallbackIsReachable pins the reachability of
+// NormalizeURL's last return — "No scheme, not shorthand, not scp-like: assume
+// an HTTPS host."
+//
+// U093-F06 asserted that arm is unreachable. It is not: an input has to clear
+// three gates to arrive there — no "://", no "@", and NO "/" — and a bare
+// host name clears all three. What IS true is the row's first clause, that a
+// host-qualified path ("gitlab.com/owner/repo") is stolen by the shorthand arm
+// above and prefixed onto github.com; that half is escalated separately because
+// NormalizeURL feeds trust.CanonicalRepoURL, so changing it changes which trust
+// namespace a repository is consulted under.
+//
+// If someone later "removes the unreachable fallback", this goes red.
+func TestNormalizeURL_FinalHTTPSFallbackIsReachable(t *testing.T) {
+	for _, input := range []string{"gitlab.com", "git.company.internal", "example.com.git"} {
+		got := NormalizeURL(input)
+		assert.True(t, strings.HasPrefix(got, "https://"),
+			"NormalizeURL(%q) = %q: the final https:// fallback is the only arm that can produce this", input, got)
+		assert.NotContains(t, got, "github.com",
+			"NormalizeURL(%q) = %q: a bare host must not be routed through the github shorthand arm", input, got)
+	}
+	assert.Equal(t, "https://gitlab.com", NormalizeURL("gitlab.com"))
+	assert.Equal(t, "https://example.com", NormalizeURL("example.com.git"))
 }
 
 func TestNewFetcher(t *testing.T) {

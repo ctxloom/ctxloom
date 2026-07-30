@@ -29,6 +29,17 @@ type engineHome interface {
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
 	ReportRunExited(exitCode int, harnessSessionID string)
+	// SetRequestHandler registers this host as the executor for
+	// coordinator-initiated plane-2 control requests (BindHome does it).
+	SetRequestHandler(fn func(context.Context, *agentcoordpb.CoordinatorRequest) *agentcoordpb.AgentResponse)
+	// ParkControlPayload puts a control request's body where agent_recv finds
+	// it, WITHOUT routing it to the turn sink — the control verbs inject their
+	// own reminder turn and the agent pulls the body.
+	ParkControlPayload(pm *agentcoordpb.PeerMessage)
+	// PendingControlPayloads reports the parked bodies the agent has not pulled
+	// yet, oldest first — what the turn-boundary re-announcer reads to decide
+	// whether an announced instruction is still sitting unread.
+	PendingControlPayloads() []PendingControlPayload
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for forwarding a permission request as an
 	// ApprovalRequest (Wave C2, resolveApproval below).
@@ -65,6 +76,31 @@ type EngineHost struct {
 	result  *agentcoordpb.RunnerResponse // cached StartRunResult (request reissue idempotency)
 	in      chan agent.ChatMessage
 	cancel  context.CancelFunc
+	runCtx  context.Context     // the hosted run's own ctx (nil before startRun)
+	rec     transcript.Recorder // this run's canonical transcript (nil if unopenable)
+	briefed chan struct{}       // closed once the briefing turn's own send completed
+	inTurn  bool                // the engine is mid-turn (adapt maintains it)
+
+	// pendingTags is the turn-attribution FIFO: enqueueTurn pushes one tag per
+	// locally-originated turn, in send order, and the adapt loop pops one at
+	// each turn start. It is what lets a control verb know WHICH turn was its
+	// own even when other turns are queued around it — the substrate the
+	// question/summarize capture rides. Turn order equals send order because
+	// enqueueTurn serializes the sends onto the unbuffered `in`.
+	pendingTags []turnTag
+	currentTag  turnTag
+
+	// reannounce is the turn-boundary re-announcer's state (F10): what keeps
+	// an announced-but-never-pulled control body from sitting in the recv
+	// buffer, unread and unreported, until the process dies. See
+	// enginehost_reannounce.go.
+	reannounce reannounceState
+
+	// enqueueMu serializes the (push tag, send turn) pair so the FIFO cannot
+	// desynchronise from the order the engine actually receives turns. Two
+	// goroutines sending on an unbuffered channel is a race Go does not resolve
+	// in send order, so the ordering has to be imposed here.
+	enqueueMu sync.Mutex
 
 	// tracked owns every goroutine startRun/adapt dispatches beyond its
 	// spawning call's own return (the in-process backend.Chat call, the adapt
@@ -131,6 +167,9 @@ func (eh *EngineHost) BindHome(h engineHome) {
 		return
 	}
 	eh.home = h
+	// The engine host IS the control executor: registering here means a Home
+	// with an engine never keeps the no-engine UNIMPLEMENTED fallback.
+	h.SetRequestHandler(eh.HandleControl)
 	close(eh.homeReady)
 }
 
@@ -206,6 +245,9 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	eh.started = true
 	eh.in = in
 	eh.cancel = cancel
+	eh.runCtx = ctx
+	eh.briefed = make(chan struct{})
+	briefed := eh.briefed
 	home := eh.home
 	result := &agentcoordpb.RunnerResponse{
 		Status: okStatus(""),
@@ -262,6 +304,16 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	if prompt != "" {
 		transcript.RecordUserText(rec, prompt)
 	}
+	eh.mu.Lock()
+	eh.rec = rec
+	if prompt != "" {
+		// The briefing's tag is pushed HERE, synchronously, before anything
+		// else can enqueue a turn — so the FIFO's first entry is the briefing
+		// even though its send happens on a goroutine below. enqueueTurn's own
+		// pushes wait on `briefed`, which keeps the two in step.
+		eh.pendingTags = append(eh.pendingTags, turnTag{})
+	}
+	eh.mu.Unlock()
 
 	chatErr := make(chan error, 1)
 	eh.goTracked(func() {
@@ -284,27 +336,16 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// arriving second — every signal still reports success. `briefed`
 	// gates the turn sink on the briefing's OWN send actually completing
 	// first; a run with no briefing (prompt == "") has nothing to gate on.
-	briefed := make(chan struct{})
 	if prompt == "" {
 		close(briefed)
 	}
 
 	// The engine turn-delivery seam: coordinator mail lands as new turns
 	// (the driver's own loop queues mid-turn arrivals to the next boundary).
+	// It rides enqueueTurn like every other locally-originated turn, so mail
+	// and the control verbs cannot reach `in` by two different disciplines.
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
-		select {
-		case <-briefed:
-		case <-ctx.Done():
-			return false
-		}
-		text := frameCoordinatorMessage(pm)
-		select {
-		case in <- agent.ChatMessage{Text: text}:
-			transcript.RecordUserText(rec, text)
-			return true
-		case <-ctx.Done():
-			return false
-		}
+		return eh.enqueueTurn(ctx, turnTag{}, frameCoordinatorMessage(pm)) == nil
 	})
 
 	// The briefing is the first turn (context already joined coordinator-side).
@@ -355,6 +396,10 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		case ev.Entry != nil:
 			if !inTurn {
 				inTurn = true
+				// Pop the turn-attribution FIFO: whatever enqueueTurn pushed
+				// for THIS turn becomes the current tag, so a control verb can
+				// tell its own turn from the ones queued around it.
+				eh.beginTurn()
 				home.emitCustomEvent(CustomTurnStarted, nil)
 			}
 			items.entry(ev.Entry)
@@ -363,7 +408,13 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			lastMeta = ev.Complete
 			turns++
 			inTurn = false
+			eh.endTurn()
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
+			// THE TURN BOUNDARY IS THE TRIGGER (F10). A control body that
+			// was announced and not pulled during the turn that just ended
+			// gets re-announced here — the mechanism §6.1 assumed and never
+			// had. It dispatches and returns; this loop must keep draining.
+			eh.reannounceAtBoundary(home)
 		case ev.Permission != nil:
 			// C2: HarnessSpec sets ForwardPermissions unconditionally on this
 			// path now, so every engine permission request round-trips

@@ -166,4 +166,11 @@ type LogEntry struct {
 	Date    time.Time
 	Subject string
 	Files   []string // paths this commit changed
+	// FilesUnknown marks an entry whose changed-file list could NOT be
+	// gathered (the per-commit query failed, e.g. an unreachable SHA under a
+	// concurrent history rewrite). Without it an empty Files is ambiguous:
+	// "this commit touched nothing" and "we never found out what it touched"
+	// look identical, and a consumer filtering commits by path would report a
+	// confident no-match built on evidence it never gathered.
+	FilesUnknown bool
 }

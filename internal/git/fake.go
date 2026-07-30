@@ -186,8 +186,9 @@ func (f *Fake) IsDirty(_ context.Context, dir string) (bool, error) {
 }
 
 // LogSince returns the configured LogEntries for dir (falling back to the ""
-// entry), truncated to maxEntries when positive. A read, like ListTracked and
-// IsDirty — not recorded to Calls.
+// entry), bounded exactly as execGit bounds it (maxEntries<=0 means the
+// package default, never "everything"). A read, like ListTracked and IsDirty —
+// not recorded to Calls.
 func (f *Fake) LogSince(_ context.Context, dir string, _ time.Time, maxEntries int) ([]LogEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -198,31 +199,42 @@ func (f *Fake) LogSince(_ context.Context, dir string, _ time.Time, maxEntries i
 	if entries == nil {
 		entries = f.LogEntries[""]
 	}
-	if maxEntries > 0 && len(entries) > maxEntries {
+	if maxEntries <= 0 {
+		maxEntries = defaultLogSinceMax
+	}
+	if len(entries) > maxEntries {
 		entries = entries[:maxEntries]
 	}
 	return append([]LogEntry(nil), entries...), nil
 }
 
-// RepoDirs returns the configured directory inventory (a copy), truncated to
-// maxDirs when positive. A read — not recorded to Calls.
+// RepoDirs returns the configured directory inventory (a copy), bounded
+// exactly as execGit bounds it (maxDirs<=0 means the package default, never
+// "everything"). A read — not recorded to Calls.
 func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	dirs := f.Dirs
-	if maxDirs > 0 && len(dirs) > maxDirs {
+	if maxDirs <= 0 {
+		maxDirs = defaultRepoDirsMax
+	}
+	if len(dirs) > maxDirs {
 		dirs = dirs[:maxDirs]
 	}
 	return append([]string(nil), dirs...), nil
 }
 
-// WorkingChanges returns the configured porcelain changes (a copy), truncated
-// to maxEntries when positive. A read — not recorded to Calls.
+// WorkingChanges returns the configured porcelain changes (a copy), bounded
+// exactly as execGit bounds it (maxEntries<=0 means the package default,
+// never "everything"). A read — not recorded to Calls.
 func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	changes := f.Changes
-	if maxEntries > 0 && len(changes) > maxEntries {
+	if maxEntries <= 0 {
+		maxEntries = defaultWorkingChangesMax
+	}
+	if len(changes) > maxEntries {
 		changes = changes[:maxEntries]
 	}
 	return append([]string(nil), changes...), nil

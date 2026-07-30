@@ -765,3 +765,181 @@ func TestFileExists(t *testing.T) {
 	assert.False(t, fileExists(dir), "a DIRECTORY is not a file — a credential mount source must not pass this")
 	assert.False(t, fileExists(filepath.Join(dir, "absent.json")), "a missing path does not exist")
 }
+
+// TestCopyCredentialFile_TightensAPreExistingDestination is U062-F02's
+// regression. copyCredentialFile documents "copies src to dst at 0600
+// (owner-only)", but os.WriteFile applies its perm argument ONLY when it creates
+// the file — writing over a destination that already exists keeps whatever mode
+// that destination had. The seed then lands live credential bytes in a
+// group/world-readable file while every doc and every caller believes the
+// owner-only guarantee holds.
+func TestCopyCredentialFile_TightensAPreExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	require.NoError(t, os.WriteFile(src, []byte(`{"token":"secret"}`), 0o600))
+	require.NoError(t, os.WriteFile(dst, []byte("stale"), 0o644))
+
+	require.NoError(t, copyCredentialFile(src, dst))
+
+	info, err := os.Stat(dst)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+		"the owner-only guarantee must hold on a destination that already existed")
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	assert.Equal(t, `{"token":"secret"}`, string(got))
+}
+
+// TestHostCredentialSeed_TightensAPreExistingSeedDir is U062-F02's other half:
+// os.MkdirAll(destDir, 0o700) is likewise a no-op on an existing directory, so a
+// seed dir that already existed at a looser mode kept it while holding the copied
+// credential files.
+func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
+	dest := t.TempDir()
+
+	seedDir := filepath.Join(dest, credentialSeedSpecs["claude-code"].destSubdir)
+	require.NoError(t, os.MkdirAll(seedDir, 0o755))
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err)
+	require.Equal(t, seedOK, result)
+
+	info, err := os.Stat(seedDir)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
+		"a pre-existing seed dir must still end up owner-only; it holds live credential bytes")
+}
+
+// TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced is U062-F09's
+// regression. An unresolvable host HOME was folded into seedNoSource with the
+// error discarded, so a genuine environment fault reached the user as the
+// caller's "no credentials found to authenticate this run — run `codex login`"
+// — advice that cannot possibly help, for a cause never named.
+//
+// The RESULT deliberately stays seedNoSource with no hard error: an existing pin
+// (TestHostCredentialSeed_UnresolvableHostHome) fixes that this must degrade
+// rather than abort provisioning. What changes is that the cause is no longer
+// silent, matching provisionCuratedHome's handling of the identical failure.
+func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
+	orig := hostHomeDir
+	hostHomeDir = func() (string, error) { return "", assertErr("HOME lookup exploded") }
+	t.Cleanup(func() { hostHomeDir = orig })
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	done := captureStderr(t)
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir())
+	stderr := done()
+
+	require.NoError(t, err)
+	assert.Equal(t, seedNoSource, result, "still a degrade, not an abort")
+	assert.Contains(t, stderr, "HOME lookup exploded", "the discarded cause must reach the user")
+	assert.Contains(t, stderr, "claude credential seed", "…named for the engine whose seed it broke")
+}
+
+// TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence is U062-F10's
+// regression. The credential-copy mount builders collapsed "no host credential
+// exists" and "the credential exists but we could not copy it" into one ok=false,
+// so the caller emitted its authHint — "no ~/.claude/.credentials.json to
+// authenticate the in-container engine" — about a file that is right there. An
+// actively false diagnostic points the user at `claude login` for a problem that
+// is nothing of the kind.
+func TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory write protection; cannot make the scratch copy fail")
+	}
+	home := withFakeHome(t)
+	writeCreds(t, home, false)
+
+	scratch := t.TempDir()
+	require.NoError(t, os.Chmod(scratch, 0o500)) // present, unwritable
+	t.Cleanup(func() { _ = os.Chmod(scratch, 0o755) })
+
+	done := captureStderr(t)
+	mounts, ok := claudeCredentialCopyMounts("/home/ctxloom", scratch)
+	stderr := done()
+
+	assert.False(t, ok)
+	assert.Nil(t, mounts)
+	assert.Contains(t, stderr, "could not", "a copy failure must say so; it is not an absent credential")
+	assert.Contains(t, stderr, ".credentials.json")
+}
+
+// TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent is the other side of
+// U062-F10: a host with no credential file at all is an ordinary, expected state
+// (the caller's authHint already explains it), so it must NOT warn — otherwise the
+// new signal is noise and stops meaning anything.
+func TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent(t *testing.T) {
+	withFakeHome(t) // no ~/.claude/.credentials.json written
+
+	done := captureStderr(t)
+	_, ok := claudeCredentialCopyMounts("/home/ctxloom", t.TempDir())
+	stderr := done()
+
+	assert.False(t, ok)
+	assert.Empty(t, stderr, "an absent host credential is an expected state, not a fault to warn about")
+}
+
+// --- hostCredentialSeed characterization: every arm, before and after the
+// U062-F15 split. These are not regressions; they exist so a complexity
+// reduction that changes behaviour cannot pass as one.
+
+// TestHostCredentialSeed_SeedDirUncreatable: the destination cannot be made at
+// all (configHome is a file). That is a hard error, distinct from every
+// "nothing to seed" degrade — the caller must not treat it as an absent
+// credential.
+func TestHostCredentialSeed_SeedDirUncreatable(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
+
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], notADir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credential seed dir")
+	assert.Equal(t, seedNoSource, result)
+}
+
+// TestHostCredentialSeed_UnreadableSourceIsAnError: the required host file is
+// present but cannot be read. Nothing was seeded, and unlike an absent file this
+// is a fault the caller must see as an error rather than a quiet degrade.
+func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads regardless of mode; cannot make the source unreadable")
+	}
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
+	src := filepath.Join(home, ".claude", ".credentials.json")
+	require.NoError(t, os.Chmod(src, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(src, 0o600) })
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "seed claude credential")
+	assert.Equal(t, seedNoSource, result)
+}
+
+// TestHostCredentialSeed_AllOptionalAndNonePresent covers the defensive arm: a
+// spec whose files are ALL optional and none of which exist copies nothing, and
+// must report seedNoSource rather than seedOK — "succeeded having delivered
+// nothing" is precisely the shape this project's characteristic bug takes.
+func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
+	withFakeHome(t)
+	spec := credentialSeedSpec{
+		engine:      "phantom",
+		destSubdir:  "phantom",
+		sourceFiles: func(h string) []seedFile { return []seedFile{{host: filepath.Join(h, "nope"), destName: "nope"}} },
+	}
+
+	dest := t.TempDir()
+	result, err := hostCredentialSeed(spec, dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedNoSource, result, "copying nothing is never seedOK")
+	assert.NoFileExists(t, filepath.Join(dest, "phantom", "nope"))
+}

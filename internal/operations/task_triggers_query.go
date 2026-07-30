@@ -390,7 +390,12 @@ func queryGitLogPath(ctx context.Context, gitClient git.Git, repoDir string, q t
 	}
 	prefix := strings.TrimSuffix(q.Path, "/") + "/"
 	var lines []string
+	unreadable := 0
 	for _, e := range entries {
+		if e.FilesUnknown {
+			unreadable++
+			continue
+		}
 		touched := false
 		for _, f := range e.Files {
 			if f == q.Path || strings.HasPrefix(f, prefix) {
@@ -407,6 +412,14 @@ func queryGitLogPath(ctx context.Context, gitClient git.Git, repoDir string, q t
 		}
 	}
 	if len(lines) == 0 {
+		if unreadable > 0 {
+			// A commit whose changed-file list could not be gathered
+			// (git.LogEntry.FilesUnknown, U053-F13) was never actually
+			// examined — treating its silence as "did not touch the path"
+			// manufactures a negative from evidence that was never read.
+			return triggers.QueryResult{Query: q, Err: fmt.Sprintf(
+				"could not read the changed-file list for %d of the %d commits scanned, and none of the readable ones touched %q — this is INCONCLUSIVE, not evidence the path was never touched.", unreadable, len(entries), q.Path)}
+		}
 		if len(entries) >= gitLogPathScanCap {
 			// The window was truncated before it could speak to the whole
 			// history — a zero-match result from a scan that did not finish

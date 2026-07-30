@@ -63,7 +63,7 @@ func TestRunAttached_SamePathMountAndTeardown(t *testing.T) {
 		Mounts:  []Mount{rt.ExposeIdentical(projectDir, false)},
 	}
 
-	ac, err := RunAttached(ctx, rt, spec)
+	ac, err := RunAttached(ctx, rt, spec, nil)
 	require.NoError(t, err, "RunAttached must start the container")
 	t.Cleanup(func() { _ = ac.Close() })
 

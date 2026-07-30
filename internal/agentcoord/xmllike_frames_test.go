@@ -45,6 +45,26 @@ func TestReminderFrameGoldens(t *testing.T) {
 			want: `<ctxloom-reminder kind="question-pending">call agent_recv</ctxloom-reminder>`,
 		},
 		{
+			// The re-announcement's two attributes are the anti-habituation
+			// channel: a notice repeated verbatim across turns is a notice a
+			// model learns to skip, so successive frames must not be the same
+			// bytes. Both attributes are pinned here for that reason.
+			name: "an unpulled body reports its age and its rung",
+			got: (&UnpulledReminder{
+				AgeSeconds: 90,
+				Urgency:    UnpulledReminder_URGENCY_URGENT,
+			}).XmlLike(),
+			want: `<ctxloom-reminder kind="unpulled" age_seconds="90" urgency="URGENCY_URGENT">call agent_recv</ctxloom-reminder>`,
+		},
+		{
+			name: "the final rung says so",
+			got: (&UnpulledReminder{
+				AgeSeconds: 305,
+				Urgency:    UnpulledReminder_URGENCY_FINAL,
+			}).XmlLike(),
+			want: `<ctxloom-reminder kind="unpulled" age_seconds="305" urgency="URGENCY_FINAL">call agent_recv</ctxloom-reminder>`,
+		},
+		{
 			name: "paused",
 			got:  (&PausedReminder{}).XmlLike(),
 			want: `<ctxloom-reminder kind="paused">this session is paused</ctxloom-reminder>`,
@@ -74,6 +94,13 @@ func TestReminderFramesCarryNoSenderContent(t *testing.T) {
 		(&QuestionPendingReminder{}).XmlLike(),
 		(&PausedReminder{}).XmlLike(),
 		(&ResumedReminder{}).XmlLike(),
+		// The widest re-announcement anything emits: the longest rung name and
+		// an age (100 days) no delegated run will outlive. Even at its widest
+		// it stays a notice, not a payload.
+		(&UnpulledReminder{
+			AgeSeconds: 8640000,
+			Urgency:    UnpulledReminder_URGENCY_URGENT,
+		}).XmlLike(),
 	}
 	for _, f := range frames {
 		if len(f) > 120 {
@@ -114,8 +141,8 @@ func TestXmlLikeEscapeNeutralisesFrameForgery(t *testing.T) {
 func TestReminderMessagesAreReachableFromNoWireMessage(t *testing.T) {
 	fd := (&MailPendingReminder{}).ProtoReflect().Descriptor().ParentFile()
 	reminders := reminderMessageNames(fd)
-	if len(reminders) != 5 {
-		t.Fatalf("found %d reminder messages, want 5 (update this test with the new frame)", len(reminders))
+	if len(reminders) != 6 {
+		t.Fatalf("found %d reminder messages, want 6 (update this test with the new frame)", len(reminders))
 	}
 	assertNoFieldCarriesAReminder(t, fd, reminders)
 	assertNoServiceMethodCarriesAReminder(t, fd, reminders)

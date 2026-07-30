@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -190,6 +191,36 @@ func TestModel_RosterNavigationSwitchesFeed(t *testing.T) {
 	assert.Equal(t, "h2", m.feedHarp)
 }
 
+// Every field openFeed resets has to be visible in the model Update RETURNS,
+// not just in the receiver it mutated. If the returned value is the pre-call
+// copy, the feed switch is silently half-applied: feedHarp still names the old
+// harp, so the incoming feedOpenedMsg is judged stale and cancelled, and the
+// new agent's feed never opens at all. U044-F05.
+func TestModel_SelectionMoveReturnsTheModelOpenFeedReset(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "h1", State: "live"},
+		RosterRow{Harp: "h2", State: "live"},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "old feed content"))
+	m.expanded[0] = true
+	m.follow = false
+	m.cursor = 0
+	require.NotEmpty(t, m.items)
+
+	for _, key := range []string{"j", "k"} {
+		before := m.feedHarp
+		m, _ = step(t, m, keyMsg(key))
+		require.NotEqual(t, before, m.feedHarp, "key=%s moved the selection", key)
+		assert.Empty(t, m.items, "key=%s: the returned model carries the reset item list", key)
+		assert.Empty(t, m.expanded, "key=%s: and the reset expansion set", key)
+		assert.Empty(t, m.feedSource, "key=%s: and the cleared source", key)
+		assert.Equal(t, 0, m.cursor, "key=%s", key)
+		assert.True(t, m.follow, "key=%s: a fresh feed tails", key)
+		assert.Nil(t, m.feed, "key=%s: the previous feed handle is gone", key)
+	}
+}
+
 func TestModel_StaleFeedOpenIsReleased(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", State: "live"},
@@ -244,6 +275,50 @@ func TestModel_ExpandCollapse(t *testing.T) {
 
 	m, _ = step(t, m, keyMsg("x"))
 	assert.NotContains(t, m.View(), "line2", "x collapses it again")
+}
+
+// Model's roster, feed and inject fields are NOT three independent sub-models:
+// one focus field decides which of the first two a movement key drives, the
+// feed's own header is rendered from the ROSTER's selected row, and the inject
+// target is latched from the feed. Splitting the struct along those groups has
+// to carry these couplings across, so they are pinned here rather than left to
+// be discovered by whoever tries. U044-F10.
+func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "h1", Agent: "developer", Engine: "claude-code", State: "live"},
+		RosterRow{Harp: "h2", Agent: "finder", State: "executing"},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "one"))
+	m = pushEntry(t, m, f, entryEv("assistant", "two"))
+
+	// The feed pane's title is built from the roster's selected row.
+	assert.Contains(t, m.feedTitle(), "h1")
+	assert.Contains(t, m.feedTitle(), "developer·claude-code",
+		"the feed header reads the roster row, not the feed")
+
+	// focus routes one key to two different panes.
+	require.Equal(t, focusRoster, m.focus)
+	selBefore := m.sel
+	m, cmd := step(t, m, keyMsg("j"))
+	require.NotNil(t, cmd)
+	assert.Equal(t, selBefore+1, m.sel, "with the roster focused, j moves the roster")
+	m, _ = step(t, m, cmd())
+	m = pushEntry(t, m, f, entryEv("user", "one"))
+	m = pushEntry(t, m, f, entryEv("assistant", "two"))
+	m, _ = step(t, m, keyMsg("enter"))
+	require.Equal(t, focusFeed, m.focus)
+	selBefore, cursorBefore := m.sel, m.cursor
+	m, _ = step(t, m, keyMsg("k"))
+	assert.Equal(t, selBefore, m.sel, "with the feed focused, the roster does not move")
+	assert.Equal(t, cursorBefore-1, m.cursor, "the feed cursor does")
+
+	// The inject target is latched from the feed, which was latched from the
+	// roster: all three panes in one flow.
+	m, _ = step(t, m, keyMsg("i"))
+	require.True(t, m.injecting)
+	assert.Equal(t, m.feedHarp, m.injectHarp)
+	assert.Equal(t, m.rows[m.sel].Harp, m.injectHarp)
 }
 
 func TestModel_ScrollbackEnds(t *testing.T) {
@@ -379,6 +454,72 @@ func TestModel_GapRendersNotice(t *testing.T) {
 	assert.Contains(t, m.View(), "7 live events dropped")
 }
 
+// The roster refreshes every rosterRefreshEvery, so anything the refresh
+// clears has a lifetime of at most two seconds. "saved <path>" is the only
+// place the user learns WHERE the export landed, so the background refresh
+// must not own that line. U044-F23.
+func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "hello"))
+
+	m, _ = step(t, m, keyMsg("s"))
+	require.Contains(t, m.status, "saved ")
+
+	m, _ = step(t, m, rosterMsg{rows: f.rows})
+	assert.Contains(t, m.status, "saved ", "a background roster refresh must not eat the export path")
+}
+
+// A roster fetch that fails and then succeeds has recovered; the error line
+// must go with it. Nothing else ever clears it, so before this it survived
+// every later refresh for the life of the overlay. U044-F23.
+func TestModel_SuccessfulRosterRefreshClearsTheEarlierRosterError(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	m, _ = step(t, m, rosterErrMsg{err: fmt.Errorf("dial coordinator: refused")})
+	require.Contains(t, m.rosterErr, "dial coordinator: refused")
+	require.Contains(t, m.hintNote(), "dial coordinator: refused", "and it is the line the user sees")
+
+	m, _ = step(t, m, rosterMsg{rows: f.rows})
+	assert.Empty(t, m.rosterErr, "a recovered roster fetch must retire its own error")
+	assert.NotContains(t, m.hintNote(), "dial coordinator: refused")
+}
+
+// The hint bar shows ONE note, so a parked failure must not be able to hide a
+// newer outcome forever: the action slot wins, the roster's own failure comes
+// next, and the background note last. U044-F23.
+func TestModel_HintNotePrecedence(t *testing.T) {
+	m := Model{status: "saved /tmp/t.txt"}
+	assert.Equal(t, "saved /tmp/t.txt", m.hintNote())
+
+	m.rosterErr = "roster: refused"
+	assert.Equal(t, "roster: refused", m.hintNote(), "a live roster failure outranks a background note")
+
+	m.errMsg = "export: disk full"
+	assert.Equal(t, "export: disk full", m.hintNote(), "the last action's failure outranks both")
+}
+
+// View prefers errMsg over status, so an action that succeeds while a stale
+// error is still parked renders as the OLD failure — the success is
+// invisible. Every action reports exactly one outcome. U044-F23.
+func TestModel_ASucceedingActionRetiresTheEarlierFailure(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
+	f.exportDirErr = fmt.Errorf("session dir unavailable")
+	m := openSelected(t, newTestModel(f, nil), f)
+	m = pushEntry(t, m, f, entryEv("user", "hello"))
+
+	m, _ = step(t, m, keyMsg("s"))
+	require.Contains(t, m.errMsg, "session dir unavailable")
+
+	f.exportDirErr = nil
+	m, _ = step(t, m, keyMsg("s"))
+	assert.Contains(t, m.status, "saved ")
+	assert.Empty(t, m.errMsg, "the superseded failure must not outlive the success")
+	assert.Contains(t, m.hintNote(), "saved ", "and the success is what the user actually sees")
+}
+
 func TestModel_RosterRefreshKeepsSelection(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", State: "live"},
@@ -499,10 +640,109 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 // asserted — roster windowing around the selection (model.go:616's
 // rosterLines), padCell truncation (:643), and header/follow title states.
 
+// The overlay paints over a LIVE engine session: the controller clears and
+// holds exactly totalHeight rows beneath the cursor and nothing else. A View
+// that returns more lines than that — or a line wider than the terminal, which
+// the terminal then wraps onto another row — writes over the engine's own
+// output, and nothing puts it back. The invariant must therefore hold at every
+// geometry, not just the comfortable ones. U044-F06.
+func TestModel_ViewFitsItsGeometryExactly(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "perky-same-chevy", Agent: "developer", Engine: "claude-code", State: "live"},
+		RosterRow{Harp: "swift-elm-fox", Agent: "finder", State: "executing", Depth: 1},
+	)
+	for _, geo := range []termui.OverlayGeometry{
+		{Cols: 100, Rows: 30, PanelRows: 10},
+		{Cols: 100, Rows: 30, PanelRows: 3},
+		{Cols: 100, Rows: 30, PanelRows: 2},
+		{Cols: 100, Rows: 30, PanelRows: 1},
+		{Cols: 40, Rows: 12, PanelRows: 4},
+		{Cols: 24, Rows: 8, PanelRows: 5},
+		{Cols: 10, Rows: 6, PanelRows: 3},
+	} {
+		name := fmt.Sprintf("%dx%d", geo.Cols, geo.PanelRows)
+		m := NewModel(context.Background(), f.sources(), geo, 0x1d, nil)
+		m, cmd := step(t, m, rosterMsg{rows: f.rows})
+		require.NotNil(t, cmd, name)
+		m, _ = step(t, m, cmd())
+		m = pushEntry(t, m, f, entryEv("assistant", strings.Repeat("wide output ", 12)))
+
+		lines := strings.Split(m.View(), "\n")
+		assert.Len(t, lines, geo.PanelRows, "%s: View owns exactly PanelRows rows", name)
+		for i, l := range lines {
+			assert.LessOrEqual(t, len([]rune(stripSGR(l))), geo.Cols,
+				"%s: line %d overflows the terminal and wraps onto a row the overlay does not own", name, i)
+		}
+	}
+}
+
+// stripSGR removes the SGR escapes lipgloss may add, so a test can measure the
+// cells a line actually occupies.
+func stripSGR(s string) string {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			return s
+		}
+		j := strings.IndexByte(s[i:], 'm')
+		if j < 0 {
+			return s
+		}
+		s = s[:i] + s[i+j+1:]
+	}
+}
+
+// teaKeyName's default arm is unreachable from any configuration:
+// termui.ParsePrefixKey is the only production producer of the prefix byte
+// (internal/cli/run_terminal_ui.go builds the overlay from it), and every byte
+// that would fall through — NUL, ESC, and every printable character — it
+// rejects with a reason. This pin couples the two: it goes red if
+// ParsePrefixKey ever admits a byte teaKeyName does not name, and red if
+// teaKeyName stops agreeing with bubbletea's own vocabulary for one. U044-F22.
+func TestTeaKeyName_NamesEveryPrefixParsePrefixKeyAdmits(t *testing.T) {
+	admitted := 0
+	for ch := 0; ch < 128; ch++ {
+		spelling := "ctrl-" + string(rune(ch))
+		b, err := termui.ParsePrefixKey(spelling)
+		if err != nil {
+			continue
+		}
+		admitted++
+		want := tea.KeyMsg{Type: tea.KeyType(b)}.String()
+		assert.Equal(t, want, teaKeyName(b), "prefix %q (byte %d) must carry bubbletea's own name", spelling, b)
+		assert.NotEqual(t, "ctrl+@", teaKeyName(b),
+			"prefix %q (byte %d) fell through to the default arm, which names a key the user did not configure", spelling, b)
+	}
+	require.Greater(t, admitted, 20, "the sweep must actually exercise the accepted prefixes")
+}
+
 func TestPadCell_PadsShortAndTruncatesLongWithEllipsis(t *testing.T) {
 	assert.Equal(t, "hi   ", padCell("hi", 5), "short strings are space-padded to width")
-	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 runes plus an ellipsis")
+	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 cells plus an ellipsis")
 	assert.Equal(t, "", padCell("anything", 0), "a non-positive width truncates to empty")
+}
+
+// padCell frames COLUMNS: the pane divider has to land on the same column on
+// every row or the panel visibly shears. Rune counting gets that wrong in both
+// directions over the material this overlay actually renders — a CJK or emoji
+// rune from an engine transcript occupies two columns, and lipgloss's own SGR
+// escapes (the selected roster row is styled before it is framed) occupy none.
+// U044-F07.
+func TestPadCell_FramesDisplayCellsNotRunes(t *testing.T) {
+	assert.Equal(t, 10, lipgloss.Width(padCell("日本語", 10)),
+		"a double-width rune costs two columns, not one")
+
+	// Written literally rather than through lipgloss: the renderer emits no
+	// escapes when it detects no colour profile, which is exactly the case
+	// under `go test`, so styling the string here would not exercise anything.
+	styled := "\x1b[7m selected \x1b[0m"
+	got := padCell(styled, 20)
+	assert.Equal(t, 20, lipgloss.Width(got), "escape sequences cost no columns")
+	assert.Contains(t, got, "selected", "and must not be truncated away")
+
+	got = padCell("日本語テスト", 7)
+	assert.Equal(t, 7, lipgloss.Width(got), "truncation lands on the column budget too")
+	assert.True(t, strings.HasSuffix(got, "…"), "and is marked: %q", got)
 }
 
 func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {

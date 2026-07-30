@@ -20,9 +20,16 @@ type Overlay struct {
 	prefix byte
 
 	mu      sync.Mutex
-	prog    *tea.Program
+	prog    progQuitter
 	aborted bool
 }
+
+// progQuitter is the running program's quit handle. *tea.Program satisfies it;
+// it exists so a test can substitute a stand-in that blocks inside Quit, which
+// is the case Abort has to survive — Program.Quit sends onto an UNBUFFERED
+// channel and blocks until the event loop drains it, which it cannot do before
+// Run reaches that loop or after it has left it.
+type progQuitter interface{ Quit() }
 
 // NewOverlay builds one engagement's overlay. ctx bounds the feed watches
 // (the run's context, so an exiting run releases them).
@@ -66,11 +73,19 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 
 // Abort asks a running overlay to exit (the interceptor's double-press
 // literal path, or the controller closing). Safe before/after Run.
+//
+// Quit may block, so it is called with the lock RELEASED. Holding it there
+// deadlocks the overlay against itself: Run takes the same lock to clear prog
+// once p.Run returns, and a p.Run that returns without draining its message
+// channel — a failure before the event loop starts — leaves Abort blocked on
+// the send and Run blocked on the lock, with the engine's terminal never
+// restored.
 func (o *Overlay) Abort() {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.aborted = true
-	if o.prog != nil {
-		o.prog.Quit()
+	prog := o.prog
+	o.mu.Unlock()
+	if prog != nil {
+		prog.Quit()
 	}
 }

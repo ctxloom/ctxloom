@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -49,6 +50,50 @@ func TestFake_LogSince(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
+}
+
+// TestFake_BoundDefaultsMatchExecGit pins U053-F12: the three bounded reads
+// map a non-positive bound to a package default in execGit (maxDirs<=0 → 400,
+// maxEntries<=0 → 100 / 50). A Fake that instead returns EVERYTHING for the
+// same argument lets a test assert an unbounded result production can never
+// produce — the double would certify a caller that passes 0 and then assumes
+// it received the whole inventory.
+func TestFake_BoundDefaultsMatchExecGit(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("RepoDirs", func(t *testing.T) {
+		f := &Fake{Dirs: seqStrings("dir", defaultRepoDirsMax+7)}
+		got, err := f.RepoDirs(ctx, "/repo", 0)
+		require.NoError(t, err)
+		assert.Len(t, got, defaultRepoDirsMax, "maxDirs<=0 must apply execGit's default bound, not return everything")
+	})
+
+	t.Run("WorkingChanges", func(t *testing.T) {
+		f := &Fake{Changes: seqStrings("?? f", defaultWorkingChangesMax+7)}
+		got, err := f.WorkingChanges(ctx, "/repo", -1)
+		require.NoError(t, err)
+		assert.Len(t, got, defaultWorkingChangesMax, "maxEntries<=0 must apply execGit's default bound")
+	})
+
+	t.Run("LogSince", func(t *testing.T) {
+		var entries []LogEntry
+		for _, s := range seqStrings("sha", defaultLogSinceMax+7) {
+			entries = append(entries, LogEntry{SHA: s})
+		}
+		f := &Fake{LogEntries: map[string][]LogEntry{"": entries}}
+		got, err := f.LogSince(ctx, "/repo", time.Time{}, 0)
+		require.NoError(t, err)
+		assert.Len(t, got, defaultLogSinceMax, "maxEntries<=0 must apply execGit's default bound")
+	})
+}
+
+// seqStrings builds n distinct strings with the given prefix.
+func seqStrings(prefix string, n int) []string {
+	out := make([]string, 0, n)
+	for i := range n {
+		out = append(out, fmt.Sprintf("%s%04d", prefix, i))
+	}
+	return out
 }
 
 // TestFake_IsDirty_DirtyErr pins U053-F04: without an error injector,

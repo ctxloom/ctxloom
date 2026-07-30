@@ -20,14 +20,14 @@ const codexManifest = ".ctxloom-manifest"
 // getSessionsDir both resolve through it so they stay in lockstep with how
 // codex itself locates its home.
 func codexHome() (string, error) {
-	if home := os.Getenv("CODEX_HOME"); home != "" {
+	if home := os.Getenv(CodexHomeEnv); home != "" {
 		return home, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".codex"), nil
+	return filepath.Join(home, ConfigDirName), nil
 }
 
 // GlobalHome returns codex's home resolution with NO workDir context —

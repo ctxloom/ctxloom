@@ -79,6 +79,20 @@ func (c *CodeCompressor) extractJavaClass(node *sitter.Node, source []byte, out 
 	out.WriteString("\n\n")
 }
 
+// javaNestedVerbatim lists the class-body member kinds kept verbatim, matching
+// how extractJava treats the same kinds at the top level: they declare a type,
+// and their declaration IS the thing worth keeping.
+var javaNestedVerbatim = map[string]bool{
+	"interface_declaration":       true,
+	"enum_declaration":            true,
+	"record_declaration":          true,
+	"annotation_type_declaration": true,
+}
+
+// extractJavaClassBody emits a class's members with method and constructor
+// bodies elided. Nested types are members too: a class body that enumerated
+// only fields, methods and constructors dropped every nested class, interface,
+// enum and record without a trace.
 func (c *CodeCompressor) extractJavaClassBody(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -86,7 +100,14 @@ func (c *CodeCompressor) extractJavaClassBody(node *sitter.Node, source []byte, 
 			continue
 		}
 
+		if javaNestedVerbatim[child.Type()] {
+			writeIndentedBlock(out, "    ", c.nodeText(child, source))
+			continue
+		}
+
 		switch child.Type() {
+		case "class_declaration":
+			c.extractIndented(child, source, out, "    ", c.extractJavaClass)
 		case "field_declaration":
 			out.WriteString("    ")
 			out.WriteString(c.nodeText(child, source))

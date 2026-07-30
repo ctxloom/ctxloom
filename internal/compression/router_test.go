@@ -2,6 +2,7 @@ package compression
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,4 +76,44 @@ func TestRouter_NoHandlerMatchesVerbatimResult(t *testing.T) {
 	assert.Equal(t, verbatimResult(content, ""), got,
 		"the no-compressor fallback must be the canonical verbatim Result, field for field")
 	assert.Equal(t, 1.0, got.Ratio, "unchanged content must never claim a compressed ratio")
+}
+
+// failingCompressor claims a type and fails on it — the shape of any compressor
+// whose work can genuinely fail (the LLM-backed one this package's Result.ModelID
+// doc already anticipates: "ast:go", "claude-3-sonnet").
+type failingCompressor struct{ err error }
+
+func (f failingCompressor) CanHandle(ct ContentType) bool { return ct == ContentTypeYAML }
+func (f failingCompressor) Compress(context.Context, ContentType, string) (Result, error) {
+	return Result{}, f.err
+}
+
+// U046-F09 observed that Compress's error return is structurally nil in all
+// three current implementations and proposed retiring it. The channel is LIVE,
+// not dead: the router propagates it unchanged, and the sole production caller
+// (cli.distillWithModel) gates on `err == nil && result.Ratio < 0.7` — a
+// non-nil error is exactly how a compressor asks to fall back to the LLM. This
+// pins that path so removing the error return has to fail here first.
+func TestRouter_CompressWithType_PropagatesCompressorError(t *testing.T) {
+	sentinel := errors.New("compressor refused this content")
+	r := &Router{compressors: []Compressor{failingCompressor{err: sentinel}}}
+
+	_, err := r.CompressWithType(context.Background(), ContentTypeYAML, "key: value\n")
+	assert.ErrorIs(t, err, sentinel, "the router hands a compressor's failure straight to the caller")
+}
+
+// The two errors the tree-sitter compressor CREATES are deliberately degraded
+// to verbatim rather than returned — fault tolerance, so unparseable content
+// still reaches the model. One of them is unreachable through the router at
+// all: CanHandle gates Compress, and every type it admits has a grammar, so
+// parserPool's "unsupported language" can only be produced by calling Compress
+// directly. This pins the degrade, so a future change that returns those errors
+// instead is a deliberate one.
+func TestRouter_UnsupportedTypeNeverReachesACompressor(t *testing.T) {
+	r := NewRouter()
+	for _, ct := range []ContentType{ContentTypeYAML, ContentTypeMarkdown, ContentTypeUnknown} {
+		result, err := r.CompressWithType(context.Background(), ct, "content")
+		require.NoError(t, err, "%s: no compressor claims it, so nothing can fail", ct)
+		assert.Equal(t, "content", result.Content)
+	}
 }

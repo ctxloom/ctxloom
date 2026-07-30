@@ -190,7 +190,7 @@ Read-only listings are exposed as MCP resources rather than tools.
 | `ctxloom://mcp-servers` | mcp servers | Configured MCP servers per backend. Replaces the list_mcp_servers tool. |
 | `ctxloom://profiles` | profiles | All configured profiles with their bundle lists. Replaces the list_profiles tool. |
 | `ctxloom://remotes` | remotes | Configured remote sources. Replaces the list_remotes tool. |
-| `ctxloom://sessions` | sessions | All harp-named sessions across every project. For the cwd-filtered view, use ctxloom://sessions/recent. |
+| `ctxloom://sessions` | sessions | All harp-named sessions across every project, most recently worked first. For the project-filtered view, use ctxloom://sessions/recent. |
 | `ctxloom://sessions/recent` | recent sessions | Harp-named sessions for the current project, most recent first. YAML, with harp_name, started_at, summary. |
 | `ctxloom://skills` | skills | All available Agent Skill packages (model-invoked SKILL.md directories) with descriptions and file counts. Distinct from commands (user-invoked slash commands). |
 

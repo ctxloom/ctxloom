@@ -70,50 +70,18 @@ func ParseFeature(path string) (Feature, error) {
 			featureTags = currentTags
 			seenFeature = true
 			currentTags = nil
-			i++
-			for i < n {
-				s2 := strings.TrimSpace(lines[i])
-				if strings.HasPrefix(s2, "@") || strings.HasPrefix(s2, "#") ||
-					strings.HasPrefix(s2, "Scenario:") || strings.HasPrefix(s2, "Scenario Outline:") {
-					break
-				}
-				if s2 != "" {
-					featureDesc = append(featureDesc, s2)
-				}
-				i++
-			}
+			featureDesc, i = parseFeatureDescription(lines, i+1)
 
 		case strings.HasPrefix(stripped, "Scenario Outline:") || strings.HasPrefix(stripped, "Scenario:"):
 			_, rest, _ := strings.Cut(stripped, ":")
-			name := strings.TrimSpace(rest)
-			tags := currentTags
-			currentTags = nil
-			body := []string{raw}
-			i++
-			for i < n {
-				nxt := lines[i]
-				s2 := strings.TrimSpace(nxt)
-				if strings.HasPrefix(s2, "#") {
-					i++
-					continue
-				}
-				if strings.HasPrefix(s2, "@") {
-					break
-				}
-				if strings.HasPrefix(s2, "Scenario:") || strings.HasPrefix(s2, "Scenario Outline:") {
-					break
-				}
-				body = append(body, nxt)
-				i++
-			}
-			for len(body) > 0 && strings.TrimSpace(body[len(body)-1]) == "" {
-				body = body[:len(body)-1]
-			}
+			var body string
+			body, i = parseScenarioBody(lines, i)
 			scenarios = append(scenarios, Scenario{
-				Name: name,
-				Tags: tags,
-				Body: strings.Join(body, "\n"),
+				Name: strings.TrimSpace(rest),
+				Tags: currentTags,
+				Body: body,
 			})
+			currentTags = nil
 
 		default:
 			i++
@@ -130,6 +98,69 @@ func ParseFeature(path string) (Feature, error) {
 		Tags:        featureTags,
 		Scenarios:   scenarios,
 	}, nil
+}
+
+// parseFeatureDescription consumes the free-text lines following a "Feature:"
+// header, starting at index i, and returns them with the index to resume at.
+// Blank lines are dropped; the first tag, comment or scenario header ends the
+// description.
+func parseFeatureDescription(lines []string, i int) ([]string, int) {
+	var desc []string
+	for ; i < len(lines); i++ {
+		s := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(s, "@") || strings.HasPrefix(s, "#") ||
+			strings.HasPrefix(s, "Scenario:") || strings.HasPrefix(s, "Scenario Outline:") {
+			break
+		}
+		if s != "" {
+			desc = append(desc, s)
+		}
+	}
+	return desc, i
+}
+
+// parseScenarioBody consumes one scenario, starting at its header line at
+// index i, and returns its raw Gherkin body with trailing blank lines trimmed
+// plus the index to resume at. Comments are source rather than spec and are
+// dropped; a tag run ends the body only when a new scenario follows it (see
+// tagsStartNewScenario).
+func parseScenarioBody(lines []string, i int) (string, int) {
+	body := []string{lines[i]}
+	for i++; i < len(lines); i++ {
+		s := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(s, "#") {
+			continue
+		}
+		if strings.HasPrefix(s, "@") && tagsStartNewScenario(lines, i) {
+			break
+		}
+		if strings.HasPrefix(s, "Scenario:") || strings.HasPrefix(s, "Scenario Outline:") {
+			break
+		}
+		body = append(body, lines[i])
+	}
+	for len(body) > 0 && strings.TrimSpace(body[len(body)-1]) == "" {
+		body = body[:len(body)-1]
+	}
+	return strings.Join(body, "\n"), i
+}
+
+// tagsStartNewScenario reports whether the tag line at index i belongs to a
+// NEW scenario rather than to the one being parsed. Gherkin attaches tags to
+// an Examples: block (they cannot attach to a single table row), so a run of
+// tags followed by "Examples:" is part of the current Scenario Outline, while
+// a run of tags followed by a Scenario header ends it. Blank lines, comments
+// and further tag lines are skipped on the way. A run of tags at end of file
+// belongs to nothing and is treated as a terminator.
+func tagsStartNewScenario(lines []string, i int) bool {
+	for ; i < len(lines); i++ {
+		s := strings.TrimSpace(lines[i])
+		if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "@") {
+			continue
+		}
+		return strings.HasPrefix(s, "Scenario:") || strings.HasPrefix(s, "Scenario Outline:")
+	}
+	return true
 }
 
 // DiscoverDocFeatures returns every @doc-tagged .feature file in dir, sorted

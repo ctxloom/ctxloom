@@ -20,6 +20,15 @@ import (
 // names a group that does not exist.
 const DefaultGroup = "default"
 
+// MinComponents and MaxComponents bound Options.Components. normalize clamps to
+// them; a caller that ADVERTISES the range to a human (a CLI flag's help text)
+// must read it from here rather than restating it, so what is promised and what
+// is enforced cannot drift apart.
+const (
+	MinComponents = 2
+	MaxComponents = 16
+)
+
 // Word-list files are embedded as "<group>.<type>.txt", where type is
 // "adjectives" or "nouns". A group is usable only if it provides both.
 //
@@ -128,7 +137,8 @@ func parseList(data string) []string {
 // (3 components, "-" separator, no length cap).
 type Options struct {
 	// Components is the total number of words in the name
-	// (N-1 adjectives + 1 noun). Valid range: 2..16. Defaults to 3.
+	// (N-1 adjectives + 1 noun). Valid range: MinComponents..MaxComponents.
+	// Defaults to 3.
 	Components int
 
 	// MaxElementLength caps the length of each individual word in chars.
@@ -144,11 +154,11 @@ type Options struct {
 }
 
 func (o Options) normalize() Options {
-	if o.Components < 2 {
+	if o.Components < MinComponents {
 		o.Components = 3
 	}
-	if o.Components > 16 {
-		o.Components = 16
+	if o.Components > MaxComponents {
+		o.Components = MaxComponents
 	}
 	if o.Separator == "" {
 		o.Separator = "-"

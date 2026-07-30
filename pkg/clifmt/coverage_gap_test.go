@@ -119,17 +119,19 @@ func TestRenderTOMLErrorOnUnsupportedType(t *testing.T) {
 
 // --- Render propagates a struct-classification error for a bad buildTable
 // call reached via a slice of a non-struct, non-scalar-friendly type is not
-// reachable through the public surface, so this instead checks RenderError
-// still returns a well-formed error for a nil err argument (edge case: a
-// caller passing nil shouldn't panic). ---
+// reachable through the public surface, so this instead exercises the nil-err
+// edge case: a caller passing nil must neither panic nor be handed an empty
+// failure report. See TestRenderErrorRejectsNilError in errors_test.go for the
+// payload half of that contract. ---
 
 func TestRenderErrorNilErrorArgument(t *testing.T) {
 	var buf bytes.Buffer
-	if err := RenderError(&buf, nil, FormatText); err != nil {
-		t.Fatalf("RenderError(nil): %v", err)
+	err := RenderError(&buf, nil, FormatText)
+	if !errors.Is(err, ErrNilError) {
+		t.Fatalf("RenderError(nil) = %v, want ErrNilError", err)
 	}
-	if buf.String() != "Error: \n" {
-		t.Errorf("got %q", buf.String())
+	if buf.String() != "" {
+		t.Errorf("got %q, want no output", buf.String())
 	}
 }
 

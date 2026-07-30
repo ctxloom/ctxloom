@@ -86,7 +86,7 @@ func runCheck(w, diag io.Writer, command, cfgPath string, forceShell ir.Shell, f
 	// parse. It survives as the seam for direct in-package calls (see
 	// check_test.go's "unknown format errors").
 	if !format.Valid() {
-		return fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", clifmt.ErrUnsupportedFormat, format)
+		return clifmt.UnsupportedFormatError(string(format))
 	}
 	if forceShell != "" && !forceShell.Valid() {
 		return fmt.Errorf("unknown --shell %q (known: %s)", forceShell, knownShells())

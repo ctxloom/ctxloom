@@ -2,7 +2,74 @@ package remote
 
 import (
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// A ctxloom reference CANNOT carry a control character. The grammar is built
+// entirely from URL text, "/"-separated path segments and "#<kind>/<name>"
+// selectors, none of which admit one — so a control character in a ref is
+// either a bug upstream or an attack, never authored intent.
+//
+// It is a security property, not tidiness. A ref is interpolated verbatim into
+// the LF-delimited countersign preimage (signing.CountersignPayload), where an
+// embedded LF closes the `ref:` line early and lets the remainder of the ref
+// forge the `form:` and `len:` lines the framing emits after it — two distinct
+// (assertion, ref, form, payload) tuples framing to identical bytes, so one
+// signature verifies for both and both file at one index hash. It is also
+// rendered to the human whose approval is the entire point of the review gate:
+// CR, backspace and ESC let a hostile ref repaint the terminal so the string
+// shown is not the string being approved.
+//
+// The whole C0 range plus DEL is stripped rather than only CR/LF, because both
+// hazards above generalise past the two characters that happen to break the
+// frame, and no legal ref loses anything.
+//
+// The rule is enforced twice, deliberately and independently: stripped HERE, at
+// ingest, so no consumer has to re-check; and REFUSED in
+// signing.CountersignHeader.Validate, because the frame is the thing being
+// signed and must not depend on any caller having come through this door. The
+// second layer does not import this one — a defence in depth that shares an
+// implementation is one layer.
+func isRefControlChar(r rune) bool {
+	return r < 0x20 || r == 0x7f
+}
+
+// StripRefControlChars removes every control character from ref, reporting
+// whether anything was actually removed. Pure: it emits no diagnostic. Use
+// NormalizeRef at an ingest boundary; use this where the caller wants to decide
+// what to say about the removal itself.
+func StripRefControlChars(ref string) (clean string, stripped bool) {
+	if strings.IndexFunc(ref, isRefControlChar) == -1 {
+		return ref, false
+	}
+	return strings.Map(func(r rune) rune {
+		if isRefControlChar(r) {
+			return -1
+		}
+		return r
+	}, ref), true
+}
+
+// NormalizeRef is the ingest normaliser every reference passes through as it
+// enters ctxloom from argv, a config or bundle file, a lockfile, a remote
+// payload or an MCP argument. It strips control characters (see
+// isRefControlChar) and returns the cleaned ref.
+//
+// A strip is NEVER silent: normalising user input without saying so is how a
+// malformed ref becomes an invisible one. The warning is additive — it does not
+// change control flow, and a ref that needed no cleaning is returned byte for
+// byte. Both refs are printed with %q, which escapes exactly the characters
+// being complained about, so the diagnostic itself cannot be used to paint the
+// terminal.
+func NormalizeRef(ref string) string {
+	clean, stripped := StripRefControlChars(ref)
+	if stripped {
+		clidiag.WarnOnce("ctxloom", "reference %q contained control characters and was read as %q "+
+			"— a ctxloom reference cannot carry them; this is a bug upstream or an attempt to forge one", ref, clean)
+	}
+	return clean
+}
 
 // FragmentSelector is the selector prefix addressing a fragment within a
 // bundle ("<bundle>#fragments/<name>"). Producers (bundle expansion) and
@@ -13,6 +80,7 @@ const FragmentSelector = "#fragments/"
 // FragmentName returns the bare fragment name from a ref carrying a
 // "#fragments/" selector; ok is false when ref has none.
 func FragmentName(ref string) (name string, ok bool) {
+	ref = NormalizeRef(ref)
 	if i := strings.Index(ref, FragmentSelector); i != -1 {
 		return ref[i+len(FragmentSelector):], true
 	}
@@ -25,6 +93,7 @@ func FragmentName(ref string) (name string, ok bool) {
 // outside this package (e.g. operations dependency-URL collection) share the
 // one splitter instead of copying it.
 func SplitItemPath(ref string) (base, itemPath string) {
+	ref = NormalizeRef(ref)
 	if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
 		return ref[:hashIdx], ref[hashIdx:]
 	}
@@ -47,7 +116,7 @@ func CanonicalKey(ref string) (string, bool) {
 // LocalBundleRef returns the ctxloom:local canonical form for a plain local
 // bundle name ("dev" → "ctxloom:local@bundles/dev").
 func LocalBundleRef(name string) string {
-	return LocalSource + "@bundles/" + name
+	return LocalSource + "@bundles/" + NormalizeRef(name)
 }
 
 // CanonicalBundleRef returns the canonical pipeline identity for a bundle
@@ -57,6 +126,7 @@ func LocalBundleRef(name string) string {
 // "<CanonicalBundleRef>#fragments/<name>", so identities compare exactly and
 // local/remote bundles with colliding names stay distinguishable.
 func CanonicalBundleRef(name string) string {
+	name = NormalizeRef(name)
 	if ck, ok := CanonicalKey(name); ok {
 		return ck
 	}
@@ -82,6 +152,7 @@ func CanonicalFragmentRef(ref string) string {
 // stay version-agnostic); the version is meant to be honored only at the
 // read/resolution path.
 func SplitFragmentVersion(ref string) (canonical, version string) {
+	ref = NormalizeRef(ref)
 	base, sel := SplitItemPath(ref)
 	if !strings.HasPrefix(sel, FragmentSelector) {
 		return ref, ""
@@ -110,6 +181,7 @@ const CommandSelector = "#commands/"
 // command selector (a bare name) is returned unchanged with no version — a bare
 // name has no bundle to pin a historical version against.
 func SplitPromptVersion(ref string) (canonical, version string) {
+	ref = NormalizeRef(ref)
 	base, sel := SplitItemPath(ref)
 	if !strings.HasPrefix(sel, CommandSelector) {
 		return ref, ""
@@ -144,7 +216,7 @@ const ProfileSelector = "#profiles/"
 // identity so a bundle profile and a top-level/local profile resolve through the
 // same loader.
 func BundleProfileRef(bundle, name string) string {
-	return CanonicalBundleRef(bundle) + ProfileSelector + name
+	return CanonicalBundleRef(bundle) + ProfileSelector + NormalizeRef(name)
 }
 
 // CanonicalProfileKey returns the version-less canonical identity of a
@@ -174,6 +246,7 @@ func CanonicalProfileKey(ref string) (string, bool) {
 // "@profiles/" remote profile ref — so callers can tell a bundle-sourced profile
 // apart from the other two and attribute it back to its bundle.
 func SplitBundleProfileRef(ref string) (bundle, name string, ok bool) {
+	ref = NormalizeRef(ref)
 	i := strings.Index(ref, ProfileSelector)
 	if i == -1 {
 		return "", "", false
@@ -198,6 +271,7 @@ const RetiredProfileSelector = "@profiles/"
 // else — the successor form (carries a "#" selector), non-canonical refs, and
 // local names — so callers can hand any ref here safely.
 func SplitRetiredProfileRef(ref string) (url, name string, ok bool) {
+	ref = NormalizeRef(ref)
 	if !IsCanonicalRef(ref) || strings.Contains(ref, "#") {
 		return "", "", false
 	}

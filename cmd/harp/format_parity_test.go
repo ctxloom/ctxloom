@@ -21,6 +21,12 @@ func TestResolveFormat_MatchesSharedResolver(t *testing.T) {
 		// set reports whether --format is passed at all; raw is its value.
 		set bool
 		raw string
+		// wrongType registers --format as an int flag instead of a string.
+		// U004-F04: harp used to read it with `raw, _ := GetString(...)`, which
+		// discards the only error the lookup can produce and degrades to
+		// "unsupported format: \"\"" — a message describing a value the user
+		// never typed. The shared resolver reports the wiring bug instead.
+		wrongType bool
 	}{
 		{name: "unset", set: false},
 		{name: "empty", set: true, raw: ""},
@@ -30,12 +36,17 @@ func TestResolveFormat_MatchesSharedResolver(t *testing.T) {
 		{name: "toml", set: true, raw: "toml"},
 		{name: "markdown", set: true, raw: "markdown"},
 		{name: "bogus", set: true, raw: "xml"},
+		{name: "wrong type", wrongType: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			newCmd := func() *cobra.Command {
 				cmd := &cobra.Command{Use: "x", RunE: func(*cobra.Command, []string) error { return nil }}
+				if tc.wrongType {
+					cmd.Flags().Int("format", 0, "")
+					return cmd
+				}
 				cmd.Flags().String("format", string(clifmt.FormatText), "")
 				if tc.set {
 					require.NoError(t, cmd.Flags().Set("format", tc.raw))

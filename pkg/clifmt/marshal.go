@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 
 	toml "github.com/pelletier/go-toml/v2"
 	yaml "gopkg.in/yaml.v3"
@@ -45,6 +46,15 @@ func normalizeNumbers(v any) any {
 	case json.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
+		}
+		// An unsigned integer above math.MaxInt64 fails Int64 but SUCCEEDS
+		// Float64, so without this arm it would reach the yaml/toml encoders
+		// as a float64 and be written in exponent form with its low bits
+		// gone — while json, which never round-trips through toGeneric,
+		// writes the exact digits. Try the exact integer form before ever
+		// accepting the lossy one.
+		if u, err := strconv.ParseUint(t.String(), 10, 64); err == nil {
+			return u
 		}
 		if f, err := t.Float64(); err == nil {
 			return f

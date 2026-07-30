@@ -192,12 +192,27 @@ type Ref struct {
 	// Name is the item name within the bundle, e.g. "solid".
 	Name string
 
-	// IsLocal marks a ctxloom:local (project-authored) item. Local content
-	// (fragment/prompt) is auto-allowed; local executables (mcp) are not.
+	// IsLocal marks a ctxloom:local (project-authored) item. EVERY local kind
+	// is auto-allowed at the decision function's local tier — fragment,
+	// prompt and skill content AND the mcp/hook executable surfaces the user
+	// configured in this project themselves. Kind does not enter that tier at
+	// all: only locality exempts, which is why IsContent (below) explicitly
+	// does not govern it. See ItemKind's own doc, EffectiveTrust step 3, and
+	// the "local mcp auto-allowed (project-authored executable)" case in
+	// operations' decision-function table.
 	IsLocal bool
 
 	// IsBuiltin marks an item shipped inside the ctxloom binary itself
-	// (resources/builtin_bundles). Mutually exclusive with IsLocal. Builtin
+	// (resources/builtin_bundles). Mutually exclusive with IsLocal — every
+	// site that builds a Ref sets at most one of the two as a literal, and the
+	// single site that copies both from data (content.Provenance.stamp) is
+	// refused at construction by Provenance.validate, "provenance cannot be
+	// both local and builtin". Neither field is assigned anywhere else, so the
+	// exclusion is a checked property rather than a convention. It matters
+	// because the two flags are read at DIFFERENT layers: CanonicalURL keys
+	// builtin first, while the decision function reaches its local tier first,
+	// so a Ref carrying both would key under one identity and report the
+	// other. Builtin
 	// items key under BuiltinSigner (never remote.LocalSource) so they cannot
 	// collide with a project-local bundle of the same name, and so a rejection
 	// recorded against a builtin item is addressed unambiguously.
@@ -216,8 +231,18 @@ const BuiltinSigner = "builtin:ctxloom"
 // "code-quality#fragments/solid" or "tooling#mcp/postgres". It deliberately
 // omits the repo URL (stored separately) and any @version (grants pin by
 // content hash, not commit).
+//
+// This is the ingest boundary for Bundle and Name, and the LAST one: a Ref is a
+// plain struct, so those two fields are set directly by every surface type's
+// RefFor (internal/content) from a bundle-manifest item name or a filename —
+// neither of which passes through the reference grammar in internal/remote.
+// Key is the single function that turns those fields into a ref string, and
+// operations.countersignRef composes its result straight into the countersign
+// preimage, where a control character forges the frame (see
+// signing.CountersignHeader.Validate). Normalising here covers every
+// construction site at once, including ones not yet written.
 func (r Ref) Key() string {
-	return r.Bundle + "#" + r.Kind.Dir() + "/" + r.Name
+	return remote.NormalizeRef(r.Bundle) + "#" + r.Kind.Dir() + "/" + remote.NormalizeRef(r.Name)
 }
 
 // CanonicalURL returns the canonical repo URL used for keying. Local items key

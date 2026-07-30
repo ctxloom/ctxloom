@@ -59,7 +59,8 @@ Examples:
 		},
 	}
 
-	root.Flags().IntVarP(&opts.components, "components", "c", 3, "number of words (2-16)")
+	root.Flags().IntVarP(&opts.components, "components", "c", 3,
+		fmt.Sprintf("number of words (%d-%d)", harp.MinComponents, harp.MaxComponents))
 	root.Flags().StringVarP(&opts.separator, "separator", "s", "-", "delimiter between words")
 	root.Flags().IntVar(&opts.maxLen, "max-len", 0, "max characters per word (0 = no cap)")
 	root.Flags().IntVarP(&opts.count, "number", "n", 1, "how many names to generate")
@@ -93,6 +94,19 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 	// generate something that produces nothing has failed, not succeeded.
 	if opts.count < 1 {
 		return fmt.Errorf("--number must be at least 1, got %d", opts.count)
+	}
+	// The flag help advertises a component range and a group set; the library
+	// deliberately CLAMPS out-of-range options rather than rejecting them (its
+	// documented zero-value contract), so enforcement of what this CLI promises
+	// has to live here. Otherwise a typo becomes a plausible wrong answer at
+	// exit 0 — `-c 1` renders three words, `-g typo` renders the default group.
+	if opts.components < harp.MinComponents || opts.components > harp.MaxComponents {
+		return fmt.Errorf("--components must be between %d and %d, got %d",
+			harp.MinComponents, harp.MaxComponents, opts.components)
+	}
+	if groups := harp.Groups(); !slices.Contains(groups, opts.group) {
+		slices.Sort(groups)
+		return fmt.Errorf("--group %q is not a word-list group (have: %s)", opts.group, strings.Join(groups, ", "))
 	}
 
 	format, err := resolveFormat(cmd)

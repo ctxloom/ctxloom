@@ -159,19 +159,37 @@ func resolveTagSchema(tc operations.TaskContext) (operations.TaskContext, error)
 	return tc, nil
 }
 
-// taskContextSingle is taskContext() plus resolveHoming and
-// resolveTagSchema: the combined resolution every command that touches
-// exactly one project's store needs.
+// taskContextSingle is taskContext() plus the homing mode and the tag-schema:
+// the combined resolution every command that touches exactly one project's
+// store needs.
+//
+// It layers the config ONCE and resolves both settings from that one value,
+// rather than calling resolveHoming and resolveTagSchema in turn — those two
+// exist for the callers that need exactly one of the pair, and each Loads on
+// its own, so using them here read and merged home+project config.yaml twice
+// on the startup path of every single-project command. Resolution order is
+// unchanged: an invalid homing value is still reported before a malformed
+// tag-schema declaration.
 func taskContextSingle() (operations.TaskContext, error) {
 	tc, err := taskContext()
 	if err != nil {
 		return tc, err
 	}
-	tc, err = resolveHoming(tc)
+	cfg, err := taskloomconfig.Load(tc.WorkDir, rootCmd.PersistentFlags())
 	if err != nil {
 		return tc, err
 	}
-	return resolveTagSchema(tc)
+	mode, err := cfg.ResolveMode(tasksHoming)
+	if err != nil {
+		return tc, err
+	}
+	schema, err := cfg.ParsedTagSchema()
+	if err != nil {
+		return tc, err
+	}
+	tc.HomingMode = mode
+	tc.TagSchema = schema
+	return tc, nil
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.

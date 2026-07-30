@@ -57,3 +57,22 @@ func TestRenderErrorUnsupportedFormat(t *testing.T) {
 		t.Fatalf("RenderError error = %v, want wrapping ErrUnsupportedFormat", err)
 	}
 }
+
+// TestRenderErrorRejectsNilError pins that a nil error is REJECTED rather than
+// rendered. A nil error is not a failure to report: rendering it produced a
+// well-formed failure envelope carrying an empty message ({"error": ""} /
+// "Error: "), which tells a machine consumer that something went wrong while
+// naming nothing that did. The payload assertion is the load-bearing half —
+// the writer must receive zero bytes, not merely a non-nil return.
+func TestRenderErrorRejectsNilError(t *testing.T) {
+	for _, f := range []Format{FormatJSON, FormatYAML, FormatTOML, FormatText, FormatMarkdown} {
+		var buf bytes.Buffer
+		err := RenderError(&buf, nil, f)
+		if err == nil {
+			t.Errorf("RenderError(%s, nil) returned no error", f)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("RenderError(%s, nil) wrote %d bytes (%q); a rejected call must write nothing", f, buf.Len(), buf.String())
+		}
+	}
+}

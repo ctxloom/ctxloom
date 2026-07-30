@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -47,4 +48,31 @@ func LoadNarration(path string) (Narration, error) {
 		narr.Scenarios[strings.TrimSpace(m[1])] = strings.TrimSpace(m[2])
 	}
 	return narr, nil
+}
+
+// OrphanNarrations returns, sorted, the names of every doc:scenario marker in
+// narr that matches no scenario in feat.
+//
+// renderScenario only ever looks prose UP by an existing scenario's name, so a
+// marker naming a scenario that was renamed, retitled or removed is parsed,
+// stored and then never consulted: the author's hand-written paragraph is
+// dropped and the generator still exits 0 with a complete-looking page. That
+// is the failure this reports — a marker with empty prose counts too, since
+// the author wrote the marker and the mismatch is what is worth naming.
+func OrphanNarrations(feat Feature, narr Narration) []string {
+	if len(narr.Scenarios) == 0 {
+		return nil
+	}
+	known := make(map[string]bool, len(feat.Scenarios))
+	for _, sc := range feat.Scenarios {
+		known[sc.Name] = true
+	}
+	var orphans []string
+	for name := range narr.Scenarios {
+		if !known[name] {
+			orphans = append(orphans, name)
+		}
+	}
+	sort.Strings(orphans)
+	return orphans
 }

@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
 // TestNewRootCmd_Flags pins the flag surface carried over from the removed
@@ -260,5 +263,66 @@ func TestNewRootCmd_CommandSurface(t *testing.T) {
 	}
 	if !got["version"] {
 		t.Error(`"version" subcommand missing from root tree`)
+	}
+}
+
+// TestRunGenerate_RejectsAdvertisedRangeViolations pins U004-F02: the flag help
+// advertises "number of words (2-16)" and enumerates the word-list groups, and
+// the CLI must ENFORCE what it advertises. The library it calls deliberately
+// clamps instead (harp.Options.normalize, pinned by
+// TestGenerateName_ComponentsClamped and TestGenerateName_UnknownGroupFallsBack
+// — that is its documented zero-value contract and it is not this binary's to
+// change), so a CLI that hands the value straight through turns a typo into a
+// plausible wrong answer at exit 0: `harp -c 1` prints a THREE-word name,
+// `harp -c 99` prints sixteen, `harp -g typo` quietly draws from "default".
+//
+// Same shape and same layer as U004-F01's `--number` guard: the enforcement
+// belongs where the promise is made.
+func TestRunGenerate_RejectsAdvertisedRangeViolations(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"components below the advertised floor", []string{"-c", "1"}, "--components"},
+		{"components above the advertised ceiling", []string{"-c", "17"}, "--components"},
+		{"group outside the advertised set", []string{"-g", "no-such-group"}, "--group"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newRootCmd()
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetErr(&out)
+			root.SetArgs(tc.args)
+
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("harp %s must fail loudly, not silently clamp; it printed %q", strings.Join(tc.args, " "), out.String())
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q should name the offending flag %q", err, tc.want)
+			}
+			if out.String() != "" {
+				t.Errorf("a refused invocation must render no names, got %q", out.String())
+			}
+		})
+	}
+}
+
+// TestRunGenerate_AcceptsTheWholeAdvertisedRange is the other half: enforcement
+// must not narrow what the help promises. Both endpoints and every advertised
+// group have to work.
+func TestRunGenerate_AcceptsTheWholeAdvertisedRange(t *testing.T) {
+	for _, n := range []int{2, 16} {
+		name := strings.TrimRight(runHarp(t, "-c", strconv.Itoa(n)), "\n")
+		if got := strings.Count(name, "-") + 1; got != n {
+			t.Errorf("-c %d produced %d components (%q)", n, got, name)
+		}
+	}
+	for _, g := range harp.Groups() {
+		if out := runHarp(t, "-g", g); strings.TrimSpace(out) == "" {
+			t.Errorf("advertised group %q produced no name", g)
+		}
 	}
 }

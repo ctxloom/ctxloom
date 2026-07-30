@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,26 +30,24 @@ func TestPackage_ExportsOnlyByteBudgetedShortening(t *testing.T) {
 		"Ellipsize":     "the same cut, with the marker reserved from the budget",
 	}
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
+	fset := token.NewFileSet()
 	got := map[string]bool{}
-	for name, pkg := range pkgs {
-		if strings.HasSuffix(name, "_test") {
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		for path, file := range pkg.Files {
-			if strings.HasSuffix(path, "_test.go") {
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		require.NoError(t, err)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || !fn.Name.IsExported() {
 				continue
 			}
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || !fn.Name.IsExported() {
-					continue
-				}
-				got[fn.Name.Name] = true
-			}
+			got[fn.Name.Name] = true
 		}
 	}
 

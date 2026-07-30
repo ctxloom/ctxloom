@@ -11,6 +11,8 @@
 package cliemit
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -39,11 +41,23 @@ func Emit(cmd *cobra.Command, data any, text func() error) error {
 // --format (e.g. a unit test that never registered it) reads as "" and is
 // treated as text; any other unrecognized value is an error wrapping
 // clifmt.ErrUnsupportedFormat.
+//
+// Two causes of "cannot read --format" are deliberately NOT the same. An
+// ABSENT flag is the affordance above: it lets a command be driven without a
+// root, and turning it into an error breaks that contract at 30-plus call
+// sites. A flag registered with the WRONG TYPE is a wiring bug — the value
+// the user typed cannot be read at all — and is reported.
 func Resolve(cmd *cobra.Command) (clifmt.Format, error) {
 	if f := cmd.Flags().Lookup("json"); f != nil && f.Changed {
 		return clifmt.FormatJSON, nil
 	}
-	raw, _ := cmd.Flags().GetString("format")
+	if cmd.Flags().Lookup("format") == nil {
+		return clifmt.FormatText, nil
+	}
+	raw, err := cmd.Flags().GetString("format")
+	if err != nil {
+		return "", fmt.Errorf("cliemit: --format on %q is not a string flag: %w", cmd.CommandPath(), err)
+	}
 	if raw == "" {
 		return clifmt.FormatText, nil
 	}

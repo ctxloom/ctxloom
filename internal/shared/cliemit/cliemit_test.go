@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -147,5 +148,28 @@ func TestEmit_NilClosureOverEmptySliceIsNeverZeroBytes(t *testing.T) {
 		if buf.Len() == 0 {
 			t.Fatalf("Emit(%s) over an empty slice wrote zero bytes — indistinguishable from a delivery that never ran", format)
 		}
+	}
+}
+
+// U104-F02 claimed Resolve swallows the one error that separates "the user
+// asked for text" from "this command has no --format flag". Measured, the
+// error has TWO causes and they are not the same defect:
+//
+//   - flag ABSENT. Deliberate and documented: an unregistered --format reads
+//     as text, which is what lets a command be driven without a root
+//     (TestResolve_UnsetFormatIsText, and 30 internal/cli tests besides).
+//     Erroring here was tried and rejected — see the commit for the count.
+//   - flag registered with the WRONG TYPE. Not an affordance, a wiring bug:
+//     the value the user typed cannot be read at all, and text is asserted as
+//     if they had asked for it. That must be loud on the first invocation.
+func TestResolve_NonStringFormatFlagIsAWiringError(t *testing.T) {
+	c := &cobra.Command{Use: "wired-wrong"}
+	c.Flags().Bool("format", false, "") // registered, but not a string
+	_, err := Resolve(c)
+	if err == nil {
+		t.Fatal("a --format flag of the wrong type must not silently degrade to text")
+	}
+	if !strings.Contains(err.Error(), "wired-wrong") {
+		t.Fatalf("the error must name the offending command, got %v", err)
 	}
 }

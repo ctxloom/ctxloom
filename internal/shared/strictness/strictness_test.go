@@ -209,6 +209,40 @@ func TestFailOnce_PrintDedupIsProcessWideRecordDedupIsPerWindow(t *testing.T) {
 		"the FINDING is deduped only within a window, so the re-fire in the next window records again")
 }
 
+// strictness and clidiag dedup DIFFERENT things on DIFFERENT keys, and the
+// extra dimension is a contract rather than drift: clidiag dedups PRINTING on
+// the rendered line and has no notion of a failure class (giving it one would
+// invert the dependency — clidiag is the family-wide convention shared with
+// the companion binaries), while strictness dedups RECORDING on generation +
+// class + message. One message text raised under two classes therefore prints
+// ONE line and records TWO findings, each keeping its own class and its own
+// fix-it. Unifying the keys on the message alone would swallow a genuinely
+// different fault whose text happens to match, and take its fix-it with it.
+func TestFailOnce_SameMessageUnderTwoClassesRecordsBothButPrintsOnce(t *testing.T) {
+	resetForTest(t)
+
+	var out bytes.Buffer
+	restore := clidiag.SetSink(&out)
+	t.Cleanup(restore)
+
+	const msg = "u119f08 probe: could not be satisfied as requested"
+	mark := Checkpoint()
+	FailOnce(ClassIsolation, "ctxloom manage image build", "%s", msg)
+	FailOnce(ClassTask, "check the project task log", "%s", msg)
+
+	assert.Equal(t, 1, strings.Count(out.String(), msg),
+		"clidiag keys on the rendered line and has no class dimension, so the line prints once")
+
+	fixByClass := map[Class]string{}
+	for _, f := range Since(mark) {
+		fixByClass[f.Class] = f.FixIt
+	}
+	require.Len(t, fixByClass, 2, "the class dimension keeps two genuinely different faults apart")
+	assert.Equal(t, "ctxloom manage image build", fixByClass[ClassIsolation])
+	assert.Equal(t, "check the project task log", fixByClass[ClassTask],
+		"collapsing the keys onto the message alone would lose this fault and its fix-it entirely")
+}
+
 // mu co-guards the MODE and the COLLECTION on purpose: record's degraded check
 // and its append are ONE critical section, so entering degraded mode is
 // linearizable with respect to recording — once SetDegraded(true) returns, no

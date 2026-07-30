@@ -95,6 +95,17 @@ type taskAddInput struct {
 type taskAddResult struct {
 	Path string     `json:"path"`
 	Task tasks.Task `json:"task"`
+
+	// ProjectID/ProjectDir name the store the write actually landed
+	// in, and Warning carries the project-resolution notice
+	// (moved/forked store, an ignored project pin) that operations
+	// returns. warnTask puts that notice on the SERVER's stderr,
+	// which the model driving this tool never reads, so without
+	// them the only channel the caller can see reports unqualified
+	// success. Omitted when empty, which is the ordinary case.
+	ProjectID  string `json:"project_id,omitempty"`
+	ProjectDir string `json:"project_dir,omitempty"`
+	Warning    string `json:"warning,omitempty"`
 }
 
 type taskSetStatusInput struct {
@@ -106,6 +117,17 @@ type taskSetStatusInput struct {
 type taskSetStatusResult struct {
 	Path string     `json:"path"`
 	Task tasks.Task `json:"task"`
+
+	// ProjectID/ProjectDir name the store the write actually landed
+	// in, and Warning carries the project-resolution notice
+	// (moved/forked store, an ignored project pin) that operations
+	// returns. warnTask puts that notice on the SERVER's stderr,
+	// which the model driving this tool never reads, so without
+	// them the only channel the caller can see reports unqualified
+	// success. Omitted when empty, which is the ordinary case.
+	ProjectID  string `json:"project_id,omitempty"`
+	ProjectDir string `json:"project_dir,omitempty"`
+	Warning    string `json:"warning,omitempty"`
 }
 
 type taskEditInput struct {
@@ -116,6 +138,17 @@ type taskEditInput struct {
 type taskEditResult struct {
 	Path string     `json:"path"`
 	Task tasks.Task `json:"task"`
+
+	// ProjectID/ProjectDir name the store the write actually landed
+	// in, and Warning carries the project-resolution notice
+	// (moved/forked store, an ignored project pin) that operations
+	// returns. warnTask puts that notice on the SERVER's stderr,
+	// which the model driving this tool never reads, so without
+	// them the only channel the caller can see reports unqualified
+	// success. Omitted when empty, which is the ordinary case.
+	ProjectID  string `json:"project_id,omitempty"`
+	ProjectDir string `json:"project_dir,omitempty"`
+	Warning    string `json:"warning,omitempty"`
 }
 
 type taskTagInput struct {
@@ -127,6 +160,17 @@ type taskTagInput struct {
 type taskTagResult struct {
 	Path string     `json:"path"`
 	Task tasks.Task `json:"task"`
+
+	// ProjectID/ProjectDir name the store the write actually landed
+	// in, and Warning carries the project-resolution notice
+	// (moved/forked store, an ignored project pin) that operations
+	// returns. warnTask puts that notice on the SERVER's stderr,
+	// which the model driving this tool never reads, so without
+	// them the only channel the caller can see reports unqualified
+	// success. Omitted when empty, which is the ordinary case.
+	ProjectID  string `json:"project_id,omitempty"`
+	ProjectDir string `json:"project_dir,omitempty"`
+	Warning    string `json:"warning,omitempty"`
 }
 
 // This and the sibling registerXTools functions elsewhere in the ctxloom
@@ -241,7 +285,8 @@ func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskAddResult{Path: res.Path, Task: res.Task}, nil
+	return nil, &taskAddResult{Path: res.Path, Task: res.Task,
+		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
 }
 
 func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
@@ -254,7 +299,8 @@ func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetSt
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskSetStatusResult{Path: res.Path, Task: res.Task}, nil
+	return nil, &taskSetStatusResult{Path: res.Path, Task: res.Task,
+		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
 }
 
 func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
@@ -267,7 +313,8 @@ func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput)
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskEditResult{Path: res.Path, Task: res.Task}, nil
+	return nil, &taskEditResult{Path: res.Path, Task: res.Task,
+		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
 }
 
 func handleTaskTag(_ context.Context, _ *mcp.CallToolRequest, in taskTagInput) (*mcp.CallToolResult, *taskTagResult, error) {
@@ -280,5 +327,6 @@ func handleTaskTag(_ context.Context, _ *mcp.CallToolRequest, in taskTagInput) (
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskTagResult{Path: res.Path, Task: res.Task}, nil
+	return nil, &taskTagResult{Path: res.Path, Task: res.Task,
+		ProjectID: res.ProjectID, ProjectDir: res.ProjectDir, Warning: res.Warning}, nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -438,4 +439,66 @@ func TestHandleTaskList_GlobalNamesCurrentProjectWhenRepoHomed(t *testing.T) {
 	require.NotEmpty(t, res.Notice)
 	assert.Contains(t, res.Notice, proj, "the notice must name the excluded project's own path")
 	assert.Contains(t, res.Notice, "repo-homed")
+}
+
+// mcpWarningContext puts a project-resolution warning in play for a MUTATION:
+// a pinned --project/CTXLOOM_PROJECT_ID is a harmless no-op in repo-homed
+// mode (the repo path is the identity), and operations reports that rather
+// than swallowing it. Returns the resolved project dir.
+func mcpWarningContext(t *testing.T) string {
+	t.Helper()
+	dir := taskstest.ProjectDir(t)
+	t.Setenv("CTXLOOM_PROJECT_ID", "pinned-but-irrelevant")
+	t.Setenv("TASKLOOM_CONFIG_HOMING", "repo")
+	return dir
+}
+
+// Every MCP WRITE tool dropped the project-resolution warning and the store
+// attribution on the floor: warnTask writes to the server's STDERR, which the
+// model driving these tools never sees, and the returned result carried only
+// path+task. So an agent whose write landed in a moved/forked store — or
+// whose pinned project id was ignored outright — was told, in the only
+// channel it can read, that everything was fine.
+func TestMCPWriteTools_SurfaceTheWarningAndTheStoreTheWriteLandedIn(t *testing.T) {
+	t.Run("task_add", func(t *testing.T) {
+		mcpWarningContext(t)
+		_, res, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "ship it"})
+		require.NoError(t, err)
+		assert.Contains(t, res.Warning, "pinned-but-irrelevant",
+			"the caller must be told its pinned project id was ignored")
+		assert.NotEmpty(t, res.ProjectDir, "the model must be able to see WHICH store it wrote to")
+	})
+
+	t.Run("task_set_status", func(t *testing.T) {
+		mcpWarningContext(t)
+		_, added, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "ship it"})
+		require.NoError(t, err)
+		_, res, err := handleTaskSetStatus(context.Background(), nil,
+			taskSetStatusInput{HarpID: added.Task.HarpID, Status: tasks.StatusDone})
+		require.NoError(t, err)
+		assert.Contains(t, res.Warning, "pinned-but-irrelevant")
+		assert.NotEmpty(t, res.ProjectDir)
+	})
+
+	t.Run("task_edit", func(t *testing.T) {
+		mcpWarningContext(t)
+		_, added, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "ship it"})
+		require.NoError(t, err)
+		_, res, err := handleTaskEdit(context.Background(), nil,
+			taskEditInput{HarpID: added.Task.HarpID, Text: "ship it harder"})
+		require.NoError(t, err)
+		assert.Contains(t, res.Warning, "pinned-but-irrelevant")
+		assert.NotEmpty(t, res.ProjectDir)
+	})
+
+	t.Run("task_tag", func(t *testing.T) {
+		mcpWarningContext(t)
+		_, added, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "ship it"})
+		require.NoError(t, err)
+		_, res, err := handleTaskTag(context.Background(), nil,
+			taskTagInput{HarpID: added.Task.HarpID, Add: []string{"urgent"}})
+		require.NoError(t, err)
+		assert.Contains(t, res.Warning, "pinned-but-irrelevant")
+		assert.NotEmpty(t, res.ProjectDir)
+	})
 }

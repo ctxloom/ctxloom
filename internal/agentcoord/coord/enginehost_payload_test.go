@@ -46,7 +46,7 @@ func TestStructFromJSON_DegradesRatherThanDroppingThePayload(t *testing.T) {
 	})
 }
 
-// TestRunStartedConfig_EchoesEverySpecField pins the live path U021-F17 called
+// TestRunStartedConfig_EchoesEverySpecField pins the live path a review row called
 // an error-swallowing one. The echo is five plain strings, so structpb's
 // construction cannot fail for ANY HarnessSpec — the nil-on-error arm is
 // defensive, not a reachable payload drop. This pins what the arm's absence

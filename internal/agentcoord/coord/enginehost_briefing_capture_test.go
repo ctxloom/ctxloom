@@ -27,7 +27,7 @@ func (d *deafChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-chan agent
 
 // TestEngineHost_BriefingIsRecordedAsIntentNotAsDelivery pins what the
 // canonical transcript MEANS for a run torn down before its engine ever read
-// the briefing. U021-F22 read the eager RecordUserText as a transcript that
+// the briefing. A review row read the eager RecordUserText as a transcript that
 // "claims a user turn the engine never saw" and wanted the record moved into
 // the delivery goroutine's success arm. That trade is not free in either
 // direction and the current choice is the deliberate one (edgy-ivory):

@@ -10,7 +10,7 @@ import (
 
 // TestPeerSend_RoutingAndDispositions characterizes peerSend's two routing
 // branches and the disposition prose each returns, so splitting the function
-// under the CCN-10 gate (U021-F15) is provably behaviour-preserving. The
+// under the CCN-10 gate is provably behaviour-preserving. The
 // existing conformance tests cover the unknown-recipient / no-parent /
 // sibling-routing errors; these are the edges they leave: a caller that LOOKS
 // like a child but has no run, and the exact prose each accepted send answers

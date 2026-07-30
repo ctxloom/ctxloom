@@ -38,7 +38,7 @@ func openFDPaths(t *testing.T) []string {
 }
 
 // TestEngineHost_CloseJoinsTranscriptCapture pins that EngineHost.Close is a
-// real barrier for the transcript-capture chain, which is what U021-F06's
+// real barrier for the transcript-capture chain, which is what the
 // "two untracked goroutines" observation is actually about.
 //
 // transcript.TeeAndClose does dispatch two bare goroutines, in another

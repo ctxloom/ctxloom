@@ -30,7 +30,7 @@ func (e *eventScriptChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-cha
 }
 
 // TestEngineHost_Adapt_MessageAndToolLifecycle characterizes the native-event
-// adaptation at the edges the CCN-10 split of adapt (U021-F15) moves: message
+// adaptation at the edges the CCN-10 split of adapt moves: message
 // coalescing by contiguous type, the type change that closes an open message,
 // a tool call closing one too, a tool RESULT with no matching start, and the
 // empty-content entry that is skipped outright.

@@ -32,7 +32,7 @@ func (s *sessionOnlyChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-cha
 }
 
 // TestEngineHost_ResumeCapabilityRidesTheSessionID pins the JOINT reporting
-// of the one-shot resume gate's two halves. U021-F21 read the
+// of the one-shot resume gate's two halves. A review row read the
 // `SessionID != ""` guard as silently dropping a `Resumable: true` engine's
 // capability; it is deliberate. The gate (oneShotReady, children.go) tears an
 // engine down only when `Resumable && HarnessSessionID != ""`, so a resume

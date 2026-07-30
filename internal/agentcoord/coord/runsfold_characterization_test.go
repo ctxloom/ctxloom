@@ -9,7 +9,7 @@ import (
 )
 
 // TestRunsFold_Apply_EveryArm characterizes runsFold.apply arm by arm, so the
-// split of that switch into per-fact handlers (U021-F15, CCN 26 against the
+// split of that switch into per-fact handlers (CCN 26 against the
 // project's CCN-10 gate) is provably behaviour-preserving. It is deliberately
 // exhaustive about the arms' EDGES — the guards are where a mechanical split
 // loses something: ignoring a fact for an unknown run, refusing to reopen an

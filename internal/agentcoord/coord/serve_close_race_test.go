@@ -59,7 +59,7 @@ func TestCoordinator_ServeIsRaceFreeAgainstURLReaders(t *testing.T) {
 }
 
 // TestCoordinator_CloseIsRaceFreeAgainstServe pins the same field across the
-// teardown pairing U021-F14 named: a Close concurrent with Serve.
+// teardown pairing that matters most: a Close concurrent with Serve.
 func TestCoordinator_CloseIsRaceFreeAgainstServe(t *testing.T) {
 	c := newUnservedCoordinator(t)
 

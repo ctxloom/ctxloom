@@ -1,4 +1,12 @@
-// Package textutil holds small string helpers shared across ctxloom packages.
+// Package textutil holds ONE invariant, not a grab-bag: shortening a string to
+// fit a BYTE budget without ever splitting a UTF-8 rune. Both exported
+// functions are that operation — TruncateBytes cuts, Ellipsize cuts and marks
+// the cut — and a helper that is not about a byte budget on a rune boundary
+// does not belong here, because the name says nothing about what it may
+// contain and an unrelated helper landing here inherits neither review nor
+// meaning. That budget is measured in BYTES: it is not a rune count and it is
+// not a terminal display width, and callers sizing a padded column need one of
+// those instead.
 package textutil
 
 import "unicode/utf8"

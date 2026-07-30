@@ -22,6 +22,32 @@ const (
 // matching on error strings, since the message includes the offending input.
 var ErrUnsupportedFormat = errors.New("clifmt: unsupported format")
 
+// allFormats is the canonical order the formats are named in, and the one
+// enumeration SupportedFormats and UnsupportedFormatError read.
+var allFormats = []Format{FormatJSON, FormatYAML, FormatTOML, FormatText, FormatMarkdown}
+
+// SupportedFormats returns the formats clifmt renders, in the canonical order
+// they are named to users. Callers that need to enumerate the set - a
+// --format flag's help text, a table-driven test - read it here rather than
+// writing their own copy of the list.
+func SupportedFormats() []Format {
+	return append([]Format(nil), allFormats...)
+}
+
+// UnsupportedFormatError builds the canonical error for input that names no
+// known format: the ErrUnsupportedFormat sentinel, the offending input, and
+// the supported list derived from SupportedFormats. Every producer of that
+// error uses this - clifmt's own ParseFormat and Render, and first-party CLIs
+// validating a Format they were handed - so the message cannot drift between
+// them and adding a format cannot leave one of them naming the old set.
+func UnsupportedFormatError(s string) error {
+	names := make([]string, len(allFormats))
+	for i, f := range allFormats {
+		names[i] = string(f)
+	}
+	return fmt.Errorf("%w: %q (supported: %s)", ErrUnsupportedFormat, s, strings.Join(names, ", "))
+}
+
 // Valid reports whether f is one of the five formats clifmt renders.
 func (f Format) Valid() bool {
 	switch f {
@@ -68,6 +94,6 @@ func ParseFormat(s string) (Format, error) {
 	case "markdown", "md":
 		return FormatMarkdown, nil
 	default:
-		return "", fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", ErrUnsupportedFormat, s)
+		return "", UnsupportedFormatError(s)
 	}
 }

@@ -2,6 +2,8 @@ package clifmt
 
 import (
 	"errors"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -56,5 +58,41 @@ func TestFormatIsValid(t *testing.T) {
 	}
 	if Format("bogus").Valid() {
 		t.Errorf("Format(%q).Valid() = true, want false", "bogus")
+	}
+}
+
+// TestUnsupportedFormatErrorParity pins the shared behaviour of the three
+// producers of clifmt's "unknown format" error — ParseFormat, Render, and any
+// first-party CLI validating a Format it was handed (cmd/ltk's runCheck) —
+// before they were collapsed onto one constructor. All three wrapped
+// ErrUnsupportedFormat and all three spelled the supported list out by hand in
+// a literal duplicated three times, once outside this package. The three
+// literals were VERBATIM identical, so a parity test could not be red here;
+// its job is to prove the collapse is behaviour-preserving and to make a future
+// divergence fail.
+func TestUnsupportedFormatErrorParity(t *testing.T) {
+	_, parseErr := ParseFormat("xml")
+	renderErr := Render(io.Discard, struct{}{}, Format("xml"))
+
+	for name, err := range map[string]error{"ParseFormat": parseErr, "Render": renderErr} {
+		if err == nil {
+			t.Fatalf("%s(xml) returned no error", name)
+		}
+		if !errors.Is(err, ErrUnsupportedFormat) {
+			t.Errorf("%s(xml) does not wrap ErrUnsupportedFormat: %v", name, err)
+		}
+	}
+	if parseErr.Error() != renderErr.Error() {
+		t.Errorf("the two producers disagree on the message:\nParseFormat: %s\nRender:      %s", parseErr, renderErr)
+	}
+	if got, want := parseErr.Error(), UnsupportedFormatError("xml").Error(); got != want {
+		t.Errorf("ParseFormat's message %q is not the shared constructor's %q", got, want)
+	}
+	// The supported list must NAME every valid format, so adding a format
+	// without updating the message cannot pass unnoticed.
+	for _, f := range SupportedFormats() {
+		if !strings.Contains(parseErr.Error(), string(f)) {
+			t.Errorf("the supported list omits %q: %s", f, parseErr)
+		}
 	}
 }

@@ -38,6 +38,6 @@ func Render(w io.Writer, v any, f Format) error {
 	case FormatMarkdown:
 		return renderMarkdown(w, v)
 	default:
-		return fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", ErrUnsupportedFormat, f)
+		return UnsupportedFormatError(string(f))
 	}
 }

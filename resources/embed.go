@@ -4,6 +4,7 @@ package resources
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"strings"
 )
 
@@ -25,11 +26,27 @@ var resourcesFS embed.FS
 // hand-escaped Go string literals. The trailing newline is trimmed so callers
 // get the same shape regardless of the file's final newline.
 func GetPromptText(name string) (string, error) {
-	b, err := resourcesFS.ReadFile("prompts/" + name + ".md")
+	return getPromptText(resourcesFS, name)
+}
+
+// getPromptText is GetPromptText over an injected filesystem, so the
+// present-but-empty case can be exercised: the embedded FS is fixed at build
+// time and cannot be made to hold one.
+func getPromptText(fsys fs.FS, name string) (string, error) {
+	b, err := fs.ReadFile(fsys, "prompts/"+name+".md")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(string(b), "\n"), nil
+	text := strings.TrimRight(string(b), "\n")
+	if strings.TrimSpace(text) == "" {
+		// A present-but-empty prompt file is a build defect, not a prompt
+		// with nothing to say: returning ("", nil) wired a zero-length system
+		// prompt into a live session with no signal anywhere, and let
+		// MustGetPromptText ship exactly the empty prompt its own doc
+		// promises to panic over.
+		return "", fmt.Errorf("resources: embedded prompt %q is empty", name)
+	}
+	return text, nil
 }
 
 // MustGetPromptText is GetPromptText for package-level initialization, where a
@@ -107,7 +124,7 @@ func GetBuiltinCommandBody(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, body := splitCommandFrontmatter(string(raw))
+	_, body := SplitCommandFrontmatter(string(raw))
 	return body, nil
 }
 
@@ -123,15 +140,19 @@ func MustGetBuiltinCommandBody(name string) string {
 	return body
 }
 
-// splitCommandFrontmatter extracts a builtin command's optional YAML
+// SplitCommandFrontmatter extracts a builtin command's optional YAML
 // frontmatter ("---\ndescription: ...\n---\n<body>") and returns
 // (description, body). A file with no frontmatter returns ("", the whole
-// content) unchanged. Deliberately minimal (only the description key) —
-// mirrors internal/lm/backends.parseMarkdownFrontmatter, which does the same
-// parse for slash-command export; kept as a small separate copy here rather
-// than an import (that package already imports resources, so the reverse
-// would cycle).
-func splitCommandFrontmatter(content string) (description, body string) {
+// content) unchanged. Deliberately minimal: only the description key, which is
+// the only key a builtin command carries.
+//
+// It is exported because the SAME embedded files are consumed two ways — as a
+// prompt body through GetBuiltinCommandBody here, and as a slash-command
+// export through internal/lm/backends.builtinCommands — and both must agree
+// about where the frontmatter ends. That package imports this one, so the
+// parser lives here, next to the bytes it parses; the reverse direction would
+// cycle.
+func SplitCommandFrontmatter(content string) (description, body string) {
 	if !strings.HasPrefix(content, "---\n") {
 		return "", content
 	}
@@ -155,19 +176,43 @@ func splitCommandFrontmatter(content string) (description, body string) {
 	return description, body
 }
 
-// ListBuiltinCommands returns the names of all embedded builtin commands.
-func ListBuiltinCommands() ([]string, error) {
-	entries, err := resourcesFS.ReadDir("commands")
+// listEmbeddedNames returns the extension-stripped names of every file
+// directly under dir whose name ends in ext, in ReadDir's (sorted) order. It
+// is the one implementation the per-kind listers below share.
+//
+// The length check is not redundant with the suffix check: a file whose ENTIRE
+// name is the extension (".md") suffixes correctly and strips to the empty
+// string, which is not a name any caller can then look up. Such a file is not
+// a named item and is skipped, as are directories.
+func listEmbeddedNames(fsys fs.FS, dir, ext string) ([]string, error) {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil, err
 	}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && len(e.Name()) > 3 && e.Name()[len(e.Name())-3:] == ".md" {
-			names = append(names, e.Name()[:len(e.Name())-3])
+		n := e.Name()
+		if e.IsDir() || len(n) <= len(ext) || !strings.HasSuffix(n, ext) {
+			continue
 		}
+		names = append(names, strings.TrimSuffix(n, ext))
+	}
+	if len(names) == 0 {
+		// These directories are embedded at BUILD time, so zero names never
+		// means "the user has none" — it means the binary shipped without
+		// content it is supposed to carry (an emptied directory, or files
+		// that no longer match ext). Returning (nil, nil) made that
+		// indistinguishable from a legitimately empty set at every caller,
+		// all of which warn and degrade on an error and did nothing at all
+		// on the silent nil.
+		return nil, fmt.Errorf("resources: embedded %s/ holds no %s files", dir, ext)
 	}
 	return names, nil
+}
+
+// ListBuiltinCommands returns the names of all embedded builtin commands.
+func ListBuiltinCommands() ([]string, error) {
+	return listEmbeddedNames(resourcesFS, "commands", ".md")
 }
 
 // GetBuiltinBundle returns the raw YAML bytes for a built-in bundle embedded
@@ -181,19 +226,5 @@ func GetBuiltinBundle(name string) ([]byte, error) {
 // ListBuiltinBundles returns the names of all built-in bundles embedded in
 // the binary.
 func ListBuiltinBundles() ([]string, error) {
-	entries, err := resourcesFS.ReadDir("builtin_bundles")
-	if err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		n := e.Name()
-		if len(n) > 5 && n[len(n)-5:] == ".yaml" {
-			names = append(names, n[:len(n)-5])
-		}
-	}
-	return names, nil
+	return listEmbeddedNames(resourcesFS, "builtin_bundles", ".yaml")
 }

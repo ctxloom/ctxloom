@@ -872,6 +872,13 @@ const builtinSourcePrefix = "builtin:"
 // trust.Ref (repo, bundle path, kind, name, locality), the bundle ref to load
 // content from, and any "@<commit>" provenance carried on the bundle ref.
 func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err error) {
+	// Ingest boundary, and the sharpest one in the codebase: this ref arrives
+	// from argv (`ctxloom trust <ref>`), from an MCP argument, or from a gate
+	// built over bundle-authored names, and its Bundle/Name components are
+	// interpolated verbatim into the countersign preimage via countersignRef.
+	// The bare-local fallback below accepts ANY token that carries no scheme
+	// marker, so without this the grammar never gets a chance to object.
+	ref = remote.NormalizeRef(ref)
 	base, sel, found := strings.Cut(ref, "#")
 	if !found || base == "" {
 		return trust.Ref{}, "", "", fmt.Errorf("trust ref %q missing #<kind>/<name> selector", ref)

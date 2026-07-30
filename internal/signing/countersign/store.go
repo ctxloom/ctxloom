@@ -159,7 +159,7 @@ func (s *Store) Readable() error {
 // and an MCP server with byte-identical payloads land on DIFFERENT filenames
 // and neither one's record can be found by the other's query.
 func indexHash(header signing.CountersignHeader, payload []byte) string {
-	sum := sha256.Sum256(signing.CountersignPayload(header, payload))
+	sum := sha256.Sum256(signing.CountersignPreimage(header, payload))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -218,7 +218,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 	if err := pinsBytes(header, payload); err != nil {
 		return err
 	}
-	armored, err := signing.Sign(signing.CountersignPayload(header, payload), signer, namespace)
+	armored, err := signing.Sign(signing.CountersignPreimage(header, payload), signer, namespace)
 	if err != nil {
 		return err
 	}

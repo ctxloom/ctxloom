@@ -194,6 +194,11 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 // path as given, and a local bare repository is literally named "<name>.git",
 // so stripping the suffix or forcing https:// would break the clone.
 func NormalizeURL(repoURL string) string {
+	// Ingest boundary: a repo URL reaching here came from argv, remotes.yaml or
+	// a lockfile. Its normalised form becomes the trust key (trust.CanonicalRepoURL
+	// builds on this function) and the left half of the countersign ref, so it is
+	// held to the same no-control-characters rule as any other reference.
+	repoURL = NormalizeRef(repoURL)
 	// Shorthand owner/repo -> github.
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
 		if strings.Contains(repoURL, "/") {

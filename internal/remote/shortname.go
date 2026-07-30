@@ -31,6 +31,11 @@ import "strings"
 // resolution (everything stays as authored), a nil localExists skips the
 // local-file tie-break (a pure store-side canonicalize with no fs view).
 func CanonicalizeShortRef(ref string, aliasToURL func(alias string) string, localExists func(base string) bool) string {
+	// Ingest boundary. Normalised at entry rather than relying on
+	// ParseReference below, because every "leave it as authored" branch here
+	// returns `ref` verbatim — the resolver would otherwise hand an
+	// un-normalised ref straight to the store it is canonicalizing for.
+	ref = NormalizeRef(ref)
 	// Already self-contained (canonical URL or ctxloom:local) → as-is.
 	if _, err := ParseReference(ref); err == nil {
 		return ref
@@ -62,6 +67,7 @@ func CanonicalizeShortRef(ref string, aliasToURL func(alias string) string, loca
 // through CanonicalizeShortRef; a local bundle-profile ("tools#profiles/probe")
 // has no "<alias>/" prefix in its base and is likewise left local.
 func CanonicalizeProfileShortRef(ref string, aliasToURL func(alias string) string) string {
+	ref = NormalizeRef(ref)
 	if _, _, ok := SplitBundleProfileRef(ref); !ok {
 		return ref
 	}

@@ -65,7 +65,12 @@ func VerifyCountersignature(header CountersignHeader, payloadBytes, armored []by
 	if !decision.Trusted {
 		return "", false
 	}
-	full := CountersignPayload(header, payloadBytes)
+	// Framed through the same seam the signer used (countersign.Store.write),
+	// so the verifier's preimage cannot drift from the signer's. Header
+	// validity is not re-checked here: countersign.Store.candidates refuses an
+	// invalid header before it ever globs for a candidate, so nothing reaches
+	// this function without having cleared CountersignHeader.Validate.
+	full := CountersignPreimage(header, payloadBytes)
 	if err := Verify(full, armored, sig.PublicKey, ns); err != nil {
 		return "", false
 	}

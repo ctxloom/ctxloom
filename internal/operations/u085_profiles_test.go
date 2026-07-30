@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
 // u085ProfileProject builds an app dir with one real local profile, on the OS
@@ -69,4 +70,56 @@ func TestLoadLocalProfile_PreservesLoaderError(t *testing.T) {
 	_, rerr := loadLocalProfile(cfg, fs, "https://github.com/o/r@bundles/b#profiles/p")
 	require.Error(t, rerr)
 	assert.Contains(t, rerr.Error(), "local-only")
+}
+
+// TestProfileLoaderFactories_AgreeUnderInjectedFS is U085-F11's parity test
+// across BOTH loader factories, written before the collapse. They are near-
+// identical, and where they DIVERGE the divergence is the defect: config's
+// GetProfileLoader threads WithFS(c.fs) while operations' profileLoader never
+// did, so under an injected filesystem the two disagreed about which profiles
+// exist — operations' read the real OS filesystem while every directory it had
+// just discovered came from the injected one.
+func TestProfileLoaderFactories_AgreeUnderInjectedFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/injected/.ctxloom"
+	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0o755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "profiles", "injected.yaml"),
+		[]byte("name: injected\ndescription: from the injected fs\n"), 0o644))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg.SetFS(fs)
+
+	fromConfig, cerr := cfg.GetProfileLoader().Load("injected")
+	require.NoError(t, cerr, "config's factory resolves the injected profile")
+
+	fromOps, oerr := profileLoader(cfg).Load("injected")
+	require.NoError(t, oerr, "operations' factory must resolve the SAME profile as config's")
+	assert.Equal(t, fromConfig.Description, fromOps.Description)
+
+	names := func(l interface {
+		List() ([]*profiles.Profile, error)
+	}) []string {
+		infos, err := l.List()
+		require.NoError(t, err)
+		out := make([]string, 0, len(infos))
+		for _, p := range infos {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+	assert.Equal(t, names(cfg.GetProfileLoader()), names(profileLoader(cfg)),
+		"the two factories must list the same profile set")
+}
+
+// TestProfileLoader_KeepsFreshInstallFallbackDir pins the ONE behaviour that is
+// genuinely operations-only and must survive the collapse: on a fresh install
+// no profiles directory exists yet, so GetProfileDirs returns nothing and the
+// operations factory synthesizes <appPath>/profiles so a Save has somewhere to
+// land.
+func TestProfileLoader_KeepsFreshInstallFallbackDir(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	require.NoError(t, profileLoader(cfg).Save(&profiles.Profile{Name: "fresh", Description: "d"}))
+	assert.FileExists(t, filepath.Join(appDir, "profiles", "fresh.yaml"))
 }

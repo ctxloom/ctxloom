@@ -484,25 +484,17 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 	}, nil
 }
 
-// profileLoader creates a profile loader using the config. It wires the remote
-// resolvers so read paths (show/list) canonicalize legacy bare/alias bundle refs
-// the same way assembly does, and the same lockfile-built remote-profile seed
-// as config.GetProfileLoader so locked remote profiles are visible here too —
-// without it `profile list`/`profile show <canonical-ref>` would not see what
-// assembly resolves.
+// profileLoader creates a profile loader using the config. It is
+// config.GetProfileLoader with ONE difference, and only one: on a fresh install
+// no profiles directory exists yet, so GetProfileDirs finds none and this
+// factory synthesizes <appPath>/profiles to give a Save somewhere to land. The
+// option set comes from cfg.ProfileLoaderOptions so the two factories cannot
+// disagree about which filesystem is read, how a bundle ref canonicalizes, or
+// which remote/bundle profiles exist.
 func profileLoader(cfg *config.Config) *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
 	if len(profileDirs) == 0 && len(cfg.GetAppPaths()) > 0 {
-		// Create profiles directory in first ctxloom path
 		profileDirs = []string{filepath.Join(cfg.GetAppPaths()[0], "profiles")}
 	}
-	var opts []profiles.LoaderOption
-	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {
-		opts = append(opts, profiles.WithRemoteResolver(resolve))
-	}
-	if resolveURL := cfg.ProfileRemoteURLResolver(); resolveURL != nil {
-		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
-	}
-	opts = append(opts, cfg.ProfileSeedOptions()...)
-	return profiles.NewLoader(profileDirs, opts...)
+	return profiles.NewLoader(profileDirs, cfg.ProfileLoaderOptions()...)
 }

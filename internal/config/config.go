@@ -786,7 +786,16 @@ func (c *Config) SignKey() string {
 // It wires a remote resolver from the remotes registry so the loader can qualify
 // legacy bare bundle refs with the remote each profile was installed from.
 func (c *Config) GetProfileLoader() *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(c.fs, c.appPaths)
+	return profiles.NewLoader(profiles.GetProfileDirs(c.fs, c.appPaths), c.ProfileLoaderOptions()...)
+}
+
+// ProfileLoaderOptions returns the loader options EVERY profile-loader factory
+// over this config must wire, so no two factories can disagree about which
+// filesystem is read, how a bundle ref canonicalizes, or which profiles exist.
+// A factory differs from GetProfileLoader only in the DIRECTORIES it searches
+// (operations.profileLoader synthesizes one for a fresh install); the option set
+// is not a place for it to differ.
+func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
 	var opts []profiles.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
@@ -800,8 +809,7 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	// Seed remote profiles read from the git clone cache at their locked SHA, so
 	// every consumer of the loader sees them as references without a materialized
 	// copy on disk (the profile-side mirror of SeededBundleLoader).
-	opts = append(opts, c.ProfileSeedOptions()...)
-	return profiles.NewLoader(profileDirs, opts...)
+	return append(opts, c.ProfileSeedOptions()...)
 }
 
 // ProfileSeedOptions returns the loader option that seeds the profiles shipped

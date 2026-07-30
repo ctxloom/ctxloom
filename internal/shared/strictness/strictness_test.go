@@ -140,6 +140,71 @@ func TestSince_StaleMarkIsNil(t *testing.T) {
 	assert.Nil(t, Since(mark))
 }
 
+// Nested checkpoints on ONE goroutine share ONE window, so releasing the
+// registry entry when the INNER one closes silently detaches the still-live
+// OUTER mark: the next record builds a fresh window and Since(outer) reads the
+// orphaned old one, missing every finding recorded after the inner Close. That
+// is a fail-loudly gate going quiet, which is the one failure this package
+// exists to prevent — the registry entry may only be released when the LAST
+// bracketing checkpoint closes.
+func TestClose_InnerCloseDoesNotDetachAStillLiveOuterMark(t *testing.T) {
+	resetForTest(t)
+
+	outer := Checkpoint()
+	func() {
+		inner := Checkpoint()
+		defer Close(inner)
+		Fail(ClassConfig, "", "finding inside the inner bracket")
+	}()
+	Fail(ClassApply, "", "finding recorded after the inner Close")
+
+	got := Since(outer)
+	require.Len(t, got, 2, "the outer window must still collect after an inner Close")
+	assert.Equal(t, "finding inside the inner bracket", got[0].Message)
+	assert.Equal(t, "finding recorded after the inner Close", got[1].Message)
+}
+
+// The release is still a release: once the LAST bracketing checkpoint closes,
+// the goroutine-keyed registry entry is gone, so a long-lived process that
+// opens one window per request goroutine does not accumulate an entry forever.
+func TestClose_LastCloseStillReleasesTheRegistryEntry(t *testing.T) {
+	resetForTest(t)
+
+	outer := Checkpoint()
+	inner := Checkpoint()
+	gid := outer.w.gid
+	Close(inner)
+
+	windowsMu.Lock()
+	_, stillOpen := windows[gid]
+	windowsMu.Unlock()
+	require.True(t, stillOpen, "the outer bracket is still live, so the entry stays")
+
+	Close(outer)
+	windowsMu.Lock()
+	_, afterLast := windows[gid]
+	windowsMu.Unlock()
+	assert.False(t, afterLast, "the last Close releases the entry")
+}
+
+// Close is documented as safe to call more than once with the same Mark. It
+// must therefore be one-shot PER CHECKPOINT: a repeated Close of the inner
+// mark must not consume the outer bracket's release and re-open the detach
+// hazard above.
+func TestClose_RepeatedCloseOfTheSameMarkIsOneShot(t *testing.T) {
+	resetForTest(t)
+
+	outer := Checkpoint()
+	inner := Checkpoint()
+	Close(inner)
+	Close(inner)
+	Close(inner)
+	Fail(ClassSync, "", "recorded after three Closes of the inner mark")
+
+	assert.Len(t, Since(outer), 1, "repeated Close of one mark must not release the outer bracket")
+	assert.NotPanics(t, func() { Close(Mark{}) }, "a zero Mark stays a no-op")
+}
+
 // TestConcurrentWindows_NoCrossAttribution is the crux regression for the
 // concurrency defect documented on Mark: two open windows share ONE
 // process-global findings slice, so a finding recorded by goroutine B lands

@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -302,69 +301,40 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 	})
 }
 
-// loadBundleForItem resolves an item reference and loads its bundle, returning
-// the bundle, the item name, and the loaded config (needed by distill).
-func loadBundleForItem(ref string, itemType ItemType) (*bundles.Bundle, string, *config.Config, error) {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	bundle, err := operations.GetBundle(cfg, bundleName)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("load bundle %q: %w", bundleName, err)
-	}
-	return bundle, itemName, cfg, nil
-}
-
-// itemDisplayContent returns the content and distilled text for an item,
-// erroring (with the available-names list) when it doesn't exist.
-func itemDisplayContent(bundle *bundles.Bundle, itemName string, itemType ItemType) (content, distilled string, err error) {
-	switch itemType {
-	case ItemTypeFragment:
-		frag, exists := bundle.Fragments[itemName]
-		if !exists {
-			return "", "", fmt.Errorf("fragment not found: %s\n\nAvailable fragments: %s",
-				itemName, strings.Join(bundle.FragmentNames(), ", "))
-		}
-		return frag.Content, frag.Distilled, nil
-	case ItemTypeCommand:
-		prompt, exists := bundle.Commands[itemName]
-		if !exists {
-			return "", "", fmt.Errorf("command not found: %s\n\nAvailable commands: %s",
-				itemName, strings.Join(bundle.PromptNames(), ", "))
-		}
-		return prompt.Content, prompt.Distilled, nil
-	}
-	// See listItemRows above: an unrecognized item type is a failure to
-	// determine what to show, never an item whose content is empty (U037-F07).
-	return "", "", fmt.Errorf("cannot show item %q: unrecognized item type %q", itemName, itemType)
-}
-
 // showItem displays the content of a specific item. With interactive set AND an
 // interactive terminal, it then offers the TR4 trust review/marking surface; in
 // any non-interactive context (piped, redirected, scripted, or -i unset) it
 // behaves exactly as before — the content is written to cmd.OutOrStdout (os.Stdout
 // by default) with no trust UI, so piped output is byte-for-byte unchanged.
+//
+// The read is operations.GetItemContent: one bundle resolution, one item lookup,
+// one not-found message for every frontend. Doing it here instead (load the
+// bundle, switch on the kind, pick content+distilled) is what let `show` and
+// `edit` disagree about which bundle refs exist.
 func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, interactive bool) error {
-	bundle, itemName, cfg, err := loadBundleForItem(ref, itemType)
+	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
 	}
 
-	content, distilled, err := itemDisplayContent(bundle, itemName, itemType)
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	item, err := operations.GetItemContent(context.Background(), cfg, operations.GetItemRequest{
+		Bundle: bundleName,
+		Kind:   itemType,
+		Name:   itemName,
+	})
 	if err != nil {
 		return err
 	}
 
 	out := cmd.OutOrStdout()
-	if showDistilled && distilled != "" {
-		content = distilled
+	content := item.Content
+	if showDistilled && item.Distilled != "" {
+		content = item.Distilled
 		fmt.Fprintln(out, "# (distilled version)")
 	}
 

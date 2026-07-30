@@ -62,18 +62,30 @@ type GetItemResult struct {
 
 // GetItemContent returns a bundle item's content (and distilled form). It is the
 // read half the edit flow needs: a frontend fetches the current content, lets
-// the user change it however it likes, then calls SetItemContent.
+// the user change it however it likes, then calls SetItemContent. It is also the
+// whole "show one item" read path — a frontend needs no bundle IO of its own.
+//
+// Bundle resolution goes through GetBundle, the one read-path bundle resolver,
+// so a short "<remote>/<bundle>" argument is canonicalized here exactly as it is
+// for `bundle show`. Loading through the raw seeded loader instead skipped that
+// canonicalization, and the same ref one command accepted the next reported
+// missing.
+//
+// A missing item's error carries the names that DO exist: the caller asked for
+// something by name, and the answer to a typo is the list, not a bare "not
+// found". ErrItemNotFound still wraps, so errors.Is callers are unaffected.
 func GetItemContent(_ context.Context, cfg *config.Config, req GetItemRequest) (*GetItemResult, error) {
 	if !req.Kind.valid() {
 		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
 	}
-	bundle, err := bundleLoader(cfg).Load(req.Bundle)
+	bundle, err := GetBundle(cfg, req.Bundle)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Bundle, err)
 	}
 	item, ok := lookupItem(bundle, req.Kind, req.Name)
 	if !ok {
-		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
+		return nil, fmt.Errorf("%s %q: %w\n\nAvailable %ss: %s",
+			req.Kind, req.Name, ErrItemNotFound, req.Kind, strings.Join(itemNames(bundle, req.Kind), ", "))
 	}
 	return &GetItemResult{Content: item.content, Distilled: item.distilled, NoDistill: item.noDistill}, nil
 }
@@ -446,6 +458,18 @@ type itemFields struct {
 	distilledBy  string
 	noDistill    bool
 	needsDistill bool
+}
+
+// itemNames lists the names of every item of kind in b, for the "you asked for a
+// name that isn't here, here are the ones that are" half of a not-found error.
+func itemNames(b *bundles.Bundle, kind ItemKind) []string {
+	switch kind {
+	case ItemKindFragment:
+		return b.FragmentNames()
+	case ItemKindCommand:
+		return b.PromptNames()
+	}
+	return nil
 }
 
 // lookupItem projects a named item of either kind, reporting whether it exists.

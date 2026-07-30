@@ -71,7 +71,9 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 
 	t.Run("constrained entry tracks its branch, not HEAD", func(t *testing.T) {
 		var out strings.Builder
-		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, "https://github.com/o/r@bundles/x")
+		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x")
+		require.NoError(t, rerr)
+		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
 		require.False(t, upToDate)
 		require.Equal(t, "relsha2", u.LatestSHA, "must resolve within the constraint, not default-branch HEAD")
@@ -84,14 +86,18 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 			"https://github.com/o/r@bundles/x": {SHA: "relsha2", RequestedVersion: "release"},
 		}}
 		var out strings.Builder
-		_, upToDate, err := detectSingleUpdate(ctx, &out, mock, lf, "https://github.com/o/r@bundles/x")
+		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x")
+		require.NoError(t, rerr)
+		_, upToDate, err := detectSingleUpdate(ctx, &out, mock, lf, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
 		require.True(t, upToDate, "tip-of-constraint must not report an update even when HEAD moved")
 	})
 
 	t.Run("version-suffixed input matches its canonical lock entry", func(t *testing.T) {
 		var out strings.Builder
-		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, "https://github.com/o/r@bundles/x@release")
+		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x@release")
+		require.NoError(t, rerr)
+		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, ref, "https://github.com/o/r@bundles/x@release")
 		require.NoError(t, err)
 		require.False(t, upToDate)
 		require.Equal(t, "relsha2", u.LatestSHA)
@@ -102,7 +108,9 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 		// pulls as a bundle — the only distributed item type.
 		empty := &remote.Lockfile{}
 		var out strings.Builder
-		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, empty, "https://github.com/o/r@bundles/x")
+		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x")
+		require.NoError(t, rerr)
+		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, empty, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
 		require.False(t, upToDate)
 		require.Equal(t, remote.ItemTypeBundle, u.Type)

@@ -66,14 +66,9 @@ func runRemoteUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
-	ref, err := remote.ParseReference(refStr)
+	ref, err := parseUpdateRef(refStr)
 	if err != nil {
-		return fmt.Errorf("invalid reference: %w", err)
-	}
-
-	// Canonical refs carry the repo URL directly.
-	if ref.URL == "" {
-		return fmt.Errorf("reference has no repository URL: %s", refStr)
+		return err
 	}
 
 	refreshRemoteClone(cmd.Context(), cfg, ref.URL)
@@ -88,7 +83,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return err
 	}
 
-	u, upToDate, err := detectSingleUpdate(cmd.Context(), os.Stdout, fetcher, lockfile, refStr)
+	u, upToDate, err := detectSingleUpdate(cmd.Context(), os.Stdout, fetcher, lockfile, ref, refStr)
 	if err != nil {
 		return err
 	}
@@ -122,17 +117,33 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	return nil
 }
 
+// parseUpdateRef parses a single-ref `remote update` argument and rejects one
+// that carries no repository URL. It is the ONE rejection point on this path:
+// the same input reaching two guards with two different opinions of it tells
+// the user two different things about the same string, and "invalid reference"
+// for a reference that parsed perfectly well sends the reader hunting a syntax
+// error that isn't there.
+func parseUpdateRef(refStr string) (*remote.Reference, error) {
+	ref, err := remote.ParseReference(refStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference: %w", err)
+	}
+	// Canonical refs carry the repo URL directly.
+	if ref.URL == "" {
+		return nil, fmt.Errorf("reference has no repository URL: %s", refStr)
+	}
+	return ref, nil
+}
+
 // detectSingleUpdate resolves one ref's update status against the lockfile,
 // constraint-aware: the latest SHA is the newest commit the entry's
 // RequestedVersion allows (latestWithinConstraint), never bare default-branch
 // HEAD, which can exceed the manifest constraint. The lock entry is found by
 // the ref's canonical identity, so a version-suffixed input still matches.
-// Prints the status to out; returns the pending update when one exists.
-func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetcher, lockfile *remote.Lockfile, refStr string) (updateInfo, bool, error) {
-	ref, err := remote.ParseReference(refStr)
-	if err != nil || ref.URL == "" {
-		return updateInfo{}, false, fmt.Errorf("invalid reference: %s", refStr)
-	}
+// ref is already validated by parseUpdateRef; refStr is carried only for the
+// status lines, which quote the reference the user actually typed. Prints the
+// status to out; returns the pending update when one exists.
+func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetcher, lockfile *remote.Lockfile, ref *remote.Reference, refStr string) (updateInfo, bool, error) {
 	canonical := ref.CanonicalString()
 	entry, itemType := lookupLockedEntry(lockfile, canonical)
 	if itemType == "" {

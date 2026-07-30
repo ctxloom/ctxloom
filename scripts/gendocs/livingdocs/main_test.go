@@ -186,3 +186,44 @@ func TestRun_WarnsAboutOrphanedNarration(t *testing.T) {
 	assert.Contains(t, string(page), "kept")
 	assert.NotContains(t, string(page), "ORPHANED PROSE")
 }
+
+// TestRun_PropagatesAParseFailure characterizes run's parse-error arm: a @doc
+// file that DiscoverDocFeatures accepted but ParseFeature cannot finish is
+// returned verbatim, and nothing is written.
+func TestRun_PropagatesAParseFailure(t *testing.T) {
+	root := t.TempDir()
+	featuresDir := filepath.Join(root, "features")
+	outDir := filepath.Join(root, "out")
+
+	writeFile(t, filepath.Join(featuresDir, "ok.feature"), "@doc\nFeature: OK\n\n  Scenario: S1\n    Given a step\n")
+	writeCapture(t, filepath.Join(root, "capture"), "s1.json", "S1", "passed")
+	// DiscoverDocFeatures itself parses every file in the directory, so a
+	// malformed sibling fails the discovery pass before any page is built.
+	writeFile(t, filepath.Join(featuresDir, "broken.feature"), "@doc\n  Scenario: no feature line\n    Given a step\n")
+
+	err := run(featuresDir, filepath.Join(root, "capture"), outDir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no 'Feature:' line found")
+	assert.NoDirExists(t, outDir, "a parse failure must not touch the output directory")
+}
+
+// TestRun_ReportsAnUnusableOutputDirectory characterizes the disk-write arm:
+// every feature validated clean, then the write itself fails.
+func TestRun_ReportsAnUnusableOutputDirectory(t *testing.T) {
+	root := t.TempDir()
+	featuresDir := filepath.Join(root, "features")
+	captureDir := filepath.Join(root, "capture")
+
+	writeFile(t, filepath.Join(featuresDir, "j1_setup.feature"), "@doc\nFeature: J1\n\n  Scenario: S1\n    Given a step\n")
+	writeCapture(t, captureDir, "s1.json", "S1", "passed")
+
+	// A regular FILE where the out dir's PARENT should be: the clear step
+	// cannot even resolve the path.
+	blocker := filepath.Join(root, "blocker")
+	writeFile(t, blocker, "not a directory")
+	outDir := filepath.Join(blocker, "out")
+
+	err := run(featuresDir, captureDir, outDir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "clear ")
+}

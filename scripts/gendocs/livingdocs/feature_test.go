@@ -165,3 +165,32 @@ Feature: Probe
 	assert.Equal(t, "A later scenario", feat.Scenarios[1].Name)
 	assert.Equal(t, []string{"@wip"}, feat.Scenarios[1].Tags)
 }
+
+// TestParseFeature_CommentsAndDanglingTagsInBody characterizes two arms of the
+// scenario-body loop that nothing else reached: a '#' comment INSIDE a
+// scenario (dropped from Body, since the published Gherkin is the spec, not
+// the source), and a run of tags at END OF FILE (which belongs to no scenario
+// and therefore terminates the last one rather than joining its body).
+func TestParseFeature_CommentsAndDanglingTagsInBody(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.feature")
+	writeFile(t, path, `@doc
+Feature: Comments
+
+  Scenario: Has a comment inside
+    Given a step
+    # an internal comment
+    Then another step
+
+  @dangling @at-eof
+`)
+	feat, err := ParseFeature(path)
+	require.NoError(t, err)
+	require.Len(t, feat.Scenarios, 1)
+
+	body := feat.Scenarios[0].Body
+	assert.Contains(t, body, "Given a step")
+	assert.Contains(t, body, "Then another step")
+	assert.NotContains(t, body, "an internal comment", "comments are source, not spec")
+	assert.NotContains(t, body, "@dangling", "a tag run at end of file belongs to no scenario")
+}

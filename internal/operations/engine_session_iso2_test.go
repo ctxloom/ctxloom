@@ -424,3 +424,31 @@ func iso2GitRun(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
+
+// TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced pins U083-F07. The posture
+// rule itself is deliberate — the plain `ctxloom acp` entry never isolates,
+// whatever --workspace says — but a user who TYPED `--workspace worktree` and
+// got a shared-checkout session was told nothing at all. An isolation posture
+// silently weaker than the one asked for is the one belief that is actively
+// dangerous to hold wrongly (this file's own `coder`-typo scenario), so the
+// discard has to be stated. The VALUE is unchanged: still "".
+func TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced(t *testing.T) {
+	warnings := captureWarnings(t)
+	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{}), "", "", "worktree")
+	assert.Equal(t, isolation.WorkspaceAxis(""), got, "the posture rule is unchanged — no --agent, no isolation")
+
+	out := warnings.String()
+	assert.Contains(t, out, "worktree", "the warning names the value that was ignored")
+	assert.Contains(t, out, "--agent", "…and what would honor it")
+}
+
+// TestAcpWorkspaceAxis_SilentWhenNothingWasAsked: the project-wide
+// `workspace:` default being ignored by the plain entry is the documented
+// posture, not a discarded request — nobody typed anything, so nothing is
+// said. Only an explicit flag earns the warning.
+func TestAcpWorkspaceAxis_SilentWhenNothingWasAsked(t *testing.T) {
+	warnings := captureWarnings(t)
+	got := acpWorkspaceAxis(config.NewFixture(config.Fixture{Workspace: "worktree"}), "", "", "")
+	assert.Equal(t, isolation.WorkspaceAxis(""), got)
+	assert.Empty(t, warnings.String())
+}

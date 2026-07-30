@@ -712,6 +712,15 @@ func loadConfigForDir(dir string) (*config.Config, error) {
 // deliberately chose this agent's own entry".
 func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace string) isolation.WorkspaceAxis {
 	if flagAgent == "" || currentAgent != flagAgent {
+		// The posture rule is deliberate; the SILENCE was not. A user who
+		// typed an explicit --workspace and got the shared checkout anyway
+		// holds exactly the belief this opener's summary exists to correct —
+		// so name the discarded value and what would honor it. The project's
+		// `workspace:` default being ignored here is the documented posture
+		// rather than a discarded request, so it earns no warning.
+		if flagWorkspace != "" {
+			clidiag.Warn("ctxloom", "acp agent: --workspace %q is IGNORED for a session with no explicit --agent — this session runs against the shared project checkout, not an isolated worktree (worktree-under-ACP applies only to a deliberately-bound `ctxloom acp server --agent <name>` entry)", flagWorkspace)
+		}
 		return isolation.WorkspaceAxis("")
 	}
 	ws := flagWorkspace

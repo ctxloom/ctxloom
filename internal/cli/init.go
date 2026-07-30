@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -343,9 +344,12 @@ func (p *initPrompts) readEngineChoice(primary, secondary []string, maxOption in
 	}
 }
 
-// promptAllEngines shows all available engines.
+// promptAllEngines shows all available engines. The combined list is a fresh
+// slice: appending secondary onto primary would write through primary's
+// backing array whenever it has spare capacity, corrupting whatever the caller
+// holds past its length.
 func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, error) {
-	allEngines := append(primary, secondary...)
+	allEngines := slices.Concat(primary, secondary)
 
 	fmt.Println("\nAll installed engines:")
 	for i, engine := range allEngines {

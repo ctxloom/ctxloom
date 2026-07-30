@@ -231,3 +231,28 @@ func TestReadCleanLine(t *testing.T) {
 		})
 	}
 }
+
+// TestPromptAllEngines_LeavesTheCallersSliceAlone (U036-F14) pins that
+// building the combined menu never writes through the caller's slice.
+// `append(primary, secondary...)` reuses primary's backing array whenever it
+// has spare capacity, so the combined list would overwrite whatever the caller
+// keeps past len(primary). getAvailableEngines happens to hand back cap==len
+// slices today, which is the only reason this never corrupted a live menu — an
+// invariant nothing states and no caller can see. The engine list a user picks
+// from must not depend on the allocation history of the slice it came from.
+func TestPromptAllEngines_LeavesTheCallersSliceAlone(t *testing.T) {
+	backing := []string{"claude-code", "SENTINEL-1", "SENTINEL-2"}
+	primary := backing[:1] // len 1, cap 3 — spare capacity to be clobbered
+
+	var got string
+	var err error
+	captureStdout(t, func() {
+		p := newInitPromptsFrom(strings.NewReader("2\n"))
+		got, err = p.promptAllEngines(primary, []string{"codex", "kiro"})
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "codex", got, "option 2 of [claude-code codex kiro]")
+	assert.Equal(t, []string{"claude-code", "SENTINEL-1", "SENTINEL-2"}, backing,
+		"the combined menu must not be built through the caller's backing array")
+}

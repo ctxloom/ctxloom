@@ -33,9 +33,10 @@ func main() {
 	targets = append(targets, operations.SchemaTargets()...)
 	targets = append(targets, cli.SchemaTargets()...)
 
-	if err := schemagen.Generate(schemaDir, targets); err != nil {
+	written, err := schemagen.Generate(schemaDir, targets)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "gen-schemas: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("gen-schemas: wrote %d schemas to %s\n", len(targets), schemaDir)
+	fmt.Printf("gen-schemas: wrote %d schemas to %s\n", written, schemaDir)
 }

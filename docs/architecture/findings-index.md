@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,141** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 69 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 120 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 142 |
-| `open` | no commit names this ID | **796** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 143 |
+| `open` | no commit names this ID | **795** |
 
-**Totals: 2268 findings across 162 units — 1,141 resolved, 796 still open, 331 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,141 resolved, 795 still open, 332 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 351 | 5 | 10 | 6 | 4 |
 | MED | 999 | 369 | 451 | 39 | 50 | 90 |
-| LOW | 871 | 421 | 320 | 20 | 62 | 48 |
+| LOW | 871 | 421 | 319 | 20 | 62 | 49 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2536,7 +2536,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F29 | open | `github.go:114, 123, 125, 169` | ERRHANDLING | Diagnostics go to `os.Stderr` via raw `fmt.Fprintf` while the same package uses `clidiag` for the equivalent job. | U093.md |
 | U093-F33 | open | **`lockfile.go:104-107`** | ERRHANDLING | `Save(nil)` panics rather than returning an error, on the type that is the sole on-disk trust record. | U093.md |
 | U093-F34 | open | **`lockfile.go:156-176, 279-301`** | COUPLING | Two public methods return slices of *anonymous* structs, so any caller that wants to store or pass the result must re-spell the exact anonymous type. | U093.md |
-| U093-F35 | open | **`lockfile.go:71-74, 104-129`** | CORRECTNESS | The lockfile schema version is a magic literal at three construction sites, validated nowhere, and `Save` will happily persist `version: 0`. | U093.md |
+| U093-F35 | **ESCALATED** `PLACEHOLDER` | **`lockfile.go:71-74, 104-129`** | CORRECTNESS | The lockfile schema version is a magic literal at three construction sites, validated nowhere, and `Save` will happily persist `version: 0`. | U093.md |
 | U094-F01 | **RESOLVED** `a41ea26d` | **`publish.go:57-61 + 129-130; publish.go:124`** | COHESION / DEAD | Two unused injection mechanisms for one dependency, plus a documented option that does nothing. | U094.md |
 | U094-F10 | **RESOLVED** `e6832ca7` | **`pull.go:388-395`** | TRIVIAL / NOPAY | `writePulledContent` ignores three of its five parameters and returns a formatted string; it is a hollow shell of a materialization step that no longer exists. | U094.md |
 | U094-F18 | **REFUTED** (ResolveRefString fault-tolerance is by-design; early-return would be a no-op) | `reference.go:134-151` | ERRHANDLING | `ResolveRefString` swallows every failure by design ("On any failure ref is returned unchanged"), including the empty-input case, where it returns `""`. | U094.md |

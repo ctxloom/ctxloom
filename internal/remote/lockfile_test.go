@@ -152,6 +152,36 @@ func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
 	assert.Equal(t, original, string(onDisk), "a read that finds no legacy field must not write")
 }
 
+// TestLockfileManager_SavePersistsVersionZero CHARACTERIZES today's behaviour
+// for U093-F35; it does not endorse it.
+//
+// The schema version is a bare literal at three construction sites
+// (remote/lockfile.go's absent-file path, operations/lockfile.go's rebuild and
+// operations/upgrade.go's), while other sites construct a Lockfile with no
+// Version at all — and Save neither stamps nor validates it, so "version: 0"
+// reaches disk as the sole on-disk record of every pin, hold and retraction.
+//
+// What a lockfile with an out-of-range version MEANS to a reader — stamp it,
+// refuse it, or migrate it — is a persisted-format decision, so it is
+// escalated rather than decided here. This test exists so the current answer
+// is written down and so whoever takes that decision sees it go red.
+func TestLockfileManager_SavePersistsVersionZero(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+
+	require.NoError(t, manager.Save(&Lockfile{
+		Bundles: map[string]LockEntry{"https://github.com/a/r@bundles/x": {SHA: "abc1234"}},
+	}))
+
+	onDisk, err := afero.ReadFile(fs, manager.Path())
+	require.NoError(t, err)
+	assert.Contains(t, string(onDisk), "version: 0")
+
+	reloaded, err := manager.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 0, reloaded.Version, "and it round-trips back unremarked")
+}
+
 func TestLockfile_AddEntry(t *testing.T) {
 	lockfile := &Lockfile{
 		Bundles: make(map[string]LockEntry),

@@ -171,7 +171,15 @@ func (s *artifactService) UploadArtifact(stream grpc.ClientStreamingServer[agent
 
 	shaHex, size, werr := c.artifacts.writeAtomic(pr, header.GetSha256(), header.GetSizeBytes())
 	_ = pr.Close()
-	if cerr := <-chunkErrCh; cerr != nil {
+	// Which of the two failures is the CAUSE. A chunk-shape or transport
+	// error closed the pipe with ITSELF as the reason, so the store's failure
+	// is downstream of it and the chunk error is authoritative. But the
+	// pr.Close() above ALSO makes the goroutine observe io.ErrClosedPipe, and
+	// that one is this handler unwinding a failed store write — never a
+	// cause. Preferring it unconditionally answered a full disk with "upload:
+	// io: read/write on closed pipe".
+	cerr := <-chunkErrCh
+	if cerr != nil && !(werr != nil && errors.Is(cerr, io.ErrClosedPipe)) {
 		if se, ok := status.FromError(cerr); ok {
 			return se.Err()
 		}

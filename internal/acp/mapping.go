@@ -187,7 +187,12 @@ func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 		output = rawText(tu.RawOutput)
 	}
 	terminal := status == api.ToolCallStatusCompleted || status == api.ToolCallStatusFailed
-	if output == "" && !terminal {
+	// Structured content counts as something to report even when it flattens to
+	// no text: terminal content carries only a terminal id (its output is fetched
+	// over terminal/output — see toolContentText), and that id is exactly how a
+	// frontend learns WHERE this tool's live output is going. Judging the frame
+	// by the flattened string alone dropped it as status noise.
+	if output == "" && len(tu.Content) == 0 && !terminal {
 		return nil
 	}
 	title := ""
@@ -461,6 +466,14 @@ func toolContentToIR(content []api.ToolCallContent) []agent.ToolContentBlock {
 // unions_generated.go and this file's prior revision). The union carries no
 // discriminator field of its own — dispatch switches on which variant
 // pointer is non-nil.
+//
+// TERMINAL content contributes NO text, deliberately: the ACP terminal variant
+// carries only a terminal id, whose output is fetched over terminal/output
+// rather than delivered inline, so there is nothing here to flatten and
+// inventing a placeholder would fabricate tool output. Its identity survives
+// structurally in toolContentToIR's "terminal" block (TerminalID), and
+// mapToolCallUpdate treats the presence of content — not this string — as the
+// signal that a frame is worth emitting.
 func toolContentText(content []api.ToolCallContent) string {
 	var parts []string
 	for _, tcc := range content {

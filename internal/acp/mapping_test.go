@@ -272,3 +272,21 @@ func TestDecidePermission(t *testing.T) {
 		assert.Equal(t, outcomeCancelled, got.Outcome.Outcome)
 	})
 }
+
+// TestMapToolCallUpdate_TerminalOnlyContentIsReported pins a tool_call_update
+// whose content is a TERMINAL reference and nothing else. Terminal content
+// carries no text of its own (its output is fetched over terminal/output, see
+// toolContentText), so the flattened ToolOutput is legitimately empty — but the
+// update is NOT status noise: it is how the engine tells the client WHERE the
+// tool's live output is going, and dropping it leaves a frontend unable to
+// attach to the terminal at all. The structural terminal id must reach the IR.
+func TestMapToolCallUpdate_TerminalOnlyContentIsReported(t *testing.T) {
+	events := mapUpdateJSON(t, `{"sessionUpdate":"tool_call_update","toolCallId":"tc1","content":[{"type":"terminal","terminalId":"term-7"}]}`)
+	e := oneEntry(t, events)
+
+	assert.Equal(t, agent.EntryTypeToolResult, e.Type)
+	require.Len(t, e.ToolContent, 1, "the terminal reference must survive structurally")
+	assert.Equal(t, "terminal", e.ToolContent[0].Kind)
+	assert.Equal(t, "term-7", e.ToolContent[0].TerminalID)
+	assert.Empty(t, e.ToolOutput, "terminal content has no text to flatten — its output rides terminal/output")
+}

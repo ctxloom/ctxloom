@@ -1085,3 +1085,62 @@ func (w *syncWriter) String() string {
 	defer w.mu.Unlock()
 	return w.buf.String()
 }
+
+// errAfterHandshakeWriter fails every write once armed, so a session/update
+// notification the server sends AFTER a session is registered fails the way a
+// dropped editor connection makes it fail.
+type errAfterHandshakeWriter struct {
+	mu      sync.Mutex
+	failing bool
+}
+
+func (w *errAfterHandshakeWriter) arm() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.failing = true
+}
+
+func (w *errAfterHandshakeWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.failing {
+		return 0, io.ErrClosedPipe
+	}
+	return len(p), nil
+}
+
+// TestOpenSession_FailureAfterRegistrationReleasesTheSession pins U014-F04: a
+// step that fails AFTER openSession has published the session into s.sessions
+// (the init summary, the commands update, the history replay) replied with an
+// error but left the session registered, holding a live engine conversation
+// nothing would ever tear down before server exit.
+//
+// For session/load the id is the caller's own harp, and openSession refuses a
+// fixed id that is already live — so the harp became permanently
+// unloadable for the rest of the connection: every retry answered "session
+// already active" for a session no client had ever been given.
+func TestOpenSession_FailureAfterRegistrationReleasesTheSession(t *testing.T) {
+	eng := newFakeEngine()
+	eng.initSummary = "ISOLATION: none" // makes emitSessionInitSummary actually notify
+	go eng.pump()
+
+	w := &errAfterHandshakeWriter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		open:     func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil },
+		ctx:      ctx,
+		sessions: make(map[api.SessionId]*session),
+	}
+	s.conn = jsonrpc.NewConn(strings.NewReader(""), w, nil, s)
+	s.conn.Start(ctx)
+
+	w.arm()
+	var gotErr *jsonrpc.Error
+	s.handleSessionLoad(json.RawMessage(`{"sessionId":"tidy-old-harp","cwd":"/proj","mcpServers":[]}`),
+		func(_ any, rerr *jsonrpc.Error) { gotErr = rerr })
+
+	require.NotNil(t, gotErr, "the notification failed, so session/load must fail")
+	assert.Nil(t, s.lookup("tidy-old-harp"),
+		"a session/load that failed after registration must not keep the harp occupied — the client was never given this session")
+}

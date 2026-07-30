@@ -331,3 +331,36 @@ func TestInContainerFrom_Markers(t *testing.T) {
 		})
 	}
 }
+
+// TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec is U064-F15's
+// pinning test. The row claimed renderRunSpec's `if spec.Home != ""` guard
+// silently loses the "fresh HOME isolates engine global state" property for a
+// spec built without a home. The guard is real, but the empty case is
+// unreachable for any spec that launches an ENGINE: home is not a per-call
+// parameter, it is Container.home, assigned defaultContainerHome by
+// NewContainerFor — the sole constructor every production path (NewContainer,
+// containerFor, containerWorktreeFor) routes through — and threaded verbatim
+// into all three engine-launching builders (buildRunSpec's home argument,
+// buildRunnerSpec, ExecSpec). The one production RunSpec that carries no home
+// is the shared-fs marker probe, which runs `cat /probe/marker` in a scratch
+// container and holds no engine state at all, so it has no HOME property to
+// lose. This pins both halves: every Container carries a home, and a spec that
+// carries one renders the -e HOME= flag.
+func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
+	require.NotEmpty(t, defaultContainerHome, "the container home constant is the fresh-HOME property's single source")
+
+	rt := fakeRuntime{name: "docker", available: true}
+	for _, backend := range append(composableEngines(), "", "no-such-engine") {
+		assert.Equal(t, defaultContainerHome, NewContainerFor(rt, backend).home,
+			"backend %q: every Container must carry the fresh in-container HOME", backend)
+	}
+	assert.Equal(t, defaultContainerHome, NewContainer(rt, "img").home)
+	assert.Equal(t, defaultContainerHome, containerFor(rt, "claude-code", ImageConfig{}).home)
+
+	spec := buildRunSpec("img", "name", "/proj", defaultContainerHome,
+		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claude-code"},
+		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123", nil, nil, nil, nil)
+	require.Equal(t, defaultContainerHome, spec.Home)
+	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
+		"a spec carrying a home must render the fresh-HOME env flag")
+}

@@ -347,3 +347,43 @@ func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testi
 		assert.Empty(t, strictness.All())
 	})
 }
+
+// TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution is U064-F07's
+// pinning test. The row claimed an explicit runtime preference that is unknown
+// or unavailable is silently replaced by auto-detection, so "a user who
+// configured podman can get docker with no diagnostic". SelectRuntime's
+// fall-through is real, but no production path reaches it with a preference to
+// lose. There are exactly two ways a preference can be expressed:
+//
+//   - the RUN path (chainFor) does not accept one at all — it probes with the
+//     empty auto-detect preference, so there is nothing to silently substitute;
+//   - `container build --runtime` does, and selectBuildRuntime REFUSES the
+//     substitution loudly rather than building into a daemon the user never
+//     asked for (see TestSelectBuildRuntime_ExplicitPreferMustBeHonored).
+//
+// This pins the first half, which nothing else asserts: wiring a configured
+// runtime preference into the run path turns this red, forcing whoever does it
+// to answer the diagnostic question rather than inheriting the silent
+// fall-through.
+func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) {
+	var seen []string
+	prev := selectRuntimeProbe
+	selectRuntimeProbe = func(prefer string) Runtime {
+		seen = append(seen, prefer)
+		return Docker{}
+	}
+	t.Cleanup(func() { selectRuntimeProbe = prev })
+
+	for _, axes := range []Axes{
+		{Workspace: WorkspaceShared, Runtime: RuntimeContainer},
+		{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer},
+	} {
+		chainFor(axes, "claude-code", ImageConfig{})
+	}
+
+	require.NotEmpty(t, seen, "the container tiers must actually probe for a runtime")
+	for _, prefer := range seen {
+		assert.Empty(t, prefer,
+			"the run path must probe with auto-detect; a preference expressed here would be silently substituted by SelectRuntime's fall-through, which only selectBuildRuntime guards against")
+	}
+}

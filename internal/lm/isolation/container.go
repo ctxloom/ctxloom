@@ -973,22 +973,26 @@ func (w *containerWorkspace) Dir() string { return w.dir }
 // already-removed scratch, and the worktree base teardown guards its own cleared
 // dir). A scratch-removal failure is surfaced by warnCleanupResidue AND returned
 // (SD3: the plain-Container always-warn+return semantic now covers both bases;
-// callers discard the returned error by contract). The base teardown is itself
-// WIP-safe / noop and never contributes an error.
+// callers discard the returned error by contract). The base teardown's own error
+// joins it: both bases are WIP-safe/noop and report none today, but that is a
+// property of the base's implementation, not of this one, so it is joined rather
+// than assumed away — neither half can hide the other.
 func (w *containerWorkspace) Cleanup() error {
-	var scratchErr error
+	var errs error
 	if w.scratchRoot != "" {
 		dir := w.scratchRoot
 		w.scratchRoot = ""
 		if err := os.RemoveAll(dir); err != nil {
 			warnCleanupResidue("container scratch", dir, err)
-			scratchErr = fmt.Errorf("remove container scratch: %w", err)
+			errs = fmt.Errorf("remove container scratch: %w", err)
 		}
 	}
 	if w.baseCleanup != nil {
-		_ = w.baseCleanup()
+		if err := w.baseCleanup(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
-	return scratchErr
+	return errs
 }
 
 // warnCleanupResidue surfaces a workspace-teardown removal failure: the

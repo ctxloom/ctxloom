@@ -384,3 +384,30 @@ func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
 	assert.False(t, ok)
 	assert.Contains(t, err.Error(), ".git")
 }
+
+// TestContainerWorkspace_CleanupSurfacesBaseError is U062-F18's regression. The
+// base teardown's error was discarded with `_ =` under a comment asserting it
+// "never contributes an error" — true today only because worktreeWorkspace.
+// Cleanup happens to return nil unconditionally (it warns instead), which is a
+// property of a DIFFERENT type in a different file that nothing binds to this
+// one. The moment a base teardown does report a failure it would vanish. Join
+// it instead, so the guarantee is structural rather than remote.
+func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
+	baseErr := fmt.Errorf("worktree teardown failed")
+
+	// Base failure alone: nothing else went wrong, and it still surfaces.
+	ws := &containerWorkspace{dir: "/proj", agentID: "m", baseCleanup: func() error { return baseErr }}
+	err := ws.Cleanup()
+	require.Error(t, err, "a base teardown failure must not be swallowed")
+	assert.ErrorIs(t, err, baseErr)
+
+	// Both halves fail: neither hides the other.
+	root := brokenScratch(t)
+	both := &containerWorkspace{dir: "/proj", agentID: "m", scratchRoot: root, baseCleanup: func() error { return baseErr }}
+	done := captureStderr(t)
+	err = both.Cleanup()
+	_ = done()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, baseErr)
+	assert.Contains(t, err.Error(), "remove container scratch")
+}

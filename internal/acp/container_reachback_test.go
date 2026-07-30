@@ -2,11 +2,13 @@ package acp
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -157,4 +159,48 @@ func TestContainerReachBackEnv_NoSocket_SaysSo(t *testing.T) {
 
 	assert.Contains(t, warnings.String(), mcpSocketEnvVar, "the warning names the variable that was unset")
 	assert.Contains(t, warnings.String(), "no ctxloom MCP", "and what the in-container engine therefore loses")
+}
+
+// syncBuffer is a warning sink a background goroutine writes while the test
+// body reads it (clidiag.Warn runs on the bridge's own goroutine).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// TestReachBackBridge_UnreachableSocketIsDiagnosed pins the bridge's failure
+// diagnostic. When the runner's socket cannot be dialled the accepted connection
+// is closed, so the in-container MCP shim sees an unexplained connection reset —
+// a container-side symptom whose cause is entirely on the host side and, without
+// this, appears in no log anywhere.
+func TestReachBackBridge_UnreachableSocketIsDiagnosed(t *testing.T) {
+	sink := &syncBuffer{}
+	restore := clidiag.SetSink(sink)
+	t.Cleanup(restore)
+
+	// A path with no listener behind it: dialling it always fails.
+	sock := filepath.Join(t.TempDir(), "never-bound.sock")
+	bridge, err := startReachBackBridge(sock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bridge.Close() })
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", bridge.port), 2*time.Second)
+	require.NoError(t, err, "the bridge accepts before it discovers the socket is dead")
+	t.Cleanup(func() { _ = conn.Close() })
+
+	require.Eventually(t, func() bool { return strings.Contains(sink.String(), "reach-back") }, 3*time.Second, 10*time.Millisecond,
+		"the failed dial must be diagnosed, not just reset: got %q", sink.String())
+	assert.Contains(t, sink.String(), sock, "the warning names the socket that could not be dialled")
 }

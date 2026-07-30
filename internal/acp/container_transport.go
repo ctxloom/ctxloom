@@ -295,6 +295,10 @@ func (b *reachBackBridge) pipe(conn net.Conn, sock string) {
 	defer func() { _ = conn.Close() }()
 	uc, err := net.Dial("unix", sock)
 	if err != nil {
+		// The shim on the container side only ever sees a connection reset, and
+		// the cause is entirely on this side of the boundary — so this is the one
+		// place it can be reported at all.
+		warnf("acp: reach-back bridge could not dial the runner MCP socket %q, so the in-container shim's connection was reset: %v", sock, err)
 		return
 	}
 	defer func() { _ = uc.Close() }()

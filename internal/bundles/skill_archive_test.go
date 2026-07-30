@@ -1050,3 +1050,43 @@ func TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot(t *testing.T) {
 	assert.False(t, exists,
 		"a rejected format must not leave an extraction root behind: nothing was extracted, so nothing should have been created")
 }
+
+// TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty is U031-F05:
+// this project's characteristic bug, in the export path. ExportSkillZip's only
+// guard was `pkg == nil`, so a SkillPackage whose Manifest is empty walked
+// straight past it, the pack loop never ran, and the function returned a
+// perfectly valid 22-byte end-of-central-directory-only zip with a nil error.
+// Downstream (operations.ExportSkill) that lands on disk as a `<name>.zip` a
+// user would reasonably believe holds their skill.
+//
+// Asserts the PAYLOAD, not the exit code: the failure mode being pinned IS a
+// successful return, so only the bytes can tell the two apart.
+func TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+
+	pkg := &SkillPackage{
+		Name:        "humanize",
+		Frontmatter: SkillFrontmatter{Name: "humanize", Description: "d"},
+	}
+
+	zipBytes, err := ExportSkillZip(fsys, "/src/skills/humanize", pkg)
+
+	require.Error(t, err, "a skill package with no files must not export as a valid, empty zip")
+	assert.Contains(t, err.Error(), "humanize")
+	assert.Empty(t, zipBytes, "a rejected export must not hand back packable-looking bytes")
+}
+
+// TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile is the payload half
+// of U031-F05: whatever ExportSkillZip returns without an error must actually
+// contain one zip entry per manifest entry. A zero-entry archive returned with
+// a nil error is the exact shape the guard above rejects, and this pins that a
+// non-empty package still round-trips every file.
+func TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile(t *testing.T) {
+	zipBytes, pkg, _ := buildValidSkillZip(t, "humanize")
+
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	require.NoError(t, err)
+	require.NotEmpty(t, pkg.Manifest)
+	assert.Len(t, zr.File, len(pkg.Manifest),
+		"every manifest entry must be present as a zip entry — an archive with fewer entries than the manifest is a silent partial export")
+}

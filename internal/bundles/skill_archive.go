@@ -91,6 +91,15 @@ func ExportSkillZip(fsys afero.Fs, dir string, pkg *SkillPackage) ([]byte, error
 	if pkg == nil {
 		return nil, fmt.Errorf("skill archive: export requires a parsed SkillPackage")
 	}
+	// The manifest is the authoritative file set, so an empty one means there
+	// is nothing to pack — and a zip of nothing is a VALID zip: 22 bytes of
+	// end-of-central-directory and a nil error, indistinguishable downstream
+	// from a real export. A skill always has at least SKILL.md
+	// (ParseSkillPackage requires it), so an empty manifest is a caller error,
+	// never a legitimately empty package.
+	if len(pkg.Manifest) == 0 {
+		return nil, fmt.Errorf("skill archive: skill %q has an empty manifest — refusing to export an empty archive", pkg.Name)
+	}
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)

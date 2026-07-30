@@ -551,6 +551,14 @@ func startHostStdio(cmd *exec.Cmd) (io.WriteCloser, io.Reader, *stderrtail.Ring,
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		// Both ends of the stdin pipe are this side's to release: os/exec closes
+		// the parent ends of the pipes it created only from inside a Start that
+		// failed, and this Cmd is abandoned before Start ever runs. StdinPipe
+		// left the child's read end on cmd.Stdin, hence the second close.
+		_ = stdin.Close()
+		if child, ok := cmd.Stdin.(io.Closer); ok {
+			_ = child.Close()
+		}
 		return nil, nil, nil, err
 	}
 	ring, sink := stderrtail.TeeStderr(engineStderrTailBytes)

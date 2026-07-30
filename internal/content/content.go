@@ -30,12 +30,22 @@
 //
 // # What this package deliberately does NOT do
 //
-// It does not sign, verify, approve or reject anything: Form.Signatures hands
-// back signature BYTES and nothing else, because layer 0 knows only WHERE
-// signature bytes live and layer 2 owns what they mean. It does not build or
-// read a bundle-level manifest. It does not read or write bundle.yaml, and no
-// existing consumer is wired to it yet — the tree implementation here reads a
-// layout that no shipped bundle currently uses.
+// It does not sign, verify, approve or reject anything: Form.Signatures and
+// Bundle.BundleSignatures hand back signature BYTES and nothing else, because
+// layer 0 knows only WHERE signature bytes live and layer 2 owns what they
+// mean. It does not read or write bundle.yaml, and no existing consumer is
+// wired to it yet — the tree implementation here reads a layout that no shipped
+// bundle currently uses.
+//
+// # The manifest (layer 1) lives here; trust (layer 2) does not
+//
+// manifest.go adds the bundle-level manifest — Bundle.Manifest,
+// Writer.PutManifest, BuildManifest and Manifest.VerifyContents. It is layer 1,
+// integrity only: it answers "is this tree exactly the set of files, with
+// exactly the bytes, that the manifest claims", in both directions, and it
+// answers nothing at all about WHO said so. That question belongs to layer 2,
+// which lives in the attest subpackage so that this package never imports a
+// trust root.
 package content
 
 import (
@@ -79,6 +89,37 @@ type Bundle interface {
 	// not by a lookup in a parsed document: ref.Kind.Dir() names the
 	// directory and ref.Name names the entry within it.
 	Item(ctx context.Context, ref trust.Ref) (Item, error)
+
+	// Files enumerates EVERY file in the bundle, bundle-relative and sorted,
+	// including dot-prefixed files, the manifest, and the signature store.
+	//
+	// It is deliberately total and deliberately NOT item-scoped. Refs answers
+	// "what items are here"; a file that no SurfaceType claims is invisible to
+	// it by construction, and that invisibility is precisely the channel a
+	// hostile publisher uses — add a directory nothing enumerates and it rides
+	// along through every pull, move and materialize. Files is the primitive
+	// that makes "this tree is exactly what was published" checkable at all.
+	// It applies no exemption policy of its own: exemptions are stated once, in
+	// ManifestCovers, where they can be read.
+	Files(ctx context.Context) ([]string, error)
+
+	// ReadFile returns one file's exact stored bytes, by bundle-relative path.
+	//
+	// It exists so integrity and signing can hash arbitrary NON-ITEM files —
+	// the README, the LICENSE, the file a typo left unrecognised — without
+	// reaching around the store to a filesystem. A layer that had Files but not
+	// ReadFile could name what it must cover and not cover it.
+	ReadFile(ctx context.Context, relPath string) ([]byte, error)
+
+	// Manifest reads and parses the bundle's manifest, or returns
+	// ErrManifestMissing. The manifest is a BUNDLE-LEVEL object, not an item:
+	// it enumerates items and is not one of them.
+	Manifest(ctx context.Context) (Manifest, error)
+
+	// BundleSignatures returns the signature BYTES filed against the bundle's
+	// manifest, and says nothing about whether any of them verify — the same
+	// division of labour Form.Signatures follows.
+	BundleSignatures(ctx context.Context) (SigSet, error)
 }
 
 // Item is one addressable item. It carries no bytes of its own: the attestable
@@ -136,6 +177,17 @@ type Writer interface {
 	// PutSignature stores signature bytes against the given form's content
 	// under the given namespace. It performs no verification.
 	PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, sig []byte) error
+
+	// PutManifest writes a bundle's manifest, replacing any existing one. It
+	// takes a BundleID rather than a ref because a manifest belongs to the
+	// bundle, not to any item in it.
+	PutManifest(ctx context.Context, id BundleID, m Manifest) error
+
+	// PutBundleSignature stores signature bytes over the bundle's manifest
+	// under the given namespace. It performs no verification, and it does not
+	// check that a manifest is present: layer 0 stores bytes, layer 2 decides
+	// what they mean.
+	PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, sig []byte) error
 }
 
 // ComponentMode is a component's declared, attested mode. It is ONE enum

@@ -811,32 +811,38 @@ func TestAs_WrongTypeIsRefused(t *testing.T) {
 	}
 }
 
-// TestWalk_MalformedDirectoriesYieldNoItems is the fail-closed half of the
-// candidate walk: a skill directory with no SKILL.md, and a stray file with a
-// foreign extension, must be claimed by nobody rather than misread.
-func TestWalk_MalformedDirectoriesYieldNoItems(t *testing.T) {
+// TestWalk_MalformedDirectoriesFailLoud is the fail-closed half of the candidate
+// walk: a skill directory with no SKILL.md, a stray file with a foreign
+// extension, an item at the wrong depth. None of these may be misread as an
+// item — and none may be SILENTLY DROPPED either, which is what the walk used to
+// do. A dropped file is a file no manifest ever covers and no diagnostic ever
+// mentions, so a mis-extensioned hook vanishes and an added one rides along.
+func TestWalk_MalformedDirectoriesFailLoud(t *testing.T) {
 	ctx := context.Background()
-	store := emptyStore(t)
-	root := fixtureRoot + "/code-quality"
-	writeFile(t, store.fsys, root+"/skills/broken/notes.md", "no descriptor here\n")
-	writeFile(t, store.fsys, root+"/skills/nested/inner/SKILL.md", "---\nname: inner\n---\nbody\n")
-	writeFile(t, store.fsys, root+"/fragments/README.txt", "not a fragment\n")
-	writeFile(t, store.fsys, root+"/mcp/subdir/thing.yaml", "command: x\n")
-
-	bundle, err := store.Open(ctx, "code-quality")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	refs, err := bundle.Refs(ctx)
-	if err != nil {
-		t.Fatalf("Refs: %v", err)
-	}
-	if len(refs) != 0 {
-		var got []string
-		for _, r := range refs {
-			got = append(got, r.Key())
-		}
-		t.Fatalf("malformed tree produced items: %v", got)
+	for name, tc := range map[string]struct{ path, body string }{
+		"skill directory with no descriptor": {"skills/broken/notes.md", "no descriptor here\n"},
+		"skill nested a level too deep":      {"skills/nested/inner/SKILL.md", "---\nname: inner\n---\nbody\n"},
+		"foreign extension in a kind dir":    {"fragments/README.txt", "not a fragment\n"},
+		"mcp server a level too deep":        {"mcp/subdir/thing.yaml", "command: x\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := emptyStore(t)
+			writeFile(t, store.fsys, fixtureRoot+"/code-quality/"+tc.path, tc.body)
+			bundle, err := store.Open(ctx, "code-quality")
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			refs, err := bundle.Refs(ctx)
+			if err == nil {
+				t.Fatalf("Refs accepted a tree containing %s, returning %d refs", tc.path, len(refs))
+			}
+			if !errors.Is(err, ErrUnclaimed) {
+				t.Fatalf("err = %v, want ErrUnclaimed", err)
+			}
+			if !strings.Contains(err.Error(), tc.path) {
+				t.Fatalf("error %q does not name the offending file %q", err, tc.path)
+			}
+		})
 	}
 }
 

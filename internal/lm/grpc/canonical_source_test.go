@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -56,6 +58,57 @@ func writeCanonicalFixture(t *testing.T, harp, engine, content string) {
 		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},
 	}))
 	require.NoError(t, rec.Close())
+}
+
+// writeCorruptCanonicalFixture leaves harp with a canonical transcript file
+// that EXISTS but cannot be read: a record carrying an unknown schema version,
+// which the reader refuses outright rather than guessing at.
+func writeCorruptCanonicalFixture(t *testing.T, harp string) {
+	t.Helper()
+	writeCanonicalFixture(t, harp, "codex", "about to be clobbered")
+	path, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte(`{"v":9999,"ts":"2026-01-01T00:00:00Z"}`+"\n"), 0o600))
+}
+
+// TestCanonicalFallbackSource_GetSession_NoLegacy_CorruptCanonicalSurfaces pins
+// U059-F10: the FIRST canonical read's error was discarded outright. For a
+// retired-scraper backend (legacy == nil) that turned "your transcript is
+// corrupt and I refuse to guess at it" into "there is no canonical transcript
+// for this session" — the one message that tells the user to stop looking.
+func TestCanonicalFallbackSource_GetSession_NoLegacy_CorruptCanonicalSurfaces(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-corrupt", "/proj", "backend-uuid-9")
+	writeCorruptCanonicalFixture(t, "harp-corrupt")
+
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	_, err := src.GetSession(ctx, "harp-corrupt")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema version", "the real cause must reach the caller")
+	assert.NotContains(t, err.Error(), "no canonical transcript",
+		"an unreadable transcript is not an absent one")
+}
+
+// TestCanonicalFallbackSource_GetSession_NoLegacy_AbsentCanonicalStaysAbsent is
+// the other half: a genuinely uncaptured session must still report absence, not
+// a transcript-read failure. Surfacing the first error unconditionally would
+// have turned every miss into a scary parse error.
+func TestCanonicalFallbackSource_GetSession_NoLegacy_AbsentCanonicalStaysAbsent(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-uncaptured", "/proj", "backend-uuid-10")
+
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	_, err := src.GetSession(ctx, "harp-uncaptured")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no canonical transcript")
 }
 
 // mintBoundHarp registers harp under projectDir in store with the given
@@ -271,7 +324,7 @@ func (e *erroringListStore) ListForProject(projectDir string) ([]sessions.Entry,
 }
 
 // TestCanonicalFallbackSource_ListSessions_NoLegacy_CanonicalErrorPropagates
-// pins U059-F03: legacy==nil is the RetiredScraperBackends case (codex, kiro,
+// pins U059-F03: legacy==nil is the retired-scraper case (codex, kiro,
 // antigravity, claude-code — S5, canonical is the ONLY source). Before the
 // fix, `canonMetas, _ := f.canonical.ListSessions(ctx)` discarded the error
 // and returned (nil, nil) — a confident "no sessions" indistinguishable from
@@ -308,4 +361,90 @@ func TestCanonicalFallbackSource_ListSessions_CanonicalErrorsButLegacyHasSession
 	require.NoError(t, err)
 	require.Len(t, metas, 1)
 	assert.Equal(t, "legacy-only-session", metas[0].ID)
+}
+
+// countingStore counts every read of the session index. Each of these methods
+// re-reads and re-parses the whole index file in the production Manager, so the
+// count is a direct proxy for file reads.
+type countingStore struct {
+	*sessions.MemStore
+	reads int
+}
+
+func (c *countingStore) Load() (*sessions.Index, error) {
+	c.reads++
+	return c.MemStore.Load()
+}
+
+func (c *countingStore) Find(harpName string) (*sessions.Entry, error) {
+	c.reads++
+	return c.MemStore.Find(harpName)
+}
+
+func (c *countingStore) ListForProject(projectDir string) ([]sessions.Entry, error) {
+	c.reads++
+	return c.MemStore.ListForProject(projectDir)
+}
+
+// listSessionsIndexReads builds a project with n canonical-backed sessions and
+// returns how many index reads one ListSessions costs.
+func listSessionsIndexReads(t *testing.T, n int) int {
+	t.Helper()
+	testsupport.Isolate(t)
+
+	store := &countingStore{MemStore: sessions.NewMemStore()}
+	for i := 0; i < n; i++ {
+		harp := fmt.Sprintf("harp-count-%d", i)
+		mintBoundHarp(t, store.MemStore, harp, "/proj", fmt.Sprintf("backend-uuid-c%d", i))
+		writeCanonicalFixture(t, harp, "codex", "payload")
+	}
+
+	src := NewCanonicalFallbackSource(&fakeSessionSource{}, "/proj", store)
+	store.reads = 0
+	metas, err := src.ListSessions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, metas, n)
+	return store.reads
+}
+
+// TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale pins U059-F13:
+// the dedup set was built by calling store.Find once per canonical session, and
+// every Find re-reads and re-parses the entire index file. Listing a project
+// with N sessions cost N index reads on top of the enumeration — work that is
+// wholly avoidable, since one read already carries every entry. The cost of a
+// listing must not depend on how many sessions the project has.
+func TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale(t *testing.T) {
+	var few, many int
+	t.Run("one session", func(t *testing.T) { few = listSessionsIndexReads(t, 1) })
+	t.Run("six sessions", func(t *testing.T) { many = listSessionsIndexReads(t, 6) })
+
+	assert.Equal(t, few, many,
+		"index reads grew with the session count: %d for 1 session, %d for 6", few, many)
+}
+
+// TestRetiredScraperRoster_IsClosedAndImmutable pins U059-F21. The roster used
+// to be an exported package-level MAP, so every importer could add or remove a
+// backend from it at run time — silently deciding, for the whole process,
+// whether some engine gets a legacy scraper leg. The accessors expose exactly
+// the two questions callers actually ask, and neither hands out a writable view
+// of the package's own copy.
+//
+// A red for this could not be shown: the defect is the shape of the API, so the
+// test only compiles once the accessors exist.
+func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
+	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+
+	for _, name := range RetiredScraperBackendNames() {
+		assert.True(t, IsRetiredScraperBackend(name), "%s must be reported as retired", name)
+	}
+	assert.False(t, IsRetiredScraperBackend("opencode"),
+		"opencode's native reader is correct and keeps its legacy leg")
+	assert.False(t, IsRetiredScraperBackend(""))
+
+	// A caller reordering or truncating what it was handed cannot reach the
+	// roster itself.
+	got := RetiredScraperBackendNames()
+	got[0] = "tampered"
+	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+	assert.False(t, IsRetiredScraperBackend("tampered"))
 }

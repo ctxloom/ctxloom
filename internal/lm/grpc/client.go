@@ -20,9 +20,12 @@ import (
 // ContainerRunnerFunc is go-plugin's RunnerFunc shape: given the (env-populated)
 // spec command and the host temp dir go-plugin created for unix sockets, it
 // returns a runner.Runner that launches the plugin — for the container transport,
-// inside a container. Aliased so callers (internal/lm/isolation) name the
-// contract without importing go-plugin's exact signature at every call site.
-type ContainerRunnerFunc = func(l hclog.Logger, cmd *exec.Cmd, tmpDir string) (runner.Runner, error)
+// inside a container. A DEFINED type, not an alias: callers (internal/lm/isolation)
+// name the contract without importing go-plugin's exact signature, and a value
+// carrying that name is a distinct type rather than any three-argument function
+// that happens to match. go-plugin's own ClientConfig.RunnerFunc field is an
+// unnamed func type, so a ContainerRunnerFunc remains assignable to it.
+type ContainerRunnerFunc func(l hclog.Logger, cmd *exec.Cmd, tmpDir string) (runner.Runner, error)
 
 // GRPCClient is the client-side implementation that communicates with the plugin.
 type GRPCClient struct {
@@ -132,6 +135,11 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 	}
 
 	result := &RunResult{}
+	// The exit code is the final message of every completed run (server.go's
+	// Run ends with exactly that Send), so its ABSENCE at EOF is a truncated
+	// run, not an exit 0 — the zero value of ExitCode cannot be trusted to
+	// mean success.
+	sawExit := false
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
@@ -143,14 +151,25 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 
 		switch output := resp.Output.(type) {
 		case *RunResponse_Stdout:
-			_, _ = stdout.Write(output.Stdout)
+			// A write the caller's sink refused (closed pipe, full disk) has
+			// lost engine output for good; continuing would hand back a clean
+			// exit code over a truncated transcript.
+			if _, werr := stdout.Write(output.Stdout); werr != nil {
+				return nil, fmt.Errorf("write engine stdout: %w", werr)
+			}
 		case *RunResponse_Stderr:
-			_, _ = stderr.Write(output.Stderr)
+			if _, werr := stderr.Write(output.Stderr); werr != nil {
+				return nil, fmt.Errorf("write engine stderr: %w", werr)
+			}
 		case *RunResponse_ExitCode:
 			result.ExitCode = output.ExitCode
 			// ModelInfo is sent with exit_code
 			result.ModelInfo = resp.ModelInfo
+			sawExit = true
 		}
+	}
+	if !sawExit {
+		return nil, fmt.Errorf("run stream ended without an exit code: the engine plugin died mid-run")
 	}
 
 	return result, nil
@@ -166,8 +185,10 @@ type LLMRunner struct {
 	*GRPCClient
 }
 
-// verbosityToHclogLevel converts verbosity count to hclog level.
-// 0 = Error (discard most), 1 = Warn, 2 = Info, 3+ = Debug/Trace
+// verbosityToHclogLevel converts verbosity count to hclog level:
+// 0 = Error, 1 = Info, 2 = Debug, 3+ = Trace. Each -v widens the ladder by a
+// full level; hclog.Warn is deliberately not a rung, and at 0 newPluginLogger
+// discards the output entirely regardless of level.
 func verbosityToHclogLevel(verbosity int) hclog.Level {
 	switch {
 	case verbosity >= 3:
@@ -326,10 +347,10 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 // but Kill tears down the container via the runner. socketTempDir is a host
 // directory under which go-plugin creates the unix-socket dir it bind-mounts into
 // the container; the runner's AddrTranslator maps the plugin's announced
-// container-namespace socket path back to that host mount. backendName/label are
-// carried for parity/diagnostics — the actual in-container argv is built by the
-// RunnerFunc (which knows the container's ctxloom path).
-func NewContainerClient(backendName, label string, verbosity int, runnerFunc ContainerRunnerFunc, socketTempDir string) (*LLMRunner, error) {
+// container-namespace socket path back to that host mount. The in-container
+// argv — backend name, label, and the container's own ctxloom path — is built
+// by the RunnerFunc, so none of it is a parameter here.
+func NewContainerClient(verbosity int, runnerFunc ContainerRunnerFunc, socketTempDir string) (*LLMRunner, error) {
 	return runnerFromConn(dialContainerConnection(runnerFunc, socketTempDir, newPluginLogger(verbosity)))
 }
 

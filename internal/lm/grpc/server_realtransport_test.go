@@ -6,6 +6,9 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/hashicorp/go-plugin"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
@@ -13,6 +16,8 @@ import (
 	"go.uber.org/goleak"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -120,4 +125,53 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 	require.NoError(t, conn.Close())
 	grpcServer.GracefulStop()
 	require.NoError(t, <-serveErr)
+}
+
+// TestPluginTransport_ServesHealthAndReflection REFUTES the "no standard
+// mechanisms" half of U059-F20, which claimed this transport registers no
+// grpc.health.v1 health service and no server reflection.
+//
+// It registers neither ITSELF, and must not: the LLM service is always served
+// by go-plugin's own GRPCServer (LLMGRPCPlugin.GRPCServer only calls
+// RegisterLLMServer on the server go-plugin hands it), and that server
+// registers both unconditionally during Init — the health service is what
+// go-plugin's own Client.Ping is implemented against, which its source calls
+// "not optional". Adding our own registration would be a duplicate
+// registration on the same server, i.e. a panic.
+//
+// This drives the REAL go-plugin serving path (plugin.TestPluginGRPCConn builds
+// the same GRPCServer with the same Init) over our own PluginMap, so it fails
+// if that ever stops being true — for instance if the LLM service were moved
+// onto a plain grpc.NewServer of our own.
+func TestPluginTransport_ServesHealthAndReflection(t *testing.T) {
+	client, server := plugin.TestPluginGRPCConn(t, false, PluginMap)
+	t.Cleanup(func() {
+		_ = client.Close()
+		server.Stop()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	health, err := grpc_health_v1.NewHealthClient(client.Conn).Check(ctx, &grpc_health_v1.HealthCheckRequest{
+		Service: plugin.GRPCServiceName,
+	})
+	require.NoError(t, err, "the plugin transport must answer a standard grpc.health.v1 check")
+	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, health.GetStatus())
+
+	refStream, err := reflectionpb.NewServerReflectionClient(client.Conn).ServerReflectionInfo(ctx)
+	require.NoError(t, err)
+	require.NoError(t, refStream.Send(&reflectionpb.ServerReflectionRequest{
+		MessageRequest: &reflectionpb.ServerReflectionRequest_ListServices{},
+	}))
+	resp, err := refStream.Recv()
+	require.NoError(t, err, "the plugin transport must answer standard server reflection")
+	require.NoError(t, refStream.CloseSend())
+
+	var served []string
+	for _, s := range resp.GetListServicesResponse().GetService() {
+		served = append(served, s.GetName())
+	}
+	assert.Contains(t, served, "grpc.health.v1.Health")
+	assert.Contains(t, served, "ctxloom.lm.llm.LLM", "reflection must describe OUR service, not just go-plugin's own")
 }

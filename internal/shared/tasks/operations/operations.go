@@ -392,21 +392,26 @@ func scalarCollapse(schema *tagschema.Schema, existingTags, incoming []string) (
 	}
 
 	// surviving maps each scalar target that made it into toAdd to its
-	// (trimmed) raw tag string, so existingTags can be checked for a
-	// same-target-different-value tag that needs retracting.
+	// PARSED value, so existingTags can be checked for a
+	// same-target-different-value tag that needs retracting. Parsed, not raw:
+	// target identity is already decided by parsing, and tagma's grammar
+	// admits a quoted spelling of any component, so `k=v` and `k="v"` are one
+	// tag. Comparing raw strings made the second look like a new value and
+	// retracted the first -- an untag written into an append-only log for a
+	// value that never changed (U122-F05).
 	surviving := map[string]string{}
 	for _, raw := range toAdd {
-		if target, scalar := scalarTargetOf(schema, raw); scalar {
-			surviving[target] = strings.TrimSpace(raw)
+		if target, value, scalar := scalarTagOf(schema, raw); scalar {
+			surviving[target] = value
 		}
 	}
 	for _, existing := range existingTags {
-		target, scalar := scalarTargetOf(schema, existing)
+		target, value, scalar := scalarTagOf(schema, existing)
 		if !scalar {
 			continue
 		}
-		newRaw, ok := surviving[target]
-		if ok && newRaw != strings.TrimSpace(existing) {
+		newValue, ok := surviving[target]
+		if ok && newValue != value {
 			toUntag = append(toUntag, existing)
 		}
 	}
@@ -422,16 +427,29 @@ func scalarCollapse(schema *tagschema.Schema, existingTags, incoming []string) (
 // isn't declared scalar reports (target, false) with a NON-empty target,
 // since IsScalar(target) is what decided false, not an absent namespace.
 func scalarTargetOf(schema *tagschema.Schema, raw string) (target string, scalar bool) {
+	target, _, scalar = scalarTagOf(schema, raw)
+	return target, scalar
+}
+
+// scalarTagOf is scalarTargetOf plus the tag's DECODED value ("" when the tag
+// carries none) -- the form any value comparison must use. Two tags spelled
+// differently but parsing to the same value ARE the same value: tagma decodes
+// a quoted component to its canonical content, so `k=v` and `k="v"` both
+// yield "v" here, while a raw-string comparison would call them different.
+func scalarTagOf(schema *tagschema.Schema, raw string) (target, value string, scalar bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", false
+		return "", "", false
 	}
 	parsed, err := tagma.ParseTag(trimmed)
 	if err != nil || parsed.Namespace == nil {
-		return "", false
+		return "", "", false
+	}
+	if parsed.Value != nil {
+		value = *parsed.Value
 	}
 	target = tagschema.Target(parsed)
-	return target, schema.IsScalar(target)
+	return target, value, schema.IsScalar(target)
 }
 
 // validateTags calls validateTag for every tag in tags, in order, against

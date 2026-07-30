@@ -1395,3 +1395,57 @@ func TestTaskResult_PopulatesEveryField(t *testing.T) {
 		}
 	}
 }
+
+// TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction pins U122-F05:
+// scalar collapse decides TARGET identity by parsing the tag through tagma,
+// but decided VALUE identity by comparing raw strings. tagma's grammar admits
+// a quoted spelling of any component, so `triage:type=bug` and
+// `triage:type="bug"` are one and the same tag — same target, same value — yet
+// the raw comparison saw two different strings and emitted a retraction plus a
+// re-tag for a no-op re-tagging. That writes a permanent untag into an
+// append-only log for a value that never changed, and momentarily leaves the
+// task carrying two spellings of one scalar.
+func TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction(t *testing.T) {
+	schema := scalarSchema(t)
+
+	toAdd, toUntag := scalarCollapse(schema, []string{"triage:type=bug"}, []string{`triage:type="bug"`})
+	if len(toUntag) != 0 {
+		t.Fatalf("toUntag = %v; the incoming tag is the SAME value, quoted — no retraction is due", toUntag)
+	}
+	if len(toAdd) != 1 {
+		t.Fatalf("toAdd = %v, want the incoming tag passed through", toAdd)
+	}
+
+	// The genuine change must still retract, or the fix would have disarmed
+	// the collapse entirely.
+	toAdd, toUntag = scalarCollapse(schema, []string{"triage:type=bug"}, []string{`triage:type="security"`})
+	if len(toUntag) != 1 || toUntag[0] != "triage:type=bug" {
+		t.Fatalf("toUntag = %v, want the superseded value retracted", toUntag)
+	}
+	if len(toAdd) != 1 {
+		t.Fatalf("toAdd = %v", toAdd)
+	}
+}
+
+// TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue is the
+// end-to-end half of U122-F05: re-tagging with the same value spelled
+// differently must not append an untag event to the log.
+func TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "triage this", "", "", []string{"triage:type=bug"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := TagTask(tc, add.Task.HarpID, []string{`triage:type="bug"`}, nil); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	ops := make([]string, 0, 4)
+	for _, ev := range readTaskEvents(t, tc, add.Task.HarpID) {
+		ops = append(ops, ev.Op)
+	}
+	if slices.Contains(ops, "untag") {
+		t.Fatalf("log ops = %v; a re-tag of the same value must not retract it", ops)
+	}
+}

@@ -456,7 +456,16 @@ func NewGitHubPublisherWithClient(client GitHubClient) *GitHubPublisher {
 }
 
 // CreateOrUpdateFile creates or updates a file in a repository.
+//
+// Empty content is refused. This is the last gate before the network write, and
+// a 0-byte commit here replaces whatever the remote already held — a published
+// bundle or its detached signature — with nothing, while reporting a commit SHA
+// that says it worked.
 func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, path, branch, message string, content []byte) (string, error) {
+	if len(content) == 0 {
+		return "", fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, path)
+	}
+
 	// Check if file exists to get its SHA
 	existingSHA, _ := p.GetFileSHA(ctx, owner, repo, path, branch)
 

@@ -546,6 +546,39 @@ func TestGitHubPublisher_CreateOrUpdateFile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "update-sha", sha)
 	})
+
+	// U093-F31: nil or empty content published a 0-byte file over whatever was
+	// there and returned a SHA with no error. The last gate before the network
+	// write has to hold the floor itself: PublishManager.loadPublishContent
+	// guards the BUNDLE bytes (U094-F02), but publishSignatureSibling only
+	// checks its signature for nil, so an empty-but-non-nil signature reached
+	// this method unguarded and would have overwritten a real .sig with
+	// nothing.
+	for _, tc := range []struct {
+		name    string
+		content []byte
+	}{
+		{"nil content", nil},
+		{"empty content", []byte{}},
+	} {
+		t.Run("refuses "+tc.name, func(t *testing.T) {
+			mock := newMockGitHubClient()
+			called := false
+			mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+				return &github.RepositoryContent{SHA: github.String("existing-sha")}, nil, nil, nil
+			}
+			mock.repos.CreateFileFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentFileOptions) (*github.RepositoryContentResponse, *github.Response, error) {
+				called = true
+				return &github.RepositoryContentResponse{Commit: github.Commit{SHA: github.String("should-not-happen")}}, nil, nil
+			}
+
+			publisher := NewGitHubPublisherWithClient(mock)
+			sha, err := publisher.CreateOrUpdateFile(ctx, "owner", "repo", "bundle.yaml.sig", "main", "sign bundle", tc.content)
+			require.Error(t, err)
+			assert.Empty(t, sha, "no SHA may be reported for a write that did not happen")
+			assert.False(t, called, "no write may reach the forge")
+		})
+	}
 }
 
 func TestGitHubPublisher_CreateBranch(t *testing.T) {

@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // testDecodeSessionUpdate parses a session/update notification's params,
@@ -289,4 +291,22 @@ func TestMapToolCallUpdate_TerminalOnlyContentIsReported(t *testing.T) {
 	assert.Equal(t, "terminal", e.ToolContent[0].Kind)
 	assert.Equal(t, "term-7", e.ToolContent[0].TerminalID)
 	assert.Empty(t, e.ToolOutput, "terminal content has no text to flatten — its output rides terminal/output")
+}
+
+// TestRawOnlyEvent_UnmarshalableUpdateIsDroppedLoudly pins the diagnostic on the
+// raw-passthrough envelope's drop path. It is reachable: a union with no variant
+// set makes api.SessionUpdate.MarshalJSON hand encoding/json zero bytes, which
+// encoding/json rejects — and the frame then vanishes, where every analogous
+// decode failure in session.go warns. A dropped frame nobody reports is a
+// frontend missing an update with no evidence anywhere that one existed.
+func TestRawOnlyEvent_UnmarshalableUpdateIsDroppedLoudly(t *testing.T) {
+	_, err := json.Marshal(&api.SessionUpdate{})
+	require.Error(t, err, "a variant-less union cannot be marshaled — this is the drop path")
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	assert.Empty(t, rawOnlyEvent(&api.SessionUpdate{}), "an empty Raw must never be emitted as an event")
+	assert.Contains(t, warnings.String(), "acp: dropping", "the drop must be diagnosable")
 }

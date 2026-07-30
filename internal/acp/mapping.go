@@ -99,12 +99,14 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 
 // rawOnlyEvent marshals u (expected to have exactly one of the IR3-allowlisted
 // variants set) into a raw-only ChatEvent — Entry/Complete/Session/Permission
-// all nil, only Raw populated. A marshal failure (never expected for a
-// well-formed decoded union) drops the frame rather than panicking or
-// fabricating a malformed one.
+// all nil, only Raw populated. A marshal failure drops the frame rather than
+// panicking or fabricating a malformed one, and says so: the drop is otherwise
+// indistinguishable from an update the engine never sent, which is why every
+// analogous decode failure in session.go warns too.
 func rawOnlyEvent(u *api.SessionUpdate) []agent.ChatEvent {
 	b, err := json.Marshal(u)
 	if err != nil {
+		warnf("acp: dropping unmarshalable session/update passthrough frame: %v", err)
 		return nil
 	}
 	return []agent.ChatEvent{{Raw: b}}

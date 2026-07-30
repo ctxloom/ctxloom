@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -366,4 +368,48 @@ func TestRenderTaskDetail_ShowsFullTextAndMetadata(t *testing.T) {
 	assert.Contains(t, out, "Deferred")
 	assert.Contains(t, out, "tags: alpha, beta")
 	assert.Contains(t, out, "trigger: the v2 API ships")
+}
+
+// U008-F04's hazard made concrete. operations.ListTasks took six positional
+// arguments including two ADJACENT same-typed booleans — includeDone and
+// includeSummary — and this package called it both ways, two files apart:
+// `show`/`run` pass (true, false) and `summary` passes (false, true). Those
+// are exactly each other's transposition, they compile identically, and no
+// assertion above them noticed which way round they were.
+//
+// These pin the two seams that DEFINE the flags' meaning, so the collapse of
+// that argument list onto a named-field struct is provably
+// behaviour-preserving, and so a future transposition is red rather than
+// silent. They are deliberately at the command seam, which the collapse does
+// not touch.
+func TestShow_ResolvesACompletedTask(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	added, err := operations.AddTask(tc, "finished work", tasks.StatusDone, "")
+	require.NoError(t, err)
+
+	c := &cobra.Command{}
+	c.Flags().String("format", "text", "")
+	var out bytes.Buffer
+	c.SetOut(&out)
+	require.NoError(t, showCmd.RunE(c, []string{added.Task.HarpID}),
+		"a harp id `list --all` shows must still resolve here: show asks for every status")
+	assert.Contains(t, out.String(), "finished work")
+}
+
+func TestSummary_ReturnsPerStatusCounts(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	_, err = operations.AddTask(tc, "one", tasks.StatusToDo, "")
+	require.NoError(t, err)
+
+	c := &cobra.Command{}
+	c.Flags().String("format", "text", "")
+	var out bytes.Buffer
+	c.SetOut(&out)
+	require.NoError(t, summaryCmd.RunE(c, nil))
+	assert.Contains(t, out.String(), tasks.StatusToDo,
+		"summary asks for the summary; without it there is nothing to count")
 }

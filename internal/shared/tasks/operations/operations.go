@@ -165,21 +165,41 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 	return projectID, logPath, nil
 }
 
-// ListTasks resolves the project's task log and returns its tasks, optionally
-// with a summary. Completed (Done/Archived) tasks are excluded by default;
-// includeDone opts them back in, as does naming a status explicitly. limit
-// caps the number of rows returned (0 = no cap) — see listTasks.
-func ListTasks(tc TaskContext, statuses []string, term string, includeDone, includeSummary bool, limit int) (*TaskListResult, error) {
-	return listTasks(tc, statuses, term, "", includeDone, includeSummary, limit)
+// ListOptions names what a task listing filters and returns. It replaces a
+// six-positional-argument call whose middle held two ADJACENT same-typed
+// booleans and a bare integer: at a call site `(tc, nil, "", true, false, 0)`
+// said nothing about which flag was which, the two orderings compiled
+// identically, and this repo genuinely used both (`show`/`run` wanted
+// (includeDone, !includeSummary), `summary` the exact transposition). A named
+// field says what each one means, mirroring cmd/taskloom's own listOptions,
+// which exists for the same reason.
+//
+// The zero value is the default listing: no filters, active-only, no summary,
+// no cap.
+type ListOptions struct {
+	// Statuses filters to the named statuses. Naming any status is itself an
+	// opt-in to completed ones, exactly as IncludeDone is.
+	Statuses []string
+	// Term is a case-insensitive substring filter over task text.
+	Term string
+	// TagQuery is a postfix (RPN) tag filter evaluated by tagma (e.g.
+	// "urgent/release/and"). Empty means no tag filter. A MALFORMED query
+	// surfaces as an error — never a silently empty or unfiltered result.
+	TagQuery string
+	// IncludeDone opts completed (Done/Archived) and Deferred tasks back into
+	// a listing that hides them by default.
+	IncludeDone bool
+	// IncludeSummary asks the store for per-status counts alongside the rows.
+	// The counts always cover every task, and are never affected by Limit.
+	IncludeSummary bool
+	// Limit caps the number of rows returned; 0 means no cap.
+	Limit int
 }
 
-// ListTasksWithTagQuery is ListTasks with an additional postfix tag-query
-// filter, evaluated by tagma (see internal/shared/tasks.filterTasks, e.g.
-// "urgent/release/and"). An empty tagQuery behaves exactly like ListTasks.
-// A malformed tagQuery
-// surfaces as an error — never a silently empty or unfiltered result.
-func ListTasksWithTagQuery(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool, limit int) (*TaskListResult, error) {
-	return listTasks(tc, statuses, term, tagQuery, includeDone, includeSummary, limit)
+// ListTasks resolves the project's task log and returns its tasks, filtered
+// and shaped by opts — see ListOptions and listTasks.
+func ListTasks(tc TaskContext, opts ListOptions) (*TaskListResult, error) {
+	return listTasks(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.IncludeDone, opts.IncludeSummary, opts.Limit)
 }
 
 // listTasks is the shared body of ListTasks/ListTasksWithTagQuery. limit caps

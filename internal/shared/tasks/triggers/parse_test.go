@@ -278,12 +278,45 @@ func TestExtractJSONArray(t *testing.T) {
 		{"closer with no opener", "1]", ""},
 		{"closer before opener", "] [", ""},
 		{"empty input", "", ""},
+		// Bracketed prose BEFORE the array is a common model habit ("see
+		// [1] below"). Anchoring the span at the first "[" in the whole
+		// response then spans from the prose bracket to the array's closer,
+		// which is not JSON at all — the span is chosen as the leftmost
+		// opener that actually yields a well-formed array.
+		{
+			"a bracketed citation before the array does not anchor the span",
+			`Evidence [1] supports this: [{"harp_id":"a"}]`,
+			`[{"harp_id":"a"}]`,
+		},
+		{
+			"a markdown link before the array does not anchor the span",
+			`see [the log](x) — [{"harp_id":"a"},{"harp_id":"b"}]`,
+			`[{"harp_id":"a"},{"harp_id":"b"}]`,
+		},
+		{
+			"no candidate parses: the leftmost opener is still returned so the caller reports a parse error",
+			"[a] [b",
+			"[a]",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, extractJSONArray(tc.in))
 		})
 	}
+}
+
+// The end-to-end shape U128-F03 describes: a model that cites a bracketed
+// reference in its lead-in prose and then emits a well-formed array must still
+// be parsed. Anchoring on the first "[" anywhere in the response spans from the
+// citation to the array's closer, which unmarshals as nothing.
+func TestParseVerdicts_BracketedProseBeforeTheArray(t *testing.T) {
+	raw := `Evidence [1] and [2] settle it:
+[{"harp_id":"a","outcome":"fired","evidence":["abc123"],"reasoning":"shipped"}]`
+	got, err := ParseVerdicts(raw)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "a", got[0].HarpID)
 }
 
 // ParseVerdicts consumes untrusted model output, so its contract is a property,

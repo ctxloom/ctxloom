@@ -347,12 +347,13 @@ func (w *AntigravityHookWriter) saveHooksFile(path string, hf *antigravityHooksF
 	for k, v := range hf.Other {
 		// hf.Other's values are always syntactically valid JSON — they came
 		// from a successful json.Unmarshal into map[string]json.RawMessage in
-		// loadHooksFile — so re-decoding into interface{} here cannot fail.
-		// U029-F12: the prior warn+skip branch for that "failure" was
-		// unreachable dead code that read as a real hazard.
-		var val interface{}
-		_ = json.Unmarshal(v, &val)
-		output[k] = val
+		// loadHooksFile — so the canonicaliser can re-emit them as-is and
+		// there is nothing here that can fail. Passing the ORIGINAL bytes is
+		// also what keeps them exact: a decode into interface{} first would
+		// round every number past float64's exact range
+		// (1234567890123456789 → 1234567890123456800), rewriting a file the
+		// user authored with no warning and a success exit code.
+		output[k] = json.RawMessage(v)
 	}
 
 	if len(hf.Hooks) > 0 {

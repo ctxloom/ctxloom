@@ -336,10 +336,17 @@ func filterOutCommand(hooks []any, command string) (kept []any, removed bool) {
 	return kept, removed
 }
 
+// decodeSettings parses the user's settings document for a read-modify-write.
+// UseNumber is load-bearing: every value in here is re-emitted by
+// CanonicalJSON, so a decode that lands numbers in float64 rewrites any
+// literal float64 cannot hold exactly (1234567890123456789 →
+// 1234567890123456800) in a file this process only meant to add a hook to.
 func decodeSettings(existing []byte) (map[string]any, error) {
 	settings := map[string]any{}
 	if trimmed := bytes.TrimSpace(existing); len(trimmed) > 0 {
-		if err := json.Unmarshal(trimmed, &settings); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(trimmed))
+		dec.UseNumber()
+		if err := dec.Decode(&settings); err != nil {
 			return nil, fmt.Errorf("parse existing settings: %w", err)
 		}
 	}

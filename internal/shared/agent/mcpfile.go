@@ -235,6 +235,12 @@ func (c MCPFileConfig) load() (*mcpFile, error) {
 // remains (no servers, no other fields) and the file does not exist, nothing
 // is written — uninstall never creates files.
 func (c MCPFileConfig) save(mf *mcpFile) error {
+	// A preserved field is re-emitted as its ORIGINAL bytes; each decode below
+	// is only the gate that decides whether the value can be carried through.
+	// Handing the DECODED value to the canonicaliser instead would round every
+	// number past float64's exact range (1234567890123456789 →
+	// 1234567890123456800), rewriting a file the user authored with no warning
+	// and a success exit code.
 	output := make(map[string]interface{})
 	for k, v := range mf.Other {
 		var val interface{}
@@ -242,7 +248,7 @@ func (c MCPFileConfig) save(mf *mcpFile) error {
 			c.Warn("failed to preserve %s field %q: %v", c.Label, k, err)
 			continue
 		}
-		output[k] = val
+		output[k] = json.RawMessage(v)
 	}
 	if len(mf.Servers) > 0 {
 		servers := make(map[string]interface{}, len(mf.Servers))
@@ -252,7 +258,7 @@ func (c MCPFileConfig) save(mf *mcpFile) error {
 				c.Warn("failed to preserve MCP server %q: %v", name, err)
 				continue
 			}
-			servers[name] = val
+			servers[name] = json.RawMessage(rawServer)
 		}
 		output[mcpFileServersKey] = servers
 	}

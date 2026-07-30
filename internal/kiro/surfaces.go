@@ -1,6 +1,8 @@
 package kiro
 
 import (
+	"fmt"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -131,7 +133,11 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 	fs := s.fs
 	path := w.agentPath(dir)
 	return agent.DeliveredFunc(func() error {
-		if exists, _ := afero.Exists(fs, path); !exists {
+		exists, err := afero.Exists(fs, path)
+		if err != nil {
+			return fmt.Errorf("failed to check %s: %w", path, err)
+		}
+		if !exists {
 			return nil
 		}
 		return fs.Remove(path)

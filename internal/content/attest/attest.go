@@ -247,6 +247,13 @@ func VerifyBundle(ctx context.Context, b content.Bundle, root signing.TrustRoot,
 // alone — the manifest that may attest it is a bundle-level object — and taking
 // both a Bundle and an unrelated Item would let a caller verify one bundle's
 // item against another bundle's manifest.
+//
+// SCOPE, stated because it is easy to over-read: this answers for ONE item form.
+// It does not enumerate the bundle and therefore does not see files elsewhere in
+// the tree — an added directory, or a mis-extensioned hook that is no item at
+// all. Those are bundle-level facts and only VerifyBundle reports them. A caller
+// deciding whether to trust a whole tree must call VerifyBundle; VerifyItem is
+// for deciding about one item in a tree already accepted.
 func VerifyItem(ctx context.Context, b content.Bundle, ref trust.Ref, f signing.Form, root signing.TrustRoot, now time.Time) (Verdict, error) {
 	item, err := b.Item(ctx, ref)
 	if err != nil {

@@ -195,6 +195,34 @@ func TestSignBundle_RefusesATreeWithAnUnrecognisedFileInAKindDirectory(t *testin
 	assert.ErrorIs(t, err, content.ErrUnclaimed)
 }
 
+// The residual hostile case SignBundle cannot prevent: a third party hand-crafts
+// a tree whose manifest DOES cover a mis-extensioned hook, and signs it. The
+// tree then matches its manifest perfectly, so VerifyContents is happy — and the
+// guardrail still does not exist, because nothing enumerates it as an item.
+// Verification must refuse the bundle outright rather than report it healthy.
+func TestVerifyBundle_ACoveredButUnrecognisedFileStillRefusesTheBundle(t *testing.T) {
+	store, b, fsys := fixture(t)
+	signer, pub := testSigner(t)
+
+	// Build and sign the manifest directly, bypassing SignBundle's refusal, to
+	// stand in for a tree ctxloom did not produce.
+	write(t, fsys, "hooks/pre_tool/typo.yml", "event: pre_tool\n")
+	m, err := content.BuildManifest(ctx, b)
+	require.NoError(t, err)
+	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
+	_, covered := m.Lookup("hooks/pre_tool/typo.yml")
+	require.True(t, covered, "the manifest covers by PATH, so the typo is legitimately covered")
+	sig, err := signing.Sign(m.Bytes(), signer, signing.NamespacePublish)
+	require.NoError(t, err)
+	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), content.Namespace(signing.NamespacePublish), sig))
+
+	require.NoError(t, m.VerifyContents(ctx, b), "integrity alone is satisfied — which is the trap")
+
+	_, err = VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, content.ErrUnclaimed)
+}
+
 func TestVerifyBundle_EditedFileUnderASignedManifestIsTampered(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)

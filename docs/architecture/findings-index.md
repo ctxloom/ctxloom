@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,060** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 43 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 95 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 133 |
-| `open` | no commit names this ID | **937** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,069** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 44 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 97 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 137 |
+| `open` | no commit names this ID | **921** |
 
-**Totals: 2268 findings across 162 units — 1,060 resolved, 937 still open, 271 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,069 resolved, 921 still open, 278 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 315 | 549 | 18 | 35 | 82 |
-| LOW | 871 | 395 | 362 | 15 | 52 | 47 |
+| MED | 999 | 320 | 538 | 19 | 36 | 86 |
+| LOW | 871 | 399 | 357 | 15 | 53 | 47 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1191,19 +1191,19 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F09 | open | `weave.go:84-87` | COUPLING | `weave` launches engine processes but never calls `failOnFindings`, so it launches agents on a config that `ctxloom run`/`ctxloom mcp` would refuse to start on. | U043.md |
 | U043-F14 | open | `startup_helpers.go` (whole file)` | COHESION | Two functions named `print*`/`write*` also mutate process-wide strictness state — a side effect their names actively disclaim — and the file bundles five unrelated startup concerns. | U043.md |
 | U044-F03 | **RESOLVED** `349c7c13` | `model.go:53, :520` | DEAD | `Model.firstLines` is written and never read | U044.md |
-| U044-F05 | open | `model.go:215, :436, :451` | CORRECTNESS | Feed-switch state reset rides on **unspecified** Go evaluation order | U044.md |
-| U044-F06 | open | `model.go:130, :131, :548-606` | CORRECTNESS | `View`'s "renders exactly `totalHeight` lines" contract breaks on small geometry, painting over the engine | U044.md |
-| U044-F07 | open | `model.go:643; render.go:147` | CORRECTNESS | Column framing is computed in **rune counts** over arbitrary engine output | U044.md |
+| U044-F05 | **RESOLVED** `6cb1acba` | `model.go:215, :436, :451` | CORRECTNESS | Feed-switch state reset rides on **unspecified** Go evaluation order | U044.md |
+| U044-F06 | **RESOLVED** `6f000455` | `model.go:130, :131, :548-606` | CORRECTNESS | `View`'s "renders exactly `totalHeight` lines" contract breaks on small geometry, painting over the engine | U044.md |
+| U044-F07 | **RESOLVED** `dda92fef` | `model.go:643; render.go:147` | CORRECTNESS | Column framing is computed in **rune counts** over arbitrary engine output | U044.md |
 | U044-F08 | **RESOLVED** `cfea9f18` | `model.go:493, :498-505` | ERRHANDLING | `copySelection` reports success after three independent silent failures | U044.md |
 | U044-F09 | **RESOLVED** `9da6487c` | `export.go:75-92` | CORRECTNESS | `exportTranscript` can write a file whose extension lies about its content | U044.md |
-| U044-F10 | open | `model.go:32-62` | COHESION | `Model` is three field-disjoint sub-models in one struct | U044.md |
-| U044-F11 | open | `model.go:193, :549; render.go:49; roster.go:17` | COMPLEXITY | Four functions exceed the project's own CI complexity gate | U044.md |
-| U044-F12 | open | `sources.go:39; `coord/folds.go:312`; `termui/surround.go:45` | DUPLICATE | Four near-identical "one row about a session" DTOs, and the two presentation packages make **opposite** coupling decisions about the same data | U044.md |
-| U044-F13 | open | `roster.go:4; `coord/livetap_test.go:287`; `coord/livetap_gap_test.go:182`; `termui/overlay_composition_test.go:189` | COUPLING | The agentcoord↔cli dependency runs **both ways**; the cycle is real, merely deferred into external test packages | U044.md |
-| U044-F14 | open | `sources.go:13-29; model.go:141, :185, :367, :468, :498` | COUPLING | `Sources` has five nilable fields with three different, unenforced nil contracts | U044.md |
-| U044-F15 | open | `sources.go:26, :44; model.go:275; `coord/coordinator.go:33-36` | COUPLING | Two stringly-typed contracts cross the agentcoord/cli seam with only comments holding them together | U044.md |
-| U044-F16 | open | `roster.go:32` | CORRECTNESS | Merging a coordinator entry can silently blank a session's state | U044.md |
-| U044-F23 | open | `model.go:213, :223, :243, :263, :273, :276, :372, :598-600` | CORRECTNESS | Status and error lifetimes are exactly backwards: successes vanish in ≤2s, errors stick forever | U044.md |
+| U044-F10 | **REFUTED** `dce0d0ff` | `model.go:32-62` | COHESION | `Model` is three field-disjoint sub-models in one struct | U044.md |
+| U044-F11 | **PARTIAL** `37d683c2` | `model.go:193, :549; render.go:49; roster.go:17` | COMPLEXITY | Four functions exceed the project's own CI complexity gate | U044.md |
+| U044-F12 | **ESCALATED** `PENDING` | `sources.go:39; `coord/folds.go:312`; `termui/surround.go:45` | DUPLICATE | Four near-identical "one row about a session" DTOs, and the two presentation packages make **opposite** coupling decisions about the same data | U044.md |
+| U044-F13 | **ESCALATED** `PENDING` | `roster.go:4; `coord/livetap_test.go:287`; `coord/livetap_gap_test.go:182`; `termui/overlay_composition_test.go:189` | COUPLING | The agentcoord↔cli dependency runs **both ways**; the cycle is real, merely deferred into external test packages | U044.md |
+| U044-F14 | **ESCALATED** `PENDING` | `sources.go:13-29; model.go:141, :185, :367, :468, :498` | COUPLING | `Sources` has five nilable fields with three different, unenforced nil contracts | U044.md |
+| U044-F15 | **ESCALATED** `PENDING` | `sources.go:26, :44; model.go:275; `coord/coordinator.go:33-36` | COUPLING | Two stringly-typed contracts cross the agentcoord/cli seam with only comments holding them together | U044.md |
+| U044-F16 | **RESOLVED** `5b0f7d92` | `roster.go:32` | CORRECTNESS | Merging a coordinator entry can silently blank a session's state | U044.md |
+| U044-F23 | **RESOLVED** `05cfce54` | `model.go:213, :223, :243, :263, :273, :276, :372, :598-600` | CORRECTNESS | Status and error lifetimes are exactly backwards: successes vanish in ≤2s, errors stick forever | U044.md |
 | U045-F04 | **RESOLVED** `875a8300` | **`backend.go:276`** | CORRECTNESS | The credential gate reads the **ambient process** `OPENAI_API_KEY` while its caller resolves `CODEX_HOME` from `req.Env` — so a per-agent `env:` key that would have authenticated the child is invis... | U045.md |
 | U045-F05 | **RESOLVED** `fbe2ce09` | **`settings.go:319-329`** | SILENTNOOP | A configured unified `SessionEnd` hook is silently discarded for codex — written nowhere, warned nowhere | U045.md |
 | U045-F06 | **PARTIAL** `0e94c0c8` | **`capabilities.go:8-15`** | DEAD | `CodexCommands`, `RegisterFromContent`, `WriteCommandFiles`, `promptsDirFor` and `codexPromptsDir` form an unreachable chain | U045.md |
@@ -2195,12 +2195,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F18 | open | `skill_cmd.go:54,120,170,216,278,326` | COUPLING | Six of seven skill subcommands use `context.Background()` instead of `cmd.Context()`, so Ctrl-C and any parent deadline do not reach the operations layer. | U043.md |
 | U043-F19 | **RESOLVED** `ab18012c` | `skill_cmd.go:59-67` + `:77-79` | NOPAY | With `--bundle` naming a bundle that has no skills (or a typo), the output is "No skills found. / Create one with: ctxloom skill create <bundle> <name>" — misleading, since skills do exist, just no... | U043.md |
 | U044-F04 | **RESOLVED** `349c7c13` | `sources.go:48; roster.go:30` | DEAD | `RosterRow.Self` has no production reader | U044.md |
-| U044-F17 | open | **`render.go:82, :129`** | CORRECTNESS | The expanded tool-result view tells the user to press the key they just pressed | U044.md |
+| U044-F17 | **RESOLVED** `f7fffc74` | **`render.go:82, :129`** | CORRECTNESS | The expanded tool-result view tells the user to press the key they just pressed | U044.md |
 | U044-F18 | **RESOLVED** `349c7c13` | **`doc.go:14-15`** | NOPAY | The package doc states a capability is absent that is fully implemented | U044.md |
-| U044-F19 | open | `export.go:82, :106, :113` | DUPLICATE | The export/copy render width `100` is an unnamed magic number repeated three times | U044.md |
-| U044-F20 | open | `roster.go:56, :63-75` | SIMPLIFY | `byHarp`'s values are never read, and lineage placement is O(n²) | U044.md |
-| U044-F21 | open | **`overlay.go:58-60, :69-76`** | CORRECTNESS | `Abort` can block on an unbuffered channel while holding `o.mu` | U044.md |
-| U044-F22 | open | `model.go:110-121` | ERRHANDLING | `teaKeyName` maps every unmapped byte to `"ctrl+@"`, silently disabling the back-key | U044.md |
+| U044-F19 | **RESOLVED** `0301a9df` | `export.go:82, :106, :113` | DUPLICATE | The export/copy render width `100` is an unnamed magic number repeated three times | U044.md |
+| U044-F20 | **RESOLVED** `44a57bef` | `roster.go:56, :63-75` | SIMPLIFY | `byHarp`'s values are never read, and lineage placement is O(n²) | U044.md |
+| U044-F21 | **RESOLVED** `92cbfd2a` | **`overlay.go:58-60, :69-76`** | CORRECTNESS | `Abort` can block on an unbuffered channel while holding `o.mu` | U044.md |
+| U044-F22 | **REFUTED** `679b5c64` | `model.go:110-121` | ERRHANDLING | `teaKeyName` maps every unmapped byte to `"ctrl+@"`, silently disabling the back-key | U044.md |
 | U045-F11 | **RESOLVED** `b3d8b606` | **`settings.go:208, 225`** | ERRHANDLING | `afero.Exists` errors are discarded, so an unreadable/permission-denied config is indistinguishable from an absent one: `RemoveSettings` returns nil having done nothing, `Status` reports `SettingsE... | U045.md |
 | U045-F12 | **RESOLVED** `aecbc4bb` | **`backend.go:234`** | CORRECTNESS | Doc/code mismatch on the trust pre-seed: the field doc says it is set "ONLY when resolveCodexProjectDir found an isolation-provided CODEX_HOME", but the code sets it for the container-fresh axis too | U045.md |
 | U045-F13 | **RESOLVED** `f24d82dc` | **`settings.go:302-314`** | DUPLICATE | `hasManagedHook` re-implements `removeManagedHooks`' three-level traversal for a boolean answer | U045.md |

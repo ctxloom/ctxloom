@@ -20,13 +20,40 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **895** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 30 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 64 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **907** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 31 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 66 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 120 |
-| `open` | no commit names this ID | **1,159** |
+| `open` | no commit names this ID | **1,144** |
 
-**Totals: 2268 findings across 162 units — 895 resolved, 1159 still open, 214 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 907 resolved, 1144 still open, 217 adjudicated without a fix.**
+
+Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
+LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
+U083-F26, U084-F05/F14, U098-F03, U117-F04, U118-F03, U133-F02) — 11 RESOLVED,
+2 REFUTED, 1 PARTIAL, and 1 recorded as already fixed. **Every one of the 15
+returned ZERO `git log --grep` hits at the base commit, and two of them were
+already fixed** under entirely different IDs: U084-F05's three per-engine hook
+scope checks were collapsed into one descriptor-driven loop by `bb97f1fb`
+(a claude/codex/kiro $HOME-collision fix), and U133-F02's triplicated
+`wire.MCPServer` deep copy was already one exported implementation with a
+parity gate added under U047-F13 @ `e13f8a9f`. The DUPLICATE label again hid
+worse defects than the duplication: U040-F07's two reference guards reported
+DIFFERENT errors for the same input (a `ctxloom:local@…` ref, which parses and
+carries no URL, was "invalid reference" from one guard and "reference has no
+repository URL" from the other); U061-F15's paired proto converters answered
+"empty" nine different ways across two guard styles, so an empty-but-non-nil
+slice could not survive its own round trip; and U117-F04's two `$SHELL`
+basename classifiers diverged in robustness, the shared one neither trimming
+nor case-folding, so `/usr/bin/Fish` or a stray-whitespace `$SHELL` got `-l`
+(which fish rejects) and the whole login-shell PATH recovery silently did
+nothing. Two rows were REFUTED as collapses and shipped tests instead:
+U118-F03's two `Ring`s have non-substitutable contracts (destructive `Drain`
+with drop accounting vs. repeatable `Tail`; deliberately non-thread-safe vs.
+mutex-guarded) and `internal/shared/stderrtail` had **no test file at all**
+despite owning the engine-stderr diagnostic path; U098-F03's three self-exe
+answers are three different questions (re-invocation, PATH-skew detection,
+container image ingredient) with three deliberately different contracts.
 
 Updated again 2026-07-29 by the `wave7/netneg-authoring` batch: all 14
 net-negative rows of the AUTHORING flow adjudicated (U030-F14, U035-F08,
@@ -305,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 350 | 6 | 10 | 6 | 4 |
-| MED | 999 | 232 | 661 | 11 | 20 | 75 |
-| LOW | 871 | 313 | 472 | 9 | 36 | 41 |
+| MED | 999 | 237 | 653 | 12 | 22 | 75 |
+| LOW | 871 | 320 | 465 | 9 | 36 | 41 |
 | (unparsed) | 22 | 0 | 20 | 0 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1130,7 +1157,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U040-F03 | open | `remote_update.go:449`, `:491` | COUPLING | Two functions that carefully accept `out`/`fs`/`appDir` as injectable seams then reach out to package-global flag variables for their decisive branch. | U040.md |
 | U040-F04 | open | `remote_update.go:509` | ERRHANDLING | The error return of the destructive cleanup call is discarded with `_`. | U040.md |
 | U040-F05 | **RESOLVED** `8a0043a0` | `remote_update.go:529` | DEAD | `reportBundleIssues` (29 lines) has **zero production call sites**. | U040.md |
-| U040-F06 | open | `remote_update.go:172-179` vs `:319-343` | DUPLICATE | `refreshRemoteClone` is `refreshRemoteRepos` specialised to one URL; the two share the whole body. | U040.md |
+| U040-F06 | **RESOLVED** `b2cb918d` | `remote_update.go:172-179` vs `:319-343` | DUPLICATE | `refreshRemoteClone` is `refreshRemoteRepos` specialised to one URL; the two share the whole body. | U040.md |
 | U040-F09 | open | `remote_discover.go:110` | CORRECTNESS | `interactiveAdd` opens its **own** `bufio.NewReader(os.Stdin)`, violating an invariant the codebase explicitly documents. | U040.md |
 | U040-F13 | open | **`review.go:81`** | COMPLEXITY | `runReview` is CCN 11 against a gate that fails above 10 — the complexity gate should currently be red for this file. | U040.md |
 | U040-F14 | open | **`review.go:412-423`, `:444-456`** | ERRHANDLING | A failed diff render is indistinguishable from an empty delta, and the reviewer is told nothing about why they are looking at full content. | U040.md |
@@ -1145,7 +1172,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F13 | open | **`run.go:1692-1723,1771-1776`** | COHESION | Cross-command primitives live in `run.go`: `stdinReader`, `promptLine`, `promptYesNo`, `plural` | U041.md |
 | U041-F20 | **REFUTED** `7b4382f9` | `run_owned.go (whole file)` | NOPAY | The entire Phase 2a-B host path — 283 lines including the unit's most complex function — has **zero** tests | U041.md |
 | U041-F22 | open | `run_owned.go:61` | COMPLEXITY | `startContainerOwnedRun` takes **14** positional parameters, three of which are `string` in a row | U041.md |
-| U041-F23 | open | **`run.go:1366-1368 + run_owned.go:46-51 + run.go:1137`** | DUPLICATE + COUPLING | The transport-arm decision is spread across two files as two predicates plus an implicit `else`, over the same three inputs | U041.md |
+| U041-F23 | **RESOLVED** `f4f8eb25` | **`run.go:1366-1368 + run_owned.go:46-51 + run.go:1137`** | DUPLICATE + COUPLING | The transport-arm decision is spread across two files as two predicates plus an implicit `else`, over the same three inputs | U041.md |
 | U042-F05 | open | `session_watch.go:155-173, 107-121` | ERRHANDLING | Every write error on the text `session watch` path is silently discarded: `writeWatchText` builds an `iox.ErrWriter` and never calls `Err()`, and `streamWatchEvents` ignores its (absent) return. A ... | U042.md |
 | U042-F06 | open | `session_cmd.go:146, 170; session_query.go:126` | DUPLICATE | Three functions independently implement the same two-step essence resolution (harp-dir first, then legacy `<sessionsDir>/<sessionID>.md`), kept in sync only by comments. | U042.md |
 | U042-F07 | open | `session_full.go:31-35` | DUPLICATE | `newSessionFullRow` resolves each session's essence **twice by two different mechanisms** — `newSessionRow` → `sessionEssenceInfo(appDir)` for the path, then `readSessionEssence` (which re-does the... | U042.md |
@@ -1296,7 +1323,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U060-F11 | open | `llm.proto` (whole)` | DUPLICATE | The schema is a third parallel type hierarchy: ~20 messages exist solely as hand-maintained mirrors of `internal/shared/agent` and `internal/shared/wire`, synced by hand-written converters | U060.md |
 | U060-F12 | open | `llm.proto` (whole)` | CORRECTNESS | Only 1 of ~120 scalar fields uses proto3 `optional`, so absent and zero are indistinguishable everywhere else — an empty/truncated message decodes as a valid, permissive request | U060.md |
 | U061-F04 | open | **`server.go:153-292`** | COMPLEXITY | `RunTurn` is CCN 14 against the project's own CI gate of 10 — the gate is red on this package today, not merely close. | U061.md |
-| U061-F05 | open | `sessionwatch.go:150-183, 196-229` | DUPLICATE | `WatchHistoryByPath` and `WatchCanonicalTranscript` are ~90% byte-identical: same poll-default guard, same two channels, same goroutine, same ticker, same `w.step` fan-out, same ctx select, same wa... | U061.md |
+| U061-F05 | **RESOLVED** `36dbf051` | `sessionwatch.go:150-183, 196-229` | DUPLICATE | `WatchHistoryByPath` and `WatchCanonicalTranscript` are ~90% byte-identical: same poll-default guard, same two channels, same goroutine, same ticker, same `w.step` fan-out, same ctx select, same wa... | U061.md |
 | U061-F06 | open | `sessionwatch.go:155, 201; 117-120, 163-165, 209-211` | ERRHANDLING | The `errs` channel returned by `WatchHistoryByPath` and `WatchCanonicalTranscript` is **never written to** — it is created, deferred-closed, and returned. A *permanent* read failure therefore warns... | U061.md |
 | U061-F07 | open | **`server.go:49, 236`** | COUPLING | `ExecutionMode` crosses the wire by **raw numeric cast** in both directions, making the proto enum and the Go enum connascent by *value* across two files with no mapping and no pinning test — while... | U061.md |
 | U061-F08 | open | `sessionhistory.go:246, 250, 260, 264; sessionwatch.go:106; plans.go:88; server.go:71, 134` | ERRHANDLING | No hand-written server handler or client method uses `google.golang.org/grpc/status`. Every error crosses the wire as `codes.Unknown` with a flattened string, so a caller cannot distinguish "this b... | U061.md |
@@ -1444,7 +1471,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U083-F16 | open | `engine_session.go:78`, `:114`, `:922`; `delegate.go:167`; `depgraph.go:264` | COMPLEXITY | Five functions exceed the project's stated CCN-10 CI gate, one of them anonymous (so a name-keyed gate cannot report it). | U083.md |
 | U083-F17 | **RESOLVED** `cc44e876` | `engine_session.go:609-621` | SILENTNOOP | `session/set_mode` replaces the session's lead context with `res.Context` unchecked — an assembly that succeeds while producing zero bytes silently blanks the mode's context. | U083.md |
 | U084-F04 | open | **`hooks.go:54`** | COUPLING | `ApplyHooks`'s exported `cfg *config.Config` parameter is **never read**; the function reloads config from disk instead. | U084.md |
-| U084-F05 | open | **`hooks.go:271-340`** | DUPLICATE | `checkClaudeHookTargetScope`, `checkCodexHookTargetScope` and `checkKiroHookTargetScope` are three structurally identical 15-line functions differing only in two function references and three messa... | U084.md |
+| U084-F05 | **RESOLVED** `e459008e` | **`hooks.go:271-340`** | DUPLICATE | `checkClaudeHookTargetScope`, `checkCodexHookTargetScope` and `checkKiroHookTargetScope` are three structurally identical 15-line functions differing only in two function references and three messa... | U084.md |
 | U084-F06 | open | **`hooks.go:64-66`** | CORRECTNESS | Production code calls `agent.SetExecutablePathForTesting(req.ExecPath)`, mutating an unsynchronized package global that is **never restored**. Confirms routed item 11, with one correction. | U084.md |
 | U084-F09 | open | `helpers.go:42-47` | ERRHANDLING | A malformed or unreadable `remotes.yaml` silently disables per-forge `token_env` resolution, with no warning — private-repo clones then fail later with a confusing auth error. | U084.md |
 | U084-F10 | open | `engine_types.go:222` vs `internal/acp/fsupstream.go:25` | COUPLING | `CTXLOOM_ACP_FS_UPSTREAM` is written as two independent string literals with **no test asserting they match**, and the stated justification does not hold. | U084.md |
@@ -1580,7 +1607,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U097-F03 | open | `schemagen.go:47` | CORRECTNESS | The `sort.Slice(targets, …)` call **buys no determinism** — each target writes to its own independent file, so write *order* cannot affect the bytes on disk — and it **mutates the caller's slice in... | U097.md |
 | U097-F04 | open | `schemagen.go:76-81` | CORRECTNESS | The derived-name fallback makes a **published `$id` depend on a Go type name**, so an ordinary Go rename silently republishes a schema under a different URL. And `reflect.Type.Name()` is `""` for a... | U097.md |
 | U098-F02 | open | `selfexec.go:20-36` | COUPLING | Exported test-only mutable global in a production package, with no synchronization, read from production spawn paths. | U098.md |
-| U098-F03 | open | `selfexec.go:51` vs `internal/shared/agent/symlink.go:25` vs `internal/lm/isolation/imagebuild.go:1044` | DUPLICATE | The repo has **three** different answers to "where is the running binary", with three different semantics, and nothing reconciles them. | U098.md |
+| U098-F03 | **REFUTED** `b11a209b` | `selfexec.go:51` vs `internal/shared/agent/symlink.go:25` vs `internal/lm/isolation/imagebuild.go:1044` | DUPLICATE | The repo has **three** different answers to "where is the running binary", with three different semantics, and nothing reconciles them. | U098.md |
 | U098-F05 | open | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |
 | U098-F06 | open | `internal/lm/isolation/imagebuild.go:599-604`, `1013-1016`, `713-719` | ERRHANDLING | The image-build path treats "I cannot resolve a usable self-exe" three different ways, one of which is silent — and on macOS/Windows that silent branch is the *default*, not the exception. | U098.md |
 | U099-F02 | open | `index.go:35-37` | CORRECTNESS | The `Entry` doc asserts "the json tags mirror the yaml keys so `ctxloom session list --format json` and any frontend reading it (the VSCode companion) share the same snake_case contract as the on-d... | U099.md |
@@ -1680,9 +1707,9 @@ Full evidence and the suggested action for any row live in its source review at 
 | U116-F07 | open | `ptyrunner.go:113` | ERRHANDLING | `cmd.Args[1:]` panics on a hand-constructed `*exec.Cmd` with a nil `Args`, and silently discards `cmd.Args[0]` — so a caller deliberately setting a different argv[0] from `cmd.Path` gets it dropped... | U116.md |
 | U117-F02 | open | **`shellenv.go:147-151`** | ERRHANDLING | **The probe subprocess's stderr is discarded**, so when the login shell fails there is no way to learn why. The returned error carries only the exit status. This repo built a package for precisely ... | U117.md |
 | U117-F03 | open | **`shellenv.go:41-43`, `:135-153`** | SILENTNOOP | `probeLoginShellPath` returns `("", nil)` — success with an empty payload — when the shell runs but prints nothing, and the cache blesses that as a valid outcome for the process lifetime. Guarded t... | U117.md |
-| U117-F04 | open | `internal/shared/shellenv/shellenv.go:14` vs `internal/ltk/shellenv/shellenv.go:4` | DUPLICATE | **Two different packages in this module are both named `shellenv`, both take `$SHELL` as input, and both classify shells by basename — and neither knows about the other.** `loginShellArgs` hand-rol... | U117.md |
+| U117-F04 | **PARTIAL** `d3689180` | `internal/shared/shellenv/shellenv.go:14` vs `internal/ltk/shellenv/shellenv.go:4` | DUPLICATE | **Two different packages in this module are both named `shellenv`, both take `$SHELL` as input, and both classify shells by basename — and neither knows about the other.** `loginShellArgs` hand-rol... | U117.md |
 | U118-F02 | open | `internal/vpio/dockerexec/dockerexec.go:261,273` | SILENTNOOP | The duplicate omits **both** safety guards the original has, and one of them is a latent zero-payload trap: `newTailRing` has no `max <= 0` guard, and `tail()` has no nil-receiver guard. | U118.md |
-| U118-F03 | open | `stderrtail.go:41-79` vs `internal/termui/ring.go:6-54` | DUPLICATE | A **third** live implementation of the same contract — bounded, drop-oldest, `Write` always succeeds, both named `Ring`. Unlike F01 this is not a verbatim copy: the implementation and the consumpti... | U118.md |
+| U118-F03 | **REFUTED** `5edcc976` | `stderrtail.go:41-79` vs `internal/termui/ring.go:6-54` | DUPLICATE | A **third** live implementation of the same contract — bounded, drop-oldest, `Write` always succeeds, both named `Ring`. Unlike F01 this is not a verbatim copy: the implementation and the consumpti... | U118.md |
 | U119-F02 | open | `strictness.go:270` | CORRECTNESS | `Close(inner)` on a goroutine that also holds an **outer** live `Mark` silently detaches the outer mark: the map entry is deleted, so the goroutine's next `record` builds a *new* window, and `Since... | U119.md |
 | U119-F03 | **ESCALATED** `2164010b` | `strictness.go:96`, `:255`, `:258` | NOPAY | The process-wide `findings` slice is appended on **every** production `record` (under `mu`) but is read by **nothing in production** — it backs only `All()` (0 prod call sites) and `Reset()` (0 pro... | U119.md |
 | U119-F04 | open | `strictness.go:364`, `:299` | SILENTNOOP | `record` accepts an empty `msg` with no guard, and `FindingsError` emits it as a bare `"\n - "`. A choke that formats to empty text aborts startup with exit 3 and **zero bytes of diagnosis** — the ... | U119.md |
@@ -1744,7 +1771,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U132-F05 | open | **`watch.go:87-90`** | ERRHANDLING | `Close` is **not idempotent**: a second call panics on `close of closed channel`. It also returns an error that both consumers discard, and it has no way to report that `pump` has actually stopped. | U132.md |
 | U132-F06 | open | **`watch.go:131-138`** | ERRHANDLING | Watch errors are dropped on the floor beyond the first: `errs` is buffered at 1 and the send is non-blocking with a bare `default:`. If a consumer never selects on `Errors()`, **every** error is di... | U132.md |
 | U132-F07 | open | **`watch.go:108-141`** | COMPLEXITY | `pump` is CCN 16 against a CI gate that fails above 10, with no `nolint` and no exclusion. | U132.md |
-| U133-F02 | open | **`mcp.go:84`** | DUPLICATE | The deep-copy semantics this package owns are re-implemented byte-for-byte in `internal/config`, and re-implemented a third time as proto converters — three copies with no compiler link | U133.md |
+| U133-F02 | **RESOLVED** `e459008e` | **`mcp.go:84`** | DUPLICATE | The deep-copy semantics this package owns are re-implemented byte-for-byte in `internal/config`, and re-implemented a third time as proto converters — three copies with no compiler link | U133.md |
 | U133-F03 | open | **`hooks.go:79`** | COHESION | The hooks half of this vocabulary has no merge primitive in `wire`; the primitive lives in an outer package and duplicates `Append` verbatim | U133.md |
 | U133-F04 | **RESOLVED** `305af0a1` | **`hooks.go:15-38`, `mcp.go:11-30`** | NOPAY | Every `mapstructure` tag in this unit (~13) is dead metadata — nothing in the repo decodes these types with mapstructure | U133.md |
 | U133-F05 | open | **`mcp.go:50`** | ERRHANDLING | `if src == nil \ | U133.md |
@@ -2128,11 +2155,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U039-F17 | **RESOLVED** `cac52a3e` `127539ad` | `remote.go:301` | TRIVIAL | `remotePullLock = true` immediately before `BoolVar(..., true, ...)` sets the same value — a no-op assignment that reads as if it mattered. | U039.md |
 | U039-F18 | open | `remote_browse.go:91` | CORRECTNESS | `-r/--recursive` defaults to `true`, so passing `-r` does nothing and the only way to get non-recursive behaviour is `--recursive=false` — a flag whose help text ("List items in subdirectories") de... | U039.md |
 | U039-F19 | open | `mcp_tools_memory.go:255, :279` | COMPLEXITY | With `distill_missing=true`, `sessionEssenceInfo` (which stats up to two files) is called twice per entry, and the whole entry list is re-read from disk (`:247`). | U039.md |
-| U040-F07 | open | `remote_update.go:69-77` and `:132-135` | DUPLICATE | The same reference string is parsed and URL-checked twice, one call apart, with two different error messages. | U040.md |
+| U040-F07 | **RESOLVED** `cb748ad4` | `remote_update.go:69-77` and `:132-135` | DUPLICATE | The same reference string is parsed and URL-checked twice, one call apart, with two different error messages. | U040.md |
 | U040-F08 | **RESOLVED** `24e4e92e` | `remote_update.go:194-208` | TRIVIAL | `reportUpdateStatus` takes `itemType` and returns it unchanged from all three branches. | U040.md |
 | U040-F10 | open | `remote_discover.go:151` | ERRHANDLING | `nameInput, _ := reader.ReadString('\n')` — an EOF or read error is silently converted into "user accepted the default remote name". | U040.md |
-| U040-F11 | open | `remote_update.go:573` | DUPLICATE | A third copy of `shortSHA` in the repo. | U040.md |
-| U040-F15 | open | **`root.go:50-57` and `:66-73`** | DUPLICATE | `GetConfig` and `GetConfigForUpdate` have identical bodies apart from `config.Load` vs `config.LoadFresh`. | U040.md |
+| U040-F11 | **RESOLVED** `5f97fdd8` | `remote_update.go:573` | DUPLICATE | A third copy of `shortSHA` in the repo. | U040.md |
+| U040-F15 | **RESOLVED** `b5f87279` | **`root.go:50-57` and `:66-73`** | DUPLICATE | `GetConfig` and `GetConfigForUpdate` have identical bodies apart from `config.Load` vs `config.LoadFresh`. | U040.md |
 | U040-F18 | open | **`review.go:86`** | CORRECTNESS | `ctxloom review --format json` on a TTY silently ignores `--format` and starts the interactive walk. | U040.md |
 | U040-F19 | open | `remote_discover.go:98` | CORRECTNESS | The interactive add-loop is entered unconditionally, with no TTY check. | U040.md |
 | U040-F20 | open | `remote_update.go:613` | ERRHANDLING | `checkDefaultProfiles` reports "no missing profiles" when the config cannot be loaded at all. | U040.md |
@@ -2145,7 +2172,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F18 | open | `run_resize_unix.go:27 / run_resize_windows.go:18` | ERRHANDLING | A `term.GetSize` failure silently means the pty never learns the terminal size | U041.md |
 | U041-F19 | open | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
 | U041-F21 | open | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
-| U041-F24 | open | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |
+| U041-F24 | **RESOLVED** `c482871e` | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |
 | U042-F12 | open | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
 | U042-F13 | open | `session_cmd.go:183-187` | DUPLICATE | `fileExists` is triplicated across three packages with a near-identical doc comment. | U042.md |
 | U042-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`search.go:167-171`** | TRIVIAL | `resolveSearchTypes`'s `case "profile"` returns literally the same expression as the preceding case. | U042.md |
@@ -2284,7 +2311,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F12 | open | `sessionhistory.go:21-33` | CORRECTNESS | The unix-seconds wire representation uses `0` as the "zero time" sentinel and drops sub-second precision. A genuine `1970-01-01T00:00:00Z` timestamp round-trips to `time.Time{}`, and two entries wr... | U061.md |
 | U061-F13 | open | **`server.go:39-41; sessionwatch.go:91-96`** | COHESION | `GRPCServer.watchPoll` is a production struct field whose only writers are tests. | U061.md |
 | U061-F14 | open | `shared.go:25-27; server.go:18` | COUPLING | `PluginMap` is an exported package-level **mutable** map consulted at every dial, and the `&LLMGRPCPlugin{}` it holds embeds a nil `plugin.Plugin` interface, so the promoted net/rpc `Server()`/`Cli... | U061.md |
-| U061-F15 | open | **`managed.go:119 vs :130; :49 vs :68; :234 vs :245`** | DUPLICATE | Nil-guard style is inconsistent across paired converters — `hs == nil` in `hooksToProto` (:119) but `len(hs) == 0` in `hooksFromProto` (:130); `in == nil` in `commandExportsToProto` (:49) but the s... | U061.md |
+| U061-F15 | **RESOLVED** `a814a093` | **`managed.go:119 vs :130; :49 vs :68; :234 vs :245`** | DUPLICATE | Nil-guard style is inconsistent across paired converters — `hs == nil` in `hooksToProto` (:119) but `len(hs) == 0` in `hooksFromProto` (:130); `in == nil` in `commandExportsToProto` (:49) but the s... | U061.md |
 | U061-F16 | open | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
 | U061-F17 | open | `procsession_unix.go:86-104` | CORRECTNESS | `killSessionExcept` has a pid-reuse TOCTOU: between `procSessionID(pid)` (:99) and `syscall.Kill(pid, SIGKILL)` (:102) the target can exit and its pid be reused by an unrelated process, which then ... | U061.md |
 | U061-F18 | **RESOLVED** `12f375ce` | `mock_client.go:158-160` | TRIVIAL | `NewMockClient` is a one-expression constructor (`return &MockClient{}`) used only by tests, and only two of them. | U061.md |
@@ -2393,12 +2420,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U083-F23 | open | `depgraph.go:187`, `:193-195` | COHESION | `unexpanded` is lazily initialised inside `markUnexpanded` while the walker's three other maps are initialised eagerly in `flattenRootsWith` — two conventions in one struct, and `result` (`:348`) r... | U083.md |
 | U083-F24 | open | `delegate.go:239-242` | CORRECTNESS | The oneshot+`copy` refusal fires even when the captured snapshot is empty (nothing to reproduce), turning a harmless spawn into an error. | U083.md |
 | U083-F25 | open | `engine_session.go:268`, `:400` | CORRECTNESS | `acpCoord` is dereferenced twice with no nil check, so a frontend that legitimately has no coordinator must pass a no-op implementation rather than `nil`. | U083.md |
-| U083-F26 | open | `engine_session.go:736-739` vs `:958` | DUPLICATE | The worktree-isolation announcement prose is duplicated verbatim in two places. | U083.md |
+| U083-F26 | **RESOLVED** `2df10350` | `engine_session.go:736-739` vs `:958` | DUPLICATE | The worktree-isolation announcement prose is duplicated verbatim in two places. | U083.md |
 | U084-F07 | **RESOLVED** `9f84aa35` | `helpers.go:71,78,84` | TRIVIAL | `NewRepoCache`, `NewCachedFetcherFactory` and `GetCachedFetcher` are exported one-line pass-throughs to same-package unexported twins. | U084.md |
 | U084-F08 | **RESOLVED** `0e703dc2` | `ensemble.go:193-198` | DEAD | `MapProfilesResult` is documented as "the CLI-facing envelope for a `map` run" but **there is no `ctxloom map` command**. | U084.md |
 | U084-F12 | open | `fragments.go:60-62` | ERRHANDLING | `ListFragments` returns the loader's error verbatim with no context — the caller cannot tell whether tag-listing or full-listing failed. | U084.md |
 | U084-F13 | open | `fragments.go:148-172`, `fragments.go:138` | CORRECTNESS | `sortContentInfos` silently returns the input **unsorted** for any `sortBy` other than `"name"`/`"source"`; `containsTag` has an undocumented "caller must lowercase `query`" precondition. | U084.md |
-| U084-F14 | open | **`items.go:425,441,457`** | DUPLICATE | Three helpers each re-implement the same fragment-vs-command switch to pull a different field group; a third `ItemKind` means editing eight `switch` statements with no compiler help. | U084.md |
+| U084-F14 | **RESOLVED** `c2c669f1` | **`items.go:425,441,457`** | DUPLICATE | Three helpers each re-implement the same fragment-vs-command switch to pull a different field group; a third `ItemKind` means editing eight `switch` statements with no compiler help. | U084.md |
 | U084-F15 | open | **`hooks.go:399,408` via `backends.BackendsWithSettings`** | CORRECTNESS | `ApplyHooksResult.Backends` is in map-iteration order, so `ctxloom manage hooks install` prints a different backend order on every run and JSON output is unstable. | U084.md |
 | U084-F17 | open | **`init.go:217-220`** | ERRHANDLING | `mustResource` is named for a contract it does not implement: it discards the error and returns nil, so a broken embed yields an empty config that `BuildInitialConfig` writes to disk as a project's... | U084.md |
 | U084-F18 | open | `legacy_cleanup.go:35,79-88` | CORRECTNESS | The empty-directory prune only removes **one level**, and an unreadable bundles root is silently treated as "nothing to do". | U084.md |

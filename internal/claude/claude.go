@@ -758,6 +758,21 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 	}
 }
 
+// configExists answers "is this config file there?" without guessing.
+// afero.Exists reports (false, err) for a path it could not STAT — a permission
+// wall on the directory, an I/O failure — and reading that as "absent" makes
+// every caller below lie: an uninstall becomes a silent no-op that reports
+// success while ctxloom's hooks stay installed, and a status report claims
+// nothing is installed over live config. Absent is only absent when the
+// filesystem says so; a missing file is still (false, nil).
+func configExists(fs afero.Fs, path string) (bool, error) {
+	exists, err := afero.Exists(fs, path)
+	if err != nil {
+		return false, fmt.Errorf("cannot determine whether %s exists: %w", path, err)
+	}
+	return exists, nil
+}
+
 // RemoveSettings implements SettingsWriter for Claude Code: it clears
 // ctxloom-managed hooks and statusline from settings.json and ctxloom-marked
 // servers from .mcp.json, touching neither file when it does not already exist.
@@ -776,7 +791,10 @@ func (w *ClaudeCodeHookWriter) RemoveSettings(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
-	exists, _ := afero.Exists(fs, settingsPath)
+	exists, err := configExists(fs, settingsPath)
+	if err != nil {
+		return err
+	}
 	if !exists {
 		return nil
 	}
@@ -798,7 +816,10 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
 	fs := w.getFS()
 	mcpPath := w.MCPConfigPath(projectDir)
-	exists, _ := afero.Exists(fs, mcpPath)
+	exists, err := configExists(fs, mcpPath)
+	if err != nil {
+		return err
+	}
 	if !exists {
 		return nil
 	}
@@ -820,7 +841,11 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 	var status agent.SettingsStatus
 
 	settingsPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, settingsPath); exists {
+	settingsExists, err := configExists(fs, settingsPath)
+	if err != nil {
+		return status, err
+	}
+	if settingsExists {
 		status.SettingsExists = true
 		settings, err := w.loadSettings(settingsPath)
 		if err != nil {
@@ -831,7 +856,11 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 	}
 
 	mcpPath := w.MCPConfigPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
+	mcpExists, err := configExists(fs, mcpPath)
+	if err != nil {
+		return status, err
+	}
+	if mcpExists {
 		mcpConfig, err := w.loadMCPConfig(mcpPath)
 		if err != nil {
 			return status, fmt.Errorf("failed to load existing .mcp.json: %w", err)

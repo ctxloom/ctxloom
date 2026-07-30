@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -108,6 +109,39 @@ type antigravityHookGroup struct {
 // without its methods, for recursion-free (un)marshalling.
 type antigravityHookGroupShape antigravityHookGroup
 
+// Known object keys per shape, DERIVED from the structs. The unknown-field
+// capture below works by removing the known keys from the raw object, so the set
+// it removes must be exactly the set of fields the shape declares — a
+// hand-written list of tag names has no compiler link to the struct and drifts
+// the moment a field is added.
+var (
+	hookGroupKnownKeys = jsonObjectKeys(antigravityHookGroupShape{})
+	hookEntryKnownKeys = jsonObjectKeys(antigravityHookEntryShape{})
+)
+
+// jsonObjectKeys returns the object keys encoding/json reads and writes for
+// shape's exported fields: the tag name when tagged, the field name otherwise,
+// skipping `json:"-"`.
+func jsonObjectKeys(shape any) []string {
+	typ := reflect.TypeOf(shape)
+	keys := make([]string, 0, typ.NumField())
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		keys = append(keys, name)
+	}
+	return keys
+}
+
 // UnmarshalJSON decodes the known fields and captures unknown keys in extra.
 func (g *antigravityHookGroup) UnmarshalJSON(data []byte) error {
 	var shape antigravityHookGroupShape
@@ -118,8 +152,9 @@ func (g *antigravityHookGroup) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	delete(raw, "matcher")
-	delete(raw, "hooks")
+	for _, known := range hookGroupKnownKeys {
+		delete(raw, known)
+	}
 	*g = antigravityHookGroup(shape)
 	if len(raw) > 0 {
 		g.extra = raw
@@ -164,7 +199,7 @@ func (e *antigravityHookEntry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	for _, known := range []string{"type", "command", "name", "timeout"} {
+	for _, known := range hookEntryKnownKeys {
 		delete(raw, known)
 	}
 	*e = antigravityHookEntry(shape)

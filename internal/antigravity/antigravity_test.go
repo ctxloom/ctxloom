@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -189,6 +190,69 @@ func TestAntigravityHookWriter_CompanionHookIdempotent(t *testing.T) {
 	}
 	assert.Equal(t, 1, exact, "companion hook must not duplicate across re-applies")
 	assert.Equal(t, 1, variant, "user's own variant of the same binary must survive")
+}
+
+// jsonProbeObject builds a JSON object carrying one entry for every
+// json-encodable field of shape (a type-plausible value per kind), plus a key no
+// struct declares. Derived from the struct by reflection so it stays honest as
+// the struct changes.
+func jsonProbeObject(t *testing.T, shape any) []byte {
+	t.Helper()
+	typ := reflect.TypeOf(shape)
+	fields := map[string]json.RawMessage{"fieldAgyAddedLater": json.RawMessage(`"keep me"`)}
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		switch f.Type.Kind() {
+		case reflect.String:
+			fields[name] = json.RawMessage(`"probe"`)
+		case reflect.Int:
+			fields[name] = json.RawMessage(`7`)
+		case reflect.Bool:
+			fields[name] = json.RawMessage(`true`)
+		default:
+			fields[name] = json.RawMessage(`null`)
+		}
+	}
+	data, err := json.Marshal(fields)
+	require.NoError(t, err)
+	return data
+}
+
+// TestHookShapes_UnknownCaptureExcludesEveryDeclaredField pins U029-F13: the
+// round-trip preservation in UnmarshalJSON captures unknown keys by REMOVING the
+// known ones from the raw object, so the set it removes has to be exactly the
+// set of fields the struct declares. Enumerating that set by hand — as two
+// literal string lists did — has no compiler link to the structs, so a field
+// added later silently lands in both the typed shape and the "unknown" carry-over
+// map. This test derives the probe object from the structs themselves, so it
+// fails the moment the two sets diverge.
+func TestHookShapes_UnknownCaptureExcludesEveryDeclaredField(t *testing.T) {
+	onlyUnknown := map[string]json.RawMessage{"fieldAgyAddedLater": json.RawMessage(`"keep me"`)}
+
+	t.Run("group", func(t *testing.T) {
+		var g antigravityHookGroup
+		require.NoError(t, json.Unmarshal(jsonProbeObject(t, antigravityHookGroupShape{}), &g))
+		assert.Equal(t, onlyUnknown, g.extra)
+		assert.Equal(t, "probe", g.Matcher, "the declared fields still decode into the shape")
+	})
+
+	t.Run("entry", func(t *testing.T) {
+		var e antigravityHookEntry
+		require.NoError(t, json.Unmarshal(jsonProbeObject(t, antigravityHookEntryShape{}), &e))
+		assert.Equal(t, onlyUnknown, e.extra)
+		assert.Equal(t, "probe", e.Type)
+		assert.Equal(t, 7, e.Timeout)
+	})
 }
 
 // TestAntigravityHookWriter_PreservesUnknownGroupAndEntryFields verifies

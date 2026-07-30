@@ -355,14 +355,16 @@ func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, 
 }
 
 // createItem creates a new item in a bundle. Thin wrapper over the
-// frontend-agnostic operations.AddItem core.
-func createItem(bundleName, itemName string, itemType ItemType) error {
+// frontend-agnostic operations.AddItem core, rendered through emit() so the
+// global --format is honoured and the human lines go to cmd.OutOrStdout()
+// rather than the process's real stdout.
+func createItem(cmd *cobra.Command, bundleName, itemName string, itemType ItemType) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	_, err = operations.AddItem(context.Background(), cfg, operations.AddItemRequest{
+	res, err := operations.AddItem(context.Background(), cfg, operations.AddItemRequest{
 		Bundle:  bundleName,
 		Kind:    itemType,
 		Name:    itemName,
@@ -375,14 +377,17 @@ func createItem(bundleName, itemName string, itemType ItemType) error {
 		return err
 	}
 
-	fmt.Printf("Created %s %q in bundle %q\n", itemType, itemName, bundleName)
-	fmt.Printf("Edit with: ctxloom %s edit %s#%s%s\n", itemType, bundleName, itemRefPrefix(itemType), itemName)
-	return nil
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Created %s %q in bundle %q\n", itemType, itemName, bundleName)
+		fmt.Fprintf(out, "Edit with: ctxloom %s edit %s#%s%s\n", itemType, bundleName, itemRefPrefix(itemType), itemName)
+		return nil
+	})
 }
 
 // deleteItem removes an item from a bundle. Thin wrapper over
-// operations.DeleteItem.
-func deleteItem(ref string, itemType ItemType) error {
+// operations.DeleteItem, rendered through emit() (see createItem).
+func deleteItem(cmd *cobra.Command, ref string, itemType ItemType) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -393,7 +398,7 @@ func deleteItem(ref string, itemType ItemType) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	_, err = operations.DeleteItem(context.Background(), cfg, operations.DeleteItemRequest{
+	res, err := operations.DeleteItem(context.Background(), cfg, operations.DeleteItemRequest{
 		Bundle: bundleName,
 		Kind:   itemType,
 		Name:   itemName,
@@ -405,8 +410,10 @@ func deleteItem(ref string, itemType ItemType) error {
 		return err
 	}
 
-	fmt.Printf("Deleted %s %q from bundle %q\n", itemType, itemName, bundleName)
-	return nil
+	return emit(cmd, res, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s %q from bundle %q\n", itemType, itemName, bundleName)
+		return nil
+	})
 }
 
 // editItem opens an item in the editor, then writes the new content back through
@@ -423,7 +430,7 @@ func deleteItem(ref string, itemType ItemType) error {
 // distillation leaves the item with NO distilled form (falls back to raw in
 // distilled-mode assembly) rather than a WRONG one. See docs at those
 // functions for the invariant this relies on.
-func editItem(ref string, itemType ItemType, noDistill bool) error {
+func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -447,8 +454,12 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 		return fmt.Errorf("editor failed: %w", err)
 	}
 	if newContent == cur.Content {
-		fmt.Println("No changes made.")
-		return nil
+		return emit(cmd, &operations.SetItemContentResult{
+			Status: "unchanged", Bundle: bundleName, Name: itemName,
+		}, func() error {
+			fmt.Fprintln(cmd.OutOrStdout(), "No changes made.")
+			return nil
+		})
 	}
 	if err := checkEditedContent(itemType, itemName, newContent); err != nil {
 		return err
@@ -465,14 +476,17 @@ func editItem(ref string, itemType ItemType, noDistill bool) error {
 		return err
 	}
 
-	fmt.Printf("Updated %s %q in bundle %q", itemType, itemName, bundleName)
-	if res.Distilled {
-		fmt.Print(" (re-distilled)")
-	}
-	fmt.Println()
-	fmt.Print(editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
-	printPushReminder(bundleName)
-	return nil
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Updated %s %q in bundle %q", itemType, itemName, bundleName)
+		if res.Distilled {
+			fmt.Fprint(out, " (re-distilled)")
+		}
+		fmt.Fprintln(out)
+		fmt.Fprint(out, editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
+		printPushReminder(out, bundleName)
+		return nil
+	})
 }
 
 // distillerForEdit resolves which Distiller SetItemContent should use for an
@@ -506,8 +520,9 @@ func editNoDistillWarning(itemType ItemType, ref string, noDistillFlag, wasAlrea
 }
 
 // distillItem (re)distills an item via the operations core; the CLI only
-// supplies the LLM-backed Distiller and renders the outcome.
-func distillItem(ref string, itemType ItemType, force bool) error {
+// supplies the LLM-backed Distiller and renders the outcome, through emit() so
+// the global --format is honoured.
+func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -531,20 +546,22 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 		return err
 	}
 
-	if res.Status == "skipped" {
-		switch res.Reason {
-		case "no_distill":
-			fmt.Printf("%s %q is marked as no_distill\n", titleCase(string(itemType)), itemName)
-		case "unchanged":
-			fmt.Printf("%s %q is already distilled and unchanged\n", titleCase(string(itemType)), itemName)
-		case "no_distiller":
-			fmt.Printf("no LLM plugin configured; cannot distill %s %q\n", itemType, itemName)
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		if res.Status == "skipped" {
+			switch res.Reason {
+			case "no_distill":
+				fmt.Fprintf(out, "%s %q is marked as no_distill\n", titleCase(string(itemType)), itemName)
+			case "unchanged":
+				fmt.Fprintf(out, "%s %q is already distilled and unchanged\n", titleCase(string(itemType)), itemName)
+			case "no_distiller":
+				fmt.Fprintf(out, "no LLM plugin configured; cannot distill %s %q\n", itemType, itemName)
+			}
+			return nil
 		}
+		fmt.Fprintf(out, "Distilled %s (%s)\n", itemName, res.ModelID)
 		return nil
-	}
-
-	fmt.Printf("Distilled %s (%s)\n", itemName, res.ModelID)
-	return nil
+	})
 }
 
 // pushBundle publishes the named bundle to a remote. Each step is an operations

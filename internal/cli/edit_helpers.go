@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -41,8 +42,8 @@ func editProfileFile(name string) error {
 
 // printPushReminder prints a reminder to push a modified bundle, using the
 // bundle reference the user supplied to the edit command.
-func printPushReminder(bundleRef string) {
-	fmt.Println()
-	fmt.Println("Bundle modified. To publish changes:")
-	fmt.Printf("  ctxloom bundle push %s [remote]\n", bundleRef)
+func printPushReminder(w io.Writer, bundleRef string) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Bundle modified. To publish changes:")
+	fmt.Fprintf(w, "  ctxloom bundle push %s [remote]\n", bundleRef)
 }

@@ -87,9 +87,11 @@ func TestEditItem_NoDistillClearsDistilledAndWarns(t *testing.T) {
 			setFakeEditor(t, "v2")
 
 			ref := "demo#" + itemRefPrefix(tc.itemType) + "x"
-			out := captureStdout(t, func() {
-				require.NoError(t, editItem(ref, tc.itemType, true))
-			})
+			// The renderer writes to cmd.OutOrStdout(), not the process's real
+			// stdout, so this buffer IS the delivered payload (U037-F18).
+			cmd, buf := testCmd()
+			require.NoError(t, editItem(cmd, ref, tc.itemType, true))
+			out := buf.String()
 
 			wantWarn := "warning: distilled form not refreshed (--no-distill); run `ctxloom " +
 				string(tc.itemType) + " distill " + ref + "`"
@@ -122,9 +124,9 @@ func TestEditItem_NoDistillRedundantOnAlreadyNoDistillItem(t *testing.T) {
 	require.NoError(t, err)
 	setFakeEditor(t, "v2")
 
-	out := captureStdout(t, func() {
-		require.NoError(t, editItem("demo#fragments/x", ItemTypeFragment, true))
-	})
+	cmd, buf := testCmd()
+	require.NoError(t, editItem(cmd, "demo#fragments/x", ItemTypeFragment, true))
+	out := buf.String()
 
 	assert.NotContains(t, out, "warning: distilled form not refreshed",
 		"an already no_distill item's --no-distill edit changes nothing about distillation; no warning needed")

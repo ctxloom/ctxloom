@@ -195,8 +195,10 @@ TOML integer round-trip does not fail verification.
   collide with `checkHookTargetScope`'s refusal to write a backend's user-global
   settings.
 - `config show`/`get`/`edit`/`init` accept `--format` and always emit YAML (see
-  [output-and-format.md](output-and-format.md)). Eleven `manage`/`mcp`/item
-  commands do the same with plain text.
+  [output-and-format.md](output-and-format.md)). The `manage`/`mcp` installer
+  commands and the `fragment`/`command` create/delete/edit/distill set now honour
+  it; `fragment show`/`command show` still print their item body regardless of
+  format (tracked in `format_coverage_test.go`'s debt ledger).
 - `manage gitignore install` prints "Updated `<path>`" and exits 0 even when the
   write failed — `ensureHarnessGitignore:137` has no return value and swallows
   `gitignore.Ensure`'s error into a warning.

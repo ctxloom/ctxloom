@@ -1162,3 +1162,60 @@ func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
 		t.Error("expected the wedged client to be Kill()ed (via reapLateChatDial) once its dial was declared failed")
 	}
 }
+
+// TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"
+// reproduces an untracked SYMLINK, not just an untracked regular file
+// (U083-F11). `git ls-files --others` lists symlinks exactly like regular
+// files, so a parent tree whose uncommitted work includes a new symlink used
+// to have that link dropped on the floor — no error, no warning, a worktree
+// that silently differs from what the copy handler promised to reproduce.
+// applyCopySnapshot's contract is "never half-applies and continues", and a
+// skipped symlink is precisely a half-application.
+func TestApplyCopySnapshot_ReproducesUntrackedSymlink(t *testing.T) {
+	resetStrictness(t)
+	parent := t.TempDir()
+	target := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(parent, "real.go"), []byte("package real"), 0o644))
+	require.NoError(t, os.Symlink("real.go", filepath.Join(parent, "link.go")))
+	require.NoError(t, os.MkdirAll(filepath.Join(parent, "nested"), 0o755))
+	require.NoError(t, os.Symlink("../real.go", filepath.Join(parent, "nested", "deep.go")))
+
+	snap := &copySnapshot{
+		untracked: []string{"real.go", "link.go", "nested/deep.go"},
+		sourceDir: parent,
+	}
+	require.NoError(t, applyCopySnapshot(context.Background(), &git.Fake{}, target, snap))
+
+	info, err := os.Lstat(filepath.Join(target, "link.go"))
+	require.NoError(t, err, "the untracked symlink must exist in the worktree")
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "and must still be a symlink, not a materialized copy of its target")
+	dest, err := os.Readlink(filepath.Join(target, "link.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "real.go", dest, "the link target is reproduced verbatim (never resolved to an absolute host path)")
+
+	deep, err := os.Readlink(filepath.Join(target, "nested", "deep.go"))
+	require.NoError(t, err, "a symlink under a subdirectory needs its parent dirs created too")
+	assert.Equal(t, "../real.go", deep)
+}
+
+// TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud pins the other
+// half of U083-F11: an untracked path that is NEITHER a regular file nor a
+// symlink (a fifo, a socket, a device node) must REFUSE rather than be
+// skipped in silence. The copy handler's whole promise is that the child's
+// worktree reproduces the parent's uncommitted state; anything it cannot
+// reproduce is a fact the caller is entitled to.
+func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
+	resetStrictness(t)
+	parent := t.TempDir()
+	target := t.TempDir()
+	fifo := filepath.Join(parent, "pipe")
+	if out, err := exec.Command("mkfifo", fifo).CombinedOutput(); err != nil {
+		t.Skipf("mkfifo unavailable: %v (%s)", err, out)
+	}
+
+	snap := &copySnapshot{untracked: []string{"pipe"}, sourceDir: parent}
+	err := applyCopySnapshot(context.Background(), &git.Fake{}, target, snap)
+	require.Error(t, err, "an unreproducible entry must fail loud, never be skipped silently")
+	assert.Contains(t, err.Error(), "pipe", "the refusal names the path it could not reproduce")
+}

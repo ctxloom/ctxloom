@@ -713,23 +713,40 @@ func applyCopySnapshot(ctx context.Context, gitClient git.Git, targetDir string,
 	return nil
 }
 
-// copyUntrackedFile copies one untracked file verbatim (bytes + mode) from
-// sourceDir/rel to targetDir/rel, creating any needed parent directories.
+// copyUntrackedFile reproduces one untracked entry from sourceDir/rel at
+// targetDir/rel, creating any needed parent directories. `git ls-files
+// --others` lists exactly two kinds of entry, and both are reproduced: a
+// regular file (bytes + permission bits) and a SYMLINK (recreated as a link
+// carrying the same target text — never dereferenced into a copy of what it
+// points at, which would silently turn a link into a file and, for a link
+// pointing outside the tree, bake a host path into the child's worktree).
+// Anything else cannot be reproduced, and is refused rather than skipped:
+// applyCopySnapshot's contract is that it never half-applies and continues.
 func copyUntrackedFile(sourceDir, targetDir, rel string) error {
 	src := filepath.Join(sourceDir, rel)
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
+	dst := filepath.Join(targetDir, rel)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, rerr := os.Readlink(src)
+		if rerr != nil {
+			return rerr
+		}
+		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return os.Symlink(target, dst)
+	}
 	if !info.Mode().IsRegular() {
-		return nil // defensive: `git ls-files` only lists regular files/symlinks; skip anything else silently
+		return fmt.Errorf("not a regular file or symlink (mode %s) — ctxloom cannot reproduce it in the child's worktree", info.Mode().Type())
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return err
-	}
-	dst := filepath.Join(targetDir, rel)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(dst, data, info.Mode().Perm())

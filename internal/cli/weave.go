@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var (
@@ -82,6 +83,13 @@ func runWeave(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("a synthesis profile is required (-s/--synthesize); or pass --no-synthesize to emit parts only")
 	}
 
+	// Fail-loudly choke owner (CLAUDE.md): weave LAUNCHES engine processes, so
+	// it owns a startup gate exactly like `ctxloom run`/`mcp`/`acp` and
+	// `profile materialize`. The checkpoint precedes the config load because
+	// that load is what RECORDS the fatal-class findings (printConfigWarnings)
+	// the gate below reads.
+	startupMark := strictness.Checkpoint()
+
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -100,6 +108,14 @@ func runWeave(cmd *cobra.Command, args []string) error {
 	// see checkWeaveInputs.
 	if err := checkWeaveInputs(members, injected, task); err != nil {
 		return err
+	}
+
+	// Abort BEFORE fanning members out: a config broken badly enough that
+	// `ctxloom run` refuses to start must not instead be handed to N parallel
+	// agents on whatever partial context survived it. --degraded (env
+	// CTXLOOM_DEGRADED=1) is the escape hatch, same as every other gate.
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
 	}
 
 	result, weaveErr := operations.Weave(cmd.Context(), cfg, operations.WeaveRequest{

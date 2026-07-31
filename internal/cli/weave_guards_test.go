@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -200,7 +202,13 @@ func brokenConfigProject(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".ctxloom", "config.yaml"),
 		[]byte("profiles:\n  definitions: [this is not a mapping\n"), 0o644))
+	t.Setenv(projectroot.EnvVar, root)
 	t.Chdir(root)
+
+	cfg, err := config.LoadFresh()
+	require.NoError(t, err)
+	require.NotEmpty(t, cfg.GetWarnings(),
+		"the fixture must actually produce a config warning, or the pin proves nothing")
 }
 
 // weave LAUNCHES engine processes, which makes it a process-owning entry point
@@ -212,7 +220,6 @@ func brokenConfigProject(t *testing.T) {
 // gate exists to prevent, because it is N sessions instead of one.
 func TestRunWeave_FatalConfigFindingAbortsBeforeLaunch(t *testing.T) {
 	resetStrictness(t)
-	neutralizeRefresh(t)
 	brokenConfigProject(t)
 	weaveOnlyInjectedParts(t)
 
@@ -229,7 +236,6 @@ func TestRunWeave_FatalConfigFindingAbortsBeforeLaunch(t *testing.T) {
 func TestRunWeave_DegradedModeStillWeaves(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
-	neutralizeRefresh(t)
 	brokenConfigProject(t)
 	weaveOnlyInjectedParts(t)
 

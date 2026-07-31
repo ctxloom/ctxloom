@@ -444,13 +444,14 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 }
 
 // shellForProgram maps program (a command's argv[0]) to the shell it itself
-// is, when it is a directly recognized shell/interpreter binary — deliberately
-// independent of shellenv.ShellFromPath (which has its own separate,
-// filepath.Base-is-OS-dependent defect, U075-F03) since this fixes a
-// different, HIGH-severity gap (U073-F10) and must not inherit that one.
-// path.Base is POSIX-only, so a Windows-style absolute path is normalized to
-// forward slashes first — the same fix as programBasename above, for the
-// same reason. Returns "" when program is not one of these.
+// is, when it is a directly recognized shell/interpreter binary. It is
+// deliberately independent of shellenv.ShellFromPath: that one answers "which
+// dialect is this HOST", this one answers "which dialect does this ARGV[0]
+// interpret", and the two tables are free to diverge (ksh is spelled here
+// without its version suffixes, for instance). path.Base is POSIX-only, so a
+// Windows-style absolute path is normalized to forward slashes first — the
+// same fix as programBasename above, for the same reason. Returns "" when
+// program is not one of these.
 func shellForProgram(program string) ir.Shell {
 	name := strings.ToLower(path.Base(strings.ReplaceAll(program, `\`, "/")))
 	name = strings.TrimSuffix(name, ".exe")

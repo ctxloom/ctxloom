@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,323** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 142 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 143 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
-| `open` | no commit names this ID | **453** |
+| `open` | no commit names this ID | **452** |
 
-**Totals: 2268 findings across 162 units — 1,323 resolved, 453 still open, 492 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,323 resolved, 452 still open, 493 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 476 | 251 | 80 | 79 | 113 |
-| LOW | 871 | 490 | 190 | 47 | 87 | 57 |
+| LOW | 871 | 490 | 189 | 48 | 87 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2256,7 +2256,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F15 | **RESOLVED** `ed3bd3dd` | `util_config_write.go:325-328` | TRIVIAL | `asConfigMap` is a bare two-line type assertion with no invariant. | U043.md |
 | U043-F16 | open | `weave.go:232-234` | COUPLING | `--map-only` and `--no-synthesize` are registered as two independent bool flags bound to the same pointer — an undeclared alias that appears twice in `--help` and twice in shell completion, with no... | U043.md |
 | U043-F17 | open | `weave.go:75-148`, `util_config_write.go:111-191` | COMPLEXITY | Both functions exceed the project's CCN-10 CI gate (19 and 18). | U043.md |
-| U043-F18 | open | `skill_cmd.go:54,120,170,216,278,326` | COUPLING | Six of seven skill subcommands use `context.Background()` instead of `cmd.Context()`, so Ctrl-C and any parent deadline do not reach the operations layer. | U043.md |
+| U043-F18 | **PARTIAL** `927d011b` | `skill_cmd.go:54,120,170,216,278,326` | COUPLING | Six of seven skill subcommands use `context.Background()` instead of `cmd.Context()`, so Ctrl-C and any parent deadline do not reach the operations layer. | U043.md |
 | U043-F19 | **RESOLVED** `ab18012c` | `skill_cmd.go:59-67` + `:77-79` | NOPAY | With `--bundle` naming a bundle that has no skills (or a typo), the output is "No skills found. / Create one with: ctxloom skill create <bundle> <name>" — misleading, since skills do exist, just no... | U043.md |
 | U044-F04 | **RESOLVED** `349c7c13` | `sources.go:48; roster.go:30` | DEAD | `RosterRow.Self` has no production reader | U044.md |
 | U044-F17 | **RESOLVED** `f7fffc74` | **`render.go:82, :129`** | CORRECTNESS | The expanded tool-result view tells the user to press the key they just pressed | U044.md |

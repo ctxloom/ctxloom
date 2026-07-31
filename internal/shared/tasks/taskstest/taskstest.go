@@ -95,6 +95,12 @@ var EnvKeys = []string{
 	// any test, and therefore before any Isolate) by the self-test that proves
 	// the sandbox guard can go red — clearing it here is harmless.
 	"CTXLOOM_TEST_SANDBOX_OFF",
+	// Same again for gitfixture.go's EnvAllowMissingGit, a non-_test.go file
+	// under internal/ that the same sweep reaches. It is read ONCE at package
+	// init for the identical reason dockergate reads its knob there: a fixture
+	// consulted after a test has isolated would otherwise find it cleared and
+	// silently demote a required git back to a skip.
+	"CTXLOOM_ALLOW_MISSING_GIT",
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
 	"CODEX_HOME",

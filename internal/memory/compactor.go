@@ -126,6 +126,11 @@ type Compactor struct {
 	source        pb.SessionSource
 	plans         func(context.Context, string) ([]agent.PlanFile, error)
 	clientFactory pb.ClientFactory
+	// sourceErr records why source is nil, when the reason is a failure rather
+	// than an unsupported backend. Without it every nil source reads as "this
+	// backend has no session history", which for the retired-scraper backends
+	// -- the default one included -- is both wrong and unactionable.
+	sourceErr error
 }
 
 // memoryHistorySource adapts an in-process SessionHistory to pb.SessionSource.
@@ -179,8 +184,9 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	// ctxloom never parses backend files in-process. Tests inject a backend whose
 	// in-process SessionHistory is adapted to the same SessionSource contract.
 	var (
-		source pb.SessionSource
-		plans  func(context.Context, string) ([]agent.PlanFile, error)
+		source    pb.SessionSource
+		sourceErr error
+		plans     func(context.Context, string) ([]agent.PlanFile, error)
 	)
 	if config.BackendOverride != nil {
 		if h := config.BackendOverride.History(); h != nil {
@@ -214,14 +220,21 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		if !pb.IsRetiredScraperBackend(config.Backend) {
 			legacy = reader
 		}
-		if store, sErr := sessions.Open(""); sErr == nil {
+		store, sErr := sessions.Open("")
+		switch {
+		case sErr == nil:
 			source = pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store)
-		} else if legacy != nil {
+		case legacy != nil:
 			source = legacy
+		default:
+			// A retired-scraper backend has no legacy leg, so the canonical
+			// layer is the ONLY transcript source and its index failing to open
+			// is the whole reason there is nothing to read. Carry that reason:
+			// the alternative is telling the user their backend does not support
+			// session history, which is a different problem with a different
+			// remedy and is not what happened.
+			sourceErr = fmt.Errorf("session index unavailable: %w", sErr)
 		}
-		// legacy == nil and the index failed to open: source stays nil, and
-		// loadSessionToCompact reports "no history" — the same degradation the
-		// BackendOverride h==nil branch above already documents.
 	}
 
 	return &Compactor{
@@ -229,6 +242,7 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		source:        source,
 		plans:         plans,
 		clientFactory: config.ClientFactory,
+		sourceErr:     sourceErr,
 	}, nil
 }
 
@@ -471,6 +485,9 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 // isEmptySession, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
 	if c.source == nil {
+		if c.sourceErr != nil {
+			return nil, c.sourceErr
+		}
 		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
 	}
 

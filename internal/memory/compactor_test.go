@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -1701,4 +1702,47 @@ func TestNewCompactor_ChunkSizeBand(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 4000, c.config.ChunkSize)
 	})
+}
+
+// TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason pins the error a
+// user actually sees when the canonical session index cannot be opened on a
+// retired-scraper backend. Those backends (claude-code, the default, among
+// them) have no legacy scraper leg, so the canonical layer is the only
+// transcript source; when its index fails to open there is nothing to read.
+// That used to surface as "backend %q does not support session history" — a
+// true statement about a different problem, pointing at a remedy (switch
+// backends) that cannot fix an unwritable index.
+func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
+	home := testsupport.Isolate(t)
+
+	// Make sessions.Open("") fail: it MkdirAll's the index's parent, so a plain
+	// file where that directory belongs is enough.
+	sessionsPath := filepath.Join(home, ".ctxloom", "sessions")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
+	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
+
+	// The fixture must be hostile from the code-under-test's vantage point
+	// before anything is asserted about behaviour: a temp HOME that the
+	// compactor does not actually consult would make this test green for the
+	// wrong reason.
+	_, openErr := sessions.Open("")
+	require.Error(t, openErr, "fixture is not hostile: sessions.Open still succeeds")
+
+	backend := "claude-code"
+	require.True(t, pb.IsRetiredScraperBackend(backend),
+		"fixture assumes a backend with no legacy scraper leg")
+
+	c, err := NewCompactor(CompactionConfig{Backend: backend})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = c.Compact(ctx)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, context.DeadlineExceeded)
+
+	assert.Contains(t, err.Error(), "session index",
+		"the failure that actually happened must be the one reported")
+	assert.NotContains(t, err.Error(), "does not support session history",
+		"reporting an unsupported backend sends the user after the wrong remedy")
 }

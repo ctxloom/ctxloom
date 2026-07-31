@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
@@ -120,4 +122,42 @@ func TestPrintDistillSummary_NoItemsReportsNothingToDistill(t *testing.T) {
 	var buf bytes.Buffer
 	printDistillSummary(&buf, 0, 0, 0, false)
 	assert.Contains(t, buf.String(), "No items to distill.")
+}
+
+// The sibling context is part of the message sent to the distiller, so its
+// ordering is an INPUT to the model: two runs over the same bundle must build
+// byte-identical context or distillation is nondeterministic run-to-run.
+func TestBuildSiblingContext_IsDeterministic(t *testing.T) {
+	b := &bundles.Bundle{
+		Name:        "kitchen",
+		Description: "a bundle with several siblings",
+		Version:     "1.2.3",
+		Tags:        []string{"alpha", "beta"},
+		Fragments: map[string]bundles.BundleFragment{
+			"delta":   {Content: "delta body"},
+			"alpha":   {Content: "alpha body"},
+			"charlie": {Content: "charlie body"},
+			"bravo":   {Content: "bravo body"},
+			"echo":    {Content: "echo body"},
+		},
+		Commands: map[string]bundles.BundleCommand{
+			"zulu":    {Description: "zulu desc"},
+			"yankee":  {Description: "yankee desc"},
+			"xray":    {Description: "xray desc"},
+			"whiskey": {Description: "whiskey desc"},
+			"victor":  {Description: "victor desc"},
+		},
+	}
+
+	first := buildSiblingContext(b, "fragments/alpha")
+	for i := 0; i < 50; i++ {
+		assert.Equal(t, first, buildSiblingContext(b, "fragments/alpha"),
+			"sibling context must not depend on Go map iteration order (run %d)", i)
+	}
+
+	// And the order is the stable one a reader can predict, not merely repeatable.
+	assert.Less(t, strings.Index(first, "- bravo:"), strings.Index(first, "- charlie:"))
+	assert.Less(t, strings.Index(first, "- charlie:"), strings.Index(first, "- delta:"))
+	assert.Less(t, strings.Index(first, "- victor:"), strings.Index(first, "- whiskey:"))
+	assert.Less(t, strings.Index(first, "- whiskey:"), strings.Index(first, "- xray:"))
 }

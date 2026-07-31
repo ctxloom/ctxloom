@@ -119,13 +119,7 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 		return nil, err
 	}
 
-	var result *MoveBundleResult
-	switch dest.Kind {
-	case moveDestRemote:
-		result, err = moveToRemote(ctx, cfg, fs, req, name, src, dest.Remote)
-	default:
-		result, err = moveToPath(ctx, cfg, fs, req, name, src, dest.Dir)
-	}
+	result, err := moveByDest(ctx, cfg, fs, req, name, src, dest)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +129,26 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 		return nil, err
 	}
 	return result, nil
+}
+
+// moveByDest routes a resolved destination to the writer that services it.
+//
+// The switch is EXHAUSTIVE over moveDestKind, and an unrecognised kind is an
+// error rather than the local-copy branch. That matters more here than it looks:
+// MoveBundle deletes the source the moment this returns without an error, so a
+// kind that fell through to the local copy would be handed whatever Dir happened
+// to be set — "" for any destination that does not populate it — and the source
+// would be removed behind a write that went somewhere nobody chose. A
+// destination this function does not understand must stop the move.
+func moveByDest(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src string, dest moveDest) (*MoveBundleResult, error) {
+	switch dest.Kind {
+	case moveDestRemote:
+		return moveToRemote(ctx, cfg, fs, req, name, src, dest.Remote)
+	case moveDestPath:
+		return moveToPath(ctx, cfg, fs, req, name, src, dest.Dir)
+	default:
+		return nil, fmt.Errorf("unsupported move destination kind %q", dest.Kind)
+	}
 }
 
 // loadMoveSource resolves the authored bundle to move, returning its canonical

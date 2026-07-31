@@ -201,3 +201,55 @@ func TestNewBundleReaderForConfig_SilentOnGoodLockfile(t *testing.T) {
 	assert.NotNil(t, NewBundleReaderForConfig(cfg))
 	assert.Empty(t, sink.String())
 }
+
+// ---------------------------------------------------------------------------
+// U081-F12 — the destination switch must be exhaustive, not default-to-copy.
+// ---------------------------------------------------------------------------
+
+// TestMoveByDest_UnrecognisedKindRefuses is the guard on a move's most
+// dangerous property: the caller deletes the source as soon as this returns
+// without an error. A destination kind the router does not understand must
+// therefore stop the move, not fall through to the local-copy branch with
+// whatever Dir happens to be set.
+func TestMoveByDest_UnrecognisedKindRefuses(t *testing.T) {
+	fs, cfg := memMoveFS(t, false)
+	src := srcBundlePath(cfg)
+
+	res, err := moveByDest(context.Background(), cfg, fs, MoveBundleRequest{Name: "seed", To: "/out"},
+		"seed", src, moveDest{Kind: moveDestKind("sftp"), Dir: "/out"})
+
+	require.Error(t, err)
+	assert.Nil(t, res)
+	assert.Contains(t, err.Error(), "sftp", "the refusal must name the kind it did not understand")
+
+	// The payload assertion, not the exit path: nothing was written at the
+	// destination the fall-through branch would have used.
+	copied, _ := afero.Exists(fs, filepath.Join("/out", "seed.yaml"))
+	assert.False(t, copied, "an unrecognised destination must not be copied to")
+
+	// And the source is still there — a refusal must never be the step that
+	// makes MoveBundle eligible to delete it.
+	stillThere, _ := afero.Exists(fs, src)
+	assert.True(t, stillThere)
+}
+
+// TestMoveByDest_KnownKindsStillRoute is the characterization half: both
+// recognised kinds must keep reaching their writers unchanged.
+func TestMoveByDest_KnownKindsStillRoute(t *testing.T) {
+	fs, cfg := memMoveFS(t, false)
+	src := srcBundlePath(cfg)
+
+	res, err := moveByDest(context.Background(), cfg, fs, MoveBundleRequest{Name: "seed", To: "/out"},
+		"seed", src, moveDest{Kind: moveDestPath, Dir: "/out"})
+	require.NoError(t, err)
+	assert.Equal(t, MoveDestPath, res.DestKind)
+	assert.Equal(t, filepath.Join("/out", "seed.yaml"), res.Dest)
+
+	// The remote branch is reached (and fails on its own terms, with no
+	// PublishManager wired) rather than being routed to the local copy.
+	_, rerr := moveByDest(context.Background(), cfg, fs, MoveBundleRequest{Name: "seed", To: "nope"},
+		"seed", src, moveDest{Kind: moveDestRemote, Remote: "nope"})
+	require.Error(t, rerr)
+	assert.NotContains(t, rerr.Error(), "destination is the bundle's own directory",
+		"a remote destination must not be answered by the local-copy branch")
+}

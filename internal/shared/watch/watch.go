@@ -91,7 +91,8 @@ func New(root string, recursive bool, filter func(path string) bool) (*Watcher, 
 // Events delivers change events until the Watcher is closed.
 func (w *Watcher) Events() <-chan Event { return w.events }
 
-// Errors delivers watch errors (one is buffered) so a consumer can surface them.
+// Errors delivers every watch error (one is buffered, the rest wait) so a
+// consumer can surface them. Nothing is discarded: see pump.
 func (w *Watcher) Errors() <-chan error { return w.errs }
 
 // stopped reports whether Close has been called, so a consumer can tell a
@@ -167,9 +168,17 @@ func (w *Watcher) pump() {
 			if !ok {
 				return
 			}
+			// Every watch error is delivered, never dropped. A watch error is
+			// not decoration — "inotify queue overflow" means events were LOST,
+			// so discarding one leaves a watch that is silently missing changes
+			// looking exactly like a healthy quiet one. The send therefore
+			// blocks until the consumer takes it, with only Close as an escape:
+			// a consumer that stops reading Errors() stalls its own stream,
+			// which is visible, instead of losing failures, which is not.
 			select {
 			case w.errs <- err:
-			default:
+			case <-w.done:
+				return
 			}
 		}
 	}

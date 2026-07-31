@@ -289,9 +289,21 @@ func RecordUserText(rec Recorder, text string) {
 // chat it is shadowing (a transcript write failure is not a reason to lose a
 // user's conversation). Record errors are therefore recorded as best-effort;
 // S2, which owns the actual host wiring, decides whether to surface them
-// (e.g. via a logger) when it wires tee in — this helper's contract is just
-// "never blocks, never drops an event from the forwarded stream, never panics
-// the caller's chat on a write failure."
+// (e.g. via a logger) when it wires tee in.
+//
+// The contract is: CAPTURE never delays the stream, no event is dropped from
+// the forwarded stream, and a write failure never panics the caller's chat.
+// It is NOT "never blocks", and cannot be: out is unbuffered, so the forward
+// applies exactly the backpressure the caller's own consumer applies, which
+// is the price of losing no events — the two guarantees are mutually
+// exclusive on an unbuffered channel and only the lossless one is chosen
+// here. What capture buys is ordering: Record runs BEFORE the send, so a slow
+// or absent consumer delays forwarding but never a write.
+//
+// The consequence a caller must own: this goroutine lives until events closes
+// AND every event has been taken from out. A consumer that abandons out
+// leaves it parked forever, and via TeeAndClose that also leaves the
+// Recorder's file handle open. There is no cancellation seam here today.
 func tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 	out := make(chan agent.ChatEvent)
 	go func() {
@@ -314,6 +326,13 @@ func tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 // Close's error is swallowed for the same reason tee swallows Record's: a
 // transcript-capture failure must never be visible to (or block) the live
 // chat it is shadowing.
+//
+// "Fully drained" is literal and is the caller's obligation: Close runs only
+// after every event has been taken from the returned channel. A consumer that
+// stops reading part-way parks both goroutines and the file handle stays open
+// for the lifetime of the process — the same fd leak a bare tee would cause,
+// moved rather than removed. See tee's doc for why no cancellation seam
+// exists.
 func TeeAndClose(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 	teed := tee(rec, events)
 	out := make(chan agent.ChatEvent)

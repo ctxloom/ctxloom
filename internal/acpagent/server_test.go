@@ -1170,7 +1170,7 @@ func TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed(t *testing.T) {
 		return eng.chat(""), nil
 	}
 
-	sess, rerr := s.openSession(OpenRequest{ResumeHarp: "tidy-old-harp"}, "tidy-old-harp")
+	sess, rerr := s.openSession(OpenRequest{ResumeHarp: "tidy-old-harp"}, "tidy-old-harp", nil)
 
 	require.NotNil(t, rerr, "the requested harp was taken while we opened — that must be refused")
 	assert.Nil(t, sess)

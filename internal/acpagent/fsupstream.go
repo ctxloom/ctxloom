@@ -178,22 +178,26 @@ func (h *fsUpstreamHandler) HandleNotification(ctx context.Context, method strin
 // it stands up the listener (nil when unavailable/unneeded — see
 // startFsUpstream), threads its address into the OpenRequest so
 // OpenEngineSession can decide per-axis whether to actually forward it (see
-// operations.OpenRequest.FsUpstreamAddr), and attaches the listener to the
-// resulting session for teardown — or closes it immediately when
-// openSession itself failed, so a failed session open never leaks the
-// socket.
+// operations.OpenRequest.FsUpstreamAddr), and hands it to openSession to
+// attach BEFORE the session is published — or closes it immediately when
+// openSession failed, so a failed session open never leaks the socket.
+//
+// The listener must reach the session inside openSession's registration
+// critical section, not be assigned here on return: a published session is
+// already visible to closeAllSessions and to its own child-watch goroutine,
+// so a late assignment is both an unsynchronized write and a window in which
+// teardown finds no listener to close and the socket outlives the session.
 func (s *Server) openSessionWithFsUpstream(req OpenRequest, fixedID api.SessionId) (*session, *jsonrpc.Error) {
 	fsUp := s.startFsUpstream()
 	if fsUp != nil {
 		req.FsUpstreamAddr = fsUp.Addr()
 	}
-	sess, rerr := s.openSession(req, fixedID)
+	sess, rerr := s.openSession(req, fixedID, fsUp)
 	if rerr != nil {
 		if err := fsUp.Close(); err != nil {
 			clidiag.Warn("ctxloom", "acp agent: fs-upstream listener cleanup: %v", err)
 		}
 		return nil, rerr
 	}
-	sess.fsUpstream = fsUp
 	return sess, nil
 }

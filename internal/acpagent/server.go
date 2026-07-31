@@ -140,8 +140,11 @@ type session struct {
 	// fsUpstream is this session's local fs reach-back listener (B5, gap
 	// G14) — nil when the connected editor never declared the fs
 	// capability, or listener setup failed (both degrade to local disk,
-	// never a refused session). Closed once, at server teardown
-	// (closeAllSessions); see internal/acpagent/fsupstream.go.
+	// never a refused session). Set once, before the session is published
+	// into s.sessions, and never mutated afterwards, so the teardown paths
+	// that read it from other goroutines need no lock and can never observe
+	// a session whose listener has not been attached yet. Closed once, at
+	// teardown (teardownSession); see internal/acpagent/fsupstream.go.
 	fsUpstream *fsUpstreamListener
 }
 
@@ -508,7 +511,14 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 // openSession opens the engine conversation and registers the session. A
 // fixed id (session/load) is honored — and must not already be live; "" mints
 // one (the engine's harp when available, else a connection-local id).
-func (s *Server) openSession(req OpenRequest, fixedID api.SessionId) (*session, *jsonrpc.Error) {
+//
+// fsUp (possibly nil) is attached to the session INSIDE the registration
+// critical section rather than by the caller afterwards. A session becomes
+// reachable to every other goroutine — closeAllSessions, and its own
+// child-watch goroutine below — the instant it lands in s.sessions, so any
+// field assigned after that point is both an unsynchronized write and a
+// window in which teardown sees nothing to tear down.
+func (s *Server) openSession(req OpenRequest, fixedID api.SessionId, fsUp *fsUpstreamListener) (*session, *jsonrpc.Error) {
 	if fixedID != "" && s.lookup(fixedID) != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "session already active: " + string(fixedID)}
 	}
@@ -554,6 +564,7 @@ func (s *Server) openSession(req OpenRequest, fixedID api.SessionId) (*session, 
 		modes:        engine.Modes,
 		openCall:     make(map[string][]api.ToolCallId),
 		commands:     engine.Commands,
+		fsUpstream:   fsUp,
 	}
 	s.sessions[sess.id] = sess
 	s.mu.Unlock()

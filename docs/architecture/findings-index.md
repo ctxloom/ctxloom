@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,314** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,315** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **479** |
+| `open` | no commit names this ID | **478** |
 
-**Totals: 2268 findings across 162 units — 1,314 resolved, 479 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,315 resolved, 478 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 470 | 269 | 73 | 79 | 108 |
+| MED | 999 | 471 | 268 | 73 | 79 | 108 |
 | LOW | 871 | 487 | 198 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1119,7 +1119,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U027-F01 | **RESOLVED** `20451f26` | **`main.go:53-63`** | SILENTNOOP | The generator can complete successfully having written zero files, printing nothing and exiting 0 — it never asserts that it produced output. | U027.md |
 | U027-F02 | **RESOLVED** `6784e6f4` | **`main.go:50-63`** | CORRECTNESS | The generator never prunes the output directory, so a removed or renamed binding leaves a stale `<tool>.json` that `//go:embed schemas/*.json` continues to ship as a live MCP tool. The CI drift gat... | U027.md |
 | U027-F03 | **RESOLVED** `6784e6f4` | **`main.go:28`, `:50`** | CORRECTNESS | A mistyped `-out` silently succeeds into a brand-new directory: `os.MkdirAll` creates whatever path it is given, the real goldens are left untouched, and the CI `git diff` gate passes because the t... | U027.md |
-| U028-F04 | open | **`agents.go:263-273`** | CORRECTNESS | A **failed** load still claims the name, so a corrupt agent file in the first directory shadows a perfectly valid same-named agent in a later directory — the user sees only a skip warning and no ag... | U028.md |
+| U028-F04 | **RESOLVED** `3571b16d` | **`agents.go:263-273`** | CORRECTNESS | A **failed** load still claims the name, so a corrupt agent file in the first directory shadows a perfectly valid same-named agent in a later directory — the user sees only a skip warning and no ag... | U028.md |
 | U028-F05 | open | **`agents.go:249-252`, `:312`** | ERRHANDLING | A directory that exists but cannot be statted is skipped in **silence**, in both the loader and the directory-discovery helper — so "no agents configured" is indistinguishable from "your agents dir... | U028.md |
 | U028-F06 | open | **`agents.go:164-168`; `operations/agents.go:157-172`; `coord/spawner.go:349`** | COHESION | The record's invariants are enforced by **three other packages at three different phases**, and cover one of six user-settable fields. `Agent` has no `Validate()` of its own. | U028.md |
 | U028-F07 | open | **`agents.go:62-65`; `operations/agents.go:148`, `:240`** | COUPLING | `Source` is documented "Diagnostic only" but is a **control-flow discriminator**, compared against a magic string across a package boundary. | U028.md |

@@ -3,7 +3,10 @@ package pwsh
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -137,6 +140,35 @@ func TestRunErrPassesThroughOtherFailures(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Parser.ParseInput blew up") {
 		t.Errorf("the child's stderr should ride in the error, got %v", err)
+	}
+}
+
+// TestBinaryResolutionIsOwnedByTheFrontend pins that the interpreter lookup is
+// memoized per Frontend, not per process. As package-level state the FIRST
+// answer was frozen for the life of the process — including the answer "no
+// PowerShell here" — so nothing could invalidate it and no test could arrange
+// either outcome.
+func TestBinaryResolutionIsOwnedByTheFrontend(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub interpreter is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "pwsh")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+
+	// Hostility check: with nothing on PATH the frontend must genuinely report
+	// PowerShell missing, or the second half proves nothing.
+	t.Setenv("PATH", "")
+	if _, err := New().Parse(context.Background(), ir.ShellPwsh, "x"); !errors.Is(err, errUnavailable) {
+		t.Fatalf("fixture is not hostile: with an empty PATH want %v, got %v", errUnavailable, err)
+	}
+
+	// A frontend built after an interpreter appears must find it.
+	t.Setenv("PATH", dir)
+	if _, err := New().Parse(context.Background(), ir.ShellPwsh, "x"); errors.Is(err, errUnavailable) {
+		t.Error("a fresh Frontend still reports PowerShell missing; the lookup is cached process-wide with no owner")
 	}
 }
 

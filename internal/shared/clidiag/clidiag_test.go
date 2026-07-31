@@ -3,6 +3,7 @@ package clidiag
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -280,4 +282,60 @@ func TestSetSink_RestoreIsIdempotent(t *testing.T) {
 	Warn("ctxloom", "outer still owns the channel")
 	assert.Contains(t, outer.String(), "outer still owns the channel",
 		"repeat restores must be no-ops, not repeated pops")
+}
+
+// failingWriter always refuses, so a warning's write error is guaranteed to
+// happen rather than merely be possible.
+type failingWriter struct{ err error }
+
+func (f failingWriter) Write([]byte) (int, error) { return 0, f.err }
+
+// fwarn drops its write error DELIBERATELY — "warnings never block" is the
+// fault-tolerance rule this package exists to implement, and the documented
+// escape hatch is that a writer which records its own errors still observes the
+// failure. U103-F07 claims the structured branch is different, leaving "no trace
+// anywhere". It is NOT: clifmt.EncodeWarning is json.Encoder.Encode, which
+// marshals a two-string envelope (never a marshal error) and performs exactly
+// one w.Write — so the wrapping writer sees the failure in structured mode on
+// exactly the same terms as in text mode. This test is the evidence for that
+// refutation; it goes red if either branch ever stops writing through w.
+func TestFwarn_WriteFailureIsObservableThroughAWrappingWriterInBothModes(t *testing.T) {
+	resetStructured(t)
+
+	boom := errors.New("sink is gone")
+
+	for _, structuredOn := range []bool{false, true} {
+		SetStructured(structuredOn)
+
+		// The fixture must genuinely refuse the write, or "no error recorded"
+		// would mean "nothing was attempted" rather than "nothing was seen".
+		ew := iox.NewErrWriter(failingWriter{err: boom})
+		n, err := ew.Write([]byte("probe"))
+		require.ErrorIs(t, err, boom, "the fixture writer must actually fail")
+		require.Zero(t, n)
+		ew = iox.NewErrWriter(failingWriter{err: boom})
+
+		Fwarn(ew, "ctxloom", "sync failed: %v", "timeout")
+		require.ErrorIs(t, ew.Err(), boom,
+			"structured=%v: a wrapping writer must still observe the dropped write error", structuredOn)
+	}
+}
+
+// The other half of the same contract: a failing sink must never block, panic or
+// propagate. This is what makes dropping the error the right call rather than an
+// oversight, and it is why the remedy U103-F07 implies (surface the error from
+// the write path) cannot simply be applied — Warn has 448 call sites, none of
+// which can act on it, and the one place a fallback could go is os.Stderr, which
+// under `ctxloom run` is the TUI SetSink exists to protect. (U103-F07.)
+func TestWarn_FailingSinkNeverBlocksOrPanics(t *testing.T) {
+	resetStructured(t)
+	restore := SetSink(failingWriter{err: errors.New("sink is gone")})
+	defer restore()
+
+	assert.NotPanics(t, func() {
+		Warn("ctxloom", "first")
+		WarnOnce("ctxloom", "second")
+		SetStructured(true)
+		Warn("ctxloom", "third")
+	})
 }

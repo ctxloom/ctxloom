@@ -203,6 +203,9 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
 
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
+
 	sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
@@ -299,6 +302,8 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 // whose engine reader needs the cwd we deliberately don't change) must not fail
 // the whole listing.
 func (s *ctxServer) distillMissingForList(ctx context.Context, entries []sessions.Entry) {
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 	for i := range entries {
 		e := &entries[i]
 		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
@@ -571,15 +576,10 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		}
 	}
 
-	// On the host-relay path this runs on the coordinator's deadline-less base
-	// context; bound the work to the relay's distill budget so a wedged LLM
-	// subprocess can't hold the singleflight entry open forever (see
-	// distillSession for the full rationale).
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
-		defer cancel()
-	}
+	// Bound the work so a wedged LLM subprocess can't hold the singleflight
+	// entry open forever (see withDistillBudget).
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 	// The model is part of the key, exactly as the backend path keys on it
 	// (sessionID\x00backend\x00model): two concurrent calls asking for
 	// DIFFERENT models must not collapse into one distill and hand both callers
@@ -800,17 +800,12 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 	if model == "" {
 		model = s.cfg.GetCompactionModel()
 	}
-	// On the host-relay path this runs on the COORDINATOR's base context, which
-	// has no deadline — the caller's budget bounds only how long it waits, never
-	// the work. Left unbounded, one wedged LLM subprocess would hold the
-	// singleflight entry open forever and every later recover of this session
-	// would queue behind the wedge instead of failing. Bound the work to the
-	// same budget the relay grants the caller.
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
-		defer cancel()
-	}
+	// Bound the work to the same budget the relay grants the caller, so one
+	// wedged LLM subprocess cannot hold the singleflight entry open forever
+	// and queue every later recover of this session behind it (see
+	// withDistillBudget).
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 	return s.singleflightDistill(sessionID+"\x00"+backendName+"\x00"+model, func() (*loadSessionResult, error) {
 		return s.distillSessionOnce(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	})

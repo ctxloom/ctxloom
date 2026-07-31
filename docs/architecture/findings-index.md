@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,291** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,292** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 123 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 166 |
-| `open` | no commit names this ID | **520** |
+| `open` | no commit names this ID | **519** |
 
-**Totals: 2268 findings across 162 units — 1,291 resolved, 520 still open, 457 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,292 resolved, 519 still open, 457 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 458 | 288 | 69 | 79 | 105 |
-| LOW | 871 | 476 | 220 | 39 | 81 | 55 |
+| LOW | 871 | 477 | 219 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2037,7 +2037,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F17 | **RESOLVED** `a8166024` | **`server.go:1204-1207`** | ERRHANDLING | A `json.Marshal` failure in `contentBlocksFromACP` `continue`s, silently dropping the whole block from the structured payload — the drop this function exists to prevent. The comment concedes it is ... | U014.md |
 | U014-F18 | **RESOLVED** `26c76aaf` | **`server.go:43, 308`** | CORRECTNESS | `agentVersion = "1.0.0"` is a hard-coded literal reported to every connected editor as `agentInfo.version`. It is not the build stamp (`internal/cli.Version`, root.go:19-21), has never been bumped,... | U014.md |
 | U014-F19 | **RESOLVED** `aaf10d04` | **`server.go:373-377`** | ERRHANDLING | A `session/cancel` whose params fail to decode returns with no warning, so the user's cancel disappears without trace — while an *unknown method* on the same path does warn (370). | U014.md |
-| U014-F20 | open | **`server.go:612-710`** | COMPLEXITY | `runTurn` is CCN 24 against a CI gate that fails above 10, and carries no `//nolint` — unlike `TestL0_AgentEmittedFrames`, which does. Either the gate is not running on this file or it is being sup... | U014.md |
+| U014-F20 | **RESOLVED** `d7460d21` | **`server.go:612-710`** | COMPLEXITY | `runTurn` is CCN 24 against a CI gate that fails above 10, and carries no `//nolint` — unlike `TestL0_AgentEmittedFrames`, which does. Either the gate is not running on this file or it is being sup... | U014.md |
 | U014-F21 | **REFUTED** `fd07429a` | `l0_conformance_test.go:66, 77-88, 305-314` | NOPAY | The L0 known-divergence machinery guards an empty map. `l0KnownDivergences` is `map[string]string{}`, so `checkL0`'s entire known branch (80-86) is unreachable and `TestL0_KnownDivergenceSubstrings... | U014.md |
 | U015-F02 | **RESOLVED** `6f2ba39d` | **`schema.go:45-49`** | DEAD | `SchemaSourceURL`, `SchemaCommit`, `SchemaVersion` and `SchemaVendoredAt` are exported constants with **zero readers anywhere in the repo**, including this package's own tests. | U015.md |
 | U015-F03 | **RESOLVED** `cac52a3e` `127539ad` | **`schema.go:70`** | TRIVIAL | `strings.NewReader(string(schemaJSON))` copies the entire embedded schema (142 `$defs`) into a fresh string purely to get an `io.Reader`. | U015.md |

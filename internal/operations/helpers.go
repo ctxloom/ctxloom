@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // getFS returns the provided filesystem or a default OS filesystem if nil.
@@ -21,14 +22,25 @@ func getFS(fs afero.Fs) afero.Fs {
 // looping over many lockfile entries.
 // The cache carries a forge resolver derived from the remotes registry so the
 // github clone token-injection reads the per-forge token_env; resolver setup is
-// best-effort and a missing/unreadable registry simply falls back to ambient
-// auth.
+// best-effort and a missing registry simply falls back to ambient auth.
+//
+// U084-F09: an UNREADABLE or malformed registry is not the same thing as a
+// missing one and no longer takes the same silent path. remote.NewRegistry
+// already swallows os.IsNotExist itself, so a non-nil error from it means the
+// file is there and could not be parsed or read — in which case every
+// per-forge token_env is quietly dropped and a private-repo clone fails much
+// later with an opaque git auth error that names nothing about remotes.yaml.
+// Warn at the point the information is still available.
 func NewRepoCache(cfg *config.Config) *remote.RepoCache {
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 
 	var opts []remote.RepoCacheOption
-	if registry, err := remote.NewRegistry(paths.RemotesPath(baseDir)); err == nil {
+	remotesPath := paths.RemotesPath(baseDir)
+	registry, err := remote.NewRegistry(remotesPath)
+	if err != nil {
+		clidiag.Warn("ctxloom", "cannot read the remotes registry %s: %v — per-forge token_env is not applied, so private-repo clones fall back to ambient git auth", remotesPath, err)
+	} else {
 		forges := registry.Forges()
 		opts = append(opts, remote.WithForgeResolver(func(repoURL string) remote.ResolvedForge {
 			return remote.ResolveForgeForURLWith(repoURL, "", forges)

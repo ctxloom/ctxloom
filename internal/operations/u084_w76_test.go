@@ -15,6 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // U084-F13 (half one): sortContentInfos took an unvalidated sortBy and had no
@@ -203,4 +205,50 @@ func TestPurgeExtractedBundles_PrunesNestedEmptyDirsInOnePass(t *testing.T) {
 	}
 	_, rootErr := os.Stat(bundlesRoot)
 	assert.NoError(t, rootErr, "the bundles root itself must survive")
+}
+
+// U084-F09: NewRepoCache built its per-forge resolver inside
+// `if registry, err := remote.NewRegistry(...); err == nil { ... }` — so a
+// remotes.yaml that exists but cannot be parsed or read dropped every
+// per-forge token_env with no warning at all. remote.NewRegistry already
+// swallows os.IsNotExist internally, so a non-nil error from it is
+// unambiguously "the file is there and broken", never "there is no file";
+// the swallow could only ever hide a real failure.
+//
+// The user-visible consequence is a private-repo clone failing much later
+// with a git auth error that says nothing about remotes.yaml.
+func TestNewRepoCache_MalformedRemotesRegistryWarnsRatherThanSilentlyDroppingTokenEnv(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	remotesPath := paths.RemotesPath(dir)
+	require.NoError(t, os.MkdirAll(filepath.Dir(remotesPath), 0o755))
+	require.NoError(t, os.WriteFile(remotesPath, []byte("remotes: [this is not: a mapping\n"), 0o644))
+
+	// §11k hostility: prove the fixture is hostile from the code-under-test's
+	// vantage point — NewRegistry must actually FAIL on it. A merely odd but
+	// parseable file would make the assertion below vacuous.
+	_, regErr := remote.NewRegistry(remotesPath)
+	require.Error(t, regErr, "fixture is not hostile: remote.NewRegistry parsed it fine")
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
+	var cache *remote.RepoCache
+	stderr := captureStderr(t, func() { cache = NewRepoCache(cfg) })
+
+	assert.NotNil(t, cache, "the cache is still built — this is a warning, not a hard failure")
+	assert.Contains(t, stderr, "remotes registry", "the drop must be announced")
+	assert.Contains(t, stderr, remotesPath, "the warning must name the unreadable file")
+	assert.Contains(t, stderr, "token_env", "the warning must say what was lost")
+}
+
+// U084-F09 (control): a project with NO remotes.yaml is the ordinary case and
+// must stay silent, or the fix above trades one bug for a permanent nag.
+func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, statErr := os.Stat(paths.RemotesPath(dir))
+	require.True(t, os.IsNotExist(statErr), "fixture must have no remotes.yaml")
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
+	stderr := captureStderr(t, func() { _ = NewRepoCache(cfg) })
+
+	assert.NotContains(t, stderr, "remotes registry",
+		"a project that has simply never configured a remote must not be warned at")
 }

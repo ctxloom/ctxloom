@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,452** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,453** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 172 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 193 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **254** |
+| `open` | no commit names this ID | **253** |
 
-**Totals: 2268 findings across 162 units — 1,452 resolved, 254 still open, 562 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,453 resolved, 253 still open, 562 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 540 | 141 | 99 | 90 | 129 |
-| LOW | 871 | 553 | 104 | 57 | 95 | 62 |
+| LOW | 871 | 554 | 103 | 57 | 95 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2427,7 +2427,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U072-F09 | open | `ir.go:29` | COUPLING | `KnownShells` is an exported **mutable** package-level slice that `Valid()` — the sole validation gate for user-supplied shells — reads at call time. Any importer can append to or reorder it. | U072.md |
 | U072-F10 | open | `ir.go:63`, `ir.go:98` | CORRECTNESS | `Nested []*Script` makes the graph a pointer graph with no cycle guard, and `Walk` recurses unbounded. A producer that ever aliases an existing `*Script` into `Nested` yields infinite recursion on ... | U072.md |
 | U073-F06 | **RESOLVED** `55edc2ab` | `rules.go:360` | SILENTNOOP | With no submodule paths the sentinel is dropped and the rule is left with zero patterns, matching nothing — indistinguishable from an unreadable `.gitmodules`. | U073.md |
-| U073-F11 | open | `eval.go:29`, `eval.go:80` | ERRHANDLING | Both evaluators guard `script == nil` / empty path but not `cfg == nil`, which panics on `cfg.Rules`. | U073.md |
+| U073-F11 | **RESOLVED** `5033892f` | `eval.go:29`, `eval.go:80` | ERRHANDLING | Both evaluators guard `script == nil` / empty path but not `cfg == nil`, which panics on `cfg.Rules`. | U073.md |
 | U073-F12 | open | `rules.go:389`, `rules.go:644` | COMPLEXITY | `Match.matches` and `validateRule` are both at CCN 11, above the project's own gate. | U073.md |
 | U073-F13 | **PARTIAL** `9d612953` | `rules.go:262` | CORRECTNESS | `match.command` tokens are literal — no glob, no regex — while `match.path` tokens in the same file *are* full globs, and nothing warns when a user writes a metacharacter in `command:`. | U073.md |
 | U073-F14 | **RESOLVED** `ed4454a2` | `eval.go:25-28` | CORRECTNESS | The doc comment says "the first matching deny rule wins", but command order dominates rule order — an earlier *command* matching a later *rule* beats a later command matching an earlier rule. | U073.md |

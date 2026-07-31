@@ -58,6 +58,15 @@ type Thresholds struct {
 	// median. 0.25 accepts a machine loop whose period wobbles with load
 	// (the incident's own "every ~4-5 seconds" is ±11% around 4.5s) while
 	// rejecting anything paced by a model's variable thinking time.
+	//
+	// ZERO IS THIS STRUCT'S UNSET SENTINEL, NOT A TOLERANCE. normalize()
+	// replaces it with the default, so passing 0 does NOT request
+	// exact-cadence-only matching — it requests 0.25. That is the one field
+	// here where the sentinel costs something, since the other three have no
+	// meaning at zero worth expressing (a zero grace or a zero repeat count
+	// would degrade the ladder into firing on everything). A caller that
+	// genuinely wants exact matching passes a ratio small enough that no
+	// integer-nanosecond deviation can clear it.
 	RedeliveryJitterRatio float64
 }
 
@@ -274,7 +283,16 @@ func (m *Monitor) endedRung(t Target, ev Evidence, _ time.Time) (State, string) 
 // grace period — which is what turns "an hour of nothing" into "seconds".
 func (m *Monitor) loopRung(_ Target, ev Evidence, _ time.Time) (State, string) {
 	tx := ev.Transcript
-	if r := tx.Redelivery; r != nil && r.Repeats >= m.thr.RedeliveryMinRepeats {
+	// A CADENCE is required, not merely repeats. detectRedelivery reports a
+	// zero-cadence group too — identical content sharing one receipt stamp, or
+	// records carrying no usable ts — and that is a real measurement worth
+	// keeping on the evidence, but it is not the "identical content on a
+	// metronome" signature that justifies condemning with no grace period at
+	// all. Repetition alone is a user re-sending a short message, a retry
+	// ladder re-asking, or an engine that simply does not stamp its records.
+	// Such a target is still assessed by every rung below; it just does not
+	// short-circuit them.
+	if r := tx.Redelivery; r != nil && r.Cadence > 0 && r.Repeats >= m.thr.RedeliveryMinRepeats {
 		return StateStalled, fmt.Sprintf("the same %s content was re-delivered %d times on a %s cadence (max deviation %s) — a re-delivery loop, not work: %q",
 			r.EntryType, r.Repeats, r.Cadence.Round(time.Millisecond), r.MaxDeviation.Round(time.Millisecond), r.Sample)
 	}
@@ -339,11 +357,20 @@ func (m *Monitor) quietRung(t Target, ev Evidence, now time.Time) (State, string
 		return StateUnknown, fmt.Sprintf("quiet for %s on the clocks that could be read, but the worktree could not be walked, so filesystem activity cannot be ruled out: %s",
 			quiet.Round(time.Second), ev.FSError)
 	}
-	young := !t.StartedAt.IsZero() && ev.Age < m.thr.StartGrace
-	if !young {
-		if s, reason := m.contentRung(ev, quiet); s != "" {
-			return s, reason
-		}
+	// Everything from here down is an ABSENCE-based verdict, and StartGrace is
+	// defined as how long the monitor refuses to reach one. That gate needs an
+	// age, and Target.StartedAt's contract is that a zero value withholds it:
+	// the monitor does not invent an age it does not know.
+	if t.StartedAt.IsZero() {
+		return StateUnknown, fmt.Sprintf("quiet for %s, but this run has no start time, so the launch grace cannot be applied and silence cannot yet be read as a stall",
+			quiet.Round(time.Second))
+	}
+	if ev.Age < m.thr.StartGrace {
+		return StateStarting, fmt.Sprintf("quiet for %s but launched only %s ago — still inside the %s launch grace, where absence proves nothing",
+			quiet.Round(time.Second), ev.Age.Round(time.Second), m.thr.StartGrace)
+	}
+	if s, reason := m.contentRung(ev, quiet); s != "" {
+		return s, reason
 	}
 	return StateStalled, fmt.Sprintf("quiet for %s on every clock (last tool_use %s) — no transcript record, %s, no coordinator activity",
 		quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now), fsClause(t, ev))

@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -213,23 +211,8 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 // matching every other resolver here) is fully ungated, unchanged from before.
 func resolveBuiltinBundleMCPServers(gate bundles.ContentGate) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
-	names, err := resources.ListBuiltinBundles()
-	if err != nil {
-		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
-		return out
-	}
-	for _, name := range names {
-		data, err := resources.GetBuiltinBundle(name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
-			continue
-		}
-		var b bundles.Bundle
-		if err := yaml.Unmarshal(data, &b); err != nil {
-			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
-			continue
-		}
-		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name, gate) {
+	eachBuiltinBundle(func(name string, b *bundles.Bundle) {
+		for serverName, server := range extractMCPFromBundle(b, "builtin:"+name, gate) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
@@ -239,7 +222,7 @@ func resolveBuiltinBundleMCPServers(gate bundles.ContentGate) map[string]wire.MC
 			}
 			out[serverName] = server
 		}
-	}
+	})
 	return out
 }
 
@@ -522,24 +505,9 @@ func (c *Config) resolveCompanionCommandsWith(bundleLoader *bundles.Loader) []*b
 // (management/listing paths) stays fully ungated.
 func resolveBuiltinBundleHooks(gate bundles.ContentGate) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
-	names, err := resources.ListBuiltinBundles()
-	if err != nil {
-		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
-		return out
-	}
-	for _, name := range names {
-		data, err := resources.GetBuiltinBundle(name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
-			continue
-		}
-		var b bundles.Bundle
-		if err := yaml.Unmarshal(data, &b); err != nil {
-			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
-			continue
-		}
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name, gate)))
-	}
+	eachBuiltinBundle(func(name string, b *bundles.Bundle) {
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(b, "builtin:"+name, gate)))
+	})
 	return out
 }
 
@@ -600,31 +568,17 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.ContentGate) []Built
 	preferDistilled := c.ShouldUseDistilled()
 	var out []BuiltinFragment
 
-	names, err := resources.ListBuiltinBundles()
-	if err != nil {
-		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
-	}
-	for _, name := range names {
-		data, err := resources.GetBuiltinBundle(name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
-			continue
-		}
-		var b bundles.Bundle
-		if err := yaml.Unmarshal(data, &b); err != nil {
-			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
-			continue
-		}
-		if _, missing := builtinBundleCompanionMissing(&b); missing {
-			continue
+	eachBuiltinBundle(func(name string, b *bundles.Bundle) {
+		if _, missing := builtinBundleCompanionMissing(b); missing {
+			return
 		}
 		// A builtin carries NO signer: it is not signed and must not be
 		// (signing bytes embedded in the binary that verifies them is
 		// circular — spec §4.5). The "builtin:" ref prefix is what routes it
 		// to the decision function's builtin step, which sits BELOW
 		// rejection so a user can still reject a builtin.
-		out = fragmentsFromBundle(out, "builtin:"+name, &b, "", preferDistilled, gate)
-	}
+		out = fragmentsFromBundle(out, "builtin:"+name, b, "", preferDistilled, gate)
+	})
 
 	// Companion loadouts (S8): unconditional like a builtin fragment (the
 	// old embedded-bundle behavior for ltk/taskloom), but NEVER exempt like
@@ -805,4 +759,38 @@ func extractMCPFromBundle(bundle *bundles.Bundle, source string, gate bundles.Co
 	}
 
 	return result
+}
+
+// eachBuiltinBundle parses every bundle embedded in the binary through the
+// CANONICAL bundle parser and hands each one to fn. A bundle that cannot be
+// listed, read or parsed is a warning and is skipped — one broken builtin never
+// sinks the others.
+//
+// It exists so the four surfaces that read builtin bundles (MCP servers, hooks,
+// fragments, companion bins) cannot disagree about what a builtin bundle SAYS.
+// They previously each ran their own `yaml.Unmarshal`, which bypasses
+// bundles.ParseBundle's schema-upgrade pipeline: a migration that renames a key
+// would have applied on every on-disk and remote bundle and silently not here,
+// so the same bytes would mean different things depending on which surface
+// asked. Routing all four through ParseBundle is what makes "a builtin bundle"
+// one definition rather than four.
+func eachBuiltinBundle(fn func(name string, b *bundles.Bundle)) {
+	names, err := resources.ListBuiltinBundles()
+	if err != nil {
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
+		return
+	}
+	for _, name := range names {
+		data, err := resources.GetBuiltinBundle(name)
+		if err != nil {
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
+			continue
+		}
+		b, err := bundles.ParseBundle(data)
+		if err != nil {
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
+			continue
+		}
+		fn(name, b)
+	}
 }

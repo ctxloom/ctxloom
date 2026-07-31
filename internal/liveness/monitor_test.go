@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -581,4 +583,126 @@ func mustJSON(t *testing.T, v any) string {
 		return fmt.Sprintf("<unmarshalable: %v>", err)
 	}
 	return string(b)
+}
+
+// Report is a JSON-serialisable evidence trail whose whole point is that a
+// verdict can be argued from the record. A record whose keys are inconsistent
+// is one a consumer has to special-case, so every field marshals snake_case —
+// including At, which carried no tag at all and marshalled as "At" while every
+// sibling was lower-case (U056-F17).
+func TestReport_MarshalsEveryFieldSnakeCase(t *testing.T) {
+	raw, err := json.Marshal(liveness.Report{
+		Harp: "h", State: liveness.StateHealthy, Reason: "r", At: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+	var obj map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &obj))
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+		assert.Equal(t, strings.ToLower(k), k, "Report key %q is not snake_case", k)
+	}
+	sort.Strings(keys)
+	assert.Contains(t, keys, "at", "Report.At must marshal as \"at\"")
+}
+
+// Target.StartedAt's contract is that ZERO disables every age-gated rule —
+// "the monitor will not invent an age it does not know". The quiet ladder read
+// it the other way round: `!StartedAt.IsZero() && age < grace` makes an unknown
+// age NOT-young, which ENABLES the age-gated content clauses on exactly the
+// targets whose age nobody could supply (U056-F06).
+func TestMonitor_UnknownStartTimeDoesNotEnableTheAgeGatedRules(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	quiet := now.Add(-20 * time.Minute)
+	path := writeJSONL(t, []map[string]any{
+		userLine(1, quiet, "a"), userLine(2, quiet, "b"), userLine(3, quiet, "c"),
+	})
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+
+	rep := m.Assess(context.Background(), liveness.Target{Harp: "no-start", TranscriptPath: path})
+
+	assert.Equal(t, liveness.StateUnknown, rep.State,
+		"with no start time the launch grace cannot be applied, so no absence verdict is available: %s", rep.Reason)
+	assert.False(t, rep.Firing(), "an unknown age must never be condemned")
+}
+
+// StartGrace is documented as "how long after StartedAt the monitor refuses to
+// reach any ABSENCE-based verdict". The quiet ladder's terminal rung condemned
+// regardless of age — the `young` guard only skipped the content clauses and
+// then fell through to StateStalled anyway, so the launch grace protected
+// nothing (U056-F06; at census this fell through to the since-deleted cpuRung,
+// which had the same hole).
+func TestMonitor_LaunchGraceSuppressesTheQuietStall(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	quiet := now.Add(-20 * time.Minute)
+	path := writeJSONL(t, []map[string]any{
+		userLine(1, quiet, "a"), userLine(2, quiet, "b"), userLine(3, quiet, "c"),
+	})
+	m := liveness.New(liveness.Options{
+		Now:        func() time.Time { return now },
+		Thresholds: liveness.Thresholds{StartGrace: 30 * time.Minute},
+		Probes:     []liveness.Probe{aliveNoCPU},
+	})
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "still-launching", StartedAt: quiet, TranscriptPath: path,
+	})
+
+	assert.Equal(t, liveness.StateStarting, rep.State,
+		"inside the launch grace absence proves nothing, on the quiet clocks as much as on the missing transcript: %s", rep.Reason)
+	assert.False(t, rep.Firing())
+}
+
+// loopRung is the grace-free half of the ladder: it condemns instantly and on
+// POSITIVE evidence only, which detectRedelivery defines as identical content
+// ON A CADENCE — "both conditions matter", because repetition alone is a user
+// re-sending a short message or a retry ladder re-asking. The zero-median
+// branch emits a Redelivery carrying no cadence at all (same receipt stamp, or
+// records with no usable ts), and loopRung fired on Repeats alone, so a burst
+// of three identical lines was condemned in seconds with a "0s cadence"
+// reason (U056-F07).
+func TestMonitor_ZeroCadenceRepeatsAreNotAGraceFreeLoop(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	at := now.Add(-time.Second)
+	// Seq advances, so the relaunch signature is absent and the redelivery
+	// rule is the only thing that can speak here.
+	path := writeJSONL(t, []map[string]any{
+		userLine(1, at, "retry please"), userLine(2, at, "retry please"), userLine(3, at, "retry please"),
+	})
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "burst", StartedAt: now.Add(-time.Hour), TranscriptPath: path,
+	})
+
+	require.NotNil(t, rep.Evidence.Transcript.Redelivery, "the repetition is still MEASURED — it is the verdict that needs a cadence")
+	assert.Zero(t, rep.Evidence.Transcript.Redelivery.Cadence)
+	assert.False(t, rep.Firing(), "repetition with no cadence is not the grace-free loop signal: %s", rep.Reason)
+}
+
+// The relaunch signature is surfaced by the TRANSCRIPT, not by a process
+// counter: seq restarts at 0 for each new transcript.Recorder against the same
+// O_APPEND file, so many records that never advanced past 0 means many
+// recorders. It is POSITIVE evidence, so it must fire with no launch grace and
+// no start time at all — the case a backwards CPU counter was once proposed to
+// cover (U056-F18), and the case the age gate added for U056-F06 must not
+// swallow.
+func TestMonitor_SeqPinnedRelaunchLoopFiresWithoutAnAgeOrAGrace(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	// Distinct bodies, so the redelivery rule cannot be what fires: seq pinned
+	// at 0 has to carry this on its own.
+	var lines []map[string]any
+	for i := 0; i < 5; i++ {
+		lines = append(lines, userLine(0, now.Add(-time.Duration(5-i)*time.Second), fmt.Sprintf("delivery %d", i)))
+	}
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "relaunch-loop", TranscriptPath: writeJSONL(t, lines), // no StartedAt: age unknown
+	})
+
+	require.Nil(t, rep.Evidence.Transcript.Redelivery, "precondition: no repeated content, so only the seq rule can speak")
+	require.True(t, rep.Evidence.Transcript.SeqPinned, "precondition: every line came from a fresh recorder")
+	assert.Equal(t, liveness.StateStalled, rep.State, "reason=%q", rep.Reason)
+	assert.True(t, rep.Firing(), "a relaunch loop is an observation, not an inference from silence")
 }

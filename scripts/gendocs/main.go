@@ -11,6 +11,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
@@ -18,15 +19,35 @@ import (
 )
 
 func main() {
+	os.Exit(run(os.Stderr, os.Args[1:]))
+}
+
+// run assembles the product, generates, and reports every failure on w,
+// returning the process exit code. Split out of main so both failure paths are
+// reachable from a test: main itself can only be exercised by running the
+// binary, which is how an entrypoint's error handling ends up unverified.
+//
+// SilenceErrors is set deliberately: cobra prints errors itself BY DEFAULT, but
+// that default is a property of the command this entrypoint is handed, not a
+// guarantee it holds. Reporting here means the failure is on w whatever the
+// command was configured to do, and silencing cobra keeps it from being said
+// twice.
+func run(w io.Writer, args []string) int {
 	product, closeMCP, err := ctxloomProduct()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gendocs: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(w, "gendocs: %v\n", err)
+		return 1
 	}
 	defer closeMCP()
-	if err := docsgen.NewCommand(product).Execute(); err != nil {
-		os.Exit(1)
+
+	cmd := docsgen.NewCommand(product)
+	cmd.SilenceErrors = true
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		fmt.Fprintf(w, "gendocs: %v\n", err)
+		return 1
 	}
+	return 0
 }
 
 // ctxloomProduct describes ctxloom to the generator: its cobra tree, its

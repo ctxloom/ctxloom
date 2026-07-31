@@ -33,6 +33,35 @@ type pending struct {
 	Expiry    int64 `json:"expiry"`
 }
 
+// The band is evaluated HERE rather than in Store, so unix seconds are a
+// detail of this type and nothing else has to know that Expiry is a second
+// count rather than a time.Time. Store's job is finding the entry for a
+// command; deciding what its two numbers mean is the entry's own.
+
+// live reports whether the window has not yet closed — the override exists and
+// has not expired, whether or not its delay has elapsed.
+func (p pending) live(now time.Time) bool { return now.Unix() < p.Expiry }
+
+// consumable reports whether the repeat may be honoured now: the delay has
+// elapsed and the window has not.
+func (p pending) consumable(now time.Time) bool {
+	return now.Unix() >= p.NotBefore && p.live(now)
+}
+
+// remainingDelay is how many seconds are left before the band opens, or 0 once
+// it already has.
+func (p pending) remainingDelay(now time.Time) int {
+	if now.Unix() >= p.NotBefore {
+		return 0
+	}
+	return int(p.NotBefore - now.Unix())
+}
+
+// newPending builds the band for an arm at now: [now+delay, now+window].
+func newPending(now time.Time, delay, window time.Duration) pending {
+	return pending{NotBefore: now.Add(delay).Unix(), Expiry: now.Add(window).Unix()}
+}
+
 // Store is a tiny on-disk map of command → armed override. It is best-effort:
 // concurrent hook invocations (agents can issue parallel tool calls) read the
 // file, mutate their own copy, and write the WHOLE map back, so one invocation
@@ -139,31 +168,28 @@ func (s *Store) UnmarshalJSON(b []byte) error {
 // see Ready).
 func (s *Store) Armed(cmd string, now time.Time) bool {
 	p, ok := s.pending[cmd]
-	return ok && now.Unix() < p.Expiry
+	return ok && p.live(now)
 }
 
 // Ready reports whether a live override for cmd may now be consumed: the delay
 // has elapsed (now ≥ NotBefore) and the window has not (now < Expiry).
 func (s *Store) Ready(cmd string, now time.Time) bool {
 	p, ok := s.pending[cmd]
-	return ok && now.Unix() >= p.NotBefore && now.Unix() < p.Expiry
+	return ok && p.consumable(now)
 }
 
 // RemainingDelay returns how many seconds remain before a live override for cmd
 // becomes consumable, or 0 if the delay has already elapsed (or there is none).
 func (s *Store) RemainingDelay(cmd string, now time.Time) int {
-	if p, ok := s.pending[cmd]; ok && now.Unix() < p.NotBefore {
-		return int(p.NotBefore - now.Unix())
+	if p, ok := s.pending[cmd]; ok {
+		return p.remainingDelay(now)
 	}
 	return 0
 }
 
 // Arm records cmd as pending: confirmable in the band [now+delay, now+window].
 func (s *Store) Arm(cmd string, now time.Time, delay, window time.Duration) {
-	s.pending[cmd] = pending{
-		NotBefore: now.Add(delay).Unix(),
-		Expiry:    now.Add(window).Unix(),
-	}
+	s.pending[cmd] = newPending(now, delay, window)
 }
 
 // Clear removes cmd's pending entry (call after consuming a confirmation).
@@ -174,7 +200,7 @@ func (s *Store) Clear(cmd string) { delete(s.pending, cmd) }
 // reader sees either the old store or the new one, never a torn file.
 func (s *Store) Save(now time.Time) error {
 	for c, p := range s.pending {
-		if now.Unix() >= p.Expiry {
+		if !p.live(now) {
 			delete(s.pending, c)
 		}
 	}

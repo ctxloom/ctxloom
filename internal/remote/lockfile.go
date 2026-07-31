@@ -197,6 +197,16 @@ func AllowEmpty() SaveOption {
 // A genuinely empty project stays a legitimate success: an empty write is
 // allowed whenever the file is absent, blank, or already empty.
 func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
+	if lockfile == nil {
+		// Before the guard, before the disk read, before the LockedAt stamp:
+		// each of those dereferences the argument, and a panic partway through
+		// a write to the sole on-disk pin/hold/retraction record leaves the
+		// caller nothing to report. An empty lockfile is a legitimate value
+		// with its own rules below; a nil one is a caller that has nothing to
+		// say at all.
+		return errors.New("refusing to save a nil lockfile")
+	}
+
 	var o saveOptions
 	for _, opt := range opts {
 		opt(&o)

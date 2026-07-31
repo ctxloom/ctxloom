@@ -22,6 +22,28 @@
 // nobody trusts, and the publisher will not find out until a user
 // complains.
 //
+// The trust boundary on step 2, stated rather than assumed: execGitConfig runs
+// `git config --get user.signingkey` with cmd.Dir set to the working
+// repository, so git answers from that repository's own .git/config — a file
+// that arrives with a clone. A repository you clone can therefore influence
+// WHICH OF YOUR CONTROLLED KEYS signs. It cannot cause an attestation from a
+// key you do not hold: every signer here is a live ssh-agent identity, and a
+// key the attacker holds is not in your agent. A ctxloom signature is an
+// attestation from a controlled key/identity, and so is a git signature — `git
+// commit -S` resolves user.signingkey out of the same file and asserts the same
+// kind of property — which is why inheriting git's resolution boundary is
+// principled rather than convention-following. The residual is git's residual:
+// the attestation still comes from an identity you control, but possibly a
+// DIFFERENT one than intended (a personal key where a work key was meant),
+// which is an attribution problem, not a break of the attestation property.
+// Ruled and accepted 2026-07-31, and pinned by
+// TestGitSigningKey_RepoLocalConfigNamesTheFileRead. Two alternatives were
+// rejected and should not be re-litigated: restricting the lookup to
+// global/system config (it breaks per-repository identities, a normal and
+// legitimate setup, and guts step 2 of this documented chain), and prompting
+// for confirmation when the value came from repo-local config (it adds a
+// consent surface to a flow that most often runs unattended in CI).
+//
 // This package is the shared seam between the publisher-signing slice
 // (ctxloom sign, --sign) and the countersigning slice (ctxloom review):
 // both need "which key should I sign with right now", and this is the one

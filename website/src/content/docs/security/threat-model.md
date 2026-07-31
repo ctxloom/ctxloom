@@ -120,6 +120,21 @@ once per review session when it detects this. It is a warning, never a block. Th
 are `ssh-add -c` (confirm on every use), a hardware-backed key, or running the agent in a
 container without the socket.
 
+**A repository you clone can choose which of your keys signs.** ctxloom's zero-config
+signing chain reads `git config user.signingkey`, and it runs `git config` inside the
+working repository — so git answers out of *that repository's* `.git/config`, a file that
+arrives with the clone. Cloning is therefore enough to redirect signing to a different key.
+What it cannot do is produce an attestation from a key you do not hold: the signer is always
+a live `ssh-agent` identity, and Mallory's key is not in your agent. A ctxloom signature is
+an attestation from a controlled key or identity — and so is a git signature; `git commit
+-S` resolves `user.signingkey` from the same file and claims the same kind of thing. We
+accept the boundary git accepts, and we inherit git's residual with it: the signature still
+comes from an identity you control, but possibly a different one than you intended, a
+personal key where a work key was meant. That is an attribution problem, not a broken
+attestation. Restricting the lookup to `--global` would break per-repository identities,
+which are an ordinary setup; prompting would put a consent step into a flow that most often
+runs unattended in CI.
+
 **The unsigned review path is forgeable, by construction.** With no key available at all,
 `ctxloom review` offers an explicit, confirmed **unsigned** path: decisions are recorded as
 bare markers, as forgeable as any file on disk. It is a labelled opt-in, never the default,

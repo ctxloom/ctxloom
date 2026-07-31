@@ -556,3 +556,28 @@ never permitted in the committable project store.
     through the gate, because ctxloom never resolved them. Stated explicitly
     because gap 10 leans on review as the upstream control: it is strong on one
     ingress, not on all of them.
+12. **Repo-local git config selects the signing identity.** Step 2 of the
+    zero-config chain (`internal/signing/agentkey`) resolves
+    `git config --get user.signingkey`, and `execGitConfig` runs with `cmd.Dir`
+    set to the working repository — so git answers from that repository's own
+    `.git/config`, a file that arrives with a clone. A cloned repository can
+    therefore influence **which of your controlled keys signs**. It cannot cause
+    an attestation from a key you do not hold: every signer is a live `ssh-agent`
+    identity, and the attacker's key is not in your agent. A ctxloom signature is
+    an attestation from a controlled key/identity, and so is a git signature —
+    `git commit -S` resolves `user.signingkey` from the same file and asserts the
+    same kind of property — so inheriting git's resolution boundary is principled
+    rather than an appeal to precedent. The residual is git's residual: the
+    attestation remains from an identity you control, but potentially a
+    *different* controlled identity than intended (a personal key where a work
+    key was meant). That is attribution, not a break of the attestation property.
+    Ruled and accepted 2026-07-31; pinned by
+    `TestGitSigningKey_RepoLocalConfigNamesTheFileRead`. Rejected alternatives,
+    recorded so they are not re-litigated: restricting the lookup to
+    global/system config (breaks per-repository identities, a legitimate setup,
+    and guts the documented zero-config chain), and requiring confirmation when
+    the value came from repo-local config (adds a consent surface to a flow that
+    most often runs unattended in CI). The related unbounded-read hazard — a
+    named path such as `/dev/zero` that never reaches EOF — is closed: reads are
+    capped at `maxPublicKeyBytes` (64 KiB). No content is exfiltrated by the
+    error path; `ssh.ParseAuthorizedKey`'s error names the path, never the bytes.

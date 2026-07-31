@@ -679,3 +679,40 @@ func TestEnvOverlay_PathologicallyLongNameWarnsInsteadOfExhaustingMemory(t *test
 	require.True(t, ok, "case 4 nests one level per token")
 	assert.Contains(t, buf.String(), "does not match any known config key")
 }
+
+// TestReadOverrides_NoConfigSetFlagRegisteredIsNotAnError keeps the legitimate
+// silent case silent: a caller whose FlagSet simply has no --config-set flag
+// has nothing to contribute, which is normal and must never be reported.
+func TestReadOverrides_NoConfigSetFlagRegisteredIsNotAnError(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("format", "text", "an ordinary business flag")
+	require.NoError(t, fs.Set("format", "json"))
+
+	o, err := testProduct().ReadOverrides(fs)
+	require.NoError(t, err, "a FlagSet with no --config-set flag has nothing to contribute; that is not a fault")
+	assert.Empty(t, o.Flags)
+}
+
+// TestReadOverrides_MisregisteredConfigSetFlagIsReported is the other cause
+// the old code folded into the same branch. GetStringArray fails for three
+// reasons, not one: no such flag, the flag exists with a DIFFERENT TYPE, and a
+// value that fails to decode. Treating them all as "no flag registered"
+// discarded every --config-set override on the invocation without a word — so
+// changing the registration to StringSlice would have removed the entire CLI
+// override channel from the product while the whole suite stayed green.
+func TestReadOverrides_MisregisteredConfigSetFlagIsReported(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.StringSlice(ConfigSetFlagName, nil, "the RIGHT name, the WRONG type")
+	require.NoError(t, fs.Set(ConfigSetFlagName, "default_agent=mycoder"))
+
+	// The fixture is only hostile if pflag really does refuse this read; a
+	// StringSlice that happened to satisfy GetStringArray would make the
+	// assertion below vacuous.
+	_, probeErr := fs.GetStringArray(ConfigSetFlagName)
+	require.Error(t, probeErr, "fixture must actually defeat GetStringArray, or this test proves nothing")
+
+	o, err := testProduct().ReadOverrides(fs)
+	require.Error(t, err, "a --config-set flag that exists but cannot be read must be reported, never treated as absent")
+	assert.Contains(t, err.Error(), ConfigSetFlagName)
+	assert.Empty(t, o.Flags, "nothing was readable, so nothing may be silently half-applied")
+}

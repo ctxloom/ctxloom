@@ -92,23 +92,33 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 
 	flagValues := map[string]any{}
 	var errs []error
-	if fs != nil {
-		if entries, getErr := fs.GetStringArray(ConfigSetFlagName); getErr == nil {
-			for _, entry := range entries {
-				path, raw, ok := strings.Cut(entry, "=")
-				if !ok {
-					errs = append(errs, fmt.Errorf("--%s %q: expected <path>=<value>", ConfigSetFlagName, entry))
-					continue
-				}
-				if path == "" {
-					errs = append(errs, fmt.Errorf("--%s %q: empty path before \"=\"", ConfigSetFlagName, entry))
-					continue
-				}
-				flagValues[path] = coerceEnvValue(raw)
-			}
+	// A FlagSet with no --config-set flag registered is a caller with nothing
+	// to contribute, and is not an error. That is decided by Lookup, NOT by
+	// GetStringArray's error: GetStringArray fails for three distinct reasons
+	// (no such flag, the flag exists with a different TYPE, and its value
+	// failed to decode), and treating all three as "nothing to contribute"
+	// silently discarded EVERY CLI override on the invocation for the two
+	// causes that are real faults. Registering --config-set as a StringSlice
+	// rather than a StringArray, for instance, would have removed --config-set
+	// from the product entirely while every test still passed.
+	if fs != nil && fs.Lookup(ConfigSetFlagName) != nil {
+		entries, getErr := fs.GetStringArray(ConfigSetFlagName)
+		if getErr != nil {
+			errs = append(errs, fmt.Errorf("--%s is registered but its values are unreadable, so no CLI config override was applied: %w",
+				ConfigSetFlagName, getErr))
 		}
-		// getErr != nil means fs has no --config-set flag registered at all (a
-		// caller with nothing to contribute) -- not a real error to report.
+		for _, entry := range entries {
+			path, raw, ok := strings.Cut(entry, "=")
+			if !ok {
+				errs = append(errs, fmt.Errorf("--%s %q: expected <path>=<value>", ConfigSetFlagName, entry))
+				continue
+			}
+			if path == "" {
+				errs = append(errs, fmt.Errorf("--%s %q: empty path before \"=\"", ConfigSetFlagName, entry))
+				continue
+			}
+			flagValues[path] = coerceEnvValue(raw)
+		}
 	}
 
 	return Overrides{Env: envValues, Flags: flagValues}, errors.Join(errs...)

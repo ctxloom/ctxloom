@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,334** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,335** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 177 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **435** |
+| `open` | no commit names this ID | **434** |
 
-**Totals: 2268 findings across 162 units — 1,334 resolved, 435 still open, 499 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,335 resolved, 434 still open, 499 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 482 | 241 | 81 | 81 | 114 |
+| MED | 999 | 483 | 240 | 81 | 81 | 114 |
 | LOW | 871 | 495 | 182 | 49 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1367,7 +1367,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U057-F24 | **ESCALATED** (gn/vital-deaf-stunt) | `mock_chat.go:35-95` | COMPLEXITY | `Mock.Chat` is CCN 22 against a CI gate that "fail[s] if any function exceeds CCN 10" — more than double the project's own limit, in a test double. | U057.md |
 | U058-F04 | open | **`doc.go:3-4` vs `conformance_test.go:121-135`** | CORRECTNESS | `doc.go` claims "**full hook-event coverage**", but the coverage test is a substring grep over the whole settings file: it proves each event's *marker string* appears somewhere, not that it is atta... | U058.md |
 | U058-F05 | open | **`doc.go:3` vs `conformance_test.go:99-116`** | CORRECTNESS | `doc.go` claims "**atomic** write + backup". The test asserts only that a `.ctxloom.bak` exists with the prior content — nothing in the suite tests atomicity (temp-file + rename, no torn reads). Th... | U058.md |
-| U058-F06 | open | `conformance_test.go:82-97`, `:139-151` | CORRECTNESS | Two of the five tests verify the writer's behaviour **by asking the writer** — `w.Status(projectDir)` — rather than by inspecting the file. A writer whose `Status` were wrong in the same direction ... | U058.md |
+| U058-F06 | **RESOLVED** `b0e439b2` | `conformance_test.go:82-97`, `:139-151` | CORRECTNESS | Two of the five tests verify the writer's behaviour **by asking the writer** — `w.Status(projectDir)` — rather than by inspecting the file. A writer whose `Status` were wrong in the same direction ... | U058.md |
 | U059-F04 | **PARTIAL** `3224e669` | **`chat.go:248, chat.go:252`** | ERRHANDLING | Server-side protocol violations return bare `fmt.Errorf`, which gRPC maps to `codes.Unknown` — the client cannot distinguish "malformed request" from "transport died". The same function proves the ... | U059.md |
 | U059-F05 | **RESOLVED** `37f411bb` | `client.go:59-157` | CORRECTNESS | `RunWithModelInfo` cannot distinguish "server reported exit 0" from "stream ended without ever sending an exit code": `result := &RunResult{}` zero-values `ExitCode` to 0 and the loop `break`s on E... | U059.md |
 | U059-F06 | **RESOLVED** `a8a1e678` | `client.go:334` | CORRECTNESS | `NewContainerClient` takes `backendName` and `label` and **never reads them**. The doc claims they are "carried for parity/diagnostics" — they are carried nowhere. | U059.md |

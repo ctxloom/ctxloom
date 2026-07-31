@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,333** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 177 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **437** |
+| `open` | no commit names this ID | **436** |
 
-**Totals: 2268 findings across 162 units — 1,333 resolved, 437 still open, 498 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,333 resolved, 436 still open, 499 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 482 | 242 | 81 | 80 | 114 |
+| MED | 999 | 482 | 241 | 81 | 81 | 114 |
 | LOW | 871 | 494 | 183 | 49 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1353,7 +1353,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U056-F09 | **RESOLVED** `3060b28c` | `transcript.go:166-168, monitor.go:377-385` | ERRHANDLING | A mid-file scan failure returns a **partial** `TranscriptStat` alongside the error; `gather` keeps the partial data and warns, and the ladder then condemns on it. | U056.md |
 | U056-F10 | **RESOLVED** `5ae03068` | `monitor.go:488-504` | DEAD | `Monitor.Watch` is test-only and duplicates `coord.livenessWatchdog`, which is the real production driver. | U056.md |
 | U056-F11 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `monitor.go:206-214, liveness.go:152-185, coord/liveness.go:182-184` | NOPAY | The whole package's production effect is one `clidiag.Warn` line per firing transition; the on-demand API and the entire JSON-serialisable `Evidence` trail have no production consumer. | U056.md |
-| U056-F18 | open | `monitor.go:432-437` | CORRECTNESS | A CPU counter that goes **backwards** is the signature of a relaunch — the exact incident being hunted — and it is silently discarded as an unusable pair rather than surfaced as loop evidence. | U056.md |
+| U056-F18 | **REFUTED** `add59014` | `monitor.go:432-437` | CORRECTNESS | A CPU counter that goes **backwards** is the signature of a relaunch — the exact incident being hunted — and it is silently discarded as an unusable pair rather than surfaced as loop evidence. | U056.md |
 | U057-F03 | **PARTIAL** `ff37959b` | `config_registry.go:17, registry.go:94, registry.go:104` | DEAD | The entire piecemeal registration mechanism (`RegisterConfig`, `Register`, and `descriptorFor`, which exists only to serve them) is unreachable — not reflection-driven, not interface dispatch. Ever... | U057.md |
 | U057-F04 | **RESOLVED** `4b33e196` | **`commands.go:193-199 vs skillfiles.go:117-125`** | CORRECTNESS | `forceExport` force-enables a profile-curated command for **claude-code, antigravity and codex only** — kiro and opencode are omitted — so a profile that explicitly curates a command whose bundle s... | U057.md |
 | U057-F05 | **RESOLVED** `53fc6ad0` | **`managed.go:133, managed.go:190, managed.go:252, commands.go:144, skillfiles.go:80`** | ERRHANDLING | In five places the inline-profile resolution error is discarded by `if …; err == nil`, so a **broken** inline profile (circular inheritance, depth exceeded) is misclassified as "not an inline profi... | U057.md |

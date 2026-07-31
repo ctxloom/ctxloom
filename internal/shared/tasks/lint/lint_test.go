@@ -320,3 +320,61 @@ func TestLint_MalformedEnumDeclarationIsAReturnedError(t *testing.T) {
 		})
 	}
 }
+
+// TestLint_SameValueSpelledTwoWaysIsNotAScalarViolation pins the false
+// positive. groupByTarget collected values without deduping, so two DIFFERENT
+// raw tag strings that parse to the SAME (target, value) — tagma accepts a
+// value bare or quoted, and `triage:type=docs` and `triage:type="docs"` are
+// the same tag — landed as two entries. The scalar check counts entries, so it
+// reported a task carrying one value as carrying two, in a message that
+// contradicted itself: "2 distinct values [docs docs]".
+//
+// This is the mirror of the check's real purpose. arity=scalar means at most
+// one VALUE per target, and one value written two ways is still one value; a
+// lint that cannot tell those apart cannot be trusted about the case it exists
+// for, which is genuinely divergent values in foreign or hand-edited log data.
+func TestLint_SameValueSpelledTwoWaysIsNotAScalarViolation(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=docs`, `triage:type="docs"`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Empty(t, result.Violations,
+		"one value spelled two ways is one value; arity=scalar is not violated")
+}
+
+// TestLint_GenuinelyDifferentValuesStillViolateScalar guards the fix against
+// over-correcting: deduping must not silence the violation the check exists to
+// find.
+func TestLint_GenuinelyDifferentValuesStillViolateScalar(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=docs`, `triage:type=chore`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	require.Len(t, result.Violations, 1)
+	assert.Contains(t, result.Violations[0].Reason, "arity=scalar")
+	assert.Contains(t, result.Violations[0].Reason, "2 distinct values")
+}
+
+// TestLint_DuplicateTagDoesNotProduceDuplicateViolations pins the other face of
+// the same defect: with values ungrouped, a repeated tag produced one
+// violation PER OCCURRENCE, so the same finding was reported twice about the
+// same task. The sort at the end orders violations but has never deduped them.
+func TestLint_DuplicateTagDoesNotProduceDuplicateViolations(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=nope`, `triage:type="nope"`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	// One bad value, so exactly one enum violation — and no scalar violation,
+	// because it is one value spelled twice.
+	require.Len(t, result.Violations, 1)
+	assert.Contains(t, result.Violations[0].Reason, "not one of the declared enum values")
+}

@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,416** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 188 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 189 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 193 |
-| `open` | no commit names this ID | **311** |
+| `open` | no commit names this ID | **310** |
 
-**Totals: 2268 findings across 162 units — 1,416 resolved, 311 still open, 541 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,416 resolved, 310 still open, 542 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 525 | 173 | 90 | 86 | 125 |
+| MED | 999 | 525 | 172 | 90 | 87 | 125 |
 | LOW | 871 | 534 | 127 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1454,7 +1454,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U068-F06 | **RESOLVED** `947b2689` | `wrap.go:377,380` | CORRECTNESS | `env -S` / `--split-string` is an **interpreter** wrapper misclassified as an option to step over, so its inner command is never analysed | U068.md |
 | U068-F07 | **RESOLVED** `48633895` | `wrap.go:534`, `wrap.go:495` (cf. `:383,476,574,610`)` | CORRECTNESS | Glued short-option arguments defeat `skipStdbuf` and `skipNice`, so the inner command's argv[0] becomes the option token and no rule matches it. The fallback that fixes this exists in 4 of the 9 sk... | U068.md |
 | U068-F08 | open | `wrap.go:59-63` / `frontend.go:31` | COHESION | `Registry` is two types under one name: a 30-line dispatch table and a 621-line wrapper-expansion algorithm that touches none of its fields | U068.md |
-| U069-F03 | open | `cmd.go:148-150` | CORRECTNESS | An unterminated double quote is accepted as a complete word, so text after it is folded into a single argv element instead of being seen as further commands. | U069.md |
+| U069-F03 | **REFUTED** `39c3b1d3` | `cmd.go:148-150` | CORRECTNESS | An unterminated double quote is accepted as a complete word, so text after it is folded into a single argv element instead of being seen as further commands. | U069.md |
 | U069-F04 | open | `cmd.go:9-10`, `:153-164` | CORRECTNESS | `%VAR%` is preserved literally and never resolved, so any deny rule can be evaded by indirection (`set X=go& %X% test`), while the sibling shell frontend *does* resolve variables (`shell.go:325-332... | U069.md |
 | U069-F06 | open | `cmd.go:83` | COUPLING | `emit` does not flush the pending word, so every caller must remember to call `flush()` first — connascence of **order** spread over five call sites. | U069.md |
 | U070-F03 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `pwsh.go:46-49`, `:81-84`, `:114` | NOPAY | The `lit`/`param`/`dyn` element classification is computed in PowerShell, serialized, decoded into `psElem.K` — and never read. Every element is flattened to `el.V` regardless. | U070.md |

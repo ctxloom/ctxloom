@@ -82,8 +82,8 @@ func (a *App) resolveShell(hint ir.Shell) ir.Shell {
 		return a.ForceShell
 	case hint != "":
 		return hint
-	case a.Config.Defaults.Shell != "":
-		return a.Config.Defaults.Shell
+	case a.config().Defaults.Shell != "":
+		return a.config().Defaults.Shell
 	case a.HostShell != "":
 		return a.HostShell
 	default:
@@ -154,12 +154,33 @@ func (a *App) onAnalysisPanic(req engine.Request, val any, stack []byte) engine.
 }
 
 func (a *App) denyOnUnanalyzable() bool {
-	return a.Config != nil && a.Config.Defaults.OnParseError == rules.ActionDeny
+	return a.config().Defaults.OnParseError == rules.ActionDeny
 }
+
+// config returns the rules to decide against, and is never nil. A nil Config
+// means allow-all — the position rules.Evaluate and rules.EvaluatePath already
+// take explicitly, and the only one that keeps a missing config from becoming
+// a denial nobody wrote. Every reader in this type goes through here: reading
+// the field directly is what made the discipline inconsistent, so that a nil
+// Config surfaced as a nil dereference in one reader, a guarded false in
+// another, and — through the recover boundary — an "this is an ltk bug"
+// warning to the operator.
+func (a *App) config() *rules.Config {
+	if a.Config == nil {
+		return emptyRules
+	}
+	return a.Config
+}
+
+// emptyRules is the stand-in for a nil Config: no rules, normalized defaults.
+// It is shared because it is never mutated — nothing in this package writes
+// through a *rules.Config, and callers that need to expand or amend rules do
+// it on their own config before handing it to New.
+var emptyRules = rules.Empty()
 
 func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	if req.FilePath != "" {
-		d := rules.EvaluatePath(a.Config, req.FilePath)
+		d := rules.EvaluatePath(a.config(), req.FilePath)
 		return engine.Response{
 			Allow:                d.Allowed,
 			Reason:               d.Reason,
@@ -183,7 +204,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		// "nothing could be checked at all" (U005-F01/U067-F02) — carried on the
 		// Response so a caller (the CLI, an adapter's Encode) can say so instead
 		// of looking byte-identical to a clean allow.
-		if a.Config.Defaults.OnParseError == rules.ActionDeny {
+		if a.denyOnUnanalyzable() {
 			return engine.Response{Allow: false, Unanalyzed: true, ParseError: err.Error(),
 				Reason: "could not analyze command (" + err.Error() + ")"}
 		}
@@ -212,7 +233,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	}
 	if unanalyzed {
 		const msg = "a nested command (inside a wrapper such as bash -c/eval/cmd /c/pwsh -Command) could not be parsed"
-		if a.Config.Defaults.OnParseError == rules.ActionDeny {
+		if a.denyOnUnanalyzable() {
 			return engine.Response{Allow: false, Unanalyzed: true, ParseError: msg,
 				Reason: "could not analyze command (" + msg + ")"}
 		}
@@ -220,7 +241,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		// nested command is still matched below (fail-safe direction), but the
 		// Response still reports Unanalyzed so the caller knows the view of the
 		// nested command was incomplete even though this rule pass allowed it.
-		d := rules.Evaluate(a.Config, script)
+		d := rules.Evaluate(a.config(), script)
 		if !d.Allowed {
 			return engine.Response{
 				Allow:                false,
@@ -234,7 +255,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		return engine.Response{Allow: true, Unanalyzed: true, ParseError: msg}
 	}
 
-	d := rules.Evaluate(a.Config, script)
+	d := rules.Evaluate(a.config(), script)
 	return engine.Response{
 		Allow:                d.Allowed,
 		Reason:               d.Reason,

@@ -357,7 +357,7 @@ func TestExpandWrappers_PrefixWrapperSet(t *testing.T) {
 		{"nice -n ADJ", []string{"nice", "-n", "10", "git", "push"}, "git"},
 		{"nice bare -N", []string{"nice", "-10", "git", "push"}, "git"},
 		{"nohup plain", []string{"nohup", "git", "push"}, "git"},
-		{"stdbuf -o", []string{"stdbuf", "-o0", "git", "push"}, ""}, // -o0 combined form not modeled; best-effort, no crash
+		{"stdbuf -o", []string{"stdbuf", "-o0", "git", "push"}, "git"}, // glued -o0: skipped as an unrecognized option, inner command still located
 		{"stdbuf -o L", []string{"stdbuf", "-o", "L", "git", "push"}, "git"},
 		{"time plain", []string{"time", "git", "push"}, "git"},
 		{"time -p", []string{"time", "-p", "git", "push"}, "git"},

@@ -550,13 +550,16 @@ func isEnvAssignment(tok string) bool {
 	return true
 }
 
-// skipCommand locates the inner command after `command`'s no-argument options
-// -p/-v/-V. (`command -v foo` only PRINTS foo's resolution rather than
-// running it, but treating it as if foo runs is the fail-safe direction for a
-// guard — see the package doc above.)
+// skipCommand locates the inner command after `command`'s options -p/-v/-V,
+// including any bundled cluster of them (`command -pv foo`). Any option-shaped
+// token is skipped by itself: matching only the exact spellings left a cluster
+// as the inner command's argv[0], which no rule can match. (`command -v foo`
+// only PRINTS foo's resolution rather than running it, but treating it as if
+// foo runs is the fail-safe direction for a guard — see the package doc
+// above.)
 func skipCommand(args []string) (int, bool) {
 	i := 0
-	for i < len(args) && (args[i] == "-p" || args[i] == "-v" || args[i] == "-V") {
+	for i < len(args) && isPosixOption(args[i]) {
 		i++
 	}
 	if i >= len(args) {
@@ -566,13 +569,14 @@ func skipCommand(args []string) (int, bool) {
 }
 
 // skipSetsid locates the inner command after setsid's no-argument options
-// -w/--wait, -c/--ctty, -f/--fork.
+// -w/--wait, -c/--ctty, -f/--fork, and any bundled cluster of them (`-wf`).
+// None of setsid's options consume an operand, so every option-shaped token is
+// skipped by itself.
 func skipSetsid(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
-		switch args[i] {
-		case "-w", "--wait", "-c", "--ctty", "-f", "--fork":
-			i++
+		if isPosixOption(args[i]) {
+			i++ // -w/--wait, -c/--ctty, -f/--fork, and any bundled cluster of them
 			continue
 		}
 		break
@@ -629,7 +633,9 @@ func skipTimeout(args []string) (int, bool) {
 
 // skipNice locates the inner command after nice's -n/--adjustment ADJ (which
 // takes an argument) and the bare `-N` adjustment shorthand (e.g. `nice -5
-// cmd`).
+// cmd`). A glued form (`nice -n5 cmd`) matches neither, so any remaining
+// option-shaped token is skipped by itself rather than being left as the inner
+// command's argv[0] where no rule could match it.
 func skipNice(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
@@ -643,6 +649,9 @@ func skipNice(args []string) (int, bool) {
 			continue
 		case isNiceAdjustment(a):
 			i++
+			continue
+		case isPosixOption(a):
+			i++ // unrecognized/glued option (e.g. -n5): skip it alone
 			continue
 		}
 		break
@@ -668,7 +677,10 @@ func isNiceAdjustment(tok string) bool {
 }
 
 // skipStdbuf locates the inner command after stdbuf's -i/-o/-e (each takes an
-// argument: the buffering mode).
+// argument: the buffering mode). The mode is commonly glued on (`stdbuf -oL`),
+// which matches none of the exact spellings, so any remaining option-shaped
+// token is skipped by itself rather than being left as the inner command's
+// argv[0] where no rule could match it.
 func skipStdbuf(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
@@ -679,6 +691,9 @@ func skipStdbuf(args []string) (int, bool) {
 			continue
 		case strings.HasPrefix(a, "--input=") || strings.HasPrefix(a, "--output=") || strings.HasPrefix(a, "--error="):
 			i++
+			continue
+		case isPosixOption(a):
+			i++ // unrecognized/glued option (e.g. -oL): skip it alone
 			continue
 		}
 		break

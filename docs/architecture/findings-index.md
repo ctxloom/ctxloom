@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,422** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 161 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 162 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 189 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 194 |
-| `open` | no commit names this ID | **302** |
+| `open` | no commit names this ID | **301** |
 
-**Totals: 2268 findings across 162 units — 1,422 resolved, 302 still open, 544 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,422 resolved, 301 still open, 545 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 526 | 170 | 90 | 87 | 126 |
+| MED | 999 | 526 | 169 | 91 | 87 | 126 |
 | LOW | 871 | 539 | 121 | 55 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1458,7 +1458,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U069-F04 | **ESCALATED** `14e7bd0f` | `cmd.go:9-10`, `:153-164` | CORRECTNESS | `%VAR%` is preserved literally and never resolved, so any deny rule can be evaded by indirection (`set X=go& %X% test`), while the sibling shell frontend *does* resolve variables (`shell.go:325-332... | U069.md |
 | U069-F06 | **RESOLVED** `86833260` | `cmd.go:83` | COUPLING | `emit` does not flush the pending word, so every caller must remember to call `flush()` first — connascence of **order** spread over five call sites. | U069.md |
 | U070-F03 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `pwsh.go:46-49`, `:81-84`, `:114` | NOPAY | The `lit`/`param`/`dyn` element classification is computed in PowerShell, serialized, decoded into `psElem.K` — and never read. Every element is flattened to `el.V` regardless. | U070.md |
-| U070-F04 | open | `pwsh.go:38-54` | COUPLING | The embedded PowerShell program is a second language with a hand-maintained JSON contract, and **no test executes it**. Every test injects a fake `run` (`pwsh_test.go` fixtures), so `parseScript` i... | U070.md |
+| U070-F04 | **PARTIAL** `0ad25ef7` | `pwsh.go:38-54` | COUPLING | The embedded PowerShell program is a second language with a hand-maintained JSON contract, and **no test executes it**. Every test injects a fake `run` (`pwsh_test.go` fixtures), so `parseScript` i... | U070.md |
 | U071-F02 | **RESOLVED** `51232e54` | `shell.go:99`, `:179`, `:293`, `:378-384` | NOPAY | `ir.SimpleCommand.Raw`, and the entire `printer`/`render` machinery that fills it, have **zero readers in the repo — production or test**. A full `syntax.Printer` pretty-print runs for every simple... | U071.md |
 | U071-F04 | open | `shell.go:283-287` | ERRHANDLING | An `expand.Fields` failure silently downgrades to a guessed argv; nothing records that the argv the rules matched against is a guess. | U071.md |
 | U071-F05 | open | `shell.go:353-364` + `:368-376` | CORRECTNESS | `literalFallback` handles only `*syntax.Lit` and `*syntax.SglQuoted`; a `*syntax.DblQuoted` word yields `""`, and `argvFallback` then **drops that argument entirely**. On the fallback path a quoted... | U071.md |

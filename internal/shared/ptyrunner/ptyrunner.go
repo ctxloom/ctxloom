@@ -53,6 +53,37 @@ const ptyDrainGrace = 2 * time.Second
 // waiting its turn to be scheduled under load.
 const ptyDrainPollInterval = 2 * time.Millisecond
 
+// resizePTY applies a window size to the pty master. It is a package variable
+// solely so tests can inject the ioctl failure the error handling around it
+// must not swallow — there is no other way to make a live pty's TIOCSWINSZ
+// fail on demand. Production never reassigns it.
+var resizePTY = func(ptty pty.Pty, ws agent.WindowSize) error {
+	return ptty.Resize(int(ws.Cols), int(ws.Rows))
+}
+
+// firstError records the first error observed on a side path that has no
+// return value of its own, so the owning call can report it before claiming
+// success. mu guards the field against a reader on a different goroutine than
+// the writer.
+type firstError struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (e *firstError) set(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.err == nil {
+		e.err = err
+	}
+}
+
+func (e *firstError) get() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.err
+}
+
 // drainPTY waits for the copy goroutine to actually drain whatever the
 // child already wrote into the pty before RunInteractive forces the master
 // closed (deaf-rut S5): forcing ptty.Close() immediately after c.Wait(),
@@ -149,7 +180,15 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 		select {
 		case ws, ok := <-resize:
 			if ok {
-				_ = ptty.Resize(int(ws.Cols), int(ws.Rows))
+				// A failure here is not survivable as a silent one: the whole
+				// point of the wait is that the child gets its real geometry
+				// before its first paint, and a size that never lands never
+				// self-heals because SIGWINCH only fires on a CHANGE. Starting
+				// the child anyway hands the user a session painted at the
+				// pty's default 0x0 with nothing to say why.
+				if rerr := resizePTY(ptty, ws); rerr != nil {
+					return 0, fmt.Errorf("failed to size pty before starting the child: %w", rerr)
+				}
 			}
 		case <-time.After(initialResizeWait):
 		case <-ctx.Done():
@@ -163,6 +202,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 
 	// Apply subsequent terminal resizes (every SIGWINCH after the initial
 	// size consumed above) pushed from the frontend over the wire.
+	var resizeErr firstError
 	if resize != nil {
 		go func() {
 			for {
@@ -173,7 +213,25 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 					if !ok {
 						return
 					}
-					_ = ptty.Resize(int(ws.Cols), int(ws.Rows))
+					rerr := resizePTY(ptty, ws)
+					if rerr == nil {
+						continue
+					}
+					// Two distinct failures share this branch. One is this
+					// function's own shutdown racing a queued event: the pty is
+					// closed below while the deferred close(done) that stops
+					// this goroutine has not run yet, so a late resize lands on
+					// a closed master — the same expected fallout
+					// isBenignPTYError already names for c.Wait, and not a
+					// defect. The other is a genuinely broken master, which
+					// leaves the child painting at a stale geometry for the
+					// rest of the session with nothing to say why. Only the
+					// second is reportable; either way the ioctl will keep
+					// failing, so stop rather than retry in silence.
+					if !isBenignPTYError(rerr) {
+						resizeErr.set(rerr)
+					}
+					return
 				}
 			}
 		}()
@@ -286,6 +344,14 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 	// output that never reached anyone.
 	if werr := tw.err(); werr != nil {
 		return 0, fmt.Errorf("interactive session output delivery failed: %w", werr)
+	}
+
+	// Same standard for the resize path: a frontend SIGWINCH that stopped
+	// reaching the pty leaves the child painting at a geometry the user can
+	// see is wrong and cannot correct — SIGWINCH only fires on a change, so
+	// resending the same size is a no-op and the session never recovers.
+	if rerr := resizeErr.get(); rerr != nil {
+		return 0, fmt.Errorf("interactive session terminal resize failed: %w", rerr)
 	}
 
 	return exitCode, nil

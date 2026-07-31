@@ -13,12 +13,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -438,4 +441,95 @@ func TestRunInteractive_Argv0ComesFromPath(t *testing.T) {
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, out.String(), "argv0="+cmd.Path,
 		"go-pty derives argv[0] from Path; the caller's Args[0] is not reachable from here")
+}
+
+// stubResize replaces the package's pty-resize call for the duration of the
+// test. A live pty's TIOCSWINSZ cannot be made to fail on demand, so the seam
+// is the only way to exercise the error handling at all — which is exactly why
+// both errors went unhandled for so long.
+func stubResize(t *testing.T, fn func(ws agent.WindowSize) error) {
+	t.Helper()
+	orig := resizePTY
+	resizePTY = func(_ pty.Pty, ws agent.WindowSize) error { return fn(ws) }
+	t.Cleanup(func() { resizePTY = orig })
+}
+
+// TestRunInteractive_InitialResizeFailureIsReported pins the more serious half
+// of the discarded pair. The pre-start resize is the entire mechanism behind
+// DEFECT lucid-judo's fix: the child must see its real geometry before its
+// first paint, and because SIGWINCH fires only on a CHANGE, a size that never
+// lands never self-heals. Swallowing that error started a child guaranteed to
+// paint wrong for the whole session and reported success.
+func TestRunInteractive_InitialResizeFailureIsReported(t *testing.T) {
+	stubResize(t, func(agent.WindowSize) error { return errors.New("simulated TIOCSWINSZ failure") })
+
+	resize := make(chan agent.WindowSize, 1)
+	resize <- agent.WindowSize{Rows: 55, Cols: 111}
+
+	cmd := exec.Command("sh", "-c", "printf 'child ran\\n'; sleep 0.1")
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, resize)
+
+	require.Error(t, err, "a failed pre-start resize must not be reported as a successful run")
+	assert.Contains(t, err.Error(), "failed to size pty before starting the child")
+	assert.Contains(t, err.Error(), "simulated TIOCSWINSZ failure")
+	assert.Zero(t, exitCode)
+	assert.NotContains(t, out.String(), "child ran",
+		"the child must not be started at a geometry known to be wrong")
+}
+
+// TestRunInteractive_LaterResizeFailureIsReported pins the second discarded
+// error: a SIGWINCH that stops reaching the pty mid-session. The first resize
+// succeeds (so the child starts normally); the next one fails, which used to
+// be discarded inside a loop that then went on retrying in silence.
+func TestRunInteractive_LaterResizeFailureIsReported(t *testing.T) {
+	var calls atomic.Int32
+	stubResize(t, func(agent.WindowSize) error {
+		if calls.Add(1) == 1 {
+			return nil // the pre-start resize succeeds
+		}
+		return errors.New("simulated mid-session TIOCSWINSZ failure")
+	})
+
+	// Both sizes are queued up front: the pre-start select consumes the first,
+	// the applier goroutine consumes the second immediately after Start.
+	resize := make(chan agent.WindowSize, 2)
+	resize <- agent.WindowSize{Rows: 55, Cols: 111}
+	resize <- agent.WindowSize{Rows: 24, Cols: 80}
+
+	cmd := exec.Command("sh", "-c", "sleep 0.3")
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+
+	require.Error(t, err, "a resize that stopped reaching the pty must not be reported as success")
+	assert.Contains(t, err.Error(), "terminal resize failed")
+	assert.Contains(t, err.Error(), "simulated mid-session TIOCSWINSZ failure")
+	assert.Zero(t, exitCode)
+	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
+}
+
+// TestRunInteractive_LateResizeOnClosedPTYIsNotAnError guards the fix against
+// its own false positive. RunInteractive closes the pty before the deferred
+// close(done) stops the resize applier, so a queued event can legitimately
+// land on a closed master at end of run. That is the same expected fallout
+// isBenignPTYError already names for c.Wait, and reporting it would turn every
+// well-behaved session into a failure.
+func TestRunInteractive_LateResizeOnClosedPTYIsNotAnError(t *testing.T) {
+	var calls atomic.Int32
+	stubResize(t, func(agent.WindowSize) error {
+		if calls.Add(1) == 1 {
+			return nil
+		}
+		return fs.ErrClosed
+	})
+
+	resize := make(chan agent.WindowSize, 2)
+	resize <- agent.WindowSize{Rows: 55, Cols: 111}
+	resize <- agent.WindowSize{Rows: 24, Cols: 80}
+
+	cmd := exec.Command("sh", "-c", "sleep 0.3")
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+
+	require.NoError(t, err, "our own close racing a queued resize is expected fallout, not a defect")
+	assert.Equal(t, 0, exitCode)
+	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
 }

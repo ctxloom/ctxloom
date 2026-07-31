@@ -2,6 +2,7 @@ package collections
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,4 +53,29 @@ func TestSortedKeys_EmptyAndNilYieldNonNilSlice(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `[]`, string(raw))
 	})
+}
+
+// U106-F05 argues this package holds two unrelated concerns because "SortedKeys
+// is never called on a Set". That was TRUE when the finding was taken and still
+// true at this wave's base — and it is the load-bearing evidence for the
+// cohesion claim, so it is worth exercising rather than merely asserting.
+//
+// A Set[T] IS a map[T]struct{}, so SortedKeys applies to one directly: reading a
+// Set in a stable order is exactly what SortedKeys is for, and it is now what
+// config's profile resolver does with the three set-backed Profile fields whose
+// map-order reads used to reach an engine's settings file. This test pins the
+// composition, so a split that separated the two would have to break it first.
+func TestSortedKeys_OverASet(t *testing.T) {
+	s := NewSetFrom("delta", "alpha", "charlie", "bravo")
+	got := SortedKeys(s)
+
+	if want := []string{"alpha", "bravo", "charlie", "delta"}; !slices.Equal(got, want) {
+		t.Fatalf("SortedKeys over a Set = %v, want %v", got, want)
+	}
+
+	// And on the zero value, matching the Set doc's read-safety guarantee.
+	var zero Set[string]
+	if got := SortedKeys(zero); len(got) != 0 || got == nil {
+		t.Fatalf("SortedKeys over a zero Set = %#v, want an empty non-nil slice", got)
+	}
 }

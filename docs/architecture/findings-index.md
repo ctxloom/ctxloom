@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,345** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,346** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 147 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 179 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 179 |
-| `open` | no commit names this ID | **418** |
+| `open` | no commit names this ID | **417** |
 
-**Totals: 2268 findings across 162 units — 1,345 resolved, 418 still open, 505 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,346 resolved, 417 still open, 505 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 489 | 229 | 84 | 81 | 116 |
+| MED | 999 | 490 | 228 | 84 | 81 | 116 |
 | LOW | 871 | 499 | 177 | 48 | 90 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1391,7 +1391,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F06 | open | `sessionwatch.go:155, 201; 117-120, 163-165, 209-211` | ERRHANDLING | The `errs` channel returned by `WatchHistoryByPath` and `WatchCanonicalTranscript` is **never written to** — it is created, deferred-closed, and returned. A *permanent* read failure therefore warns... | U061.md |
 | U061-F07 | open | **`server.go:49, 236`** | COUPLING | `ExecutionMode` crosses the wire by **raw numeric cast** in both directions, making the proto enum and the Go enum connascent by *value* across two files with no mapping and no pinning test — while... | U061.md |
 | U061-F08 | open | `sessionhistory.go:246, 250, 260, 264; sessionwatch.go:106; plans.go:88; server.go:71, 134` | ERRHANDLING | No hand-written server handler or client method uses `google.golang.org/grpc/status`. Every error crosses the wire as `codes.Unknown` with a flattened string, so a caller cannot distinguish "this b... | U061.md |
-| U061-F09 | open | `mock_client.go:44-51, 59, 80, 89, 132` | CORRECTNESS | `MockClient`'s mutex guards 3 of its 7 counters. `RunCalls`, `WatchSessionCalls` and `KillCalls` take `m.mu`; `InfoCalls`, `RunWithModelInfoCalls`, `GetSessionCalls` and `ListSessionsCalls` do not.... | U061.md |
+| U061-F09 | **RESOLVED** `6836b1f5` | `mock_client.go:44-51, 59, 80, 89, 132` | CORRECTNESS | `MockClient`'s mutex guards 3 of its 7 counters. `RunCalls`, `WatchSessionCalls` and `KillCalls` take `m.mu`; `InfoCalls`, `RunWithModelInfoCalls`, `GetSessionCalls` and `ListSessionsCalls` do not.... | U061.md |
 | U061-F10 | open | `sessionwatch.go:52-87` | CORRECTNESS | `sessionWatcher.step` assumes the transcript never shrinks. If a poll returns fewer entries than the high-water mark (a rewritten/compacted/rotated transcript), the watcher silently wedges: `n > w.... | U061.md |
 | U062-F02 | **RESOLVED** `87563a3a` | **`auth.go:876, auth.go:909`** | CORRECTNESS | The documented "copies src to dst at **0600** (owner-only)" and `MkdirAll(destDir, 0o700)` guarantees are **not enforced on a pre-existing destination** — Go applies the perm argument only at creat... | U062.md |
 | U062-F04 | **RESOLVED** `f0758025` | `attach.go:51-55` | CORRECTNESS | `interactiveRunArgs` panics with index-out-of-range on an empty slice, and the invariant its own comment asserts is **false**. | U062.md |

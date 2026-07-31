@@ -314,7 +314,18 @@ func (c *converter) handleEventMsg(raw json.RawMessage) error {
 		c.pending.InputTokens = p.Info.LastTokenUsage.InputTokens
 		c.pending.OutputTokens = p.Info.LastTokenUsage.OutputTokens
 		c.pending.CacheReadTokens = p.Info.LastTokenUsage.CachedInputTokens
-		c.pending.ContextWindow = p.Info.ModelContextWindow
+		// Absent is not zero. The token fields above DO overwrite — each
+		// last_token_usage is per-call, and only the last one before
+		// task_complete belongs to the boundary (tokenCountPayload's doc
+		// comment) — but the context window is a property of the model, not of
+		// the call, and codex does not repeat it on every token_count. Writing
+		// the decoded zero from an event that simply omitted it would erase a
+		// window an earlier event already reported, leaving the Complete
+		// record claiming a context window no codex build ever emits. A
+		// genuinely new non-zero window still wins.
+		if p.Info.ModelContextWindow != 0 {
+			c.pending.ContextWindow = p.Info.ModelContextWindow
+		}
 		return nil
 	case "task_complete":
 		var p taskCompletePayload

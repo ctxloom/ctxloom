@@ -392,6 +392,20 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationDevcontainerService = doc.IsolationDevcontainerService
 	c.isolationEngines = doc.IsolationEngines
 	c.ui = doc.UI
+
+	// Both keyed containers are pre-populated before every decode precisely so
+	// downstream code may write into them, and a document is free to null
+	// either one back out ("profiles: {definitions: null}"). Restoring them
+	// here rather than at each decode site is what keeps the two symmetrical:
+	// the guard used to exist for lm.Configs alone, in ParseConfig alone, so
+	// the same YAML left Definitions nil AND left it nil on the layered Load
+	// path that ParseConfig's own guard never covered.
+	if c.lm.Configs == nil {
+		c.lm.Configs = make(map[string]LLMConfig)
+	}
+	if c.profiles.Definitions == nil {
+		c.profiles.Definitions = make(map[string]Profile)
+	}
 }
 
 // MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — cli/config.go's
@@ -1255,9 +1269,6 @@ func ParseConfig(data []byte) (*Config, error) {
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-	if cfg.lm.Configs == nil {
-		cfg.lm.Configs = make(map[string]LLMConfig)
 	}
 	return cfg, nil
 }

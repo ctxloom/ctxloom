@@ -1,14 +1,24 @@
-// This suite is self-contained and independently triggerable: it imports
-// only internal/transcript (the Recorder sink), internal/shared/agent, and
-// internal/testsupport (env/HOME isolation) — no other engine's adapter, no
-// other package under internal/transcript/importer. A release-monitoring job
-// validating just codex against a fresh rollout file runs it alone with:
+// This suite is self-contained and independently triggerable: it reaches for
+// no other engine's adapter and nothing else under
+// internal/transcript/importer, so it can be run alone, from the module root,
+// with either of:
 //
 //	go test ./internal/transcript/importer/codex/...
-//
-// or, from the module root, restricted to this package's own tests:
-//
 //	go test -run . ./internal/transcript/importer/codex
+//
+// What those commands validate is the FROZEN fixture checked in under
+// testdata/ — rollout-fixture.jsonl, captured from a real codex session on
+// 2026-07-16 (provenance in testdata/MANIFEST.json) — not a fresh capture.
+// Running them proves this build still parses that recorded shape correctly;
+// it proves nothing about a codex release that shipped afterwards.
+//
+// Pointing this suite at a NEWER codex build is a two-step manual job, and
+// deliberately so: replace testdata/rollout-fixture.jsonl with the new
+// capture, update testdata/MANIFEST.json's provenance to match, then
+// regenerate testdata/golden.transcript.acp.jsonl from the adapter's own
+// output. The regenerated golden cannot by itself catch a regression it was
+// generated through, which is why TestConvert_RealFieldsSurvive pins real
+// captured values by hand alongside it.
 package codex
 
 import (

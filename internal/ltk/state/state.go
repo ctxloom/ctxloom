@@ -31,10 +31,30 @@ type pending struct {
 }
 
 // Store is a tiny on-disk map of command → armed override. It is best-effort:
-// concurrent hook invocations (agents can issue parallel tool calls) may race
-// the read-modify-write and lose an arm, but Save writes atomically (temp file
-// + rename), so a reader never sees a torn file. Losing an arm fails safe — the
-// denial just repeats and re-arms.
+// concurrent hook invocations (agents can issue parallel tool calls) read the
+// file, mutate their own copy, and write the WHOLE map back, so one invocation
+// can overwrite another's update. Save writes atomically (temp file + rename),
+// so a reader never sees a torn file — but atomicity of the write is not
+// atomicity of the read-modify-write, and the two directions are not
+// symmetric.
+//
+// A lost ARM fails safe: the denial simply repeats and re-arms, and nothing
+// was permitted that the user did not ask for.
+//
+// A lost CLEAR fails OPEN, and that is the direction to keep in mind. An
+// invocation that read the store before another consumed an override still
+// holds that override in its snapshot, and its own Save writes it back — so a
+// spent, deliberately-consumed override is resurrected by an entirely
+// unrelated command's denial, and the next repeat of the first command is
+// allowed with no fresh denial and no fresh delay. Concurrent repeats of the
+// SAME command have the same shape: each reads "armed and ready" before any of
+// them clears, so one confirmation admits several runs.
+//
+// This is not currently prevented; race_test.go pins both directions so the
+// claim is maintained by the suite rather than asserted here. It is bounded by
+// what the mechanism is for — an escape hatch whose cost is a deliberate
+// repeat, not a security control — but "the user consented once and ltk acted
+// on it twice" is a real gap, not a documented safety property.
 type Store struct {
 	fs      afero.Fs
 	path    string

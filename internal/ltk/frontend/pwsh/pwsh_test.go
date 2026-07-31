@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -169,6 +170,37 @@ func TestBinaryResolutionIsOwnedByTheFrontend(t *testing.T) {
 	t.Setenv("PATH", dir)
 	if _, err := New().Parse(context.Background(), ir.ShellPwsh, "x"); errors.Is(err, errUnavailable) {
 		t.Error("a fresh Frontend still reports PowerShell missing; the lookup is cached process-wide with no owner")
+	}
+}
+
+// TestParseScriptEmitsEveryKeyTheDecoderReads guards the hand-maintained
+// contract between the embedded PowerShell program and the Go structs that
+// decode its output. That contract is a connascence of NAME across two
+// languages: rename a json tag here and the script keeps emitting the old key,
+// which unmarshals to a zero value rather than an error — commands vanish, or
+// hasErrors reads false and unparseable input is matched as if it parsed.
+//
+// TestIntegrationRealParser does execute the script, so it is not true that
+// nothing does; but it SKIPS wherever PowerShell is absent, which is this
+// repo's dev containers and CI. This test needs no PowerShell and so runs
+// everywhere. It matches `key=`, the form a PowerShell hashtable literal uses.
+func TestParseScriptEmitsEveryKeyTheDecoderReads(t *testing.T) {
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(psResult{}),
+		reflect.TypeOf(psCommand{}),
+		reflect.TypeOf(psElem{}),
+	} {
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			key := f.Tag.Get("json")
+			// Without this the loop would pass vacuously on an untagged struct.
+			if key == "" {
+				t.Fatalf("%s.%s has no json tag, so this contract check would be vacuous", typ.Name(), f.Name)
+			}
+			if !strings.Contains(parseScript, key+"=") {
+				t.Errorf("parseScript never assigns %q, which %s.%s decodes; the two sides of the contract have drifted", key, typ.Name(), f.Name)
+			}
+		}
 	}
 }
 

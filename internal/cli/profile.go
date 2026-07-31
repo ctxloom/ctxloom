@@ -214,8 +214,8 @@ func printProfileCreated(w io.Writer, name, path string) {
 	if len(profileCreateBundles) > 0 {
 		parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateBundles, ", ")))
 	}
-	fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
-	fmt.Printf("Saved to: %s\n", path)
+	fmt.Fprintf(w, "Created profile %q with %s\n", name, strings.Join(parts, "; "))
+	fmt.Fprintf(w, "Saved to: %s\n", path)
 }
 
 var profileDeleteCmd = &cobra.Command{
@@ -239,7 +239,7 @@ var profileDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Deleted profile %q\n", name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleted profile %q\n", name)
 		return nil
 	},
 }
@@ -451,7 +451,7 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
+	fmt.Fprintf(cmd.OutOrStdout(), "Exported: %s -> %s\n", res.Source, res.Dest)
 	return nil
 }
 
@@ -487,7 +487,7 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
+	fmt.Fprintf(cmd.OutOrStdout(), "Imported: %s -> %s\n", res.Source, res.Dest)
 	return nil
 }
 

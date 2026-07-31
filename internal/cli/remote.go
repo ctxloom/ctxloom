@@ -84,7 +84,7 @@ Examples:
 			clidiag.Warn("ctxloom", "%s", result.Warning)
 		}
 
-		fmt.Printf("Added remote '%s' → %s\n", result.Name, result.URL)
+		fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
 		return nil
 	},
 }
@@ -107,7 +107,7 @@ var remoteRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Removed remote '%s'\n", result.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed remote '%s'\n", result.Name)
 		return nil
 	},
 }
@@ -182,7 +182,7 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 		if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: ""}); err != nil {
 			return err
 		}
-		fmt.Println("Cleared default remote.")
+		fmt.Fprintln(cmd.OutOrStdout(), "Cleared default remote.")
 		return nil
 	}
 
@@ -197,7 +197,7 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 	if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name}); err != nil {
 		return err
 	}
-	fmt.Printf("Set default remote to: %s\n", name)
+	fmt.Fprintf(cmd.OutOrStdout(), "Set default remote to: %s\n", name)
 	return nil
 }
 
@@ -224,7 +224,7 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		fmt.Println("Pulling dependencies...")
+		fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
 
 		result, err := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
 			Force:      remotePullForce,

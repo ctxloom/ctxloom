@@ -132,3 +132,44 @@ func TestGlobMatchBytes_PathologicalPatternDoesNotBacktrack(t *testing.T) {
 	t.Logf("elapsed: %s", elapsed)
 	assert.Less(t, elapsed, 100*time.Millisecond, "matching must not backtrack exponentially")
 }
+
+// TestGlobMatchBytes_DialectEdges characterizes the corners the matcher's
+// rewrite could plausibly move: what an empty pattern and an empty subject
+// mean, whether a trailing '*' may absorb nothing, whether '?' may match
+// nothing, and that adjacent stars are not special-cased any more.
+func TestGlobMatchBytes_DialectEdges(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, subject string
+		want             bool
+	}{
+		{"", "", true},
+		{"", "a", false},
+		{"*", "", true},
+		{"**", "", true},
+		{"*", "anything at all", true},
+		{"?", "", false},
+		{"?", "a", true},
+		{"?", "ab", false},
+		{"a*", "a", true},
+		{"a*", "ab", true},
+		{"*a", "a", true},
+		{"*a", "ba", true},
+		{"*a", "ab", false},
+		{"a*b", "ab", true},
+		{"a*b", "axxb", true},
+		{"a*b", "axxc", false},
+		{"*@example.com", "ben@example.com", true},
+		{"*@example.com", "ben@example.com.evil", false},
+		{"a**b", "axxb", true},
+		{"*a*b*", "xxaxxbxx", true},
+		{"*a*b*", "xxbxxaxx", false},
+		{"a?c", "abc", true},
+		{"a?c", "ac", false},
+		{"*?", "a", true},
+		{"*?", "", false},
+	} {
+		t.Run(tc.pattern+"|"+tc.subject, func(t *testing.T) {
+			assert.Equal(t, tc.want, globMatchBytes([]byte(tc.pattern), []byte(tc.subject)))
+		})
+	}
+}

@@ -40,37 +40,48 @@ func matchPatternList(patterns []string, s string) bool {
 // matching: '*' matches zero or more characters, '?' matches exactly one
 // character, every other character matches itself literally. There are no
 // character classes ([...]) in this dialect.
+//
+// The algorithm is the single-backtrack-point one: only the MOST RECENT '*' is
+// ever reconsidered, and it only ever gives up one more byte, so the whole
+// match is O(len(pattern) x len(s)) in the worst case and linear in practice.
+//
+// It replaced a recursion that tried every split point for every '*'
+// independently, which is exponential in the number of stars. The old
+// consecutive-star collapse only merged ADJACENT stars, so it did nothing for
+// *a*a*a*a*b — measured at over 130 seconds for eleven stars against
+// forty-four characters. That matters here rather than being a curiosity:
+// TrustedAs matches the trust root's principals pattern against an EXTERNALLY
+// claimed identity (a git committer email, a loadout envelope's advisory
+// signer field), so both operands are shaped by someone other than the person
+// asking the question.
 func globMatchBytes(pattern, s []byte) bool {
-	for len(pattern) > 0 {
-		switch pattern[0] {
-		case '*':
-			for len(pattern) > 1 && pattern[1] == '*' {
-				pattern = pattern[1:]
-			}
-			if len(pattern) == 1 {
-				return true // trailing star matches anything remaining
-			}
-			for i := 0; i <= len(s); i++ {
-				if globMatchBytes(pattern[1:], s[i:]) {
-					return true
-				}
-			}
-			return false
-		case '?':
-			if len(s) == 0 {
-				return false
-			}
-			pattern = pattern[1:]
-			s = s[1:]
-		default:
-			if len(s) == 0 || s[0] != pattern[0] {
-				return false
-			}
-			pattern = pattern[1:]
-			s = s[1:]
+	p, i := 0, 0
+	// starP is the pattern index of the most recent '*'; starI is the subject
+	// index it currently resumes from. Reconsidering only this one star is
+	// what makes the search linear: an earlier star never needs revisiting,
+	// because anything it could have absorbed, a later star can absorb too.
+	starP, starI := -1, 0
+	for i < len(s) {
+		if p < len(pattern) && pattern[p] == '*' {
+			starP, starI = p, i
+			p++
+			continue
 		}
+		if p < len(pattern) && (pattern[p] == '?' || pattern[p] == s[i]) {
+			p++
+			i++
+			continue
+		}
+		if starP < 0 {
+			return false // no star to give ground; this subject cannot match
+		}
+		starI++
+		p, i = starP+1, starI
 	}
-	return len(s) == 0
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+	return p == len(pattern)
 }
 
 // splitPatternList splits an unquoted option value (e.g. the content of

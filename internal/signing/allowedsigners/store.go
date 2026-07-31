@@ -126,10 +126,23 @@ func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time)
 
 // TrustedAs additionally requires that identity match the matching
 // entry's principals pattern-list, mirroring `ssh-keygen -Y verify -I
-// identity`. Use this when an external, unverified identity claim (e.g. a
-// git committer email, or the advisory "signer" field of a companion
-// loadout envelope) needs to be corroborated against the trust root
-// rather than taken at face value.
+// identity`. Use this when an external, unverified identity claim needs to be
+// corroborated against the trust root rather than taken at face value.
+//
+// It has NO production caller, and that is the correct state rather than a
+// gap to close. The only place ctxloom holds an externally-claimed identity is
+// the loadout envelope's advisory "signer" field, and that path deliberately
+// DERIVES the identity instead — VerifyPublisher resolves the signature's key
+// against the trust root and reports whatever principal that entry names,
+// never reading the claim (implementer trap #3, pinned by
+// TestLoadoutEnvelope_AdvisorySignerFieldIsNeverTrusted). Deriving is strictly
+// stronger than corroborating: it cannot be steered by the claim at all.
+//
+// So do not wire this in to give the unused half a caller — reaching for it
+// where deriving is available is a regression. It stays because it is the
+// package's answer to the question ssh-keygen -Y verify -I actually asks, and
+// because interop_test.go drives it against the real binary to keep this
+// package's principal matching honest.
 func (s *Store) TrustedAs(identity string, key ssh.PublicKey, ns string, now time.Time) Decision {
 	return s.decide(principalCheck{required: true, identity: identity}, key, ns, now)
 }

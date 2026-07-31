@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,504** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,505** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 177 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **176** |
+| `open` | no commit names this ID | **175** |
 
-**Totals: 2268 findings across 162 units — 1,504 resolved, 176 still open, 588 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,505 resolved, 175 still open, 588 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 565 | 102 | 102 | 95 | 135 |
-| LOW | 871 | 580 | 65 | 59 | 104 | 63 |
+| LOW | 871 | 581 | 64 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2641,7 +2641,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U106-F05 | **REFUTED** `8811da7c` | `set.go:1` / `sorted_keys.go:1` | COHESION | The package holds two unrelated concerns: a set type and a map-key sorter. They share no type, no state, and no caller pattern — `SortedKeys` is never called on a `Set`. The package name ("collecti... | U106.md |
 | U106-F06 | **RESOLVED** `00396a53` | `set.go:68` | COUPLING | `Items` returns map-iteration order, which Go deliberately randomizes. The doc says so ("Order is not guaranteed"), but three of its six call sites feed the result into config output — `config_reso... | U106.md |
 | U107-F05 | **RESOLVED** `4f4f73bd` | `cli.go:65-71` | ERRHANDLING | `ReadEmbeddedSig` cannot distinguish "no `.sig` committed" (intended) from "`.sig` committed but zero bytes" (a half-failed signing run), and both silently produce an **unsigned** build. | U107.md |
-| U107-F06 | open | `cli.go:79` vs `cli.go:89` | ERRHANDLING | The two output branches differ in trailing-newline behaviour with no comment explaining why, so the asymmetry reads as an oversight when it is in fact load-bearing. | U107.md |
+| U107-F06 | **RESOLVED** `34b78d29` | `cli.go:79` vs `cli.go:89` | ERRHANDLING | The two output branches differ in trailing-newline behaviour with no comment explaining why, so the asymmetry reads as an oversight when it is in fact load-bearing. | U107.md |
 | U108-F09 | **RESOLVED** `c78f69fe` | `confload.go:182-184` | DEAD | `Product.HomeConfigPath` — and with it the `DirName`/`FileName` fields' only reader — has no production caller. | U108.md |
 | U108-F11 | open | `process.go:23-43` | COUPLING | The mutex protects the struct header only; `ProcessOverrides()` hands out the live maps, so the synchronization is partial in a way the code does not say. | U108.md |
 | U108-F13 | open | `confload.go:155-165` | ERRHANDLING | The `EnvPrefix` invariant the package doc spends 11 lines on ("must carry a `_CONFIG_` segment or bootstrap vars leak into the config chain") is checkable in one line, and the doc explicitly declin... | U108.md |

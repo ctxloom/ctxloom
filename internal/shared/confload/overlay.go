@@ -498,17 +498,43 @@ func descendOneLevel(level map[string]any, remaining []string) (key string, next
 	return "", nil, 0, nil, false
 }
 
+// maxPartitionTokens bounds partitionsBySegmentCountDesc's input, because the
+// enumeration it performs is 2^(n-1) in n and n comes from a USER-SUPPLIED
+// name: an env var CTXLOOM_CONFIG_A_B_C_... or a --config-set path splits into
+// as many tokens as the user cares to type. Unbounded, the pre-sized
+// make([]splitMask, 0, 1<<gaps) below turns a merely long name into an
+// out-of-memory abort during config load — i.e. at startup, before the process
+// can say anything useful — and past 64 tokens the shift itself overflows into
+// a negative cap and panics in makeslice.
+//
+// 16 is measured against the schemas this predicate is asked about: the
+// deepest path either product declares is 6 segments
+// (profiles.definitions.*.fragments.*.priority), and the longest fixed
+// multi-word property name contributes about 3 tokens, so 16 leaves roughly
+// 2.5x headroom over any legitimate override while capping the enumeration at
+// 2^15 = 32768 partitions.
+//
+// Beyond the bound the schema-guided search is skipped entirely and resolution
+// falls through to resolvePath's case 4 — one segment per token, plus the
+// unknown-key warning naming the variable. That is a strictly better outcome
+// than an OOM, and it costs only this: a path longer than the bound can no
+// longer be matched by JOINING tokens into a wildcard segment. Nothing shorter
+// than the bound changes at all.
+const maxPartitionTokens = 16
+
 // partitionsBySegmentCountDesc returns every way of splitting tokens into
 // contiguous, order-preserving groups, ordered by DESCENDING group count
 // (i.e. finest splits — one token per segment — first, widest joins last).
 // See resolvePath's doc for why finest-first, not widest-first, is required
 // once a schema level with a wildcard (additionalProperties) is possible.
-// len(tokens) is expected to be small (a handful of underscore/dash-
-// separated words), so the full 2^(n-1)-composition enumeration this does is
-// negligible.
+//
+// Returns nil for an empty token list and for one longer than
+// maxPartitionTokens — see that constant for why the bound exists and what
+// exceeding it costs. A nil result makes resolvePath's schema-guided loop a
+// no-op, so it lands on case 4.
 func partitionsBySegmentCountDesc(tokens []string) [][][]string {
 	n := len(tokens)
-	if n == 0 {
+	if n == 0 || n > maxPartitionTokens {
 		return nil
 	}
 	gaps := n - 1

@@ -2,6 +2,7 @@ package confload
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -610,4 +611,71 @@ func TestLoad_DoesNotWarnForAbsentOrPopulatedLayers(t *testing.T) {
 	assert.Equal(t, "project-store", result["store"])
 
 	assert.Empty(t, buf.String(), "absent and populated layers are both normal and must stay silent")
+}
+
+// TestPartitions_BoundedByTokenCount is the INTERNAL-SEAM pin for the
+// enumeration bound (see maxPartitionTokens). At the bound the full
+// 2^(n-1)-composition search still runs; one token past it the search is
+// skipped entirely and returns nil, which makes resolvePath's schema-guided
+// loop a no-op so resolution lands on case 4.
+//
+// This altitude is the one that can be driven red: without the bound the
+// call one token past it returns 2^16 partitions rather than nil.
+func TestPartitions_BoundedByTokenCount(t *testing.T) {
+	atBound := partitionsBySegmentCountDesc(make([]string, maxPartitionTokens))
+	require.Len(t, atBound, 1<<(maxPartitionTokens-1),
+		"at the bound the full composition enumeration must still happen")
+
+	assert.Nil(t, partitionsBySegmentCountDesc(make([]string, maxPartitionTokens+1)),
+		"one token past the bound the enumeration must be skipped, not attempted")
+}
+
+// TestEnvOverlay_PathologicallyLongNameWarnsInsteadOfExhaustingMemory is the
+// PUBLIC-SEAM half. The token count of an override name is user-supplied, and
+// the schema-guided fallback enumerates 2^(n-1) compositions of it with the
+// size pre-allocated in a single make() -- so a merely long environment
+// variable name was an out-of-memory abort during config load, before the
+// process could report anything, rather than a diagnostic about an
+// unrecognized key.
+//
+// This altitude is deliberately NOT driven red: against the unbounded code
+// the assertion below does not fail, it exhausts the machine (2^199
+// allocations), which is the defect itself. The internal-seam pin above is
+// where the red lives.
+func TestEnvOverlay_PathologicallyLongNameWarnsInsteadOfExhaustingMemory(t *testing.T) {
+	tokens := make([]string, 200)
+	for i := range tokens {
+		tokens[i] = fmt.Sprintf("T%d", i)
+	}
+	suffix := strings.Join(tokens, "_")
+
+	t.Setenv("TESTPROD_CONFIG_"+suffix, "x")
+
+	p := testProduct("default_agent") // schema knows SOMETHING, just not this
+	o, err := p.ReadOverrides(nil)
+	require.NoError(t, err)
+
+	// The fixture has to be hostile from ApplyOverrides' own vantage point
+	// before anything about the outcome means a thing: the variable must
+	// actually have been captured, and its token count must actually exceed
+	// the bound. A fixture that quietly failed to reach the code under test
+	// would pass this test for the wrong reason.
+	require.Contains(t, o.Env, suffix, "the pathological variable must reach the override capture")
+	require.Greater(t, len(envTokens(suffix)), maxPartitionTokens,
+		"the fixture is only hostile if it exceeds the enumeration bound")
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	out, err := p.ApplyOverrides(map[string]any{}, o)
+	require.NoError(t, err)
+
+	// Case 4: one segment per token, plus the unknown-key warning naming the
+	// variable. A diagnostic, which is the whole point.
+	level, ok := out["T0"].(map[string]any)
+	require.True(t, ok, "an over-long name must still resolve, as case 4's one-segment-per-token fallback")
+	_, ok = level["T1"]
+	require.True(t, ok, "case 4 nests one level per token")
+	assert.Contains(t, buf.String(), "does not match any known config key")
 }

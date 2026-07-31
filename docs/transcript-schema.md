@@ -134,6 +134,7 @@ maps to **one canonical field by meaning**, never by source label:
 | tool invocation | `function_call` (not in the ACP stream — codex-acp maps this to `tool_call`) | `AssistantMessage` `toolUse` block | `tool_use` content block | *(none — oneshot only)* | `entry.type = "tool_use"` |
 | tool output | `function_call_output` | `ToolResults` `toolResult` block | `tool_result` content block | *(none)* | `entry.type = "tool_result"` |
 | turn accounting | `event_msg.token_count` | *(absent from v1 file)* | `usage` on the assistant message | *(none)* | `kind = "complete"` (`CompletePayload`) |
+| session failure notice | *(none)* | *(none)* | *(none)* | `ERROR_MESSAGE` | `entry.type = "system"` (`SystemKindNotice`) |
 
 No new vocabulary is invented anywhere in this table — every canonical name on
 the right is exactly `agent.SessionEntryType` or an `agent.ChatEvent` variant

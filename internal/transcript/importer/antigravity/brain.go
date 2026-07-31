@@ -38,6 +38,34 @@ type step struct {
 // output promises.
 const stepDone = "DONE"
 
+// stepTypeUser / stepTypeAssistant / stepTypeError are the step types this
+// adapter converts. The first two are docs/transcript-schema.md §2c's mapping
+// table verbatim; stepTypeError is antigravity's own record that something in
+// the session FAILED, which the canonical vocabulary already has a slot for
+// (entry.type "system", SystemKindNotice) — see stepEvent.
+const (
+	stepTypeUser      = "USER_INPUT"
+	stepTypeAssistant = "PLANNER_RESPONSE"
+	stepTypeError     = "ERROR_MESSAGE"
+)
+
+// convertibleStep reports whether this adapter maps s.Type at all, and
+// whether s is finalized enough to convert. An ERROR_MESSAGE is exempt from
+// the stepDone gate ON PURPOSE: no ERROR_MESSAGE step exists in any capture on
+// this box, so the status an errored step carries has never been observed, and
+// gating a failure notice behind an unverified status vocabulary would drop
+// the one record that says the session went wrong.
+func convertibleStep(s step) (mapped, finalized bool) {
+	switch s.Type {
+	case stepTypeError:
+		return true, true
+	case stepTypeUser, stepTypeAssistant:
+		return true, s.Status == stepDone
+	default:
+		return false, false
+	}
+}
+
 // userRequestOpenTag / userRequestCloseTag bracket the human-authored part of
 // a USER_INPUT step's content. antigravity wraps every user turn as
 // "<USER_REQUEST>...</USER_REQUEST><ADDITIONAL_METADATA>...</ADDITIONAL_METADATA>
@@ -81,11 +109,12 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 			malformed++
 			continue // malformed line: skip, never fatal (see importer.VendorAdapter doc)
 		}
-		if s.Type != "USER_INPUT" && s.Type != "PLANNER_RESPONSE" {
+		mapped, finalized := convertibleStep(s)
+		if !mapped {
 			continue // administrative/unmapped step type: not this adapter's content
 		}
 		convertible++
-		if s.Status != stepDone {
+		if !finalized {
 			wrongStatus++
 			continue // provisional (e.g. RUNNING): not a finalized turn to record
 		}
@@ -106,9 +135,9 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 	// admin-only file (convertible == 0) stays a legitimate, silent success.
 	if entries == 0 && convertible > 0 {
 		if wrongStatus == convertible {
-			return fmt.Errorf("antigravity: read %d line(s) including %d USER_INPUT/PLANNER_RESPONSE step(s), but none had status %q — this build's status vocabulary no longer matches the file", lineCount, convertible, stepDone)
+			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but none had status %q — this build's status vocabulary no longer matches the file", lineCount, convertible, stepDone)
 		}
-		return fmt.Errorf("antigravity: read %d line(s) including %d USER_INPUT/PLANNER_RESPONSE step(s) but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", lineCount, convertible)
+		return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", lineCount, convertible)
 	}
 	if entries == 0 && malformed > 0 && malformed == lineCount {
 		return fmt.Errorf("antigravity: all %d line(s) failed to parse as JSON — not a transcript this build can read", lineCount)
@@ -116,19 +145,32 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 	return nil
 }
 
-// stepEvent maps one DONE step to zero or one ChatEvents, per
+// stepEvent maps one convertible step to zero or one ChatEvents, per
 // docs/transcript-schema.md §2c's mapping table: USER_INPUT -> "user",
-// PLANNER_RESPONSE -> "assistant". Every other Type (CONVERSATION_HISTORY,
-// CHECKPOINT, GENERIC, LIST_DIRECTORY, RUN_COMMAND, CODE_ACTION, VIEW_FILE,
-// SYSTEM_MESSAGE, ERROR_MESSAGE, and any future/unrecognized type) is
-// skipped — see this package's doc comment for why that vocabulary is not
-// converted even though some of it is real, present data on this box.
+// PLANNER_RESPONSE -> "assistant", ERROR_MESSAGE -> "system".
+//
+// The ERROR_MESSAGE row records a session that FAILED. It is not a fidelity
+// bonus: without it, a failed antigravity session imports as a clean
+// transcript whose only evidence of the failure is content that is no longer
+// there — indistinguishable from a session that simply ended. No vocabulary is
+// invented for it, which is the bar this package's doc comment sets for
+// everything it declines to map: agent.EntryTypeSystem's default
+// SystemKindNotice is documented as "a freeform system notice with no
+// structured payload," which is exactly what an ERROR_MESSAGE's content is.
+//
+// Every other Type (CONVERSATION_HISTORY, CHECKPOINT, GENERIC, LIST_DIRECTORY,
+// RUN_COMMAND, CODE_ACTION, VIEW_FILE, SYSTEM_MESSAGE, and any
+// future/unrecognized type) is skipped — see this package's doc comment for
+// why that vocabulary is not converted even though some of it is real,
+// present data on this box.
 func stepEvent(s step) []agent.ChatEvent {
 	switch s.Type {
-	case "USER_INPUT":
+	case stepTypeUser:
 		return importer.TextEntry(agent.EntryTypeUser, extractUserRequest(s.Content))
-	case "PLANNER_RESPONSE":
+	case stepTypeAssistant:
 		return importer.TextEntry(agent.EntryTypeAssistant, strings.TrimSpace(s.Content))
+	case stepTypeError:
+		return importer.TextEntry(agent.EntryTypeSystem, strings.TrimSpace(s.Content))
 	default:
 		return nil
 	}

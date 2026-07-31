@@ -61,11 +61,15 @@ func TestStepEvent(t *testing.T) {
 		assert.Equal(t, "ok", evs[0].Entry.Content)
 	})
 
+	// ERROR_MESSAGE is deliberately NOT in this list: it is mapped, to
+	// entry.type "system" (U146-F06). Every type below is administrative or
+	// tool narration whose omission the package doc justifies; a failure
+	// notice never belonged with them.
 	t.Run("an unmapped type contributes nothing, even with content", func(t *testing.T) {
 		for _, typ := range []string{
 			"CONVERSATION_HISTORY", "CHECKPOINT", "GENERIC",
 			"LIST_DIRECTORY", "RUN_COMMAND", "CODE_ACTION", "VIEW_FILE",
-			"SYSTEM_MESSAGE", "ERROR_MESSAGE", "SOME_FUTURE_TYPE",
+			"SYSTEM_MESSAGE", "SOME_FUTURE_TYPE",
 		} {
 			evs := stepEvent(step{Type: typ, Content: "some narration text"})
 			assert.Empty(t, evs, "type %q must not be converted", typ)

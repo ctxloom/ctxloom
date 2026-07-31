@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -33,10 +34,33 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// Store is one physical countersignature store: a directory of individual
-// .sig files. It offers exactly two capabilities — write one signature, and
-// find + verify CANDIDATE signatures for a (header, payload) query. It never
-// answers "is X approved" on the strength of a filename alone.
+// Store is one physical countersignature store: a directory holding THREE
+// kinds of record, with three different authority models. They share a
+// directory and a type; they do not share a trust story, and a reader who
+// takes one for another gets the security of the weakest.
+//
+//  1. SIGNED records (.sig). Cryptographic authority. Write one with the
+//     assertion wrappers; ask about one with the Verified* wrappers, which
+//     re-verify every candidate against the reconstructed payload under a
+//     trust root. A filename proves nothing here — see verified.
+//
+//  2. UNSIGNED markers (.unsigned), the degraded path of spec §9.5.
+//     EXISTENCE IS THE ENTIRE RECORD: HasUnsignedApprove answers "is X
+//     approved" from a filename and nothing else, so anything that can write
+//     this directory can forge one. That is not a defect, it is the documented
+//     cost of "signing must never become a barrier to plain local use" — and
+//     it is why callers must NEVER route an unsigned write to the committable
+//     PROJECT store (spec §9.5: "a shareable approval with no signature is a
+//     forgery primitive with a friendly name").
+//
+//  3. The sidecar index (index.yaml). NO authority whatsoever — display
+//     metadata, never an input to a trust decision. It exists so `ctxloom
+//     review` can label an item UPDATE vs NEW and offer a diff base.
+//
+// This doc used to say the type offered "exactly two capabilities" and "never
+// answers 'is X approved' on the strength of a filename alone". The second
+// sentence is false of (2) by design, which is exactly the thing a reader most
+// needs to know.
 type Store struct {
 	dir string
 	fs  afero.Fs
@@ -176,6 +200,19 @@ func keyTag(pub ssh.PublicKey) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
+// filename is the naming CONTRACT between this file's writers and its readers,
+// and the only place it is expressed:
+//
+//	<indexHash>.<assertion>.<keyTag>.sig
+//
+// candidates finds records by matching the leading "<indexHash>." as a literal
+// prefix, so the hash must come first and the separator must be a '.'; it
+// keeps every match and re-verifies each, which is what lets the keyTag
+// disambiguate several signers over the same (header, payload) without any of
+// them being read back as identity. Changing the order or the separator
+// silently orphans every record already on disk — they stay on disk, stay
+// valid, and are never found again, which on the reject path reads as nothing
+// rejected.
 func filename(header signing.CountersignHeader, payload []byte, pub ssh.PublicKey) string {
 	return indexHash(header, payload) + "." + string(header.Assertion) + "." + keyTag(pub) + ".sig"
 }
@@ -203,9 +240,18 @@ func pinsBytes(header signing.CountersignHeader, payload []byte) error {
 	return fmt.Errorf("countersign approve %s %s: refusing to record an empty payload — an approval that pinned nothing can never be honoured", header.Form, header.Ref)
 }
 
-// write signs header+payload with signer under namespace and persists the
-// resulting armored signature under this store's directory.
-func (s *Store) write(header signing.CountersignHeader, payload []byte, signer ssh.Signer, namespace string) error {
+// write signs header+payload with signer and persists the resulting armored
+// signature under this store's directory.
+//
+// The signing namespace is DERIVED from header.Assertion, through the same
+// function the verifier uses (signing.NamespaceForAssertion). It used to be a
+// parameter independent of the assertion, hand-re-encoded at each of the
+// assertion wrappers below — three chances to write a record under a namespace
+// the verifier will never look in. Such a record is written, reported to the
+// user with a key fingerprint against it, and then verifies for nobody; on the
+// REJECT path that is a fail-open, because an unverifiable rejection reads as
+// "nothing rejected" and silently un-rejects the item.
+func (s *Store) write(header signing.CountersignHeader, payload []byte, signer ssh.Signer) error {
 	if err := s.configured(); err != nil {
 		return err
 	}
@@ -218,7 +264,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 	if err := pinsBytes(header, payload); err != nil {
 		return err
 	}
-	armored, err := signing.Sign(signing.CountersignPreimage(header, payload), signer, namespace)
+	armored, err := signing.Sign(signing.CountersignPreimage(header, payload), signer, signing.NamespaceForAssertion(header.Assertion))
 	if err != nil {
 		return err
 	}
@@ -236,7 +282,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 // An EMPTY payload is refused — see pinsBytes.
 func (s *Store) WriteApprove(ref string, form signing.AttestationForm, payload []byte, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
-	return s.write(h, payload, signer, signing.NamespaceApprove)
+	return s.write(h, payload, signer)
 }
 
 // WriteContentReject signs and stores a REF-OMITTED reject countersignature
@@ -245,7 +291,7 @@ func (s *Store) WriteApprove(ref string, form signing.AttestationForm, payload [
 // distilled), mirroring the deleted denylist's two-hash rejection.
 func (s *Store) WriteContentReject(form signing.AttestationForm, payload []byte, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
-	return s.write(h, payload, signer, signing.NamespaceReject)
+	return s.write(h, payload, signer)
 }
 
 // WriteRefReject signs and stores the STICKY ref-level block (spec §5.3):
@@ -253,7 +299,7 @@ func (s *Store) WriteContentReject(form signing.AttestationForm, payload []byte,
 // ref regardless of what its content becomes.
 func (s *Store) WriteRefReject(ref string, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
-	return s.write(h, nil, signer, signing.NamespaceReject)
+	return s.write(h, nil, signer)
 }
 
 // headerInvalid reports a header the closed vocabulary rejects, on the READ
@@ -267,13 +313,31 @@ func (s *Store) headerInvalid(header signing.CountersignHeader) bool {
 
 // candidates returns the armored signature blobs found under header+payload's
 // index hash. Finding one proves NOTHING — see verified.
+//
+// The directory is LISTED and the index hash matched as a literal prefix,
+// never globbed. Globbing joined s.dir into a PATTERN, so every metacharacter
+// in the store's own path was interpreted rather than matched: an unterminated
+// '[' anywhere in it made filepath.Match return ErrBadPattern, and a
+// well-formed class like [ab] matched a different directory. Both made every
+// query into the store come back empty, forever, with Readable() — which lists
+// the directory by its literal name — reporting it perfectly healthy. On the
+// REJECT path "no candidates" is indistinguishable from "nothing rejected", so
+// that silently un-rejected everything a human had refused.
+//
+// The remaining dropped errors are droppable HERE, and only because something
+// else catches them: a directory that cannot be listed and a record that
+// cannot be read both fail Store.Readable, which walks every file in the store
+// and gates EffectiveTrust's fail-closed preamble. This function answers one
+// query and cannot tell "no record" from "a record I could not see"; Readable
+// is the pass that can. Do not silence an error here without checking that
+// Readable still sees it.
 func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][]byte {
 	if s == nil {
 		return nil
 	}
 	if s.configured() != nil {
-		// Not "no candidates here" but "there is no here" — globbing an
-		// unconfigured store would glob the working directory.
+		// Not "no candidates here" but "there is no here" — listing an
+		// unconfigured store would list the working directory.
 		return nil
 	}
 	// Fail CLOSED on a header outside the closed vocabulary: an unrecognized
@@ -281,17 +345,23 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 	if s.headerInvalid(header) {
 		return nil
 	}
-	pattern := filepath.Join(s.dir, indexHash(header, payload)+".*.sig")
-	matches, err := afero.Glob(s.fs, pattern)
+	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
-		return nil
+		return nil // see Readable
 	}
-	sort.Strings(matches)
-	out := make([][]byte, 0, len(matches))
-	for _, m := range matches {
-		data, rerr := afero.ReadFile(s.fs, m)
+	prefix := indexHash(header, payload) + "."
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if n := e.Name(); !e.IsDir() && strings.HasPrefix(n, prefix) && strings.HasSuffix(n, ".sig") {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	out := make([][]byte, 0, len(names))
+	for _, n := range names {
+		data, rerr := afero.ReadFile(s.fs, filepath.Join(s.dir, n))
 		if rerr != nil {
-			continue
+			continue // see Readable
 		}
 		out = append(out, data)
 	}
@@ -355,6 +425,15 @@ func (s *Store) VerifiedRefReject(ref string, root signing.TrustRoot, now time.T
 // strictly local and non-shareable (spec §9.5: "a shareable approval with no
 // signature is a forgery primitive with a friendly name").
 
+// unsignedFilename is the degraded path's half of the same contract:
+//
+//	<indexHash>.<assertion>.unsigned
+//
+// hasUnsigned looks for this exact name in the directory listing. No keyTag,
+// because there is no key — which is the whole of what makes this record
+// forgeable (see the Store doc, record kind 2). The ".unsigned" suffix is what
+// keeps these files out of Readable's signature parsing and out of candidates'
+// ".sig" filter.
 func unsignedFilename(header signing.CountersignHeader, payload []byte) string {
 	return indexHash(header, payload) + "." + string(header.Assertion) + ".unsigned"
 }
@@ -379,20 +458,43 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 	return afero.WriteFile(s.fs, path, []byte("unsigned\n"), 0o644)
 }
 
+// hasUnsigned reports whether the unsigned marker for header+payload is
+// present. Existence IS the entire record here (spec §9.5) — there is nothing
+// to re-verify — so getting this wrong in the absent direction does not
+// degrade a rejection, it CANCELS one.
+//
+// It LISTS the directory rather than stat-ing the one path, which is not
+// pedantry: a stat failure used to be folded into "absent" (err == nil &&
+// exists), and a fault that hides a single path from Stat alone leaves
+// Store.Readable — the whole-store guard that gates EffectiveTrust's
+// fail-closed preamble — reporting the store perfectly healthy. Reading
+// through the same ReadDir that Readable performs makes the two agree by
+// construction: anything that can hide a marker from this function also fails
+// Readable, so the fail-closed gate fires instead of the marker quietly
+// vanishing.
 func (s *Store) hasUnsigned(header signing.CountersignHeader, payload []byte) bool {
 	if s == nil {
 		return false
 	}
 	if s.configured() != nil {
-		// See candidates: an unconfigured store must never stat the working
+		// See candidates: an unconfigured store must never read the working
 		// directory, because a marker's mere existence IS the approval.
 		return false
 	}
 	if s.headerInvalid(header) {
 		return false
 	}
-	exists, err := afero.Exists(s.fs, filepath.Join(s.dir, unsignedFilename(header, payload)))
-	return err == nil && exists
+	entries, err := afero.ReadDir(s.fs, s.dir)
+	if err != nil {
+		return false // see Readable
+	}
+	want := unsignedFilename(header, payload)
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() == want {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteUnsignedApprove records an unsigned approve marker (degraded path).
@@ -464,6 +566,41 @@ type IndexEntry struct {
 	ReviewedAt  string `yaml:"reviewed_at"`
 }
 
+// IsAfter reports whether e was reviewed after other.
+//
+// ReviewedAt is free text in a YAML file: it is compared as an INSTANT when
+// both stamps parse as RFC3339, and a stamp that parses beats one that does
+// not. Neither rule is fussiness. Byte comparison — what this used to be — is
+// correct only while every stamp is UTC and Z-suffixed, which holds for the
+// single writer today and for nothing else: the index is a plain file a human
+// may edit, and its own doc requires it to outlive contract bumps, so records
+// this build did not write are expected. An offset-suffixed stamp for an
+// earlier instant out-sorts a later UTC one, and a stamp that is not a
+// timestamp at all beats every real one, because 'y' sorts above every digit.
+//
+// Getting it wrong picks the wrong DIFF BASE and can relabel an UPDATE as NEW
+// — precisely the reading a reviewer relies on to notice substituted bytes.
+// When neither stamp reads, the bytes are all that is left.
+func (e IndexEntry) IsAfter(other IndexEntry) bool {
+	et, eok := e.reviewedAt()
+	ot, ook := other.reviewedAt()
+	switch {
+	case eok && ook:
+		return et.After(ot)
+	case eok != ook:
+		return eok
+	default:
+		return e.ReviewedAt > other.ReviewedAt
+	}
+}
+
+// reviewedAt parses the stamp, reporting whether it read as RFC3339 at all.
+func (e IndexEntry) reviewedAt() (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, e.ReviewedAt)
+	return t, err == nil
+}
+
+// indexPath is the sidecar index's fixed location within the store.
 func (s *Store) indexPath() string {
 	return filepath.Join(s.dir, "index.yaml")
 }
@@ -578,7 +715,7 @@ func (s *Store) LatestApprove(ref string, layout signing.Form) (IndexEntry, bool
 			e.Ref != ref || e.Form != string(layout) {
 			continue
 		}
-		if !found || e.ReviewedAt > latest.ReviewedAt {
+		if !found || e.IsAfter(latest) {
 			latest = e
 			found = true
 		}

@@ -5,7 +5,7 @@
 // findings that OpenEngineSession/the agent spawner turn into an error via
 // strictness.FindingsError), so it gives ordinary management commands no
 // policy at all. The actual mechanism management commands need already
-// exists one layer up: cli.Execute (root.go) turns any non-nil RunE error
+// exists one layer up: cli.Run (root.go) turns any non-nil RunE error
 // into os.Exit(1) (or an *ExitError's own code) — that seam works fine
 // whenever a RunE actually RETURNS its error.
 //
@@ -16,7 +16,7 @@
 // turned it into a non-zero exit. clidiag.WarnErrors (added alongside this
 // gate) is the shared replacement: `return clidiag.WarnErrors(prog,
 // result.Errors)` prints identically but returns non-nil when errs is
-// non-empty, letting cli.Execute do its job.
+// non-empty, letting cli.Run do its job.
 //
 // This test is the enforcement half, shaped like format_coverage_test.go's
 // T19 formatDebtAllowlist gate: it statically detects the anti-pattern (a

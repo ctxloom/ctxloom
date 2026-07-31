@@ -59,7 +59,7 @@ func (w *world) projectRedirects(table *godog.Table) error {
 			Mode:    rules.ModeConfirm,
 		})
 	}
-	w.app = app.New(w.cfg)
+	w.app = app.New(w.cfg, app.Shells{})
 	return nil
 }
 
@@ -75,7 +75,7 @@ func (w *world) markInviolate(command string) error {
 		Message: "this command is never allowed through ltk",
 		Mode:    rules.ModeEnable,
 	})
-	w.app = app.New(w.cfg)
+	w.app = app.New(w.cfg, app.Shells{})
 	return nil
 }
 
@@ -88,7 +88,7 @@ func (w *world) setOnParseErrorDeny() error {
 		return fmt.Errorf("no project configured (missing Background)")
 	}
 	w.cfg.Defaults.OnParseError = rules.ActionDeny
-	w.app = app.New(w.cfg)
+	w.app = app.New(w.cfg, app.Shells{})
 	return nil
 }
 

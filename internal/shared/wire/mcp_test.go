@@ -125,3 +125,47 @@ func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
 		}
 	})
 }
+
+// TestMergeMCPConfig_AutoRegisterCtxloomIsCopied pins U133-F06: MergeMCPConfig
+// documents that "dest is independent of src" and deep-copies every server for
+// exactly that reason, but assigned AutoRegisterCtxloom as a bare *bool. Two
+// configs merged from the same source then SHARED the flag, so writing through
+// one silently retargeted ctxloom's own MCP auto-registration in the other —
+// and in the source config itself.
+func TestMergeMCPConfig_AutoRegisterCtxloomIsCopied(t *testing.T) {
+	enabled := true
+	src := &MCPConfig{AutoRegisterCtxloom: &enabled}
+	dest := &MCPConfig{}
+	MergeMCPConfig(dest, src)
+
+	if dest.AutoRegisterCtxloom == src.AutoRegisterCtxloom {
+		t.Fatal("dest shares src's AutoRegisterCtxloom pointer; the merge documents independence")
+	}
+	if !*dest.AutoRegisterCtxloom {
+		t.Fatal("dest lost the value the merge was supposed to carry")
+	}
+	*dest.AutoRegisterCtxloom = false
+	if !*src.AutoRegisterCtxloom {
+		t.Error("writing through dest changed src's AutoRegisterCtxloom")
+	}
+}
+
+// TestMergeMCPConfig_EmptySrcDeclaresNothing pins U133-F07: dest.Servers and
+// dest.Plugins were allocated before the loops that fill them, so merging a
+// config that declares no MCP servers at all still turned dest's nil maps into
+// empty ones. nil and empty are not the same statement here — nil is "this
+// layer said nothing about MCP", empty is "this layer declared MCP and it is
+// empty" — and the merge is the one place layering is decided, so a merge that
+// manufactures the second from the first fabricates a declaration no config
+// made.
+func TestMergeMCPConfig_EmptySrcDeclaresNothing(t *testing.T) {
+	dest := &MCPConfig{}
+	MergeMCPConfig(dest, &MCPConfig{})
+
+	if dest.Servers != nil {
+		t.Errorf("Servers = %v, want nil: an empty src declared servers it does not have", dest.Servers)
+	}
+	if dest.Plugins != nil {
+		t.Errorf("Plugins = %v, want nil: an empty src declared plugins it does not have", dest.Plugins)
+	}
+}

@@ -1,6 +1,7 @@
 package allowedsigners
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -166,6 +167,148 @@ func TestParse_CRLFLineEndingsTolerated(t *testing.T) {
 	assert.NotContains(t, store.Entries()[0].Comment, "\r")
 }
 
+// TestParse_LeadingByteOrderMarkIsMalformed pins the fail-closed handling of a
+// UTF-8 BOM, which several editors prepend when they save a file as "UTF-8".
+//
+// A BOM is not Unicode whitespace, so TrimSpace leaves it in place and it
+// becomes the first byte of the first PRINCIPAL. Nothing downstream survives
+// that: MatchesPrincipal stops matching the identity the operator wrote, so
+// TrustedAs refuses; `signer remove <principal>` compares principals
+// literally, so the entry cannot be revoked; and `signer show` cannot find it.
+// Meanwhile TrustedForNamespace matches on the KEY and keeps granting trust —
+// an entry that is live, unnamed and unrevokable.
+//
+// The remedy is a ParseError, not a silent strip. Stripping would make this
+// package match a principal that real `ssh-keygen -Y verify -I <identity>`
+// refuses to match, and the package doc promises every divergence from
+// ssh-keygen yields strictly LESS trust, never more.
+func TestParse_LeadingByteOrderMarkIsMalformed(t *testing.T) {
+	src := "\ufeffben@abbitt.me " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errByteOrderMark)
+	assert.Equal(t, 1, perrs[0].Line)
+	// The whole point: no entry, so no invisible unrevokable grant.
+	assert.Empty(t, store.Entries())
+}
+
+// TestParse_ByteOrderMarkBeforeACommentIsHarmless keeps the fix narrow: a BOM
+// in front of a comment or a blank first line contaminates no principal, so it
+// must not be reported. Only a BOM that would be absorbed into an entry is one.
+func TestParse_ByteOrderMarkBeforeACommentIsHarmless(t *testing.T) {
+	src := "\ufeff# my trust root\nben@abbitt.me " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
+}
+
+// TestParse_OverlongLineIsSkippedNotFatal pins the line-oriented contract
+// against the one input that used to break it wholesale.
+//
+// Parse's doc promises three times that a line it cannot use is SKIPPED and
+// reported, so the file degrades toward less trust one line at a time, and
+// that a non-nil error means reading r itself failed. A single line over the
+// scanner's 1 MiB buffer broke all three: bufio.Scanner surfaced
+// bufio.ErrTooLong as Parse's error return, Parse returned a nil *Store, and
+// every caller then discarded the WHOLE location — one oversized junk line
+// anywhere in the file revoked every signer in it.
+//
+// Measured against real ssh-keygen (OpenSSH_10.0p2, this host): an
+// allowed_signers whose FIRST line is 2,000,004 bytes of garbage still
+// verifies a signature against the good entry on line 2, exit 0. Disarming
+// the file is therefore a divergence from ssh-keygen, not a stricter reading
+// of it.
+func TestParse_OverlongLineIsSkippedNotFatal(t *testing.T) {
+	src := "junk" + strings.Repeat("x", 2<<20) + "\nben@abbitt.me " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err, "an over-long line is a CONTENT error, not an I/O error")
+	require.NotNil(t, store)
+
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errLineTooLong)
+	assert.Equal(t, 1, perrs[0].Line)
+	// ParseError.Text reaches the user through pe.Error() on `signer list`
+	// and `signer remove`; echoing a megabyte of it back is a diagnostic that
+	// destroys the terminal it is trying to inform.
+	assert.Less(t, len(perrs[0].Text), 1024, "the reported text must be truncated, not the whole line")
+
+	// The rest of the file still counts, and line numbering — which
+	// `signer remove` uses to decide which physical lines to DELETE — is
+	// unaffected by the skip.
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
+	assert.Equal(t, 2, store.Entries()[0].Line)
+}
+
+// TestParse_OverlongLineGrantsNoTrust is the fail-closed half: skipping the
+// line must not be a way to smuggle one in.
+func TestParse_OverlongLineGrantsNoTrust(t *testing.T) {
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+	// A line that WOULD have been a perfectly good entry, padded past the
+	// limit by its comment field.
+	src := "ben@abbitt.me ssh-ed25519 " + blob + " " + strings.Repeat("c", 2<<20) + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errLineTooLong)
+	assert.Empty(t, store.Entries())
+}
+
+// TestParseError_EveryCauseIsOneOfThePackageSentinels pins the invariant the
+// sentinel block's doc now asserts.
+//
+// It used to tell CALLERS to use errors.Is against these "rather than matching
+// ParseError.Error()'s text" — advice no caller outside the package can take,
+// because every sentinel is unexported. The doc now says the opposite: the
+// causes are internal, every one of them means "this line grants no trust",
+// and the only public facts are the line number and a cause that renders.
+//
+// This test is what keeps that true. A new failure mode that returns a bare
+// fmt.Errorf instead of wrapping a sentinel would make the block's claim false
+// without touching it, and would be the first step toward callers matching on
+// text.
+func TestParseError_EveryCauseIsOneOfThePackageSentinels(t *testing.T) {
+	sentinels := []error{
+		errNoPrincipals, errNoKey, errUnknownOption, errDuplicateOption,
+		errUnquotedValue, errBadTimestamp, errKeyTypeMismatch,
+		errByteOrderMark, errLineTooLong,
+	}
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+
+	src := strings.Join([]string{
+		"nokeyhere",                                           // errNoKey
+		"a@x ssh-ed25519 not-valid-base64!!!",                 // errNoKey (wrapped)
+		",bad@example.com " + testEd25519Key,                  // errNoPrincipals
+		"a@x nosuchoption " + testEd25519Key,                  // errUnknownOption
+		`a@x namespaces="p",namespaces="q" ` + testEd25519Key, // errDuplicateOption
+		"a@x namespaces=unquoted " + testEd25519Key,           // errUnquotedValue
+		`a@x valid-after="notadate" ` + testEd25519Key,        // errBadTimestamp
+		"a@x not-a-real-keytype " + blob,                      // errKeyTypeMismatch
+		"\ufeffa@x " + testEd25519Key,                         // errByteOrderMark
+		"junk" + strings.Repeat("x", 2<<20),                   // errLineTooLong
+	}, "\n") + "\n"
+
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	require.Len(t, perrs, 10, "every seeded line must be reported")
+	assert.Empty(t, store.Entries(), "no reported line may contribute an entry")
+
+	for _, pe := range perrs {
+		matched := 0
+		for _, s := range sentinels {
+			if errors.Is(pe.Err, s) {
+				matched++
+			}
+		}
+		assert.Equal(t, 1, matched,
+			"line %d's cause must unwrap to exactly one package sentinel, got %v", pe.Line, pe.Err)
+		assert.NotEmpty(t, pe.Err.Error(), "line %d: a cause must render", pe.Line)
+	}
+}
+
 // --- fail-closed: malformed lines never produce an Entry ---
 
 func TestParse_GarbageLineIsSkippedNotFatal(t *testing.T) {
@@ -231,10 +374,37 @@ func TestParse_NoKeyFieldIsMalformed(t *testing.T) {
 	assert.Empty(t, store.Entries())
 }
 
+// TestParse_UnrecognizedKeyTypeIsMalformed pins the key-type/blob agreement
+// check, and it must do so with a blob that is otherwise PERFECTLY GOOD.
+//
+// The blob this used to carry ("AAAA==") is not valid base64, so
+// ssh.ParseAuthorizedKey rejected the line before the declared type was ever
+// looked at: the test passed for the same reason
+// TestParse_CorruptBase64KeyBlobIsMalformed passes, and it would have passed
+// against a parser that ignored the key-type token entirely — which is exactly
+// the parser this package used to have. A real ed25519 blob under a bogus type
+// token is the only input that reaches the check.
 func TestParse_UnrecognizedKeyTypeIsMalformed(t *testing.T) {
-	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me not-a-real-keytype AAAA==\n"))
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me not-a-real-keytype " + blob + "\n"))
 	require.NoError(t, err)
 	require.Len(t, perrs, 1)
+	// The line is rejected for the RIGHT reason: the blob parses, the
+	// declared token does not describe it.
+	assert.ErrorIs(t, perrs[0].Err, errKeyTypeMismatch)
+	assert.Empty(t, store.Entries())
+}
+
+// TestParse_MislabelledKeyTypeIsMalformed is the same check with a token that
+// is a REAL ssh key type, just not this blob's — the shape an attacker would
+// actually use, since golang.org/x/crypto never reads the token and would
+// happily hand back a trusted ed25519 key from a line labelled ssh-rsa.
+func TestParse_MislabelledKeyTypeIsMalformed(t *testing.T) {
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-rsa " + blob + "\n"))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errKeyTypeMismatch)
 	assert.Empty(t, store.Entries())
 }
 
@@ -306,4 +476,47 @@ func TestParse_DeclaredKeyTypeMatching_StillParses(t *testing.T) {
 	assert.Empty(t, perrs)
 	require.Len(t, store.Entries(), 1)
 	assert.Equal(t, "ssh-ed25519", store.Entries()[0].KeyType)
+}
+
+// TestParse_LineNumbersIndexTheSourceStream pins the invariant Entry.Line's
+// doc now states, and that operations.RemoveSigner silently depends on.
+//
+// Line used to be documented "for diagnostics". It is not: RemoveSigner
+// re-parses the file it just read and deletes the PHYSICAL lines the matching
+// entries name, so an off-by-one here revokes the wrong signer and leaves the
+// intended one trusted — and both outcomes are a well-formed file, so nothing
+// downstream can notice.
+//
+// Every line of the input must therefore be counted: blanks, comments, and
+// lines that produced a ParseError alike. Counting only entries, or skipping
+// unusable lines, would still look right in a file with no gaps in it.
+func TestParse_LineNumbersIndexTheSourceStream(t *testing.T) {
+	lines := []string{
+		"# a comment",                            // 1
+		"",                                       // 2
+		"first@example.com " + testEd25519Key,    // 3
+		"   ",                                    // 4
+		"this line is garbage",                   // 5
+		"# another comment",                      // 6
+		"second@example.com " + testSKEd25519Key, // 7
+	}
+	store, perrs, err := Parse(strings.NewReader(strings.Join(lines, "\n")))
+	require.NoError(t, err)
+
+	entries := store.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, 3, entries[0].Line)
+	assert.Equal(t, 7, entries[1].Line, "the last line counts even with no trailing newline")
+
+	require.Len(t, perrs, 1)
+	assert.Equal(t, 5, perrs[0].Line)
+
+	// The property RemoveSigner actually relies on, stated directly: for every
+	// entry, lines[Line-1] is the line it came from.
+	for _, e := range entries {
+		require.GreaterOrEqual(t, e.Line, 1)
+		require.LessOrEqual(t, e.Line, len(lines))
+		assert.Contains(t, lines[e.Line-1], e.Principals[0],
+			"Line must index the caller's own lines slice")
+	}
 }

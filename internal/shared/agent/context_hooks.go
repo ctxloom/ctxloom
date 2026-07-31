@@ -92,10 +92,10 @@ func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// MergeHooksConfig merges source hooks into dest hooks. It is the wire-only
-// merge primitive the host assembly (backends.AssembleManagedHooks) and the
-// agent-side BaseLifecycle.MergeManaged both build on, so it stays in the
-// substrate even though config-coupled assembly moved host-side.
+// MergeHooksConfig merges source hooks into dest hooks. It is the nil-handling
+// wrapper the host assembly (backends.AssembleManagedHooks) and the agent-side
+// BaseLifecycle.MergeManaged both build on; the merge rule itself lives with
+// the types, as wire.HooksConfig.Append.
 // A nil src is a legitimate no-op (nothing to merge). A nil DEST is not: it is
 // the caller's own hook set, so with none there is nowhere for src to go and this
 // signature has no way to refuse. The drop still happens — it cannot not — but a
@@ -112,26 +112,7 @@ func MergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
 		return
 	}
 
-	// Merge unified hooks
-	dest.Unified.PreTool = append(dest.Unified.PreTool, src.Unified.PreTool...)
-	dest.Unified.PostTool = append(dest.Unified.PostTool, src.Unified.PostTool...)
-	dest.Unified.SessionStart = append(dest.Unified.SessionStart, src.Unified.SessionStart...)
-	dest.Unified.SessionEnd = append(dest.Unified.SessionEnd, src.Unified.SessionEnd...)
-	dest.Unified.PreShell = append(dest.Unified.PreShell, src.Unified.PreShell...)
-	dest.Unified.PostFileEdit = append(dest.Unified.PostFileEdit, src.Unified.PostFileEdit...)
-
-	// Merge plugin-specific hooks
-	if dest.Plugins == nil {
-		dest.Plugins = make(map[string]wire.BackendHooks)
-	}
-	for name, hooks := range src.Plugins {
-		if dest.Plugins[name] == nil {
-			dest.Plugins[name] = make(wire.BackendHooks)
-		}
-		for event, eventHooks := range hooks {
-			dest.Plugins[name][event] = append(dest.Plugins[name][event], eventHooks...)
-		}
-	}
+	dest.Append(*src)
 }
 
 // countHooks totals every hook a HooksConfig carries — the six unified

@@ -13,12 +13,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -56,7 +59,7 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -97,7 +100,7 @@ func TestRunInteractive_ExitCode(t *testing.T) {
 			ctx := context.Background()
 			cmd := exec.Command(tt.command, tt.args...)
 
-			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, exitCode)
@@ -125,7 +128,7 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -162,7 +165,7 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30")
 
 	start := time.Now()
-	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
 	elapsed := time.Since(start)
 
 	// Should complete quickly (within ~500ms, not 30 seconds)
@@ -205,7 +208,7 @@ func TestRunInteractive_SizesPTYBeforeChildStarts(t *testing.T) {
 	}()
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, resize)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, resize)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, strings.TrimSpace(stdout.String()), "55 111",
@@ -240,7 +243,7 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -279,7 +282,7 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "echo line1; echo line2; echo line3")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -326,7 +329,7 @@ func TestRunInteractive_StdoutWriteFailureReportsError(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	dst := &failingWriter{n: 0, err: errors.New("simulated broken pipe")}
-	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil)
 
 	require.Error(t, err, "a stdout delivery failure must not be reported as success")
 	assert.Contains(t, err.Error(), "output delivery failed")
@@ -345,7 +348,7 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 0.1")
 
 	stdinR, stdinW := io.Pipe()
-	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -368,4 +371,244 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("stdinW.Write still blocked after the run ended; the stdin reader was not closed")
 	}
+}
+
+// TestRunInteractive_ChildStderrArrivesOnStdoutWriter pins the invariant that
+// makes a separate stderr writer meaningless here: a pty gives the child ONE
+// stream. The child's fd 1 and fd 2 are both the pty slave, so the master
+// hands back a single interleaved byte stream and there is no separation left
+// to route anywhere. Any caller wanting split streams must not use a pty at
+// all (see internal/lm/backends' non-interactive branch, which wires
+// cmd.Stdout/cmd.Stderr directly). This is a characterization pin, green
+// before and after the parameter's removal — its job is to keep the claim the
+// signature now makes ("output" not "stdout") true if the copy path is ever
+// reworked.
+func TestRunInteractive_ChildStderrArrivesOnStdoutWriter(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.Command("sh", "-c", "printf 'to-stdout\\n'; printf 'to-stderr\\n' 1>&2; sleep 0.1")
+
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(ctx, cmd, nil, &out, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Contains(t, out.String(), "to-stdout")
+	assert.Contains(t, out.String(), "to-stderr",
+		"a pty merges the child's fd 2 into the single master stream; the caller's "+
+			"one writer receives both, which is why a second writer cannot be honoured")
+}
+
+// TestRunInteractive_HandBuiltCmdWithoutArgsRuns pins the nil-Args crash:
+// os/exec defaults an empty Args to a one-element slice containing Path, but
+// it does that inside exec.Cmd.Start, which RunInteractive never calls — it
+// re-derives the argv for go-pty's own Cmd instead. So a hand-built
+// &exec.Cmd{Path: ...} (legal, and the shape any caller assembling a spec
+// rather than calling exec.Command produces) still carries a nil Args when it
+// arrives here, and slicing it at [1:] panics.
+func TestRunInteractive_HandBuiltCmdWithoutArgsRuns(t *testing.T) {
+	truePath, err := exec.LookPath("true")
+	require.NoError(t, err)
+
+	// Args deliberately left nil — that is the whole fixture.
+	cmd := &exec.Cmd{Path: truePath}
+	require.Nil(t, cmd.Args, "the fixture is only hostile while Args is nil")
+
+	var exitCode int
+	var runErr error
+	require.NotPanics(t, func() {
+		exitCode, runErr = RunInteractive(context.Background(), cmd, nil, nil, nil)
+	}, "a *exec.Cmd with no Args must not panic the runner")
+	require.NoError(t, runErr)
+	assert.Equal(t, 0, exitCode)
+}
+
+// TestRunInteractive_Argv0ComesFromPath characterizes a limitation of the
+// underlying pty library rather than a choice made here: go-pty's Cmd.start
+// rebuilds the child's argv as exec.Command(c.Path, c.Args[1:]...), so argv[0]
+// is ALWAYS the resolved Path and a caller's own Args[0] can never survive.
+// exec.Command itself sets Args[0] to the name as written ("sh"), so the two
+// already differ for every ordinary caller. Pinned so that a future change of
+// pty library — the only way to honour a custom argv[0] — is a deliberate,
+// visible decision rather than a silent behaviour change.
+func TestRunInteractive_Argv0ComesFromPath(t *testing.T) {
+	cmd := exec.Command("sh", "-c", `printf 'argv0=%s\n' "$0"; sleep 0.1`)
+	require.Equal(t, "sh", cmd.Args[0], "exec.Command sets argv[0] to the name as written")
+	require.NotEqual(t, cmd.Args[0], cmd.Path, "the fixture needs Path and Args[0] to differ")
+
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Contains(t, out.String(), "argv0="+cmd.Path,
+		"go-pty derives argv[0] from Path; the caller's Args[0] is not reachable from here")
+}
+
+// stubResize replaces the package's pty-resize call for the duration of the
+// test. A live pty's TIOCSWINSZ cannot be made to fail on demand, so the seam
+// is the only way to exercise the error handling at all — which is exactly why
+// both errors went unhandled for so long.
+func stubResize(t *testing.T, fn func(ws agent.WindowSize) error) {
+	t.Helper()
+	orig := resizePTY
+	resizePTY = func(_ pty.Pty, ws agent.WindowSize) error { return fn(ws) }
+	t.Cleanup(func() { resizePTY = orig })
+}
+
+// TestRunInteractive_InitialResizeFailureIsReported pins the more serious half
+// of the discarded pair. The pre-start resize is the entire mechanism behind
+// DEFECT lucid-judo's fix: the child must see its real geometry before its
+// first paint, and because SIGWINCH fires only on a CHANGE, a size that never
+// lands never self-heals. Swallowing that error started a child guaranteed to
+// paint wrong for the whole session and reported success.
+func TestRunInteractive_InitialResizeFailureIsReported(t *testing.T) {
+	stubResize(t, func(agent.WindowSize) error { return errors.New("simulated TIOCSWINSZ failure") })
+
+	resize := make(chan agent.WindowSize, 1)
+	resize <- agent.WindowSize{Rows: 55, Cols: 111}
+
+	cmd := exec.Command("sh", "-c", "printf 'child ran\\n'; sleep 0.1")
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, resize)
+
+	require.Error(t, err, "a failed pre-start resize must not be reported as a successful run")
+	assert.Contains(t, err.Error(), "failed to size pty before starting the child")
+	assert.Contains(t, err.Error(), "simulated TIOCSWINSZ failure")
+	assert.Zero(t, exitCode)
+	assert.NotContains(t, out.String(), "child ran",
+		"the child must not be started at a geometry known to be wrong")
+}
+
+// TestRunInteractive_LaterResizeFailureIsReported pins the second discarded
+// error: a SIGWINCH that stops reaching the pty mid-session. The first resize
+// succeeds (so the child starts normally); the next one fails, which used to
+// be discarded inside a loop that then went on retrying in silence.
+func TestRunInteractive_LaterResizeFailureIsReported(t *testing.T) {
+	var calls atomic.Int32
+	stubResize(t, func(agent.WindowSize) error {
+		if calls.Add(1) == 1 {
+			return nil // the pre-start resize succeeds
+		}
+		return errors.New("simulated mid-session TIOCSWINSZ failure")
+	})
+
+	// Both sizes are queued up front: the pre-start select consumes the first,
+	// the applier goroutine consumes the second immediately after Start.
+	resize := make(chan agent.WindowSize, 2)
+	resize <- agent.WindowSize{Rows: 55, Cols: 111}
+	resize <- agent.WindowSize{Rows: 24, Cols: 80}
+
+	cmd := exec.Command("sh", "-c", "sleep 0.3")
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+
+	require.Error(t, err, "a resize that stopped reaching the pty must not be reported as success")
+	assert.Contains(t, err.Error(), "terminal resize failed")
+	assert.Contains(t, err.Error(), "simulated mid-session TIOCSWINSZ failure")
+	assert.Zero(t, exitCode)
+	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
+}
+
+// TestRunInteractive_LateResizeOnClosedPTYIsNotAnError guards the fix against
+// its own false positive. RunInteractive closes the pty before the deferred
+// close(done) stops the resize applier, so a queued event can legitimately
+// land on a closed master at end of run. That is the same expected fallout
+// isBenignPTYError already names for c.Wait, and reporting it would turn every
+// well-behaved session into a failure.
+func TestRunInteractive_LateResizeOnClosedPTYIsNotAnError(t *testing.T) {
+	var calls atomic.Int32
+	stubResize(t, func(agent.WindowSize) error {
+		if calls.Add(1) == 1 {
+			return nil
+		}
+		return fs.ErrClosed
+	})
+
+	resize := make(chan agent.WindowSize, 2)
+	resize <- agent.WindowSize{Rows: 55, Cols: 111}
+	resize <- agent.WindowSize{Rows: 24, Cols: 80}
+
+	cmd := exec.Command("sh", "-c", "sleep 0.3")
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, resize)
+
+	require.NoError(t, err, "our own close racing a queued resize is expected fallout, not a defect")
+	assert.Equal(t, 0, exitCode)
+	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
+}
+
+// stubClose replaces the package's pty-close call. The stub must still close
+// the real master: the output copier is parked in a read on it and only the
+// close unblocks it, so a stub that merely records would hang the run.
+func stubClose(t *testing.T, fn func(ptty pty.Pty) error) {
+	t.Helper()
+	orig := closePTY
+	closePTY = fn
+	t.Cleanup(func() { closePTY = orig })
+}
+
+// TestRunInteractive_ClosesPTYExactlyOnce pins the invariant that replaces a
+// borrowed one. Close used to be called twice on every normal run — once
+// explicitly to unblock the copier, once by the deferred cleanup — with both
+// results discarded, so correctness rested on go-pty's Close being idempotent.
+// Its API does not promise that; it holds today only because the Unix
+// implementation closes *os.File handles that track their own closed state.
+func TestRunInteractive_ClosesPTYExactlyOnce(t *testing.T) {
+	var closes atomic.Int32
+	stubClose(t, func(ptty pty.Pty) error {
+		closes.Add(1)
+		return ptty.Close()
+	})
+
+	cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Equal(t, int32(1), closes.Load(), "the pty master must be closed exactly once per run")
+}
+
+// TestRunInteractive_NonBenignCloseFailureIsReported pins the other half: with
+// one call there is one result, and it is no longer dropped. Closing a pty
+// whose child has already exited yields expected fallout (isBenignPTYError),
+// which must stay silent; anything else is a real failure of the run.
+func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
+	t.Run("benign fallout stays silent", func(t *testing.T) {
+		stubClose(t, func(ptty pty.Pty) error {
+			_ = ptty.Close() // still unblock the copier
+			return fs.ErrClosed
+		})
+		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, exitCode)
+	})
+
+	t.Run("a real close failure is reported", func(t *testing.T) {
+		stubClose(t, func(ptty pty.Pty) error {
+			_ = ptty.Close()
+			return errors.New("simulated close failure")
+		})
+		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pty close failed")
+		assert.Contains(t, err.Error(), "simulated close failure")
+		assert.Zero(t, exitCode)
+	})
+}
+
+// TestRunInteractive_SignalKilledChildYieldsMinusOne characterizes the exit
+// code a signal-killed child produces TODAY. It is deliberately an assertion
+// about present behaviour rather than a fix: os/exec reports -1 for a process
+// that died on a signal, and this runner passes it straight through, so
+// internal/cli's ExitError carries -1 into os.Exit, which the OS truncates to
+// 255. That makes a killed engine indistinguishable from an engine that really
+// exited 255 and from a runner-internal failure. Changing it (the POSIX
+// convention is 128+signum) alters a user-visible exit code, which is a
+// decision for a human — this pin exists so that decision has to be taken
+// deliberately, by someone who has to edit this test.
+func TestRunInteractive_SignalKilledChildYieldsMinusOne(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "kill -TERM $$; sleep 5")
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, -1, exitCode,
+		"a signal-killed child currently reports -1, not the POSIX 128+signum convention")
 }

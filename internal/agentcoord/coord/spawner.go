@@ -3,7 +3,6 @@ package coord
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -587,10 +587,14 @@ func warnNoReachBack(agentName string, servers []agent.ChatMCPServer) {
 // child's only stderr trail (the go-plugin logger forwarding `llm serve` —
 // and through it the ACP adapter's stderr) is DISCARDED at verbosity 0, and
 // the coordinator often lives in a flagless `ctxloom mcp` process, so the
-// knob is env-only: CTXLOOM_VERBOSE=1 (the existing process-wide verbose
-// switch) turns the trail on at trace.
+// knob is env-only: CTXLOOM_VERBOSE (the existing process-wide verbose
+// switch) turns the trail on at trace. It is read through envswitch so this
+// site cannot disagree with the binary's own reading of the same variable —
+// a switch that is on for logging and off for child diagnostics is worse than
+// one that is off everywhere. An unparseable value is reported once, by the
+// binary's startup read, not again per spawn.
 func childVerbosity() int {
-	if os.Getenv("CTXLOOM_VERBOSE") == "1" {
+	if on, _ := envswitch.On("CTXLOOM_VERBOSE"); on {
 		return 3
 	}
 	return 0

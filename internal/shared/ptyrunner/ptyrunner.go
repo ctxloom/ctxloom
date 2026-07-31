@@ -53,6 +53,45 @@ const ptyDrainGrace = 2 * time.Second
 // waiting its turn to be scheduled under load.
 const ptyDrainPollInterval = 2 * time.Millisecond
 
+// resizePTY applies a window size to the pty master. It is a package variable
+// solely so tests can inject the ioctl failure the error handling around it
+// must not swallow — there is no other way to make a live pty's TIOCSWINSZ
+// fail on demand. Production never reassigns it.
+func applyWindowSize(ptty pty.Pty, ws agent.WindowSize) error {
+	return ptty.Resize(int(ws.Cols), int(ws.Rows))
+}
+
+var resizePTY = applyWindowSize
+
+// closePTY closes the pty master. Like resizePTY it is a package variable only
+// so tests can observe and fault-inject the call; production never reassigns it.
+func closePTYMaster(ptty pty.Pty) error { return ptty.Close() }
+
+var closePTY = closePTYMaster
+
+// firstError records the first error observed on a side path that has no
+// return value of its own, so the owning call can report it before claiming
+// success. mu guards the field against a reader on a different goroutine than
+// the writer.
+type firstError struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (e *firstError) set(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.err == nil {
+		e.err = err
+	}
+}
+
+func (e *firstError) get() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.err
+}
+
 // drainPTY waits for the copy goroutine to actually drain whatever the
 // child already wrote into the pty before RunInteractive forces the master
 // closed (deaf-rut S5): forcing ptty.Close() immediately after c.Wait(),
@@ -97,42 +136,42 @@ func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
 // The frontend owns the terminal: raw mode, reading keystrokes, and SIGWINCH all
 // happen there, arriving here over the bidi Run stream as the injected stdin
 // reader and resize channel. This runner copies stdin into the pty, applies
-// resize events, and streams the pty's output to stdout — it never touches the
+// resize events, and streams the pty's output to out — it never touches the
 // controller's own os.Stdin/os.Stdout, so it works for a remote controller.
 // stdin and resize may be nil for a non-tty caller.
-func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (int, error) {
+//
+// out receives the child's ENTIRE output, stdout and stderr interleaved:
+// a pty gives the child one stream (fd 1 and fd 2 are both the slave), so
+// there is no separation left at the master to route to a second writer.
+// A caller that needs the two streams apart must not use a pty — see
+// internal/lm/backends' non-interactive branch, which wires cmd.Stdout and
+// cmd.Stderr directly.
+func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.Writer, resize <-chan agent.WindowSize) (int, error) {
 	// Create PTY (cross-platform: Unix PTY or Windows ConPTY)
 	ptty, err := pty.New()
 	if err != nil {
 		return 0, fmt.Errorf("failed to create pty: %w", err)
 	}
-	defer func() { _ = ptty.Close() }()
+	// The master is closed exactly once, by whichever path reaches it first:
+	// the explicit close after the child exits (which is what unblocks the
+	// output copier) or this defer, which covers every early return above it.
+	// Both used to call Close directly and drop the result, so correctness
+	// rested on go-pty's Close being idempotent — something its API does not
+	// promise and which is true today only because the Unix implementation
+	// closes *os.File handles that track their own closed state. Once makes
+	// that this code's invariant rather than a borrowed one, and leaves a
+	// single result to inspect instead of two to discard.
+	closeOnce := sync.OnceValue(func() error { return closePTY(ptty) })
+	defer func() { _ = closeOnce() }()
 
-	// Create command using PTY
-	c := ptty.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
-	c.Dir = cmd.Dir
-	c.Env = cmd.Env
-
-	// Platform-specific command adjustments (e.g., Windows .cmd/.bat handling)
-	adjustPtyCommand(c, cmd)
+	c := ptyCommand(ctx, ptty, cmd)
 
 	// Signal goroutines to stop once the command finishes.
 	done := make(chan struct{})
 	defer close(done)
 
-	// Give the pty its real size BEFORE the child exists: see
-	// initialResizeWait. ok=false (closed with nothing sent) and the timeout
-	// both fall through to Start() at the pty's default size, same as before
-	// this wait existed.
-	if resize != nil {
-		select {
-		case ws, ok := <-resize:
-			if ok {
-				_ = ptty.Resize(int(ws.Cols), int(ws.Rows))
-			}
-		case <-time.After(initialResizeWait):
-		case <-ctx.Done():
-		}
+	if err := applyInitialSize(ctx, ptty, resize); err != nil {
+		return 0, err
 	}
 
 	// Start command on PTY slave
@@ -140,99 +179,28 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 		return 0, fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Apply subsequent terminal resizes (every SIGWINCH after the initial
-	// size consumed above) pushed from the frontend over the wire.
-	if resize != nil {
-		go func() {
-			for {
-				select {
-				case <-done:
-					return
-				case ws, ok := <-resize:
-					if !ok {
-						return
-					}
-					_ = ptty.Resize(int(ws.Cols), int(ws.Rows))
-				}
-			}
-		}()
-	}
+	var resizeErr firstError
+	startResizeApplier(ptty, resize, done, &resizeErr)
 
-	// Copy frontend stdin into the PTY. The reader is the wire stdin (an io.Pipe
-	// fed by the server's stream pump), so unlike a real os.Stdin it unblocks
-	// when the pipe is closed at end of run — no parked-goroutine concern.
-	if stdin != nil {
-		// Deterministically unblock the copier's parked stdin.Read when this
-		// function returns: a goroutine parked inside Read cannot observe
-		// close(done), and neither ptty.Close (which unblocks ptty.Write) nor
-		// the goroutine's own deferred Close (which only fires after it returns)
-		// can wake it, so absent this the copier outlives RunInteractive until
-		// the caller happens to close the pipe's write end. Gated to
-		// *io.PipeReader so a caller-owned reader (e.g. a real os.Stdin) is
-		// never closed from here; Close is idempotent with the goroutine's own.
-		if pr, ok := stdin.(*io.PipeReader); ok {
-			defer func() { _ = pr.Close() }()
-		}
-		go func() {
-			// When this copier stops reading, unblock the wire's writer: a
-			// write into an io.Pipe with no reader parks forever (it is not
-			// unblocked by stream/context cancellation), which would wedge the
-			// server's stream pump and drop resize messages. Closing the read
-			// end makes pending and future writes fail with ErrClosedPipe.
-			// Gated to *io.PipeReader so a caller-owned reader (e.g. a real
-			// os.Stdin) is never closed from here.
-			defer func() {
-				if pr, ok := stdin.(*io.PipeReader); ok {
-					_ = pr.Close()
-				}
-			}()
-			buf := make([]byte, 1024)
-			for {
-				n, rerr := stdin.Read(buf)
-				if n > 0 {
-					select {
-					case <-done:
-						return
-					default:
-					}
-					if _, werr := ptty.Write(buf[:n]); werr != nil {
-						return
-					}
-				}
-				if rerr != nil {
-					return
-				}
-			}
-		}()
+	// Deterministically unblock the stdin copier's parked Read when this
+	// function returns: a goroutine parked inside Read cannot observe
+	// close(done), and neither ptty.Close (which unblocks ptty.Write) nor the
+	// goroutine's own deferred Close (which only fires after it returns) can
+	// wake it, so absent this the copier outlives RunInteractive until the
+	// caller happens to close the pipe's write end. Gated to *io.PipeReader so
+	// a caller-owned reader (e.g. a real os.Stdin) is never closed from here;
+	// Close is idempotent with the goroutine's own. This defer must live in
+	// RunInteractive rather than the helper: it is RunInteractive's return
+	// that has to trigger it.
+	if pr, ok := stdin.(*io.PipeReader); ok {
+		defer func() { _ = pr.Close() }()
 	}
+	startStdinCopier(ptty, stdin, done)
 
-	// Copy PTY output to the caller's stdout writer (the gRPC stream). The
-	// controller does not echo to its own os.Stdout — the frontend renders.
-	// With no writer the pty is still drained, or the child would block on a
-	// full pty buffer.
-	dst := io.Discard
-	if stdout != nil {
-		dst = stdout
-	}
-	// U116-F02: io.Copy's error used to be discarded outright (`_, _ =`), so
-	// a write failure on dst (the caller's stdout writer — a gRPC stream,
-	// which CAN fail mid-run on a broken pipe/connection reset) left
-	// RunInteractive reporting the child's exit code as success having
-	// delivered nothing after the failure. trackWriter isolates the WRITE
-	// side specifically: a read error from ptty is EXPECTED once this
-	// function intentionally closes it below (drainPTY + ptty.Close), so
-	// io.Copy's own combined return can't distinguish "we hung up on
-	// ourselves on purpose" from "the destination failed" — only the write
-	// side can.
-	tw := &trackWriter{dst: dst}
-	copyDone := make(chan struct{})
-	go func() {
-		defer close(copyDone)
-		_, _ = io.Copy(tw, ptty)
-	}()
+	tw, copyDone := startOutputCopier(ptty, out)
 
 	// Wait for command to finish first
-	err = c.Wait()
+	waitErr := c.Wait()
 
 	// Close PTY to unblock the copy goroutine (subprocess MCP servers may
 	// still have it open, causing io.Copy to block) — but only after
@@ -241,30 +209,210 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	// matters and why an unconditional immediate close here used to lose
 	// output under load).
 	drainPTY(ptty, copyDone)
-	_ = ptty.Close()
+	closeErr := closeOnce()
 
 	// Wait for copy to finish
 	<-copyDone
 
-	exitCode := 0
+	return runResult(waitErr, closeErr, tw, &resizeErr)
+}
 
-	if err != nil {
+// ptyCommand builds go-pty's own Cmd from the caller's *exec.Cmd.
+//
+// cmd.Args holds argv[0] at index 0. os/exec defaults an empty Args to a
+// one-element slice containing Path, but it does so inside exec.Cmd.Start,
+// which is never reached from here — the argv is re-derived for go-pty's own
+// Cmd instead — so a hand-built &exec.Cmd{Path: ...} arrives with Args nil and
+// must not be sliced unconditionally.
+//
+// argv[0] itself is not ours to set: go-pty's Cmd.start rebuilds the child
+// argv as exec.Command(Path, Args[1:]...), so the child always sees Path as
+// argv[0] and a caller's own Args[0] cannot reach it through this library.
+func ptyCommand(ctx context.Context, ptty pty.Pty, cmd *exec.Cmd) *pty.Cmd {
+	var args []string
+	if len(cmd.Args) > 1 {
+		args = cmd.Args[1:]
+	}
+	c := ptty.CommandContext(ctx, cmd.Path, args...)
+	c.Dir = cmd.Dir
+	c.Env = cmd.Env
+	// Platform-specific command adjustments (e.g., Windows .cmd/.bat handling)
+	adjustPtyCommand(c, cmd)
+	return c
+}
+
+// applyInitialSize gives the pty its real size BEFORE the child exists: see
+// initialResizeWait. A closed channel and the timeout both fall through to the
+// caller's Start at the pty's default size, same as before this wait existed.
+//
+// A resize FAILURE here is not survivable as a silent one: the whole point of
+// the wait is that the child gets its real geometry before its first paint,
+// and a size that never lands never self-heals because SIGWINCH only fires on
+// a CHANGE. Starting the child anyway hands the user a session painted at the
+// pty's default 0x0 with nothing to say why.
+func applyInitialSize(ctx context.Context, ptty pty.Pty, resize <-chan agent.WindowSize) error {
+	if resize == nil {
+		return nil
+	}
+	select {
+	case ws, ok := <-resize:
+		if !ok {
+			return nil
+		}
+		if err := resizePTY(ptty, ws); err != nil {
+			return fmt.Errorf("failed to size pty before starting the child: %w", err)
+		}
+	case <-time.After(initialResizeWait):
+	case <-ctx.Done():
+	}
+	return nil
+}
+
+// startResizeApplier applies every SIGWINCH after the initial size (consumed
+// by applyInitialSize) pushed from the frontend over the wire, recording the
+// first reportable failure in sink.
+func startResizeApplier(ptty pty.Pty, resize <-chan agent.WindowSize, done <-chan struct{}, sink *firstError) {
+	if resize == nil {
+		return
+	}
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case ws, ok := <-resize:
+				if !ok {
+					return
+				}
+				err := resizePTY(ptty, ws)
+				if err == nil {
+					continue
+				}
+				// Two distinct failures share this branch. One is the caller's
+				// own shutdown racing a queued event: RunInteractive closes the
+				// pty before the deferred close(done) that stops this goroutine,
+				// so a late resize lands on a closed master — the same expected
+				// fallout isBenignPTYError already names for c.Wait, and not a
+				// defect. The other is a genuinely broken master, which leaves
+				// the child painting at a stale geometry for the rest of the
+				// session with nothing to say why. Only the second is
+				// reportable; either way the ioctl will keep failing, so stop
+				// rather than retry in silence.
+				if !isBenignPTYError(err) {
+					sink.set(err)
+				}
+				return
+			}
+		}
+	}()
+}
+
+// startStdinCopier copies frontend stdin into the PTY. The reader is the wire
+// stdin (an io.Pipe fed by the server's stream pump), so unlike a real
+// os.Stdin it unblocks when the pipe is closed at end of run — no
+// parked-goroutine concern.
+func startStdinCopier(ptty pty.Pty, stdin io.Reader, done <-chan struct{}) {
+	if stdin == nil {
+		return
+	}
+	go func() {
+		// When this copier stops reading, unblock the wire's writer: a write
+		// into an io.Pipe with no reader parks forever (it is not unblocked by
+		// stream/context cancellation), which would wedge the server's stream
+		// pump and drop resize messages. Closing the read end makes pending and
+		// future writes fail with ErrClosedPipe. Gated to *io.PipeReader so a
+		// caller-owned reader (e.g. a real os.Stdin) is never closed from here.
+		defer func() {
+			if pr, ok := stdin.(*io.PipeReader); ok {
+				_ = pr.Close()
+			}
+		}()
+		buf := make([]byte, 1024)
+		for {
+			n, rerr := stdin.Read(buf)
+			if n > 0 {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				if _, werr := ptty.Write(buf[:n]); werr != nil {
+					return
+				}
+			}
+			if rerr != nil {
+				return
+			}
+		}
+	}()
+}
+
+// startOutputCopier copies PTY output to the caller's writer (the gRPC
+// stream). The controller does not echo to its own os.Stdout — the frontend
+// renders. With no writer the pty is still drained, or the child would block
+// on a full pty buffer. The returned channel closes when the copy ends.
+//
+// io.Copy's error used to be discarded outright, so a write failure on the
+// destination (a gRPC stream, which CAN fail mid-run on a broken pipe or
+// connection reset) left RunInteractive reporting the child's exit code as
+// success having delivered nothing after the failure. trackWriter isolates the
+// WRITE side specifically: a read error from ptty is EXPECTED once the caller
+// intentionally closes it (drainPTY + close), so io.Copy's own combined return
+// cannot distinguish "we hung up on ourselves on purpose" from "the
+// destination failed" — only the write side can.
+func startOutputCopier(ptty pty.Pty, out io.Writer) (*trackWriter, <-chan struct{}) {
+	dst := io.Discard
+	if out != nil {
+		dst = out
+	}
+	tw := &trackWriter{dst: dst}
+	copyDone := make(chan struct{})
+	go func() {
+		defer close(copyDone)
+		_, _ = io.Copy(tw, ptty)
+	}()
+	return tw, copyDone
+}
+
+// runResult folds the child's outcome and every side-path failure into the one
+// (exit code, error) pair RunInteractive returns. Every branch here exists
+// because the corresponding failure was once silent: a run that delivered
+// nothing, or resized nothing, must not report the child's exit code as
+// success.
+func runResult(waitErr, closeErr error, tw *trackWriter, resizeErr *firstError) (int, error) {
+	exitCode := 0
+	if waitErr != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
-		} else if !isBenignPTYError(err) {
+		} else if !isBenignPTYError(waitErr) {
 			// Anything that isn't the expected PTY-close fallout is a real
 			// failure. Benign close errors are matched by sentinel, not by
 			// substring of the error text.
-			return 0, fmt.Errorf("command failed: %w", err)
+			return 0, fmt.Errorf("command failed: %w", waitErr)
 		}
 	}
 
-	// U116-F02: a write failure delivering the child's output must not be
-	// reported as success — the child may have exited 0 having produced
-	// output that never reached anyone.
+	// A write failure delivering the child's output must not be reported as
+	// success — the child may have exited 0 having produced output that never
+	// reached anyone.
 	if werr := tw.err(); werr != nil {
 		return 0, fmt.Errorf("interactive session output delivery failed: %w", werr)
+	}
+
+	// The close that unblocks the copier is a real syscall on the master and
+	// can fail; only the fallout of closing a pty whose child has already gone
+	// is expected (isBenignPTYError, as for c.Wait above).
+	if closeErr != nil && !isBenignPTYError(closeErr) {
+		return 0, fmt.Errorf("interactive session pty close failed: %w", closeErr)
+	}
+
+	// Same standard for the resize path: a frontend SIGWINCH that stopped
+	// reaching the pty leaves the child painting at a geometry the user can
+	// see is wrong and cannot correct — SIGWINCH only fires on a change, so
+	// resending the same size is a no-op and the session never recovers.
+	if rerr := resizeErr.get(); rerr != nil {
+		return 0, fmt.Errorf("interactive session terminal resize failed: %w", rerr)
 	}
 
 	return exitCode, nil

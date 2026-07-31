@@ -178,21 +178,41 @@ func GetRootCmd() *cobra.Command {
 	return rootCmd
 }
 
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		// An ExitError carries the wrapped LLM's own exit code — an ordinary
-		// outcome, not an error to report.
-		var exitErr *ExitError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.Code)
-		}
-		// EmitError only fails if the underlying writer fails (os.Stderr in
-		// production never does); there is no further fallback if it did. A
-		// --format value that will not parse falls back to text in there, so
-		// the ORIGINAL failure is always what gets reported.
-		_ = cliemit.EmitError(os.Stderr, rootCmd, err)
-		os.Exit(1)
+// Run dispatches the root command and RETURNS the process exit code; it never
+// calls os.Exit itself. The exit belongs to main, because os.Exit runs no
+// deferred functions and performs no flushing: an exit taken down here is one
+// the caller gets no chance to clean up after, so any process-wide resource
+// main installed (the zap logger's sinks) would be dropped on exactly the runs
+// that failed. Returning the code keeps the exit and the teardown in one frame.
+func Run() int {
+	err := rootCmd.Execute()
+	if err == nil {
+		return 0
 	}
+	// An ExitError carries the wrapped LLM's own exit code — an ordinary
+	// outcome, not an error to report.
+	if code, ok := exitCodeFor(err); ok {
+		return code
+	}
+	// EmitError only fails if the underlying writer fails (os.Stderr in
+	// production never does); there is no further fallback if it did. A
+	// --format value that will not parse falls back to text in there, so
+	// the ORIGINAL failure is always what gets reported.
+	_ = cliemit.EmitError(os.Stderr, rootCmd, err)
+	return 1
+}
+
+// exitCodeFor reports the exit code an error carries in its own right, and
+// whether it carried one. Only an ExitError does: it relays a wrapped
+// engine's status, which is the engine's outcome rather than a ctxloom
+// failure, so it is passed through unreported. Every other error is ctxloom's
+// own and exits 1 after being emitted.
+func exitCodeFor(err error) (int, bool) {
+	var exitErr *ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.Code, true
+	}
+	return 0, false
 }
 
 func init() {

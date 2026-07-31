@@ -396,7 +396,7 @@ func latestApproveEntry(records countersignRecords, ref string, layout signing.F
 			return countersign.IndexEntry{}, false, err
 		}
 		if ok {
-			if !found || e.ReviewedAt > latest.ReviewedAt {
+			if !found || e.IsAfter(latest) {
 				latest = e
 				found = true
 			}

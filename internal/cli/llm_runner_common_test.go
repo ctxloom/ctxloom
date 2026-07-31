@@ -20,10 +20,10 @@ import (
 // TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins U037-F03: `llm
 // serve`/`llm host`/`llm turn` are process-owning entry points that used to
 // call config.Load() directly and never surface its warnings (via
-// printConfigWarnings) or gate on them (via failOnFindings) — so a
+// printAndRecordConfigWarnings) or gate on them (via failOnFindings) — so a
 // corrupted/malformed config.yaml silently downgraded to a warning and the
 // engine launched with an empty/partial context regardless. standUpRunner now
-// calls printConfigWarnings on every successful load, and all three RunEs
+// calls printAndRecordConfigWarnings on every successful load, and all three RunEs
 // checkpoint + gate on failOnFindings before doing anything process-owning.
 //
 // This reaches the fix without a live coordinator: with no CTXLOOM_COORD_*
@@ -35,7 +35,7 @@ func TestLlmServe_MalformedConfigAbortsInsteadOfLaunching(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
 	// Invalid YAML: config.Load degrades this to a WarnKindParse warning
 	// (CLAUDE.md fault tolerance — it does not become a Load() error), which
-	// is exactly the class printConfigWarnings/failOnFindings must catch.
+	// is exactly the class printAndRecordConfigWarnings/failOnFindings must catch.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("invalid: ["), 0o644))
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
@@ -50,7 +50,7 @@ func TestLlmServe_MalformedConfigAbortsInsteadOfLaunching(t *testing.T) {
 		rootCmd.SetArgs(nil)
 	})
 
-	// printConfigWarnings/failOnFindings write straight to os.Stderr (both
+	// printAndRecordConfigWarnings/failOnFindings write straight to os.Stderr (both
 	// standUpRunner and the RunE call them that way, matching run.go/
 	// mcp_server.go), not through cmd.OutOrStdout()/cmd.ErrOrStderr() — so the
 	// real fd, not rootCmd's buffer, is where the abort text lands.

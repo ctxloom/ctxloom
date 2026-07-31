@@ -193,15 +193,15 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 		"warning must tell the user where the fallback is rooted")
 }
 
-// printConfigWarnings is how `ctxloom run`, `ctxloom mcp`, and GetConfig-based
+// printAndRecordConfigWarnings is how `ctxloom run`, `ctxloom mcp`, and GetConfig-based
 // commands surface the errors config.Load downgraded to warnings (CLAUDE.md
 // fault tolerance) — without it a corrupted config.yaml silently launches an
 // empty-context session.
-func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
-	resetStrictness(t) // printConfigWarnings records findings; keep them out of the shared collector
+func TestPrintAndRecordConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
+	resetStrictness(t) // printAndRecordConfigWarnings records findings; keep them out of the shared collector
 	var buf bytes.Buffer
 
-	printConfigWarnings(&buf, []config.Warning{
+	printAndRecordConfigWarnings(&buf, []config.Warning{
 		{Kind: config.WarnKindParse, Text: "config.yaml is malformed: yaml: line 3: mapping values are not allowed"},
 		{Kind: config.WarnKindValidate, Text: "profile \"dev\" failed schema validation"},
 	})
@@ -230,11 +230,11 @@ func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
 // launches with a context the user never asked for. In strict mode it must abort
 // startup with a config-class finding that NAMES the key and carries a fix-it —
 // a crash names itself, a no-op does not.
-func TestPrintConfigWarnings_UnknownKeyIsFatalAndNamesTheKey(t *testing.T) {
+func TestPrintAndRecordConfigWarnings_UnknownKeyIsFatalAndNamesTheKey(t *testing.T) {
 	resetStrictness(t)
 	var buf bytes.Buffer
 
-	printConfigWarnings(&buf, []config.Warning{{
+	printAndRecordConfigWarnings(&buf, []config.Warning{{
 		Kind: config.WarnKindUnknownKey,
 		Text: "unknown key `profiles.defaults` in /p/.ctxloom/config.yaml: ctxloom does not know it, so it is IGNORED — `profiles.defaults` was RETIRED",
 	}})
@@ -262,12 +262,12 @@ func TestPrintConfigWarnings_UnknownKeyIsFatalAndNamesTheKey(t *testing.T) {
 // unknown key still WARNS (no diagnostic is ever lost) but records no finding, so
 // startup proceeds. An unknown key must not be able to wedge a user out of their
 // own tool.
-func TestPrintConfigWarnings_UnknownKeyDegradesToWarning(t *testing.T) {
+func TestPrintAndRecordConfigWarnings_UnknownKeyDegradesToWarning(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	var buf bytes.Buffer
 
-	printConfigWarnings(&buf, []config.Warning{{
+	printAndRecordConfigWarnings(&buf, []config.Warning{{
 		Kind: config.WarnKindUnknownKey,
 		Text: "unknown key `profilez` in /p/.ctxloom/config.yaml: ctxloom does not know it, so it is IGNORED",
 	}})
@@ -277,21 +277,21 @@ func TestPrintConfigWarnings_UnknownKeyDegradesToWarning(t *testing.T) {
 	assert.NoError(t, failOnFindings(&bytes.Buffer{}, strictness.Mark{}), "degraded mode launches anyway")
 }
 
-func TestPrintConfigWarnings_NoWarningsIsSilent(t *testing.T) {
+func TestPrintAndRecordConfigWarnings_NoWarningsIsSilent(t *testing.T) {
 	var buf bytes.Buffer
-	printConfigWarnings(&buf, nil)
+	printAndRecordConfigWarnings(&buf, nil)
 	assert.Empty(t, buf.String())
 }
 
-func TestWriteSyncSummary_NilResultIsNoop(t *testing.T) {
+func TestWriteAndRecordSyncSummary_NilResultIsNoop(t *testing.T) {
 	var buf bytes.Buffer
-	writeSyncSummary(&buf, nil)
+	writeAndRecordSyncSummary(&buf, nil)
 	assert.Empty(t, buf.String(), "nil result must not produce output — callers shouldn't have to nil-check")
 }
 
-func TestWriteSyncSummary_UpToDateIsSilent(t *testing.T) {
+func TestWriteAndRecordSyncSummary_UpToDateIsSilent(t *testing.T) {
 	var buf bytes.Buffer
-	writeSyncSummary(&buf, &operations.SyncDependenciesResult{
+	writeAndRecordSyncSummary(&buf, &operations.SyncDependenciesResult{
 		Status:  "up_to_date",
 		Total:   3,
 		Message: "all bundles up to date",
@@ -300,9 +300,9 @@ func TestWriteSyncSummary_UpToDateIsSilent(t *testing.T) {
 		"up_to_date with no installs/updates is quiet — startup shouldn't spam stderr in the steady state")
 }
 
-func TestWriteSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T) {
+func TestWriteAndRecordSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T) {
 	var buf bytes.Buffer
-	writeSyncSummary(&buf, &operations.SyncDependenciesResult{
+	writeAndRecordSyncSummary(&buf, &operations.SyncDependenciesResult{
 		Status:    "synced",
 		Installed: 2,
 		Updated:   1,
@@ -316,10 +316,10 @@ func TestWriteSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T) {
 		"a clean install/update is not a warning")
 }
 
-func TestWriteSyncSummary_FailuresListEachFailedItem(t *testing.T) {
-	resetStrictness(t) // writeSyncSummary records a finding per failed item; keep them out of the shared collector
+func TestWriteAndRecordSyncSummary_FailuresListEachFailedItem(t *testing.T) {
+	resetStrictness(t) // writeAndRecordSyncSummary records a finding per failed item; keep them out of the shared collector
 	var buf bytes.Buffer
-	writeSyncSummary(&buf, &operations.SyncDependenciesResult{
+	writeAndRecordSyncSummary(&buf, &operations.SyncDependenciesResult{
 		Status: "partial",
 		Errors: 2,
 		Failed: []operations.SyncItem{
@@ -374,12 +374,12 @@ func TestWriteSyncSummary_FailuresListEachFailedItem(t *testing.T) {
 	}
 }
 
-func TestWriteSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
+func TestWriteAndRecordSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 	// Partial-success path: per CLAUDE.md, 9 of 10 succeeding is still success.
 	// The user needs to see *both* what worked and what didn't.
 	resetStrictness(t) // the failed item records a finding; keep it out of the shared collector
 	var buf bytes.Buffer
-	writeSyncSummary(&buf, &operations.SyncDependenciesResult{
+	writeAndRecordSyncSummary(&buf, &operations.SyncDependenciesResult{
 		Status:    "partial",
 		Installed: 9,
 		Errors:    1,
@@ -467,7 +467,7 @@ func TestSweepOrphanedWorktrees_SilentWhenNothingToReap(t *testing.T) {
 	assert.Empty(t, buf.String(), "an all-clear sweep reports nothing")
 }
 
-// printConfigWarnings is called from FOUR sites, one of which (loadWithWarnings
+// printAndRecordConfigWarnings is called from FOUR sites, one of which (loadWithWarnings
 // in root.go) fires on every one of ~80 GetConfig()/GetConfigForUpdate() call
 // sites — and config.Load is MEMOIZED, so each of those calls hands back the
 // same warnings again. Recording with strictness.Record, which has no dedup,
@@ -480,15 +480,15 @@ func TestSweepOrphanedWorktrees_SilentWhenNothingToReap(t *testing.T) {
 // window, never process-wide — a long-lived server that refused a session over
 // this finding must see it again in the next window, or the retry opens
 // silently on the same broken config.
-func TestPrintConfigWarnings_OneProblemRecordsOneFindingPerWindow(t *testing.T) {
+func TestPrintAndRecordConfigWarnings_OneProblemRecordsOneFindingPerWindow(t *testing.T) {
 	resetStrictness(t)
 	warnings := []config.Warning{{Kind: config.WarnKindParse, Text: "config.yaml: did not parse"}}
 
 	mark := strictness.Checkpoint()
 	var buf bytes.Buffer
-	printConfigWarnings(&buf, warnings)
-	printConfigWarnings(&buf, warnings)
-	printConfigWarnings(&buf, warnings)
+	printAndRecordConfigWarnings(&buf, warnings)
+	printAndRecordConfigWarnings(&buf, warnings)
+	printAndRecordConfigWarnings(&buf, warnings)
 
 	got := strictness.Since(mark)
 	assert.Len(t, got, 1, "one broken config file is one finding, however many times the config is loaded")
@@ -502,28 +502,28 @@ func TestPrintConfigWarnings_OneProblemRecordsOneFindingPerWindow(t *testing.T) 
 // The mirror guard: a NEW checkpoint window must see the finding again. A
 // process-wide dedup here would let a long-lived server refuse one session over
 // a broken config and then open the next one silently on the same config.
-func TestPrintConfigWarnings_FindingRefiresInANewWindow(t *testing.T) {
+func TestPrintAndRecordConfigWarnings_FindingRefiresInANewWindow(t *testing.T) {
 	resetStrictness(t)
 	warnings := []config.Warning{{Kind: config.WarnKindParse, Text: "config.yaml: did not parse"}}
 
 	mark1 := strictness.Checkpoint()
 	var buf bytes.Buffer
-	printConfigWarnings(&buf, warnings)
+	printAndRecordConfigWarnings(&buf, warnings)
 	require.Len(t, strictness.Since(mark1), 1)
 
 	mark2 := strictness.Checkpoint()
-	printConfigWarnings(&buf, warnings)
+	printAndRecordConfigWarnings(&buf, warnings)
 	assert.Len(t, strictness.Since(mark2), 1,
 		"the next session must be refused over the same unfixed config, not opened silently")
 }
 
 // Two DIFFERENT problems are two findings — the dedup must key on the message,
 // not collapse the class.
-func TestPrintConfigWarnings_DistinctProblemsAreDistinctFindings(t *testing.T) {
+func TestPrintAndRecordConfigWarnings_DistinctProblemsAreDistinctFindings(t *testing.T) {
 	resetStrictness(t)
 	mark := strictness.Checkpoint()
 	var buf bytes.Buffer
-	printConfigWarnings(&buf, []config.Warning{
+	printAndRecordConfigWarnings(&buf, []config.Warning{
 		{Kind: config.WarnKindParse, Text: "config.yaml: did not parse"},
 		{Kind: config.WarnKindUnknownKey, Text: "config.yaml: unknown key foo"},
 	})

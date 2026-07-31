@@ -194,7 +194,7 @@ func weaveOnlyInjectedParts(t *testing.T) {
 
 // brokenConfigProject makes cwd a project whose config.yaml will not parse.
 // config.Load degrades that to a kind-tagged Warning and a nil error (CLAUDE.md
-// fault tolerance), and printConfigWarnings records it as a FATAL-class
+// fault tolerance), and printAndRecordConfigWarnings records it as a FATAL-class
 // strictness finding — the finding every process-owning entry point gates on.
 func brokenConfigProject(t *testing.T) {
 	t.Helper()

@@ -49,9 +49,11 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 	return cfg
 }
 
-// printConfigWarnings echoes the warnings config.Load accumulated to w (one
-// "ctxloom: warning: ..." line each) AND records each as a fatal finding for
-// the strict startup gate. Load downgrades unreadable, malformed, and
+// printAndRecordConfigWarnings echoes the warnings config.Load accumulated to w
+// (one "ctxloom: warning: ..." line each) AND records each as a fatal finding
+// for the strict startup gate. The name says BOTH because the recording is not
+// a detail of the printing: callers pick this function up expecting a
+// reporter, and it also arms an abort. Load downgrades unreadable, malformed, and
 // schema-invalid config files (and lossy migrations) to kind-tagged Warnings
 // and returns a nil error, so every startup path that consumes a loaded config
 // must surface them — otherwise a corrupted config.yaml silently launches an
@@ -65,7 +67,7 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 // recorded findings unless --degraded; management commands never check
 // findings, so for them this stays pure warning output. Shared by `ctxloom
 // run`, `ctxloom mcp`, and the GetConfig-based command entrypoints.
-func printConfigWarnings(w io.Writer, warnings []config.Warning) {
+func printAndRecordConfigWarnings(w io.Writer, warnings []config.Warning) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
 	// are intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 	ew := iox.NewErrWriter(w)
@@ -148,7 +150,7 @@ func formatFindings(findings []strictness.Finding) string {
 //
 // Both `ctxloom run` and `ctxloom mcp` call this at startup so the sweep runs
 // regardless of how the session was started — the same symmetry
-// reportCompanions/writeSyncSummary already keep between the two entry
+// reportCompanions/writeAndRecordSyncSummary already keep between the two entry
 // points.
 func sweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 	result := isolation.ReapOrphanedWorktrees(ctx, nil)
@@ -187,8 +189,11 @@ func reportCompanions(w io.Writer) {
 	}
 }
 
-// writeSyncSummary prints a consistent summary of a SyncDependenciesResult
-// to w. Both `ctxloom mcp` startup and `ctxloom run` use this so users see
+// writeAndRecordSyncSummary prints a consistent summary of a
+// SyncDependenciesResult to w AND records each failed item as a fatal sync
+// finding — named for both, for the same reason as
+// printAndRecordConfigWarnings above: a caller reaching for a summary writer
+// must see that it also arms the strict startup gate. Both `ctxloom mcp` startup and `ctxloom run` use this so users see
 // the same surface regardless of how sync was triggered.
 //
 //   - Successful syncs that installed or updated something get a one-line
@@ -206,7 +211,7 @@ func reportCompanions(w io.Writer) {
 // modes.
 //
 // A nil result is a no-op so callers don't have to nil-check.
-func writeSyncSummary(w io.Writer, result *operations.SyncDependenciesResult) {
+func writeAndRecordSyncSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if result == nil {
 		return
 	}

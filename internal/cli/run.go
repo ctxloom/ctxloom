@@ -378,7 +378,7 @@ Examples:
 		// config.Load downgrades unreadable/malformed/schema-invalid files to
 		// warnings (CLAUDE.md fault tolerance) — surface them so a corrupted
 		// config.yaml never silently launches an empty-context session.
-		printConfigWarnings(os.Stderr, cfg.GetWarnings())
+		printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
 		confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
@@ -448,7 +448,7 @@ Examples:
 					strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
 				}
 			} else {
-				writeSyncSummary(os.Stderr, result)
+				writeAndRecordSyncSummary(os.Stderr, result)
 			}
 		}
 

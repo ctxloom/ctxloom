@@ -86,7 +86,7 @@ func runWeave(cmd *cobra.Command, args []string) error {
 	// Fail-loudly choke owner (CLAUDE.md): weave LAUNCHES engine processes, so
 	// it owns a startup gate exactly like `ctxloom run`/`mcp`/`acp` and
 	// `profile materialize`. The checkpoint precedes the config load because
-	// that load is what RECORDS the fatal-class findings (printConfigWarnings)
+	// that load is what RECORDS the fatal-class findings (printAndRecordConfigWarnings)
 	// the gate below reads.
 	startupMark := strictness.Checkpoint()
 

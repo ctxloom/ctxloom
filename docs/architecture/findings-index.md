@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,469** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,470** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 174 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
-| `open` | no commit names this ID | **223** |
+| `open` | no commit names this ID | **222** |
 
-**Totals: 2268 findings across 162 units — 1,469 resolved, 223 still open, 576 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,470 resolved, 222 still open, 576 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 549 | 124 | 100 | 93 | 133 |
-| LOW | 871 | 561 | 90 | 58 | 100 | 62 |
+| LOW | 871 | 562 | 89 | 58 | 100 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2600,7 +2600,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U099-F15 | open | `index.go:194,232,272,601,632,665,695,736` | DUPLICATE | `filelock.Lock(m.path + ".lock")` with the identical `lock: %w` wrap appears eight times. Connascence of meaning on the `".lock"` suffix across eight sites. | U099.md |
 | U099-F16 | open | `index.go:102-111, :142` | COHESION | `Manager` carries two responsibilities, and the schema-upgrade one is mutated as a hidden side effect of every **read**. `loadLocked`:142 unconditionally nils `pendingUpgrade`, so a concurrent `Fin... | U099.md |
 | U099-F17 | **RESOLVED** `c70c0f79` | `index.go:707` | CORRECTNESS | `Reconcile` invokes the caller-supplied `isDead` predicate while holding **both** `m.mu` and the blocking flock. A predicate that reaches back into the session index deadlocks the process. | U099.md |
-| U099-F18 | open | `index_upgrade.go:83` | ERRHANDLING | `if err := n.Encode(t); err != nil { return false }` discards the error and reports the node as *unchanged*, conflating "already canonical" with "re-encode failed". | U099.md |
+| U099-F18 | **RESOLVED** `5c529efd` | `index_upgrade.go:83` | ERRHANDLING | `if err := n.Encode(t); err != nil { return false }` discards the error and reports the node as *unchanged*, conflating "already canonical" with "re-encode failed". | U099.md |
 | U099-F21 | **RESOLVED** `07abd892` | `index.go:758` | SILENTNOOP | `saveLocked(nil)` would marshal to the literal `null` and atomically overwrite the index with it — a total silent wipe. No caller passes nil today. | U099.md |
 | U100-F11 | open | `cells.go:242` | CORRECTNESS | `EmptySurfaceSet.SurfaceFor` returns `(nil, nil)` — a nil `Delivery` with no error — directly contradicting the interface contract it implements. | U100.md |
 | U100-F14 | open | `approach.go:52-55, cells.go:272-274` | CORRECTNESS | `Approach.String` and `CellKind.String` render the zero value from a `default:` arm, so any out-of-range value silently prints as `"unsafe-file"` / `"shared"` — the *least safe* option in both enum... | U100.md |

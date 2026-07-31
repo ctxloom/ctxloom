@@ -96,7 +96,7 @@ func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string)
 		return err
 	}
 
-	db, err := openReadOnly(dbPath)
+	db, err := openReadOnly(ctx, dbPath)
 	if err != nil {
 		return fmt.Errorf("kiro: open %s: %w", dbPath, err)
 	}

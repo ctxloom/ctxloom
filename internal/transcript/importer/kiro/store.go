@@ -52,12 +52,17 @@ func readOnlyURI(dbPath string) string {
 // (missing file, wrong permissions, not actually a sqlite file) fails loud
 // right here — the same "structural failure, no further progress possible"
 // case codex.Adapter.Convert's os.Open gets for free from being eager.
-func openReadOnly(dbPath string) (*sql.DB, error) {
+//
+// That eagerness is exactly why ctx belongs here rather than only on the
+// queries that follow: the ping is the call that actually touches the file
+// (possibly on a slow or unresponsive mount), so it is the one a caller who
+// has already given up must not be made to wait for.
+func openReadOnly(ctx context.Context, dbPath string) (*sql.DB, error) {
 	db, err := sql.Open(sqlDriverName, readOnlyURI(dbPath))
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

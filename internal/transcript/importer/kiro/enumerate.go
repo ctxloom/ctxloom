@@ -34,7 +34,7 @@ type ConversationRef struct {
 // for an occasional one-shot discovery pass, so the extra open/close per
 // call is not a real cost.
 func EnumerateConversations(ctx context.Context, dbPath string) ([]ConversationRef, error) {
-	db, err := openReadOnly(dbPath)
+	db, err := openReadOnly(ctx, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("kiro: open %s: %w", dbPath, err)
 	}

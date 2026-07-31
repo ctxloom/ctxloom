@@ -2,12 +2,14 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -576,4 +578,75 @@ func TestDeliverShared_ContextHook_DoesNotWriteSyspromptScratch(t *testing.T) {
 			"hook-carried context must not also land an out-of-cwd sysprompt file (%s)", e.Name())
 	}
 	assert.NoFileExists(t, filepath.Join(live, "CLAUDE.md"), "and no native file either")
+}
+
+// armedFailFs fails every write once armed, so a test can let one delivery
+// succeed and then force the NEXT one to fail on the same surface instance.
+type armedFailFs struct {
+	afero.Fs
+	armed *bool
+}
+
+var errArmedWrite = errors.New("armed write failure")
+
+func (f armedFailFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if *f.armed && flag&os.O_CREATE != 0 {
+		return nil, errArmedWrite
+	}
+	return f.Fs.OpenFile(name, flag, perm)
+}
+
+func (f armedFailFs) Create(name string) (afero.File, error) {
+	if *f.armed {
+		return nil, errArmedWrite
+	}
+	return f.Fs.Create(name)
+}
+
+func (f armedFailFs) Rename(oldname, newname string) error {
+	if *f.armed {
+		return errArmedWrite
+	}
+	return f.Fs.Rename(oldname, newname)
+}
+
+func (f armedFailFs) MkdirAll(path string, perm os.FileMode) error {
+	if *f.armed {
+		return errArmedWrite
+	}
+	return f.Fs.MkdirAll(path, perm)
+}
+
+// Path() documents itself as "" before delivery, and buildArgs relies on that:
+// flagArgs must never hand claude --mcp-config / --settings naming a file that
+// was not written. A FAILED DeliverIsolated therefore has to leave Path()
+// reporting nothing, not the path recorded by an earlier successful call.
+func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
+	var armed bool
+	fs := armedFailFs{Fs: afero.NewMemMapFs(), armed: &armed}
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: "/iso"}, fs)
+
+	for _, tc := range []struct {
+		name    string
+		deliver func() (agent.Delivered, error)
+		path    func() string
+	}{
+		{"mcp", s.MCP.DeliverIsolated, s.MCP.Path},
+		{"settings", s.Settings.DeliverIsolated, s.Settings.Path},
+		{"context", s.Context.DeliverIsolated, s.Context.Path},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			armed = false
+			_, err := tc.deliver()
+			require.NoError(t, err)
+			require.NotEmpty(t, tc.path(), "the successful delivery records its path")
+
+			armed = true
+			_, err = tc.deliver()
+			require.Error(t, err, "the armed fs must fail the second delivery")
+			assert.Empty(t, tc.path(), "a failed delivery must not leave a path naming a file that was not written")
+		})
+	}
+	// And flagArgs, the buildArgs consumer, emits no flag for any of them.
+	assert.Empty(t, s.flagArgs(), "no launch flag may name a file that was not written")
 }

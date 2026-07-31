@@ -1,6 +1,8 @@
 package projectroot
 
 import (
+	"errors"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -185,4 +187,77 @@ func TestTaskStoreRoot_EmptyDirIsRefused(t *testing.T) {
 	got, err := TaskStoreRoot(afero.NewOsFs(), "")
 	assert.Error(t, err, "an empty dir must be refused, not resolved against the process working directory")
 	assert.Empty(t, got, "a refused resolution must not hand back a root")
+}
+
+// TestDetectWorktree_UnstattableGitSurfacesAsError pins U092-F04. The stat of
+// dir/.git treated EVERY failure as "no .git here — not a worktree", while the
+// ReadFile ten lines below surfaces the identical permission fault as an error.
+// The asymmetry fails OPEN in the direction that loses data: a linked worktree
+// whose .git cannot be stat'd is reported as an ordinary directory, so
+// TaskStoreRoot keeps the worktree's own store and config's worktreeSignpost
+// says nothing — the run looks healthy and the tasks die with the worktree.
+// Only "the entry does not exist" means "not a worktree"; anything else is a
+// fault, and faults are surfaced.
+func TestDetectWorktree_UnstattableGitSurfacesAsError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root ignores file permissions")
+	}
+	dir := unstattableWorktreeDir(t)
+
+	_, err := DetectWorktree(afero.NewOsFs(), dir)
+	assert.Error(t, err, "a .git that cannot be stat'd must surface, not silently resolve as 'not a worktree'")
+}
+
+// TestTaskStoreRoot_UnstattableAppDirSurfacesAsError pins the same asymmetry at
+// taskstore.go's opt-out probe: `err == nil && info.IsDir()` reads a permission
+// fault on dir/.ctxloom as "this directory has no .ctxloom of its own", which
+// is the branch that then redirects the task store somewhere else entirely.
+func TestTaskStoreRoot_UnstattableAppDirSurfacesAsError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root ignores file permissions")
+	}
+	dir := unstattableWorktreeDir(t)
+
+	got, err := TaskStoreRoot(afero.NewOsFs(), dir)
+	assert.Error(t, err, "an unstattable .ctxloom must surface, not be read as 'no .ctxloom here'")
+	assert.Empty(t, got)
+}
+
+// unstattableWorktreeDir builds a directory that IS a linked worktree and whose
+// entries cannot be stat'd, by removing search permission from the directory
+// itself (stat of any child then fails EACCES, not ENOENT).
+//
+// It asserts the fault is visible from the code under test's own vantage point
+// before handing the directory back: a fixture that merely looks broken, but
+// whose stats actually succeed, would leave both pins green for a reason that
+// has nothing to do with the defect (§11k).
+func unstattableWorktreeDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	common := filepath.Join(root, "main", ".git")
+	require.NoError(t, os.MkdirAll(filepath.Join(common, "worktrees", "wt"), 0o755))
+
+	dir := filepath.Join(root, "wt")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"),
+		[]byte("gitdir: "+filepath.Join(common, "worktrees", "wt")+"\n"), 0o644))
+
+	// Readable: prove it is a linked worktree, so "not a worktree" can only
+	// ever be a misclassification.
+	info, err := DetectWorktree(afero.NewOsFs(), dir)
+	require.NoError(t, err)
+	require.True(t, info.Linked, "fixture is not a linked worktree before the permission change")
+
+	require.NoError(t, os.Chmod(dir, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	// And prove the stats the code under test performs now fail, and fail with
+	// something other than "does not exist".
+	for _, name := range []string{".git", ".ctxloom"} {
+		_, statErr := os.Stat(filepath.Join(dir, name))
+		require.Error(t, statErr, "fixture is not hostile: stat of %s still succeeds", name)
+		require.False(t, errors.Is(statErr, iofs.ErrNotExist),
+			"fixture is not hostile: stat of %s reports plain absence, which really is 'not a worktree'", name)
+	}
+	return dir
 }

@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,453** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 172 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 194 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **252** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 198 |
+| `open` | no commit names this ID | **251** |
 
-**Totals: 2268 findings across 162 units — 1,453 resolved, 252 still open, 563 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,453 resolved, 251 still open, 564 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 540 | 141 | 99 | 90 | 129 |
+| MED | 999 | 540 | 140 | 99 | 90 | 130 |
 | LOW | 871 | 554 | 102 | 57 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1464,7 +1464,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U071-F05 | **RESOLVED** `160e0ba8` | `shell.go:353-364` + `:368-376` | CORRECTNESS | `literalFallback` handles only `*syntax.Lit` and `*syntax.SglQuoted`; a `*syntax.DblQuoted` word yields `""`, and `argvFallback` then **drops that argument entirely**. On the fallback path a quoted... | U071.md |
 | U072-F02 | open | `ir.go:17-32` | COHESION | The `Shell` enum and the command graph are two unrelated contracts in one package; 4 of 9 importers use only `Shell`. | U072.md |
 | U072-F03 | **PARTIAL** `51232e54` | `ir.go:52-54`, `ir.go:60,62,64` | NOPAY | Six IR fields are write-only in production: `Pipeline.{Connector,Background,Negated}` and `SimpleCommand.{Assignments,Redirects,Raw}`. They cost lowering code in three frontends and buy nothing. | U072.md |
-| U072-F04 | open | `ir.go:62` | CORRECTNESS | A bare-redirect command (`> /etc/passwd`, no program word) is **structurally unmatchable**: the IR faithfully records it, but `Match` has no redirect predicate and `matchCommand` bails on empty argv. | U072.md |
+| U072-F04 | **ESCALATED** `PENDING01` | `ir.go:62` | CORRECTNESS | A bare-redirect command (`> /etc/passwd`, no program word) is **structurally unmatchable**: the IR faithfully records it, but `Match` has no redirect predicate and `matchCommand` bails on empty argv. | U072.md |
 | U072-F05 | open | `ir.go:61` | CORRECTNESS | The IR has no representation for an **unresolvable** word, so argv is silently truncated and the rule engine cannot tell a fully-resolved command from a partially-erased one. | U072.md |
 | U073-F05 | **RESOLVED** `55edc2ab` | `rules.go:360-382` + `rules.go:349` | SILENTNOOP | `ExpandSubmodules` injects patterns into `Match.Path` **after** `Parse` validated it, and `globMatch` swallows the resulting error — so a submodule whose path contains a glob metacharacter is silen... | U073.md |
 | U073-F07 | open | `rules.go:170-291` | COHESION | `Match` is two types wearing one name; `mixesCommandAndPath` exists only to enforce at runtime what a type split enforces at compile time. | U073.md |

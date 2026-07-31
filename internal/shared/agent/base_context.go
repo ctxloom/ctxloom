@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -26,13 +29,20 @@ func (c *BaseContextProvider) Provide(workDir string, fragments []*Fragment) err
 	return nil
 }
 
-// Clear removes the context file.
+// Clear removes the context file and releases its hash. A file that is ALREADY
+// gone is a successful clear (nothing was left behind); any other removal failure
+// is returned AND leaves contextHash intact — the hash is the only handle on the
+// file still on disk, so discarding it would make the leak both unreportable and
+// unretryable.
 func (c *BaseContextProvider) Clear(workDir string) error {
-	if c.contextHash != "" {
-		contextPath := filepath.Join(workDir, SCMContextSubdir, c.contextHash+".md")
-		_ = os.Remove(contextPath)
-		c.contextHash = ""
+	if c.contextHash == "" {
+		return nil
 	}
+	contextPath := filepath.Join(workDir, SCMContextSubdir, c.contextHash+".md")
+	if err := os.Remove(contextPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("failed to remove context file for %s: %w", c.contextHash, err)
+	}
+	c.contextHash = ""
 	return nil
 }
 

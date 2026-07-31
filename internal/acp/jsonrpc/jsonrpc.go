@@ -131,8 +131,7 @@ type Conn struct {
 // transport's write end (or the socket) satisfies this; one that merely
 // releases bookkeeping does not. Pass nil only when this side is not meant to
 // be able to tear the connection down — the read loop will then run until the
-// peer ends the stream, and neither Close nor cancelling Start's ctx can stop
-// it.
+// peer ends the stream, and nothing on this side can stop it.
 func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
 	return &Conn{
 		dec:     json.NewDecoder(r),
@@ -170,27 +169,19 @@ func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn 
 // makes Start's own goroutine creation the happens-before edge instead —
 // the read loop, and everything it dispatches, is guaranteed to see
 // everything the caller did up to and including the Start call.
-// ctx is the CONNECTION's lifetime, not merely the dispatch scope handed to
-// handlers: cancelling it tears the connection down. It has to be done from a
-// second goroutine, because the read loop spends its life parked inside
-// Decode and cannot select on anything, and it can only work through the
-// closer (see NewConn) — a Conn built with a nil closer has nothing to pull,
-// so its read loop runs until the peer ends the stream no matter what its ctx
-// does.
+// ctx is the DISPATCH SCOPE handed to each handler invocation, NOT the
+// connection's lifetime. Cancelling it does not stop the read loop: the loop
+// spends its life parked inside Decode, where it can select on nothing, so
+// the only lever is the closer — and pulling that lever is the OWNER's call to
+// time, not this type's. An ACP client cancelling a turn has protocol work to
+// do on the wire first (it sends session/cancel and lets the parked
+// session/prompt resolve with stopReason "cancelled", keeping the session
+// usable); a connection that tore itself down the instant its ctx ended would
+// race that notification off the wire. Callers that want cancellation to end
+// the connection compose it themselves — cancel, say what the protocol
+// requires, then Close.
 func (c *Conn) Start(ctx context.Context) {
 	go c.readLoop(ctx)
-	go c.closeOnCancel(ctx)
-}
-
-// closeOnCancel turns cancellation of Start's ctx into a transport teardown,
-// and retires itself when the read loop exits on its own so a long-lived ctx
-// leaves nothing behind.
-func (c *Conn) closeOnCancel(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		_ = c.Close()
-	case <-c.done:
-	}
 }
 
 // Call issues a request and blocks until the matching response arrives, ctx is

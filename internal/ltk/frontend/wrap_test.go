@@ -571,3 +571,33 @@ func TestExpandWrappers_ShellDialectDrivesWrapperRecognition(t *testing.T) {
 		})
 	}
 }
+
+// TestExpandWrappers_EnvSplitString pins `env -S` / `env --split-string` as an
+// INTERPRETER wrapper. GNU env's -S takes one STRING and splits it into the
+// command to run, so the string must be re-parsed. It had been classified as
+// just another option whose argument is stepped over, which left the inner
+// command out of the IR entirely: `env -S "git commit --no-verify"` produced
+// no nested command at all, and every rule missed it.
+func TestExpandWrappers_EnvSplitString(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"separate", []string{"env", "-S", "git commit --no-verify"}},
+		{"glued", []string{"env", "-Sgit commit --no-verify"}},
+		{"long-separate", []string{"env", "--split-string", "git commit --no-verify"}},
+		{"long-equals", []string{"env", "--split-string=git commit --no-verify"}},
+		{"after-assignments", []string{"env", "FOO=1", "-i", "-S", "git commit --no-verify"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, tc.argv...)
+			r.ExpandWrappers(context.Background(), s)
+			if got := nestedPrograms(s); !contains(got, "git") {
+				t.Errorf("nested programs = %v, want the inner `git` surfaced (seen=%v)", got, f.seen)
+			}
+		})
+	}
+}

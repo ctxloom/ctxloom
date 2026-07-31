@@ -633,3 +633,61 @@ func TestStore_Read_AFormOutsideTheClosedVocabularyFindsNothing(t *testing.T) {
 	assert.False(t, ok, "an unrecognized form must resolve to 'nothing recorded'")
 	assert.False(t, s.HasUnsignedApprove("acme#mcp/x", rogue, payload))
 }
+
+// TestStore_WriteNamespaceIsDerivedFromTheAssertion pins the one thing the
+// signer and the verifier must never disagree about.
+//
+// write used to take `namespace` as a parameter INDEPENDENT of
+// header.Assertion, hand-re-encoded at each of the three assertion wrappers,
+// while VerifyCountersignature DERIVES it from the assertion. The two
+// namespaces are a domain separator (spec §1) precisely so a rejection can
+// never be replayed as an approval — so a mismatch at one wrapper produces a
+// record that is written, reported to the user, and then never verifiable by
+// anyone.
+//
+// On the REJECT path that is a fail-OPEN: an unverifiable rejection reads as
+// "nothing rejected", which is benign, so the item is silently un-rejected.
+// The test asserts on the record's namespace by construction: a root that
+// trusts the key ONLY for the assertion's own namespace must verify it, and a
+// root that trusts it only for the OTHER namespace must not.
+func TestStore_WriteNamespaceIsDerivedFromTheAssertion(t *testing.T) {
+	signer, pub := testSigner(t)
+	payload := []byte("reviewed bytes")
+	now := time.Now()
+
+	approveOnly := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
+	rejectOnly := rootTrusting("ben@abbitt.me", pub, signing.NamespaceReject)
+
+	t.Run("approve is signed under the approve namespace", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.WriteApprove("bundle:a", signing.AttestFragmentRaw, payload, signer))
+
+		_, ok := s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, approveOnly, now)
+		assert.True(t, ok, "an approve record must verify under a root trusting the approve namespace")
+
+		_, ok = s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, rejectOnly, now)
+		assert.False(t, ok, "it must NOT verify under a root trusting only the reject namespace")
+	})
+
+	t.Run("content reject is signed under the reject namespace", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.WriteContentReject(signing.AttestFragmentRaw, payload, signer))
+
+		_, ok := s.VerifiedContentReject(signing.AttestFragmentRaw, payload, rejectOnly, now)
+		assert.True(t, ok, "a reject record must verify under a root trusting the reject namespace")
+
+		_, ok = s.VerifiedContentReject(signing.AttestFragmentRaw, payload, approveOnly, now)
+		assert.False(t, ok, "it must NOT verify under a root trusting only the approve namespace")
+	})
+
+	t.Run("ref reject is signed under the reject namespace", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.WriteRefReject("bundle:a", signer))
+
+		_, ok := s.VerifiedRefReject("bundle:a", rejectOnly, now)
+		assert.True(t, ok, "a ref-reject record must verify under a root trusting the reject namespace")
+
+		_, ok = s.VerifiedRefReject("bundle:a", approveOnly, now)
+		assert.False(t, ok, "it must NOT verify under a root trusting only the approve namespace")
+	})
+}

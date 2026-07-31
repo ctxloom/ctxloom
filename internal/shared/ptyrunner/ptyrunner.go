@@ -115,8 +115,22 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 	}
 	defer func() { _ = ptty.Close() }()
 
-	// Create command using PTY
-	c := ptty.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+	// Create command using PTY.
+	//
+	// cmd.Args holds argv[0] at index 0. os/exec defaults an empty Args to a
+	// one-element slice containing Path, but it does so inside exec.Cmd.Start,
+	// which is never reached from here — the argv is re-derived for go-pty's
+	// own Cmd instead — so a hand-built &exec.Cmd{Path: ...} arrives with Args
+	// nil and must not be sliced unconditionally.
+	//
+	// argv[0] itself is not ours to set: go-pty's Cmd.start rebuilds the child
+	// argv as exec.Command(Path, Args[1:]...), so the child always sees Path as
+	// argv[0] and a caller's own Args[0] cannot reach it through this library.
+	var args []string
+	if len(cmd.Args) > 1 {
+		args = cmd.Args[1:]
+	}
+	c := ptty.CommandContext(ctx, cmd.Path, args...)
 	c.Dir = cmd.Dir
 	c.Env = cmd.Env
 

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,322** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,323** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 142 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
-| `open` | no commit names this ID | **454** |
+| `open` | no commit names this ID | **453** |
 
-**Totals: 2268 findings across 162 units — 1,322 resolved, 454 still open, 492 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,323 resolved, 453 still open, 492 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 476 | 251 | 80 | 79 | 113 |
-| LOW | 871 | 489 | 191 | 47 | 87 | 57 |
+| LOW | 871 | 490 | 190 | 47 | 87 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2250,7 +2250,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F24 | **RESOLVED** `24e4e92e` | `session_cmd.go:477-482` | TRIVIAL | `compactionModelFor` has exactly **one** production call site, so its stated rationale — "Shared so every distill path resolves it identically" — is not realised; `compactEntry` is already the sing... | U042.md |
 | U042-F25 | **RESOLVED** `ae84959a` `b08b5f0f` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
 | U043-F10 | open | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
-| U043-F11 | open | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
+| U043-F11 | **RESOLVED** `b2bb35b3` | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
 | U043-F12 | open | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |
 | U043-F13 | open | `util_config_write.go:179,183,186` | ERRHANDLING | Verify-failure errors interpolate an empty `result.Backup`, producing "original backed up to " / "restore from backup " with nothing after it — precisely when the user most needs an actionable mess... | U043.md |
 | U043-F15 | **RESOLVED** `ed3bd3dd` | `util_config_write.go:325-328` | TRIVIAL | `asConfigMap` is a bare two-line type assertion with no invariant. | U043.md |

@@ -57,13 +57,29 @@ func releaseOrNoop(unlock func(), err error) (func(), error) {
 	return unlock, err
 }
 
+// lockFileMode and lockDirMode are the modes a lock file and its parent
+// directory are CREATED with, before umask. They are the conventional file /
+// directory pair — a directory needs the execute bit to be traversable at all,
+// which is the whole of the difference between them — and both are deliberately
+// not group- or world-WRITABLE.
+//
+// That last part bounds who can take these locks: acquiring one opens the file
+// O_RDWR, so only the owner can. On a project .ctxloom shared between UNIX
+// accounts a second user's acquisition fails outright rather than silently
+// sharing. Widening these is a security decision about who may block whom, not
+// a formatting one, and is not made here.
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
+)
+
 // ensureDir creates the parent directory of path if it doesn't exist.
 func ensureDir(path string) error {
 	dir := filepath.Dir(path)
 	if dir == "" || dir == "." {
 		return nil
 	}
-	return os.MkdirAll(dir, 0o755)
+	return os.MkdirAll(dir, lockDirMode)
 }
 
 // Every error out of this package goes through one of the three wrappers

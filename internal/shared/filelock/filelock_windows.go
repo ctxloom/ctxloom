@@ -25,7 +25,7 @@ func lockFile(path string, shared bool) (func(), error) {
 		return nil, errPrepare(path, err)
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, lockFileMode)
 	if err != nil {
 		return nil, errOpen(path, err)
 	}

@@ -270,6 +270,18 @@ type ownedRenderResult struct {
 // buffer to race on. capture=false skips accumulation entirely for the REPL,
 // which only counts boundaries.
 func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
+	// Reject a format this renderer cannot honor BEFORE consuming the stream,
+	// on the same text/json pair renderChatEvents enforces (format.go). Which
+	// arm a structured run takes is an isolation-policy decision, not the
+	// user's, so a --format value must mean the same thing on both: falling
+	// through to raw prose here made an unsupported format an error on the
+	// go-plugin arm and a silent downgrade on this one.
+	switch format {
+	case formatJSON, formatText, "":
+	default:
+		return "", unknownFormatError(format)
+	}
+
 	var answer strings.Builder
 	final := map[string]bool{}
 	enc := json.NewEncoder(out)

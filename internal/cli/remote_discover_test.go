@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bufio"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -8,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -20,6 +23,31 @@ func discoverOneRepo() *remote.MockFetcher {
 		Stars: 3, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub,
 	}}
 	return f
+}
+
+// TestInteractiveAdd_ReadsThroughTheSharedStdinReader pins U040-F09. run.go
+// documents one invariant for interactive input: every prompt reads through
+// the single package-level stdinReader, because a fresh bufio.Reader silently
+// discards whatever a previous reader buffered past its line (type-ahead, or a
+// pasted answer to two back-to-back confirmations). interactiveAdd opened its
+// own reader over os.Stdin and so both lost those bytes and left its own
+// consumed input invisible to later prompts. Asserting on what remains in the
+// shared reader is what discriminates: a private reader leaves it untouched.
+func TestInteractiveAdd_ReadsThroughTheSharedStdinReader(t *testing.T) {
+	orig := stdinReader
+	t.Cleanup(func() { stdinReader = orig })
+	stdinReader = bufio.NewReader(strings.NewReader("q\nleftover\n"))
+
+	cfg := config.NewFixture(config.Fixture{})
+	repos := []operations.RepoEntry{{Owner: "alice", Name: "ctxloom", URL: "https://github.com/alice/ctxloom"}}
+	captureStdout(t, func() {
+		require.NoError(t, interactiveAdd(&cobra.Command{}, cfg, repos))
+	})
+
+	rest, err := stdinReader.ReadString('\n')
+	require.NoError(t, err)
+	assert.Equal(t, "leftover\n", rest,
+		"the 'q' must have been consumed FROM the shared reader, not from a private one")
 }
 
 // TestRunRemoteDiscover_NoInteractivePromptOffATTY pins U040-F19: the add-loop

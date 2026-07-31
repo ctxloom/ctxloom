@@ -585,9 +585,24 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 	var profile *config.Profile
 
 	// First try config-based resolution (inline `profiles:` map in config.yaml).
-	if p, err := config.ResolveProfile(cfg.GetProfileDefinitions(), name); err == nil {
+	p, inlineErr := config.ResolveProfile(cfg.GetProfileDefinitions(), name)
+	if inlineErr == nil {
 		profile = p
 	} else {
+		// Only ErrProfileNotFound means "config.yaml never mentioned this
+		// name", which is the ordinary reason to look in .ctxloom/profiles/.
+		// Any other error means an inline profile of this name EXISTS and is
+		// broken — a cycle in its parents, an inheritance chain too deep. The
+		// fallback still runs, because which profile wins is not this
+		// function's decision to change, but the fault must not vanish: left
+		// silent, the user sees either a directory profile quietly standing in
+		// for the one they wrote, or a "profile not found" naming the one
+		// place the profile is not.
+		brokenInline := !errors.Is(inlineErr, errs.ErrProfileNotFound)
+		if brokenInline {
+			clidiag.Warn("ctxloom", "inline profile %q in config.yaml is unusable: %v; trying .ctxloom/profiles/", name, inlineErr)
+		}
+
 		// Fall back to directory-based resolution (.ctxloom/profiles/<name>.yaml).
 		var pLoader ProfileLoader
 		if profileLoaderFunc != nil {
@@ -597,6 +612,9 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 		}
 		resolved, rerr := pLoader.ResolveProfile(name, nil)
 		if rerr != nil {
+			if brokenInline {
+				return nil, fmt.Errorf("profile %s: %w (the inline definition in config.yaml is unusable: %v)", name, rerr, inlineErr)
+			}
 			return nil, fmt.Errorf("profile %s: %w", name, rerr)
 		}
 		profile = &config.Profile{

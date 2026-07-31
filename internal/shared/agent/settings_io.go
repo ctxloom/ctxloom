@@ -163,8 +163,15 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 		// leave the user with no way back and no way to know. Both halves
 		// count: an unreadable original and an unwritable copy each mean no
 		// backup exists.
-		if err := backupExisting(fs, path, perm); err != nil {
-			return fmt.Errorf("refusing to write %s: %w", desc, err)
+		//
+		// The one exception is a caller that has ALREADY taken an equivalent
+		// backup of the same bytes and owns its own retention contract
+		// (CallerOwnsBackup): copying again would leave a second,
+		// ctxloom-branded file in a directory ctxloom does not own.
+		if !o.callerOwnsBackup {
+			if err := backupExisting(fs, path, perm); err != nil {
+				return fmt.Errorf("refusing to write %s: %w", desc, err)
+			}
 		}
 	}
 
@@ -202,7 +209,8 @@ func backupExisting(fs afero.Fs, path string, perm os.FileMode) error {
 type WriteFileOption func(*writeFileOptions)
 
 type writeFileOptions struct {
-	allowEmpty bool
+	allowEmpty       bool
+	callerOwnsBackup bool
 }
 
 // AllowEmptyWrite opts an AtomicWriteFile call OUT of the zero-byte refusal
@@ -212,6 +220,21 @@ type writeFileOptions struct {
 // nothing else legitimately renders as zero TOML bytes).
 func AllowEmptyWrite() WriteFileOption {
 	return func(o *writeFileOptions) { o.allowEmpty = true }
+}
+
+// CallerOwnsBackup suppresses the "<path>.ctxloom.bak" sibling for a caller
+// that has already backed up the SAME bytes under its own naming and retention
+// contract, and is writing into a directory ctxloom does not own (internal/cli
+// config-write, which keeps one timestamped generation per call in a
+// third-party config dir). Without it that caller leaves two backups of one
+// original: its own advertised generation, plus an unadvertised single-slot
+// copy the next write silently overwrites.
+//
+// This is NOT a way to skip backing up. The backup is the recovery path an
+// atomic write does not itself provide, so only pass this when an equivalent
+// copy demonstrably already exists.
+func CallerOwnsBackup() WriteFileOption {
+	return func(o *writeFileOptions) { o.callerOwnsBackup = true }
 }
 
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file

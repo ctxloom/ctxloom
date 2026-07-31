@@ -475,7 +475,14 @@ func sortedKeys(m map[string]bool) []string {
 // nothing else does.
 func detectRedelivery(groups map[[2]string][]time.Time, thr Thresholds) *Redelivery {
 	var best *Redelivery
-	for key, ts := range groups {
+	// Iterate in KEY order, not map order. Two groups can tie on both repeats
+	// and entry type and differ only in content, and Go randomises map
+	// iteration, so a map-ordered scan made the reported group — and with it
+	// the operator-facing reason — differ between two reads of an unchanged
+	// file. The comparator's tie-break below cannot fix that on its own: it
+	// only sees the truncated Sample.
+	for _, key := range sortedGroupKeys(groups) {
+		ts := groups[key]
 		if len(ts) < thr.RedeliveryMinRepeats {
 			continue
 		}
@@ -492,7 +499,11 @@ func detectRedelivery(groups map[[2]string][]time.Time, thr Thresholds) *Redeliv
 			// Zero-gap repeats (same receipt timestamp, or no usable ts):
 			// still repetition, but no cadence to speak of. Reported with a
 			// zero cadence rather than skipped — a burst of identical records
-			// is not healthier than a paced one.
+			// is not healthier than a paced one, and dropping the measurement
+			// would hide it from the evidence trail entirely. A zero Cadence
+			// is the signal to a CONSUMER that the second half of the
+			// definition was not established: monitor.go's loopRung, which
+			// condemns with no grace period, requires a non-zero one.
 			best = worse(best, &Redelivery{EntryType: key[0], Repeats: len(ts), Sample: sample(key[1])})
 			continue
 		}
@@ -520,17 +531,44 @@ func detectRedelivery(groups map[[2]string][]time.Time, thr Thresholds) *Redeliv
 	return best
 }
 
-// worse keeps whichever redelivery group repeated more (ties broken by entry
-// type for a stable, test-assertable answer).
+// sortedGroupKeys orders the (entry type, content) keys so detectRedelivery's
+// scan is a function of the FILE and nothing else.
+func sortedGroupKeys(groups map[[2]string][]time.Time) [][2]string {
+	keys := make([][2]string, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i][0] != keys[j][0] {
+			return keys[i][0] < keys[j][0]
+		}
+		return keys[i][1] < keys[j][1]
+	})
+	return keys
+}
+
+// worse keeps whichever redelivery group repeated more. Ties resolve on entry
+// type and then on the sample, so the comparator is total over everything it
+// can see; the remaining case — equal repeats, equal type, contents sharing a
+// sample-length prefix — is settled by detectRedelivery's sorted scan, which
+// keeps the first key it met.
 func worse(a, b *Redelivery) *Redelivery {
 	switch {
 	case a == nil:
 		return b
 	case b == nil:
 		return a
-	case b.Repeats > a.Repeats:
-		return b
-	case b.Repeats == a.Repeats && b.EntryType < a.EntryType:
+	case b.Repeats != a.Repeats:
+		if b.Repeats > a.Repeats {
+			return b
+		}
+		return a
+	case b.EntryType != a.EntryType:
+		if b.EntryType < a.EntryType {
+			return b
+		}
+		return a
+	case b.Sample < a.Sample:
 		return b
 	default:
 		return a

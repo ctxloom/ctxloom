@@ -71,7 +71,7 @@ func loadWithWarnings(load func(...config.LoadOption) (*config.Config, error)) (
 	if err != nil {
 		return nil, err
 	}
-	printConfigWarnings(os.Stderr, cfg.GetWarnings())
+	printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg, nil
 }
 

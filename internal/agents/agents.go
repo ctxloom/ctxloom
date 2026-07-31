@@ -283,8 +283,24 @@ func (l *Loader) List() ([]*Agent, error) {
 			continue
 		}
 		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return nil // skip unreadable entries / directories
+			if err != nil {
+				// A DIRECTORY we cannot enumerate hides an unknown number of
+				// agents — every definition beneath it is invisible, and
+				// reporting that as "no agents here" is the silent-empty-scan
+				// this codebase treats as a bug. afero.Walk passes the
+				// directory's own info alongside the readDirNames error and a
+				// nil info when it could not even stat the entry, so the two
+				// cases are distinguishable: report the directory, warn-and-
+				// skip the single entry (one stray file never sinks the rest,
+				// per the doc above).
+				if info != nil && info.IsDir() {
+					return fmt.Errorf("unreadable agents directory %s: %w", path, err)
+				}
+				clidiag.Warn("ctxloom", "skipping unreadable agents entry %s: %v", path, err)
+				return nil
+			}
+			if info.IsDir() {
+				return nil
 			}
 			name := info.Name()
 			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {

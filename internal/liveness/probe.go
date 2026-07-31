@@ -45,11 +45,17 @@ type Probe interface {
 // ProbeFunc adapts a function to Probe, for callers (the coordinator adapter,
 // tests) whose evidence source is a closure over state they already hold.
 type ProbeFunc struct {
-	Name string
-	Fn   func(ctx context.Context, t Target) ProcState
+	// RuntimeName is this probe's Runtime() answer: the runtime AXIS it
+	// serves, matched against Target.Runtime, where the empty string means
+	// UNIVERSAL. It is not an identifier for the probe — a field called `Name`
+	// reads like one, and a caller filling it in with a label ("heartbeat")
+	// would silently narrow the probe to targets of a runtime that does not
+	// exist, which is a probe that never runs rather than a probe misnamed.
+	RuntimeName string
+	Fn          func(ctx context.Context, t Target) ProcState
 }
 
-func (p ProbeFunc) Runtime() string { return p.Name }
+func (p ProbeFunc) Runtime() string { return p.RuntimeName }
 
 func (p ProbeFunc) Inspect(ctx context.Context, t Target) ProcState {
 	if p.Fn == nil {

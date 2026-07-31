@@ -22,15 +22,15 @@ func TestProbes_AreSelectedByRuntime(t *testing.T) {
 	m := liveness.New(liveness.Options{
 		Now: func() time.Time { return now },
 		Probes: []liveness.Probe{
-			liveness.ProbeFunc{Name: "host", Fn: func(context.Context, liveness.Target) liveness.ProcState {
+			liveness.ProbeFunc{RuntimeName: "host", Fn: func(context.Context, liveness.Target) liveness.ProcState {
 				hostCalls++
 				return liveness.ProcState{Observed: true, Alive: true}
 			}},
-			liveness.ProbeFunc{Name: "container", Fn: func(context.Context, liveness.Target) liveness.ProcState {
+			liveness.ProbeFunc{RuntimeName: "container", Fn: func(context.Context, liveness.Target) liveness.ProcState {
 				containerCalls++
 				return liveness.ProcState{Observed: true, Alive: true}
 			}},
-			liveness.ProbeFunc{Name: "", Fn: func(context.Context, liveness.Target) liveness.ProcState {
+			liveness.ProbeFunc{RuntimeName: "", Fn: func(context.Context, liveness.Target) liveness.ProcState {
 				universalCalls++
 				return liveness.ProcState{Detail: "universal"}
 			}},

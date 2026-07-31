@@ -8,10 +8,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var (
@@ -74,12 +76,16 @@ Examples:
 
 func runWeave(cmd *cobra.Command, args []string) error {
 	members := mergeMembers(weaveAgents, weaveProfiles)
-	if len(members) == 0 && weavePartsFrom == "" && len(weaveParts) == 0 {
-		return fmt.Errorf("nothing to weave: pass members (--agents/-p) and/or injected parts (--part/--parts-from)")
+	if err := checkWeaveFlags(members); err != nil {
+		return err
 	}
-	if !weaveNoSynth && weaveSynthesize == "" {
-		return fmt.Errorf("a synthesis profile is required (-s/--synthesize); or pass --no-synthesize to emit parts only")
-	}
+
+	// Fail-loudly choke owner (CLAUDE.md): weave LAUNCHES engine processes, so
+	// it owns a startup gate exactly like `ctxloom run`/`mcp`/`acp` and
+	// `profile materialize`. The checkpoint precedes the config load because
+	// that load is what RECORDS the fatal-class findings (printAndRecordConfigWarnings)
+	// the gate below reads.
+	startupMark := strictness.Checkpoint()
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -101,6 +107,14 @@ func runWeave(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Abort BEFORE fanning members out: a config broken badly enough that
+	// `ctxloom run` refuses to start must not instead be handed to N parallel
+	// agents on whatever partial context survived it. --degraded (env
+	// CTXLOOM_DEGRADED=1) is the escape hatch, same as every other gate.
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
+	}
+
 	result, weaveErr := operations.Weave(cmd.Context(), cfg, operations.WeaveRequest{
 		Workspace:     weaveWorkspace,
 		Members:       members,
@@ -114,14 +128,51 @@ func runWeave(cmd *cobra.Command, args []string) error {
 		Verbosity:     weaveVerbosity,
 	})
 
-	if weaveSaveParts != "" && result != nil {
-		if err := saveParts(weaveSaveParts, result.Parts); err != nil {
-			clidiag.Warn("ctxloom", "saving parts failed: %v", err)
-		}
+	saveWeaveParts(weaveSaveParts, result)
+	warnWeaveFailures(result, weaveErr)
+	if result == nil {
+		return nil
 	}
 
-	// Surface failed members without failing the whole run (partial success is
-	// success — CLAUDE.md).
+	text, err := weaveOutput(result, weaveErr)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, result, func() error {
+		fmt.Fprint(cmd.OutOrStdout(), text)
+		return nil
+	})
+}
+
+// checkWeaveFlags rejects a flag combination that cannot produce a run, before
+// anything is loaded or read. The RESOLVED-input guard is a separate, later
+// check — see checkWeaveInputs, which is the one that matters.
+func checkWeaveFlags(members []string) error {
+	if len(members) == 0 && weavePartsFrom == "" && len(weaveParts) == 0 {
+		return fmt.Errorf("nothing to weave: pass members (--agents/-p) and/or injected parts (--part/--parts-from)")
+	}
+	if !weaveNoSynth && weaveSynthesize == "" {
+		return fmt.Errorf("a synthesis profile is required (-s/--synthesize); or pass --no-synthesize to emit parts only")
+	}
+	return nil
+}
+
+// saveWeaveParts honors --save-parts. A failure to save warns and is not
+// returned: the parts are still about to be emitted, and losing the on-disk
+// copy is not a reason to lose the run's output too.
+func saveWeaveParts(dir string, result *operations.WeaveResult) {
+	if dir == "" || result == nil {
+		return
+	}
+	if err := saveParts(dir, result.Parts); err != nil {
+		clidiag.Warn("ctxloom", "saving parts failed: %v", err)
+	}
+}
+
+// warnWeaveFailures surfaces every member that failed and a synthesis that
+// failed, without failing the run: partial success is success (CLAUDE.md), and
+// the parts a working member produced are still worth having.
+func warnWeaveFailures(result *operations.WeaveResult, weaveErr error) {
 	if result != nil {
 		for _, p := range result.Parts {
 			if p.Failed() {
@@ -129,30 +180,25 @@ func runWeave(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-
-	// Synthesis failure: warn but still surface the parts (partial success is
-	// success — CLAUDE.md). --format json emits the full WeaveResult; text falls
-	// back to the labeled parts when there's no report.
 	if weaveErr != nil {
 		clidiag.Warn("ctxloom", "%v; emitting parts instead", weaveErr)
 	}
-	if result == nil {
-		return nil
-	}
+}
+
+// weaveOutput resolves what the run prints, warning when that is not the
+// synthesis the user asked for, and enforces the output floor: a run
+// that produced neither a synthesis nor a single part has nothing to say, and
+// printing one blank line with exit 0 says it succeeded. The floor is enforced
+// here rather than at emit so --format json fails too.
+func weaveOutput(result *operations.WeaveResult, weaveErr error) (string, error) {
 	text, fallback := weaveText(result, weaveErr, weaveNoSynth)
 	if fallback != "" {
 		clidiag.Warn("ctxloom", "%s; emitting parts instead", fallback)
 	}
-	// The output floor (U043-F02): a run that produced neither a synthesis nor
-	// a single part has nothing to say, and printing a blank line and exiting 0
-	// says it succeeded. Checked BEFORE emit so --format json fails too.
 	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("weave produced no output: no synthesis report and no member parts")
+		return "", fmt.Errorf("weave produced no output: no synthesis report and no member parts")
 	}
-	return emit(cmd, result, func() error {
-		fmt.Fprint(cmd.OutOrStdout(), text)
-		return nil
-	})
+	return text, nil
 }
 
 // readTask resolves the shared task: the arguments, or stdin when there are
@@ -315,9 +361,18 @@ func init() {
 	weaveCmd.Flags().StringVar(&weaveSaveParts, "save-parts", "", "Directory to write each member's raw output into")
 	weaveCmd.Flags().StringVar(&weavePartsFrom, "parts-from", "", "Inject every file in this directory as a part to synthesize")
 	weaveCmd.Flags().StringArrayVar(&weaveParts, "part", nil, "Inject NAME=FILE as a part to synthesize (repeatable)")
-	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis")
-	// --map-only is an alias for --no-synthesize sharing the same bool var.
-	weaveCmd.Flags().BoolVar(&weaveNoSynth, "map-only", false, "Alias for --no-synthesize: emit the labeled parts only, skip synthesis")
+	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis (alias: --map-only)")
+	// --map-only is a SPELLING of --no-synthesize, normalized onto it rather
+	// than registered as a second BoolVar over the same pointer. Two flags
+	// sharing one variable means registration order decides the default, only
+	// the typed spelling is marked Changed, and the alias shows up in --help
+	// and in shell completion as if it were a separate feature.
+	weaveCmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "map-only" {
+			name = "no-synthesize"
+		}
+		return pflag.NormalizedName(name)
+	})
 	weaveCmd.Flags().CountVarP(&weaveVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 
 	_ = weaveCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

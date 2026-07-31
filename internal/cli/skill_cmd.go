@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -51,7 +50,7 @@ Use --bundle to filter by a specific bundle.`,
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		res, err := operations.ListSkills(context.Background(), cfg, operations.ListSkillsRequest{SortBy: "source"})
+		res, err := operations.ListSkills(cmd.Context(), cfg, operations.ListSkillsRequest{SortBy: "source"})
 		if err != nil {
 			return fmt.Errorf("failed to list skills: %w", err)
 		}
@@ -128,7 +127,7 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		res, err := operations.GetSkill(context.Background(), cfg, operations.GetSkillRequest{Name: args[0]})
+		res, err := operations.GetSkill(cmd.Context(), cfg, operations.GetSkillRequest{Name: args[0]})
 		if err != nil {
 			return err
 		}
@@ -178,7 +177,7 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		res, err := operations.CreateSkill(context.Background(), cfg, operations.CreateSkillRequest{
+		res, err := operations.CreateSkill(cmd.Context(), cfg, operations.CreateSkillRequest{
 			Bundle:      args[0],
 			Name:        args[1],
 			Description: skillCreateDescription,
@@ -220,11 +219,11 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		bundleName, skillName := args[0], ""
-		if b, n, ok := strings.Cut(args[0], "#skills/"); ok {
-			bundleName, skillName = b, n
+		bundleName, skillName, err := splitSkillSyncRef(args[0])
+		if err != nil {
+			return err
 		}
-		res, err := operations.SyncSkill(context.Background(), cfg, operations.SyncSkillRequest{
+		res, err := operations.SyncSkill(cmd.Context(), cfg, operations.SyncSkillRequest{
 			Bundle: bundleName,
 			Name:   skillName,
 		})
@@ -244,6 +243,26 @@ Examples:
 			return nil
 		})
 	},
+}
+
+// splitSkillSyncRef splits `skill sync`'s single argument into the bundle and
+// the optional skill name: a bare bundle name selects every skill the bundle
+// ships, "<bundle>#skills/<name>" selects exactly one.
+//
+// The separator is an explicit NARROWING request, so an empty name after it is
+// refused rather than falling through to the bare-bundle form. Widening there
+// would rewrite the files: manifest of every skill in the bundle — manifests
+// the user never named, and whose rewrite re-baselines the install-time tamper
+// check against whatever is on disk right now.
+func splitSkillSyncRef(arg string) (bundle, name string, err error) {
+	b, n, ok := strings.Cut(arg, "#skills/")
+	if !ok {
+		return arg, "", nil
+	}
+	if strings.TrimSpace(n) == "" {
+		return "", "", fmt.Errorf("invalid skill reference %q: no name after \"#skills/\" — name a skill, or pass the bare bundle name to sync every skill in it", arg)
+	}
+	return b, n, nil
 }
 
 var skillExportOut string
@@ -286,7 +305,7 @@ Examples:
 			}
 			req.Signer = discovered.Signer
 		}
-		res, err := operations.ExportSkill(context.Background(), cfg, req)
+		res, err := operations.ExportSkill(cmd.Context(), cfg, req)
 		if err != nil {
 			return err
 		}
@@ -334,7 +353,7 @@ Examples:
 		if skillImportBundle == "" {
 			return fmt.Errorf("--bundle is required")
 		}
-		res, err := operations.ImportSkill(context.Background(), cfg, operations.ImportSkillRequest{
+		res, err := operations.ImportSkill(cmd.Context(), cfg, operations.ImportSkillRequest{
 			Bundle:      skillImportBundle,
 			ArchivePath: args[0],
 			SigPath:     skillImportSig,

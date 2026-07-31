@@ -13,15 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
 // companionProbeTimeout bounds the `<bin> version --format json` exec at
@@ -76,27 +73,7 @@ func BuiltinCompanionBins() []string {
 	for _, bin := range DiscoverCompanions() {
 		seen[bin] = true
 	}
-	names, err := resources.ListBuiltinBundles()
-	if err != nil {
-		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
-		out := make([]string, 0, len(seen))
-		for bin := range seen {
-			out = append(out, bin)
-		}
-		sort.Strings(out)
-		return out
-	}
-	for _, name := range names {
-		data, err := resources.GetBuiltinBundle(name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
-			continue
-		}
-		var b bundles.Bundle
-		if err := yaml.Unmarshal(data, &b); err != nil {
-			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
-			continue
-		}
+	eachBuiltinBundle(func(_ string, b *bundles.Bundle) {
 		for _, hs := range [][]bundles.BundleHook{
 			b.Hooks.PreTool, b.Hooks.PostTool, b.Hooks.SessionStart,
 			b.Hooks.SessionEnd, b.Hooks.PreShell, b.Hooks.PostFileEdit,
@@ -112,7 +89,13 @@ func BuiltinCompanionBins() []string {
 				seen[bin] = true
 			}
 		}
-	}
+	})
+	return sortedBins(seen)
+}
+
+// sortedBins renders a companion-name set as the sorted slice every discovery
+// function here returns. Three call sites spelled it out by hand.
+func sortedBins(seen map[string]bool) []string {
 	out := make([]string, 0, len(seen))
 	for bin := range seen {
 		out = append(out, bin)
@@ -227,12 +210,7 @@ func DiscoverCompanions() []string {
 	for _, bin := range companionsOnPathByConvention() {
 		seen[bin] = true
 	}
-	out := make([]string, 0, len(seen))
-	for bin := range seen {
-		out = append(out, bin)
-	}
-	sort.Strings(out)
-	return out
+	return sortedBins(seen)
 }
 
 // companionsOnPathByConvention scans every $PATH directory for entries named

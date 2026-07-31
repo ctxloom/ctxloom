@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 136 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 137 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **475** |
+| `open` | no commit names this ID | **474** |
 
-**Totals: 2268 findings across 162 units — 1,316 resolved, 475 still open, 477 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,316 resolved, 474 still open, 478 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 472 | 266 | 74 | 79 | 108 |
+| MED | 999 | 472 | 265 | 75 | 79 | 108 |
 | LOW | 871 | 487 | 197 | 47 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1050,7 +1050,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U016-F14 | **ESCALATED** `8ad8145a` | `coordination.proto:1115,1116,1123,1124,1130,1147` | DEAD | `Result`: `structured_output`, `output_schema_id`, `retryable`, `wall_time`, `artifact_ids` have zero producers and zero consumers. `Usage.per_model` likewise. | U016.md |
 | U016-F15 | **ESCALATED** `8ad8145a` | `coordination.proto:962,974,977,979` | DEAD | `AgentEvent.task_id`, `turn_id`, `parent_item_id`, `traceparent` are all unreferenced. `task_id` in particular is a first-class identity axis threaded through 6 messages with no producer or consume... | U016.md |
 | U016-F16 | **ESCALATED** `8ad8145a` | `artifacts.proto:117,118,135` | DEAD | `ArtifactUploadHeader.name` and `media_type` are written and never read; `ArtifactReceipt.stored_at` is written and never read. | U016.md |
-| U016-F17 | open | `artifacts.proto:149-152` | CORRECTNESS | `ArtifactDownloadRequest.offset` has no producer and is structurally incompatible with the file's own MANDATORY integrity rule. | U016.md |
+| U016-F17 | **PARTIAL** `db764e7c` | `artifacts.proto:149-152` | CORRECTNESS | `ArtifactDownloadRequest.offset` has no producer and is structurally incompatible with the file's own MANDATORY integrity rule. | U016.md |
 | U016-F19 | open | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
 | U016-F22 | open | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
 | U016-F23 | **RESOLVED** `a56a6f03` | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |

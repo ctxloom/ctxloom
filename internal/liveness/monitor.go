@@ -274,7 +274,16 @@ func (m *Monitor) endedRung(t Target, ev Evidence, _ time.Time) (State, string) 
 // grace period — which is what turns "an hour of nothing" into "seconds".
 func (m *Monitor) loopRung(_ Target, ev Evidence, _ time.Time) (State, string) {
 	tx := ev.Transcript
-	if r := tx.Redelivery; r != nil && r.Repeats >= m.thr.RedeliveryMinRepeats {
+	// A CADENCE is required, not merely repeats. detectRedelivery reports a
+	// zero-cadence group too — identical content sharing one receipt stamp, or
+	// records carrying no usable ts — and that is a real measurement worth
+	// keeping on the evidence, but it is not the "identical content on a
+	// metronome" signature that justifies condemning with no grace period at
+	// all. Repetition alone is a user re-sending a short message, a retry
+	// ladder re-asking, or an engine that simply does not stamp its records.
+	// Such a target is still assessed by every rung below; it just does not
+	// short-circuit them.
+	if r := tx.Redelivery; r != nil && r.Cadence > 0 && r.Repeats >= m.thr.RedeliveryMinRepeats {
 		return StateStalled, fmt.Sprintf("the same %s content was re-delivered %d times on a %s cadence (max deviation %s) — a re-delivery loop, not work: %q",
 			r.EntryType, r.Repeats, r.Cadence.Round(time.Millisecond), r.MaxDeviation.Round(time.Millisecond), r.Sample)
 	}

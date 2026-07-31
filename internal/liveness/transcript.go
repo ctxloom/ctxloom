@@ -499,7 +499,11 @@ func detectRedelivery(groups map[[2]string][]time.Time, thr Thresholds) *Redeliv
 			// Zero-gap repeats (same receipt timestamp, or no usable ts):
 			// still repetition, but no cadence to speak of. Reported with a
 			// zero cadence rather than skipped — a burst of identical records
-			// is not healthier than a paced one.
+			// is not healthier than a paced one, and dropping the measurement
+			// would hide it from the evidence trail entirely. A zero Cadence
+			// is the signal to a CONSUMER that the second half of the
+			// definition was not established: monitor.go's loopRung, which
+			// condemns with no grace period, requires a non-zero one.
 			best = worse(best, &Redelivery{EntryType: key[0], Repeats: len(ts), Sample: sample(key[1])})
 			continue
 		}

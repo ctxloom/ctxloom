@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,502** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,503** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 176 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **179** |
+| `open` | no commit names this ID | **178** |
 
-**Totals: 2268 findings across 162 units — 1,502 resolved, 179 still open, 587 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,503 resolved, 178 still open, 587 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 564 | 104 | 101 | 95 | 135 |
+| MED | 999 | 565 | 103 | 101 | 95 | 135 |
 | LOW | 871 | 579 | 66 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1748,7 +1748,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U111-F04 | **RESOLVED** `c94914e5` | `internal/sessions/index.go:772-783` | DUPLICATE | `sessions.generateUniqueHarp` is a line-for-line reimplementation of `harp.UniqueFrom`, including the same subtle unchecked-fallback contract. | U111.md |
 | U111-F05 | open | `harp.go:42`, `:49`, `:79` | ERRHANDLING | Two panics fire from a package-level variable initializer, so any defect in the embedded word lists is an unconditional crash of **every** family binary before `main()` runs, with no degradation path. | U111.md |
 | U111-F06 | open | `harp.go:146-160` | CORRECTNESS | `normalize` silently rewrites user-supplied values instead of rejecting them, so a CLI user gets an answer to a question they did not ask. | U111.md |
-| U111-F07 | open | `harp.go:211-219` | CORRECTNESS | An unsatisfiable `MaxElementLength` makes every generated name a **constant**, silently — including through `UniqueFrom`, which then cannot possibly find a unique id. | U111.md |
+| U111-F07 | **RESOLVED** `7c924be9` | `harp.go:211-219` | CORRECTNESS | An unsatisfiable `MaxElementLength` makes every generated name a **constant**, silently — including through `UniqueFrom`, which then cannot possibly find a unique id. | U111.md |
 | U112-F02 | **REFUTED** `d612a729` | **`marker.go:36-41`** | SILENTNOOP | `Format("")` returns `""`, delegating the "is this a real marker?" decision to every caller. The identity channel the package doc calls the reliable fallback is silently skipped, with no signal at ... | U112.md |
 | U112-F03 | **RESOLVED** `3ec03f97` | **`marker.go:40`** | CORRECTNESS | `Format` performs no validation or escaping of `harp`. A name containing `"` produces a malformed element that `nameRe`'s `[^"]+` truncates; a name containing `>` produces an element `markerRe` can... | U112.md |
 | U112-F04 | **PARTIAL** `498d11da` | **`marker.go:60-61`** | CORRECTNESS | `Scan` searches the **entire** transcript line — including user-authored message content — for a marker, and checks the raw bytes *first*. A marker string that a user pasted into a prompt therefore... | U112.md |

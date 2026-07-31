@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,415** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,416** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 188 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 193 |
-| `open` | no commit names this ID | **312** |
+| `open` | no commit names this ID | **311** |
 
-**Totals: 2268 findings across 162 units — 1,415 resolved, 312 still open, 541 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,416 resolved, 311 still open, 541 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 525 | 173 | 90 | 86 | 125 |
-| LOW | 871 | 533 | 128 | 54 | 94 | 62 |
+| LOW | 871 | 534 | 127 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2406,7 +2406,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U066-F08 | open | `app.go:27-35 + `cmd/ltk/evaluate.go:151-152`, `cmd/ltk/check.go:89-90` | COUPLING | **Connascence of order:** `ForceShell` and `HostShell` are unreachable from `New` and must be assigned by every caller before `Decide`. Both current callers do it; a third that forgets silently par... | U066.md |
 | U067-F10 | **RESOLVED** `5363e93b` | **`claudecode.go:341-363`** | COHESION | **`childMap` and `childSlice` have inconsistent contracts** — one stores the created value back into the parent map, the other does not. Both call sites paper over it with a redundant write. | U067.md |
 | U067-F11 | **PARTIAL** `d309f932` | **`claudecode.go:65-73 vs :122-124`** | COUPLING | **`Decode` uses two different name-matching disciplines for the same tool name in the same expression list.** `ccShellForTool` substring-matches; `claudeGatesTool` exact-matches. `agShellForTool` (... | U067.md |
-| U068-F09 | open | `wrap.go:67-69`, `app.go:194-196` | CORRECTNESS | `truncated` measures the nesting depth of *any* nested script, not of unexpanded *wrappers*, so a benign 8-deep command substitution is denied with the reason "possible evasion" | U068.md |
+| U068-F09 | **RESOLVED** `8b61b464` | `wrap.go:67-69`, `app.go:194-196` | CORRECTNESS | `truncated` measures the nesting depth of *any* nested script, not of unexpanded *wrappers*, so a benign 8-deep command substitution is denied with the reason "possible evasion" | U068.md |
 | U068-F10 | **RESOLVED** `e7cc46fb` | `wrap.go:112,115,269,339,342` | TRIVIAL / DUPLICATE | Double case-folding, and a hand-rolled `slices.ContainsFunc` | U068.md |
 | U068-F11 | **RESOLVED** `b7a7ab39` | `wrap.go:335` | NOPAY | `prefixWrapped`'s `ir.Shell` parameter is unused and documented as speculative | U068.md |
 | U068-F12 | **RESOLVED** `a1fca2fa` | `wrap.go:349` | CORRECTNESS | The nested command's `Argv` aliases the parent's backing array | U068.md |

@@ -9,11 +9,11 @@ import (
 
 func TestShellFromPath(t *testing.T) {
 	cases := map[string]ir.Shell{
-		"/bin/bash":               ir.ShellBash,
-		"/usr/bin/zsh":            ir.ShellZsh,
-		"/bin/sh":                 ir.ShellSh,
-		"/usr/bin/dash":           ir.ShellSh,
-		"/usr/bin/mksh":           ir.ShellMksh,
+		"/bin/bash":     ir.ShellBash,
+		"/usr/bin/zsh":  ir.ShellZsh,
+		"/bin/sh":       ir.ShellSh,
+		"/usr/bin/dash": ir.ShellSh,
+		"/usr/bin/mksh": ir.ShellMksh,
 		// AT&T ksh93, not mksh: the MirBSDKorn variant rejects ksh93's process
 		// substitution and C-style for, and a rejected command is one no rule
 		// sees (app.TestKsh93ConstructsAreStillAnalyzed measures it).
@@ -52,7 +52,7 @@ func TestShellFromPathSplitsWindowsSeparators(t *testing.T) {
 	}
 
 	cases := map[string]ir.Shell{
-		win: ir.ShellCmd,
+		win:                                      ir.ShellCmd,
 		`C:\Program Files\PowerShell\7\pwsh.exe`: ir.ShellPwsh,
 		`D:\tools\git\usr\bin\bash.exe`:          ir.ShellBash,
 		`C:\Users\a\scoop\shims\zsh`:             ir.ShellZsh,

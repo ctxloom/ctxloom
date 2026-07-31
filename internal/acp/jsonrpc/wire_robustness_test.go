@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -338,4 +340,45 @@ func TestAwait_PeerErrorIsNotWrapped(t *testing.T) {
 	rerr, ok := aerr.(*Error)
 	require.True(t, ok, "expected a bare *Error, got %T: %v", aerr, aerr)
 	assert.Equal(t, CodeMethodNotFound, rerr.Code)
+}
+
+// TestConn_NextIDIsAlignmentSafe pins U013-F12. A bare int64 field reached with
+// atomic.AddInt64 must be 64-bit aligned, and Go guarantees that only for the
+// first word of an allocated struct on 32-bit platforms. nextID sits behind a
+// pointer, two interfaces and a Mutex — offset 28 on a 32-bit layout, which is
+// 4-aligned, not 8 — so the add would panic with "unaligned 64-bit atomic
+// operation" on the first outbound request. No release target is 32-bit
+// (.goreleaser.yml builds amd64 and arm64 only), so nothing shipped can hit
+// it; a `go install` on a 32-bit host can. atomic.Int64 embeds the alignment
+// guarantee in the type, so the whole class is gone rather than being
+// re-derivable from field order — which is exactly what a future field
+// reordering would silently change.
+func TestConn_NextIDIsAlignmentSafe(t *testing.T) {
+	f, ok := reflect.TypeOf(Conn{}).FieldByName("nextID")
+	require.True(t, ok, "nextID must still exist")
+	assert.Equal(t, reflect.TypeOf(atomic.Int64{}).String(), f.Type.String(),
+		"a 64-bit counter reached atomically must carry its own alignment guarantee, not inherit one from where it happens to sit in the struct")
+}
+
+// TestGo_AllocatesIdsFromOne characterizes the id allocation the alignment fix
+// must leave untouched: ids start at 1 and increment, which is also why id 0
+// can never belong to a caller (see the null-id routing above).
+func TestGo_AllocatesIdsFromOne(t *testing.T) {
+	out := &lockedBuffer{}
+	conn := NewConn(strings.NewReader(""), out, nil, &mockHandler{})
+
+	_, err := conn.Go("first", nil)
+	require.NoError(t, err)
+	_, err = conn.Go("second", nil)
+	require.NoError(t, err)
+
+	var ids []int64
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		var m struct {
+			ID int64 `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(line), &m))
+		ids = append(ids, m.ID)
+	}
+	assert.Equal(t, []int64{1, 2}, ids)
 }

@@ -168,6 +168,24 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 		s.handleGetPreviousSession)
 }
 
+// withDistillBudget bounds ctx to the relay's distill budget when it carries
+// no deadline of its own, and returns it unchanged when it does.
+//
+// On the host-relay path a handler runs on the COORDINATOR's base context,
+// which has no deadline: the caller's budget bounds only how long it WAITS,
+// never the work. Left unbounded, one wedged LLM subprocess runs forever —
+// holding a singleflight entry open, or a listing. mcpschema.DistillBudget is
+// one number deliberately covering both sides of the relay, so a host can
+// never outlive its caller's patience by design; this is where the host side
+// of that contract is applied. A caller that already carries a deadline keeps
+// it: re-bounding would EXTEND someone who asked for less.
+func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, has := ctx.Deadline(); has {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, mcpschema.DistillBudget)
+}
+
 func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolRequest, in compactSessionInput) (*mcp.CallToolResult, *compactSessionResult, error) {
 	plugin := s.cfg.GetCompactionLLM()
 	model := in.Model
@@ -289,7 +307,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntry(ctx, e, s.cfg, "", io.Discard); err != nil {
+		if _, err := compactEntryFn(ctx, e, s.cfg, "", io.Discard); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}

@@ -131,6 +131,11 @@ func compactionModelFor(cfg *config.Config, override string) string {
 // reaches the canonical/harp distill path too, not just the backend one
 // (sour-scoop) — the same "empty means config default" shape distillSession
 // already uses.
+// compactEntryFn is compactEntry behind a package var so a caller's wiring —
+// notably the context bound a long-running distillation is handed — can be
+// observed in a test. Production never reassigns it.
+var compactEntryFn = compactEntry
+
 func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, model string, progress io.Writer) (*memory.CompactionResult, error) {
 	model = compactionModelFor(cfg, model)
 	backendName := entry.Backend

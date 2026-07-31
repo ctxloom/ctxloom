@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/docsgen"
 )
 
 // TestCtxloomProduct pins the wiring this entrypoint is responsible for: the
@@ -67,12 +70,41 @@ func TestRun_ReportsAGeneratorFailure(t *testing.T) {
 	var out bytes.Buffer
 	// No destination flag: the generator refuses, which is the ordinary
 	// Execute-returns-an-error path.
-	code := run(&out, []string{})
+	code := run(&out, []string{}, ctxloomProduct)
 
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	if !strings.Contains(out.String(), "at least one of --man") {
 		t.Errorf("the entrypoint said nothing about why it failed; stderr = %q", out.String())
+	}
+}
+
+// TestRun_ReportsAnAssemblyFailureInsteadOfPanicking pins U156-F04. The row's
+// premise — that ctxloomProduct calls cli.NewDocMCPServer, which PANICS on two
+// internal failure paths, so a bug in the runner MCP assembly surfaces as a
+// panic from a function whose signature promises no failure — was true at the
+// census and is already fixed, under a SIBLING finding's ID: 2e9df890
+// "fix(U038-F15): release the docgen Home and return its failures" gave
+// NewDocMCPServer an error return and threaded it through ctxloomProduct.
+//
+// What that fix did not ship is any check that the entrypoint DOES something
+// with the error it now receives. An assembly failure cannot be provoked from
+// outside (the dead endpoint is a constant and a routing mismatch is a build
+// defect), so run takes its product constructor as a parameter and this
+// supplies one that fails.
+func TestRun_ReportsAnAssemblyFailureInsteadOfPanicking(t *testing.T) {
+	failing := func() (*docsgen.Product, func(), error) {
+		return nil, nil, errors.New("docgen: assemble runner MCP surface: boom")
+	}
+
+	var out bytes.Buffer
+	code := run(&out, []string{"--mcp", t.TempDir()}, failing)
+
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out.String(), "assemble runner MCP surface") {
+		t.Errorf("the assembly failure was not reported; stderr = %q", out.String())
 	}
 }

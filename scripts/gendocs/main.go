@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Stderr, os.Args[1:]))
+	os.Exit(run(os.Stderr, os.Args[1:], ctxloomProduct))
 }
 
 // run assembles the product, generates, and reports every failure on w,
@@ -27,13 +27,17 @@ func main() {
 // reachable from a test: main itself can only be exercised by running the
 // binary, which is how an entrypoint's error handling ends up unverified.
 //
+// build is the product constructor (ctxloomProduct in production) — a parameter
+// so a test can supply one that fails, which is the only way to observe what
+// this entrypoint does with an assembly failure it cannot otherwise provoke.
+//
 // SilenceErrors is set deliberately: cobra prints errors itself BY DEFAULT, but
 // that default is a property of the command this entrypoint is handed, not a
 // guarantee it holds. Reporting here means the failure is on w whatever the
 // command was configured to do, and silencing cobra keeps it from being said
 // twice.
-func run(w io.Writer, args []string) int {
-	product, closeMCP, err := ctxloomProduct()
+func run(w io.Writer, args []string, build func() (*docsgen.Product, func(), error)) int {
+	product, closeMCP, err := build()
 	if err != nil {
 		fmt.Fprintf(w, "gendocs: %v\n", err)
 		return 1

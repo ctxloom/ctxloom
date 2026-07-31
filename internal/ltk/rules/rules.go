@@ -259,6 +259,19 @@ type Match struct {
 	// a separate, deliberate design choice ["a guardrail against reflexive
 	// mistakes, not a security boundary" — see docs/ltk] and is unchanged here;
 	// only the PER-RULE matching operator adopts firewall discipline.)
+	//
+	// # Tokens are LITERAL — no globs, no regular expressions
+	//
+	// Every token here is compared for exact string equality (the program token
+	// additionally by basename). This is the opposite of match.Path below, whose
+	// patterns ARE full doublestar globs, and the asymmetry is the trap: a rule
+	// written `command: [git, "push*"]` does not mean "any push subcommand", it
+	// means an argument spelled literally `push*`, so it silently never fires.
+	// Argv reaches the matcher un-globbed (the frontends expand variables but do
+	// not do filename expansion), which is why the equality is right for what
+	// this field matches and also why a metacharacter cannot be reinterpreted
+	// here without changing what an existing literal rule catches. Use several
+	// rules, or args_any/args_all, where a pattern is wanted.
 	Command CommandPattern `yaml:"command"`
 	// ArgsAny / ArgsAll are program-agnostic refinements on the arguments
 	// (beyond the Command prefix); bundled short options are expanded first.

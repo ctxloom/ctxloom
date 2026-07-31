@@ -61,6 +61,10 @@ var resizePTY = func(ptty pty.Pty, ws agent.WindowSize) error {
 	return ptty.Resize(int(ws.Cols), int(ws.Rows))
 }
 
+// closePTY closes the pty master. Like resizePTY it is a package variable only
+// so tests can observe and fault-inject the call; production never reassigns it.
+var closePTY = func(ptty pty.Pty) error { return ptty.Close() }
+
 // firstError records the first error observed on a side path that has no
 // return value of its own, so the owning call can report it before claiming
 // success. mu guards the field against a reader on a different goroutine than
@@ -144,7 +148,17 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 	if err != nil {
 		return 0, fmt.Errorf("failed to create pty: %w", err)
 	}
-	defer func() { _ = ptty.Close() }()
+	// The master is closed exactly once, by whichever path reaches it first:
+	// the explicit close after the child exits (which is what unblocks the
+	// output copier) or this defer, which covers every early return above it.
+	// Both used to call Close directly and drop the result, so correctness
+	// rested on go-pty's Close being idempotent — something its API does not
+	// promise and which is true today only because the Unix implementation
+	// closes *os.File handles that track their own closed state. Once makes
+	// that this code's invariant rather than a borrowed one, and leaves a
+	// single result to inspect instead of two to discard.
+	closeOnce := sync.OnceValue(func() error { return closePTY(ptty) })
+	defer func() { _ = closeOnce() }()
 
 	// Create command using PTY.
 	//
@@ -320,7 +334,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 	// matters and why an unconditional immediate close here used to lose
 	// output under load).
 	drainPTY(ptty, copyDone)
-	_ = ptty.Close()
+	closeErr := closeOnce()
 
 	// Wait for copy to finish
 	<-copyDone
@@ -344,6 +358,13 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.
 	// output that never reached anyone.
 	if werr := tw.err(); werr != nil {
 		return 0, fmt.Errorf("interactive session output delivery failed: %w", werr)
+	}
+
+	// The close that unblocks the copier is a real syscall on the master and
+	// can fail; only the fallout of closing a pty whose child has already gone
+	// is expected (isBenignPTYError, as for c.Wait above).
+	if closeErr != nil && !isBenignPTYError(closeErr) {
+		return 0, fmt.Errorf("interactive session pty close failed: %w", closeErr)
 	}
 
 	// Same standard for the resize path: a frontend SIGWINCH that stopped

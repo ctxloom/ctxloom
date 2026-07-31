@@ -533,3 +533,64 @@ func TestRunInteractive_LateResizeOnClosedPTYIsNotAnError(t *testing.T) {
 	assert.Equal(t, 0, exitCode)
 	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
 }
+
+// stubClose replaces the package's pty-close call. The stub must still close
+// the real master: the output copier is parked in a read on it and only the
+// close unblocks it, so a stub that merely records would hang the run.
+func stubClose(t *testing.T, fn func(ptty pty.Pty) error) {
+	t.Helper()
+	orig := closePTY
+	closePTY = fn
+	t.Cleanup(func() { closePTY = orig })
+}
+
+// TestRunInteractive_ClosesPTYExactlyOnce pins the invariant that replaces a
+// borrowed one. Close used to be called twice on every normal run — once
+// explicitly to unblock the copier, once by the deferred cleanup — with both
+// results discarded, so correctness rested on go-pty's Close being idempotent.
+// Its API does not promise that; it holds today only because the Unix
+// implementation closes *os.File handles that track their own closed state.
+func TestRunInteractive_ClosesPTYExactlyOnce(t *testing.T) {
+	var closes atomic.Int32
+	stubClose(t, func(ptty pty.Pty) error {
+		closes.Add(1)
+		return ptty.Close()
+	})
+
+	cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Equal(t, int32(1), closes.Load(), "the pty master must be closed exactly once per run")
+}
+
+// TestRunInteractive_NonBenignCloseFailureIsReported pins the other half: with
+// one call there is one result, and it is no longer dropped. Closing a pty
+// whose child has already exited yields expected fallout (isBenignPTYError),
+// which must stay silent; anything else is a real failure of the run.
+func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
+	t.Run("benign fallout stays silent", func(t *testing.T) {
+		stubClose(t, func(ptty pty.Pty) error {
+			_ = ptty.Close() // still unblock the copier
+			return fs.ErrClosed
+		})
+		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, exitCode)
+	})
+
+	t.Run("a real close failure is reported", func(t *testing.T) {
+		stubClose(t, func(ptty pty.Pty) error {
+			_ = ptty.Close()
+			return errors.New("simulated close failure")
+		})
+		cmd := exec.Command("sh", "-c", "printf 'hi\\n'; sleep 0.1")
+		exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pty close failed")
+		assert.Contains(t, err.Error(), "simulated close failure")
+		assert.Zero(t, exitCode)
+	})
+}

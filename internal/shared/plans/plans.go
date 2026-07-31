@@ -128,8 +128,17 @@ func List(root string) ([]Plan, error) {
 	return out, nil
 }
 
-// Show returns a plan file's content. The path must end in .plan.md and resolve
-// inside ~/.ctxloom/sessions, so a crafted path can't read arbitrary files.
+// Show returns a plan file's content. The path must end in .plan.md, must
+// resolve — after every symlink is followed — inside ~/.ctxloom/sessions, and
+// must name a regular file.
+//
+// Containment is checked on the RESOLVED path, not the lexical one. A lexical
+// check answers "does this string sit under the root", which a symlink placed
+// in the sessions directory defeats trivially: `notes.plan.md -> /etc/shadow`
+// passes every string test and then hands back the target. The regular-file
+// check closes the other half — a FIFO named `x.plan.md` is a lexically
+// perfect plan path on which os.ReadFile blocks until something opens the
+// other end, turning `plan show` into a hang.
 func Show(path string) (string, error) {
 	if !strings.HasSuffix(path, paths.PlanFileExt) {
 		return "", fmt.Errorf("not a plan file: %s", path)
@@ -142,14 +151,30 @@ func Show(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The root itself may sit behind a symlink (a symlinked home, /var on
+	// macOS). Resolve it too, or every resolved path would fail containment.
+	if resolved, rerr := filepath.EvalSymlinks(rootAbs); rerr == nil {
+		rootAbs = resolved
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(abs, rootAbs+string(filepath.Separator)) {
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(real, rootAbs+string(filepath.Separator)) {
 		return "", fmt.Errorf("plan path is outside the sessions directory: %s", path)
 	}
-	data, err := os.ReadFile(abs)
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("not a regular file: %s", path)
+	}
+	data, err := os.ReadFile(real)
 	if err != nil {
 		return "", err
 	}

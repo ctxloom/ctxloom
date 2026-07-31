@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -20,7 +19,10 @@ import (
 // surface is TTY-gated by the caller (isInteractiveTerminal): with a piped/
 // redirected stdout the content path is untouched and no trust UI is emitted, so
 // `show` output stays byte-for-byte identical for scripts. All trust UI is
-// written to stderr so it never mingles with the content on stdout.
+// written to the COMMAND's error writer (cmd.ErrOrStderr — os.Stderr in
+// production) so it never mingles with the content on stdout, and so the one
+// surface whose job is telling a user what they are about to trust can be
+// asserted from a command harness.
 //
 // The actual mutations reuse the single plumbing path (runItemTrust /
 // runBlacklist → operations.Set*), and the interactive read reuses the single
@@ -85,7 +87,7 @@ func stampedTrust(res operations.EffectiveTrustResult) string {
 // performs the explicit choice. EOF / read error is treated as skip.
 func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	res := operations.NewTrustStamper(cfg).ForRef(ref)
-	fmt.Fprintf(os.Stderr, "\nEffective trust: %s\n", stampedTrust(res))
+	fmt.Fprintf(cmd.ErrOrStderr(), "\nEffective trust: %s\n", stampedTrust(res))
 	answer, err := promptLine("[t]rust / [b]lacklist / skip? ")
 	if err != nil {
 		return nil // EOF/read error → skip; viewing never trusts
@@ -104,18 +106,19 @@ func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 // action writes.
 func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundle *bundles.Bundle) error {
 	stamper := operations.NewTrustStamper(cfg)
-	fmt.Fprintf(os.Stderr, "\nPer-item effective trust for bundle %q:\n", name)
+	w := cmd.ErrOrStderr()
+	fmt.Fprintf(w, "\nPer-item effective trust for bundle %q:\n", name)
 	for _, n := range bundle.FragmentNames() {
-		printBundleItemTrust(os.Stderr, stamper, name, trust.KindFragment, n)
+		printBundleItemTrust(w, stamper, name, trust.KindFragment, n)
 	}
 	for _, n := range bundle.PromptNames() {
-		printBundleItemTrust(os.Stderr, stamper, name, trust.KindPrompt, n)
+		printBundleItemTrust(w, stamper, name, trust.KindPrompt, n)
 	}
 	for _, n := range bundle.MCPNames() {
-		printBundleItemTrust(os.Stderr, stamper, name, trust.KindMCP, n)
+		printBundleItemTrust(w, stamper, name, trust.KindMCP, n)
 	}
 	for _, e := range bundle.Hooks.Entries() {
-		printBundleHookTrust(os.Stderr, stamper, name, e)
+		printBundleHookTrust(w, stamper, name, e)
 	}
 
 	// Bundle hooks are arbitrary-command executables — offer an explicit
@@ -136,7 +139,7 @@ func offerBundleHookTrust(cmd *cobra.Command, cfg *config.Config, name string, b
 	if len(entries) == 0 {
 		return nil
 	}
-	fmt.Fprintln(os.Stderr, "\nBundle hooks are executable surfaces — trust or blacklist each:")
+	fmt.Fprintln(cmd.ErrOrStderr(), "\nBundle hooks are executable surfaces — trust or blacklist each:")
 	for _, e := range entries {
 		ref := name + "#hooks/" + e.ID()
 		answer, err := promptLine(fmt.Sprintf("  hooks/%s — [t]rust / [b]lacklist / skip? ", e.ID()))
@@ -178,6 +181,7 @@ func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 // MCP servers, rather than offering a t/b action that could not be honored.
 func reviewLocalMCPTrust(cmd *cobra.Command, cfg *config.Config, entries []operations.MCPServerEntry) {
 	stamper := operations.NewTrustStamper(cfg)
+	w := cmd.ErrOrStderr()
 	for _, e := range entries {
 		res := stamper.ForLocalMCP(e.Name, bundles.BundleMCP{
 			Command:      e.Command,
@@ -185,9 +189,9 @@ func reviewLocalMCPTrust(cmd *cobra.Command, cfg *config.Config, entries []opera
 			Env:          e.Env,
 			Installation: e.Installation,
 		})
-		fmt.Fprintf(os.Stderr, "Effective trust (%s scope): %s\n", e.Backend, stampedTrust(res))
+		fmt.Fprintf(w, "Effective trust (%s scope): %s\n", e.Backend, stampedTrust(res))
 	}
-	fmt.Fprintln(os.Stderr,
+	fmt.Fprintln(w,
 		"Configured local MCP servers are reviewed here; grant or blacklist a bundle-sourced "+
 			"MCP server with `ctxloom trust|blacklist <bundle>#mcp/<name>`.")
 }

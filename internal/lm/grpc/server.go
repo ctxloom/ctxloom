@@ -15,7 +15,11 @@ import (
 
 // LLMGRPCPlugin is the implementation of plugin.GRPCPlugin for AI backends.
 type LLMGRPCPlugin struct {
-	plugin.Plugin
+	// This plugin speaks gRPC only. Embedding NetRPCUnsupportedPlugin rather
+	// than the bare plugin.Plugin interface satisfies that interface with
+	// methods that REFUSE net/rpc: a net/rpc dial then fails diagnosably
+	// instead of dereferencing a nil embedded interface inside the host.
+	plugin.NetRPCUnsupportedPlugin
 	// Impl is the concrete backend implementation.
 	// This is only set on the server (plugin) side.
 	Impl agent.Backend

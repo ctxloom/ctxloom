@@ -30,7 +30,7 @@ func TestHandshakeConfig_HasRequiredFields(t *testing.T) {
 // TestPluginMap_ContainsLLM verifies that the plugin map contains
 // the expected AI plugin entry. This is required for plugin dispensing.
 func TestPluginMap_ContainsLLM(t *testing.T) {
-	assert.Contains(t, PluginMap, LLMPluginKey)
+	assert.Contains(t, PluginMap(), LLMPluginKey)
 	assert.Equal(t, "ai_plugin", LLMPluginKey)
 }
 

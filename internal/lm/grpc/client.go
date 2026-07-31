@@ -267,7 +267,7 @@ var dialLLMConnection = func(cmd string, args []string, env []string, logger hcl
 	isolateRunner(c)
 	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig: HandshakeConfig,
-		Plugins:         PluginMap,
+		Plugins:         PluginMap(),
 		Cmd:             c,
 		AllowedProtocols: []plugin.Protocol{
 			plugin.ProtocolGRPC,
@@ -305,7 +305,7 @@ var dialContainerConnection = func(runnerFunc ContainerRunnerFunc, socketTempDir
 func ContainerClientConfig(runnerFunc ContainerRunnerFunc, socketTempDir string, logger hclog.Logger) *plugin.ClientConfig {
 	return &plugin.ClientConfig{
 		HandshakeConfig:  HandshakeConfig,
-		Plugins:          PluginMap,
+		Plugins:          PluginMap(),
 		RunnerFunc:       runnerFunc,
 		UnixSocketConfig: &plugin.UnixSocketConfig{TempDir: socketTempDir},
 		SkipHostEnv:      true,

@@ -3,6 +3,7 @@ package grpc
 import (
 	"testing"
 
+	"github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,3 +28,30 @@ func TestLLMGRPCPlugin_NetRPCIsRefusedNotPanicked(t *testing.T) {
 	})
 }
 
+// Every entry the host can dispense must be usable over net/rpc without
+// crashing the host, for the same reason.
+func TestPluginMap_EntriesRefuseNetRPC(t *testing.T) {
+	for key, p := range PluginMap() {
+		require.NotPanics(t, func() {
+			_, err := p.Server(nil)
+			assert.Error(t, err, "plugin %q: net/rpc Server must be refused", key)
+		}, "plugin %q", key)
+	}
+}
+
+// PluginMap must hand out a FRESH map per dial: a package-level mutable map is
+// shared by every caller, so one mutation (a test registering an extra plugin,
+// a caller pruning an entry) silently changes what every later dial dispenses.
+func TestPluginMap_IsNotSharedMutableState(t *testing.T) {
+	first := PluginMap()
+	require.Contains(t, first, LLMPluginKey)
+
+	first["injected"] = &LLMGRPCPlugin{}
+	delete(first, LLMPluginKey)
+
+	second := PluginMap()
+	assert.Contains(t, second, LLMPluginKey, "a later dial must still dispense the LLM plugin")
+	assert.NotContains(t, second, "injected", "a mutation of one caller's map must not reach the next dial")
+
+	var _ map[string]plugin.Plugin = second
+}

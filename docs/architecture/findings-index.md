@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,319** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,320** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 170 |
-| `open` | no commit names this ID | **472** |
+| `open` | no commit names this ID | **471** |
 
-**Totals: 2268 findings across 162 units — 1,319 resolved, 472 still open, 477 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,320 resolved, 471 still open, 477 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 474 | 263 | 74 | 79 | 109 |
-| LOW | 871 | 488 | 197 | 46 | 85 | 55 |
+| LOW | 871 | 489 | 196 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2136,7 +2136,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U029-F19 | **RESOLVED** `dc1d98ad` | **`surfaces.go:185-250`** | COUPLING | The surface set is enumerated in four places that must be kept in sync by hand | U029.md |
 | U029-F20 | **RESOLVED** `24e4e92e` | **`capabilities.go:100-115`** | TRIVIAL | A three-declaration functional-option machine exists to set one string field for one test | U029.md |
 | U029-F21 | **RESOLVED** `f0c5d073` | **`package-wide`** | NOPAY | Comment-to-code ratio is extreme and, per F16/F17/F18, the prose is where the rot is | U029.md |
-| U030-F12 | open | **`bundles.go:791-800, 820-826`** | CORRECTNESS | `detectLegacySkillsKey` reads a root `name:` key to name the offending bundle, but `Bundle.Name` is `yaml:"-"` — the schema has no `name:` key, so `bundleName` is almost always `""` and the error r... | U030.md |
+| U030-F12 | **RESOLVED** `029b7b2d` | **`bundles.go:791-800, 820-826`** | CORRECTNESS | `detectLegacySkillsKey` reads a root `name:` key to name the offending bundle, but `Bundle.Name` is `yaml:"-"` — the schema has no `name:` key, so `bundleName` is almost always `""` and the error r... | U030.md |
 | U030-F13 | **RESOLVED** `24e4e92e` | `loader_content.go:636-641` | TRIVIAL | `wholeBundleForExpansion` is a redundant wrapper: both branches are equivalent to `l.bundleAtVersion(ref, "")`. When `version == ""` it returns `l.Load(ref)`; `bundleAtVersion(ref, "")` with no ver... | U030.md |
 | U030-F14 | **ESCALATED** `cdf64839` | `loader.go:383-393 vs 487-497` | DUPLICATE | The nine-field `BundleInfo` construction appears twice, once inline in `List` for seeded bundles and once in `loadBundleInfo`. `loadBundleInfo` is otherwise a pure pass-through to `LoadFile`. Neith... | U030.md |
 | U030-F15 | open | `loader_skills.go:125-128` | ERRHANDLING | A malformed manifest mode silently defaults to `0644`, downgrading a `0755` script. The exec bit is documented as load-bearing ("must survive tree → archive → extract → materialize", bundles.go:319... | U030.md |

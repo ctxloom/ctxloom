@@ -486,3 +486,147 @@ func TestCreateUpdateBundle_DistillFailuresAreStderrOnly(t *testing.T) {
 		"the change line claims the item was set, saying nothing about its distillation")
 	assert.Contains(t, sink.String(), `distill of fragment "intro" failed`)
 }
+
+// ---------------------------------------------------------------------------
+// U082-F14 — parity pins taken BEFORE the fragment/command clone collapse.
+//
+// §4 case 2: the clones are behaviourally equivalent modulo the item type, so
+// a parity test CANNOT be red. Its job is the other one — pin the shared
+// behaviour so the collapse is provably behaviour-preserving. §11o: two
+// altitudes, labelled.
+// ---------------------------------------------------------------------------
+
+// TestDistillParity_PublicSeam is the PUBLIC-SEAM characterization pin: green
+// before and after the collapse. It drives CreateBundle with a fragment and a
+// command carrying identical content through identical distiller behaviour,
+// and asserts the two kinds are treated the same at every arm of the
+// distillation policy — accept, reject-empty, reject-too-short.
+func TestDistillParity_PublicSeam(t *testing.T) {
+	const body = "an item body of a perfectly ordinary and sufficient length"
+
+	cases := []struct {
+		name          string
+		distilled     string
+		wantDistilled string
+	}{
+		{name: "a good distillation is accepted", distilled: "a real summary of the body", wantDistilled: "a real summary of the body"},
+		{name: "an empty distillation is rejected", distilled: "", wantDistilled: ""},
+		{name: "a truncated distillation is rejected", distilled: "x", wantDistilled: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cfg := setupBundleTestDir(t)
+			d := &recordingDistiller{returnValue: tc.distilled, returnModel: "m"}
+
+			res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+				Name:      "parity",
+				Distiller: d,
+				Fragments: map[string]BundleFragmentInput{"item": {Content: body}},
+				Commands:  map[string]BundleCommandInput{"item": {Content: body}},
+			})
+			require.NoError(t, err)
+
+			// §11k: both kinds must actually have been offered to the
+			// distiller, or the arms below compare two no-ops.
+			require.Len(t, d.calls, 2)
+
+			b := readBundleFile(t, res.Path)
+			frag, cmd := b.Fragments["item"], b.Commands["item"]
+
+			assert.Equal(t, tc.wantDistilled, frag.Distilled)
+			assert.Equal(t, frag.Distilled, cmd.Distilled, "fragment and command must distill alike")
+			assert.Equal(t, frag.DistilledBy, cmd.DistilledBy, "fragment and command must stamp alike")
+			assert.Equal(t, frag.ContentHash == "", cmd.ContentHash == "",
+				"fragment and command must agree on whether a content hash was stamped")
+			assert.Equal(t, body, frag.Content)
+			assert.Equal(t, body, cmd.Content)
+		})
+	}
+}
+
+// TestDistillParity_InternalSeam is the INTERNAL-SEAM pin, directly over the
+// cloned helpers the collapse replaces. It is the one that would go red if the
+// canonical implementation changed either clone's behaviour.
+func TestDistillParity_InternalSeam(t *testing.T) {
+	t.Run("namesNeeding*Distill agree", func(t *testing.T) {
+		b := &bundles.Bundle{
+			Fragments: map[string]bundles.BundleFragment{"present": {}, "skipped": {}},
+			Commands:  map[string]bundles.BundleCommand{"present": {}, "skipped": {}},
+		}
+		fragIn := map[string]BundleFragmentInput{
+			"present": {Content: "c"},
+			"skipped": {Content: "c", NoDistill: true},
+			"absent":  {Content: "c"}, // never landed in the bundle
+		}
+		cmdIn := map[string]BundleCommandInput{
+			"present": {Content: "c"},
+			"skipped": {Content: "c", NoDistill: true},
+			"absent":  {Content: "c"},
+		}
+		gotF := namesNeedingFragmentDistill(b, fragIn)
+		gotP := namesNeedingPromptDistill(b, cmdIn)
+		assert.Equal(t, []string{"present"}, gotF)
+		assert.Equal(t, gotF, gotP, "the two selectors must pick identically")
+
+		assert.Nil(t, namesNeedingFragmentDistill(b, nil))
+		assert.Nil(t, namesNeedingPromptDistill(b, nil))
+	})
+
+	t.Run("distill* agree on the failure set", func(t *testing.T) {
+		const body = "an item body of a perfectly ordinary and sufficient length"
+		for _, tc := range []struct {
+			name       string
+			d          Distiller
+			wantFailed bool
+		}{
+			{name: "nil distiller", d: nil, wantFailed: false},
+			{name: "error", d: &recordingDistiller{returnErr: fmt.Errorf("boom")}, wantFailed: true},
+			{name: "empty", d: &recordingDistiller{returnValue: "", returnModel: "m"}, wantFailed: true},
+			{name: "too short", d: &recordingDistiller{returnValue: "x", returnModel: "m"}, wantFailed: true},
+			{name: "good", d: &recordingDistiller{returnValue: "a real summary", returnModel: "m"}, wantFailed: false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				b := &bundles.Bundle{
+					Fragments: map[string]bundles.BundleFragment{"item": {Content: body}},
+					Commands:  map[string]bundles.BundleCommand{"item": {Content: body}},
+				}
+				fFailed := distillFragments(context.Background(), b, []string{"item"}, tc.d)
+				pFailed := distillPrompts(context.Background(), b, []string{"item"}, tc.d)
+
+				assert.Equal(t, tc.wantFailed, fFailed.Has("item"))
+				assert.Equal(t, fFailed.Has("item"), pFailed.Has("item"),
+					"the two distillers must agree on what counts as a failure")
+				assert.Equal(t, b.Fragments["item"].Distilled, b.Commands["item"].Distilled,
+					"the two distillers must write the same post-state")
+				assert.Equal(t, b.Fragments["item"].DistilledBy, b.Commands["item"].DistilledBy)
+			})
+		}
+	})
+
+	t.Run("apply*Inputs agree on shape", func(t *testing.T) {
+		b := &bundles.Bundle{}
+		applyFragmentInputs(b, map[string]BundleFragmentInput{
+			"i": {Content: "c", Tags: []string{"t"}, Notes: "n", Installation: "inst", NoDistill: true},
+		})
+		applyPromptInputs(b, map[string]BundleCommandInput{
+			"i": {Content: "c", Tags: []string{"t"}, Notes: "n", Installation: "inst", NoDistill: true, Description: "d"},
+		})
+		f, c := b.Fragments["i"], b.Commands["i"]
+		assert.Equal(t, f.Content, c.Content)
+		assert.Equal(t, f.Tags, c.Tags)
+		assert.Equal(t, f.Notes, c.Notes)
+		assert.Equal(t, f.Installation, c.Installation)
+		assert.Equal(t, f.NoDistill, c.NoDistill)
+		assert.Equal(t, "d", c.Description, "only the command carries a description")
+
+		// An empty input map leaves the maps untouched (all three arms).
+		empty := &bundles.Bundle{}
+		applyFragmentInputs(empty, nil)
+		applyPromptInputs(empty, nil)
+		applyMCPInputs(empty, nil)
+		assert.Nil(t, empty.Fragments)
+		assert.Nil(t, empty.Commands)
+		assert.Nil(t, empty.MCP)
+	})
+}

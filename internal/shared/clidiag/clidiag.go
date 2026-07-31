@@ -75,31 +75,76 @@ func fwarn(w io.Writer, prog, msg string) {
 	_, _ = fmt.Fprintf(w, "%s: warning: %s\n", prog, msg)
 }
 
-// sink is the process-wide destination for the stderr-flavored helpers
-// (Warn/WarnOnce). It is a pointer so SetSink can swap it atomically;
-// nil means "the default", os.Stderr.
-//
-// It exists because os.Stderr is NOT always a safe place to write: under
-// `ctxloom run` stderr IS the terminal the harness paints its TUI on, so an
-// unconditional warning corrupts the display mid-frame (large-album — "run
-// channel down (reconnecting)" landed straight on the TUI). A session that
-// owns the terminal redirects the sink for its lifetime instead.
-var sink atomic.Pointer[io.Writer]
+// sinkEntry is ONE active redirect. A nil w means "the default (os.Stderr)", so
+// SetSink(nil) is an explicit redirect back to the default rather than an absent
+// entry. Identity is the POINTER, never the writer: two redirects to the same
+// writer — or two SetSink(nil) calls — are still distinct entries, so a restore
+// can remove exactly the one it installed.
+type sinkEntry struct{ w io.Writer }
 
-// SetSink redirects Warn/WarnOnce to w for the rest of the process, and
-// returns a restore func that puts the previous sink back. A nil w restores the
-// default (os.Stderr) — never installs a nil writer.
+// sink caches the ACTIVE redirect (the top of sinkStack) for lock-free reads on
+// the warn path; nil means no redirect is installed, i.e. os.Stderr.
+//
+// The redirect machinery exists because os.Stderr is NOT always a safe place to
+// write: under `ctxloom run` stderr IS the terminal the harness paints its TUI
+// on, so an unconditional warning corrupts the display mid-frame (large-album —
+// "run channel down (reconnecting)" landed straight on the TUI). A session that
+// owns the terminal redirects the sink for its lifetime instead.
+//
+// sinkStack holds every redirect that has NOT yet been restored. It exists
+// because restores are not guaranteed to arrive in LIFO order: an owner that
+// finishes early must not take the channel away from an owner that is still
+// painting, and a later restore must not resurrect a sink whose owner has
+// already closed it. The stack is mutated only by SetSink/restore (rare); the
+// hot read path never touches the mutex.
+var (
+	sink      atomic.Pointer[sinkEntry]
+	sinkMu    sync.Mutex
+	sinkStack []*sinkEntry
+)
+
+// SetSink redirects Warn/WarnOnce to w until the returned restore func runs. A
+// nil w (including a typed nil) redirects to the default, os.Stderr — it never
+// installs a nil writer.
+//
+// Restore removes only THIS redirect and hands the channel to whichever redirect
+// is still active, so overlapping redirects unwound in any order are safe: an
+// early restore cannot steal a live redirect, and a late one cannot resurrect a
+// finished one. It is idempotent — calling it twice pops nothing further.
 //
 // Only Warn/WarnOnce move; the explicit Fwarn/FwarnOnce writers are
 // untouched, because a caller that named its own writer already chose.
 func SetSink(w io.Writer) (restore func()) {
-	prev := sink.Load()
 	if isNilWriter(w) {
-		sink.Store(nil)
-	} else {
-		sink.Store(&w)
+		w = nil
 	}
-	return func() { sink.Store(prev) }
+	e := &sinkEntry{w: w}
+
+	sinkMu.Lock()
+	sinkStack = append(sinkStack, e)
+	sink.Store(e)
+	sinkMu.Unlock()
+
+	var once sync.Once
+	return func() { once.Do(func() { popSink(e) }) }
+}
+
+// popSink removes e from the redirect stack (wherever it sits) and republishes
+// whichever redirect is now on top — nil, meaning os.Stderr, when none is left.
+func popSink(e *sinkEntry) {
+	sinkMu.Lock()
+	defer sinkMu.Unlock()
+	for i := len(sinkStack) - 1; i >= 0; i-- {
+		if sinkStack[i] == e {
+			sinkStack = append(sinkStack[:i], sinkStack[i+1:]...)
+			break
+		}
+	}
+	if n := len(sinkStack); n > 0 {
+		sink.Store(sinkStack[n-1])
+		return
+	}
+	sink.Store(nil)
 }
 
 // isNilWriter reports whether w carries no usable writer — an untyped nil, or a
@@ -121,10 +166,12 @@ func isNilWriter(w io.Writer) bool {
 	}
 }
 
-// warnSink resolves the current destination for the stderr-flavored helpers.
+// warnSink resolves the current destination for the stderr-flavored helpers: the
+// active redirect, or os.Stderr when none is installed (or when the active
+// redirect is an explicit redirect back to the default).
 func warnSink() io.Writer {
-	if w := sink.Load(); w != nil {
-		return *w
+	if e := sink.Load(); e != nil && e.w != nil {
+		return e.w
 	}
 	return os.Stderr
 }

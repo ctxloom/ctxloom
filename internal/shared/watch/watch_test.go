@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,5 +110,49 @@ func TestClose_IsIdempotent(t *testing.T) {
 		}
 	default:
 		t.Fatal("Events() still open after Close returned: the pump had not stopped")
+	}
+}
+
+// recvErr waits for one watch error, failing on timeout.
+func recvErr(t *testing.T, w *Watcher) error {
+	t.Helper()
+	select {
+	case err := <-w.Errors():
+		return err
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for a watch error")
+	}
+	return nil
+}
+
+// TestErrors_NoneAreDropped pins U132-F06: the errs channel is buffered at 1
+// and the forward used a bare `default:`, so every watch error after the first
+// undrained one was discarded with nothing said. An fsnotify error is not
+// decoration — "inotify queue overflow" means events were LOST, so a dropped
+// one turns a watch that is silently missing changes into a watch that looks
+// healthy. Delivery must be guaranteed, not best-effort.
+func TestErrors_NoneAreDropped(t *testing.T) {
+	w, err := New(t.TempDir(), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	first := errors.New("first watch error")
+	second := errors.New("second watch error")
+	// Both sends return once the pump has RECEIVED them, so by the time the
+	// second returns the pump has already forwarded the first into the
+	// single-slot buffer and is dealing with the second against a full one.
+	w.fsw.Errors <- first
+	w.fsw.Errors <- second
+	// Nothing is drained until the pump has had its chance to discard: reading
+	// early would free the buffer slot and hide the drop.
+	time.Sleep(50 * time.Millisecond)
+
+	if got := recvErr(t, w); !errors.Is(got, first) {
+		t.Fatalf("first error = %v, want %v", got, first)
+	}
+	if got := recvErr(t, w); !errors.Is(got, second) {
+		t.Fatalf("second error = %v, want %v", got, second)
 	}
 }

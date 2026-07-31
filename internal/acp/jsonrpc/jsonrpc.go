@@ -18,7 +18,11 @@
 // agent server, whose session/prompt runs a whole engine turn and must not
 // block the read loop (a blocked read loop could never see session/cancel).
 // Per the repo's fault-tolerance ethos it warns and continues on a malformed
-// frame rather than tearing the session down.
+// frame — one that is not a JSON-RPC message, or whose members are the wrong
+// JSON type — rather than tearing the session down. The limit is what the
+// decoder can still frame: a JSON SYNTAX error leaves it at an undefined byte
+// with no trustworthy frame boundary after it, so that (and any transport
+// error) ends the session and releases every parked caller.
 package jsonrpc
 
 import (
@@ -248,14 +252,20 @@ func (c *Conn) Close() error {
 // Done is closed when the read loop exits (EOF, read error, or Close).
 func (c *Conn) Done() <-chan struct{} { return c.done }
 
-// readLoop decodes frames until EOF/error, routing each to a pending caller
-// (response), the handler (request/notification), or a warning (garbage). A
-// decode error ends the session — it fails every parked caller and closes done.
+// readLoop decodes frames until the stream ends or can no longer be framed,
+// routing each frame to a pending caller (response), the handler
+// (request/notification), or a warning (garbage). A frame the decoder consumed
+// but could not shape is warned and skipped; anything that leaves the stream
+// unframeable ends the session, failing every parked caller and closing done.
 func (c *Conn) readLoop(ctx context.Context) {
 	defer close(c.done)
 	for {
 		var m rpcMessage
 		if err := c.dec.Decode(&m); err != nil {
+			if isRecoverableFrameErr(err) {
+				warnf("acp: dropping a malformed frame and continuing: %v", err)
+				continue
+			}
 			c.readErr.Store(&err)
 			c.failPending()
 			return
@@ -271,6 +281,19 @@ func (c *Conn) readLoop(ctx context.Context) {
 			warnf("acp: dropping unrecognized JSON-RPC frame (no method, no id)")
 		}
 	}
+}
+
+// isRecoverableFrameErr reports whether the read loop may skip a frame the
+// decoder rejected and keep serving the session. It may exactly when the
+// decoder still consumed the whole JSON value, leaving the stream framed at
+// the next one: encoding/json advances past a value before reporting an
+// *UnmarshalTypeError, so a frame whose members are the wrong JSON type costs
+// only that frame. A syntax error is the opposite — the decoder stops at an
+// undefined byte and nothing downstream can be trusted to be a frame boundary
+// — as is any transport error, so those end the session.
+func isRecoverableFrameErr(err error) bool {
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &typeErr)
 }
 
 // serveNotification dispatches an inbound notification with the same panic

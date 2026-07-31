@@ -515,3 +515,35 @@ func TestJoinWords_LoneWordPassesThroughUnquoted(t *testing.T) {
 		t.Fatalf("joinWords(single word) = %q, want unquoted pass-through", got)
 	}
 }
+
+// TestExpandWrappers_WindowsPathProgramName pins that argv[0] is reduced to a
+// basename with BOTH separators, not just '/'. A Windows-style invocation names
+// the interpreter with backslashes (`C:\Windows\System32\cmd.exe /c …`), and a
+// slash-only basename leaves the whole path as the "program name", so the
+// wrapper table never matches and the inner command is never re-parsed — the
+// redirect silently fails to fire on a command it was written to catch.
+func TestExpandWrappers_WindowsPathProgramName(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellCmd}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellCmd, `C:\Windows\System32\cmd.exe`, "/c", "git commit --no-verify")
+	r.ExpandWrappers(context.Background(), s)
+	if len(f.seen) == 0 {
+		t.Fatalf("backslash-pathed cmd.exe was not recognized as a wrapper; its inner command was never re-parsed")
+	}
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Errorf("nested programs = %v, want the inner `git` surfaced", got)
+	}
+}
+
+// TestPrefixWrapped_WindowsPathProgramName is the same defect on the
+// argv-prepending table: `C:\tools\timeout.exe 5 git push` really runs `git
+// push`, and a slash-only basename hides it.
+func TestPrefixWrapped_WindowsPathProgramName(t *testing.T) {
+	inner, ok := prefixWrapped([]string{`C:\tools\timeout`, "5", "git", "push"})
+	if !ok {
+		t.Fatalf("backslash-pathed timeout was not recognized as an argv-prepending wrapper")
+	}
+	if len(inner) == 0 || inner[0] != "git" {
+		t.Errorf("inner = %v, want it to start at `git`", inner)
+	}
+}

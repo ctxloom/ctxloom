@@ -80,7 +80,7 @@ type CompactionConfig struct {
 	ChunkSize       int              // Target tokens per chunk
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
-	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/ephemeral/memory)
+	OutputDir       string           // Directory holding the sessionID-keyed distilled mirrors. Empty resolves through paths.ProjectSessionsDir — see legacySessionsDir.
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
@@ -432,6 +432,22 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
 }
 
+// legacySessionsDir resolves the project-rooted directory holding the
+// sessionID-keyed distilled mirrors, honouring the caller's OutputDir when it
+// set one. The default is anchored at resolve time rather than left as a bare
+// relative path: distilled paths are returned to callers and printed, and every
+// CLI distill path chdirs into the session's own project dir and back out
+// again, so a relative path names a different file once the cwd moves — and the
+// MkdirAll on it would mint a stray .ctxloom the app-dir walk later adopts.
+// paths.ProjectSessionsDir is the repo's one resolver for this directory; every
+// reader of these mirrors already goes through it.
+func (c *Compactor) legacySessionsDir() string {
+	if c.config.OutputDir != "" {
+		return c.config.OutputDir
+	}
+	return paths.ProjectSessionsDir("")
+}
+
 // existingEssence reports whether a distilled essence already exists for this
 // session, checking the harp-dir layout first (the primary write target) and
 // then the legacy sessionID-keyed path, mirroring saveDistilled's own
@@ -445,11 +461,7 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 			}
 		}
 	}
-	outputDir := c.config.OutputDir
-	if outputDir == "" {
-		outputDir = ".ctxloom/sessions"
-	}
-	legacyPath := filepath.Join(outputDir, sessionID+".md")
+	legacyPath := filepath.Join(c.legacySessionsDir(), sessionID+".md")
 	if st, err := os.Stat(legacyPath); err == nil && st.Size() > 0 {
 		return legacyPath, true
 	}
@@ -1172,10 +1184,7 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 	docBytes := []byte(doc.String())
 
 	// Legacy outputDir for sessionID lookups (load_session, etc.).
-	outputDir := c.config.OutputDir
-	if outputDir == "" {
-		outputDir = ".ctxloom/sessions"
-	}
+	outputDir := c.legacySessionsDir()
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", err
 	}

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,413** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,414** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 188 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 193 |
-| `open` | no commit names this ID | **314** |
+| `open` | no commit names this ID | **313** |
 
-**Totals: 2268 findings across 162 units — 1,413 resolved, 314 still open, 541 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,414 resolved, 313 still open, 541 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 524 | 174 | 90 | 86 | 125 |
+| MED | 999 | 525 | 173 | 90 | 86 | 125 |
 | LOW | 871 | 532 | 129 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1452,7 +1452,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U068-F04 | **RESOLVED** `6283a1dd` | `wrap.go:5,112,339` | CORRECTNESS | `path.Base` (slash-only) is used to take argv[0]'s basename, so a Windows-style invocation escapes wrapper expansion entirely | U068.md |
 | U068-F05 | **RESOLVED** `e293c2e0` | `wrap.go:37` vs `shellenv.go:18-31` | COUPLING / CORRECTNESS | The wrapper-program list and the dialect list have diverged: several programs ltk recognises as *shells* are not recognised as *wrappers*, so their `-c` body is never re-parsed | U068.md |
 | U068-F06 | **RESOLVED** `947b2689` | `wrap.go:377,380` | CORRECTNESS | `env -S` / `--split-string` is an **interpreter** wrapper misclassified as an option to step over, so its inner command is never analysed | U068.md |
-| U068-F07 | open | `wrap.go:534`, `wrap.go:495` (cf. `:383,476,574,610`)` | CORRECTNESS | Glued short-option arguments defeat `skipStdbuf` and `skipNice`, so the inner command's argv[0] becomes the option token and no rule matches it. The fallback that fixes this exists in 4 of the 9 sk... | U068.md |
+| U068-F07 | **RESOLVED** `48633895` | `wrap.go:534`, `wrap.go:495` (cf. `:383,476,574,610`)` | CORRECTNESS | Glued short-option arguments defeat `skipStdbuf` and `skipNice`, so the inner command's argv[0] becomes the option token and no rule matches it. The fallback that fixes this exists in 4 of the 9 sk... | U068.md |
 | U068-F08 | open | `wrap.go:59-63` / `frontend.go:31` | COHESION | `Registry` is two types under one name: a 30-line dispatch table and a 621-line wrapper-expansion algorithm that touches none of its fields | U068.md |
 | U069-F03 | open | `cmd.go:148-150` | CORRECTNESS | An unterminated double quote is accepted as a complete word, so text after it is folded into a single argv element instead of being seen as further commands. | U069.md |
 | U069-F04 | open | `cmd.go:9-10`, `:153-164` | CORRECTNESS | `%VAR%` is preserved literally and never resolved, so any deny rule can be evaded by indirection (`set X=go& %X% test`), while the sibling shell frontend *does* resolve variables (`shell.go:325-332... | U069.md |

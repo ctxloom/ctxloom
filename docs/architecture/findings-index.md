@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,330** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 175 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
-| `open` | no commit names this ID | **443** |
+| `open` | no commit names this ID | **442** |
 
-**Totals: 2268 findings across 162 units — 1,330 resolved, 443 still open, 495 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,330 resolved, 442 still open, 496 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 480 | 247 | 80 | 79 | 113 |
+| MED | 999 | 480 | 246 | 81 | 79 | 113 |
 | LOW | 871 | 493 | 185 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1253,7 +1253,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F07 | **RESOLVED** `1e3e75d6` | `trust_interactive.go:88,107,109-119,139,188,190` | COUPLING | The interactive trust surface writes to `os.Stderr` directly instead of `cmd.ErrOrStderr()`, defeating cobra's output injection and making the whole surface untestable from a command harness — whil... | U043.md |
 | U043-F08 | **RESOLVED** `749b1a85` | `weave.go:89-94` | ERRHANDLING / SILENTNOOP | The task is never validated non-empty, and a stdin read error is silently swallowed leaving an empty task — so `ctxloom weave` will fan real agents out over nothing. | U043.md |
 | U043-F09 | **RESOLVED** `17da6f13` | `weave.go:84-87` | COUPLING | `weave` launches engine processes but never calls `failOnFindings`, so it launches agents on a config that `ctxloom run`/`ctxloom mcp` would refuse to start on. | U043.md |
-| U043-F14 | open | `startup_helpers.go` (whole file)` | COHESION | Two functions named `print*`/`write*` also mutate process-wide strictness state — a side effect their names actively disclaim — and the file bundles five unrelated startup concerns. | U043.md |
+| U043-F14 | **PARTIAL** `a1c22832` | `startup_helpers.go` (whole file)` | COHESION | Two functions named `print*`/`write*` also mutate process-wide strictness state — a side effect their names actively disclaim — and the file bundles five unrelated startup concerns. | U043.md |
 | U044-F03 | **RESOLVED** `349c7c13` | `model.go:53, :520` | DEAD | `Model.firstLines` is written and never read | U044.md |
 | U044-F05 | **RESOLVED** `6cb1acba` | `model.go:215, :436, :451` | CORRECTNESS | Feed-switch state reset rides on **unspecified** Go evaluation order | U044.md |
 | U044-F06 | **RESOLVED** `6f000455` | `model.go:130, :131, :548-606` | CORRECTNESS | `View`'s "renders exactly `totalHeight` lines" contract breaks on small geometry, painting over the engine | U044.md |

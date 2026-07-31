@@ -36,6 +36,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 )
@@ -194,6 +195,7 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 		master:  master,
 		cmd:     cmd,
 		ring:    stderrtail.New(stderrtail.DefaultBytes),
+		stderr:  spec.Stderr,
 		outDone: make(chan struct{}),
 		inDone:  make(chan struct{}),
 	}
@@ -225,9 +227,12 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 // Session is the docker-exec vpio.Session: the exec subprocess plus the host
 // pty master its interactive stream rides.
 type Session struct {
-	master  *os.File
-	cmd     *exec.Cmd
-	ring    *stderrtail.Ring
+	master *os.File
+	cmd    *exec.Cmd
+	ring   *stderrtail.Ring
+	// stderr is where this transport's own diagnostics go — the frontend's
+	// diagnostic stream, which nothing below the seam otherwise uses.
+	stderr  io.Writer
 	outDone chan struct{}
 	// inDone closes when the stdin pump has retired. It is not waited on:
 	// os.Stdin's Read is uninterruptible from here, so a session that ends
@@ -238,6 +243,10 @@ type Session struct {
 
 	mu           sync.Mutex
 	masterClosed bool
+	// resizeWarnOnce keeps a persistently failing ioctl to one line: SIGWINCH
+	// can fire on every drag of a window edge, and a warning per pixel would
+	// be worse than the silence it replaces.
+	resizeWarnOnce sync.Once
 
 	waitOnce sync.Once
 	result   vpio.ExitStatus
@@ -251,8 +260,35 @@ var _ vpio.Session = (*Session)(nil)
 // resize to the daemon → the exec's container TTY → the in-container turn
 // process's own SIGWINCH → its Execute resize channel. Non-blocking (a single
 // ioctl), so it never stalls above-the-seam's resize pump.
+//
+// A resize arriving after the session has ended is dropped in silence — the
+// seam documents Resize as drop-rather-than-stall, and there is nothing left to
+// resize. A resize that FAILS while the session is live is a different thing:
+// the container's TTY keeps the stale geometry for the rest of the turn and the
+// agent redraws into the wrong box. vpio.Session.Resize returns nothing, so the
+// only place to say so is the frontend's diagnostic stream, once per session.
 func (s *Session) Resize(rows, cols uint32) {
-	_ = pty.Setsize(s.master, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+	s.mu.Lock()
+	over := s.masterClosed
+	s.mu.Unlock()
+	if over {
+		return
+	}
+	if err := pty.Setsize(s.master, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}); err != nil {
+		s.resizeWarnOnce.Do(func() {
+			s.warn("terminal resize did not reach the container (%v); its TTY keeps the previous size for this turn", err)
+		})
+	}
+}
+
+// warn emits one transport diagnostic on the frontend's stderr, falling back to
+// clidiag's process sink when the caller supplied none.
+func (s *Session) warn(format string, args ...any) {
+	if s.stderr == nil {
+		clidiag.Warn("ctxloom", format, args...)
+		return
+	}
+	clidiag.Fwarn(s.stderr, "ctxloom", format, args...)
 }
 
 // Wait blocks for the exec turn to end and maps its exit code. The exec CLI

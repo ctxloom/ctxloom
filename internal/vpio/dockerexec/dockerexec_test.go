@@ -388,3 +388,45 @@ func TestStartPTYCommand_NilStdinRetiresImmediately(t *testing.T) {
 		t.Fatal("inDone must already be closed when there is no stdin to pump")
 	}
 }
+
+// TestSession_ResizeReportsAFailedIoctl pins U152-F06: Resize discarded
+// pty.Setsize's error outright, so a resize that never reached the container
+// produced no error, no warning and no log — the container's TTY silently kept
+// the old geometry for the whole turn while the agent redrew into the wrong
+// box. vpio.Session.Resize returns nothing (that seam is not this package's to
+// change), so the frontend's diagnostic stream is where it has to be said.
+func TestSession_ResizeReportsAFailedIoctl(t *testing.T) {
+	// A regular file is not a tty, so the Setsize ioctl fails — a live session
+	// whose resize cannot land, which is exactly the case that was silent.
+	f, err := os.CreateTemp(t.TempDir(), "not-a-tty")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	var diag syncBuf
+	s := &Session{master: f, stderr: &diag}
+
+	s.Resize(24, 80)
+	assert.Contains(t, diag.String(), "did not reach the container", "a resize that never landed must be audible")
+
+	// SIGWINCH fires per drag frame; a failing ioctl must not warn per pixel.
+	before := diag.String()
+	s.Resize(30, 100)
+	s.Resize(40, 120)
+	assert.Equal(t, before, diag.String(), "one warning per session, not one per resize")
+}
+
+// TestSession_ResizeAfterTheSessionEndsIsSilent: once the session is over there
+// is nothing to resize, and the seam documents Resize as drop-rather-than-stall
+// (goplugin.Session does the same). A late SIGWINCH must not turn into a
+// warning about a session the user already finished.
+func TestSession_ResizeAfterTheSessionEndsIsSilent(t *testing.T) {
+	ctx := context.Background()
+	var diag syncBuf
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", "exit 0"), vpio.ProcessSpec{Stdout: io.Discard, Stderr: &diag})
+	require.NoError(t, err)
+	_, werr := sess.Wait()
+	require.NoError(t, werr)
+
+	sess.Resize(24, 80)
+	assert.Empty(t, diag.String(), "a resize after the session ended is dropped, not reported")
+}

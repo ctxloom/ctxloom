@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,533** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,534** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **141** |
+| `open` | no commit names this ID | **140** |
 
-**Totals: 2268 findings across 162 units — 1,533 resolved, 141 still open, 594 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,534 resolved, 140 still open, 594 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 579 | 84 | 104 | 96 | 136 |
+| MED | 999 | 580 | 83 | 104 | 96 | 136 |
 | LOW | 871 | 593 | 50 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1861,7 +1861,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U137-F05 | **RESOLVED** `0f371e7d` | **`store.go:148`, `:165`, `:174`, `:182`** | COUPLING | `write` takes `namespace` as a parameter *independent of* `header.Assertion`, while the verifier **derives** it from the assertion. The mapping is hand-re-encoded at three call sites. A mismatch (`... | U137.md |
 | U137-F06 | **RESOLVED** `e7db6bf6` | **`store.go:192-195`, `:199-202`** | ERRHANDLING | `candidates` swallows the `Glob` error (`return nil`) and every per-file read error (`continue`). On the reject path a swallowed read error is exactly the "this store might be hiding a rejection" c... | U137.md |
 | U137-F07 | open | **`store.go:35-42` (doc) vs `store.go:39-400`** | COHESION | The type is three record systems with three different authority models behind one name; the package doc claims two capabilities. `HasUnsignedApprove` (existence = approval, forgeable by anything th... | U137.md |
-| U137-F09 | open | **`store.go:394`** | CORRECTNESS | `LatestApprove` picks the newest entry by **lexicographic string comparison** of `ReviewedAt`, an unparsed free-text YAML field. Correct only while every writer emits UTC `Z`-suffixed RFC3339. Any ... | U137.md |
+| U137-F09 | **RESOLVED** `fcc86e41` | **`store.go:394`** | CORRECTNESS | `LatestApprove` picks the newest entry by **lexicographic string comparison** of `ReviewedAt`, an unparsed free-text YAML field. Correct only while every writer emits UTC `Z`-suffixed RFC3339. Any ... | U137.md |
 | U137-F10 | **RESOLVED** `0e47a8ef` | **`store.go:53-58`** | DEAD | `Store.Dir()` has zero production call sites. | U137.md |
 | U138-F02 | **PARTIAL** `ced0b558` | `:276` | ERRHANDLING | `loadRaw` discards the same validator error a second time. Here the degrade is defensible, but it is **silent** — and the function warns about strictly less serious problems | U138.md |
 | U138-F03 | **RESOLVED** `3dc15b15` | `:276`, `:322`, `:307`, `:349`; `cmd/taskloom/root.go:128`, `:144` | COMPLEXITY | Every `taskloom` command **reads and merges the config twice and compiles the embedded JSON Schema four times** | U138.md |

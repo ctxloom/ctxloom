@@ -149,3 +149,23 @@ func TestMergeMCPConfig_AutoRegisterCtxloomIsCopied(t *testing.T) {
 		t.Error("writing through dest changed src's AutoRegisterCtxloom")
 	}
 }
+
+// TestMergeMCPConfig_EmptySrcDeclaresNothing pins U133-F07: dest.Servers and
+// dest.Plugins were allocated before the loops that fill them, so merging a
+// config that declares no MCP servers at all still turned dest's nil maps into
+// empty ones. nil and empty are not the same statement here — nil is "this
+// layer said nothing about MCP", empty is "this layer declared MCP and it is
+// empty" — and the merge is the one place layering is decided, so a merge that
+// manufactures the second from the first fabricates a declaration no config
+// made.
+func TestMergeMCPConfig_EmptySrcDeclaresNothing(t *testing.T) {
+	dest := &MCPConfig{}
+	MergeMCPConfig(dest, &MCPConfig{})
+
+	if dest.Servers != nil {
+		t.Errorf("Servers = %v, want nil: an empty src declared servers it does not have", dest.Servers)
+	}
+	if dest.Plugins != nil {
+		t.Errorf("Plugins = %v, want nil: an empty src declared plugins it does not have", dest.Plugins)
+	}
+}

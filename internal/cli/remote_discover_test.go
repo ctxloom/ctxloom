@@ -11,6 +11,34 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// discoverOneRepo is a MockFetcher whose search returns exactly one result, so
+// the display block and the interactive add-loop below it are both reached.
+func discoverOneRepo() *remote.MockFetcher {
+	f := remote.NewMockFetcher()
+	f.Repos = []remote.RepoInfo{{
+		Owner: "alice", Name: "ctxloom", Description: "alice's context",
+		Stars: 3, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub,
+	}}
+	return f
+}
+
+// TestRunRemoteDiscover_NoInteractivePromptOffATTY pins U040-F19: the add-loop
+// was entered unconditionally, so a piped or redirected `remote discover`
+// wrote an interactive prompt nobody could answer into its own output and then
+// quit on the resulting EOF. Every other interactive surface in this package
+// gates on isInteractiveTerminal() first; this one must too. The test process
+// is never a terminal, which is exactly the condition being pinned.
+func TestRunRemoteDiscover_NoInteractivePromptOffATTY(t *testing.T) {
+	var err error
+	out := captureStdout(t, func() {
+		err = runRemoteDiscover(&cobra.Command{}, nil, discoverTestConfig, discoverOneRepo())
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "alice/ctxloom", "the results themselves are still listed")
+	assert.NotContains(t, out, "Add remote?",
+		"a prompt nobody can answer must not be written into piped output")
+}
+
 // TestRunRemoteDiscover_ProgressLineIsClosedBeforeAnError pins U040-F22: the
 // "Searching repositories..." progress line is deliberately newline-less so a
 // result count can be appended to it, but the early error return left it

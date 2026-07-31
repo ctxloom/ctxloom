@@ -1,6 +1,9 @@
 package tokens
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEstimate(t *testing.T) {
 	tests := []struct {
@@ -54,6 +57,35 @@ func TestEstimate_NonEmptyTextIsNeverZeroTokens(t *testing.T) {
 	for _, in := range []string{"a", "ab", "abc", "abcd", "世"} {
 		if got := Estimate(in); got < 1 {
 			t.Errorf("Estimate(%q) = %d, want at least 1: non-empty text must never estimate at zero", in, got)
+		}
+	}
+}
+
+// TestBudget_IsTheInverseOfEstimate pins the seam this package's own doc
+// promises: "a real tokenizer can replace the heuristic here without touching
+// call sites". That held for Estimate and failed for the constant, which a
+// consumer multiplied by directly to size a chunk from a token budget — a
+// second copy of the heuristic living outside the package that owns it, and
+// one no real tokenizer could satisfy, since a tokenizer is not invertible by
+// multiplication.
+//
+// Budget is the inverse direction expressed as a function, so the substitution
+// point is inside this package for both directions. Round-tripping is the
+// property that makes it an inverse rather than a coincidence.
+func TestBudget_IsTheInverseOfEstimate(t *testing.T) {
+	if got := Budget(0); got != 0 {
+		t.Errorf("Budget(0) = %d, want 0", got)
+	}
+	if got := Budget(-1); got != 0 {
+		t.Errorf("Budget(-1) = %d, want 0: a negative budget is not a size", got)
+	}
+	for _, want := range []int{1, 2, 8, 500, 8000} {
+		size := Budget(want)
+		if size <= 0 {
+			t.Fatalf("Budget(%d) = %d, want a positive size", want, size)
+		}
+		if got := Estimate(strings.Repeat("x", size)); got != want {
+			t.Errorf("Estimate(Budget(%d)) = %d, want %d — Budget must be Estimate's inverse", want, got, want)
 		}
 	}
 }

@@ -58,6 +58,15 @@ type Thresholds struct {
 	// median. 0.25 accepts a machine loop whose period wobbles with load
 	// (the incident's own "every ~4-5 seconds" is ±11% around 4.5s) while
 	// rejecting anything paced by a model's variable thinking time.
+	//
+	// ZERO IS THIS STRUCT'S UNSET SENTINEL, NOT A TOLERANCE. normalize()
+	// replaces it with the default, so passing 0 does NOT request
+	// exact-cadence-only matching — it requests 0.25. That is the one field
+	// here where the sentinel costs something, since the other three have no
+	// meaning at zero worth expressing (a zero grace or a zero repeat count
+	// would degrade the ladder into firing on everything). A caller that
+	// genuinely wants exact matching passes a ratio small enough that no
+	// integer-nanosecond deviation can clear it.
 	RedeliveryJitterRatio float64
 }
 

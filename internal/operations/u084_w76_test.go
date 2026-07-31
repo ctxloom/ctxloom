@@ -384,3 +384,61 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	assert.Contains(t, stderr, bundlesDir,
 		"the fault is reported on the diagnostic channel, naming the directory — it is not lost")
 }
+
+// U084-F17: `mustResource` was named for a contract it did not implement. Go's
+// `must*` convention means "panic on failure"; this one did
+// `data, _ := read(); return data` — it swallowed. Nothing downstream caught
+// it either: config.ParseConfig(nil) is yaml.Unmarshal of nil bytes, which
+// SUCCEEDS and yields an empty *Config. So a build with a broken embed made
+// `ctxloom init` write a config.yaml with no settings, no mcp block and no llm
+// registry, at exit 0, and call it a project.
+//
+// §11o — TWO ALTITUDES, and they are not equivalent:
+//
+//	UNIT altitude (this test): readResource takes the reader as a parameter, so
+//	a failing reader can be injected. This is where the swallow is actually
+//	observable.
+//
+//	PUBLIC-SEAM altitude (the second test below): BuildInitialConfig reads from
+//	an embed.FS whose contents are asserted present at build time by
+//	internal/config/arch_test.go, so the failure cannot be provoked there. That
+//	test pins the shape the swallow used to corrupt — a real init config is
+//	never hollow — rather than the failure itself.
+func TestReadResource_PropagatesTheReadFailureInsteadOfReturningNilBytes(t *testing.T) {
+	sentinel := errors.New("embed is broken")
+	failing := func() ([]byte, error) { return nil, sentinel }
+
+	// §11k hostility: prove the injected reader really fails, and really
+	// returns nil bytes — the exact shape the old helper laundered into a
+	// successful empty parse.
+	data, readErr := failing()
+	require.Error(t, readErr, "fixture is not hostile: the reader succeeded")
+	require.Nil(t, data, "fixture is not hostile: the reader returned bytes")
+	parsed, parseErr := config.ParseConfig(nil)
+	require.NoError(t, parseErr,
+		"the premise of this row: ParseConfig(nil) does NOT fail, so nothing downstream would have caught the swallow")
+	require.NotNil(t, parsed)
+
+	got, err := readResource(failing, "init scaffold")
+
+	require.Error(t, err, "a failed embed read must not be laundered into nil bytes")
+	assert.ErrorIs(t, err, sentinel, "the underlying cause must survive")
+	assert.Contains(t, err.Error(), "init scaffold", "the error must name which resource failed")
+	assert.Nil(t, got)
+}
+
+// U084-F17 at the public seam (§11o): the failure itself is unprovokable here —
+// the embed is asserted present at build time — so this pins the CONSEQUENCE
+// the swallow used to produce. A scaffolded config must never come out hollow.
+func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
+	data, err := BuildInitialConfig("mock", "", false)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	cfg, err := config.ParseConfig(data)
+	require.NoError(t, err)
+	assert.NotEmpty(t, cfg.GetLMConfig().Configs,
+		"an llm registry is the thing the swallowed-embed path lost first")
+	assert.NotEmpty(t, cfg.DefaultAgentProfiles(),
+		"the seed agent must be bound to a profile, not left empty")
+}

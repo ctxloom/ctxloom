@@ -428,3 +428,29 @@ func TestConvert_ContextCancelled(t *testing.T) {
 	err = Adapter{}.Convert(ctx, rec, mustLocator(t, dbPath, conversationID))
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+// TestConvert_UndecodableDocumentIsFatal covers the one arm of Convert that
+// nothing else reached: a conversations_v2 row whose value column is not a
+// decodable document at all. Distinct from a malformed TURN, which degrades to
+// partial (TestConvert_MalformedTurnDegradesToPartial) — there is no per-turn
+// granularity to fall back to when the document itself will not parse, so this
+// is the structural, no-further-progress case, and it must name the
+// conversation the caller asked for.
+func TestConvert_UndecodableDocumentIsFatal(t *testing.T) {
+	testsupport.Isolate(t)
+	const convID = "conv-undecodable-document"
+	dbPath := insertFixtureRow(t, fixtureRow{
+		Key: "/some/project", ConversationID: convID,
+		CreatedAt: 1, UpdatedAt: 2,
+		Value: json.RawMessage(`{"history": [`),
+	})
+
+	rec, err := transcript.NewRecorder(fixtureHarp, "kiro")
+	require.NoError(t, err)
+	defer func() { _ = rec.Close() }()
+
+	err = Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, convID))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode conversation "+convID,
+		"an undecodable document must be reported as such, naming the conversation")
+}

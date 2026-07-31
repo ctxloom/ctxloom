@@ -410,9 +410,20 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 
 	shown := false
 	if item.Status == operations.ReviewStatusUpdate && item.PreviousContent != "" {
-		if diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); diff != "" {
+		diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent)
+		switch {
+		case diff != "":
 			fmt.Fprint(w, indentBlock(diff))
 			shown = true
+		case item.PreviousContent == item.CurrentContent:
+			// An item is labelled UPDATE whenever a prior approval exists, not
+			// only when the bytes moved — a superseded approval record (e.g. a
+			// countersign-contract bump) re-gates identical content. Full
+			// content below is then the whole story, and saying so is the
+			// difference between a re-read and a re-audit.
+			fmt.Fprintln(w, "  (unchanged since it was approved — it is pending again because the earlier approval no longer applies; showing it in full)")
+		default:
+			fmt.Fprintln(w, "  (no differences could be rendered against the approved content — showing the incoming content in full)")
 		}
 	}
 	if !shown {
@@ -439,8 +450,13 @@ func printReviewAlternateForm(w io.Writer, item operations.ReviewItem) {
 }
 
 // unifiedReviewDiff renders a unified diff of the accepted vs incoming
-// content. Returns "" on failure or an empty delta so the caller falls back
-// to the full-content display.
+// content. Returns "" for an empty delta, on which the caller falls back to
+// the full-content display and says why.
+//
+// The error is discarded because it cannot occur: GetUnifiedDiffString renders
+// into a bytes.Buffer of its own, and bytes.Buffer writes never return an
+// error (an over-large buffer panics instead). There is no failure mode here
+// to distinguish from an empty delta.
 func unifiedReviewDiff(previous, current string) string {
 	text, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 		A:        difflib.SplitLines(previous),

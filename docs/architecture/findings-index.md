@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,315** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **477** |
+| `open` | no commit names this ID | **476** |
 
-**Totals: 2268 findings across 162 units — 1,315 resolved, 477 still open, 476 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,316 resolved, 476 still open, 476 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 471 | 268 | 73 | 79 | 108 |
+| MED | 999 | 472 | 267 | 73 | 79 | 108 |
 | LOW | 871 | 487 | 197 | 47 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1053,7 +1053,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U016-F17 | open | `artifacts.proto:149-152` | CORRECTNESS | `ArtifactDownloadRequest.offset` has no producer and is structurally incompatible with the file's own MANDATORY integrity rule. | U016.md |
 | U016-F19 | open | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
 | U016-F22 | open | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
-| U016-F23 | open | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |
+| U016-F23 | **RESOLVED** `a56a6f03` | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |
 | U019-F03 | **RESOLVED** `2e1e1c54` | `artifacts.go:163–170` | ERRHANDLING | The handler waits on `<-chunkErrCh` unconditionally even when `writeAtomic` has already failed. If the store errored early (temp-file create at artifactstore.go:69, write/disk-full at :80, fsync at... | U019.md |
 | U019-F04 | **REFUTED** `377169bf` | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
 | U019-F05 | **ESCALATED** `1f81ed63` | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |

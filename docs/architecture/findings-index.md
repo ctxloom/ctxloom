@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,608** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,609** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 199 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 212 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 214 |
-| `open` | no commit names this ID | **35** |
+| `open` | no commit names this ID | **34** |
 
-**Totals: 2268 findings across 162 units — 1,608 resolved, 35 still open, 625 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,609 resolved, 34 still open, 625 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 620 | 24 | 116 | 97 | 142 |
-| LOW | 871 | 624 | 11 | 66 | 105 | 65 |
+| LOW | 871 | 625 | 10 | 66 | 105 | 65 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2785,7 +2785,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U149-F07 | **REFUTED** `b2cedeec` | **`mapping.go:16-18`** | NOPAY | `converter` is a one-field struct with one method and one construction site; the type buys nothing. | U149.md |
 | U149-F08 | **RESOLVED** `f8b484eb` | **`mapping.go:96-98`** | TRIVIAL | `joinToolResultText` is a single-expression pass-through to `importer.JoinNonEmptyFunc` with one production call site and no invariant of its own. | U149.md |
 | U149-F09 | **RESOLVED** `a4f1a039` | `kiro.go:56` | TRIVIAL | `New()` is `return Adapter{}` with one call site; its own doc comment admits "a plain `Adapter{}` literal works identically". | U149.md |
-| U149-F10 | open | **`store.go:42`, `enumerate.go:37-38`** | ERRHANDLING | `openReadOnly` uses `db.Ping()`, not `PingContext`, and takes no `ctx` — so `EnumerateConversations`, which accepts a `ctx`, cannot cancel its own open/ping. | U149.md |
+| U149-F10 | **RESOLVED** `4f88e747` | **`store.go:42`, `enumerate.go:37-38`** | ERRHANDLING | `openReadOnly` uses `db.Ping()`, not `PingContext`, and takes no `ctx` — so `EnumerateConversations`, which accepts a `ctx`, cannot cancel its own open/ping. | U149.md |
 | U149-F12 | open | `kiro.go:70-72` | CORRECTNESS | `Locator` accepts empty arguments and produces a string its own inverse rejects, deferring the failure to `Convert`. | U149.md |
 | U149-F13 | **RESOLVED** `867ddafc` | **`schema.go:188`, `schema.go:212`** | NOPAY | Three decoded fields have no readers anywhere in the repo: `toolUseAssistant.MessageID`, `responseAssistant.MessageID`, `ConversationRef.CreatedAt`. | U149.md |
 | U149-F14 | open | **`mapping.go:88`** | COUPLING | The `"Success"` sentinel is an inline magic string whose meaning is documented in three separate prose comments. | U149.md |

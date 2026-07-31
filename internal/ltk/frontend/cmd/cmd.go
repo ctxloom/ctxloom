@@ -201,12 +201,8 @@ func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, single
 // lexRedir reads a redirection operator, dropping any file-descriptor prefix
 // (e.g. the 2 in 2>) so it does not leak into argv.
 func (l *lexer) lexRedir() {
-	if l.hasWord && isDigits(l.buf.String()) {
-		l.buf.Reset()
-		l.hasWord = false
-	} else {
-		l.flush()
-	}
+	l.dropFDPrefix()
+	l.flush()
 	c := l.s[l.i]
 	o := string(c)
 	l.i++
@@ -221,16 +217,26 @@ func (l *lexer) lexRedir() {
 	l.emit(tRedir, o)
 }
 
-func isDigits(s string) bool {
-	if s == "" {
-		return false
+// dropFDPrefix removes the file-descriptor digit cmd reads immediately before
+// a redirection operator. It is exactly ONE digit: `foo 123>out` runs foo with
+// the argument `12` and redirects handle 3, and `echo abc1>out` echoes `abc`.
+// Taking the whole word instead lost a real argument from argv whenever it
+// happened to be all digits, and left a handle digit in argv whenever it did
+// not.
+func (l *lexer) dropFDPrefix() {
+	if !l.hasWord {
+		return
 	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
+	w := l.buf.String()
+	if w == "" || w[len(w)-1] < '0' || w[len(w)-1] > '9' {
+		return
 	}
-	return true
+	l.buf.Reset()
+	if rest := w[:len(w)-1]; rest != "" {
+		l.buf.WriteString(rest)
+	} else {
+		l.hasWord = false
+	}
 }
 
 // --- parser ---

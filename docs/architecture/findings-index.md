@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,398** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,399** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 158 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 186 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 185 |
-| `open` | no commit names this ID | **341** |
+| `open` | no commit names this ID | **340** |
 
-**Totals: 2268 findings across 162 units — 1,398 resolved, 341 still open, 529 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,399 resolved, 340 still open, 529 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 516 | 190 | 89 | 85 | 119 |
+| MED | 999 | 517 | 189 | 89 | 85 | 119 |
 | LOW | 871 | 523 | 142 | 53 | 93 | 60 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1620,7 +1620,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U092-F04 | open | **`worktree.go:61-64, taskstore.go:38`** | ERRHANDLING | **A permission error on `.git` is silently classified as "not a worktree"**, in a function that deliberately surfaces the permission error on the very next line. The asymmetry fails *open* for both... | U092.md |
 | U092-F05 | open | `projectroot.go:43` | COUPLING | **`resolve` mixes two filesystems**: it stats on the injected `afero.Fs` but resolves relative paths against the real process cwd via `filepath.Abs`. The doc comment claims the opposite. | U092.md |
 | U092-F06 | open | **`worktree.go:59 (via `config/config.go:1556`)`** | COMPLEXITY | **`DetectWorktree` is called once per cwd ancestor on every `config.Load`**, each call costing 1–3 filesystem syscalls, with no memoization anywhere. From a deep worktree that is 8–12 stats per loa... | U092.md |
-| U092-F07 | open | `taskstore.go:37, worktree.go:60` | CORRECTNESS | **Empty `dir` silently resolves against the cwd.** Neither `TaskStoreRoot` nor `DetectWorktree` validates its `dir` argument; `filepath.Join("", x)` yields the bare relative `x`. | U092.md |
+| U092-F07 | **RESOLVED** `90f0647f` | `taskstore.go:37, worktree.go:60` | CORRECTNESS | **Empty `dir` silently resolves against the cwd.** Neither `TaskStoreRoot` nor `DetectWorktree` validates its `dir` argument; `filepath.Join("", x)` yields the bare relative `x`. | U092.md |
 | U093-F03 | **RESOLVED** `35a6f8de` | `git_clone_fetcher.go:117-119, 159` | CORRECTNESS | A failure to read HEAD makes `ListDeletedItems` report **every item ever seen in history** as deleted. | U093.md |
 | U093-F05 | **RESOLVED** `fc6af315` | **`bundle_reader.go:62,69`** | DEAD | `BundleReader.registry` is read by no method, yet both production constructors do disk I/O to load a `Registry` for it and **return nil (disabling the reader entirely) when that load fails**. | U093.md |
 | U093-F06 | **ESCALATED** `bffceac1` | `detect.go:141-167` | CORRECTNESS | `NormalizeURL` silently reassigns any bare host-qualified URL to github.com, disagreeing with its own sibling `normalizeCloneURL`, and its documented final fallback is unreachable. | U093.md |

@@ -105,17 +105,15 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 }
 
 func TestCompactor_ChunkText_SmallText(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{ChunkSize: DefaultChunkTokens}}
 
 	smallText := "This is small text"
-	chunks := c.chunkText(smallText, DefaultChunkTokens)
+	chunks := chunkText(smallText, DefaultChunkTokens)
 
 	assert.Len(t, chunks, 1)
 	assert.Equal(t, smallText, chunks[0])
 }
 
 func TestCompactor_ChunkText_LargeText(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	// Create text larger than one chunk
 	// DefaultChunkTokens * CharsPerToken = 8000 * 4 = 32000 chars
@@ -124,7 +122,7 @@ func TestCompactor_ChunkText_LargeText(t *testing.T) {
 		largeText += "## Section\nSome content here that goes on for a while.\n\n"
 	}
 
-	chunks := c.chunkText(largeText, 100) // 100 tokens = 400 chars
+	chunks := chunkText(largeText, 100) // 100 tokens = 400 chars
 
 	assert.Greater(t, len(chunks), 1)
 	// Each chunk should be non-empty
@@ -134,12 +132,11 @@ func TestCompactor_ChunkText_LargeText(t *testing.T) {
 }
 
 func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	text := "## Section 1\nContent for section 1.\n\n## Section 2\nContent for section 2.\n\n## Section 3\nContent for section 3."
 
 	// Use small chunk size to force splitting
-	chunks := c.chunkText(text, 20) // 20 tokens = 80 chars
+	chunks := chunkText(text, 20) // 20 tokens = 80 chars
 
 	// Should break at section boundaries when possible
 	assert.Greater(t, len(chunks), 1)
@@ -150,13 +147,12 @@ func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
 // that fails proto3 string marshaling downstream, silently turning the chunk
 // into a failure marker (content loss).
 func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	t.Run("no-overlap regime reconstructs exactly", func(t *testing.T) {
 		// 9-byte repeating unit (3+4+2 bytes) so the 100-byte target boundary
 		// (25 tokens * 4 chars) always lands mid-rune.
 		text := strings.Repeat("界😀é", 120) // 1080 bytes
-		chunks := c.chunkText(text, 25)    // 100-byte chunks; overlap (2000) > chunk → no overlap
+		chunks := chunkText(text, 25)      // 100-byte chunks; overlap (2000) > chunk → no overlap
 		require.Greater(t, len(chunks), 1)
 		for i, chunk := range chunks {
 			assert.True(t, utf8.ValidString(chunk), "chunk %d is not valid UTF-8: %q", i, chunk)
@@ -173,7 +169,7 @@ func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
 			fmt.Fprintf(&b, "%d界😀é", i)
 		}
 		text := b.String()
-		chunks := c.chunkText(text, 600) // 2400-byte chunks, 2000-byte overlap
+		chunks := chunkText(text, 600) // 2400-byte chunks, 2000-byte overlap
 		require.Greater(t, len(chunks), 1)
 
 		covered := 0 // end of the covered prefix of text
@@ -196,10 +192,9 @@ func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
 // and emitted it again as a standalone chunk — one wasted LLM distill call of
 // duplicated content per compaction.
 func TestCompactor_ChunkText_NoTrailingOverlapDuplicate(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	text := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 60)) // ~1380 chars
-	chunks := c.chunkText(text, 100)                                         // 400-char chunks, 200-char overlap
+	chunks := chunkText(text, 100)                                           // 400-char chunks, 200-char overlap
 
 	require.Greater(t, len(chunks), 1)
 	for i := 1; i < len(chunks); i++ {

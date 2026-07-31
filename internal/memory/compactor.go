@@ -248,7 +248,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 
 	// Chunk the log, distill each chunk, then optionally re-compress.
-	chunks := c.chunkText(logText, c.config.ChunkSize)
+	chunks := chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
 
 	distilled, failedChunks := c.distillChunks(ctx, chunks)
@@ -853,8 +853,11 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 }
 
 // chunkText splits text into chunks of approximately targetTokens size.
-// It tries to break at natural boundaries (## headers).
-func (c *Compactor) chunkText(text string, targetTokens int) []string {
+// It tries to break at natural boundaries (## headers). Both inputs arrive as
+// parameters and no compactor state is consulted, so this is a package
+// function rather than a method: nothing about a chunking decision depends on
+// which Compactor asked for it.
+func chunkText(text string, targetTokens int) []string {
 	targetChars := targetTokens * CharsPerToken
 	overlapChars := ChunkOverlapTokens * CharsPerToken
 

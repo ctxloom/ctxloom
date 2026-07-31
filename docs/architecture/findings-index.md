@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,474** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 174 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 203 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
-| `open` | no commit names this ID | **216** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 202 |
+| `open` | no commit names this ID | **215** |
 
-**Totals: 2268 findings across 162 units — 1,474 resolved, 216 still open, 578 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,474 resolved, 215 still open, 579 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 552 | 120 | 100 | 94 | 133 |
-| LOW | 871 | 563 | 87 | 58 | 101 | 62 |
+| LOW | 871 | 563 | 86 | 58 | 101 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2598,7 +2598,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U099-F13 | **PARTIAL** `674e0b03` | `index.go:313-337` | ERRHANDLING | Three defects in the symlink helper: `_ = os.Remove(link)` (:333) swallows every error, not just ENOENT; `transcriptPath` is never stat'd, so a stale path yields a dangling symlink that later reads... | U099.md |
 | U099-F14 | **REFUTED** `dea06622` | `index.go:332` | DUPLICATE | The link leaf name is the bare literal `"transcript.jsonl"` — the same string as `paths.CanonicalTranscriptFileName` but a **different file**: this one is a symlink to the engine's native transcrip... | U099.md |
 | U099-F15 | **RESOLVED** `5b045276` | `index.go:194,232,272,601,632,665,695,736` | DUPLICATE | `filelock.Lock(m.path + ".lock")` with the identical `lock: %w` wrap appears eight times. Connascence of meaning on the `".lock"` suffix across eight sites. | U099.md |
-| U099-F16 | open | `index.go:102-111, :142` | COHESION | `Manager` carries two responsibilities, and the schema-upgrade one is mutated as a hidden side effect of every **read**. `loadLocked`:142 unconditionally nils `pendingUpgrade`, so a concurrent `Fin... | U099.md |
+| U099-F16 | **ESCALATED** `4c92d5b3` | `index.go:102-111, :142` | COHESION | `Manager` carries two responsibilities, and the schema-upgrade one is mutated as a hidden side effect of every **read**. `loadLocked`:142 unconditionally nils `pendingUpgrade`, so a concurrent `Fin... | U099.md |
 | U099-F17 | **RESOLVED** `c70c0f79` | `index.go:707` | CORRECTNESS | `Reconcile` invokes the caller-supplied `isDead` predicate while holding **both** `m.mu` and the blocking flock. A predicate that reaches back into the session index deadlocks the process. | U099.md |
 | U099-F18 | **RESOLVED** `5c529efd` | `index_upgrade.go:83` | ERRHANDLING | `if err := n.Encode(t); err != nil { return false }` discards the error and reports the node as *unchanged*, conflating "already canonical" with "re-encode failed". | U099.md |
 | U099-F21 | **RESOLVED** `07abd892` | `index.go:758` | SILENTNOOP | `saveLocked(nil)` would marshal to the literal `null` and atomically overwrite the index with it — a total silent wipe. No caller passes nil today. | U099.md |

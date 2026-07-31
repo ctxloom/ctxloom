@@ -544,3 +544,36 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(settingsData), "Task", "DenyTools must reach permissions.deny")
 }
+
+// A SHARED-cwd delivery of context resolved at ApproachHook must write NOTHING:
+// the context rides the settings-carried SessionStart inject hook, so an
+// out-of-cwd scratch write here would hand claude --append-system-prompt-file
+// alongside the hook and DOUBLE the delivered context — the exact outcome
+// noopContextDelivery exists to prevent. The shared-cwd conversion is keyed on
+// SurfaceKind alone, so it must not be applied to a surface the selection
+// resolved to the no-op.
+func TestDeliverShared_ContextHook_DoesNotWriteSyspromptScratch(t *testing.T) {
+	isolated := t.TempDir()
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+
+	// Settings must ride along: the hook approach is carried by the settings
+	// surface, and Build() enforces that pairing.
+	resolved, err := agent.Select(s).
+		WithContext(agent.ContextWriteHook).
+		WithSettings(agent.SettingsWriteUnsafeFile).
+		Build()
+	require.NoError(t, err)
+
+	live := t.TempDir()
+	_, _, errs := resolved.DeliverShared(live)
+	require.Empty(t, errs)
+
+	assert.Empty(t, s.Context.Path(), "no --append-system-prompt-file scratch for a hook-carried context")
+	entries, err := os.ReadDir(isolated)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.False(t, strings.HasSuffix(e.Name(), agent.SCMFramedContextSuffix),
+			"hook-carried context must not also land an out-of-cwd sysprompt file (%s)", e.Name())
+	}
+	assert.NoFileExists(t, filepath.Join(live, "CLAUDE.md"), "and no native file either")
+}

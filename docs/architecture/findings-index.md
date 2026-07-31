@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,464** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 200 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 200 |
-| `open` | no commit names this ID | **231** |
+| `open` | no commit names this ID | **230** |
 
-**Totals: 2268 findings across 162 units — 1,464 resolved, 231 still open, 573 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,464 resolved, 230 still open, 574 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 545 | 130 | 100 | 92 | 132 |
+| MED | 999 | 545 | 129 | 100 | 93 | 132 |
 | LOW | 871 | 560 | 92 | 57 | 100 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1672,7 +1672,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U097-F04 | **PARTIAL** `89bd9d93` | `schemagen.go:76-81` | CORRECTNESS | The derived-name fallback makes a **published `$id` depend on a Go type name**, so an ordinary Go rename silently republishes a schema under a different URL. And `reflect.Type.Name()` is `""` for a... | U097.md |
 | U098-F02 | open | `selfexec.go:20-36` | COUPLING | Exported test-only mutable global in a production package, with no synchronization, read from production spawn paths. | U098.md |
 | U098-F03 | **REFUTED** `b11a209b` | `selfexec.go:51` vs `internal/shared/agent/symlink.go:25` vs `internal/lm/isolation/imagebuild.go:1044` | DUPLICATE | The repo has **three** different answers to "where is the running binary", with three different semantics, and nothing reconciles them. | U098.md |
-| U098-F05 | open | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |
+| U098-F05 | **REFUTED** `8f18316c` | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |
 | U098-F06 | open | `internal/lm/isolation/imagebuild.go:599-604`, `1013-1016`, `713-719` | ERRHANDLING | The image-build path treats "I cannot resolve a usable self-exe" three different ways, one of which is silent — and on macOS/Windows that silent branch is the *default*, not the exception. | U098.md |
 | U099-F02 | open | `index.go:35-37` | CORRECTNESS | The `Entry` doc asserts "the json tags mirror the yaml keys so `ctxloom session list --format json` and any frontend reading it (the VSCode companion) share the same snake_case contract as the on-d... | U099.md |
 | U099-F05 | open | **`memstore.go:12-17`** | CORRECTNESS | `MemStore`'s doc says it mirrors `*Manager` "without touching disk" and that "Filesystem side effects of the real index … are intentionally absent". Both claims are false. | U099.md |

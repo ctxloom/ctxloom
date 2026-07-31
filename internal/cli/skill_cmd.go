@@ -249,10 +249,19 @@ Examples:
 // splitSkillSyncRef splits `skill sync`'s single argument into the bundle and
 // the optional skill name: a bare bundle name selects every skill the bundle
 // ships, "<bundle>#skills/<name>" selects exactly one.
+//
+// The separator is an explicit NARROWING request, so an empty name after it is
+// refused rather than falling through to the bare-bundle form. Widening there
+// would rewrite the files: manifest of every skill in the bundle — manifests
+// the user never named, and whose rewrite re-baselines the install-time tamper
+// check against whatever is on disk right now.
 func splitSkillSyncRef(arg string) (bundle, name string, err error) {
 	b, n, ok := strings.Cut(arg, "#skills/")
 	if !ok {
 		return arg, "", nil
+	}
+	if strings.TrimSpace(n) == "" {
+		return "", "", fmt.Errorf("invalid skill reference %q: no name after \"#skills/\" — name a skill, or pass the bare bundle name to sync every skill in it", arg)
 	}
 	return b, n, nil
 }

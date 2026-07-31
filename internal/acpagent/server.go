@@ -407,6 +407,7 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 	// announce.go's emitSessionInitSummary doc for why this can't ride the
 	// engine's Events channel instead.
 	if rerr := s.emitSessionInitSummary(sess); rerr != nil {
+		s.discardSession(sess)
 		reply(nil, rerr)
 		return
 	}
@@ -416,6 +417,7 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 	// client's command palette is populated from the earliest possible
 	// moment; emitUpdate is a no-op when the session has no commands.
 	if rerr := s.emitAvailableCommands(sess); rerr != nil {
+		s.discardSession(sess)
 		reply(nil, rerr)
 		return
 	}
@@ -456,6 +458,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 	// run's summary is current-session information, not part of the
 	// recorded past.
 	if rerr := s.emitSessionInitSummary(sess); rerr != nil {
+		s.discardSession(sess)
 		reply(nil, rerr)
 		return
 	}
@@ -470,6 +473,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 	for _, entry := range sess.engine.Replay {
 		for _, upd := range sess.replayEntry(entry) {
 			if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: upd}); err != nil {
+				s.discardSession(sess)
 				reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "replay: " + err.Error()})
 				return
 			}
@@ -481,6 +485,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		if rerr := s.emitUpdate(sess, api.SessionUpdate{AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{
 			Content: textBlock(fmt.Sprintf("ctxloom: this session has %d recorded history entries that could not be replayed into this transcript (unsupported entry type) — the conversation is not actually empty, only this view of it is.", len(sess.engine.Replay))),
 		}}); rerr != nil {
+			s.discardSession(sess)
 			reply(nil, rerr)
 			return
 		}
@@ -488,6 +493,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 	// B4 (gap G5): see handleSessionNew's identical call for why this rides a
 	// notification rather than a loadSessionResult field.
 	if rerr := s.emitAvailableCommands(sess); rerr != nil {
+		s.discardSession(sess)
 		reply(nil, rerr)
 		return
 	}
@@ -1044,16 +1050,39 @@ func (s *Server) closeAllSessions() {
 	s.sessions = make(map[api.SessionId]*session)
 	s.mu.Unlock()
 	for _, sess := range sessions {
-		sess.mu.Lock()
-		sess.closed = true
-		sess.mu.Unlock()
-		sess.cancel()
-		sess.engine.Close()
-		// B5 (gap G14): tear down this session's fs reach-back listener, if
-		// one was ever stood up — nil-safe (Close checks for a nil receiver).
-		if err := sess.fsUpstream.Close(); err != nil {
-			clidiag.Warn("ctxloom", "acp agent: fs-upstream listener cleanup: %v", err)
-		}
+		s.teardownSession(sess)
+	}
+}
+
+// discardSession unregisters a session that was published into s.sessions but
+// whose open never completed — a failure between registration and the
+// session/new|load reply means the client is being told the session does not
+// exist, so it must not stay registered. Leaving it behind strands a live
+// engine conversation until server exit AND, for session/load (whose id is
+// the caller's own harp), permanently occupies that harp: openSession refuses
+// a fixed id that is already live, so every retry answers "session already
+// active" for a session no client was ever handed.
+func (s *Server) discardSession(sess *session) {
+	s.mu.Lock()
+	if s.sessions[sess.id] == sess {
+		delete(s.sessions, sess.id)
+	}
+	s.mu.Unlock()
+	s.teardownSession(sess)
+}
+
+// teardownSession closes one session's engine conversation and its fs
+// reach-back listener. The caller has already removed it from s.sessions.
+func (s *Server) teardownSession(sess *session) {
+	sess.mu.Lock()
+	sess.closed = true
+	sess.mu.Unlock()
+	sess.cancel()
+	sess.engine.Close()
+	// B5 (gap G14): tear down this session's fs reach-back listener, if one
+	// was ever stood up — nil-safe (Close checks for a nil receiver).
+	if err := sess.fsUpstream.Close(); err != nil {
+		clidiag.Warn("ctxloom", "acp agent: fs-upstream listener cleanup: %v", err)
 	}
 }
 

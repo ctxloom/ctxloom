@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,422** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 164 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 189 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 190 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 193 |
-| `open` | no commit names this ID | **300** |
+| `open` | no commit names this ID | **299** |
 
-**Totals: 2268 findings across 162 units — 1,422 resolved, 300 still open, 546 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,422 resolved, 299 still open, 547 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 528 | 166 | 94 | 86 | 125 |
+| MED | 999 | 528 | 165 | 94 | 87 | 125 |
 | LOW | 871 | 537 | 123 | 54 | 95 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1516,7 +1516,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U082-F07 | **RESOLVED** `f7a83ba6` | `constraint_resolve.go:46-53, :104` | ERRHANDLING | Three distinct failure causes are collapsed into one unactionable warning. A dependency silently drops out of the lockfile and the user is told only "could not resolve". | U082.md |
 | U082-F08 | **RESOLVED** `4b2ebf0a` | `context.go:571` | ERRHANDLING | `resolveProfile` discards `config.ResolveProfile`'s error to trigger the directory fallback, so a **syntactically broken inline profile** in `config.yaml` is indistinguishable from "this name is no... | U082.md |
 | U082-F10 | **RESOLVED** `90be7f34` | **`commands.go:143-151`** | CORRECTNESS | The "drop a single leading H1 title line" cleanup actually strips **any** line whose first non-space character is `#` — including `##`/`###` sub-headings, a `#!/usr/bin/env` shebang, and a `#tag` l... | U082.md |
-| U082-F11 | open | `countersign_records.go:172-173` | ERRHANDLING | `signingKindOf`'s `default: return signing.ItemKind(k)` silently coins a bogus `signing.ItemKind` for any `trust.ItemKind` the switch does not know. Approvals and rejections would then be filed und... | U082.md |
+| U082-F11 | **REFUTED** `PENDING` | `countersign_records.go:172-173` | ERRHANDLING | `signingKindOf`'s `default: return signing.ItemKind(k)` silently coins a bogus `signing.ItemKind` for any `trust.ItemKind` the switch does not know. Approvals and rejections would then be filed und... | U082.md |
 | U082-F13 | **RESOLVED** `f469c7bc` | **`bundles.go:406, :441, :484`** | CORRECTNESS | `UpdateBundle`'s documented `"no_changes"` contract is broken for `Set*` edits: `apply*Edits` appends a change line for **every** name in `set`, without comparing against the existing entry, so an ... | U082.md |
 | U082-F14 | open | **`bundles.go:385/419, :993/1011/1030, :1050/1069, :1093/1120`** | DUPLICATE | Four pairs/triples of fragment-vs-command functions are line-for-line clones differing only in the field name and one extra `Description`. ~180 of this file's 1144 lines are mechanical duplication,... | U082.md |
 | U082-F16 | open | **`bundles.go:180-181, :374-375`** | ERRHANDLING | `CreateBundle` and `UpdateBundle` **discard** the failure set `distillFragments`/`distillPrompts` compute. The result DTOs report `"created"`/`"updated"` with a change line per item and no indicati... | U082.md |

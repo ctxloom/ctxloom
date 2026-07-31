@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,378** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,379** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 155 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 183 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 183 |
-| `open` | no commit names this ID | **369** |
+| `open` | no commit names this ID | **368** |
 
-**Totals: 2268 findings across 162 units — 1,378 resolved, 369 still open, 521 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,379 resolved, 368 still open, 521 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 505 | 205 | 88 | 83 | 118 |
+| MED | 999 | 506 | 204 | 88 | 83 | 118 |
 | LOW | 871 | 516 | 153 | 51 | 92 | 59 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1479,7 +1479,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U078-F04 | open | `compactor.go:569-573` | COUPLING | **Confirmed: the compactor calls `sessions.Manager.BindSession` directly, bypassing `operations.BindSession`'s guards** — but the data-loss impact is nil, so the sibling reviewer's severity should ... | U078.md |
 | U078-F05 | **RESOLVED** `4563d72c` | `compactor.go:173-181, :367` | ERRHANDLING | A `sessions.Open` failure in `NewCompactor` for a retired-scraper backend leaves `source == nil`, which surfaces to the user as the **wrong, unactionable** error. | U078.md |
 | U078-F06 | **RESOLVED** `b0f02837` | `compactor.go:698-736, :290-292` | CORRECTNESS | A session with entries that all render to nothing produces an empty distill input, and `isEmptySession` does not catch it. | U078.md |
-| U078-F07 | open | `compactor.go:979-982` | CORRECTNESS | `saveDistilled`'s default `OutputDir` is the **relative** path `".ctxloom/sessions"`, resolved against the process cwd. | U078.md |
+| U078-F07 | **RESOLVED** `fb1b276f` | `compactor.go:979-982` | CORRECTNESS | `saveDistilled`'s default `OutputDir` is the **relative** path `".ctxloom/sessions"`, resolved against the process cwd. | U078.md |
 | U078-F08 | **RESOLVED** `e1c8226c` | **`plans.go:13-17, :23-29, :48, :67-69`** | DEAD | `PlanKind`/`PlanBlock.Kind` is write-only, and `PlanBlock.Timestamp` is read-only — the `RenderPlans` timestamp branch is unreachable in production. | U078.md |
 | U078-F09 | **RESOLVED** `6cf321d4` | `compactor.go:872-873, :1052-1058` | DEAD | `distilledMeta.SourcePath` / `SourceMtime` are never assigned by any writer; and five `DistilledSession` fields have no reader outside this package's tests. | U078.md |
 | U078-F12 | **PARTIAL** `65aa0648` | **`plans.go:33-37`** | CORRECTNESS | `IsPlanFile`'s doc comment misdescribes its own regex, and the pattern does not match this project's documented session-plan naming. | U078.md |

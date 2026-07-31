@@ -164,5 +164,29 @@ func ChangeDir(t *testing.T, dir string) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("taskstest: chdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(orig) })
+	t.Cleanup(func() { restoreDir(t, orig, dir) })
+}
+
+// errorReporter is the one method restoreDir needs from *testing.T. It exists
+// so the failure branch below is reachable from a test: with the reporter
+// hardwired to t, a cleanup that reports can only be observed by failing the
+// very test that would assert it.
+type errorReporter interface {
+	Errorf(format string, args ...any)
+}
+
+// restoreDir returns the process to orig, reporting rather than discarding a
+// failure.
+//
+// A failed restore is not one test's problem: the working directory is
+// process-global, so every LATER test in the binary runs from a directory it
+// never chose — typically one another cleanup has just removed. Those failures
+// land arbitrarily far away and read as unrelated, while the one test that
+// could have named the cause stayed green. dir is named in the message because
+// it is where the process is actually left standing.
+func restoreDir(rep errorReporter, orig, dir string) {
+	if err := os.Chdir(orig); err != nil {
+		rep.Errorf("taskstest: restoring cwd to %s failed, leaving every later test in this "+
+			"binary running from %s: %v", orig, dir, err)
+	}
 }

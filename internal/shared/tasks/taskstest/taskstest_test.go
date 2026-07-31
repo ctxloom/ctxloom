@@ -1,6 +1,7 @@
 package taskstest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,4 +108,44 @@ func TestProjectDir_IsolatesAndChangesDir(t *testing.T) {
 	after, err := os.Getwd()
 	require.NoError(t, err)
 	assert.Equal(t, before, after)
+}
+
+// recordingReporter captures what restoreDir reports instead of failing the
+// test that is asserting on it.
+type recordingReporter struct{ msgs []string }
+
+func (r *recordingReporter) Errorf(format string, args ...any) {
+	r.msgs = append(r.msgs, fmt.Sprintf(format, args...))
+}
+
+// TestRestoreDir_ReportsAFailedRestore pins the branch that used to be
+// `_ = os.Chdir(orig)`. A discarded restore error is worse than a local
+// failure: the cwd is process-global, so every subsequent test in the binary
+// runs from a directory it never chose, and the resulting failures surface
+// arbitrarily far from the cause. Nothing anywhere reported the one fact that
+// explains them.
+func TestRestoreDir_ReportsAFailedRestore(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "removed")
+	require.NoError(t, os.MkdirAll(gone, 0o755))
+	require.NoError(t, os.RemoveAll(gone))
+
+	var rep recordingReporter
+	restoreDir(&rep, gone, "/somewhere-the-process-is-left")
+
+	require.Len(t, rep.msgs, 1, "a failed restore must be reported, not discarded")
+	assert.Contains(t, rep.msgs[0], gone, "the message must name the directory it could not return to")
+	assert.Contains(t, rep.msgs[0], "/somewhere-the-process-is-left",
+		"and where the process is actually left standing")
+}
+
+// TestRestoreDir_SilentOnSuccess is the negative case: the ordinary restore
+// must stay quiet, or every test using ChangeDir would fail.
+func TestRestoreDir_SilentOnSuccess(t *testing.T) {
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	var rep recordingReporter
+	restoreDir(&rep, t.TempDir(), "unused")
+	assert.Empty(t, rep.msgs)
 }

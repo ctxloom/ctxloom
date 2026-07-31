@@ -280,3 +280,30 @@ func TestValidate_AcceptsRealAndRenamedHarps(t *testing.T) {
 		}
 	}
 }
+
+// TestGroups_ReturnsSortedNamesOnEveryCall pins Groups' order as a contract.
+// The registry is a Go map, and map iteration order is randomized per
+// process, so before the sort the same binary printed its --group help text
+// (and a rejected --group's "have: ..." list) in a different order on every
+// run. A single call can be sorted by luck with only a handful of groups, so
+// the assertion is repeated until an unsorted implementation fails with
+// certainty rather than probability.
+func TestGroups_ReturnsSortedNamesOnEveryCall(t *testing.T) {
+	want := make([]string, 0, len(groups))
+	for name := range groups {
+		want = append(want, name)
+	}
+	slices.Sort(want)
+
+	// Below two groups no ordering assertion can ever fail, so the rest of
+	// this test would be vacuous.
+	if len(want) < 2 {
+		t.Fatalf("this test needs at least two word-list groups to mean anything, have %d", len(want))
+	}
+
+	for range 200 {
+		if got := Groups(); !slices.Equal(got, want) {
+			t.Fatalf("Groups() must be sorted and stable on every call: got %v, want %v", got, want)
+		}
+	}
+}

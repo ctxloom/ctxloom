@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 )
 
@@ -113,12 +114,20 @@ func pruneIncompleteGroups(out map[string]wordGroup) {
 	}
 }
 
-// Groups returns the names of all usable word-list groups.
+// Groups returns the names of all usable word-list groups, SORTED.
+//
+// The order is part of the contract, not an accident of the registry: the
+// result is rendered into a CLI flag's usage text and into the "have: ..."
+// list of a rejected --group, and Go randomizes map iteration per process, so
+// an unsorted return made `harp --help` print its groups in a different order
+// on every run. Sorting here rather than at each call site means a new caller
+// cannot forget to.
 func Groups() []string {
 	names := make([]string, 0, len(groups))
 	for name := range groups {
 		names = append(names, name)
 	}
+	slices.Sort(names)
 	return names
 }
 

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,527** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,528** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 184 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **143** |
+| `open` | no commit names this ID | **142** |
 
-**Totals: 2268 findings across 162 units — 1,527 resolved, 143 still open, 598 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,528 resolved, 142 still open, 598 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 574 | 85 | 107 | 96 | 137 |
+| MED | 999 | 575 | 84 | 107 | 96 | 137 |
 | LOW | 871 | 592 | 52 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 6 | 5 | 2 | 0 |
 
@@ -1743,7 +1743,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U109-F03 | **PARTIAL** `242307fa` | `filelock.go:21-35`; realised at 22 call sites` | COUPLING | The `<protected-path> + ".lock"` naming convention is the package's real invariant, and the package does not own it. All 22 call sites concatenate the suffix by hand, in four different packages. A ... | U109.md |
 | U109-F04 | **ESCALATED** `b3398391` | `filelock.go:21-35` | COUPLING | The API is blocking-only, with no context, deadline, or try variant. A live hung holder deadlocks the caller forever with no diagnostic — `taskloom status` would simply never return. This is also t... | U109.md |
 | U110-F02 | **RESOLVED** `9f84aa35` | `gitutil.go:15-17` | TRIVIAL | `GetOriginURL` is a one-expression pass-through, and its delegate `GetRemoteURL` has **zero production callers other than it**. The package exports two functions to serve one call site, and the gen... | U110.md |
-| U110-F03 | open | `gitutil.go:26-28` vs `gitutil.go:58-61` | ERRHANDLING | The two functions handle the *identical* precondition — "is `startPath` a file or a directory?" — with opposite error policies, 30 lines apart in a 79-line file. `FindRoot` returns `stat path: %w`.... | U110.md |
+| U110-F03 | **RESOLVED** `672f6b2b` | `gitutil.go:26-28` vs `gitutil.go:58-61` | ERRHANDLING | The two functions handle the *identical* precondition — "is `startPath` a file or a directory?" — with opposite error policies, 30 lines apart in a 79-line file. `FindRoot` returns `stat path: %w`.... | U110.md |
 | U110-F04 | open | `gitutil.go:30-32,66-68` vs `internal/git/exec.go:437` | COUPLING | ctxloom has two git layers that resolve "the repository" by **different, silently divergent rules**, and nothing documents the boundary. `internal/git` shells out with `cmd.Env = os.Environ()`, so ... | U110.md |
 | U111-F04 | **RESOLVED** `c94914e5` | `internal/sessions/index.go:772-783` | DUPLICATE | `sessions.generateUniqueHarp` is a line-for-line reimplementation of `harp.UniqueFrom`, including the same subtle unchecked-fallback contract. | U111.md |
 | U111-F05 | **REFUTED** `39c90012` | `harp.go:42`, `:49`, `:79` | ERRHANDLING | Two panics fire from a package-level variable initializer, so any defect in the embedded word lists is an unconditional crash of **every** family binary before `main()` runs, with no degradation path. | U111.md |

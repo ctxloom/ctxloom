@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,409** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,410** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 188 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 192 |
-| `open` | no commit names this ID | **319** |
+| `open` | no commit names this ID | **318** |
 
-**Totals: 2268 findings across 162 units — 1,409 resolved, 319 still open, 540 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,410 resolved, 318 still open, 540 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 520 | 179 | 90 | 86 | 124 |
+| MED | 999 | 521 | 178 | 90 | 86 | 124 |
 | LOW | 871 | 532 | 129 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1506,7 +1506,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U080-F13 | **ESCALATED** (gn/vital-deaf-stunt) | **`settings.go:112-226`** | COMPLEXITY | `applyManaged` is CCN 29 not because the problem is hard but because five completely independent key-merges share one function body. Judged on its merits (not on the CI gate): the five branches tou... | U080.md |
 | U081-F02 | **RESOLVED** `fc6af315` | **`bundle_reader.go:37`** | DEAD | `NewBundleReaderForLockfile` has zero callers anywhere in the repo, including tests. The tool it names (`show_bundle_verbatim`) no longer exists | U081.md |
 | U081-F03 | **RESOLVED** `28b54eb6` | `bundle_refs.go:37` | DEAD / NOPAY | The whole orphan/missing/invalid analysis subsystem is unreachable from production: `AnalyzeBundleReferences`, `AnalyzeBundleReferencesRequest`, `BundleAnalysis`, `collectProfileBundleRefs`, `local... | U081.md |
-| U081-F05 | open | `bundle_distill.go:125` | CORRECTNESS | The save runs whenever there was at least one *target*, even when **every** distill failed. That re-marshals the user's YAML (losing comments and key order) and, via `fsStore.Save`'s `invalidateSta... | U081.md |
+| U081-F05 | **RESOLVED** `d9648785` | `bundle_distill.go:125` | CORRECTNESS | The save runs whenever there was at least one *target*, even when **every** distill failed. That re-marshals the user's YAML (losing comments and key order) and, via `fsStore.Save`'s `invalidateSta... | U081.md |
 | U081-F07 | **RESOLVED** `41e69e37` | **`bundle_reader.go:16`** | ERRHANDLING | `NewBundleReaderForConfig` discards two errors and returns a nil interface; downstream, nil is indistinguishable from "no bundle is installed", so a registry or lockfile load failure silently repor... | U081.md |
 | U081-F09 | **PARTIAL** `e2780b75` | `bundle_move.go:303` | CORRECTNESS | If the source `.sig` cannot be removed after a successful move, `MoveBundle` returns `nil, err` — so the CLI reports the move as **failed** even though the bundle was published/copied and the sourc... | U081.md |
 | U081-F11 | **RESOLVED** `f03a03fc` | `bundle_move.go:185,213; bundle_transfer.go:222` | ERRHANDLING | Three `afero` stat errors are discarded with `_`, and in each case the error path degrades to the *permissive* answer | U081.md |

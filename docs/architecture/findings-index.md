@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,538** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,539** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **134** |
+| `open` | no commit names this ID | **133** |
 
-**Totals: 2268 findings across 162 units — 1,538 resolved, 134 still open, 596 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,539 resolved, 133 still open, 596 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 581 | 81 | 104 | 96 | 137 |
+| MED | 999 | 582 | 80 | 104 | 96 | 137 |
 | LOW | 871 | 596 | 46 | 62 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1849,7 +1849,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U135-F05 | **RESOLVED** `d6bdffe9` | `221-225` | ERRHANDLING | The unix socket opened for ssh-agent is never closed; `Discovered` exposes no `Close`. | U135.md |
 | U135-F06 | **RESOLVED** `93e44f63` | `168-181 vs 237` | CORRECTNESS | Field docs promise defaults that `Discover` does not apply — a partially-constructed `Discoverer` nil-func panics instead of degrading. | U135.md |
 | U135-F07 | **RESOLVED** `39871bcf` | `285, 115` | CORRECTNESS | A user-supplied `--key` value is echoed verbatim to stderr on failure; if someone pastes private key text as `--key`, that text is printed (and is already in argv / shell history). | U135.md |
-| U135-F08 | open | `259, 266, 285, 340, 345, 353, 367` | COUPLING | Which failures yield `*NoKeyError` vs a plain error is inconsistent, so a caller keying policy off the type gets different answers for equivalent situations. | U135.md |
+| U135-F08 | **RESOLVED** `98f453bc` | `259, 266, 285, 340, 345, 353, 367` | COUPLING | Which failures yield `*NoKeyError` vs a plain error is inconsistent, so a caller keying policy off the type gets different answers for equivalent situations. | U135.md |
 | U135-F09 | open | `74-99 vs `internal/cli/review.go:158-162`, `internal/cli/doctor_cmd.go:315-327` | DUPLICATE | The ambiguous-key message is authored three times over the same struct fields, and the three copies already disagree. | U135.md |
 | U136-F06 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `entry.go:48`, `parse.go:124`, `write.go:57-60` | NOPAY | `Entry.KeyType` is a derived duplicate that can never disagree with `PublicKey.Type()` on any parsed entry — which is precisely why F05 goes unnoticed. It carries no information and costs a field, ... | U136.md |
 | U136-F07 | open | `parse_test.go:234-239` | CORRECTNESS | `TestParse_UnrecognizedKeyTypeIsMalformed` is vacuous: it passes for a reason unrelated to its name, and asserts an invariant that does not hold. | U136.md |

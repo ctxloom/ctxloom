@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -864,4 +865,29 @@ func TestStore_ThreeRecordKindsHaveThreeAuthorityModels(t *testing.T) {
 	}))
 	_, ok = s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, root, time.Now())
 	assert.False(t, ok, "the display index is never an input to a trust decision")
+}
+
+// TestStore_RecordFilenamesMatchTheDocumentedContract pins the shape
+// filename/unsignedFilename document, because it is a contract between two
+// functions with no compiler check between them: candidates matches
+// "<indexHash>." as a literal prefix and hasUnsigned matches the unsigned name
+// exactly. Reordering the fields or changing the separator orphans every
+// record already on disk — they stay valid and are simply never found again,
+// which on the reject path reads as nothing rejected.
+func TestStore_RecordFilenamesMatchTheDocumentedContract(t *testing.T) {
+	_, pub := testSigner(t)
+	payload := []byte("reviewed bytes")
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: "bundle:a", Form: signing.AttestFragmentRaw}
+	hash := indexHash(h, payload)
+
+	signed := filename(h, payload, pub)
+	assert.Equal(t, hash+"."+string(h.Assertion)+"."+keyTag(pub)+".sig", signed)
+	assert.True(t, strings.HasPrefix(signed, hash+"."),
+		"candidates finds records by this prefix")
+	assert.True(t, strings.HasSuffix(signed, ".sig"))
+
+	unsigned := unsignedFilename(h, payload)
+	assert.Equal(t, hash+"."+string(h.Assertion)+".unsigned", unsigned)
+	assert.False(t, strings.HasSuffix(unsigned, ".sig"),
+		"a marker must not be picked up by candidates' .sig filter")
 }

@@ -200,6 +200,19 @@ func keyTag(pub ssh.PublicKey) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
+// filename is the naming CONTRACT between this file's writers and its readers,
+// and the only place it is expressed:
+//
+//	<indexHash>.<assertion>.<keyTag>.sig
+//
+// candidates finds records by matching the leading "<indexHash>." as a literal
+// prefix, so the hash must come first and the separator must be a '.'; it
+// keeps every match and re-verifies each, which is what lets the keyTag
+// disambiguate several signers over the same (header, payload) without any of
+// them being read back as identity. Changing the order or the separator
+// silently orphans every record already on disk — they stay on disk, stay
+// valid, and are never found again, which on the reject path reads as nothing
+// rejected.
 func filename(header signing.CountersignHeader, payload []byte, pub ssh.PublicKey) string {
 	return indexHash(header, payload) + "." + string(header.Assertion) + "." + keyTag(pub) + ".sig"
 }
@@ -412,6 +425,15 @@ func (s *Store) VerifiedRefReject(ref string, root signing.TrustRoot, now time.T
 // strictly local and non-shareable (spec §9.5: "a shareable approval with no
 // signature is a forgery primitive with a friendly name").
 
+// unsignedFilename is the degraded path's half of the same contract:
+//
+//	<indexHash>.<assertion>.unsigned
+//
+// hasUnsigned looks for this exact name in the directory listing. No keyTag,
+// because there is no key — which is the whole of what makes this record
+// forgeable (see the Store doc, record kind 2). The ".unsigned" suffix is what
+// keeps these files out of Readable's signature parsing and out of candidates'
+// ".sig" filter.
 func unsignedFilename(header signing.CountersignHeader, payload []byte) string {
 	return indexHash(header, payload) + "." + string(header.Assertion) + ".unsigned"
 }
@@ -572,11 +594,13 @@ func (e IndexEntry) IsAfter(other IndexEntry) bool {
 	}
 }
 
+// reviewedAt parses the stamp, reporting whether it read as RFC3339 at all.
 func (e IndexEntry) reviewedAt() (time.Time, bool) {
 	t, err := time.Parse(time.RFC3339, e.ReviewedAt)
 	return t, err == nil
 }
 
+// indexPath is the sidecar index's fixed location within the store.
 func (s *Store) indexPath() string {
 	return filepath.Join(s.dir, "index.yaml")
 }

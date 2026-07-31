@@ -265,6 +265,14 @@ func (s *GRPCServer) GetSession(ctx context.Context, req *GetSessionRequest) (*S
 	if err != nil {
 		return nil, err
 	}
+	// "No such session" (a nil session with no error) cannot cross this wire as
+	// itself: a nil message is serialized as an EMPTY one, so the host would
+	// decode a non-nil, zero-entry agent.Session — indistinguishable from a
+	// session that genuinely exists and has produced no turns yet. Report the
+	// absence instead, so the two answers stay apart.
+	if sess == nil {
+		return nil, fmt.Errorf("backend %s has no session %q", s.Impl.Name(), req.GetSessionId())
+	}
 	return sessionToProto(sess), nil
 }
 

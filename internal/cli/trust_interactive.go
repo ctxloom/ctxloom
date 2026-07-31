@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -84,13 +86,15 @@ func stampedTrust(res operations.EffectiveTrustResult) string {
 // offerItemTrust is the TTY-gated interactive trust review for `fragment/prompt
 // show -i`. The item CONTENT has already been written to stdout by the caller;
 // this prints the effective trust + source and the action menu to stderr, then
-// performs the explicit choice. EOF / read error is treated as skip.
+// performs the explicit choice. A prompt whose answer could not be read is a
+// skip either way; a read FAULT additionally says so (warnPromptFault).
 func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	res := operations.NewTrustStamper(cfg).ForRef(ref)
 	fmt.Fprintf(cmd.ErrOrStderr(), "\nEffective trust: %s\n", stampedTrust(res))
 	answer, err := promptLine("[t]rust / [b]lacklist / skip? ")
 	if err != nil {
-		return nil // EOF/read error → skip; viewing never trusts
+		warnPromptFault(cmd, err)
+		return nil // unread prompt → skip; viewing never trusts
 	}
 	return applyItemTrustChoice(cmd, cfg, ref, parseItemTrustChoice(answer))
 }
@@ -131,26 +135,51 @@ func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundl
 // offerBundleHookTrust walks the bundle's hooks in canonical identity order and
 // offers an explicit [t]rust/[b]lacklist/skip action per hook, applying the
 // choice through the shared applyItemTrustChoice path so the on-disk result is
-// identical to `ctxloom trust|blacklist <bundle>#hooks/<event>/<index>`. A read
-// error (EOF) stops the walk and skips the rest — viewing never trusts. A
-// hookless bundle is a no-op (no prompt emitted).
+// identical to `ctxloom trust|blacklist <bundle>#hooks/<event>/<index>`. An
+// unread answer stops the walk and leaves every remaining hook exactly as it
+// was — viewing never trusts — and the number left unreviewed is reported, so
+// an abandoned review is never mistaken for a completed one. A hookless bundle
+// is a no-op (no prompt emitted).
 func offerBundleHookTrust(cmd *cobra.Command, cfg *config.Config, name string, bundle *bundles.Bundle) error {
 	entries := bundle.Hooks.Entries()
 	if len(entries) == 0 {
 		return nil
 	}
-	fmt.Fprintln(cmd.ErrOrStderr(), "\nBundle hooks are executable surfaces — trust or blacklist each:")
-	for _, e := range entries {
+	w := cmd.ErrOrStderr()
+	fmt.Fprintln(w, "\nBundle hooks are executable surfaces — trust or blacklist each:")
+	for i, e := range entries {
 		ref := name + "#hooks/" + e.ID()
 		answer, err := promptLine(fmt.Sprintf("  hooks/%s — [t]rust / [b]lacklist / skip? ", e.ID()))
 		if err != nil {
-			return nil // EOF/read error → skip the remaining hooks; viewing never trusts
+			// The walk stops here, and every hook from this one on stays
+			// exactly as it was — viewing never trusts. What was missing is the
+			// COUNT: a user who asked to review every executable surface in a
+			// bundle, answered once, and saw the command finish had no way to
+			// tell a completed review from an abandoned one.
+			warnPromptFault(cmd, err)
+			fmt.Fprintf(w, "  %d hook(s) not reviewed; each keeps its current trust.\n", len(entries)-i)
+			return nil
 		}
 		if err := applyItemTrustChoice(cmd, cfg, ref, parseItemTrustChoice(answer)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// warnPromptFault reports a trust prompt whose answer was never read.
+//
+// It distinguishes the two events the caller cannot: io.EOF is the user
+// deliberately ending input (Ctrl-D), which IS an answer and stays silent,
+// while any other error is a terminal read fault that must not be presented as
+// a choice the user made. Neither grants anything — the skip posture is
+// identical — so this changes what the user is TOLD, never what they consented
+// to.
+func warnPromptFault(cmd *cobra.Command, err error) {
+	if errors.Is(err, io.EOF) {
+		return
+	}
+	clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "could not read your answer (%v); nothing was trusted or blacklisted", err)
 }
 
 // printBundleItemTrust stamps one bundle item by its ref and writes its trust

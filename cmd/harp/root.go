@@ -108,6 +108,15 @@ func runGenerate(cmd *cobra.Command, opts generateOpts) error {
 		slices.Sort(groups)
 		return fmt.Errorf("--group %q is not a word-list group (have: %s)", opts.group, strings.Join(groups, ", "))
 	}
+	// Same principle, third limb. An empty Separator is the one remaining
+	// value normalize REWRITES rather than uses ("" becomes "-"), so `-s ""`
+	// asked for no separator and got the default one back at exit 0. This
+	// layer cannot honour the request instead: harp.Options has no way to say
+	// "explicitly empty" — the zero value already means "use the default" —
+	// so refusing is the only answer that is not a different one.
+	if opts.separator == "" {
+		return fmt.Errorf("--separator must not be empty (the generator would substitute %q)", "-")
+	}
 
 	format, err := resolveFormat(cmd)
 	if err != nil {

@@ -326,3 +326,46 @@ func TestRunGenerate_AcceptsTheWholeAdvertisedRange(t *testing.T) {
 		}
 	}
 }
+
+// TestRunGenerate_RejectsAnEmptySeparator is the remaining limb of the same
+// principle TestRunGenerate_RejectsAdvertisedRangeViolations enforces for
+// --components and --group: the library CLAMPS what it cannot use rather than
+// rejecting it (harp.Options.normalize rewrites an empty Separator to "-"),
+// so a value this binary cannot actually deliver has to be refused HERE or it
+// comes back as a plausible wrong answer at exit 0.
+//
+// `harp -s ""` asks for no separator and used to get dash-separated names.
+// Honouring it is not available to this layer: harp.Options cannot express
+// "explicitly empty" — the struct's zero value already means "use the
+// default" — and cobra's Changed() knowledge stops at this boundary. So the
+// honest response is to say so, not to substitute a different separator.
+func TestRunGenerate_RejectsAnEmptySeparator(t *testing.T) {
+	root := newRootCmd()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"-s", ""})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatalf("harp -s \"\" must be refused, not silently rendered with the default separator; output: %q", out.String())
+	}
+	if !strings.Contains(err.Error(), "--separator") {
+		t.Errorf("the error must name the flag it is about, got %q", err)
+	}
+	if strings.Contains(out.String(), "-") && strings.TrimSpace(out.String()) != "" {
+		t.Errorf("nothing may be generated once the flag is refused, got %q", out.String())
+	}
+}
+
+// TestRunGenerate_AcceptsAnExplicitNonEmptySeparator keeps the guard above
+// from becoming a blanket rejection of --separator.
+func TestRunGenerate_AcceptsAnExplicitNonEmptySeparator(t *testing.T) {
+	name := strings.TrimRight(runHarp(t, "-s", "_"), "\n")
+	if strings.Contains(name, "-") {
+		t.Errorf("-s _ must not produce dashes, got %q", name)
+	}
+	if strings.Count(name, "_") != 2 {
+		t.Errorf("-s _ must join the default 3 components with underscores, got %q", name)
+	}
+}

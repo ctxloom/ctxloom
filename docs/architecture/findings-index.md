@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,350** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,351** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 147 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 179 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 180 |
-| `open` | no commit names this ID | **412** |
+| `open` | no commit names this ID | **411** |
 
-**Totals: 2268 findings across 162 units — 1,350 resolved, 412 still open, 506 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,351 resolved, 411 still open, 506 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 492 | 225 | 84 | 81 | 117 |
-| LOW | 871 | 501 | 175 | 48 | 90 | 57 |
+| LOW | 871 | 502 | 174 | 48 | 90 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2376,7 +2376,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U061-F13 | open | **`server.go:39-41; sessionwatch.go:91-96`** | COHESION | `GRPCServer.watchPoll` is a production struct field whose only writers are tests. | U061.md |
 | U061-F14 | **RESOLVED** `24902f7e` | `shared.go:25-27; server.go:18` | COUPLING | `PluginMap` is an exported package-level **mutable** map consulted at every dial, and the `&LLMGRPCPlugin{}` it holds embeds a nil `plugin.Plugin` interface, so the promoted net/rpc `Server()`/`Cli... | U061.md |
 | U061-F15 | **RESOLVED** `a814a093` | **`managed.go:119 vs :130; :49 vs :68; :234 vs :245`** | DUPLICATE | Nil-guard style is inconsistent across paired converters — `hs == nil` in `hooksToProto` (:119) but `len(hs) == 0` in `hooksFromProto` (:130); `in == nil` in `commandExportsToProto` (:49) but the s... | U061.md |
-| U061-F16 | open | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
+| U061-F16 | **RESOLVED** `fc9599aa` | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
 | U061-F17 | open | `procsession_unix.go:86-104` | CORRECTNESS | `killSessionExcept` has a pid-reuse TOCTOU: between `procSessionID(pid)` (:99) and `syscall.Kill(pid, SIGKILL)` (:102) the target can exit and its pid be reused by an unrelated process, which then ... | U061.md |
 | U061-F18 | **RESOLVED** `12f375ce` | `mock_client.go:158-160` | TRIVIAL | `NewMockClient` is a one-expression constructor (`return &MockClient{}`) used only by tests, and only two of them. | U061.md |
 | U062-F16 | **RESOLVED** `a57b2533` | `container.go:999-1006` | DUPLICATE | `containerName` re-implements `sanitizeAgentID` verbatim rather than calling it. | U062.md |

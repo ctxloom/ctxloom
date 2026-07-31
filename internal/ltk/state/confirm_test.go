@@ -122,3 +122,55 @@ func TestConfirmByRepeatTooEarlyDoesNotWrite(t *testing.T) {
 		t.Fatalf("a too-early repeat changes nothing and must not attempt a write, got: %v", err)
 	}
 }
+
+// A state file that does not decode discards EVERY live override, not just a
+// damaged one, and the next Save overwrites the file so the evidence is gone
+// too. That is the safe direction for the DECISION — a lost override merely
+// means the denial repeats — but it was completely silent, so an operator
+// whose confirmations kept evaporating had nothing to look at. Report it on
+// the channel Save failures already ride.
+func TestConfirmByRepeatReportsAnUndecodableStateFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const path = "/p/.ltk/state.json"
+	now := time.Unix(1_700_000_000, 0)
+
+	// A file that LOOKS like a live override for this very command, so the
+	// loss is a loss rather than an absence — but is truncated mid-object.
+	const corrupt = `{"pending":{"git push --force":{"not_before":1700000000,"expiry":179`
+	if err := afero.WriteFile(fs, path, []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture must be hostile from Store's vantage point: the file is
+	// non-empty, names the command, and still yields nothing.
+	st := Open(fs, path)
+	if st.LoadError() == nil {
+		t.Fatal("fixture is not hostile: the corrupt file decoded cleanly")
+	}
+	if st.Armed("git push --force", now) {
+		t.Fatal("fixture is not hostile: the override survived the corruption")
+	}
+
+	resp, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "no"}, "git push --force", path, now, 0, time.Minute)
+	if overridden {
+		t.Fatal("a corrupt store must not admit an override")
+	}
+	if resp.Allow {
+		t.Fatal("the denial must stand")
+	}
+	if err == nil {
+		t.Fatal("the undecodable state file was reported nowhere")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("error does not name the state file: %v", err)
+	}
+}
+
+// An absent state file is the ordinary first run, not a failure to report.
+func TestConfirmByRepeatDoesNotReportAMissingStateFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_, _, err := ConfirmByRepeat(fs, engine.Response{Reason: "no"}, "x", "/p/.ltk/state.json",
+		time.Unix(1_700_000_000, 0), 0, time.Minute)
+	if err != nil {
+		t.Fatalf("first run reported an error: %v", err)
+	}
+}

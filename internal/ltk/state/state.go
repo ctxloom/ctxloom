@@ -14,6 +14,9 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	fs2 "io/fs"
 	"path/filepath"
 	"time"
 
@@ -58,25 +61,49 @@ type pending struct {
 type Store struct {
 	fs      afero.Fs
 	path    string
+	loadErr error
 	Pending map[string]pending `json:"pending"` // command → armed override band
 }
 
 // Open loads the store at path from fs. A missing or corrupt file yields an
 // empty store (best-effort: an unreadable state file must never break
 // evaluation). A nil fs defaults to the real OS filesystem.
+//
+// Open therefore cannot fail, but it can lose everything: a state file that
+// does not decode discards EVERY live override, not just a damaged one, and
+// the next Save overwrites the file wholesale so the evidence goes too. The
+// decision that follows is unaffected — a lost override just means the denial
+// repeats — but the operator gets no hint that their state file is unusable
+// and their confirmations keep evaporating. LoadError reports it so a caller
+// can say so, on the same channel Save's failures already ride.
 func Open(fs afero.Fs, path string) *Store {
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
 	s := &Store{fs: fs, path: path, Pending: map[string]pending{}}
-	if b, err := afero.ReadFile(fs, path); err == nil {
-		_ = json.Unmarshal(b, s)
-		if s.Pending == nil {
-			s.Pending = map[string]pending{}
-		}
+	b, err := afero.ReadFile(fs, path)
+	switch {
+	case errors.Is(err, fs2.ErrNotExist):
+		return s // no state yet is the ordinary first-run case, not a failure
+	case err != nil:
+		s.loadErr = fmt.Errorf("read %s: %w", path, err)
+		return s
+	}
+	if err := json.Unmarshal(b, s); err != nil {
+		s.Pending = map[string]pending{}
+		s.loadErr = fmt.Errorf("decode %s: %w (every live override was discarded)", path, err)
+		return s
+	}
+	if s.Pending == nil {
+		s.Pending = map[string]pending{}
 	}
 	return s
 }
+
+// LoadError reports why the store came up empty, or nil when it loaded cleanly
+// (an absent file is clean — it is the first-run case). It never affects a
+// decision; it exists so the emptiness is attributable instead of silent.
+func (s *Store) LoadError() error { return s.loadErr }
 
 // Armed reports whether cmd has an unexpired pending entry — i.e. it was denied
 // recently and an override is still live (the delay may or may not have elapsed;

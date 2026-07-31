@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -56,7 +57,7 @@ func ConfirmByRepeat(fs afero.Fs, resp engine.Response, command, stateFile strin
 		if st.Ready(key, now) {
 			st.Clear(key)
 			err := st.Save(now)
-			return engine.Response{Allow: true}, true, err
+			return engine.Response{Allow: true}, true, errors.Join(st.LoadError(), err)
 		}
 		// Repeated inside the delay: keep the existing arm (don't reset the
 		// timer) and push back harder. Nothing in st.Pending changed on this
@@ -64,14 +65,14 @@ func ConfirmByRepeat(fs afero.Fs, resp engine.Response, command, stateFile strin
 		// here: it would perform a real atomic write (temp file + rename) for
 		// zero state delta, on every over-eager repeat.
 		resp.Reason = tooEarlyReason(resp.Reason, st.RemainingDelay(key, now))
-		return resp, false, nil
+		return resp, false, st.LoadError()
 	}
 
 	// First denial (or the previous arm expired): arm and explain.
 	st.Arm(key, now, delay, window)
 	err := st.Save(now)
 	resp.Reason = armReason(resp.Reason, int(delay.Seconds()), int(window.Seconds()))
-	return resp, false, err
+	return resp, false, errors.Join(st.LoadError(), err)
 }
 
 // armReason appends the override instructions to a fresh denial. The tone is

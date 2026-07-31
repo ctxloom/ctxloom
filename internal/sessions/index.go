@@ -348,8 +348,21 @@ func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return
 	}
+	// A binding whose target is not on disk still gets its link: BindSession
+	// runs on MCP initialize and an engine may not have flushed its transcript
+	// yet, so refusing would discard a link that becomes valid moments later.
+	// But a dangling link is indistinguishable from a missing one at every
+	// later read, so the stale binding is named here, where the cause is known.
+	if _, serr := os.Stat(transcriptPath); serr != nil {
+		clidiag.Warn("ctxloom", "transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
+	}
 	link := filepath.Join(dir, paths.CanonicalTranscriptFileName)
-	_ = os.Remove(link) // replace any stale link; ignore absence
+	// Only ABSENCE licenses moving on. Any other removal failure is reported
+	// where it happened: the Symlink below then fails with EEXIST, which names
+	// the symptom and hides the cause.
+	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+		clidiag.Warn("ctxloom", "transcript link: could not replace the existing %s (%v)", link, err)
+	}
 	if err := os.Symlink(transcriptPath, link); err != nil {
 		clidiag.Warn("ctxloom", "transcript link: %v", err)
 	}

@@ -50,3 +50,15 @@ func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 func TestLockfile_AllEntries_EmptyIsEmpty(t *testing.T) {
 	assert.Empty(t, (&Lockfile{Bundles: map[string]LockEntry{}}).AllEntries())
 }
+
+// The point of the collapse: the element type can now be named, so a caller
+// can hold or pass one. Pre-fix this did not compile.
+func TestLockfile_AllEntries_ElementTypeIsNameable(t *testing.T) {
+	var entries []LockedEntry = (&Lockfile{Bundles: map[string]LockEntry{"a/b": {SHA: "s"}}}).AllEntries()
+	require.Len(t, entries, 1)
+
+	var one LockedEntry = entries[0]
+	assert.Equal(t, "a/b", one.Ref)
+	assert.Equal(t, ItemTypeBundle, one.Type)
+	assert.Equal(t, "s", one.Entry.SHA)
+}

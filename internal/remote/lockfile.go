@@ -295,26 +295,24 @@ func (l *Lockfile) RemoveEntry(itemType ItemType, ref string) {
 	}
 }
 
-// AllEntries returns all entries in the lockfile with their types.
-func (l *Lockfile) AllEntries() []struct {
+// LockedEntry is one lockfile record together with the identity it is stored
+// under: the item Type, the Ref that keys it, and the LockEntry itself. It
+// exists so AllEntries' element has a name -- callers rebuild the lockfile
+// from these (carrying Pinned and Retracted forward), and a result that can
+// only be described by re-spelling its own shape cannot be stored in a
+// variable, passed to a helper or ranged over by anything but its producer.
+type LockedEntry struct {
 	Type  ItemType
 	Ref   string
 	Entry LockEntry
-} {
-	var results []struct {
-		Type  ItemType
-		Ref   string
-		Entry LockEntry
-	}
+}
 
+// AllEntries returns all entries in the lockfile with their types.
+func (l *Lockfile) AllEntries() []LockedEntry {
+	var results []LockedEntry
 	for ref, entry := range l.Bundles {
-		results = append(results, struct {
-			Type  ItemType
-			Ref   string
-			Entry LockEntry
-		}{ItemTypeBundle, ref, entry})
+		results = append(results, LockedEntry{Type: ItemTypeBundle, Ref: ref, Entry: entry})
 	}
-
 	return results
 }
 

@@ -739,3 +739,32 @@ func TestListBundles_ThreadsTheCallersContext(t *testing.T) {
 	assert.Contains(t, names, "local-one",
 		"locally-authored bundles do not depend on the cancellable remote pass")
 }
+
+// TestMissingFrom_BuiltinNamesWouldMaskAnExplicitMiss pins U082-F19. The
+// missing-explicit-asks calculation carried connascence of execution order: it
+// HAD to run before appendBuiltinFragments reassigned loadedNames, and nothing
+// but a comment said so. AssembleContext now computes it against loaderNames,
+// which is never reassigned, so the constraint is structural rather than
+// textual — but the hazard that made the ordering matter is real, and this
+// records it so a future edit cannot re-fold builtin names in by accident.
+//
+// Pure refactor (brief §4 class 2): behaviour is unchanged, so this is green
+// before and after. What it demonstrates is WHY the order mattered.
+func TestMissingFrom_BuiltinNamesWouldMaskAnExplicitMiss(t *testing.T) {
+	requested := []string{"asked-for", "also-asked-for"}
+	loaderNames := []string{"asked-for"} // "also-asked-for" never loaded
+
+	assert.Equal(t, []string{"also-asked-for"}, missingFrom(requested, loaderNames),
+		"an explicit ask the loader did not satisfy must be reported missing")
+
+	// The hazard: an always-on builtin fragment happening to carry the same
+	// name would erase the miss entirely if it were folded into the set the
+	// calculation reads.
+	withBuiltinsFolded := append(append([]string{}, loaderNames...), "also-asked-for")
+	assert.Nil(t, missingFrom(requested, withBuiltinsFolded),
+		"folding builtin names in silently satisfies an ask the user never got")
+
+	// Order-independence of the corrected form: the input the calculation reads
+	// is a snapshot, so evaluating it later cannot change the answer.
+	assert.Equal(t, missingFrom(requested, loaderNames), missingFrom(requested, loaderNames))
+}

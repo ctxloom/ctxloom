@@ -150,14 +150,17 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// "lost in the middle" optimization.
 	orderedRefs := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	contextContent, loadedNames, err := loadAssembledContext(loader, orderedRefs, profileVars)
+	contextContent, loaderNames, err := loadAssembledContext(loader, orderedRefs, profileVars)
 	if err != nil {
 		return nil, err
 	}
 
-	// Which explicit asks failed to load — computed BEFORE the builtin append,
-	// against the loader-sourced names only.
-	missingRequested := missingFrom(requested, loadedNames)
+	// Which explicit asks failed to load, judged against the LOADER-sourced
+	// names alone. loaderNames is never reassigned, so this answer does not
+	// depend on where the call sits relative to the builtin append below —
+	// folding builtin names in would let an always-on fragment mask an explicit
+	// request the user made and did not get.
+	missingRequested := missingFrom(requested, loaderNames)
 
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP (ResolveBundleHooks/ResolveBundleMCPServers)
@@ -166,7 +169,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// the SAME content gate as loader-resolved fragments (loader.Gate(), nil
 	// for an injected gate-free loader) so a rejected builtin fragment is
 	// withheld exactly like a rejected builtin MCP server/hook.
-	contextContent, loadedNames = appendBuiltinFragments(cfg, loader.Gate(), contextContent, loadedNames)
+	contextContent, loadedNames := appendBuiltinFragments(cfg, loader.Gate(), contextContent, loaderNames)
 
 	// Surface (content-free) any items the trust gate withheld during this
 	// assembly so the user knows content was hidden, WHY, and how to review it.

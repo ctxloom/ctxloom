@@ -2,7 +2,6 @@ package frontend
 
 import (
 	"context"
-	"path"
 	"slices"
 	"strings"
 	"unicode"
@@ -123,13 +122,28 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 	return truncated, unanalyzed
 }
 
+// argvBase reduces a program token to its basename, treating BOTH '/' and '\'
+// as separators regardless of the host OS. path.Base is slash-only and
+// filepath.Base follows the host, so either one lets a Windows-style
+// invocation (`C:\Windows\System32\cmd.exe /c …`) keep its whole path as the
+// "program name" when ltk runs on a POSIX host — the wrapper tables then never
+// match and the inner command is never analysed. The dialects ltk parses
+// include cmd.exe and PowerShell, so a backslash path is ordinary input here,
+// not a foreign one.
+func argvBase(prog string) string {
+	if i := strings.LastIndexAny(prog, `/\`); i >= 0 {
+		return prog[i+1:]
+	}
+	return prog
+}
+
 // wrappedCommand returns the inner command string and the shell it is written
 // in, if argv is a recognized wrapper invocation.
 func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 	if len(argv) == 0 {
 		return "", "", false
 	}
-	prog := strings.ToLower(path.Base(argv[0]))
+	prog := strings.ToLower(argvBase(argv[0]))
 	args := argv[1:]
 	for _, rule := range wrapperRules {
 		if !slices.Contains(rule.programs, prog) {
@@ -393,7 +407,7 @@ func prefixWrapped(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return nil, false
 	}
-	prog := strings.ToLower(path.Base(argv[0]))
+	prog := strings.ToLower(argvBase(argv[0]))
 	args := argv[1:]
 	for _, rule := range prefixWrapperRules {
 		if !slices.Contains(rule.programs, prog) {

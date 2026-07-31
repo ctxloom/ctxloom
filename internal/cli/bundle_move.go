@@ -75,7 +75,7 @@ func runBundleMove(cmd *cobra.Command, args []string) error {
 // printMoveResult renders a move outcome for humans.
 func printMoveResult(w io.Writer, r *operations.MoveBundleResult) error {
 	dest := r.Dest
-	if r.DestKind == "remote" {
+	if r.DestKind == operations.MoveDestRemote {
 		dest = fmt.Sprintf("%s (%s)", r.Dest, r.Remote)
 	}
 	if _, err := fmt.Fprintf(w, "Moved %s -> %s\n", r.Source, dest); err != nil {

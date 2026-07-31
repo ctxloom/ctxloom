@@ -15,12 +15,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// MoveDestRemote and MoveDestPath are the two values MoveBundleResult.DestKind
+// takes. They are exported because DestKind is part of this result's contract:
+// a frontend branching on the outcome (the CLI's printMoveResult annotates a
+// remote destination with the remote's name) would otherwise have to spell the
+// literal itself, with nothing tying the two spellings together.
+const (
+	MoveDestRemote = "remote"
+	MoveDestPath   = "path"
+)
+
 // moveDestKind distinguishes the two destinations a bundle can move to.
 type moveDestKind string
 
 const (
-	moveDestRemote moveDestKind = "remote"
-	moveDestPath   moveDestKind = "path"
+	moveDestRemote moveDestKind = MoveDestRemote
+	moveDestPath   moveDestKind = MoveDestPath
 )
 
 // moveDest is a resolved `--to`: exactly one of Remote (a configured registry

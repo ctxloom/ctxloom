@@ -339,11 +339,20 @@ func (m *Monitor) quietRung(t Target, ev Evidence, now time.Time) (State, string
 		return StateUnknown, fmt.Sprintf("quiet for %s on the clocks that could be read, but the worktree could not be walked, so filesystem activity cannot be ruled out: %s",
 			quiet.Round(time.Second), ev.FSError)
 	}
-	young := !t.StartedAt.IsZero() && ev.Age < m.thr.StartGrace
-	if !young {
-		if s, reason := m.contentRung(ev, quiet); s != "" {
-			return s, reason
-		}
+	// Everything from here down is an ABSENCE-based verdict, and StartGrace is
+	// defined as how long the monitor refuses to reach one. That gate needs an
+	// age, and Target.StartedAt's contract is that a zero value withholds it:
+	// the monitor does not invent an age it does not know.
+	if t.StartedAt.IsZero() {
+		return StateUnknown, fmt.Sprintf("quiet for %s, but this run has no start time, so the launch grace cannot be applied and silence cannot yet be read as a stall",
+			quiet.Round(time.Second))
+	}
+	if ev.Age < m.thr.StartGrace {
+		return StateStarting, fmt.Sprintf("quiet for %s but launched only %s ago — still inside the %s launch grace, where absence proves nothing",
+			quiet.Round(time.Second), ev.Age.Round(time.Second), m.thr.StartGrace)
+	}
+	if s, reason := m.contentRung(ev, quiet); s != "" {
+		return s, reason
 	}
 	return StateStalled, fmt.Sprintf("quiet for %s on every clock (last tool_use %s) — no transcript record, %s, no coordinator activity",
 		quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now), fsClause(t, ev))

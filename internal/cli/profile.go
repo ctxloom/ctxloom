@@ -128,8 +128,8 @@ Example:
 
 func runProfileCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if name == "help" {
-		return cmd.Help()
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
 	}
 
 	if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
@@ -224,8 +224,8 @@ var profileDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 
 		cfg, err := GetConfig()
@@ -250,8 +250,8 @@ var profileShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 
 		cfg, err := GetConfig()
@@ -336,8 +336,8 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 
 		cfg, err := GetConfig()

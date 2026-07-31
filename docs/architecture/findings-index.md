@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,535** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,536** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **138** |
+| `open` | no commit names this ID | **137** |
 
-**Totals: 2268 findings across 162 units — 1,535 resolved, 138 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,536 resolved, 137 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 578 | 84 | 104 | 96 | 137 |
+| MED | 999 | 579 | 83 | 104 | 96 | 137 |
 | LOW | 871 | 596 | 47 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1847,7 +1847,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U134-F09 | **PARTIAL** `4b33eed7` | `payload.go:146,175` | SILENTNOOP | An "approval of nothing" is constructible and signable: `ApproveCountersignPayload(kind, ref, form, nil)` produces a valid frame with `len: 0`, and `Sign` will sign it (F01). | U134.md |
 | U135-F04 | **RESOLVED** `874b286d` | `337, 364` | NOPAY | `ctx` is threaded into `resolveGitSigningKey` and `resolveSoleAgentIdentity` and never used — while the *actual* blocking I/O (agent dial + RPC) has no cancellation or deadline at all. `dialEnvAgen... | U135.md |
 | U135-F05 | open | `221-225` | ERRHANDLING | The unix socket opened for ssh-agent is never closed; `Discovered` exposes no `Close`. | U135.md |
-| U135-F06 | open | `168-181 vs 237` | CORRECTNESS | Field docs promise defaults that `Discover` does not apply — a partially-constructed `Discoverer` nil-func panics instead of degrading. | U135.md |
+| U135-F06 | **RESOLVED** `93e44f63` | `168-181 vs 237` | CORRECTNESS | Field docs promise defaults that `Discover` does not apply — a partially-constructed `Discoverer` nil-func panics instead of degrading. | U135.md |
 | U135-F07 | open | `285, 115` | CORRECTNESS | A user-supplied `--key` value is echoed verbatim to stderr on failure; if someone pastes private key text as `--key`, that text is printed (and is already in argv / shell history). | U135.md |
 | U135-F08 | open | `259, 266, 285, 340, 345, 353, 367` | COUPLING | Which failures yield `*NoKeyError` vs a plain error is inconsistent, so a caller keying policy off the type gets different answers for equivalent situations. | U135.md |
 | U135-F09 | open | `74-99 vs `internal/cli/review.go:158-162`, `internal/cli/doctor_cmd.go:315-327` | DUPLICATE | The ambiguous-key message is authored three times over the same struct fields, and the three copies already disagree. | U135.md |

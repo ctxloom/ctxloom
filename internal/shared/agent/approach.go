@@ -51,14 +51,21 @@ const (
 // that actually renders an approach goes through THIS method, via
 // approach()), so they were deleted. Their approach() converters stay: they
 // are the compile-time cross-surface guard SupportedApproaches/Build rely on.
+// An UNDECLARED value renders as "unknown(<n>)", never as the zero value: the
+// zero value here is the LEAST safe approach, so rendering it for an
+// unrecognised one would make error text ("approach unsafe-file not supported")
+// name a decided unsafe choice the caller never made. SurfaceKind.String in
+// cells.go spells the same honest answer.
 func (a Approach) String() string {
 	switch a {
+	case ApproachUnsafeFile:
+		return "unsafe-file"
 	case ApproachSystemPrompt:
 		return "system-prompt"
 	case ApproachHook:
 		return "hook"
 	default:
-		return "unsafe-file"
+		return fmt.Sprintf("unknown(%d)", int(a))
 	}
 }
 

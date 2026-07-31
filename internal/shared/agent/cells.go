@@ -278,15 +278,22 @@ const (
 	CellKindProcessIsolated
 )
 
-// String renders the CellKind for diagnostics.
+// String renders the CellKind for diagnostics. An UNDECLARED value renders as
+// "unknown(<n>)", never as the zero value: "shared" asserts a run has NO
+// isolation, which is the wrong thing to report for a cell this build does not
+// recognise. (The wire decode clamps unknown enum values to Shared deliberately
+// — that is a decoding policy with its own doc; this is the rendering of a value
+// that never went through it.)
 func (k CellKind) String() string {
 	switch k {
+	case CellKindShared:
+		return "shared"
 	case CellKindDirectoryIsolated:
 		return "directory-isolated"
 	case CellKindProcessIsolated:
 		return "process-isolated"
 	default:
-		return "shared"
+		return fmt.Sprintf("unknown(%d)", int(k))
 	}
 }
 

@@ -231,10 +231,37 @@ func TestParse_NoKeyFieldIsMalformed(t *testing.T) {
 	assert.Empty(t, store.Entries())
 }
 
+// TestParse_UnrecognizedKeyTypeIsMalformed pins the key-type/blob agreement
+// check, and it must do so with a blob that is otherwise PERFECTLY GOOD.
+//
+// The blob this used to carry ("AAAA==") is not valid base64, so
+// ssh.ParseAuthorizedKey rejected the line before the declared type was ever
+// looked at: the test passed for the same reason
+// TestParse_CorruptBase64KeyBlobIsMalformed passes, and it would have passed
+// against a parser that ignored the key-type token entirely — which is exactly
+// the parser this package used to have. A real ed25519 blob under a bogus type
+// token is the only input that reaches the check.
 func TestParse_UnrecognizedKeyTypeIsMalformed(t *testing.T) {
-	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me not-a-real-keytype AAAA==\n"))
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me not-a-real-keytype " + blob + "\n"))
 	require.NoError(t, err)
 	require.Len(t, perrs, 1)
+	// The line is rejected for the RIGHT reason: the blob parses, the
+	// declared token does not describe it.
+	assert.ErrorIs(t, perrs[0].Err, errKeyTypeMismatch)
+	assert.Empty(t, store.Entries())
+}
+
+// TestParse_MislabelledKeyTypeIsMalformed is the same check with a token that
+// is a REAL ssh key type, just not this blob's — the shape an attacker would
+// actually use, since golang.org/x/crypto never reads the token and would
+// happily hand back a trusted ed25519 key from a line labelled ssh-rsa.
+func TestParse_MislabelledKeyTypeIsMalformed(t *testing.T) {
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-rsa " + blob + "\n"))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errKeyTypeMismatch)
 	assert.Empty(t, store.Entries())
 }
 

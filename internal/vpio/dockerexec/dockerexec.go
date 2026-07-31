@@ -190,10 +190,28 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 	if err != nil {
 		return nil, fmt.Errorf("vpio/dockerexec: start exec under host pty: %w", err)
 	}
-	s := &Session{master: master, cmd: cmd, ring: stderrtail.New(stderrtail.DefaultBytes), outDone: make(chan struct{})}
+	s := &Session{
+		master:  master,
+		cmd:     cmd,
+		ring:    stderrtail.New(stderrtail.DefaultBytes),
+		outDone: make(chan struct{}),
+		inDone:  make(chan struct{}),
+	}
 
+	// The stdin pump ends when the master is closed: the copy's next write
+	// fails with os.ErrClosed rather than reaching whatever the kernel has
+	// since given that descriptor number to. os.Stdin's own Read cannot be
+	// interrupted from here, so the goroutine may still be parked in it until
+	// one more keystroke arrives — but a parked reader that can no longer write
+	// anywhere is inert, and inDone makes the moment it retires observable
+	// instead of invisible.
 	if spec.Stdin != nil {
-		go func() { _, _ = io.Copy(master, spec.Stdin) }()
+		go func() {
+			defer close(s.inDone)
+			_, _ = io.Copy(master, spec.Stdin)
+		}()
+	} else {
+		close(s.inDone)
 	}
 
 	go func() {
@@ -211,6 +229,12 @@ type Session struct {
 	cmd     *exec.Cmd
 	ring    *stderrtail.Ring
 	outDone chan struct{}
+	// inDone closes when the stdin pump has retired. It is not waited on:
+	// os.Stdin's Read is uninterruptible from here, so a session that ends
+	// while the user is not typing leaves the pump parked until the next
+	// keystroke. Closing the master first is what makes that parked reader
+	// harmless — its next write can only fail.
+	inDone chan struct{}
 
 	mu           sync.Mutex
 	masterClosed bool

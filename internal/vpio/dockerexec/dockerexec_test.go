@@ -343,3 +343,48 @@ func TestSession_WaitClosesThePtyMaster(t *testing.T) {
 
 	require.ErrorIs(t, sess.master.Close(), os.ErrClosed, "the pty master must be closed once Wait returns")
 }
+
+// TestStartPTYCommand_StdinPumpRetiresWithTheSession pins U152-F04: the
+// stdin-copy goroutine was fire-and-forget — nothing cancelled it and nothing
+// could observe it. Its danger was not the goroutine but its WRITE END: it held
+// the pty master, which the session never closed (U152-F03), so a keystroke
+// arriving after the turn ended was copied into a descriptor whose owner had
+// moved on. Once the master is closed with the session, that write can only
+// fail, and the pump retires.
+//
+// This is a test-seam row (template §4 class 4): inDone did not exist before,
+// so the honest pre-fix test does not compile. It is demonstrated red with the
+// SEAM PRESENT and only Wait's unconditional closeMaster reverted — see the
+// commit body.
+func TestStartPTYCommand_StdinPumpRetiresWithTheSession(t *testing.T) {
+	ctx := context.Background()
+	stdinR, stdinW := io.Pipe()
+	t.Cleanup(func() { _ = stdinW.Close() })
+
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", "exit 0"), vpio.ProcessSpec{Stdin: stdinR, Stdout: io.Discard})
+	require.NoError(t, err)
+	_, werr := sess.Wait()
+	require.NoError(t, werr)
+
+	// One keystroke after the session is over. It must go nowhere.
+	go func() { _, _ = stdinW.Write([]byte("k")) }()
+
+	select {
+	case <-sess.inDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stdin pump is still live after the session ended — it is still holding the master's write end")
+	}
+}
+
+// TestStartPTYCommand_NilStdinRetiresImmediately: a non-interactive turn has no
+// pump at all, and inDone must not be a channel nobody ever closes.
+func TestStartPTYCommand_NilStdinRetiresImmediately(t *testing.T) {
+	ctx := context.Background()
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", "exit 0"), vpio.ProcessSpec{Stdout: io.Discard})
+	require.NoError(t, err)
+	select {
+	case <-sess.inDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("inDone must already be closed when there is no stdin to pump")
+	}
+}

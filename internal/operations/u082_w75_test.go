@@ -173,3 +173,61 @@ func readBundleFile(t *testing.T, path string) bundles.Bundle {
 	require.NoError(t, yaml.Unmarshal(data, &b))
 	return b
 }
+
+// TestUpdateBundle_IdenticalSetIsNoChanges pins U082-F13: UpdateBundleResult's
+// documented contract is `"updated"` when at least one mutation took effect,
+// otherwise `"no_changes"`, so callers can detect idempotent operations.
+// apply{Fragment,Prompt,MCP}Edits appended a change line for EVERY name in the
+// set map without comparing against the existing entry, so re-applying a
+// byte-identical edit reported "updated" with a fabricated change line — and
+// rewrote the bundle file — for a request that produced no diff at all.
+func TestUpdateBundle_IdenticalSetIsNoChanges(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "seed"})
+	require.NoError(t, err)
+
+	frag := map[string]BundleFragmentInput{
+		"intro": {Content: "intro body", Tags: []string{"alpha"}, Notes: "n", NoDistill: true},
+	}
+	cmd := map[string]BundleCommandInput{
+		"review": {Content: "review body", Description: "d", Tags: []string{"beta"}, NoDistill: true},
+	}
+	mcp := map[string]BundleMCPInput{
+		"srv": {Command: "srv-bin", Args: []string{"--flag"}, Env: map[string]string{"K": "V"}},
+	}
+
+	// First application really mutates: this both establishes the entries and
+	// proves (§11k) that the second, identical request is being compared
+	// against an existing entry rather than creating one.
+	first, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name: "seed", SetFragments: frag, SetPrompts: cmd, SetMCPServers: mcp,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "updated", first.Status)
+	require.ElementsMatch(t,
+		[]string{"set fragment: intro", "set prompt: review", "set mcp: srv"}, first.Changes)
+
+	onDisk := readBundleFile(t, first.Path)
+	require.Equal(t, "intro body", onDisk.Fragments["intro"].Content)
+	require.Equal(t, "review body", onDisk.Commands["review"].Content)
+	require.Equal(t, "srv-bin", onDisk.MCP["srv"].Command)
+
+	// Re-applying the identical inputs produces no diff.
+	second, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name: "seed", SetFragments: frag, SetPrompts: cmd, SetMCPServers: mcp,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "no_changes", second.Status)
+	assert.Empty(t, second.Changes)
+
+	// A genuine edit still reports, so the comparison has not disabled Set*.
+	frag["intro"] = BundleFragmentInput{
+		Content: "intro body", Tags: []string{"alpha"}, Notes: "different note", NoDistill: true,
+	}
+	third, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name: "seed", SetFragments: frag, SetPrompts: cmd, SetMCPServers: mcp,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "updated", third.Status)
+	assert.Equal(t, []string{"set fragment: intro"}, third.Changes)
+}

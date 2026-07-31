@@ -751,11 +751,17 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 			return nil, err
 		}
 	}
-	// Fill AFTER the save decision so the located path is computed-on-read
+	// Fill AFTER the save decision so the computed paths are computed-on-read
 	// only, never persisted. (The canonical-transcript fill above is on a
-	// throwaway copy for exactly the same reason.)
+	// throwaway copy for exactly the same reason.) The RETURNED entries get
+	// both fills, so Reconcile's entries mean the same thing as Find's and
+	// ListForProject's: an entry whose CanonicalTranscriptPath is empty must
+	// mean no capture exists, not that this method skipped the stat —
+	// SourceStale reads that field to decide which file the staleness
+	// fingerprint is even about.
 	for i := range survivors {
 		fillTranscriptByLocation(&survivors[i])
+		fillCanonicalTranscript(&survivors[i])
 	}
 	return survivors, nil
 }

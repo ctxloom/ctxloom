@@ -62,7 +62,13 @@ type Store struct {
 	fs      afero.Fs
 	path    string
 	loadErr error
-	Pending map[string]pending `json:"pending"` // command → armed override band
+	// pending is command → armed override band. It is UNEXPORTED even
+	// though it is what gets persisted: exporting it to satisfy encoding/json
+	// handed every caller a mutable map and a way to write a band directly,
+	// bypassing Arm — the only place the [now+delay, now+window] invariant is
+	// established. storeDoc carries the on-disk shape instead, so the wire
+	// format is unchanged and the invariant has exactly one door.
+	pending map[string]pending
 }
 
 // Open loads the store at path from fs. A missing or corrupt file yields an
@@ -80,7 +86,7 @@ func Open(fs afero.Fs, path string) *Store {
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
-	s := &Store{fs: fs, path: path, Pending: map[string]pending{}}
+	s := &Store{fs: fs, path: path, pending: map[string]pending{}}
 	b, err := afero.ReadFile(fs, path)
 	switch {
 	case errors.Is(err, fs2.ErrNotExist):
@@ -90,12 +96,12 @@ func Open(fs afero.Fs, path string) *Store {
 		return s
 	}
 	if err := json.Unmarshal(b, s); err != nil {
-		s.Pending = map[string]pending{}
+		s.pending = map[string]pending{}
 		s.loadErr = fmt.Errorf("decode %s: %w (every live override was discarded)", path, err)
 		return s
 	}
-	if s.Pending == nil {
-		s.Pending = map[string]pending{}
+	if s.pending == nil {
+		s.pending = map[string]pending{}
 	}
 	return s
 }
@@ -105,25 +111,48 @@ func Open(fs afero.Fs, path string) *Store {
 // decision; it exists so the emptiness is attributable instead of silent.
 func (s *Store) LoadError() error { return s.loadErr }
 
+// storeDoc is the persisted shape of a Store. It exists so Store's map can stay
+// unexported: encoding/json cannot see an unexported field, and exporting one
+// purely to be marshalled is what put a mutable map, and a way around Arm, on
+// the package's public surface.
+type storeDoc struct {
+	Pending map[string]pending `json:"pending"`
+}
+
+// MarshalJSON writes the on-disk shape unchanged: {"pending": {...}}.
+func (s *Store) MarshalJSON() ([]byte, error) {
+	return json.Marshal(storeDoc{Pending: s.pending})
+}
+
+// UnmarshalJSON reads that same shape.
+func (s *Store) UnmarshalJSON(b []byte) error {
+	var doc storeDoc
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return err
+	}
+	s.pending = doc.Pending
+	return nil
+}
+
 // Armed reports whether cmd has an unexpired pending entry — i.e. it was denied
 // recently and an override is still live (the delay may or may not have elapsed;
 // see Ready).
 func (s *Store) Armed(cmd string, now time.Time) bool {
-	p, ok := s.Pending[cmd]
+	p, ok := s.pending[cmd]
 	return ok && now.Unix() < p.Expiry
 }
 
 // Ready reports whether a live override for cmd may now be consumed: the delay
 // has elapsed (now ≥ NotBefore) and the window has not (now < Expiry).
 func (s *Store) Ready(cmd string, now time.Time) bool {
-	p, ok := s.Pending[cmd]
+	p, ok := s.pending[cmd]
 	return ok && now.Unix() >= p.NotBefore && now.Unix() < p.Expiry
 }
 
 // RemainingDelay returns how many seconds remain before a live override for cmd
 // becomes consumable, or 0 if the delay has already elapsed (or there is none).
 func (s *Store) RemainingDelay(cmd string, now time.Time) int {
-	if p, ok := s.Pending[cmd]; ok && now.Unix() < p.NotBefore {
+	if p, ok := s.pending[cmd]; ok && now.Unix() < p.NotBefore {
 		return int(p.NotBefore - now.Unix())
 	}
 	return 0
@@ -131,22 +160,22 @@ func (s *Store) RemainingDelay(cmd string, now time.Time) int {
 
 // Arm records cmd as pending: confirmable in the band [now+delay, now+window].
 func (s *Store) Arm(cmd string, now time.Time, delay, window time.Duration) {
-	s.Pending[cmd] = pending{
+	s.pending[cmd] = pending{
 		NotBefore: now.Add(delay).Unix(),
 		Expiry:    now.Add(window).Unix(),
 	}
 }
 
 // Clear removes cmd's pending entry (call after consuming a confirmation).
-func (s *Store) Clear(cmd string) { delete(s.Pending, cmd) }
+func (s *Store) Clear(cmd string) { delete(s.pending, cmd) }
 
 // Save prunes expired entries and writes the store, creating its directory.
 // The write is atomic (a sibling temp file renamed into place), so a concurrent
 // reader sees either the old store or the new one, never a torn file.
 func (s *Store) Save(now time.Time) error {
-	for c, p := range s.Pending {
+	for c, p := range s.pending {
 		if now.Unix() >= p.Expiry {
-			delete(s.Pending, c)
+			delete(s.pending, c)
 		}
 	}
 	if err := s.fs.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {

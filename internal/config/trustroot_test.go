@@ -1,12 +1,14 @@
 package config
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,4 +267,38 @@ func TestSignerStorePaths_AllowedAndDistrustedAgreeOnShape(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A distrusted_signers file that opens and then stops PART WAY THROUGH — a
+// mid-read I/O error, or a line past bufio.Scanner's 64 KiB token limit — used
+// to end the scan with no error checked anywhere: the entries above the
+// truncation point loaded, the ones below silently stopped being suppressed,
+// and nothing said so. The direction is fail-OPEN: fewer suppressions means an
+// embedded key the operator explicitly removed counts again.
+func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	// One good entry, then a line past bufio.Scanner's token limit. The
+	// scanner returns the first line and then fails with ErrTooLong.
+	content := "kept@example.com\n" +
+		strings.Repeat("x", bufio.MaxScanTokenSize+1) + "\n" +
+		"lost@example.com\n"
+	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(".ctxloom"), []byte(content), 0o644))
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	suppressed := cfg.SuppressedEmbeddedPrincipals()
+
+	// The fixture must actually truncate from the reader's point of view, or
+	// this test proves nothing about the reporting below it.
+	require.True(t, suppressed["kept@example.com"], "the entries before the truncation point must load")
+	require.False(t, suppressed["lost@example.com"], "the fixture must actually truncate the scan")
+
+	assert.Contains(t, buf.String(), "distrusted_signers",
+		"a truncated suppression file re-trusts keys the operator removed; that must be reported")
+	assert.Contains(t, buf.String(), "trusted again this session",
+		"the report must name the fail-open direction, not just that something went wrong")
 }

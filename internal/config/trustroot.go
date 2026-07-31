@@ -175,6 +175,14 @@ func (c *Config) distrustedSignersPaths() []string {
 // the reject path. It stays non-fatal (failing closed here would suppress
 // every embedded principal, i.e. withhold all first-party content over a
 // permissions problem), but it must never be silent.
+//
+// A file that opens and then stops PART WAY THROUGH is the same degradation
+// wearing a success's clothes: a mid-read I/O error, or a line past
+// bufio.Scanner's 64 KiB token limit, ends the scan with whatever was parsed
+// so far and no error anywhere. Every principal below the truncation point
+// stops being suppressed — the same silent re-trust as an unreadable file, on
+// a partial file — so the scan's error is checked and reported for the same
+// reason.
 func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 	f, err := fs.Open(path)
 	if err != nil {
@@ -193,6 +201,9 @@ func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 			continue
 		}
 		out[line] = true
+	}
+	if err := sc.Err(); err != nil {
+		clidiag.Warn("ctxloom", "distrusted_signers %s could only be read as far as %d entr(ies); any signer suppressed below that point is trusted again this session: %v", path, len(out), err)
 	}
 	return out
 }

@@ -45,6 +45,32 @@ import (
 // grandchild still holding the slave open.
 const outputDrainGrace = 2 * time.Second
 
+// The exit codes docker/podman `exec` reserves for its OWN failures, as opposed
+// to propagating the exec'd command's status. Any other code is the engine's.
+const (
+	// exitNoSuchContainer: the exec could not be set up at all (no such
+	// container, or it is not running).
+	exitNoSuchContainer = 125
+	// exitCannotInvoke: the container command was found but could not be
+	// invoked (not executable, wrong permissions).
+	exitCannotInvoke = 126
+	// exitCommandNotFound: the container command does not exist on the
+	// in-container PATH.
+	exitCommandNotFound = 127
+)
+
+// isDockerLevelExit reports whether code is the RUNTIME's own failure rather
+// than the exec'd engine's exit status. The distinction decides whether Wait
+// returns a loud error or a plain ExitStatus.
+func isDockerLevelExit(code int32) bool {
+	switch code {
+	case exitNoSuchContainer, exitCannotInvoke, exitCommandNotFound:
+		return true
+	default:
+		return false
+	}
+}
+
 // TurnSpec is the in-container interactive turn one Launcher drives: which
 // backend, its config label, the in-container path of the 0600 RunStart handoff
 // file (§5.A4 — RunStart NEVER rides argv/env), and the env NAMES forwarded to
@@ -210,7 +236,7 @@ func (s *Session) Wait() (vpio.ExitStatus, error) {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			code := int32(exitErr.ExitCode())
-			if code == 125 || code == 126 || code == 127 {
+			if isDockerLevelExit(code) {
 				s.waitErr = s.dockerLevelError(code)
 				return
 			}

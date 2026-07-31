@@ -170,8 +170,27 @@ func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn 
 // makes Start's own goroutine creation the happens-before edge instead —
 // the read loop, and everything it dispatches, is guaranteed to see
 // everything the caller did up to and including the Start call.
+// ctx is the CONNECTION's lifetime, not merely the dispatch scope handed to
+// handlers: cancelling it tears the connection down. It has to be done from a
+// second goroutine, because the read loop spends its life parked inside
+// Decode and cannot select on anything, and it can only work through the
+// closer (see NewConn) — a Conn built with a nil closer has nothing to pull,
+// so its read loop runs until the peer ends the stream no matter what its ctx
+// does.
 func (c *Conn) Start(ctx context.Context) {
 	go c.readLoop(ctx)
+	go c.closeOnCancel(ctx)
+}
+
+// closeOnCancel turns cancellation of Start's ctx into a transport teardown,
+// and retires itself when the read loop exits on its own so a long-lived ctx
+// leaves nothing behind.
+func (c *Conn) closeOnCancel(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		_ = c.Close()
+	case <-c.done:
+	}
 }
 
 // Call issues a request and blocks until the matching response arrives, ctx is

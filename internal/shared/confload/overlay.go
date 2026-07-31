@@ -478,36 +478,54 @@ func (p Product) resolvePath(base map[string]any, tokens []string, sourceName st
 		return resolved, false, nil
 	}
 
-	// Schema-guided fallback for whatever base couldn't resolve.
-	if p.KnownPath != nil {
-		for _, groups := range partitionsBySegmentCountDesc(remaining) {
-			if preserveTypedCase {
-				original := append([]string{}, resolved...)
-				for _, g := range groups {
-					original = append(original, strings.Join(g, "_"))
-				}
-				if p.KnownPath(original) {
-					return original, false, nil
-				}
-			}
-			lowered := append([]string{}, resolved...)
-			for _, g := range groups {
-				lowered = append(lowered, strings.ToLower(strings.Join(g, "_")))
-			}
-			if p.KnownPath(lowered) {
-				return lowered, false, nil
-			}
-		}
+	if path, ok := p.resolveBySchema(resolved, remaining, preserveTypedCase); ok {
+		return path, false, nil
 	}
 
 	// Case 4: nothing recognized it. Fall back to one segment per token, in
 	// the token's original (un-lowercased) form -- it may be a brand-new
 	// user-chosen dynamic label the schema cannot enumerate, so this does not
 	// force a casing convention onto it the way the schema-matched branch
-	// above does for a KNOWN field name.
+	// does for a KNOWN field name.
 	fallback := append([]string{}, resolved...)
 	fallback = append(fallback, remaining...)
 	return fallback, true, nil
+}
+
+// resolveBySchema is resolvePath's phase 2: once base can no longer guide the
+// walk, try every partition of the remaining tokens against p.KnownPath and
+// report the first schema-valid completion (case 3). ok is false when there is
+// no schema knowledge to consult or nothing validated, which is what sends
+// resolvePath to case 4.
+//
+// resolved is the prefix phase 1 already agreed on and is never re-examined;
+// only remaining is partitioned. See resolvePath's doc for why the partitions
+// arrive finest-first, and preserveTypedCase's paragraph there for why the
+// original-case candidate is tried before the lower-cased one when the source
+// is a --config-set path rather than an env var.
+func (p Product) resolveBySchema(resolved, remaining []string, preserveTypedCase bool) ([]string, bool) {
+	if p.KnownPath == nil {
+		return nil, false
+	}
+	for _, groups := range partitionsBySegmentCountDesc(remaining) {
+		if preserveTypedCase {
+			original := append([]string{}, resolved...)
+			for _, g := range groups {
+				original = append(original, strings.Join(g, "_"))
+			}
+			if p.KnownPath(original) {
+				return original, true
+			}
+		}
+		lowered := append([]string{}, resolved...)
+		for _, g := range groups {
+			lowered = append(lowered, strings.ToLower(strings.Join(g, "_")))
+		}
+		if p.KnownPath(lowered) {
+			return lowered, true
+		}
+	}
+	return nil, false
 }
 
 // descendOneLevel finds level's own key for the start of remaining, trying

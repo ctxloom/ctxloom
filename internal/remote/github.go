@@ -299,9 +299,37 @@ func (f *GitHubFetcher) retryRefWithFallback(ctx context.Context, owner, repo, r
 	return sha, true, rerr
 }
 
+// Bounds on an abbreviated commit SHA a forge will resolve. The floor is
+// git's own conventional minimum abbreviation for an unambiguous object; the
+// ceiling is the full length of a SHA-1 object name.
+const (
+	minAbbreviatedSHALen = 7
+	maxCommitSHALen      = 40
+)
+
+// looksLikeCommitSHA reports whether ref could be an object name at all: hex,
+// and within the abbreviation bounds. Length alone is not the question a
+// commit probe is asking — it admits every branch or tag name of seven
+// characters or more, so `develop` went to the commits endpoint before anyone
+// asked whether it was a branch. Refs that are not commit-ish are resolved by
+// the branch and tag rungs below, which is where they were always going to be
+// answered.
+func looksLikeCommitSHA(ref string) bool {
+	if len(ref) < minAbbreviatedSHALen || len(ref) > maxCommitSHALen {
+		return false
+	}
+	for _, r := range ref {
+		isHexDigit := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
+		if !isHexDigit {
+			return false
+		}
+	}
+	return true
+}
+
 // resolveAsCommit tries ref as a commit SHA (only when it looks like one).
 func (f *GitHubFetcher) resolveAsCommit(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, err error) {
-	if len(ref) < 7 || len(ref) > 40 {
+	if !looksLikeCommitSHA(ref) {
 		return "", false, nil
 	}
 	commit, resp, err := client.Repositories().GetCommit(ctx, owner, repo, ref, nil)

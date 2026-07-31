@@ -52,14 +52,7 @@ func ComposeChatMCPServers(pluginKey, override string, mcp *wire.MCPConfig, bund
 	for name, s := range bundleMCP {
 		add(name, s.Command, s.Args, s.Env)
 	}
-	if mcp != nil {
-		for name, s := range mcp.Servers {
-			add(name, s.Command, s.Args, s.Env)
-		}
-		for name, s := range mcp.Plugins[pluginKey] {
-			add(name, s.Command, s.Args, s.Env)
-		}
-	}
+	addConfiguredServers(add, mcp, pluginKey)
 
 	for _, e := range existing {
 		delete(merged, e.Name)
@@ -72,6 +65,24 @@ func ComposeChatMCPServers(pluginKey, override string, mcp *wire.MCPConfig, bund
 		out = append(out, merged[name])
 	}
 	return out
+}
+
+// addConfiguredServers folds the last two sources of the managed set into the
+// composition, in ComposeChatMCPServers' documented override order: the
+// config+profile unified servers, then the engine's OWN passthrough servers
+// (mcp.Plugins[pluginKey]), which therefore win a name clash. A nil mcp
+// contributes nothing — the caller has already established that some payload
+// exists, and "no unified config" is not the same as "no payload".
+func addConfiguredServers(add func(name, command string, args []string, env map[string]string), mcp *wire.MCPConfig, pluginKey string) {
+	if mcp == nil {
+		return
+	}
+	for name, s := range mcp.Servers {
+		add(name, s.Command, s.Args, s.Env)
+	}
+	for name, s := range mcp.Plugins[pluginKey] {
+		add(name, s.Command, s.Args, s.Env)
+	}
 }
 
 // PatchManagedCommand rewrites the auto-registered ctxloom entry's Command in

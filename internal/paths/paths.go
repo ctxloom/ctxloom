@@ -336,7 +336,9 @@ func RemotesPath(appPath string) string {
 }
 
 // ApprovalsPath returns the path to the PROJECT (committable) countersignature
-// store directory, at appPath root next to allowed_signers.yaml. "Our team's
+// store directory, at appPath root next to the extensionless allowed_signers
+// trust root (AllowedSignersFileName — OpenSSH's format, not ctxloom's, so it
+// carries no .yaml suffix). "Our team's
 // approvals": a lead reviews, commits the signatures here, and every developer
 // / CI run who trusts the lead's key (via the project allowed_signers)
 // inherits the approval without re-reviewing (spec §9.2).

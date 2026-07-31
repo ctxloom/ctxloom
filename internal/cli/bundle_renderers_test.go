@@ -459,3 +459,33 @@ func TestLookupBundleMCP_EmptyMap(t *testing.T) {
 	_, _, ok := lookupBundleMCP(b, "anything")
 	assert.False(t, ok)
 }
+
+// `bundle show` is a diffable, scriptable view of a bundle, so its MCP Env
+// lines must come out in a stable order — a bare map range reshuffles them on
+// every invocation and makes two runs over an unchanged bundle differ.
+func TestRenderBundleMCPEntry_EnvIsSortedAndStable(t *testing.T) {
+	mcp := bundles.BundleMCP{
+		Command: "server",
+		Env: map[string]string{
+			"ZULU":    "26",
+			"ALPHA":   "1",
+			"MIKE":    "13",
+			"CHARLIE": "3",
+			"ROMEO":   "18",
+		},
+	}
+
+	var first bytes.Buffer
+	renderBundleMCPEntry(iox.NewErrWriter(&first), "fs", mcp)
+	for i := 0; i < 50; i++ {
+		var buf bytes.Buffer
+		renderBundleMCPEntry(iox.NewErrWriter(&buf), "fs", mcp)
+		require.Equal(t, first.String(), buf.String(), "Env lines must not depend on map order (run %d)", i)
+	}
+
+	got := first.String()
+	assert.Less(t, strings.Index(got, "ALPHA=1"), strings.Index(got, "CHARLIE=3"))
+	assert.Less(t, strings.Index(got, "CHARLIE=3"), strings.Index(got, "MIKE=13"))
+	assert.Less(t, strings.Index(got, "MIKE=13"), strings.Index(got, "ROMEO=18"))
+	assert.Less(t, strings.Index(got, "ROMEO=18"), strings.Index(got, "ZULU=26"))
+}

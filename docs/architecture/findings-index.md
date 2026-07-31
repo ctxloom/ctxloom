@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,382** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 155 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 185 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,395** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 158 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 187 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 190 |
-| `open` | no commit names this ID | **356** |
+| `open` | no commit names this ID | **338** |
 
-**Totals: 2268 findings across 162 units — 1,382 resolved, 356 still open, 530 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,395 resolved, 338 still open, 535 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 508 | 198 | 87 | 83 | 123 |
-| LOW | 871 | 517 | 147 | 52 | 94 | 61 |
+| MED | 999 | 515 | 188 | 88 | 85 | 123 |
+| LOW | 871 | 523 | 139 | 54 | 94 | 61 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1161,18 +1161,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U033-F01 | **RESOLVED** `04f6cf04` | **`surfaces.go:249`** | DUPLICATE | `claude.SurfaceInputs` is `agent.SurfaceInputs` minus `Fragments`, and forces two hand-maintained field-by-field mappers that have already diverged; a field dropped from one mapper silently degrade... | U033.md |
 | U033-F02 | **RESOLVED** `f8a8d950` | **`surfaces.go:265`** | DEAD | `SurfaceInputs.SelfContainedSkills` is written by three call sites and read by none — a field that pretends to be a threaded control | U033.md |
 | U033-F03 | **RESOLVED** `7b910dd3` | **`surfaces.go:96,144,195,226,340`** | DEAD | The five `Kind()` methods have zero production call sites; the `agent.KindedDelivery` contract they satisfy is test-only scaffolding replicated across every backend | U033.md |
-| U033-F04 | open | **`surfaces.go:388`** | CORRECTNESS | `SharedRealization` is keyed on `SurfaceKind` **alone**, discarding the resolved approach — so a shared-cwd delivery of (context, `ApproachHook`) runs `contextSurface.DeliverIsolated` instead of th... | U033.md |
+| U033-F04 | **RESOLVED** `b2179578` | **`surfaces.go:388`** | CORRECTNESS | `SharedRealization` is keyed on `SurfaceKind` **alone**, discarding the resolved approach — so a shared-cwd delivery of (context, `ApproachHook`) runs `contextSurface.DeliverIsolated` instead of th... | U033.md |
 | U033-F05 | **RESOLVED** `7b910dd3` | **`surfaces.go:324`** | NOPAY | `Surfaces.Deliveries()` has no production caller; the launch path uses the unrelated `ResolvedSelection.Deliveries()`. It survives only because `agent.SurfaceSet` mandates it, so five backends impl... | U033.md |
 | U033-F06 | **RESOLVED** `e475f5d7` | **`surfaces.go:115-137`, `surfaces.go:170-188`** | DUPLICATE | `Deliver` and `DeliverIsolated` are near-identical on both `mcpSurface` and `settingsSurface` — four bodies differing only in where `dir` comes from and whether `path` is recorded. Any change to th... | U033.md |
-| U034-F04 | open | `internal/cli/agent.go:110,263,348,376; bundle_edit.go:28,95; bundle_list.go:132` | CORRECTNESS | The `name == "help"` guard makes any resource literally named "help" unaddressable, and turns a real request into "print help, exit 0" | U034.md |
-| U034-F05 | open | `internal/cli/agent.go:126-138,164-167` | CORRECTNESS | `agent show --format json` silently drops the resolution failure that the text renderer prints | U034.md |
-| U034-F06 | open | `internal/cli/bundle_hold_cli.go:29,59; bundle_edit.go:199; bundle_items.go:47; agent.go:330,374` | COUPLING | Six commands accept the global `--format` flag and ignore it entirely, so `--format json` silently returns text | U034.md |
-| U034-F07 | open | `internal/cli/bundle_distill.go:311,327` | CORRECTNESS | The sibling context sent to the distiller is in Go map order, making distillation nondeterministic run-to-run | U034.md |
-| U034-F08 | open | `internal/cli/bundle_list.go:240-242` | CORRECTNESS | `bundle show` prints an MCP entry's `Env` lines in random order | U034.md |
-| U034-F09 | open | `internal/cli/bundle_hold_cli.go:41-52,69-72` | CORRECTNESS | `bundle hold`/`unhold` on an item that is not in the lockfile prints a message to **stdout** and exits 0 | U034.md |
-| U034-F10 | open | `internal/cli/bundle_distill.go:247-261` | ERRHANDLING | `loadDistillPrompt` swallows the config-load error and can never return a non-nil error, so its caller's error branch is unreachable | U034.md |
-| U034-F11 | open | `internal/cli/bundle_distill.go:127-139,151-162,186-193,226-240` | ERRHANDLING | `bundle distill`'s entire text path uses unchecked `fmt.Fprintf` and always returns nil, unlike the `iox.ErrWriter` used in all eleven other renderers in this unit; errors go to `os.Stderr` rather ... | U034.md |
-| U034-F12 | open | `internal/cli/bundle_items.go:75,98` | ERRHANDLING | `bundle mcp edit` writes user-facing output with package-level `fmt.Println`/`fmt.Printf` instead of `cmd.OutOrStdout()` | U034.md |
+| U034-F04 | **RESOLVED** `aa199bc2` | `internal/cli/agent.go:110,263,348,376; bundle_edit.go:28,95; bundle_list.go:132` | CORRECTNESS | The `name == "help"` guard makes any resource literally named "help" unaddressable, and turns a real request into "print help, exit 0" | U034.md |
+| U034-F05 | **RESOLVED** `b39e8468` | `internal/cli/agent.go:126-138,164-167` | CORRECTNESS | `agent show --format json` silently drops the resolution failure that the text renderer prints | U034.md |
+| U034-F06 | **REFUTED** `97bd5d3e` | `internal/cli/bundle_hold_cli.go:29,59; bundle_edit.go:199; bundle_items.go:47; agent.go:330,374` | COUPLING | Six commands accept the global `--format` flag and ignore it entirely, so `--format json` silently returns text | U034.md |
+| U034-F07 | **RESOLVED** `5873fa72` | `internal/cli/bundle_distill.go:311,327` | CORRECTNESS | The sibling context sent to the distiller is in Go map order, making distillation nondeterministic run-to-run | U034.md |
+| U034-F08 | **RESOLVED** `da0c165f` | `internal/cli/bundle_list.go:240-242` | CORRECTNESS | `bundle show` prints an MCP entry's `Env` lines in random order | U034.md |
+| U034-F09 | **PARTIAL** `bf331cac` | `internal/cli/bundle_hold_cli.go:41-52,69-72` | CORRECTNESS | `bundle hold`/`unhold` on an item that is not in the lockfile prints a message to **stdout** and exits 0 | U034.md |
+| U034-F10 | **REFUTED** `3d3d0f7a` | `internal/cli/bundle_distill.go:247-261` | ERRHANDLING | `loadDistillPrompt` swallows the config-load error and can never return a non-nil error, so its caller's error branch is unreachable | U034.md |
+| U034-F11 | **RESOLVED** `02aeb906` | `internal/cli/bundle_distill.go:127-139,151-162,186-193,226-240` | ERRHANDLING | `bundle distill`'s entire text path uses unchecked `fmt.Fprintf` and always returns nil, unlike the `iox.ErrWriter` used in all eleven other renderers in this unit; errors go to `os.Stderr` rather ... | U034.md |
+| U034-F12 | **RESOLVED** `3dbfb155` | `internal/cli/bundle_items.go:75,98` | ERRHANDLING | `bundle mcp edit` writes user-facing output with package-level `fmt.Println`/`fmt.Printf` instead of `cmd.OutOrStdout()` | U034.md |
 | U035-F01 | **RESOLVED** `9ca81437` | `exitcode_unix.go:15`, `exitcode_windows.go:10` | DEAD | `childExitCode` has **zero production call sites** on either platform; two build-tagged files and a dedicated test file exist for a function nothing calls. Worse, the capability it names — shell-co... | U035.md |
 | U035-F02 | **RESOLVED** `7d5fc290` | `container_cmd.go:110-113` | CORRECTNESS | `container build --base-image X` **hard-fails** on any project that sets `isolation_base_containerfile`: the config value is copied into `opts.BaseContainerfile` without checking whether `--base-im... | U035.md |
 | U035-F03 | **RESOLVED** `7d5fc290` | `container_cmd.go:102-133` | CORRECTNESS | `container build` **silently ignores `isolation_images`**. `IsolationImageConfig` resolves `Image` (`operations/oneshot.go:183`) but the build path never reads `img.Image`, so on a project with a u... | U035.md |
@@ -2163,14 +2163,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U032-F22 | **RESOLVED** `69802f97` | **`claude.go:556-559`** | LOW | `removeCtxloomHooks`'s doc describes a detection rule the code does not implement: *"It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context""*. The code uses `agen... | U032.md |
 | U033-F07 | **RESOLVED** `c97a0e90` | **`surfaces.go:358-367`** | DUPLICATE | `SupportedApproaches` and `DefaultApproach` are byte-identical across all five backends modulo the table variable name — ten methods that only name a table | U033.md |
 | U033-F08 | **RESOLVED** `5fdf8767` | **`surfaces.go:247-248`** | NOPAY | Stale doc comment describes a plan state two slices out of date: "S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup" | U033.md |
-| U033-F09 | open | **`surfaces.go:131-136`, `surfaces.go:182-187`** | ERRHANDLING | On a failed `DeliverIsolated`, `s.path` retains its prior value rather than being cleared, so `Path()` can report a path for a delivery that did not happen — contradicting its own doc (`"" before d... | U033.md |
-| U033-F10 | open | **`surfaces.go:280-326`** | COUPLING | The five surfaces are enumerated twice by hand — once as the `dispatch` map (`311-317`) and once as the `Deliveries()` slice (`325`) — plus the struct fields, the approach table, and the assertion ... | U033.md |
-| U034-F13 | open | `internal/cli/acp_children.go:55-110` | COMPLEXITY | `adaptChildWatch` is CCN 16 (over the project's stated CCN-10 gate) and silently drops 13 of the 16 `AgentEvent` payload variants with no default case and no comment saying so | U034.md |
-| U034-F14 | open | `internal/cli/agent.go:140-184` | COMPLEXITY | `renderAgentShow` is CCN 11 — over the stated CI gate — from nine sequential optional-field `if`s | U034.md |
-| U034-F15 | open | `internal/cli/acp_agents_cmd.go:140-141` | ERRHANDLING | Both `json.Marshal` errors are discarded in the Zed paste block | U034.md |
-| U034-F16 | open | `internal/cli/bundle.go:58-87` | COHESION | `bundle.go`'s `init()` registers flags for commands defined in eight other files, creating connascence of position across file boundaries | U034.md |
-| U034-F17 | open | `internal/cli/bundle_distill.go:289-291,307,323` | COUPLING | "is the item being distilled of this kind?" is encoded as a string-prefix test, with the `"fragments/"`/`"commands/"` literals duplicated across two files | U034.md |
-| U034-F18 | open | `internal/cli/bundle_move.go:77` | COUPLING | `printMoveResult` compares `r.DestKind` against the hard-coded literal `"remote"` because the producing constant is unexported | U034.md |
+| U033-F09 | **RESOLVED** `89120853` | **`surfaces.go:131-136`, `surfaces.go:182-187`** | ERRHANDLING | On a failed `DeliverIsolated`, `s.path` retains its prior value rather than being cleared, so `Path()` can report a path for a delivery that did not happen — contradicting its own doc (`"" before d... | U033.md |
+| U033-F10 | **PARTIAL** `d78b0049` | **`surfaces.go:280-326`** | COUPLING | The five surfaces are enumerated twice by hand — once as the `dispatch` map (`311-317`) and once as the `Deliveries()` slice (`325`) — plus the struct fields, the approach table, and the assertion ... | U033.md |
+| U034-F13 | **RESOLVED** `4f001a2a` | `internal/cli/acp_children.go:55-110` | COMPLEXITY | `adaptChildWatch` is CCN 16 (over the project's stated CCN-10 gate) and silently drops 13 of the 16 `AgentEvent` payload variants with no default case and no comment saying so | U034.md |
+| U034-F14 | **RESOLVED** `d00d793f` | `internal/cli/agent.go:140-184` | COMPLEXITY | `renderAgentShow` is CCN 11 — over the stated CI gate — from nine sequential optional-field `if`s | U034.md |
+| U034-F15 | **PARTIAL** `a0901668` | `internal/cli/acp_agents_cmd.go:140-141` | ERRHANDLING | Both `json.Marshal` errors are discarded in the Zed paste block | U034.md |
+| U034-F16 | **RESOLVED** `4b7a3172` | `internal/cli/bundle.go:58-87` | COHESION | `bundle.go`'s `init()` registers flags for commands defined in eight other files, creating connascence of position across file boundaries | U034.md |
+| U034-F17 | **RESOLVED** `99113b9d` | `internal/cli/bundle_distill.go:289-291,307,323` | COUPLING | "is the item being distilled of this kind?" is encoded as a string-prefix test, with the `"fragments/"`/`"commands/"` literals duplicated across two files | U034.md |
+| U034-F18 | **RESOLVED** `36468ae0` | `internal/cli/bundle_move.go:77` | COUPLING | `printMoveResult` compares `r.DestKind` against the hard-coded literal `"remote"` because the producing constant is unexported | U034.md |
 | U035-F10 | **RESOLVED** `c4109ec8` | `container_cmd.go:137-139` | NOPAY | `var containerDiagnose = isolation.Diagnose` exists, per its own comment, "so the CLI rendering is testable with an injected report" — but **no test ever assigns it**. The tests inject a `Diagnosis... | U035.md |
 | U035-F11 | **RESOLVED** `6ddb49ff` | `doctor_cmd.go:85`, `:92` | NOPAY | `DoctorCheck` and `DoctorReport` are exported from an `internal/` package with **zero references outside `internal/cli`**. Exporting the *types* is unnecessary (only the fields need to be exported ... | U035.md |
 | U035-F12 | **RESOLVED** `b276cdb6` | `doctor_cmd.go:85-88` | COUPLING | `DoctorCheck.Status` is an untyped `string` whose three legal values live in a trailing comment, written as free literals at 20+ sites plus two `status := "ok"` accumulators. `Marker`'s DOCTOR-CHEC... | U035.md |

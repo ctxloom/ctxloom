@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -129,9 +131,6 @@ Shows all fragments, commands, and MCP server configuration contained in the bun
 
 func runBundleShow(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -140,11 +139,22 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 
 	bundleDirs := cfg.GetBundleDirs()
 	if len(bundleDirs) == 0 {
+		// No bundles anywhere, so there is no bundle named "help" either —
+		// the courtesy shortcut costs nothing here (see the lookup below).
+		if name == helpArgName {
+			return cmd.Help()
+		}
 		return fmt.Errorf("no bundles directory found")
 	}
 
 	bundle, err := operations.GetBundle(cfg, name)
 	if err != nil {
+		// "help" is a legal bundle name, so the `bundle show help` courtesy
+		// shortcut fires only when there is no such bundle — where the command
+		// was going to fail anyway. A bundle actually named "help" is shown.
+		if name == helpArgName {
+			return cmd.Help()
+		}
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
@@ -237,8 +247,10 @@ func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) 
 	}
 	if len(mcp.Env) > 0 {
 		w.Println("      Env:")
-		for k, v := range mcp.Env {
-			w.Printf("        %s=%s\n", k, v)
+		// Sorted: `bundle show` is diffed and scripted against, so two runs
+		// over an unchanged bundle must produce identical bytes.
+		for _, k := range slices.Sorted(maps.Keys(mcp.Env)) {
+			w.Printf("        %s=%s\n", k, mcp.Env[k])
 		}
 	}
 	if mcp.Notes != "" {
@@ -282,4 +294,9 @@ func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.Bund
 	if prompt.Description != "" {
 		w.Printf("      %s\n", prompt.Description)
 	}
+}
+
+// registerBundleShowFlags defines `bundle show`'s flags.
+func registerBundleShowFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleShowInteractive, "interactive", "i", false, "Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)")
 }

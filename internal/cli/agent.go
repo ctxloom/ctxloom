@@ -110,9 +110,6 @@ var agentShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
@@ -120,6 +117,11 @@ var agentShowCmd = &cobra.Command{
 
 		def, err := operations.GetAgent(cfg, name)
 		if err != nil {
+			// "help" is a legal agent name; the courtesy shortcut fires only
+			// when there is no such agent (see runBundleShow).
+			if name == helpArgName {
+				return cmd.Help()
+			}
 			return err
 		}
 		// Resolve the engine/backend (and compose the profiles) so the override
@@ -127,21 +129,47 @@ var agentShowCmd = &cobra.Command{
 		// (e.g. a missing constituent profile) still prints the definition with a
 		// warning rather than failing the command.
 		resolved, rerr := operations.ResolveAgent(cmd.Context(), cfg, name, "")
-		return emit(cmd, agentShowJSON{Definition: def, Resolved: resolved}, func() error {
+		payload := agentShowJSON{Definition: def, Resolved: resolved}
+		if rerr != nil {
+			payload.ResolutionError = rerr.Error()
+		}
+		return emit(cmd, payload, func() error {
 			return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr)
 		})
 	},
 }
 
 // agentShowJSON is the --format json shape for `agent show`: the declared
-// definition plus the resolved engine/backend (nil when resolution failed).
+// definition, the resolved engine/backend (absent when resolution failed), and
+// — when it failed — WHY.
+//
+// Resolution is fault-tolerant here: a missing constituent profile still prints
+// the definition. The text view says so ("Resolved engine: unavailable (…)"),
+// so the structured view has to as well, or the two formats of one command
+// disagree about whether anything went wrong. Omitted entirely on success, so a
+// consumer can test for the key itself.
 type agentShowJSON struct {
-	Definition *operations.AgentEntry    `json:"definition"`
-	Resolved   *operations.ResolvedAgent `json:"resolved,omitempty"`
+	Definition      *operations.AgentEntry    `json:"definition"`
+	Resolved        *operations.ResolvedAgent `json:"resolved,omitempty"`
+	ResolutionError string                    `json:"resolution_error,omitempty"`
 }
 
+// renderAgentShow writes the human view of one agent: what the definition
+// DECLARES, then what resolution made of it. The two halves are separate
+// functions because they answer different questions — "what did I write down?"
+// and "what will actually run?" — and each is a run of independent
+// omit-when-empty arms.
 func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error) error {
 	w := iox.NewErrWriter(out)
+	renderAgentDeclaration(w, def)
+	renderAgentResolution(w, resolved, rerr)
+	return w.Err()
+}
+
+// renderAgentDeclaration writes the agent AS DECLARED: identity, source, the
+// declared engine (with the project-default hint when unset), and the optional
+// axes, each omitted when empty.
+func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	w.Printf("Agent: %s\n", def.Name)
 	if def.Source != "" {
 		w.Printf("Source: %s\n", def.Source)
@@ -163,20 +191,33 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	if def.Driving != "" {
 		w.Printf("Driving: %s\n", def.Driving)
 	}
-	if len(def.Escalation) > 0 {
-		w.Printf("Escalation: %d rung(s)\n", len(def.Escalation))
-		for _, r := range def.Escalation {
-			kinds := "all kinds"
-			if len(r.Kinds) > 0 {
-				kinds = strings.Join(r.Kinds, ",")
-			}
-			w.Printf("  - %s: %s\n", kinds, r.Action)
-		}
-	}
+	renderAgentEscalation(w, def.Escalation)
 	writeBulletList(w, "Profiles", def.Profiles)
+}
+
+// renderAgentEscalation writes the approval ladder, one line per rung. A rung
+// naming no kinds is a catch-all, so it says so rather than printing nothing.
+func renderAgentEscalation(w *iox.ErrWriter, ladder []agents.EscalationRung) {
+	if len(ladder) == 0 {
+		return
+	}
+	w.Printf("Escalation: %d rung(s)\n", len(ladder))
+	for _, r := range ladder {
+		kinds := "all kinds"
+		if len(r.Kinds) > 0 {
+			kinds = strings.Join(r.Kinds, ",")
+		}
+		w.Printf("  - %s: %s\n", kinds, r.Action)
+	}
+}
+
+// renderAgentResolution writes what the declaration actually resolves to. A
+// resolution FAILURE is reported and ends the view: there is no resolved engine
+// to describe, and `agent show` stays fault-tolerant rather than erroring.
+func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error) {
 	if rerr != nil {
 		w.Printf("Resolved engine: unavailable (%v)\n", rerr)
-		return w.Err()
+		return
 	}
 	w.Printf("Resolved engine: %s", resolved.Label)
 	if resolved.Backend != "" {
@@ -193,7 +234,6 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
-	return w.Err()
 }
 
 // runSetupPromptCmd prints the full five-phase ctxloom setup prompt for the
@@ -271,10 +311,9 @@ Examples:
   ctxloom agent set reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// No help shortcut: `agent set help` names the agent to write, and the
+		// shortcut made an agent called "help" impossible to create.
 		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
 		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
@@ -373,13 +412,15 @@ Examples:
 		}
 
 		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
 		// Advisory only (fault tolerance): warn but don't block when the named
 		// agent isn't defined yet — a bare run degrades gracefully and the user
-		// may define it next.
+		// may define it next. An UNDEFINED agent named "help" is read as the
+		// courtesy help request instead, so `ctxloom agent default help` does
+		// not quietly bind a default nobody asked for; a DEFINED one is bound.
 		if _, ok := cfg.Agent(name); !ok {
+			if name == helpArgName {
+				return cmd.Help()
+			}
 			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 		}
 		if err := config.NewManager().Update(func(d *config.Draft) error {
@@ -401,14 +442,15 @@ var agentRemoveCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
 		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
+			// See agentShowCmd: only an ABSENT "help" is the courtesy request.
+			if name == helpArgName {
+				return cmd.Help()
+			}
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())

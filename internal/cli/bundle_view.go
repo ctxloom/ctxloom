@@ -201,3 +201,8 @@ func lookupBundleMCP(bundle *bundles.Bundle, itemName string) (bundles.BundleMCP
 	}
 	return bundles.BundleMCP{}, "", false
 }
+
+// registerBundleViewFlags defines `bundle view`'s flags.
+func registerBundleViewFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleViewDistilled, "distilled", "d", false, "Show distilled version if available")
+}

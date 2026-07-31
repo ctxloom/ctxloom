@@ -179,3 +179,20 @@ func TestSetSink_NilRestoresDefault(t *testing.T) {
 	assert.NotPanics(t, func() { Warn("ctxloom", "back on stderr") })
 	assert.Empty(t, buf.String())
 }
+
+// Line and fwarn are the two renderings of the SAME human warning — Line's doc
+// says so ("one stable identity per distinct message regardless of which wire
+// shape actually gets written"), and Line IS the dedup key FwarnOnce/WarnOnce
+// compare on. They must therefore agree for every prog. Line spliced prog into
+// the FORMAT STRING while fwarn passes it as a %s ARGUMENT, so a prog carrying a
+// percent sign was reinterpreted as a verb in one path and not the other: the
+// key and the emitted line diverge, and the stray verb can even consume the
+// caller's args. (U103-F05.)
+func TestLine_MatchesFwarnForAProgContainingAPercent(t *testing.T) {
+	for _, prog := range []string{"ctxloom", "taskloom", "100%-native", "ctx%sloom", "a%!b"} {
+		var b strings.Builder
+		Fwarn(&b, prog, "no files match %q", "x")
+		assert.Equal(t, b.String(), Line(prog, "no files match %q", "x"),
+			"Line must render exactly what Fwarn writes for prog %q — it is that line's dedup key", prog)
+	}
+}

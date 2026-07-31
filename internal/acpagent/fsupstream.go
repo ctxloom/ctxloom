@@ -93,7 +93,11 @@ func (f *fsUpstreamListener) Close() error {
 // unavailable OPTIMIZATION must never block a session the way a real
 // isolation/config finding does.
 func (s *Server) startFsUpstream() *fsUpstreamListener {
-	if !s.getClientFs().ReadTextFile {
+	// Either capability is enough to make the socket worth standing up; the
+	// handler then gates each method on its own capability, so an editor that
+	// offered only one of the two is never asked to serve the other.
+	fs := s.getClientFs()
+	if !fs.ReadTextFile && !fs.WriteTextFile {
 		return nil
 	}
 	dir, err := os.MkdirTemp("", "ctxloom-acp-fs-")
@@ -142,6 +146,13 @@ type fsUpstreamHandler struct {
 func (h *fsUpstreamHandler) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	switch method {
 	case api.ClientMethodFsReadTextFile:
+		if !h.server.getClientFs().ReadTextFile {
+			reply(nil, &jsonrpc.Error{
+				Code:    jsonrpc.CodeMethodNotFound,
+				Message: "ctxloom acp: fs-upstream socket: the connected editor did not advertise fs/read_text_file — refusing rather than relaying a call it never offered to answer",
+			})
+			return
+		}
 		var req api.ReadTextFileRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
@@ -154,6 +165,17 @@ func (h *fsUpstreamHandler) HandleRequest(ctx context.Context, method string, pa
 		}
 		reply(resp, nil)
 	case api.ClientMethodFsWriteTextFile:
+		// Each relayed method is gated on the capability the editor declared
+		// for THAT method. Relaying a write to an editor that only offered
+		// reads asks it to answer a call it never claimed to support: at best
+		// it errors, at worst it never answers and the caller parks.
+		if !h.server.getClientFs().WriteTextFile {
+			reply(nil, &jsonrpc.Error{
+				Code:    jsonrpc.CodeMethodNotFound,
+				Message: "ctxloom acp: fs-upstream socket: the connected editor did not advertise fs/write_text_file — refusing rather than relaying a call it never offered to answer",
+			})
+			return
+		}
 		var req api.WriteTextFileRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})

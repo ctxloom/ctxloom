@@ -77,6 +77,16 @@ type Session interface {
 	Resize(rows, cols uint32)
 
 	// Wait blocks until the session ends and returns its exit status.
+	//
+	// IDEMPOTENT, and required to be: the terminal result is delivered once
+	// and cached, so every later call returns that same status and error
+	// rather than parking on something nothing will produce a second time.
+	// This is the one multiplicity question a caller cannot answer by
+	// inspection — the natural `defer session.Wait()` next to an explicit
+	// one either works everywhere or deadlocks depending on which transport
+	// was selected — so it is settled here rather than per implementation.
+	// Both shipping transports pin it (TestSession_WaitIsIdempotent, in
+	// goplugin and dockerexec alike).
 	Wait() (ExitStatus, error)
 }
 

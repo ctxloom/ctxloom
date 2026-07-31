@@ -486,3 +486,45 @@ func TestStartPTYCommand_SessionStderrMergesIntoStdout(t *testing.T) {
 	assert.NotContains(t, errs.String(), "on-stderr",
 		"spec.Stderr is the transport's own diagnostic channel, not the session's stderr")
 }
+
+// TestSession_WaitIsIdempotent pins the multiplicity half of vpio.Session.Wait's
+// contract on this transport, the half the seam now states explicitly: the
+// terminal result is delivered once and cached, so a caller may write the
+// natural `defer session.Wait()` alongside an explicit one and get the same
+// answer twice instead of parking on a channel nothing will write again. The
+// sibling goplugin transport promises the same thing (its own
+// TestSession_WaitIsIdempotent).
+//
+// The second Wait is bounded rather than merely called: a Wait that PARKS is a
+// hang wearing a failure's clothes, and an unbounded one would burn the whole
+// test timeout instead of failing.
+func TestSession_WaitIsIdempotent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var out syncBuf
+	sess, err := startPTYCommand(ctx,
+		exec.CommandContext(ctx, "sh", "-c", "exit 7"),
+		vpio.ProcessSpec{Stdout: &out})
+	require.NoError(t, err)
+
+	first, firstErr := sess.Wait()
+	require.NoError(t, firstErr)
+	require.Equal(t, int32(7), first.Code)
+
+	done := make(chan struct{})
+	var second vpio.ExitStatus
+	var secondErr error
+	go func() {
+		defer close(done)
+		second, secondErr = sess.Wait()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a second Wait parked; the seam documents Wait as idempotent")
+	}
+
+	assert.Equal(t, first, second, "a later Wait must return the same exit status")
+	assert.Equal(t, firstErr, secondErr, "a later Wait must return the same error")
+}

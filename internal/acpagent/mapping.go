@@ -429,11 +429,44 @@ func usageUpdateWire(c *agent.TurnMeta) any {
 	if c == nil || (c.InputTokens == 0 && c.ContextWindow == 0 && c.CostUSD == 0) {
 		return nil
 	}
-	u := api.SessionUsageUpdate{Used: c.InputTokens, Size: c.ContextWindow}
+	u := usageGaugeWire{SessionUpdate: usageUpdateKind}
+	if c.InputTokens != 0 {
+		used := c.InputTokens
+		u.Used = &used
+	}
+	if c.ContextWindow != 0 {
+		size := c.ContextWindow
+		u.Size = &size
+	}
 	if c.CostUSD != 0 {
 		u.Cost = &api.Cost{Amount: c.CostUSD, Currency: "USD"}
 	}
-	return api.SessionUpdate{UsageUpdate: &u}
+	return u
+}
+
+// usageUpdateKind is the spec discriminator for the usage_update variant of
+// the SessionUpdate oneOf.
+const usageUpdateKind = "usage_update"
+
+// usageGaugeWire is the usage_update frame, projected so an UNREPORTED number
+// can be left out.
+//
+// schema-v1.19.0's UsageUpdate has no `required` array: `used` and `size` are
+// both optional, and omitting one is how the spec says "no gauge". The
+// generated api.SessionUsageUpdate declares them without omitempty, so it can
+// only ever emit a number — which turns "the engine reported no token
+// accounting" into the assertion "0 tokens of a 0-token window", a
+// measurement nothing produced. Pointers restore the distinction between an
+// unknown quantity and a zero one.
+//
+// A generated consumer decodes an absent optional field to the same zero it
+// decoded an explicit 0 to, so this narrows what ctxloom CLAIMS without
+// changing what any parser concludes.
+type usageGaugeWire struct {
+	SessionUpdate string    `json:"sessionUpdate"`
+	Used          *int      `json:"used,omitempty"`
+	Size          *int      `json:"size,omitempty"`
+	Cost          *api.Cost `json:"cost,omitempty"`
 }
 
 // textBlock wraps text in an ACP text content block.

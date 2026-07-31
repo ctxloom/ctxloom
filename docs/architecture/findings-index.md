@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,282** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 122 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 169 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 170 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **530** |
+| `open` | no commit names this ID | **529** |
 
-**Totals: 2268 findings across 162 units — 1,282 resolved, 530 still open, 456 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,282 resolved, 529 still open, 457 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 452 | 296 | 68 | 79 | 104 |
-| LOW | 871 | 473 | 222 | 39 | 82 | 55 |
+| LOW | 871 | 473 | 221 | 39 | 83 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2021,7 +2021,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U012-F16 | **REFUTED** `397a1af1` | **`session.go:305, 105`** | COMPLEXITY | `setup` returns five unlabelled values `(api.SessionId, engineCapabilities, []api.SessionConfigOption, []agent.MCPStatus, error)`, and each of its five error paths must repeat all of them | U012.md |
 | U012-F17 | **RESOLVED** `421517d2` | **`session.go:229–232`** | CORRECTNESS | A `CancelTurn` arriving with no turn in flight is silently discarded — no event, no warning | U012.md |
 | U012-F18 | open | **`session.go:234`** | COMPLEXITY | `queued` grows without bound: a client that streams messages during a long turn accumulates them all in memory with no backpressure signal | U012.md |
-| U012-F19 | open | **`session.go:346–351`** | COUPLING | Strict protocol-version equality means ctxloom cannot drive *any* adapter that negotiates a lower version, even one it could decode; ACP's handshake explicitly allows the agent to answer with a low... | U012.md |
+| U012-F19 | **REFUTED** `c42fcf6d` | **`session.go:346–351`** | COUPLING | Strict protocol-version equality means ctxloom cannot drive *any* adapter that negotiates a lower version, even one it could decode; ACP's handshake explicitly allows the agent to answer with a low... | U012.md |
 | U012-F20 | open | **`session.go:110, 117 vs 89–90`** | COUPLING | `sess.caps` and `sess.engineConfigOptions` are written *after* `conn.Start(ctx)` has already launched the read loop; the field doc's justification ("read once … never mutated afterward") is not the... | U012.md |
 | U012-F22 | **RESOLVED** `c3d787d4` | **`surfaces.go:1–44`** | NOPAY | A source file containing zero code — 44 lines of comment recording an opt-out | U012.md |
 | U013-F10 | **RESOLVED** `72f7f6bf` | `jsonrpc.go:117` | TRIVIAL | `NewConn`'s first parameter `ctx context.Context` is **never used** — not stored, not read. Every one of the 9 call sites passes a ctx that goes nowhere. | U013.md |

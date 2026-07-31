@@ -26,6 +26,9 @@ func Probe(pid int) State {
 	// succeeds..."), so an error-return branch here was provably unreachable
 	// dead code — and worse, it read as if this probe handled a FindProcess
 	// failure it can never actually receive (U114-F03).
+	if !pidNamesOneProcess(pid) {
+		return Unsure
+	}
 	p, _ := os.FindProcess(pid)
 	return classifySignalErr(p.Signal(syscall.Signal(0)))
 }

@@ -27,6 +27,9 @@ import (
 // internal/shared/ptyrunner/prepare_windows.go) carries the named errno
 // constants the standard syscall package for windows does not expose.
 func Probe(pid int) State {
+	if !pidNamesOneProcess(pid) {
+		return Unsure
+	}
 	p, err := os.FindProcess(pid)
 	if err == nil {
 		// os.FindProcess is a real OpenProcess here, so a successful probe

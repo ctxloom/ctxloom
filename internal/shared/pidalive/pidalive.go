@@ -29,6 +29,23 @@
 // platform-agnostic verdict type both implementations return.
 package pidalive
 
+// pidNamesOneProcess reports whether pid can name a single process at all.
+// Zero and the negatives cannot: kill(2) gives them entirely different
+// meanings — 0 is "every process in the caller's own group", -1 is "every
+// process this user may signal", and any other negative is the process GROUP
+// with that absolute value. An unguarded Probe(-5) therefore probes group 5
+// and answers Alive for something that is not the target at all, and Probe(0)
+// answers about the caller itself, which is always Alive.
+//
+// Both platform probes reject these before probing so the two give the same
+// answer to the same nonsense, rather than Unix quietly reinterpreting the
+// argument while Windows rejects it. The verdict is Unsure, not Dead: the
+// honest reading of an out-of-range pid is "I cannot tell you anything about
+// this", and Unsure is the direction that makes a caller skip rather than
+// reap. Every current caller already refuses a non-positive pid before
+// calling; this makes the contract hold without relying on that.
+func pidNamesOneProcess(pid int) bool { return pid > 0 }
+
 // State is Probe's tri-state verdict for a pid liveness check (U114-F01). A
 // bare bool return forced every caller to collapse "I could not tell" into a
 // confident answer, and every caller collapsed it the same way: false

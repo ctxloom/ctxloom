@@ -299,7 +299,24 @@ func encodeConfigFile(m map[string]any, ft string) ([]byte, error) {
 var configWriteNow = time.Now
 
 func backupBeforeEdit(fs afero.Fs, path string, data []byte) (string, error) {
-	backupPath := fmt.Sprintf("%s.bak.%s", path, configWriteNow().UTC().Format("20060102T150405Z"))
+	stem := fmt.Sprintf("%s.bak.%s", path, configWriteNow().UTC().Format("20060102T150405Z"))
+	// The stamp has one-second resolution, so the name alone does NOT make the
+	// backup fresh: two edits inside the same second — an agent writing several
+	// keys, a retry after a failed verify — resolve to one filename, and the
+	// second write destroys the only copy of the generation before the first.
+	// Probe for a free name rather than counting, so a backup an EARLIER run
+	// left under this second's name is never reused either.
+	backupPath := stem
+	for i := 2; ; i++ {
+		taken, err := afero.Exists(fs, backupPath)
+		if err != nil {
+			return "", err
+		}
+		if !taken {
+			break
+		}
+		backupPath = fmt.Sprintf("%s-%d", stem, i)
+	}
 	if err := afero.WriteFile(fs, backupPath, data, 0600); err != nil {
 		return "", err
 	}

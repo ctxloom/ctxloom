@@ -174,7 +174,12 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 		if inSessions {
 			item := strings.TrimSpace(line)
 			if strings.HasPrefix(item, "- ") {
-				sessions = append(sessions, strings.TrimSpace(item[2:]))
+				// Unquoted for the same reason `title` is: a harp is the
+				// value, not its YAML spelling. A quoted entry that kept its
+				// quotes would never match the harp anywhere else, and the
+				// writer round-trips scalar styles verbatim, so whatever
+				// quoting a plan's author used survives into this parser.
+				sessions = append(sessions, unquote(strings.TrimSpace(item[2:])))
 				continue
 			}
 			// A non-item line that isn't indented ends the sessions block.

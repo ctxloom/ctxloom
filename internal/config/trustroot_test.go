@@ -302,3 +302,44 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 	assert.Contains(t, buf.String(), "trusted again this session",
 		"the report must name the fail-open direction, not just that something went wrong")
 }
+
+// A malformed LINE in an otherwise-good allowed_signers file is deliberately
+// NOT a trust-store finding, and this pins that boundary from both sides.
+//
+// strictness.ClassTrust is documented as "a corrupt/unreadable trust store
+// (the deny-all posture)" — the store as a whole being unusable. Two branches
+// of parseAllowedSigners are that (an unreadable file, an unparsable file) and
+// both escalate. A skipped line is not: the file opened, parsed, and
+// contributed every valid entry it held, which is ssh-keygen's own behaviour
+// and the point of TestTrustRoot_MalformedLineSkippedRestStillLoads above.
+// Escalating it would abort `ctxloom run` over one stray line while every key
+// in the file still works.
+//
+// It must still be REPORTED — a line that silently does not count is how a
+// trusted signer looks revoked — so the warning is asserted here too.
+func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
+	resetConfigStrictness(t)
+	fs := afero.NewMemMapFs()
+	pub, keyLine := newTestKey(t)
+
+	content := "this-line-is-garbage-with-no-key\n" +
+		"bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
+	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(content), 0o644))
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	mark := strictness.Checkpoint()
+	root := cfg.TrustRoot()
+
+	// The fixture must actually contain a line the parser rejects, or the
+	// assertions below hold vacuously.
+	require.Contains(t, buf.String(), "ignored", "the fixture must produce a per-line parse error")
+	assert.True(t, root.TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
+		"the valid entries in the same file still load")
+	assert.Empty(t, strictness.Since(mark),
+		"a skipped line is not a corrupt trust store; escalating it would abort startup over one stray line")
+}

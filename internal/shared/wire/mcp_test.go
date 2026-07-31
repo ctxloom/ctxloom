@@ -125,3 +125,27 @@ func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
 		}
 	})
 }
+
+// TestMergeMCPConfig_AutoRegisterCtxloomIsCopied pins U133-F06: MergeMCPConfig
+// documents that "dest is independent of src" and deep-copies every server for
+// exactly that reason, but assigned AutoRegisterCtxloom as a bare *bool. Two
+// configs merged from the same source then SHARED the flag, so writing through
+// one silently retargeted ctxloom's own MCP auto-registration in the other —
+// and in the source config itself.
+func TestMergeMCPConfig_AutoRegisterCtxloomIsCopied(t *testing.T) {
+	enabled := true
+	src := &MCPConfig{AutoRegisterCtxloom: &enabled}
+	dest := &MCPConfig{}
+	MergeMCPConfig(dest, src)
+
+	if dest.AutoRegisterCtxloom == src.AutoRegisterCtxloom {
+		t.Fatal("dest shares src's AutoRegisterCtxloom pointer; the merge documents independence")
+	}
+	if !*dest.AutoRegisterCtxloom {
+		t.Fatal("dest lost the value the merge was supposed to carry")
+	}
+	*dest.AutoRegisterCtxloom = false
+	if !*src.AutoRegisterCtxloom {
+		t.Error("writing through dest changed src's AutoRegisterCtxloom")
+	}
+}

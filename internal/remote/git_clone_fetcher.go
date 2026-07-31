@@ -168,26 +168,17 @@ func collectItemPaths(tree *object.Tree, base string, out map[string]struct{}) {
 	})
 }
 
-// ResolveRef converts a git reference to a commit SHA. Resolution order is
-// load-bearing: refs/remotes/origin/<ref> is tried BEFORE the bare revision.
-// git fetch advances the remote-tracking refs but never the clone's local
-// branches (refs/heads/*), and go-git's bare ResolveRevision walks the rev-parse
-// rules — including refs/heads/<ref> — so resolving a branch name bare returns
-// the stale clone-time commit. Trying origin/ first makes a branch name (e.g. a
-// default branch named "develop") resolve to the freshly-fetched tip; a SHA or
-// tag falls through to the bare resolution. This mirrors resolveToCommitHash.
+// ResolveRef converts a git reference to a commit SHA, through the same ladder
+// every other read in this type uses (resolveToCommitHash). It used to carry a
+// second ladder of its own, in a different order and missing the annotated-tag
+// rung, while its doc claimed to mirror the first — so the claim was false and
+// nothing would have caught the two drifting apart.
 func (f *GitCloneFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (string, error) {
-	for _, rev := range []string{
-		"refs/remotes/origin/" + ref,
-		"refs/tags/" + ref,
-		ref,
-	} {
-		if hash, err := f.repo.ResolveRevision(plumbing.Revision(rev)); err == nil {
-			return hash.String(), nil
-		}
+	hash, err := f.resolveToCommitHash(ref)
+	if err != nil {
+		return "", err
 	}
-
-	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
+	return hash.String(), nil
 }
 
 // ResolveTag resolves a tag name to its commit SHA through the tag namespace
@@ -345,11 +336,16 @@ func (f *GitCloneFetcher) treeAtRef(ref string) (*object.Tree, error) {
 	return tree, nil
 }
 
-// resolveToCommitHash tries multiple strategies to resolve a ref string to a commit hash.
+// resolveToCommitHash is this type's ONE ref-resolution ladder: every read
+// (treeAtRef, ResolveRef) goes through it, so a ref cannot mean two things
+// depending on which entry point asked. ResolveTag is the deliberate
+// exception and stays separate — it resolves through the tag namespace only,
+// because a semver pin must not be answerable by a same-named branch.
+//
+// origin/<ref> first: fetch advances the remote-tracking refs but never the
+// clone's local branches, so a local branch name resolves to stale clone-time
+// state. SHAs and tags fall through to the later strategies.
 func (f *GitCloneFetcher) resolveToCommitHash(ref string) (plumbing.Hash, error) {
-	// origin/<ref> first: fetch advances the remote-tracking refs but never
-	// the clone's local branches, so a local branch name resolves to stale
-	// clone-time state. SHAs and tags fall through to the later strategies.
 	strategies := []string{
 		"refs/remotes/origin/" + ref,
 		ref,

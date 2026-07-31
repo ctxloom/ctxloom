@@ -131,15 +131,12 @@ func (v *ConfigValidator) KnownKeys(path []string) []string {
 }
 
 // collectKnownKeys unions s's own Properties with every anyOf/oneOf/allOf
-// branch's, following $ref. depth bounds a pathological $ref cycle (the same
-// unbounded-loop concern noted on resolveSchemaRef, F07) rather than
-// recursing forever; 64 is far past any real schema's nesting.
+// branch's AND its $ref referent's — a $ref is applied alongside whatever the
+// referring schema declares itself (see schemaChild), so both sides name keys.
+// depth bounds the recursion rather than trusting the schema graph to be
+// acyclic; 64 is far past any real schema's nesting.
 func collectKnownKeys(s *jsonschema.Schema, seen map[string]bool, depth int) {
-	if depth > 64 {
-		return
-	}
-	s = resolveSchemaRef(s)
-	if s == nil {
+	if depth > 64 || s == nil {
 		return
 	}
 	for k := range s.Properties {
@@ -150,15 +147,7 @@ func collectKnownKeys(s *jsonschema.Schema, seen map[string]bool, depth int) {
 			collectKnownKeys(branch, seen, depth+1)
 		}
 	}
-}
-
-// resolveSchemaRef follows a chain of $ref indirection to the schema that
-// actually carries the object keywords (properties/additionalProperties/...).
-func resolveSchemaRef(s *jsonschema.Schema) *jsonschema.Schema {
-	for s != nil && s.Ref != nil {
-		s = s.Ref
-	}
-	return s
+	collectKnownKeys(s.Ref, seen, depth+1)
 }
 
 // anyKeySchema is the walker's stand-in for a location that constrains no key
@@ -169,40 +158,50 @@ func resolveSchemaRef(s *jsonschema.Schema) *jsonschema.Schema {
 // only to answer KnownPath/KnownKeys.
 var anyKeySchema = &jsonschema.Schema{}
 
-// schemaChild returns the sub-schema key names within s, or nil if s does not
+// schemaChild returns the sub-schema naming key within s, or nil if s does not
 // recognize key at all. See KnownPath's doc for the resolution order.
+//
+// `$ref` is consulted LAST rather than first. Draft 2020-12 makes it an
+// in-place applicator: the keywords written beside a $ref still apply, so
+// `{"$ref": base, "properties": {...}}` names both sets of keys. Replacing s
+// with its referent up front — which is what "follow the ref" reads like —
+// silently drops the near side of that, and drops it again at every hop of a
+// $ref chain. Consulting s's own keywords first and recursing into s.Ref only
+// when none matched keeps every schema along the chain in play. For the same
+// reason the sub-schemas returned here are NOT dereferenced: the next segment's
+// lookup does it, with that sub-schema's own siblings still visible.
 func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
-	if s == anyKeySchema {
-		return anyKeySchema
-	}
-	s = resolveSchemaRef(s)
 	if s == nil {
 		return nil
 	}
+	if s == anyKeySchema {
+		return anyKeySchema
+	}
 	if sub, ok := s.Properties[key]; ok {
-		return resolveSchemaRef(sub)
+		return sub
 	}
 	for pattern, sub := range s.PatternProperties {
 		if pattern.MatchString(key) {
-			return resolveSchemaRef(sub)
+			return sub
 		}
 	}
 	switch addl := s.AdditionalProperties.(type) {
 	case *jsonschema.Schema:
-		return resolveSchemaRef(addl)
+		return addl
 	case bool:
 		// `additionalProperties: true` says every key name here is permitted
 		// and constrains the value not at all, so every segment below it is
-		// permitted too. `false` says the declared names are the whole set,
-		// and an ABSENT keyword is treated the same way: this walker answers
-		// "does the schema NAME this location", and an author who listed
-		// properties and said nothing else named exactly those. (Both in-repo
-		// schemas are authored additionalProperties:false throughout, so
-		// reading silence as permissive would make every typo resolve.)
+		// permitted too. `false` names nothing extra and so matches nothing
+		// here, but it is not an answer for the whole schema — the search
+		// continues into the branches and the $ref below. An ABSENT keyword
+		// behaves like `false`: this walker answers "does the schema NAME this
+		// location", and an author who listed properties and said nothing else
+		// named exactly those. (Both in-repo schemas are authored
+		// additionalProperties:false throughout, so reading silence as
+		// permissive would make every typo in them resolve as known.)
 		if addl {
 			return anyKeySchema
 		}
-		return nil
 	}
 	if child := arrayChild(s, key); child != nil {
 		return child
@@ -214,7 +213,7 @@ func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
 			}
 		}
 	}
-	return nil
+	return schemaChild(s.Ref, key)
 }
 
 // arrayChild resolves an ARRAY INDEX segment to the schema governing that
@@ -239,17 +238,17 @@ func arrayChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
 		return nil
 	}
 	if idx < len(s.PrefixItems) {
-		return resolveSchemaRef(s.PrefixItems[idx])
+		return s.PrefixItems[idx]
 	}
 	if s.Items2020 != nil {
-		return resolveSchemaRef(s.Items2020)
+		return s.Items2020
 	}
 	switch items := s.Items.(type) {
 	case *jsonschema.Schema:
-		return resolveSchemaRef(items)
+		return items
 	case []*jsonschema.Schema:
 		if idx < len(items) {
-			return resolveSchemaRef(items[idx])
+			return items[idx]
 		}
 	}
 	return nil

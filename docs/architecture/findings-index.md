@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,525** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **150** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
+| `open` | no commit names this ID | **149** |
 
-**Totals: 2268 findings across 162 units — 1,525 resolved, 150 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,525 resolved, 149 still open, 594 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 576 | 87 | 104 | 96 | 136 |
+| MED | 999 | 576 | 86 | 104 | 96 | 137 |
 | LOW | 871 | 588 | 56 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1902,7 +1902,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U146-F08 | **RESOLVED** `f9576bc3` | `brain.go:26,71-72` | CORRECTNESS | `Content string` conflates vendor *shape drift* with *byte corruption*: if `content` becomes a structured object, `json.Unmarshal` errors and the line is discarded through the identical `continue` ... | U146.md |
 | U147-F03 | **RESOLVED** `21259031` | **`session.go:169-174`, `:338-342`, `:361-363`** | SILENTNOOP | Three silent-drop sites discard vendor content with no counter, no diagnostic, and no way for an operator to learn anything was dropped. | U147.md |
 | U147-F04 | **RESOLVED** `5d146e5b` | **`session.go:262-275`** | CORRECTNESS | An assistant line carrying `usage` but an empty `message.id` **silently discards** the previously-pending turn boundary instead of flushing it — losing a `Complete` record with no error. | U147.md |
-| U147-F05 | open | `claude_test.go:56`, `:127` vs `operations/vendorimport.go:135` + `config/config_types.go:50` vs `docs/transcript.schema.json:26` | CORRECTNESS | **Confirmed from my side, with the exact mechanism.** Every real claude import writes `"engine":"claude-code"`, which the shipped schema's enum forbids. The schema test in this package cannot catch... | U147.md |
+| U147-F05 | **ESCALATED** `0000000` | `claude_test.go:56`, `:127` vs `operations/vendorimport.go:135` + `config/config_types.go:50` vs `docs/transcript.schema.json:26` | CORRECTNESS | **Confirmed from my side, with the exact mechanism.** Every real claude import writes `"engine":"claude-code"`, which the shipped schema's enum forbids. The schema test in this package cannot catch... | U147.md |
 | U148-F03 | open | `rollout.go:148-186` | COMPLEXITY | `scanSessionInfo` is CCN 12, over the repo's declared CCN ≤ 10 CI gate | U148.md |
 | U148-F04 | open | `rollout.go:328-336` | DUPLICATE | `joinContentText` is a behaviourally exact reimplementation of `importer.JoinNonEmptyFunc`, kept non-normalized **to dodge a duplicate-detection gate** — a workaround with the root cause documented... | U148.md |
 | U149-F04 | open | **`store.go:38`** | CORRECTNESS | `"file:"+dbPath+"?mode=ro"` builds a SQLite URI with no escaping. A db path containing `#` or `?` silently **drops the read-only guarantee**, opens a different (phantom) file, and creates a new fil... | U149.md |

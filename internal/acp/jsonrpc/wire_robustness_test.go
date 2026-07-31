@@ -422,3 +422,52 @@ func TestClose_WithoutACloserCannotStopTheReadLoop(t *testing.T) {
 	case <-time.After(250 * time.Millisecond):
 	}
 }
+
+// TestStart_CtxCancellationTearsDownTheConnection pins U013-F08: readLoop took
+// a ctx and never selected on it, so the ctx handed to Start scoped only
+// handler dispatch — the connection's own lifetime was governed solely by the
+// peer reaching EOF. Every caller that spawns a Conn under a session- or
+// request-scoped ctx and then cancels it (acpagent's per-session fs-upstream
+// accept loop does exactly that, and says so in its own doc) was left with a
+// read loop that outlived the thing it belonged to, still dispatching into a
+// torn-down owner. A Conn cannot interrupt a parked Read on its own, so
+// cancellation tears down the only way it can: through the closer.
+func TestStart_CtxCancellationTearsDownTheConnection(t *testing.T) {
+	pr, pw := io.Pipe() // a connected peer that never sends and never hangs up
+	t.Cleanup(func() { _ = pw.Close() })
+	conn := NewConn(pr, &lockedBuffer{}, CloserFunc(pw.Close), &mockHandler{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	conn.Start(ctx)
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+
+	cancel()
+	waitDone(t, conn)
+
+	wait, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer waitCancel()
+	assert.ErrorIs(t, await(wait, nil), ErrConnClosed, "cancelling Start's ctx must release parked callers too")
+}
+
+// TestStart_LiveCtxLeavesTheConnectionAlone is the other half: an uncancelled
+// ctx must not tear anything down, or every session would end at the first
+// scheduling hiccup.
+func TestStart_LiveCtxLeavesTheConnectionAlone(t *testing.T) {
+	notified := make(chan string, 2)
+	pr, pw := io.Pipe()
+	conn := NewConn(pr, &lockedBuffer{}, CloserFunc(pw.Close), notifyRecorder(notified))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	conn.Start(ctx)
+
+	_, werr := pw.Write([]byte(`{"jsonrpc":"2.0","method":"session/update"}` + "\n"))
+	require.NoError(t, werr)
+	select {
+	case m := <-notified:
+		assert.Equal(t, "session/update", m)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a live ctx must not stop the read loop")
+	}
+}

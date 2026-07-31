@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,325** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,326** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 143 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
-| `open` | no commit names this ID | **450** |
+| `open` | no commit names this ID | **449** |
 
-**Totals: 2268 findings across 162 units — 1,325 resolved, 450 still open, 493 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,326 resolved, 449 still open, 493 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 477 | 250 | 80 | 79 | 113 |
+| MED | 999 | 478 | 249 | 80 | 79 | 113 |
 | LOW | 871 | 491 | 188 | 48 | 87 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1249,7 +1249,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F26 | **RESOLVED** `5cd9bf90` | **`sign.go:140-145`** | SILENTNOOP | `ctxloom sign --all` over a project whose bundle dirs resolve to an empty/absent location prints "no local bundles to sign" and exits **0** — signing nothing looks the same as having nothing to sig... | U042.md |
 | U043-F04 | **RESOLVED** `27363602` | `util_config_write.go:299` | CORRECTNESS | The backup filename has 1-second resolution, so two calls within the same second silently overwrite the earlier backup — directly contradicting the doc's central promise. | U043.md |
 | U043-F05 | **RESOLVED** `749b1a85` | `weave.go:203-218` | SILENTNOOP | `saveParts` (a) returns `nil` after writing zero files when `parts` is empty, and (b) silently overwrites when two parts sanitize to the same filename — losing one member's entire output. | U043.md |
-| U043-F06 | open | `util_config_write.go:168` | CORRECTNESS | Writing a third-party config leaves a **second**, undocumented, ctxloom-branded backup in the user's config directory, and that backup's own write error is discarded. | U043.md |
+| U043-F06 | **RESOLVED** `18e4ad05` | `util_config_write.go:168` | CORRECTNESS | Writing a third-party config leaves a **second**, undocumented, ctxloom-branded backup in the user's config directory, and that backup's own write error is discarded. | U043.md |
 | U043-F07 | open | `trust_interactive.go:88,107,109-119,139,188,190` | COUPLING | The interactive trust surface writes to `os.Stderr` directly instead of `cmd.ErrOrStderr()`, defeating cobra's output injection and making the whole surface untestable from a command harness — whil... | U043.md |
 | U043-F08 | **RESOLVED** `749b1a85` | `weave.go:89-94` | ERRHANDLING / SILENTNOOP | The task is never validated non-empty, and a stdin read error is silently swallowed leaving an empty task — so `ctxloom weave` will fan real agents out over nothing. | U043.md |
 | U043-F09 | open | `weave.go:84-87` | COUPLING | `weave` launches engine processes but never calls `failOnFindings`, so it launches agents on a config that `ctxloom run`/`ctxloom mcp` would refuse to start on. | U043.md |

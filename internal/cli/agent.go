@@ -154,8 +154,22 @@ type agentShowJSON struct {
 	ResolutionError string                    `json:"resolution_error,omitempty"`
 }
 
+// renderAgentShow writes the human view of one agent: what the definition
+// DECLARES, then what resolution made of it. The two halves are separate
+// functions because they answer different questions — "what did I write down?"
+// and "what will actually run?" — and each is a run of independent
+// omit-when-empty arms.
 func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error) error {
 	w := iox.NewErrWriter(out)
+	renderAgentDeclaration(w, def)
+	renderAgentResolution(w, resolved, rerr)
+	return w.Err()
+}
+
+// renderAgentDeclaration writes the agent AS DECLARED: identity, source, the
+// declared engine (with the project-default hint when unset), and the optional
+// axes, each omitted when empty.
+func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	w.Printf("Agent: %s\n", def.Name)
 	if def.Source != "" {
 		w.Printf("Source: %s\n", def.Source)
@@ -177,20 +191,33 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	if def.Driving != "" {
 		w.Printf("Driving: %s\n", def.Driving)
 	}
-	if len(def.Escalation) > 0 {
-		w.Printf("Escalation: %d rung(s)\n", len(def.Escalation))
-		for _, r := range def.Escalation {
-			kinds := "all kinds"
-			if len(r.Kinds) > 0 {
-				kinds = strings.Join(r.Kinds, ",")
-			}
-			w.Printf("  - %s: %s\n", kinds, r.Action)
-		}
-	}
+	renderAgentEscalation(w, def.Escalation)
 	writeBulletList(w, "Profiles", def.Profiles)
+}
+
+// renderAgentEscalation writes the approval ladder, one line per rung. A rung
+// naming no kinds is a catch-all, so it says so rather than printing nothing.
+func renderAgentEscalation(w *iox.ErrWriter, ladder []agents.EscalationRung) {
+	if len(ladder) == 0 {
+		return
+	}
+	w.Printf("Escalation: %d rung(s)\n", len(ladder))
+	for _, r := range ladder {
+		kinds := "all kinds"
+		if len(r.Kinds) > 0 {
+			kinds = strings.Join(r.Kinds, ",")
+		}
+		w.Printf("  - %s: %s\n", kinds, r.Action)
+	}
+}
+
+// renderAgentResolution writes what the declaration actually resolves to. A
+// resolution FAILURE is reported and ends the view: there is no resolved engine
+// to describe, and `agent show` stays fault-tolerant rather than erroring.
+func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error) {
 	if rerr != nil {
 		w.Printf("Resolved engine: unavailable (%v)\n", rerr)
-		return w.Err()
+		return
 	}
 	w.Printf("Resolved engine: %s", resolved.Label)
 	if resolved.Backend != "" {
@@ -207,7 +234,6 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
-	return w.Err()
 }
 
 // runSetupPromptCmd prints the full five-phase ctxloom setup prompt for the

@@ -292,3 +292,45 @@ func TestDeliverOneShared_SkipsRealizationForNonIsolatableSurface(t *testing.T) 
 	assert.Nil(t, d, "the no-op wrote nothing, so there is no cleanup handle")
 	assert.False(t, realizeCalled, "the kind-keyed realization belongs to a DIFFERENT surface instance")
 }
+
+// EmptySurfaceSet.SurfaceFor must REFUSE every (kind, approach) pair. The
+// SurfaceSet contract says SurfaceFor "errors on an unsupported combination the
+// builder did not pre-validate", and an empty set supports nothing at all — so
+// returning a nil Delivery with a nil error hands a direct caller an untyped-nil
+// interface that panics on the first Deliver, with no error to branch on.
+// (U100-F11.) claude's genuine no-op is a CONCRETE noopContextDelivery value,
+// never a nil Delivery, so no backend depends on the (nil, nil) spelling.
+func TestEmptySurfaceSet_SurfaceForErrorsForEveryKind(t *testing.T) {
+	for _, k := range []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills} {
+		for _, a := range []Approach{ApproachUnsafeFile, ApproachSystemPrompt, ApproachHook} {
+			d, err := EmptySurfaceSet{}.SurfaceFor(k, a)
+			require.Error(t, err, "empty set supports no (%s, %s) combination", k, a)
+			assert.Nil(t, d, "a refused resolution must not also hand back a delivery")
+			assert.Contains(t, err.Error(), k.String(), "the error must name the surface it refused")
+		}
+	}
+}
+
+// The acp/protocol-only path is UNAFFECTED by the refusal above: Build() never
+// reaches SurfaceFor on an empty set, because SupportedApproaches is nil for
+// every kind and Build treats an empty support list as a permitted no-op. This
+// is the public-seam characterization pin for U100-F11 — green before and after
+// the fix — so the refusal cannot regress acp's "materialize nothing" contract.
+func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
+	everything, err := Select(EmptySurfaceSet{}).WithEverything().Build()
+	require.NoError(t, err, "WithEverything over an empty set is a no-op, not an error")
+	assert.Empty(t, everything.Deliveries())
+
+	named, err := Select(EmptySurfaceSet{}).
+		WithContext(ContextWriteUnsafeFile).
+		WithMCP(MCPWriteUnsafeFile).
+		WithSettings(SettingsWriteUnsafeFile).
+		Build()
+	require.NoError(t, err, "an explicitly named selection over an empty set is still a permitted no-op")
+	assert.Empty(t, named.Deliveries())
+
+	delivered, kinds, errs := everything.DeliverUnder(t.TempDir())
+	assert.Empty(t, errs)
+	assert.Empty(t, delivered)
+	assert.Empty(t, kinds)
+}

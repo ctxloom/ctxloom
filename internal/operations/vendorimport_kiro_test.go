@@ -331,3 +331,46 @@ func TestLocateKiroConversation_UnreadableDBIsReportedNotSilentlyNothing(t *test
 		"an unreadable kiro store must be reported, not reported as nothing to convert")
 	assert.Contains(t, warnings.String(), dbPath, "the advisory must name the db the user has to fix")
 }
+
+// TestLocateKiroConversation_UnreadableCandidateDBIsReported pins the SECOND
+// consumer of EnumerateConversations, kiroDBHoldingConversation, against the
+// same standard its sibling locateKiroConversationInDB already meets: an
+// unreadable candidate store is skipped (the next candidate may still hold the
+// bound conversation — a corrupt isolated db must never make a host-db
+// conversation unreachable) but it is SAID, because "I cannot read this store"
+// is not "this session has nothing to import".
+//
+// The isolated per-agent db here is not a sqlite file at all, and the host
+// ambient one holds the bound conversation: the locator must still resolve
+// against the host db, and the failure must still reach the user.
+func TestLocateKiroConversation_UnreadableCandidateDBIsReported(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "unreadable-candidate-harp"
+	const bound = "conversation-only-in-the-host-db"
+
+	ephemeral, err := paths.HarpEphemeralDir(harp)
+	require.NoError(t, err)
+	badDB := filepath.Join(ephemeral, "ctxloom-cfg-agent-a-rand7xk9", "xdg-data", "kiro-cli", "data.sqlite3")
+	require.NoError(t, os.MkdirAll(filepath.Dir(badDB), 0o755))
+	require.NoError(t, os.WriteFile(badDB, []byte("this is not a sqlite database"), 0o600))
+
+	row := loadKiroFixtureRow(t)
+	hostDB := newKiroFixtureDB(t, kiroFixtureRow{
+		Key: row.Key, ConversationID: bound,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Value: row.Value,
+	})
+
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	defer restore()
+
+	src, ok := locateKiroConversation(context.Background(), sessions.Entry{
+		HarpName: harp, SessionID: bound,
+	})
+	require.True(t, ok)
+	assert.Equal(t, hostDB+"#"+bound, src,
+		"an unreadable candidate must be skipped, not allowed to shadow the db that holds the conversation")
+	assert.Contains(t, warnings.String(), "kiro conversation store",
+		"a candidate db that could not be enumerated must be reported, not silently skipped")
+	assert.Contains(t, warnings.String(), badDB, "the advisory must name the db the user has to fix")
+}

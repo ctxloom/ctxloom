@@ -24,13 +24,10 @@ import (
 type App struct {
 	Config   *rules.Config
 	Registry *frontend.Registry
-	// ForceShell, when set (from a --shell flag), overrides every other signal.
-	ForceShell ir.Shell
-	// HostShell is the user's default login shell (from $SHELL). It is the right
-	// dialect for engines that run commands in the user's shell — notably Claude
-	// Code's Bash tool. main populates it; engines that force a fixed shell
-	// (Codex/Antigravity) emit a strong hint that bypasses it.
-	HostShell ir.Shell
+	// forceShell and hostShell come from Shells at construction; see that type
+	// for what each means and why neither is assignable afterwards.
+	forceShell ir.Shell
+	hostShell  ir.Shell
 	// DefaultShell is the final fallback when nothing else resolves a shell.
 	DefaultShell ir.Shell
 	// Warn receives one-line diagnostics about ltk's own failures — today, a
@@ -55,21 +52,46 @@ type App struct {
 	Warn io.Writer
 }
 
+// Shells carries the dialect signals only the caller can know, and is a
+// REQUIRED argument to New rather than a pair of fields assigned afterwards.
+// Both feed resolveShell's precedence chain, and omitting Host is silent: the
+// command is still analyzed, just as the wrong dialect, so a rule written
+// against a construct the substituted dialect cannot parse simply stops
+// firing. A caller that forgets must therefore fail to compile, not to guard.
+type Shells struct {
+	// Force overrides every other signal (the --shell flag). Empty — meaning
+	// "no override" — is the ordinary case.
+	Force ir.Shell
+	// Host is the user's login shell, from $SHELL. It is the right dialect for
+	// engines that run commands in that shell (notably Claude Code's Bash
+	// tool); engines that force a fixed shell (Codex/Antigravity) emit a
+	// strong hint that bypasses it. Empty means "unknown", which falls through
+	// to the default rather than guessing.
+	Host ir.Shell
+}
+
 // New builds an App with all frontends registered.
-func New(cfg *rules.Config) *App {
+func New(cfg *rules.Config, shells Shells) *App {
 	reg := frontend.NewRegistry()
 	reg.Register(shell.New()) // sh, bash, zsh, mksh
 	reg.Register(pwsh.New())  // pwsh (defers to PowerShell's own parser)
 	reg.Register(cmd.New())   // cmd.exe
-	return &App{Config: cfg, Registry: reg, DefaultShell: ir.ShellBash, Warn: os.Stderr}
+	return &App{
+		Config:       cfg,
+		Registry:     reg,
+		forceShell:   shells.Force,
+		hostShell:    shells.Host,
+		DefaultShell: ir.ShellBash,
+		Warn:         os.Stderr,
+	}
 }
 
 // resolveShell picks the shell to parse with, in precedence order:
-//  1. ForceShell — operator override (--shell)
+//  1. Shells.Force — operator override (--shell)
 //  2. hint — the adapter's per-call, tool-derived shell (authoritative; e.g.
 //     Claude's PowerShell tool → pwsh, or a future Codex adapter → bash)
 //  3. defaults.shell — explicit operator config
-//  4. HostShell — the user's $SHELL (Claude's Bash tool runs in the login shell)
+//  4. Shells.Host — the user's $SHELL (Claude's Bash tool runs in the login shell)
 //  5. DefaultShell — final fallback (bash)
 //
 // A content-sniff step belongs between (4) and (5) but is deliberately omitted:
@@ -78,14 +100,14 @@ func New(cfg *rules.Config) *App {
 // pwsh) is not trusted.
 func (a *App) resolveShell(hint ir.Shell) ir.Shell {
 	switch {
-	case a.ForceShell != "":
-		return a.ForceShell
+	case a.forceShell != "":
+		return a.forceShell
 	case hint != "":
 		return hint
-	case a.Config.Defaults.Shell != "":
-		return a.Config.Defaults.Shell
-	case a.HostShell != "":
-		return a.HostShell
+	case a.config().Defaults.Shell != "":
+		return a.config().Defaults.Shell
+	case a.hostShell != "":
+		return a.hostShell
 	default:
 		return a.DefaultShell
 	}
@@ -154,20 +176,33 @@ func (a *App) onAnalysisPanic(req engine.Request, val any, stack []byte) engine.
 }
 
 func (a *App) denyOnUnanalyzable() bool {
-	return a.Config != nil && a.Config.Defaults.OnParseError == rules.ActionDeny
+	return a.config().Defaults.OnParseError == rules.ActionDeny
 }
+
+// config returns the rules to decide against, and is never nil. A nil Config
+// means allow-all — the position rules.Evaluate and rules.EvaluatePath already
+// take explicitly, and the only one that keeps a missing config from becoming
+// a denial nobody wrote. Every reader in this type goes through here: reading
+// the field directly is what made the discipline inconsistent, so that a nil
+// Config surfaced as a nil dereference in one reader, a guarded false in
+// another, and — through the recover boundary — an "this is an ltk bug"
+// warning to the operator.
+func (a *App) config() *rules.Config {
+	if a.Config == nil {
+		return emptyRules
+	}
+	return a.Config
+}
+
+// emptyRules is the stand-in for a nil Config: no rules, normalized defaults.
+// It is shared because it is never mutated — nothing in this package writes
+// through a *rules.Config, and callers that need to expand or amend rules do
+// it on their own config before handing it to New.
+var emptyRules = rules.Empty()
 
 func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	if req.FilePath != "" {
-		d := rules.EvaluatePath(a.Config, req.FilePath)
-		return engine.Response{
-			Allow:                d.Allowed,
-			Reason:               d.Reason,
-			Suggest:              d.Suggest,
-			Confirmable:          d.Confirmable,
-			ConfirmWindowSeconds: d.ConfirmWindowSeconds,
-			ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
-		}
+		return responseFromDecision(rules.EvaluatePath(a.config(), req.FilePath))
 	}
 	command := strings.TrimSpace(req.Command)
 	if command == "" {
@@ -183,7 +218,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		// "nothing could be checked at all" (U005-F01/U067-F02) — carried on the
 		// Response so a caller (the CLI, an adapter's Encode) can say so instead
 		// of looking byte-identical to a clean allow.
-		if a.Config.Defaults.OnParseError == rules.ActionDeny {
+		if a.denyOnUnanalyzable() {
 			return engine.Response{Allow: false, Unanalyzed: true, ParseError: err.Error(),
 				Reason: "could not analyze command (" + err.Error() + ")"}
 		}
@@ -212,7 +247,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	}
 	if unanalyzed {
 		const msg = "a nested command (inside a wrapper such as bash -c/eval/cmd /c/pwsh -Command) could not be parsed"
-		if a.Config.Defaults.OnParseError == rules.ActionDeny {
+		if a.denyOnUnanalyzable() {
 			return engine.Response{Allow: false, Unanalyzed: true, ParseError: msg,
 				Reason: "could not analyze command (" + msg + ")"}
 		}
@@ -220,21 +255,28 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		// nested command is still matched below (fail-safe direction), but the
 		// Response still reports Unanalyzed so the caller knows the view of the
 		// nested command was incomplete even though this rule pass allowed it.
-		d := rules.Evaluate(a.Config, script)
+		d := rules.Evaluate(a.config(), script)
 		if !d.Allowed {
-			return engine.Response{
-				Allow:                false,
-				Reason:               d.Reason,
-				Suggest:              d.Suggest,
-				Confirmable:          d.Confirmable,
-				ConfirmWindowSeconds: d.ConfirmWindowSeconds,
-				ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
-			}
+			return responseFromDecision(d)
 		}
 		return engine.Response{Allow: true, Unanalyzed: true, ParseError: msg}
 	}
 
-	d := rules.Evaluate(a.Config, script)
+	return responseFromDecision(rules.Evaluate(a.config(), script))
+}
+
+// responseFromDecision is the ONE Decision -> Response conversion. decide
+// reaches it from three separate return paths, and the mapping used to be
+// written out field for field at each of them: nothing but review stopped a
+// seventh Decision field being wired into one path and silently dropped by the
+// other two, and a dropped Suggest or ConfirmWindowSeconds is invisible — the
+// verdict is still right, the operator just loses the way out of it.
+//
+// Unanalyzed and ParseError are deliberately NOT set here. They do not come
+// from a Decision at all: they record that the command could not be fully
+// PARSED, which is settled before any rule is consulted, so the caller sets
+// them on the response this returns.
+func responseFromDecision(d rules.Decision) engine.Response {
 	return engine.Response{
 		Allow:                d.Allowed,
 		Reason:               d.Reason,

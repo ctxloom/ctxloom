@@ -1,4 +1,34 @@
-// Package gitutil provides git repository utilities.
+// Package gitutil is the IN-PROCESS git layer: it answers questions about a
+// repository by reading it with go-git, without running the git binary.
+//
+// WHICH LAYER TO REACH FOR. ctxloom has two, and they are not interchangeable:
+//
+//   - internal/git EXECUTES the git binary. Use it to DO things — commit,
+//     fetch, diff, list worktrees — and for anything whose answer must match
+//     what git itself would say, because it is git saying it. It inherits
+//     git's own repository discovery and its config (including whatever the
+//     user has configured), which is a feature and a variable.
+//   - gitutil (here) resolves the repository IN PROCESS with go-git. Use it
+//     for the small, hot, read-only questions on ctxloom's startup path —
+//     where is the repo root, what is origin's URL — where spawning a
+//     subprocess per call would be the dominant cost. It sees only what go-git
+//     implements.
+//
+// The two do NOT resolve "the repository" by the same rules, and are not
+// guaranteed to agree on the same directory. That is a real, measured
+// difference, not a theoretical one: this package had to be told
+// EnableDotGitCommonDir explicitly before it would resolve a linked worktree
+// the way the git binary always had. Do not treat one layer's answer as a
+// substitute for the other's, and do not add write operations here — a mutation
+// that git and go-git disagree about is not a mutation anyone can review.
+//
+// ENVIRONMENT SANITIZATION. Both layers depend on this package for one thing
+// in common: RepoLocationEnvVars and SanitizedEnviron are the single home of
+// the environment variables that override WHICH repository git operates on.
+// internal/git and internal/remote build every git child process's environment
+// from SanitizedEnviron so that cmd.Dir is the only thing selecting a
+// repository. That list lives here, in the layer that spawns nothing, so there
+// is exactly one of it.
 package gitutil
 
 import (
@@ -46,16 +76,49 @@ func SanitizedEnviron() []string {
 	return out
 }
 
-// GetRemoteURL returns the URL of the named remote in the git repository
-// enclosing the given path. Returns an error if the path is not in a git repo
-// or if the remote is not configured.
-func GetRemoteURL(startPath, remoteName string) (string, error) {
+// resolveStartDir turns a caller's starting path into the absolute DIRECTORY
+// to open a repository from: a file resolves to its parent, a directory is
+// used as-is.
+//
+// A path that cannot be stat'd is an ERROR, not something to carry on with.
+// Both entry points below open the repository with DetectDotGit, which walks
+// UP from whatever it is given — so a typo'd or deleted path does not fail,
+// it answers from some ANCESTOR repository instead. "the remote of a path
+// that does not exist" then comes back as a real URL, which is worse than no
+// answer: a missing answer is visibly missing, and a wrong one is not.
+//
+// This is one function because it is one question. It was answered twice,
+// thirty lines apart, with opposite policies.
+func resolveStartDir(startPath string) (string, error) {
 	absPath, err := filepath.Abs(startPath)
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
-	if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
-		absPath = filepath.Dir(absPath)
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", fmt.Errorf("stat path: %w", err)
+	}
+	if !info.IsDir() {
+		return filepath.Dir(absPath), nil
+	}
+	return absPath, nil
+}
+
+// GetRemoteURL returns the FETCH URL of the named remote in the git repository
+// enclosing the given path. Returns an error if the path is not in a git repo
+// or if the remote is not configured.
+//
+// A remote can carry several URLs — git fetches from the first `url` and
+// pushes to all of them, or to `pushurl` when one is set — and go-git presents
+// them as one slice, `url` entries first, `pushurl` entries after. The first
+// element is therefore the fetch URL, and that is deliberately the one
+// returned: this answers "which configured remote is this checkout", and a
+// remote's identity is where it is read FROM. Returning a push URL would give
+// the same remote a second name and defeat the matching this exists for.
+func GetRemoteURL(startPath, remoteName string) (string, error) {
+	absPath, err := resolveStartDir(startPath)
+	if err != nil {
+		return "", err
 	}
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
@@ -98,18 +161,9 @@ func IsNoRepository(err error) bool {
 // It walks up the directory tree until it finds a .git directory.
 // Returns the absolute path to the repository root, or an error if not in a git repo.
 func FindRoot(startPath string) (string, error) {
-	absPath, err := filepath.Abs(startPath)
+	absPath, err := resolveStartDir(startPath)
 	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
-
-	// Check if startPath is a file, use its directory
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return "", fmt.Errorf("stat path: %w", err)
-	}
-	if !info.IsDir() {
-		absPath = filepath.Dir(absPath)
+		return "", err
 	}
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{

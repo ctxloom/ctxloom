@@ -44,9 +44,11 @@ const (
 	// safe — small chunk sizes are legitimate and are left exactly as
 	// configured. Only the band is corrected.
 	MinOverlappingChunkTokens = ChunkOverlapTokens * 2
-	// CharsPerToken is the chars-per-token ratio, owned by internal/tokens so the
-	// distillation estimate and the dry-run preview agree on one heuristic.
-	CharsPerToken = tokens.CharsPerToken
+	// BytesPerToken is the bytes-per-token ratio, owned by internal/tokens so
+	// the distillation estimate and the dry-run preview agree on one
+	// heuristic. Bytes, not characters: chunkText slices by byte offset, and
+	// the two readings diverge by 2-4x on non-ASCII text.
+	BytesPerToken = tokens.BytesPerToken
 	// distillConcurrency bounds how many chunks are distilled in parallel. Each
 	// chunk distillation spawns its own LLM plugin subprocess, so this caps
 	// concurrent subprocesses (and provider rate pressure) while still cutting
@@ -65,7 +67,7 @@ const (
 	// indistinguishable from a raw transcript passthrough. Compact now
 	// refuses to write or return a body over this bound — see its use in
 	// Compact and finalCompressionPass. ~100,000 chars is ~25,000 tokens at
-	// this package's CharsPerToken estimate, comfortably under the ~25k-token
+	// this package's BytesPerToken estimate, comfortably under the ~25k-token
 	// ceiling common MCP clients (including Claude Code's own tool-result
 	// cap) enforce on a single tool result, with headroom for the JSON
 	// envelope wrapping it.
@@ -947,10 +949,16 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 // function rather than a method: nothing about a chunking decision depends on
 // which Compactor asked for it.
 func chunkText(text string, targetTokens int) []string {
-	targetChars := targetTokens * CharsPerToken
-	overlapChars := ChunkOverlapTokens * CharsPerToken
+	// Sizes come from tokens.Budget, not from multiplying the ratio here.
+	// Multiplying was a second implementation of the heuristic living outside
+	// the package that owns it, and one no real tokenizer could satisfy: a
+	// tokenizer is not invertible by multiplication, so a substitution inside
+	// internal/tokens would have left this call site computing against the old
+	// ratio while every other surface moved.
+	targetBytes := tokens.Budget(targetTokens)
+	overlapBytes := tokens.Budget(ChunkOverlapTokens)
 
-	if len(text) <= targetChars {
+	if len(text) <= targetBytes {
 		return []string{text}
 	}
 
@@ -958,7 +966,7 @@ func chunkText(text string, targetTokens int) []string {
 	remaining := text
 
 	for len(remaining) > 0 {
-		chunkEnd := targetChars
+		chunkEnd := targetBytes
 		if chunkEnd > len(remaining) {
 			chunkEnd = len(remaining)
 		}
@@ -997,7 +1005,7 @@ func chunkText(text string, targetTokens int) []string {
 		// Move forward, keeping some overlap for context. The advance point
 		// must also land on a rune boundary, or the next chunk would start
 		// with the trailing bytes of a split rune.
-		advance := chunkEnd - overlapChars
+		advance := chunkEnd - overlapBytes
 		if advance > 0 {
 			if a := len(textutil.TruncateBytes(remaining, advance)); a > 0 {
 				advance = a

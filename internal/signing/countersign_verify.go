@@ -6,10 +6,21 @@ import (
 	"github.com/hiddeco/sshsig"
 )
 
-// namespaceForAssertion maps a countersignature Assertion to its domain
+// NamespaceForAssertion maps a countersignature Assertion to its domain
 // separator (spec §1): approve and reject are DIFFERENT namespaces so a
 // rejection signature can never be replayed as an approval or vice versa.
-func namespaceForAssertion(a Assertion) string {
+//
+// It is exported so the SIGNER derives the namespace from the same place the
+// verifier does. countersign.Store.write used to take it as a parameter
+// independent of header.Assertion, hand-re-encoded at each assertion wrapper,
+// and a mismatch at any one of them writes a record nobody can ever verify —
+// on the reject path a silent un-rejection. One derivation site makes the
+// mismatch unrepresentable rather than merely unlikely.
+//
+// Returns "" for an assertion outside the closed vocabulary; callers reach
+// this only after CountersignHeader.Validate, and signing.Sign refuses an
+// empty namespace, so the residual failure is loud.
+func NamespaceForAssertion(a Assertion) string {
 	switch a {
 	case AssertionApprove:
 		return NamespaceApprove
@@ -57,7 +68,7 @@ func VerifyCountersignature(header CountersignHeader, payloadBytes, armored []by
 	if err != nil {
 		return "", false
 	}
-	ns := namespaceForAssertion(header.Assertion)
+	ns := NamespaceForAssertion(header.Assertion)
 	if ns == "" {
 		return "", false
 	}

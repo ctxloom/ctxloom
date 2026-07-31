@@ -75,6 +75,31 @@ func (h HooksConfig) HasAny() bool {
 // Keys are event names (e.g., "PreToolUse" for Claude Code, "beforeShellExecution" for Cursor).
 type BackendHooks map[string][]Hook
 
+// Append concatenates other onto h: each unified per-event slice, and each
+// backend-native event list under its own backend key.
+//
+// The hooks half of this vocabulary owns its merge rule here, alongside the
+// types it merges, for the same reason MergeMCPConfig does. A caller one layer
+// up that re-spells the same appends by hand drifts in one direction only: a
+// seventh unified event reaches Append and is silently dropped by the copy.
+// Callers that need to say something about a nil destination wrap this; the
+// wire package has no diagnostic channel and is not the place to decide that.
+func (h *HooksConfig) Append(other HooksConfig) {
+	h.Unified.Append(other.Unified)
+
+	if h.Plugins == nil {
+		h.Plugins = make(map[string]BackendHooks)
+	}
+	for name, hooks := range other.Plugins {
+		if h.Plugins[name] == nil {
+			h.Plugins[name] = make(BackendHooks)
+		}
+		for event, eventHooks := range hooks {
+			h.Plugins[name][event] = append(h.Plugins[name][event], eventHooks...)
+		}
+	}
+}
+
 // Append concatenates each per-event slice from other onto u.
 func (u *UnifiedHooks) Append(other UnifiedHooks) {
 	u.PreTool = append(u.PreTool, other.PreTool...)

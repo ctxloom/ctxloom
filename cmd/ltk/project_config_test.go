@@ -29,7 +29,7 @@ func TestProjectRulesRedirectBareToolInvocations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load %s: %v", projectConfigPath, err)
 	}
-	a := app.New(cfg)
+	a := app.New(cfg, app.Shells{})
 
 	cases := []struct {
 		name           string
@@ -114,7 +114,7 @@ func TestProjectRulesAllowTheirOwnJustTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load %s: %v", projectConfigPath, err)
 	}
-	a := app.New(cfg)
+	a := app.New(cfg, app.Shells{})
 
 	for _, command := range []string{
 		"just test",

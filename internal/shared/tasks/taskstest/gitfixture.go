@@ -32,9 +32,7 @@ import (
 // Every other caller uses this one.
 func RealGitWorktreeFixture(t *testing.T) (main, linked string) {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
+	requireGit(t)
 
 	mainDir := t.TempDir()
 	runGit(t, mainDir, "init", "-q")
@@ -58,6 +56,46 @@ func RealGitWorktreeFixture(t *testing.T) (main, linked string) {
 		t.Fatalf("eval symlinks linked: %v", err)
 	}
 	return main, linked
+}
+
+// EnvAllowMissingGit, set to "1", downgrades "git is not on PATH" from a
+// failure to a skip. It is an escape hatch, not the default: see
+// requireGit.
+const EnvAllowMissingGit = "CTXLOOM_ALLOW_MISSING_GIT"
+
+// allowMissingGit is captured at package init, on purpose — the same reason
+// dockergate captures its own knob there. Isolate clears every EnvKeys
+// variable (this one included, so the enforcement test stays honest), so a
+// fixture consulted after a test isolates would otherwise silently demote
+// itself back to skipping.
+var allowMissingGit = os.Getenv(EnvAllowMissingGit) == "1"
+
+// requireGit fails, rather than skips, when git is not on PATH.
+//
+// A skip here is invisible: the 16 call sites of RealGitWorktreeFixture are
+// the only coverage of the linked-worktree redirect logic, and they are the
+// tests most likely to matter in an environment odd enough to lack git. A
+// skip means every one of them evaporates and the suite still reports PASS —
+// the silent-no-op shape these tests exist to catch, inside the fixture that
+// serves them. Unlike a container runtime, git is not optional here: this
+// repository is a git checkout, its build stamps a commit sha, and its
+// project-root resolution shells out to git, so "no git" is a broken
+// environment rather than a legitimate one.
+//
+// EnvAllowMissingGit=1 restores the skip for anyone who genuinely needs it,
+// and the failure message names it.
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err == nil {
+		return
+	}
+	if allowMissingGit {
+		t.Skipf("git not on PATH and %s=1: this test ran NOTHING", EnvAllowMissingGit)
+		return
+	}
+	t.Fatalf("git is not on PATH, so the linked-worktree fixture cannot build a repo and this "+
+		"test would silently cover nothing. git is a prerequisite for this repository, not an "+
+		"optional dependency; set %s=1 to downgrade this to a skip.", EnvAllowMissingGit)
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

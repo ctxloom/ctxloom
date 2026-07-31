@@ -18,7 +18,7 @@ func newApp(t *testing.T, y string) *App {
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
-	return New(cfg)
+	return New(cfg, Shells{})
 }
 
 const cfg = `

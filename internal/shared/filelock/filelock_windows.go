@@ -22,12 +22,12 @@ const (
 // lockFile acquires a lock on the file, blocking until available.
 func lockFile(path string, shared bool) (func(), error) {
 	if err := ensureDir(path); err != nil {
-		return nil, err
+		return nil, errPrepare(path, err)
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, lockFileMode)
 	if err != nil {
-		return nil, err
+		return nil, errOpen(path, err)
 	}
 
 	var flags uint32
@@ -38,7 +38,7 @@ func lockFile(path string, shared bool) (func(), error) {
 
 	if err := lockFileEx(syscall.Handle(f.Fd()), flags); err != nil {
 		f.Close()
-		return nil, err
+		return nil, errAcquire(path, shared, err)
 	}
 
 	return func() {

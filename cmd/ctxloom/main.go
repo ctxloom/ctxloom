@@ -1,12 +1,15 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
 
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -34,7 +37,7 @@ func main() {
 	// project); the persistent --degraded flag wins over it once parsed (see
 	// cli root's PersistentPreRun). Deliberately NO config key: a broken
 	// config cannot excuse itself.
-	if os.Getenv("CTXLOOM_DEGRADED") == "1" {
+	if envSwitchOn("CTXLOOM_DEGRADED", os.Stderr) {
 		strictness.SetDegraded(true)
 	}
 
@@ -44,21 +47,76 @@ func main() {
 	// mechanism for a subprocess/CI that must not depend on what the host has
 	// installed; the persistent --no-companions flag wins over it once parsed
 	// (see cli root's PersistentPreRun).
-	if os.Getenv("CTXLOOM_NO_COMPANIONS") == "1" {
+	if envSwitchOn("CTXLOOM_NO_COMPANIONS", os.Stderr) {
 		config.SetCompanionsDisabled(true)
 	}
 
-	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1)
-	var logger *zap.Logger
-	if os.Getenv("CTXLOOM_VERBOSE") == "1" {
-		logger, _ = zap.NewDevelopment()
-	} else {
+	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1), dispatch, flush,
+	// exit — in that order, and with the exit as the LAST thing this process
+	// does. See runCLI for why the flush cannot be a defer.
+	os.Exit(runCLI(loggerConstructor(envSwitchOn("CTXLOOM_VERBOSE", os.Stderr)), cli.Run, os.Stderr))
+}
+
+// runCLI installs the process-wide logger, dispatches, then flushes the
+// logger's sinks and returns the exit code.
+//
+// The flush is a plain statement on the return path, never a defer: main's
+// last act is os.Exit, which runs no deferred functions, so a deferred flush
+// is skipped on every non-zero exit — precisely the runs whose diagnostics
+// matter. That is also why dispatch RETURNS a code instead of exiting: the
+// exit and the teardown have to live in the same frame or the teardown is
+// decorative.
+func runCLI(construct func() (*zap.Logger, error), dispatch func() int, warn io.Writer) int {
+	logger := buildLogger(construct, warn)
+	zap.ReplaceGlobals(logger)
+	code := dispatch()
+	_ = logger.Sync()
+	return code
+}
+
+// envSwitchOn reads one of the CTXLOOM_* boolean process switches and reports
+// a value no boolean spelling covers, rather than treating it as off in
+// silence. These switches are read before any flag is parsed, so this warning
+// is the only feedback an operator who mistyped one will ever get: the mode
+// simply would not engage, with nothing to distinguish that from the feature
+// being broken.
+func envSwitchOn(name string, warn io.Writer) bool {
+	on, unrecognized := envswitch.On(name)
+	if unrecognized != "" && warn != nil {
+		fmt.Fprintf(warn, "ctxloom: warning: %s=%q is not an on/off value; treating it as off "+
+			"(on: 1/true/yes/on, off: 0/false/no/off)\n", name, unrecognized)
+	}
+	return on
+}
+
+// loggerConstructor picks the process logger's build recipe: a development
+// logger when verbose, otherwise a production logger raised to warn level.
+func loggerConstructor(verbose bool) func() (*zap.Logger, error) {
+	if verbose {
+		return func() (*zap.Logger, error) { return zap.NewDevelopment() }
+	}
+	return func() (*zap.Logger, error) {
 		cfg := zap.NewProductionConfig()
 		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
-		logger, _ = cfg.Build()
+		return cfg.Build()
 	}
-	zap.ReplaceGlobals(logger)
-	defer func() { _ = logger.Sync() }()
+}
 
-	cli.Execute()
+// buildLogger runs a zap constructor and NEVER returns nil. zap's
+// constructors return (nil, err) on failure, and the result of this one is
+// handed straight to zap.ReplaceGlobals: a nil there is not inert, it is a
+// process-wide global whose first use — any of the zap.L()/zap.S() call sites,
+// or main's own Sync — dereferences nil. A logger that could not be built is
+// therefore replaced by a no-op logger, and the reason is reported on warn so
+// the degradation is visible rather than silent. A nil warn stream discards
+// the report without changing the fallback.
+func buildLogger(construct func() (*zap.Logger, error), warn io.Writer) *zap.Logger {
+	logger, err := construct()
+	if logger == nil {
+		if warn != nil {
+			fmt.Fprintf(warn, "ctxloom: warning: could not initialize logging (%v); continuing without it\n", err)
+		}
+		return zap.NewNop()
+	}
+	return logger
 }

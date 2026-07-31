@@ -4,7 +4,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -632,4 +634,260 @@ func TestStore_Read_AFormOutsideTheClosedVocabularyFindsNothing(t *testing.T) {
 	_, ok = s.VerifiedApprove("acme#mcp/x", rogue, payload, root, time.Now())
 	assert.False(t, ok, "an unrecognized form must resolve to 'nothing recorded'")
 	assert.False(t, s.HasUnsignedApprove("acme#mcp/x", rogue, payload))
+}
+
+// TestStore_WriteNamespaceIsDerivedFromTheAssertion pins the one thing the
+// signer and the verifier must never disagree about.
+//
+// write used to take `namespace` as a parameter INDEPENDENT of
+// header.Assertion, hand-re-encoded at each of the three assertion wrappers,
+// while VerifyCountersignature DERIVES it from the assertion. The two
+// namespaces are a domain separator (spec §1) precisely so a rejection can
+// never be replayed as an approval — so a mismatch at one wrapper produces a
+// record that is written, reported to the user, and then never verifiable by
+// anyone.
+//
+// On the REJECT path that is a fail-OPEN: an unverifiable rejection reads as
+// "nothing rejected", which is benign, so the item is silently un-rejected.
+// The test asserts on the record's namespace by construction: a root that
+// trusts the key ONLY for the assertion's own namespace must verify it, and a
+// root that trusts it only for the OTHER namespace must not.
+func TestStore_WriteNamespaceIsDerivedFromTheAssertion(t *testing.T) {
+	signer, pub := testSigner(t)
+	payload := []byte("reviewed bytes")
+	now := time.Now()
+
+	approveOnly := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove)
+	rejectOnly := rootTrusting("ben@abbitt.me", pub, signing.NamespaceReject)
+
+	t.Run("approve is signed under the approve namespace", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.WriteApprove("bundle:a", signing.AttestFragmentRaw, payload, signer))
+
+		_, ok := s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, approveOnly, now)
+		assert.True(t, ok, "an approve record must verify under a root trusting the approve namespace")
+
+		_, ok = s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, rejectOnly, now)
+		assert.False(t, ok, "it must NOT verify under a root trusting only the reject namespace")
+	})
+
+	t.Run("content reject is signed under the reject namespace", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.WriteContentReject(signing.AttestFragmentRaw, payload, signer))
+
+		_, ok := s.VerifiedContentReject(signing.AttestFragmentRaw, payload, rejectOnly, now)
+		assert.True(t, ok, "a reject record must verify under a root trusting the reject namespace")
+
+		_, ok = s.VerifiedContentReject(signing.AttestFragmentRaw, payload, approveOnly, now)
+		assert.False(t, ok, "it must NOT verify under a root trusting only the approve namespace")
+	})
+
+	t.Run("ref reject is signed under the reject namespace", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.WriteRefReject("bundle:a", signer))
+
+		_, ok := s.VerifiedRefReject("bundle:a", rejectOnly, now)
+		assert.True(t, ok, "a ref-reject record must verify under a root trusting the reject namespace")
+
+		_, ok = s.VerifiedRefReject("bundle:a", approveOnly, now)
+		assert.False(t, ok, "it must NOT verify under a root trusting only the approve namespace")
+	})
+}
+
+// TestStore_DirectoryWithGlobMetacharacters_StillFindsRejections is the
+// fail-open candidates' swallowed Glob error actually produces.
+//
+// candidates built a PATTERN by joining s.dir with the index hash, so every
+// metacharacter in the store's own path was interpreted rather than matched.
+// An unterminated '[' anywhere in it makes filepath.Match return ErrBadPattern
+// and candidates return nil — for every query, forever.
+//
+// On the approve path that leaves items pending, which is safe. On the REJECT
+// path nil candidates is indistinguishable from "nothing rejected", so a
+// rejection a human recorded silently stops applying. Readable() cannot catch
+// it: it lists the directory by its literal name, so it reports a perfectly
+// healthy store while every lookup into it comes back empty.
+func TestStore_DirectoryWithGlobMetacharacters_StillFindsRejections(t *testing.T) {
+	signer, pub := testSigner(t)
+	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove, signing.NamespaceReject)
+	now := time.Now()
+	payload := []byte("refused bytes")
+
+	for _, dir := range []string{
+		"/home/u/proj[wip/.ctxloom/approvals", // unterminated '[' — ErrBadPattern
+		"/home/u/proj[ab]/.ctxloom/approvals", // a valid class that matches a DIFFERENT directory
+		`/home/u/pro\j/.ctxloom/approvals`,    // backslash is an escape to Match, not a literal
+	} {
+		t.Run(dir, func(t *testing.T) {
+			s := NewStore(dir, afero.NewMemMapFs())
+			require.NoError(t, s.WriteRefReject("bundle:evil", signer))
+			require.NoError(t, s.WriteContentReject(signing.AttestFragmentRaw, payload, signer))
+
+			require.NoError(t, s.Readable(), "the store is physically fine, so nothing warns")
+
+			_, ok := s.VerifiedRefReject("bundle:evil", root, now)
+			assert.True(t, ok, "a recorded ref rejection must still be found")
+
+			_, ok = s.VerifiedContentReject(signing.AttestFragmentRaw, payload, root, now)
+			assert.True(t, ok, "a recorded content rejection must still be found")
+		})
+	}
+}
+
+// statDenyFs fails Stat for chosen paths while leaving Open/ReadDir working —
+// the shape that separates hasUnsigned's probe from Readable's whole-store
+// walk, since one stats a single path and the other lists and opens.
+type statDenyFs struct {
+	afero.Fs
+	deny map[string]error
+}
+
+func (f statDenyFs) Stat(name string) (os.FileInfo, error) {
+	if err, ok := f.deny[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Stat(name)
+}
+
+// TestStore_UnsignedRejectMarker_IsNotErasedByAStatFailure pins the reject
+// direction of hasUnsigned's error handling.
+//
+// hasUnsigned returned `err == nil && exists`, folding every stat failure into
+// "absent". For an unsigned marker, EXISTENCE IS THE ENTIRE RECORD (§9.5) —
+// there is nothing to re-verify — so a stat that fails does not degrade the
+// answer, it INVERTS it. On HasUnsignedContentReject and HasUnsignedRefReject
+// that is a fail-open: a rejection a human recorded reads as no rejection.
+//
+// The store-wide guard (Readable, gating EffectiveTrust's preamble) covers the
+// ordinary cause, an unreadable directory, because it lists and opens every
+// file. It does NOT cover a failure that hides one path from Stat alone, which
+// is exactly what this fixture is: Readable reports the store healthy.
+func TestStore_UnsignedRejectMarker_IsNotErasedByAStatFailure(t *testing.T) {
+	base := afero.NewMemMapFs()
+	s := NewStore("/store", base)
+	require.NoError(t, s.WriteUnsignedRefReject("bundle:evil"))
+
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "bundle:evil", Form: signing.AttestNone}
+	marker := filepath.Join("/store", unsignedFilename(h, nil))
+
+	blind := NewStore("/store", statDenyFs{Fs: base, deny: map[string]error{marker: os.ErrPermission}})
+
+	require.NoError(t, blind.Readable(), "the whole-store guard sees nothing wrong here")
+	assert.True(t, blind.HasUnsignedRefReject("bundle:evil"),
+		"a recorded unsigned rejection must not be erased by a stat failure")
+}
+
+// TestStore_LatestApprove_OrdersByInstantNotByBytes pins the ordering rule
+// LatestApprove needs to answer the question it is asked.
+//
+// It compared ReviewedAt with `>` — a byte comparison of an unparsed free-text
+// YAML field. That is correct only while every stamp is UTC Z-suffixed
+// RFC3339, which is true of the single writer today and of nothing else: the
+// index is a plain YAML file a human may edit, and its doc requires it to
+// outlive contract bumps, so it is expected to accumulate records this build
+// did not write.
+//
+// The consequence is not cosmetic. LatestApprove supplies the DIFF BASE and
+// decides whether an item is labelled UPDATE or NEW, which is what a reviewer
+// looks at to notice substituted bytes.
+func TestStore_LatestApprove_OrdersByInstantNotByBytes(t *testing.T) {
+	entry := func(stamp, hash string) IndexEntry {
+		return IndexEntry{
+			Ref: "bundle:a", Kind: "fragment", Form: "raw",
+			Assertion:   string(signing.AssertionApprove),
+			PayloadHash: hash, ReviewedAt: stamp,
+		}
+	}
+
+	t.Run("an offset-suffixed stamp does not out-sort a later UTC one", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		// 13:00+01:00 is 12:00Z — EARLIER than 12:30Z — but sorts later by bytes.
+		require.NoError(t, s.AppendIndex(entry("2026-01-01T12:30:00Z", "sha256:actually-latest")))
+		require.NoError(t, s.AppendIndex(entry("2026-01-01T13:00:00+01:00", "sha256:earlier")))
+
+		got, ok, err := s.LatestApprove("bundle:a", signing.FormRaw)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "sha256:actually-latest", got.PayloadHash)
+	})
+
+	t.Run("an unreadable stamp does not win by sorting high", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.AppendIndex(entry("2026-06-01T00:00:00Z", "sha256:actually-latest")))
+		// 'y' sorts above every digit, so this used to beat any real stamp.
+		require.NoError(t, s.AppendIndex(entry("yesterday-ish", "sha256:unreadable")))
+
+		got, ok, err := s.LatestApprove("bundle:a", signing.FormRaw)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "sha256:actually-latest", got.PayloadHash,
+			"a stamp that reads must beat one that does not")
+	})
+}
+
+// TestStore_ThreeRecordKindsHaveThreeAuthorityModels pins the taxonomy the
+// Store doc now states, in the one direction nothing else covers: that an
+// unsigned marker really is honoured on FILENAME EXISTENCE alone, and a signed
+// record really is not.
+//
+// The doc used to claim the type "never answers 'is X approved' on the
+// strength of a filename alone", which is false of the §9.5 degraded path by
+// design. Its forgeability is the reason unsigned writes must never reach the
+// committable project store, so it has to be stated rather than implied — and
+// a later "hardening" of the marker path that silently made this test fail
+// would be changing a documented security property, not fixing a bug.
+func TestStore_ThreeRecordKindsHaveThreeAuthorityModels(t *testing.T) {
+	_, pub := testSigner(t)
+	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove, signing.NamespaceReject)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+	payload := []byte("bytes nobody signed")
+
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: "bundle:a", Form: signing.AttestFragmentRaw}
+
+	// (2) Unsigned marker: a file this package's writer never produced, planted
+	// directly, is honoured — existence IS the record.
+	require.NoError(t, afero.WriteFile(fs, filepath.Join("/store", unsignedFilename(h, payload)), []byte("unsigned\n"), 0o644))
+	assert.True(t, s.HasUnsignedApprove("bundle:a", signing.AttestFragmentRaw, payload),
+		"an unsigned marker is honoured on filename existence alone (spec §9.5)")
+
+	// (1) Signed record: a planted file at the very same index hash proves
+	// nothing, because every candidate is re-verified.
+	require.NoError(t, afero.WriteFile(fs, filepath.Join("/store", filename(h, payload, pub)), []byte("not a signature\n"), 0o644))
+	_, ok := s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, root, time.Now())
+	assert.False(t, ok, "a signed record is never honoured on filename alone")
+
+	// (3) Sidecar index: still no approval, whatever it says.
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "bundle:a", Kind: "fragment", Form: "raw",
+		Assertion:   string(signing.AssertionApprove),
+		PayloadHash: "sha256:whatever", ReviewedAt: "2026-01-01T00:00:00Z",
+	}))
+	_, ok = s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, root, time.Now())
+	assert.False(t, ok, "the display index is never an input to a trust decision")
+}
+
+// TestStore_RecordFilenamesMatchTheDocumentedContract pins the shape
+// filename/unsignedFilename document, because it is a contract between two
+// functions with no compiler check between them: candidates matches
+// "<indexHash>." as a literal prefix and hasUnsigned matches the unsigned name
+// exactly. Reordering the fields or changing the separator orphans every
+// record already on disk — they stay valid and are simply never found again,
+// which on the reject path reads as nothing rejected.
+func TestStore_RecordFilenamesMatchTheDocumentedContract(t *testing.T) {
+	_, pub := testSigner(t)
+	payload := []byte("reviewed bytes")
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: "bundle:a", Form: signing.AttestFragmentRaw}
+	hash := indexHash(h, payload)
+
+	signed := filename(h, payload, pub)
+	assert.Equal(t, hash+"."+string(h.Assertion)+"."+keyTag(pub)+".sig", signed)
+	assert.True(t, strings.HasPrefix(signed, hash+"."),
+		"candidates finds records by this prefix")
+	assert.True(t, strings.HasSuffix(signed, ".sig"))
+
+	unsigned := unsignedFilename(h, payload)
+	assert.Equal(t, hash+"."+string(h.Assertion)+".unsigned", unsigned)
+	assert.False(t, strings.HasSuffix(unsigned, ".sig"),
+		"a marker must not be picked up by candidates' .sig filter")
 }

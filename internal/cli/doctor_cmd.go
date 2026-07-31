@@ -382,6 +382,9 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 func signKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discoverer, explicit string) (ok bool, detail string) {
 	discovered, err := discoverer.Discover(ctx, explicit)
 	if err == nil {
+		// A probe never signs, so the agent connection is released as soon as
+		// the identity has been described.
+		defer func() { _ = discovered.Close() }()
 		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
 	}
 

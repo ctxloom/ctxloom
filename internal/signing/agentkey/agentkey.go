@@ -33,6 +33,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -42,6 +43,38 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
+
+// withheldKeyValue is what a key value is replaced with when it must not be
+// printed. It still reports the length, which is the only part that helps
+// someone diagnose a mis-paste.
+const withheldKeyValue = "<redacted: %d bytes of key material>"
+
+// mustWithhold reports whether a --key / sign.key / user.signingkey value must
+// never be echoed back to the user.
+//
+// The invariant: ctxloom does not read private key material (package doc, spec
+// §9.1), and it must not PRINT it either. Errors are the one place a value the
+// user typed comes back out, and they are exactly what gets pasted into bug
+// reports, CI logs and chat. A value carrying a private-key header, or one
+// spanning lines, is not any of the things this package accepts — a SHA256
+// fingerprint, a filesystem path, a single authorized-keys line, or an
+// ssh-agent comment are all one line and none says PRIVATE KEY — so nothing
+// legitimate is ever withheld by this rule. A trailing newline alone does not
+// trip it: `--key "$(cat id.pub)"` is a normal thing to type.
+func mustWithhold(value string) bool {
+	return strings.Contains(value, "PRIVATE KEY") ||
+		strings.ContainsAny(strings.TrimSpace(value), "\n\r")
+}
+
+// displayKeyValue renders a key value for an error message: quoted verbatim
+// when it is safe, withheld when it is not. Naming the value back is the whole
+// worth of these errors, so the safe case must stay verbatim.
+func displayKeyValue(value string) string {
+	if mustWithhold(value) {
+		return fmt.Sprintf(withheldKeyValue, len(value))
+	}
+	return fmt.Sprintf("%q", value)
+}
 
 // Discovered is the resolved signing identity.
 type Discovered struct {
@@ -55,6 +88,28 @@ type Discovered struct {
 	// "git config user.signingkey", "ssh-agent (sole identity)", "--key",
 	// or "sign.key config".
 	Source string
+
+	// closer owns the transport Signer speaks over, when this package opened
+	// it. Unexported: the connection's lifetime is Close's business, not a
+	// field a caller should reach into.
+	closer io.Closer
+}
+
+// Close releases the ssh-agent connection backing Signer. Signer must not be
+// used afterwards.
+//
+// A resolution that opened a connection hands its ownership to the caller,
+// because Signer signs over it and therefore has to outlive Discover. Close is
+// safe on a nil Discovered, on one whose agent connection this package did not
+// open, and when called more than once — so every caller can defer it
+// unconditionally.
+func (d *Discovered) Close() error {
+	if d == nil || d.closer == nil {
+		return nil
+	}
+	c := d.closer
+	d.closer = nil
+	return c.Close()
 }
 
 // Candidate is one ssh-agent identity, surfaced in an ambiguous-choice
@@ -72,15 +127,40 @@ type AmbiguousKeyError struct {
 	Candidates []Candidate
 }
 
+// AmbiguousKeyHeader names the event "ssh-agent holds several identities and
+// nothing chose between them". Exported so a surface that wraps the listing in
+// its own prose still describes the same event in the same words.
+const AmbiguousKeyHeader = "ctxloom: multiple keys in ssh-agent — which should sign?"
+
+// candidateLines renders the ambiguous-choice listing: one line per identity,
+// fingerprint, key type, and the agent comment when there is one.
+//
+// The comment is the IDENTIFYING part. Two ed25519 keys are otherwise
+// indistinguishable to the human being asked to choose, and the comment is
+// what they must then type. A surface that re-renders the candidates by hand
+// loses precisely what makes the listing worth printing.
+func candidateLines(candidates []Candidate) []string {
+	lines := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		line := fmt.Sprintf("  %s  %s", c.Fingerprint, c.Type)
+		if c.Comment != "" {
+			line += fmt.Sprintf("  (%s)", c.Comment)
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// CandidateLines is the one authoring of the ambiguous-choice listing, for
+// callers that supply their own surrounding prose. See candidateLines for why
+// re-rendering it by hand is a mistake.
+func (e *AmbiguousKeyError) CandidateLines() []string { return candidateLines(e.Candidates) }
+
 func (e *AmbiguousKeyError) Error() string {
 	var b strings.Builder
-	b.WriteString("ctxloom: multiple keys in ssh-agent — which should sign?\n\n")
-	for _, c := range e.Candidates {
-		fmt.Fprintf(&b, "  %s  %s", c.Fingerprint, c.Type)
-		if c.Comment != "" {
-			fmt.Fprintf(&b, "  (%s)", c.Comment)
-		}
-		b.WriteString("\n")
+	b.WriteString(AmbiguousKeyHeader + "\n\n")
+	for _, line := range e.CandidateLines() {
+		b.WriteString(line + "\n")
 	}
 	b.WriteString("\nPick one, and make it stick:\n")
 	if len(e.Candidates) > 0 {
@@ -111,15 +191,16 @@ type AmbiguousKeyNameError struct {
 	Candidates []Candidate
 }
 
+// CandidateLines is the one authoring of the ambiguous-choice listing, shared
+// with AmbiguousKeyError: the two describe different reasons for the same
+// situation, and must describe the candidates identically.
+func (e *AmbiguousKeyNameError) CandidateLines() []string { return candidateLines(e.Candidates) }
+
 func (e *AmbiguousKeyNameError) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ctxloom: --key %q matches %d keys in ssh-agent.\n\n", e.Name, len(e.Candidates))
-	for _, c := range e.Candidates {
-		fmt.Fprintf(&b, "  %s  %s", c.Fingerprint, c.Type)
-		if c.Comment != "" {
-			fmt.Fprintf(&b, "  (%s)", c.Comment)
-		}
-		b.WriteString("\n")
+	fmt.Fprintf(&b, "ctxloom: --key %s matches %d keys in ssh-agent.\n\n", displayKeyValue(e.Name), len(e.Candidates))
+	for _, line := range e.CandidateLines() {
+		b.WriteString(line + "\n")
 	}
 	b.WriteString("\nNarrow the name, or disambiguate with the fingerprint:\n")
 	if len(e.Candidates) > 0 {
@@ -164,7 +245,7 @@ func (e *NoKeyError) Error() string {
 	b.WriteString("\n  ssh-add ~/.ssh/id_ed25519            # load a key you already have\n")
 	b.WriteString("  ssh-keygen -t ed25519-sk             # or a hardware key (recommended)\n\n")
 	b.WriteString("Publishing unsigned means every user of this bundle must review it by hand.\n")
-	b.WriteString("To publish unsigned anyway: ctxloom fragment push my-frag --no-sign\n")
+	b.WriteString("To publish unsigned anyway: ctxloom bundle push <bundle> --no-sign\n")
 	return b.String()
 }
 
@@ -193,13 +274,80 @@ type Discoverer struct {
 	ReadFile func(path string) ([]byte, error)
 }
 
+// The three accessors below are what make the fields' documented defaults true
+// of the TYPE rather than only of NewDiscoverer. A Discoverer is routinely
+// built as a struct literal overriding one field, which is exactly what "every
+// field is overridable" invites; every read of a nil field must therefore
+// resolve to the default the field's own doc names, never dereference nil.
+
+func (d *Discoverer) gitConfig() func(ctx context.Context, dir, key string) (string, bool, error) {
+	if d.GitConfig != nil {
+		return d.GitConfig
+	}
+	return execGitConfig
+}
+
+func (d *Discoverer) dialAgent() (agent.Agent, error) {
+	if d.DialAgent != nil {
+		return d.DialAgent()
+	}
+	return dialEnvAgent()
+}
+
+// maxPublicKeyBytes bounds what will be read from a path named by a key value.
+//
+// That path is not necessarily one the user chose. Step 2 of the chain honours
+// `git config user.signingkey`, and `git config --get` consults the
+// REPOSITORY's .git/config, so cloning a repository is enough to name the file
+// ctxloom opens. An unbounded read of a path someone else named is a hang
+// waiting to happen: /dev/zero reports size 0 and never reaches EOF, so
+// os.ReadFile grows its buffer until the process dies.
+//
+// Nothing legitimate comes close. The largest value that parses here is a
+// single authorized-keys line, and an RSA-4096 entry with a comment is under
+// 1 KiB.
+const maxPublicKeyBytes = 64 << 10
+
+// readPublicKeyFile is the default Discoverer.ReadFile. It reads one byte past
+// the ceiling so an oversized file is REPORTED by readFile rather than
+// silently truncated into an unparseable key.
+func readPublicKeyFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(io.LimitReader(f, maxPublicKeyBytes+1))
+}
+
+func (d *Discoverer) readFile(path string) ([]byte, error) {
+	read := readPublicKeyFile
+	if d.ReadFile != nil {
+		read = d.ReadFile
+	}
+	data, err := read(path)
+	if err != nil {
+		return nil, err
+	}
+	// The ceiling is enforced here so it holds for an injected ReadFile too.
+	// Only the default can prevent the oversized read from happening at all;
+	// an injected one has already returned the bytes by this point.
+	if len(data) > maxPublicKeyBytes {
+		return nil, fmt.Errorf("%s is over %d bytes — too large to be a public key file",
+			displayKeyValue(path), maxPublicKeyBytes)
+	}
+	return data, nil
+}
+
 // NewDiscoverer returns a Discoverer wired to the real git binary and the
-// real ssh-agent named by SSH_AUTH_SOCK — the production configuration.
+// real ssh-agent named by SSH_AUTH_SOCK — the production configuration. It is
+// the explicit form of what a zero Discoverer already resolves to; callers
+// that want to name the wiring, or to read a default out of a field, use it.
 func NewDiscoverer() *Discoverer {
 	return &Discoverer{
 		GitConfig: execGitConfig,
 		DialAgent: dialEnvAgent,
-		ReadFile:  os.ReadFile,
+		ReadFile:  readPublicKeyFile,
 	}
 }
 
@@ -219,7 +367,14 @@ func execGitConfig(ctx context.Context, dir, key string) (string, bool, error) {
 			// simply unset — not a failure, just "not configured".
 			return "", false, nil
 		}
-		return "", false, fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
+		// git contributes stderr only when it actually ran. A failure on
+		// ctxloom's side of exec (unrunnable binary, bad cwd) leaves it
+		// empty, so the message must stand on its own rather than being
+		// prefixed with nothing.
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", false, fmt.Errorf("git config --get %s: %s: %w", key, msg, err)
+		}
+		return "", false, fmt.Errorf("git config --get %s: %w", key, err)
 	}
 	value := strings.TrimSpace(out.String())
 	return value, value != "", nil
@@ -234,7 +389,45 @@ func dialEnvAgent() (agent.Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to ssh-agent at %s: %w", sock, err)
 	}
-	return agent.NewClient(conn), nil
+	return &closingAgent{ExtendedAgent: agent.NewClient(conn), conn: conn}, nil
+}
+
+// closingAgent is an agent.Agent that also owns the connection it speaks over.
+//
+// It exists because DialAgent's signature hands back only an agent.Agent, so
+// there is nowhere else to put the connection: whoever dialled must be able to
+// release it without the field's type changing under every caller.
+type closingAgent struct {
+	agent.ExtendedAgent
+	conn net.Conn
+}
+
+func (a *closingAgent) Close() error { return a.conn.Close() }
+
+// releaseUnlessRetained closes the agent connection unless the resolution kept
+// it. Every resolver defers this: on any error arm the socket is released
+// before the error leaves, and on success it is deliberately NOT — the
+// Discovered that owns it signs over that connection, and closing early would
+// break signing rather than fix a leak.
+func releaseUnlessRetained(ag agent.Agent, result **Discovered) {
+	if *result != nil {
+		return
+	}
+	if c, ok := ag.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
+
+// retain records the agent connection on a resolved identity, so Close can
+// reach it and releaseUnlessRetained leaves it alone.
+func retain(d *Discovered, ag agent.Agent) *Discovered {
+	if d == nil {
+		return d
+	}
+	if c, ok := ag.(io.Closer); ok {
+		d.closer = c
+	}
+	return d
 }
 
 // Discover resolves a signing identity. explicitKey is the caller's
@@ -246,7 +439,7 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 		return d.resolveExplicit(ctx, explicitKey)
 	}
 
-	gitKey, ok, err := d.GitConfig(ctx, d.Dir, "user.signingkey")
+	gitKey, ok, err := d.gitConfig()(ctx, d.Dir, "user.signingkey")
 	if err != nil {
 		return nil, fmt.Errorf("reading git config user.signingkey: %w", err)
 	}
@@ -257,6 +450,19 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 	return d.resolveSoleAgentIdentity([]string{"git config user.signingkey", "ssh-agent identities"})
 }
 
+// noKeyFrom classifies a non-ambiguous resolution failure.
+//
+// Discover fails in exactly two shapes, and which one a caller gets must
+// depend on WHAT went wrong, never on which step of the chain was running:
+// *AmbiguousKeyError / *AmbiguousKeyNameError mean candidates exist and the
+// user must choose, and *NoKeyError means nothing usable resolved. NoKeyError
+// tells callers they MUST treat it as a hard failure to sign, which is only
+// actionable if the type covers every such failure. cause is kept both as the
+// displayed Detail and, via Err, as something errors.Is/As can still reach.
+func noKeyFrom(looked []string, cause error) *NoKeyError {
+	return &NoKeyError{Looked: looked, Detail: cause.Error(), Err: cause}
+}
+
 // resolveExplicit resolves --key/sign.key in fallback order: (a) a SHA256
 // fingerprint, (b) a key line/literal/path to a public key, (c) — only when
 // (b) fails to produce a key at all — a case-insensitive substring match
@@ -265,28 +471,35 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 // must keep priority over (c): a value that legitimately parses as a
 // fingerprint or resolves as a file must never be reinterpreted as a name
 // just because it happens to also resemble one.
-func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*Discovered, error) {
-	ag, err := d.DialAgent()
+func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (result *Discovered, err error) {
+	looked := []string{"--key/sign.key " + displayKeyValue(explicitKey)}
+
+	ag, err := d.dialAgent()
 	if err != nil {
-		return nil, &NoKeyError{
-			Looked: []string{"--key/sign.key " + explicitKey},
-			Detail: err.Error(),
-			Err:    err,
-		}
+		return nil, noKeyFrom(looked, err)
 	}
+	defer releaseUnlessRetained(ag, &result)
 
 	if strings.HasPrefix(explicitKey, "SHA256:") {
-		return findByFingerprint(ag, explicitKey, "--key")
+		d2, ferr := findByFingerprint(ag, explicitKey, "--key")
+		if ferr != nil {
+			return nil, noKeyFrom(looked, ferr)
+		}
+		return retain(d2, ag), nil
 	}
 
 	pub, pubErr := d.resolvePublicKey(explicitKey)
 	if pubErr == nil {
-		return findByPublicKey(ag, pub, "--key")
+		d2, ferr := findByPublicKey(ag, pub, "--key")
+		if ferr != nil {
+			return nil, noKeyFrom(looked, ferr)
+		}
+		return retain(d2, ag), nil
 	}
 
 	discovered, nameErr := d.resolveByComment(ag, explicitKey)
 	if nameErr == nil {
-		return discovered, nil
+		return retain(discovered, ag), nil
 	}
 	var ambigName *AmbiguousKeyNameError
 	if errors.As(nameErr, &ambigName) {
@@ -301,7 +514,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 	// dropped here in favor of pubErr alone, so an agent RPC failure was
 	// reported as "not a recognized fingerprint, public key, or ssh-agent key
 	// name" — true but misleading about WHY. Chain nameErr too.
-	return nil, fmt.Errorf("--key %q: not a recognized fingerprint or public key (%v); and %w", explicitKey, pubErr, nameErr)
+	return nil, noKeyFrom(looked, fmt.Errorf("not a recognized fingerprint or public key (%v); and %w", pubErr, nameErr))
 }
 
 // resolveByComment is the last resort of resolveExplicit's fallback chain:
@@ -333,7 +546,7 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 
 	switch len(matched) {
 	case 0:
-		return nil, fmt.Errorf("no ssh-agent identity comment matches %q", explicitKey)
+		return nil, fmt.Errorf("no ssh-agent identity comment matches %s", displayKeyValue(explicitKey))
 	case 1:
 		s := signers[matched[0]]
 		return &Discovered{
@@ -358,20 +571,19 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 // parameter carried no information and could mislead a caller into thinking
 // ctx cancellation was honored here. Dropped rather than left lying; wiring
 // real cancellation into DialAgent is a separate, larger change.
-func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
+func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err error) {
+	gitLooked := []string{"git config user.signingkey"}
+
 	pub, err := d.resolvePublicKey(value)
 	if err != nil {
-		return nil, fmt.Errorf("git config user.signingkey %q: %w", value, err)
+		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", displayKeyValue(value), err))
 	}
 
-	ag, err := d.DialAgent()
+	ag, err := d.dialAgent()
 	if err != nil {
-		return nil, &NoKeyError{
-			Looked: []string{"git config user.signingkey"},
-			Detail: fmt.Sprintf("git names %s, but %s", ssh.FingerprintSHA256(pub), err),
-			Err:    err,
-		}
+		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", ssh.FingerprintSHA256(pub), err))
 	}
+	defer releaseUnlessRetained(ag, &result)
 
 	d2, err := findByPublicKey(ag, pub, "git config user.signingkey")
 	if err != nil {
@@ -381,24 +593,21 @@ func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 		// and the second one is not fixed by "ssh-add it": the key IS loaded,
 		// the agent just could not be asked. Surface findByPublicKey's own
 		// message (and chain its cause via Err) instead of guessing.
-		return nil, &NoKeyError{
-			Looked: []string{"git config user.signingkey"},
-			Detail: fmt.Sprintf("git names %s, but %v", ssh.FingerprintSHA256(pub), err),
-			Err:    err,
-		}
+		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", ssh.FingerprintSHA256(pub), err))
 	}
-	return d2, nil
+	return retain(d2, ag), nil
 }
 
 // resolveSoleAgentIdentity implements step 3 of the chain: use the agent's
 // only identity when there is exactly one, error (ambiguous or empty)
 // otherwise.
 // U135-F04: ctx was accepted but never used; dropped (see resolveGitSigningKey).
-func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, error) {
-	ag, err := d.DialAgent()
+func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discovered, err error) {
+	ag, err := d.dialAgent()
 	if err != nil {
-		return nil, &NoKeyError{Looked: looked, Detail: err.Error(), Err: err}
+		return nil, noKeyFrom(looked, err)
 	}
+	defer releaseUnlessRetained(ag, &result)
 
 	signers, err := ag.Signers()
 	if err != nil {
@@ -406,7 +615,7 @@ func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, err
 		// is a different fact than "the agent holds no identities" — chain
 		// the real cause via Err so a caller can errors.Is/As it, not just
 		// read a flattened string.
-		return nil, &NoKeyError{Looked: looked, Detail: fmt.Sprintf("listing ssh-agent identities: %v", err), Err: err}
+		return nil, noKeyFrom(looked, fmt.Errorf("listing ssh-agent identities: %w", err))
 	}
 	if len(signers) == 0 {
 		return nil, &NoKeyError{Looked: looked}
@@ -416,11 +625,11 @@ func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, err
 	}
 
 	s := signers[0]
-	return &Discovered{
+	return retain(&Discovered{
 		Signer:      s,
 		Fingerprint: ssh.FingerprintSHA256(s.PublicKey()),
 		Source:      "ssh-agent (sole identity)",
-	}, nil
+	}, ag), nil
 }
 
 // resolvePublicKey turns a git-signingkey-shaped or --key-shaped value into
@@ -435,7 +644,19 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 		return pub, nil
 	}
 
-	path := expandHome(value)
+	// A value that must be withheld is not a path and must never be USED as
+	// one. os.ReadFile reports the path it failed on, and that *fs.PathError
+	// is wrapped into the message the user is about to read — so treating
+	// pasted private key material as a filename is how the whole key ends up
+	// on stderr, twice.
+	if mustWithhold(value) {
+		return nil, fmt.Errorf("%s is not a public key, and is not read as a file path", displayKeyValue(value))
+	}
+
+	path, err := expandHome(value)
+	if err != nil {
+		return nil, err
+	}
 
 	// U135-F02: user.signingkey conventionally names the PRIVATE key path in
 	// some real setups, with the public key living alongside it as
@@ -450,32 +671,40 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 	// package doc's "never reads private key material" claim rather than
 	// merely making it true on the happy path.
 	if !strings.HasSuffix(path, ".pub") {
-		if data, err := d.ReadFile(path + ".pub"); err == nil {
+		if data, err := d.readFile(path + ".pub"); err == nil {
 			if pub, _, _, _, perr := ssh.ParseAuthorizedKey(data); perr == nil {
 				return pub, nil
 			}
 		}
 	}
 
-	data, err := d.ReadFile(path)
+	data, err := d.readFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("not a recognized public key and unreadable as a file: %w", err)
 	}
 	pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s does not contain a parseable SSH public key: %w", path, err)
+		return nil, fmt.Errorf("%s does not contain a parseable SSH public key: %w", displayKeyValue(path), err)
 	}
 	return pub, nil
 }
 
-func expandHome(path string) string {
+// expandHome resolves a leading "~" against the user's home directory.
+//
+// A tilde that cannot be expanded is an ERROR, never a literal path segment.
+// Leaving it in place makes every downstream step read a path that exists
+// under no name, so "$HOME is not defined" surfaces as a missing key file and
+// sends the user hunting for a key they already have. A path with no leading
+// tilde is returned untouched.
+func expandHome(path string) (string, error) {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
-		if err == nil {
-			return filepath.Join(home, strings.TrimPrefix(path, "~"))
+		if err != nil {
+			return "", fmt.Errorf("cannot expand %q: %w", path, err)
 		}
+		return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
 	}
-	return path
+	return path, nil
 }
 
 func findByFingerprint(ag agent.Agent, fingerprint, source string) (*Discovered, error) {
@@ -516,12 +745,24 @@ func findByPublicKey(ag agent.Agent, pub ssh.PublicKey, source string) (*Discove
 // signal (agent.Agent.List returns key blob + comment, nothing else) and
 // must be self-attested by the user, never inferred (spec §9.1.2: "I looked
 // for another honest signal and there is none").
+// An identity held as an OpenSSH CERTIFICATE reports the certificate's
+// algorithm name, not the wrapped key's, so the posture must be read from the
+// key the certificate is over: the token holds that key's private half either
+// way. The reverse never holds — a certificate over a software key is still
+// software.
 func IsHardwareBacked(pub ssh.PublicKey) bool {
 	if pub == nil {
 		return false
 	}
+	if cert, ok := pub.(*ssh.Certificate); ok && cert.Key != nil {
+		return IsHardwareBacked(cert.Key)
+	}
 	switch pub.Type() {
-	case ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
+	case ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256,
+		// A caller may hand us any ssh.PublicKey implementation, so the
+		// certificate algorithm names are matched by name too rather than
+		// relying on the concrete type alone.
+		ssh.CertAlgoSKED25519v01, ssh.CertAlgoSKECDSA256v01:
 		return true
 	default:
 		return false

@@ -1,8 +1,12 @@
 package taskstest
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -107,4 +111,102 @@ func TestProjectDir_IsolatesAndChangesDir(t *testing.T) {
 	after, err := os.Getwd()
 	require.NoError(t, err)
 	assert.Equal(t, before, after)
+}
+
+// recordingReporter captures what restoreDir reports instead of failing the
+// test that is asserting on it.
+type recordingReporter struct{ msgs []string }
+
+func (r *recordingReporter) Errorf(format string, args ...any) {
+	r.msgs = append(r.msgs, fmt.Sprintf(format, args...))
+}
+
+// TestRestoreDir_ReportsAFailedRestore pins the branch that used to be
+// `_ = os.Chdir(orig)`. A discarded restore error is worse than a local
+// failure: the cwd is process-global, so every subsequent test in the binary
+// runs from a directory it never chose, and the resulting failures surface
+// arbitrarily far from the cause. Nothing anywhere reported the one fact that
+// explains them.
+func TestRestoreDir_ReportsAFailedRestore(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "removed")
+	require.NoError(t, os.MkdirAll(gone, 0o755))
+	require.NoError(t, os.RemoveAll(gone))
+
+	var rep recordingReporter
+	restoreDir(&rep, gone, "/somewhere-the-process-is-left")
+
+	require.Len(t, rep.msgs, 1, "a failed restore must be reported, not discarded")
+	assert.Contains(t, rep.msgs[0], gone, "the message must name the directory it could not return to")
+	assert.Contains(t, rep.msgs[0], "/somewhere-the-process-is-left",
+		"and where the process is actually left standing")
+}
+
+// TestRestoreDir_SilentOnSuccess is the negative case: the ordinary restore
+// must stay quiet, or every test using ChangeDir would fail.
+func TestRestoreDir_SilentOnSuccess(t *testing.T) {
+	// Restore to where the process already is: a successful no-op chdir, so
+	// this test cannot disturb the working directory every other test in the
+	// binary shares (and does not need the os.Chdir the linter forbids in
+	// tests for exactly that reason).
+	here, err := os.Getwd()
+	require.NoError(t, err)
+
+	var rep recordingReporter
+	restoreDir(&rep, here, "unused")
+	assert.Empty(t, rep.msgs)
+}
+
+// TestPackageDoc_GeneralPurposeClaimHolds pins the invariant the package doc
+// asserts. Both the package doc and EnvKeys' doc once scoped this package to
+// "the task store"; that narrow framing is what made a narrow EnvKeys look
+// correct while 50-odd callers relying on it for general isolation were not
+// isolated at all (U127-F01). The docs now say GENERAL-purpose and cite the
+// call-site count as the evidence.
+//
+// A doc claim nobody measures drifts back. This measures it: if the count ever
+// falls below the number the prose states, either the prose is stale or the
+// package really has narrowed, and both deserve a look.
+//
+// The scan root comes from runtime.Caller, NOT the working directory. A
+// source-scanning gate rooted at "." walks whatever temp directory the binary
+// happens to be in, finds nothing, and passes — a gate that evaporates rather
+// than fails. This is the same idiom internal/cli's pkgSourceDir documents.
+func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller: cannot locate this source file")
+	// internal/shared/tasks/taskstest -> repo root
+	repo := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))))
+	require.FileExists(t, filepath.Join(repo, "go.mod"),
+		"the scan root must be the repo, or this test measures nothing")
+
+	// Call SITES, not files: a single test file routinely isolates in a dozen
+	// test functions, and the doc's claim is about how widely the helper is
+	// relied on, not how it is distributed across files.
+	sites, files := 0, 0
+	err := filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		if strings.HasPrefix(path, filepath.Join(repo, "internal", "shared", "tasks", "taskstest")) {
+			return nil // the package itself is not a caller
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		before := sites
+		for _, fn := range []string{"taskstest.Isolate(", "taskstest.ProjectDir(", "taskstest.ChangeDir("} {
+			sites += strings.Count(string(b), fn)
+		}
+		if sites > before {
+			files++
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.GreaterOrEqual(t, sites, 50,
+		"the package doc claims well over 50 call sites use this as general-purpose test "+
+			"isolation; found %d across %d files. Either the doc is stale or the package narrowed",
+		sites, files)
 }

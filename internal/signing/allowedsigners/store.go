@@ -23,13 +23,12 @@ type Store struct {
 	sources []Source
 }
 
-// NewStore builds a Store directly from entries, without parsing text.
+// NewStore builds a Store directly from entries, without parsing text. The
+// entries are deep-copied, so the caller keeps no handle on what it built.
 // Useful for tests and for callers that construct entries programmatically
 // (e.g. the embedded-defaults store, which never touches disk).
 func NewStore(entries ...Entry) *Store {
-	cp := make([]Entry, len(entries))
-	copy(cp, entries)
-	return &Store{entries: cp}
+	return &Store{entries: cloneEntries(entries)}
 }
 
 // Union combines the entries of several stores into one, preserving the
@@ -51,22 +50,22 @@ func Union(stores ...*Store) *Store {
 		if st == nil {
 			continue
 		}
-		all = append(all, st.entries...)
+		all = append(all, cloneEntries(st.entries)...)
 		perrs = append(perrs, st.parseErrors...)
 		srcs = append(srcs, st.sources...)
 	}
 	return &Store{entries: all, parseErrors: perrs, sources: srcs}
 }
 
-// Entries returns a copy of every successfully parsed entry, in file
-// order. Mutating the returned slice does not affect the Store.
+// Entries returns a DEEP copy of every successfully parsed entry, in file
+// order. Nothing reachable from the result aliases the Store: mutating the
+// slice, an Entry, or the Principals/Namespaces/ValidAfter/ValidBefore inside
+// one cannot re-decide trust for anybody else. See Entry.clone.
 func (s *Store) Entries() []Entry {
 	if s == nil {
 		return nil
 	}
-	out := make([]Entry, len(s.entries))
-	copy(out, s.entries)
-	return out
+	return cloneEntries(s.entries)
 }
 
 // ParseErrors returns the lines that could not be parsed into an entry, in
@@ -102,7 +101,13 @@ type Decision struct {
 	// externally-claimed identity, use TrustedAs and inspect
 	// Decision.Entry.Principals directly with Entry.MatchesPrincipal.
 	Principal string
-	// Entry is the matched entry itself, or nil when Trusted is false.
+	// Entry is a COPY of the matched entry, or nil when Trusted is false.
+	//
+	// A copy, not the entry itself: it used to be &s.entries[i], a writable
+	// pointer into the store's own backing array, so a caller holding a
+	// decision could set Namespaces to nil on it — "accepted for all
+	// namespaces" — and promote the entry to every namespace, including the
+	// reject namespace whose supremacy the design rests on.
 	Entry *Entry
 }
 
@@ -116,56 +121,96 @@ type Decision struct {
 // now is supplied by the caller and is never read from the system clock
 // by this package — see Entry.ValidAt's doc for why that matters here.
 func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) Decision {
-	return s.decide(nil, key, ns, now)
+	return s.decide(principalCheck{}, key, ns, now)
 }
 
 // TrustedAs additionally requires that identity match the matching
 // entry's principals pattern-list, mirroring `ssh-keygen -Y verify -I
-// identity`. Use this when an external, unverified identity claim (e.g. a
-// git committer email, or the advisory "signer" field of a companion
-// loadout envelope) needs to be corroborated against the trust root
-// rather than taken at face value.
+// identity`. Use this when an external, unverified identity claim needs to be
+// corroborated against the trust root rather than taken at face value.
+//
+// It has NO production caller, and that is the correct state rather than a
+// gap to close. The only place ctxloom holds an externally-claimed identity is
+// the loadout envelope's advisory "signer" field, and that path deliberately
+// DERIVES the identity instead — VerifyPublisher resolves the signature's key
+// against the trust root and reports whatever principal that entry names,
+// never reading the claim (implementer trap #3, pinned by
+// TestLoadoutEnvelope_AdvisorySignerFieldIsNeverTrusted). Deriving is strictly
+// stronger than corroborating: it cannot be steered by the claim at all.
+//
+// So do not wire this in to give the unused half a caller — reaching for it
+// where deriving is available is a regression. It stays because it is the
+// package's answer to the question ssh-keygen -Y verify -I actually asks, and
+// because interop_test.go drives it against the real binary to keep this
+// package's principal matching honest.
 func (s *Store) TrustedAs(identity string, key ssh.PublicKey, ns string, now time.Time) Decision {
-	return s.decide(&identity, key, ns, now)
+	return s.decide(principalCheck{required: true, identity: identity}, key, ns, now)
 }
 
-func (s *Store) decide(identity *string, key ssh.PublicKey, ns string, now time.Time) Decision {
+// principalCheck is decide's "must the entry also corroborate a claimed
+// identity, and which one" argument.
+//
+// It is a named two-field value rather than an *string whose NILNESS carried
+// that meaning. In the package's single most security-critical function, a
+// reader had to know that a nil pointer meant "skip the principal check" — so
+// the difference between TrustedForNamespace and TrustedAs, which is the
+// difference between "this key may sign here" and "this key may sign here AS
+// this identity", was encoded in something a stray nil would silently satisfy.
+// required is false for the zero value, so the SKIP is what you get by
+// accident and the check is what you must ask for.
+type principalCheck struct {
+	required bool
+	identity string
+}
+
+func (s *Store) decide(check principalCheck, key ssh.PublicKey, ns string, now time.Time) Decision {
 	if s == nil || key == nil {
 		return Decision{}
 	}
 	for i := range s.entries {
 		e := &s.entries[i]
-
-		// cert-authority entries are recognized but never grant trust
-		// through a direct key match: this package implements no SSH
-		// certificate verification, and no certificate is ever presented
-		// to it (see Entry.CertAuthority doc, and the package doc's
-		// fail-closed decisions). Verified against real ssh-keygen: a
-		// cert-authority-flagged entry refuses to verify a plain
-		// signature even when every other field matches.
-		if e.CertAuthority {
+		if !entryGrants(e, check, key, ns, now) {
 			continue
 		}
-		if !keysEqual(e.PublicKey, key) {
-			continue
-		}
-		if identity != nil && !e.MatchesPrincipal(*identity) {
-			continue
-		}
-		if !e.MatchesNamespace(ns) {
-			continue
-		}
-		if !e.ValidAt(now) {
-			continue
-		}
-
-		principal := ""
-		if len(e.Principals) > 0 {
-			principal = e.Principals[0]
-		}
-		return Decision{Trusted: true, Principal: principal, Entry: e}
+		matched := e.clone()
+		return Decision{Trusted: true, Principal: firstPrincipal(e), Entry: &matched}
 	}
 	return Decision{}
+}
+
+// entryGrants is the whole of one entry's trust test, in the order the
+// signature-envelope spec states it. Every arm withholds; there is no arm that
+// grants, which is what makes "no entry matched" the only default.
+func entryGrants(e *Entry, check principalCheck, key ssh.PublicKey, ns string, now time.Time) bool {
+	// cert-authority entries are recognized but never grant trust
+	// through a direct key match: this package implements no SSH
+	// certificate verification, and no certificate is ever presented
+	// to it (see Entry.CertAuthority doc, and the package doc's
+	// fail-closed decisions). Verified against real ssh-keygen: a
+	// cert-authority-flagged entry refuses to verify a plain
+	// signature even when every other field matches.
+	if e.CertAuthority {
+		return false
+	}
+	if !keysEqual(e.PublicKey, key) {
+		return false
+	}
+	if check.required && !e.MatchesPrincipal(check.identity) {
+		return false
+	}
+	if !e.MatchesNamespace(ns) {
+		return false
+	}
+	return e.ValidAt(now)
+}
+
+// firstPrincipal is the identity a Decision reports for a matched entry — by
+// convention the first one written in the file. See Decision.Principal.
+func firstPrincipal(e *Entry) string {
+	if len(e.Principals) == 0 {
+		return ""
+	}
+	return e.Principals[0]
 }
 
 func keysEqual(a, b ssh.PublicKey) bool {
@@ -208,7 +253,7 @@ func (s *Store) WithSource(path string) *Store {
 	if s == nil {
 		return &Store{sources: []Source{{Path: path, Loaded: true}}}
 	}
-	out := &Store{entries: s.entries, parseErrors: s.parseErrors}
+	out := &Store{entries: cloneEntries(s.entries), parseErrors: s.parseErrors}
 	out.sources = append(append([]Source{}, s.sources...), Source{Path: path, Loaded: true, Count: len(s.entries)})
 	return out
 }

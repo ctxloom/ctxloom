@@ -290,3 +290,130 @@ func TestLint_ArityOnlySchemaChecksZeroTargets(t *testing.T) {
 	assert.Empty(t, result.Violations)
 	assert.Equal(t, 0, result.CheckedTargets)
 }
+
+// TestLint_MalformedEnumDeclarationIsAReturnedError pins the CONSUMER half of
+// the empty-but-present enum defect. tagschema.Enum reports a declaration with
+// no usable member as an error (its own pins cover that); the property that
+// matters here is what Lint does with it. Swallowing it leaves an empty member
+// list, which is indistinguishable at this layer from a closed set that admits
+// nothing — so every value on the target is flagged, every task in the project
+// sprouts a violation, and nothing anywhere can say the DECLARATION is what is
+// broken. The malformed range declaration above is already held to exactly
+// this standard; enum must match it.
+func TestLint_MalformedEnumDeclarationIsAReturnedError(t *testing.T) {
+	for _, decl := range []string{
+		`tagma.enum:"triage:type"=","`,
+		`tagma.enum:"triage:type"=""`,
+	} {
+		t.Run(decl, func(t *testing.T) {
+			schema := mustSchema(t, decl)
+			all := []tasks.Task{
+				{HarpID: "aaa", Tags: []string{"triage:type=correctness"}},
+				{HarpID: "bbb", Tags: []string{"triage:type=security"}},
+			}
+
+			result, err := Lint(all, schema)
+			require.Error(t, err, "a declaration with no usable member is a config defect Lint must report")
+			assert.Contains(t, err.Error(), "triage:type", "the error must name the offending target")
+			assert.Empty(t, result.Violations,
+				"the tasks are not at fault; blaming their values hides the broken declaration")
+		})
+	}
+}
+
+// TestLint_SameValueSpelledTwoWaysIsNotAScalarViolation pins the false
+// positive. groupByTarget collected values without deduping, so two DIFFERENT
+// raw tag strings that parse to the SAME (target, value) — tagma accepts a
+// value bare or quoted, and `triage:type=docs` and `triage:type="docs"` are
+// the same tag — landed as two entries. The scalar check counts entries, so it
+// reported a task carrying one value as carrying two, in a message that
+// contradicted itself: "2 distinct values [docs docs]".
+//
+// This is the mirror of the check's real purpose. arity=scalar means at most
+// one VALUE per target, and one value written two ways is still one value; a
+// lint that cannot tell those apart cannot be trusted about the case it exists
+// for, which is genuinely divergent values in foreign or hand-edited log data.
+func TestLint_SameValueSpelledTwoWaysIsNotAScalarViolation(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=docs`, `triage:type="docs"`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Empty(t, result.Violations,
+		"one value spelled two ways is one value; arity=scalar is not violated")
+}
+
+// TestLint_GenuinelyDifferentValuesStillViolateScalar guards the fix against
+// over-correcting: deduping must not silence the violation the check exists to
+// find.
+func TestLint_GenuinelyDifferentValuesStillViolateScalar(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=docs`, `triage:type=chore`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	require.Len(t, result.Violations, 1)
+	assert.Contains(t, result.Violations[0].Reason, "arity=scalar")
+	assert.Contains(t, result.Violations[0].Reason, "2 distinct values")
+}
+
+// TestLint_DuplicateTagDoesNotProduceDuplicateViolations pins the other face of
+// the same defect: with values ungrouped, a repeated tag produced one
+// violation PER OCCURRENCE, so the same finding was reported twice about the
+// same task. The sort at the end orders violations but has never deduped them.
+func TestLint_DuplicateTagDoesNotProduceDuplicateViolations(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=nope`, `triage:type="nope"`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	// One bad value, so exactly one enum violation — and no scalar violation,
+	// because it is one value spelled twice.
+	require.Len(t, result.Violations, 1)
+	assert.Contains(t, result.Violations[0].Reason, "not one of the declared enum values")
+}
+
+// TestLint_RepeatedBadPlaceholderIsReportedOnce pins the surviving source of
+// exactly-duplicate Violation rows. A formula may reference the same
+// placeholder more than once — that is ordinary arithmetic, not a mistake —
+// and formulaEnumRefViolations walks every occurrence, so one broken enum
+// reference produced one violation per mention. The final sort orders
+// violations; it has never deduped them, so the repeats survived to the
+// caller.
+//
+// This matters because `taskloom lint` is positioned as a CI gate: a count of
+// violations that scales with how often a formula happens to mention a
+// placeholder is not a count of anything, and the operator reading the output
+// sees the identical line twice with nothing to distinguish the two.
+func TestLint_RepeatedBadPlaceholderIsReportedOnce(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.enum:"triage:impact"="correctness,security"`,
+		`tagma.decay_fn:"triage:severity"="{{triage:impact=nonexistent}} + {{triage:impact=nonexistent}}"`,
+	)
+
+	result, err := Lint(nil, schema)
+	require.NoError(t, err)
+	require.Len(t, result.Violations, 1, "one broken reference is one violation, however often it is mentioned")
+	assert.Equal(t, SchemaViolationHarpID, result.Violations[0].HarpID)
+	assert.Contains(t, result.Violations[0].Reason, "nonexistent")
+}
+
+// TestLint_DistinctViolationsOnOneTaskAreAllKept guards the dedupe against
+// swallowing real findings: two different broken values on the same task are
+// two violations, not one.
+func TestLint_DistinctViolationsOnOneTaskAreAllKept(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=nope`, `triage:impact=99`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Len(t, result.Violations, 2)
+}

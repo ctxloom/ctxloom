@@ -118,7 +118,7 @@ func TestCompactor_ChunkText_SmallText(t *testing.T) {
 func TestCompactor_ChunkText_LargeText(t *testing.T) {
 
 	// Create text larger than one chunk
-	// DefaultChunkTokens * CharsPerToken = 8000 * 4 = 32000 chars
+	// DefaultChunkTokens * BytesPerToken = 8000 * 4 = 32000 bytes
 	largeText := ""
 	for i := 0; i < 100; i++ {
 		largeText += "## Section\nSome content here that goes on for a while.\n\n"
@@ -1668,7 +1668,7 @@ func TestNewCompactor_ChunkSizeBand(t *testing.T) {
 		// The property the correction buys, stated against chunkText directly.
 		// Measured without it, at ChunkOverlapTokens+1, for contrast.
 		text := strings.Repeat("alpha beta gamma delta epsilon ", 2000)
-		ideal := len(text) / (MinOverlappingChunkTokens * CharsPerToken)
+		ideal := len(text) / (MinOverlappingChunkTokens * BytesPerToken)
 
 		corrected := chunkText(text, MinOverlappingChunkTokens)
 		require.Greater(t, len(corrected), 1)

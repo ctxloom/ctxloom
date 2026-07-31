@@ -303,6 +303,7 @@ Examples:
 			if err != nil {
 				return err
 			}
+			defer func() { _ = discovered.Close() }()
 			req.Signer = discovered.Signer
 		}
 		res, err := operations.ExportSkill(cmd.Context(), cfg, req)

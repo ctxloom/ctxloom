@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,499** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,500** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 179 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **179** |
+| `open` | no commit names this ID | **178** |
 
-**Totals: 2268 findings across 162 units — 1,499 resolved, 179 still open, 590 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,500 resolved, 178 still open, 590 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 561 | 105 | 103 | 95 | 135 |
+| MED | 999 | 562 | 104 | 103 | 95 | 135 |
 | LOW | 871 | 579 | 65 | 60 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1759,7 +1759,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U113-F06 | **RESOLVED** `67a26a8f` | `internal/shared/agent/settings_io.go:136`, `internal/agentcoord/coord/checkpoint.go:54`, `internal/cli/mcp_discovery.go:107` | DUPLICATE | Three more hand-rolled temp+rename writers bypass `iox` and violate the exact invariant `iox.WriteFileAtomic` documents itself as existing to protect | U113.md |
 | U114-F03 | **RESOLVED** `54bb73b8` | **`pidalive_unix.go:20-22`** | DEAD | The `os.FindProcess` error branch is unreachable on Unix: `findProcess` never returns a non-nil error. Worse than merely dead — it makes the function *look* like it handles probe failure, which is ... | U114.md |
 | U114-F04 | **PARTIAL** `d3de4a19` | **`pidalive_unix.go:19`, `pidalive_windows.go:11`** | CORRECTNESS | **No PID-reuse protection.** `Alive` answers "is *a* process alive at this pid", never "is *my* process alive". On Linux, pids recycle within `kernel.pid_max`; a recycled pid makes a long-dead chil... | U114.md |
-| U114-F05 | open | **`pidalive_windows.go:12`** | ERRHANDLING | The `*os.Process` returned by `os.FindProcess` is discarded, so its OS handle is released only when the GC finalizer runs. The heaviest consumer is a watchdog that polls on a timer, so this is a st... | U114.md |
+| U114-F05 | **RESOLVED** `bde4a3e2` | **`pidalive_windows.go:12`** | ERRHANDLING | The `*os.Process` returned by `os.FindProcess` is discarded, so its OS handle is released only when the GC finalizer runs. The heaviest consumer is a watchdog that polls on a timer, so this is a st... | U114.md |
 | U115-F03 | open | **`plans.go:87-94`** | ERRHANDLING | A per-file `os.ReadFile` failure is swallowed; the plan is still emitted, but with `Title` silently falling back to the filename and `Sessions` silently `nil`. The consumer cannot distinguish "this... | U115.md |
 | U115-F04 | open | **`plans.go:157-165` (reader) vs `internal/memory/stamp.go:87-99` (writer)`** | CORRECTNESS | The reader and its paired writer disagree on the `sessions:` encoding. `ParseFrontmatter` only understands a **block** sequence (`- item`); `StampPlanFile` round-trips through `yaml.Node`, which **... | U115.md |
 | U115-F05 | open | **`plans.go:159` (vs `:169`)`** | CORRECTNESS | Session list items are never unquoted. `unquote` is applied to the `title` scalar but not to sequence items, so a quoted entry yields a harp name with literal quote characters embedded — a value th... | U115.md |

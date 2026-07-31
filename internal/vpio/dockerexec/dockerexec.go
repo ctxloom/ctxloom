@@ -158,7 +158,29 @@ func (l *Launcher) buildExecCmd(ctx context.Context) *exec.Cmd {
 // container, missing binary), exactly the case the seam anticipated for a
 // docker-exec transport.
 func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Session, error) {
+	if err := l.validate(); err != nil {
+		return nil, err
+	}
 	return startPTYCommand(ctx, l.buildExecCmd(ctx), spec)
+}
+
+// validate refuses a turn that would render a well-formed but meaningless
+// command. Every one of these fields is required for the exec to mean anything,
+// and a blank one otherwise surfaces as the runtime's (or the in-container
+// ctxloom's) complaint about argv — a message about the symptom, from a process
+// that has no idea which caller field was empty. This one does.
+func (l *Launcher) validate() error {
+	switch {
+	case l.rt == nil:
+		return fmt.Errorf("vpio/dockerexec: no container runtime")
+	case l.containerName == "":
+		return fmt.Errorf("vpio/dockerexec: no container name to exec into")
+	case l.turn.Backend == "":
+		return fmt.Errorf("vpio/dockerexec: TurnSpec.Backend is empty; there is no backend to run the turn against")
+	case l.turn.StartPath == "":
+		return fmt.Errorf("vpio/dockerexec: TurnSpec.StartPath is empty; the turn has no --start handoff file to read")
+	}
+	return nil
 }
 
 // startPTYCommand starts cmd wired to a fresh host pty pair (its stdio becomes

@@ -203,3 +203,37 @@ func TestContentBlocksFromACP_MarshalFailureIsLoud(t *testing.T) {
 	assert.Contains(t, sink.String(), "session/prompt",
 		"dropping a prompt block must be reported, never silent")
 }
+
+// TestUsageUpdateWire_CostOnlyTurnReportsNoGauge pins U014-F14: a turn that
+// reports only cost (no InputTokens, no ContextWindow) passes
+// usageUpdateWire's guard and used to emit {"used":0,"size":0,"cost":{...}}.
+// api.SessionUsageUpdate declares `used` and `size` without omitempty, so
+// both were always on the wire — and an editor rendering the context gauge
+// from them reads a real, specific claim: this session has consumed 0 tokens
+// of a 0-token window. That is a fabricated measurement, not a missing one.
+//
+// schema-v1.19.0's UsageUpdate has no `required` array at all, so both fields
+// are optional and omitting an unknown one is the spec-sanctioned way to say
+// "no gauge". A generated Go consumer decodes an absent field to 0 exactly as
+// it decoded an explicit 0, so nothing that parses this frame today changes
+// its mind about anything.
+func TestUsageUpdateWire_CostOnlyTurnReportsNoGauge(t *testing.T) {
+	raw, err := json.Marshal(usageUpdateWire(&agent.TurnMeta{CostUSD: 0.02}))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(raw), `"cost"`, "the cost this turn DID report must still be delivered")
+	assert.NotContains(t, string(raw), `"used"`, "no token count was reported — claiming 0 invents one")
+	assert.NotContains(t, string(raw), `"size"`, "no context window was reported — claiming 0 invents one")
+}
+
+// TestUsageUpdateWire_RealGaugeStillRidesTheWire is the other half: a turn
+// that DOES report accounting must still emit both numbers, so the fix above
+// cannot be satisfied by dropping the gauge altogether.
+func TestUsageUpdateWire_RealGaugeStillRidesTheWire(t *testing.T) {
+	raw, err := json.Marshal(usageUpdateWire(&agent.TurnMeta{InputTokens: 1234, ContextWindow: 100000, CostUSD: 0.02}))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(raw), `"used":1234`)
+	assert.Contains(t, string(raw), `"size":100000`)
+	assert.Contains(t, string(raw), `"cost"`)
+}

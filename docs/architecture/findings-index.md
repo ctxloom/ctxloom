@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,537** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **136** |
+| `open` | no commit names this ID | **135** |
 
-**Totals: 2268 findings across 162 units — 1,537 resolved, 136 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,537 resolved, 135 still open, 596 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 580 | 82 | 104 | 96 | 137 |
-| LOW | 871 | 596 | 47 | 61 | 104 | 63 |
+| LOW | 871 | 596 | 46 | 62 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2716,7 +2716,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U134-F14 | **REFUTED** `147d2ba8` | `payload.go:59,72,101` | CORRECTNESS | `Assertion`, `ItemKind`, and `Form` are bare string aliases with no `Valid()` method and no constructor, so "closed vocabulary" is a comment rather than a constraint — and F05 shows the boundary le... | U134.md |
 | U134-F15 | **REFUTED** `443c8950` | `loadout.go` (whole file)` | COHESION | `loadout.go` is a JSON transport container, not a signing primitive; it is the one file in this package that would still make sense with the crypto removed. | U134.md |
 | U135-F10 | **RESOLVED** `a81143d6` | `210` | ERRHANDLING | When `git config` fails with a non-1 exit and empty stderr, the wrap produces a message with a dangling leading colon. | U135.md |
-| U135-F11 | open | `402` | CORRECTNESS | `resolvePublicKey` reads an arbitrary, unbounded, potentially attacker-named path: `git config --get` (`:195`) consults **repo-local** `.git/config`, so a hostile clone controls `user.signingkey`. | U135.md |
+| U135-F11 | **PARTIAL** `8ed9cb79` | `402` | CORRECTNESS | `resolvePublicKey` reads an arbitrary, unbounded, potentially attacker-named path: `git config --get` (`:195`) consults **repo-local** `.git/config`, so a hostile clone controls `user.signingkey`. | U135.md |
 | U135-F12 | **RESOLVED** `ae54d376` | `423-431` | ERRHANDLING | `os.UserHomeDir()`'s error is swallowed; with `$HOME` unset the tilde is left literal and the failure is later blamed on a missing file. | U135.md |
 | U135-F13 | **RESOLVED** `cac52a3e` `127539ad` | `435-441` | TRIVIAL | `filepathJoin` reimplements `filepath.Join` — badly — with a justification that does not hold. | U135.md |
 | U135-F14 | **RESOLVED** `cf057c8e` | `481-491` | CORRECTNESS | `IsHardwareBacked` returns false for a hardware key loaded as an SSH **certificate**, so `review.go:204` shows the software-key warning for an actual FIDO key. | U135.md |

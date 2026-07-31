@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,444** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,445** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 169 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 192 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 195 |
-| `open` | no commit names this ID | **268** |
+| `open` | no commit names this ID | **267** |
 
-**Totals: 2268 findings across 162 units — 1,444 resolved, 268 still open, 556 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,445 resolved, 267 still open, 556 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 537 | 149 | 98 | 88 | 127 |
+| MED | 999 | 538 | 148 | 98 | 88 | 127 |
 | LOW | 871 | 548 | 110 | 55 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1534,7 +1534,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U083-F15 | **RESOLVED** `f491f088` | `delegate.go:442-452`, `:596-598` | ERRHANDLING | `boundDirtyChanges` swallows the `WorkingChanges` error and returns an empty list; the "commit" handler then prints a preview that names **no** files immediately before auto-committing the user's t... | U083.md |
 | U083-F16 | **PARTIAL** `0a7fb13f` | `engine_session.go:78`, `:114`, `:922`; `delegate.go:167`; `depgraph.go:264` | COMPLEXITY | Five functions exceed the project's stated CCN-10 CI gate, one of them anonymous (so a name-keyed gate cannot report it). | U083.md |
 | U083-F17 | **RESOLVED** `cc44e876` | `engine_session.go:609-621` | SILENTNOOP | `session/set_mode` replaces the session's lead context with `res.Context` unchecked — an assembly that succeeds while producing zero bytes silently blanks the mode's context. | U083.md |
-| U084-F04 | open | **`hooks.go:54`** | COUPLING | `ApplyHooks`'s exported `cfg *config.Config` parameter is **never read**; the function reloads config from disk instead. | U084.md |
+| U084-F04 | **RESOLVED** `02a59469` | **`hooks.go:54`** | COUPLING | `ApplyHooks`'s exported `cfg *config.Config` parameter is **never read**; the function reloads config from disk instead. | U084.md |
 | U084-F05 | **RESOLVED** `e459008e` | **`hooks.go:271-340`** | DUPLICATE | `checkClaudeHookTargetScope`, `checkCodexHookTargetScope` and `checkKiroHookTargetScope` are three structurally identical 15-line functions differing only in two function references and three messa... | U084.md |
 | U084-F06 | **RESOLVED** `a0c17295` | **`hooks.go:64-66`** | CORRECTNESS | Production code calls `agent.SetExecutablePathForTesting(req.ExecPath)`, mutating an unsynchronized package global that is **never restored**. Confirms routed item 11, with one correction. | U084.md |
 | U084-F09 | **RESOLVED** `4e24ca49` | `helpers.go:42-47` | ERRHANDLING | A malformed or unreadable `remotes.yaml` silently disables per-forge `token_env` resolution, with no warning — private-repo clones then fail later with a confusing auth error. | U084.md |

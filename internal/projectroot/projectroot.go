@@ -1,5 +1,35 @@
-// Package projectroot resolves the authoritative project root, honoring the
-// CTXLOOM_ROOT override above git-root detection and cwd traversal.
+// Package projectroot answers "which directory is this project rooted at?" for
+// every consumer that needs a stable answer. It carries three responsibilities,
+// and a reader should be able to find all three from here.
+//
+// # Root resolution
+//
+// WorkDir resolves the project work root through CTXLOOM_ROOT -> git root ->
+// cwd. WorkDirWithBoundary is the same chain, additionally reporting whether
+// the answer came from a real boundary (override or git repo) rather than the
+// bare cwd; RootFromFallback exposes just that boolean, which `ctxloom run`
+// warns on because a cwd-keyed project identity neither follows the directory
+// nor resumes from one level up. FromEnv is the CTXLOOM_ROOT step alone, for
+// callers (config) that thread their own afero.Fs.
+//
+// # Git worktree classification
+//
+// DetectWorktree inspects a directory's `.git` entry and reports, as a
+// WorktreeInfo, whether it is the root of a LINKED worktree, and if so where
+// its primary checkout is and whether that checkout still exists. It reads the
+// repository layout directly rather than shelling out to git, which is what
+// lets it tell a linked worktree apart from a submodule.
+//
+// # Task-store redirect
+//
+// TaskStoreRoot is a deliberately narrower seam than WorkDir: it redirects a
+// LINKED worktree's task-store identity to the primary checkout, so a finding
+// filed by an agent in an ephemeral worktree is still visible to a coordinator
+// running from the main tree. Root resolution stays worktree-DISTINCT; this one
+// exception exists because "tasks aren't context", and it is applied nowhere
+// else. See its own doc for the opt-out and the stale-pointer hard error.
+//
+// # The CTXLOOM_ROOT override
 //
 // CTXLOOM_ROOT is purely an override at the top of ctxloom's existing
 // resolution chain (git root -> cwd walk-up -> home). When the variable is

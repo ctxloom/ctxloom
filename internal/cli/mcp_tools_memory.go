@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -327,9 +328,20 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 	}
 	data, err := os.ReadFile(essencePath)
 	if err != nil {
+		// Only an ABSENT essence means "never distilled". Every other read
+		// fault (permissions, a directory in its place, an I/O error) names a
+		// file that exists and cannot be read, for which re-distilling is the
+		// wrong remedy: the compaction would spend an LLM budget writing to
+		// the same unreadable path and the caller would loop.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, &loadSessionResult{
+				Loaded:  false,
+				Message: fmt.Sprintf("No distilled essence for %s yet. Run `ctxloom session distill %s` or compact_session to generate one.", harpName, harpName),
+			}, nil
+		}
 		return nil, &loadSessionResult{
 			Loaded:  false,
-			Message: fmt.Sprintf("No distilled essence for %s yet. Run `ctxloom session distill %s` or compact_session to generate one.", harpName, harpName),
+			Message: fmt.Sprintf("The distilled essence for %s exists but could not be read (%s): %v. Re-distilling will not help until that path is readable.", harpName, essencePath, err),
 		}, nil
 	}
 	return nil, &loadSessionResult{

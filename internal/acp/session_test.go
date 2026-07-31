@@ -913,6 +913,28 @@ func TestChat_ProtocolVersionMismatch(t *testing.T) {
 	assert.Empty(t, events(), "setup never got far enough for a Session event")
 }
 
+// TestSetup_ProtocolVersionFloorIsWhatMakesStrictEqualitySafe pins the fact
+// that setup's strict `!= api.ProtocolVersionNumber` check rests on.
+//
+// The ACP handshake lets an agent answer initialize with "the protocol version
+// the client specified if supported by the agent, or the latest protocol
+// version supported by the agent" — so an agent MAY name a version other than
+// the one asked for, and the spec's instruction to the client is to disconnect
+// only "if it doesn't support this version". Refusing every non-equal answer
+// is therefore stricter than the spec requires, and it is harmless ONLY while
+// this client speaks the protocol's lowest version: there is then no lower
+// version for it to have decoded and accepted instead, and every non-equal
+// answer really is a version it cannot decode.
+//
+// The day the pinned SDK raises this constant, that stops being true — an
+// agent still on version 1 would be refused despite ctxloom being able to
+// decode it. This assertion fails on that bump, on purpose, so the question is
+// re-opened by whoever makes it rather than silently answered by a constant.
+func TestSetup_ProtocolVersionFloorIsWhatMakesStrictEqualitySafe(t *testing.T) {
+	assert.Equal(t, 1, api.ProtocolVersionNumber,
+		"strict protocol-version equality is only spec-safe while this client speaks the LOWEST ACP version; a bump re-opens whether setup must accept a lower version it can decode")
+}
+
 // TestChat_AuthRequired fails loud — never hangs — when the engine answers
 // session/new with the spec's auth_required error: ctxloom drives no
 // interactive authenticate flow yet, so the session-open error must name the

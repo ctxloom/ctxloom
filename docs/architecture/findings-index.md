@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,528** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,529** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **145** |
+| `open` | no commit names this ID | **144** |
 
-**Totals: 2268 findings across 162 units — 1,528 resolved, 145 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,529 resolved, 144 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 577 | 85 | 105 | 96 | 136 |
+| MED | 999 | 578 | 84 | 105 | 96 | 136 |
 | LOW | 871 | 589 | 55 | 60 | 104 | 63 |
 | (unparsed) | 22 | 10 | 5 | 4 | 2 | 1 |
 
@@ -1788,7 +1788,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U121-F02 | **RESOLVED** `2b1ae312` | `lint.go:197-211`, `lint.go:126-132` | CORRECTNESS | `groupByTarget` does not dedupe values, so two *different raw tag strings* that parse to the *same* (target, value) produce a **false scalar violation** reading `"triage:kind carries 2 distinct val... | U121.md |
 | U121-F04 | **RESOLVED** `b35a226d` | `lint.go:149` | DUPLICATE | `formulaPlaceholderPattern` is the **third** verbatim copy of one regexp. All three are `\{\{\s*([^{}]+?)\s*}}`, and two of the three carry comments explicitly justifying the copy | U121.md |
 | U121-F05 | **RESOLVED** `95bf1e56` | `lint.go:75-78`, `tagschema.go:215-229` | CORRECTNESS | An enum declaration whose value contains no non-empty member yields an **empty but present** member list, and `Lint` then flags *every* value on that target with the message "… is not one of the de... | U121.md |
-| U121-F06 | open | `lint.go:73-142` | COMPLEXITY | `Lint` is CCN 18 against a CI gate of 10, and its body is four unrelated checks plus a sort | U121.md |
+| U121-F06 | **RESOLVED** `e73b0ba1` | `lint.go:73-142` | COMPLEXITY | `Lint` is CCN 18 against a CI gate of 10, and its body is four unrelated checks plus a sort | U121.md |
 | U122-F03 | **RESOLVED** `7a7afc18` | `:765` | ERRHANDLING | `cwdID, _ := projectid.ReadMarker(tc.WorkDir)` discards the error from the one function written specifically to reject a hostile marker — so the "you are acting on the wrong project" warning silent... | U122.md |
 | U122-F04 | **RESOLVED** `de65b23d` | `:737-809` | COMPLEXITY | `resolveTaskStore` is CCN 22 (CI gate: 10), 73 lines, and does six separable things | U122.md |
 | U122-F05 | **RESOLVED** `02f1f9fe` | `:386-401` | CORRECTNESS | Scalar collapse decides "same value, leave it alone" by comparing **raw strings**, though it decides target identity by **parsing**. Two spellings of one value therefore produce a spurious untag+ta... | U122.md |

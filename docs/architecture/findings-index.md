@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,336** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,337** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 177 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **433** |
+| `open` | no commit names this ID | **432** |
 
-**Totals: 2268 findings across 162 units — 1,336 resolved, 433 still open, 499 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,337 resolved, 432 still open, 499 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 484 | 239 | 81 | 81 | 114 |
+| MED | 999 | 485 | 238 | 81 | 81 | 114 |
 | LOW | 871 | 495 | 182 | 49 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1365,7 +1365,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U057-F20 | **RESOLVED** `7f841837` | **`managed.go:345-375, managed.go:382-423`** | ERRHANDLING | A profile MCP server or hook the executable trust gate DENIES is dropped with **no diagnostic at all** — no warn, no count. Fail-closed is right; fail-silent is not. The user launches, the hook doe... | U057.md |
 | U057-F21 | **ESCALATED** (gn/vital-deaf-stunt) | **`managed.go:396-405`** | COUPLING | `gateProfileHooks` rebuilds `wire.UnifiedHooks` field-by-field from a literal. Adding a seventh hook event to `wire.UnifiedHooks` compiles cleanly here and silently drops that event for every direc... | U057.md |
 | U057-F24 | **ESCALATED** (gn/vital-deaf-stunt) | `mock_chat.go:35-95` | COMPLEXITY | `Mock.Chat` is CCN 22 against a CI gate that "fail[s] if any function exceeds CCN 10" — more than double the project's own limit, in a test double. | U057.md |
-| U058-F04 | open | **`doc.go:3-4` vs `conformance_test.go:121-135`** | CORRECTNESS | `doc.go` claims "**full hook-event coverage**", but the coverage test is a substring grep over the whole settings file: it proves each event's *marker string* appears somewhere, not that it is atta... | U058.md |
+| U058-F04 | **RESOLVED** `a0a68b10` | **`doc.go:3-4` vs `conformance_test.go:121-135`** | CORRECTNESS | `doc.go` claims "**full hook-event coverage**", but the coverage test is a substring grep over the whole settings file: it proves each event's *marker string* appears somewhere, not that it is atta... | U058.md |
 | U058-F05 | **RESOLVED** `7bcf44ec` | **`doc.go:3` vs `conformance_test.go:99-116`** | CORRECTNESS | `doc.go` claims "**atomic** write + backup". The test asserts only that a `.ctxloom.bak` exists with the prior content — nothing in the suite tests atomicity (temp-file + rename, no torn reads). Th... | U058.md |
 | U058-F06 | **RESOLVED** `b0e439b2` | `conformance_test.go:82-97`, `:139-151` | CORRECTNESS | Two of the five tests verify the writer's behaviour **by asking the writer** — `w.Status(projectDir)` — rather than by inspecting the file. A writer whose `Status` were wrong in the same direction ... | U058.md |
 | U059-F04 | **PARTIAL** `3224e669` | **`chat.go:248, chat.go:252`** | ERRHANDLING | Server-side protocol violations return bare `fmt.Errorf`, which gRPC maps to `codes.Unknown` — the client cannot distinguish "malformed request" from "transport died". The same function proves the ... | U059.md |

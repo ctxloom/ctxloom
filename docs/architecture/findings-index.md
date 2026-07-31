@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,520** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,521** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **155** |
+| `open` | no commit names this ID | **154** |
 
-**Totals: 2268 findings across 162 units — 1,520 resolved, 155 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,521 resolved, 154 still open, 593 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 571 | 92 | 104 | 96 | 136 |
+| MED | 999 | 572 | 91 | 104 | 96 | 136 |
 | LOW | 871 | 588 | 56 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -971,7 +971,7 @@ Full evidence and the suggested action for any row live in its source review at 
 |---|---|---|---|---|---|
 | U001-F01 | **RESOLVED** `239532f1` | **`engine.go:108-116`** | CORRECTNESS | `closeOnce` can panic with "send on closed channel": it `close(events)` while the `runHarnessEngine` goroutine may be blocked in `emit`'s `select { case events <- ev: case <-ctx.Done(): }`. `cancel... | U001.md |
 | U001-F03 | **RESOLVED** `5f9f0913` | **`engine.go:150-257`** | COMPLEXITY / DUPLICATE | `runTurn` is CCN 34 (repo maximum) and two of its six branches are structural clones. `SentinelCancelMe` (152-169) and `SentinelRaceComplete` (170-195) differ only in one content string and the fin... | U001.md |
-| U002-F01 | open | **`main.go:38`, `main.go:42`** | ERRHANDLING | Both logger constructors have their error discarded into `_`, and both return `(nil, err)` on failure. A nil `logger` then flows into `zap.ReplaceGlobals(nil)` (line 44) — which installs a nil glob... | U002.md |
+| U002-F01 | **RESOLVED** `cc7e9fc1` | **`main.go:38`, `main.go:42`** | ERRHANDLING | Both logger constructors have their error discarded into `_`, and both return `(nil, err)` on failure. A nil `logger` then flows into `zap.ReplaceGlobals(nil)` (line 44) — which installs a nil glob... | U002.md |
 | U002-F03 | **ESCALATED** `6c89e42f` | **`main.go:36-45`** | DUPLICATE | ctxloom carries **two** diagnostics systems, and this 10-line block is the entire reason the zap dependency exists in the shipped binary. Measured: `zap.L()`/`zap.S()` appears at **16** call sites ... | U002.md |
 | U003-F02 | **RESOLVED** `9a61c77e` | **`main.go:3-7` vs `main.go:19-23`** | CORRECTNESS | The package doc comment asserts a safety net that **does not exist**, and contradicts a comment 15 lines below it. It says: "The schemas are checked in and a CI step (`just gen-schemas-check`) rege... | U003.md |
 | U003-F03 | **ESCALATED** `18a8c154` | **`main.go:23` (whole unit)`** | NOPAY | **Nothing reads the generated schemas.** 70 files / 284 KB are generated on every container build and CI run and embedded into the shipped binary, and I can find no consumer. `resources.GetSchema` ... | U003.md |

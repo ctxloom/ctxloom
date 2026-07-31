@@ -22,10 +22,14 @@ import (
 // the same nil and left a `path: ["@submodules"]` rule silently guarding nothing.
 // Paths are returned exactly as written — slash-separated and repo-relative.
 //
-// The walk stops at the first directory containing .git (file or dir): that is
-// this repository's root, and a parent repository's .gitmodules describes the
-// PARENT's submodules, whose repo-relative paths would expand into spurious
-// rules inside the inner repo. (Same boundary as the config search.)
+// The walk stops at the first directory whose .git git itself would accept — a
+// directory, or a gitfile pointer naming one. That is this working tree's root,
+// and a parent repository's .gitmodules describes the PARENT's submodules,
+// whose repo-relative paths would expand into spurious rules inside the inner
+// tree. Note this is a STRICTER boundary than the config search, which stops
+// only at a .git DIRECTORY so that a superproject's rules keep applying inside
+// its submodules (see cmd/ltk.configSearchDirs): rules should be inherited
+// downward, submodule PATHS must not.
 func SubmodulePaths(fsys afero.Fs, startDir string) ([]string, error) {
 	dir := filepath.Clean(startDir)
 	for {
@@ -43,7 +47,11 @@ func SubmodulePaths(fsys afero.Fs, startDir string) ([]string, error) {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("read %s: %w", modules, err)
 		}
-		if ok, _ := afero.Exists(fsys, filepath.Join(dir, ".git")); ok {
+		root, err := isRepoRoot(fsys, dir)
+		if err != nil {
+			return nil, err
+		}
+		if root {
 			return nil, nil // repository root without a .gitmodules — do not leave the repo
 		}
 		parent := filepath.Dir(dir)
@@ -52,6 +60,39 @@ func SubmodulePaths(fsys afero.Fs, startDir string) ([]string, error) {
 		}
 		dir = parent
 	}
+}
+
+// isRepoRoot reports whether dir is a git working-tree root: it holds a .git
+// directory, or a .git file that is a gitfile pointer (`gitdir: …`, how git
+// marks a submodule working tree or a linked worktree).
+//
+// Mere EXISTENCE is not the test. An entry named .git that is neither is a
+// broken repository by git's own rules, and accepting it as a root truncates
+// the walk — SubmodulePaths would answer "this repository declares no
+// submodules", the fail-open nil that leaves a `path: ["@submodules"]` rule
+// guarding nothing. Likewise a .git nobody can stat is not evidence of
+// absence: swallowing that error walks straight out of the repository and into
+// a parent whose paths belong to a different tree. Both are "I could not find
+// out", which this package reports rather than guesses at.
+func isRepoRoot(fsys afero.Fs, dir string) (bool, error) {
+	dotGit := filepath.Join(dir, ".git")
+	fi, err := fsys.Stat(dotGit)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("stat %s: %w", dotGit, err)
+	case fi.IsDir():
+		return true, nil
+	}
+	data, err := afero.ReadFile(fsys, dotGit)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", dotGit, err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(data)), "gitdir:") {
+		return false, fmt.Errorf("%s is neither a directory nor a gitfile pointer: cannot tell where this repository ends", dotGit)
+	}
+	return true, nil
 }
 
 // parseSubmodulePaths extracts the `submodule.<name>.path` values from a

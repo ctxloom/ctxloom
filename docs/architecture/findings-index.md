@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,557** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,558** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 187 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **107** |
+| `open` | no commit names this ID | **106** |
 
-**Totals: 2268 findings across 162 units — 1,557 resolved, 107 still open, 604 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,558 resolved, 106 still open, 604 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 593 | 63 | 109 | 96 | 138 |
-| LOW | 871 | 601 | 42 | 61 | 104 | 63 |
+| LOW | 871 | 602 | 41 | 61 | 104 | 63 |
 | (unparsed) | 22 | 11 | 2 | 5 | 3 | 1 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2797,7 +2797,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U152-F06 | open | `dockerexec.go:185` | ERRHANDLING | `Resize` discards `pty.Setsize`'s error, so a resize that never reaches the container is invisible — no error, no warning, no log. | U152.md |
 | U152-F07 | open | `dockerexec.go:77-79`, `dockerexec.go:96-101` | CORRECTNESS | Neither `NewLauncher` nor `buildExecCmd` validates anything, so an empty `Backend`, `StartPath`, or `containerName` renders a well-formed command that is meaningless, and the failure surfaces from ... | U152.md |
 | U152-F08 | **RESOLVED** `fef97ca6` | `dockerexec.go:219` | COMPLEXITY | The docker-level exit codes `125`, `126`, `127` appear as bare literals in a boolean chain, with their meaning only in prose. | U152.md |
-| U152-F09 | open | `dockerexec.go:237-249` | DUPLICATE | `dockerLevelError` and `dockerLevelErrorWrap` are the same function twice — same structure, same tail-empty branch, one call site each. | U152.md |
+| U152-F09 | **RESOLVED** `b3949146` | `dockerexec.go:237-249` | DUPLICATE | `dockerLevelError` and `dockerLevelErrorWrap` are the same function twice — same structure, same tail-empty branch, one call site each. | U152.md |
 | U153-F04 | **RESOLVED** `2ccce4df` | `goplugin.go:6-11`, `goplugin.go:58-61` | NOPAY | Two comment passages are stale in a way that misdescribes the current system: both present the docker-exec transport as unbuilt when it has shipped and is wired. | U153.md |
 | U153-F05 | open | `goplugin.go:123-135` | COMPLEXITY | The latest-wins relay is three sequential `select` statements where a two-step evict-then-send would do, and the third `select`'s `default` arm is unreachable in practice. | U153.md |
 | U154-F07 | **RESOLVED** `89323926` | `markdown.go:82` vs `:95` | CORRECTNESS | Markdown table **cells** are pipe-escaped but **headers** are not, so a `col:"a\ | U154.md |

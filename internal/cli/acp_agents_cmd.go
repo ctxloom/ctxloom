@@ -137,6 +137,13 @@ func zedAgentServersBlock(entries []acpAgentEntry) string {
 	var b strings.Builder
 	b.WriteString("{\n")
 	for i, e := range entries {
+		// Both errors are discarded because neither operand can produce one:
+		// encoding/json reports a failure only for channels, funcs, complex
+		// values, cyclic pointers, NaN/Inf, or a Marshaler that errors, and
+		// these are a string and a struct of string + []string. Invalid UTF-8
+		// is COERCED to U+FFFD, not rejected. Widening acpAgentEntry with a
+		// type Marshal can fail on breaks that, which is what
+		// TestZedAgentServersBlock_IsAlwaysValidJSON exists to notice.
 		key, _ := json.Marshal(e.Name)
 		val, _ := json.Marshal(zedAgentServer{Command: e.Command, Args: e.Args})
 		fmt.Fprintf(&b, "  %s: %s", key, val)

@@ -113,7 +113,16 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// that resolution before letting close(out) run.
 	teardown := func() {
 		cancel()
-		_ = conn.Close()
+		// conn.Close returns the transport's own teardown result — for a
+		// spawned engine that is cmd.Wait's error, i.e. the process exit
+		// status. It does NOT fail the conversation: the turns were delivered,
+		// and a shutdown status is not grounds to discard a good session. But
+		// it is the only evidence of an engine that died badly, and dropping it
+		// left "the agent crashed on exit" indistinguishable from a clean run.
+		// Close is once-only, so this can warn at most once per conversation.
+		if cerr := conn.Close(); cerr != nil {
+			warnf("acp: engine transport exited abnormally after the conversation: %v", cerr)
+		}
 		<-conn.Done()
 		sess.forwardGoroutines.Wait()
 		if sess.fsUpstream != nil {

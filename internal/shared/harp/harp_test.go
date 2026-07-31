@@ -1,6 +1,7 @@
 package harp
 
 import (
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -377,5 +378,77 @@ func TestRandIndex_RefusesAnEmptyRange(t *testing.T) {
 	// or the guard is off by one and every two-word group breaks.
 	if got := randIndex(1); got != 0 {
 		t.Errorf("randIndex(1) must be 0, got %d", got)
+	}
+}
+
+// TestLoadGroups_IncompleteGroupIsDroppedNotFatal pins the degradation path a
+// word-list DEFECT actually takes. A group that ships adjectives but no nouns
+// (a truncated file, a bad filename, a half-committed addition) is dropped
+// from the registry — no panic, no partial group that would later index an
+// empty slice. This is the mechanism the two initializer panics do NOT guard,
+// and it is the one every realistic word-list fault goes through.
+func TestLoadGroups_IncompleteGroupIsDroppedNotFatal(t *testing.T) {
+	reg := map[string]wordGroup{
+		"complete":       {adjectives: []string{"swift"}, nouns: []string{"falcon"}},
+		"adjectivesOnly": {adjectives: []string{"swift"}},
+		"nounsOnly":      {nouns: []string{"falcon"}},
+		"empty":          {},
+	}
+	pruneIncompleteGroups(reg)
+
+	if _, ok := reg["complete"]; !ok {
+		t.Error("a group with both lists must survive")
+	}
+	for _, name := range []string{"adjectivesOnly", "nounsOnly", "empty"} {
+		if _, ok := reg[name]; ok {
+			t.Errorf("group %q is unusable and must be dropped, not left for a caller to index", name)
+		}
+	}
+}
+
+// TestWordFS_EveryEmbeddedEntryIsAReadableFile is the structural guard behind
+// loadGroups' two panics. Neither guards a word-list defect: fs.ReadDir on an
+// embed.FS built at compile time cannot fail, and ReadFile can only fail for
+// an entry that is a DIRECTORY. `//go:embed *.txt` would match a directory
+// named like a word list, which is the sole way to reach the second panic, so
+// this asserts no such entry exists rather than leaving the claim to a
+// reader's judgement.
+func TestWordFS_EveryEmbeddedEntryIsAReadableFile(t *testing.T) {
+	entries, err := fs.ReadDir(wordFS, ".")
+	if err != nil {
+		t.Fatalf("ReadDir on a compile-time embed.FS must not fail: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("the embed matched no files, which the compiler should have refused")
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Errorf("entry %q is a directory; a *.txt directory is the only way loadGroups' ReadFile panic can fire", e.Name())
+			continue
+		}
+		if _, err := wordFS.ReadFile(e.Name()); err != nil {
+			t.Errorf("embedded entry %q is not readable: %v", e.Name(), err)
+		}
+	}
+}
+
+// TestGroups_EveryAdvertisedGroupGeneratesAName pins the invariant that
+// actually protects users, and that no initializer panic checks: every name
+// Groups() hands out must draw a real name. An empty or half-populated
+// registry is the one reachable route to a runtime failure here, and it
+// surfaces at first USE rather than at init.
+func TestGroups_EveryAdvertisedGroupGeneratesAName(t *testing.T) {
+	names := Groups()
+	if len(names) == 0 {
+		t.Fatal("the registry advertises no usable group at all")
+	}
+	if !slices.Contains(names, DefaultGroup) {
+		t.Fatalf("DefaultGroup %q must always be usable: normalize falls back to it for every unknown group", DefaultGroup)
+	}
+	for _, g := range names {
+		got := GenerateNameWithOptions(Options{Group: g})
+		if strings.Count(got, "-") != 2 {
+			t.Errorf("advertised group %q produced %q, not a three-component name", g, got)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
 )
 
 // A login shell ltk has no frontend for — fish, nu, tcsh, csh, elvish, xonsh —
@@ -49,5 +50,40 @@ func TestUnrecognizedHostShellIsAnalyzedAsBashWithNoTrace(t *testing.T) {
 	}
 	if r.ParseError != "" {
 		t.Fatalf("ParseError = %q, want empty", r.ParseError)
+	}
+}
+
+// A ksh93 login shell must not be analyzed as mksh. The two are different
+// languages: ksh93 has process substitution and C-style `for ((;;))`, mksh has
+// neither, and mvdan/sh's MirBSDKorn variant REJECTS both outright. A rejection
+// is not a safe default here — under the shipped `on_parse_error: allow` it
+// means no rule ever sees the command, so a denied program inside such a
+// construct runs with ltk reporting a clean allow.
+//
+// These are the three constructs measured to diverge across a twelve-case
+// sweep; the other nine parse identically under both variants, which is why
+// bash is the safe home for ksh93 rather than a guess.
+func TestKsh93ConstructsAreStillAnalyzed(t *testing.T) {
+	a := newApp(t, cfg)
+	a.HostShell = shellenv.ShellFromPath("/bin/ksh93")
+
+	// The fixture must be hostile: the mapping under test is what supplies the
+	// dialect, so nothing else in the precedence chain may pre-empt it.
+	if a.ForceShell != "" || a.Config.Defaults.Shell != "" {
+		t.Fatal("fixture is not hostile: another signal pre-empts HostShell")
+	}
+	if a.HostShell == "" {
+		t.Fatal("fixture is not hostile: ksh93 resolved to no shell at all")
+	}
+
+	for _, command := range []string{
+		`for ((i=0;i<3;i++)); do go test ./...; done`,
+		`diff <(go test ./...) <(true)`,
+		`go test ./... > >(tee log)`,
+	} {
+		r := decide(a, command)
+		if r.Allow {
+			t.Errorf("%q was allowed; the go-test rule never saw it (ParseError=%q)", command, r.ParseError)
+		}
 	}
 }

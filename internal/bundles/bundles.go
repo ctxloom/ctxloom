@@ -332,7 +332,7 @@ type BundleCommand struct {
 	Description  string     `yaml:"description,omitempty"`
 	Tags         []string   `yaml:"tags,omitempty"`
 	Notes        string     `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string     `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
+	Installation string     `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	Content      string     `yaml:"content"`
 	ContentHash  string     `yaml:"content_hash,omitempty"`
 	Distilled    string     `yaml:"distilled,omitempty"`
@@ -950,13 +950,12 @@ func detectLegacySkillsKey(data []byte) error {
 	}
 	root := doc.Content[0]
 
-	var bundleName string
+	// No root `name:` is consulted: Bundle.Name is yaml:"-", the schema has no
+	// such key, and the caller already knows which document this is (LoadFile
+	// wraps this error with the file path).
 	var skillsNode *yaml.Node
 	for i := 0; i+1 < len(root.Content); i += 2 {
-		switch root.Content[i].Value {
-		case "name":
-			bundleName = root.Content[i+1].Value
-		case "skills":
+		if root.Content[i].Value == "skills" {
 			skillsNode = root.Content[i+1]
 		}
 	}
@@ -981,10 +980,10 @@ func detectLegacySkillsKey(data []byte) error {
 
 	if len(legacyNames) > 0 {
 		return fmt.Errorf(
-			"bundle %s: `skills:` now means Agent Skills (SKILL.md packages); "+
+			"`skills:` now means Agent Skills (SKILL.md packages); "+
 				"entr(y/ies) %v are shaped like slash commands (they carry `content:`) — "+
 				"rename the `skills:` key to `commands:` (skill→command rename, v0.7.0) or re-init the bundle",
-			bundleName, legacyNames)
+			legacyNames)
 	}
 
 	return nil

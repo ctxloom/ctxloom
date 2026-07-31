@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -14,6 +15,27 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// rejectedHelloError renders a refused handshake using the coordinator's own
+// reject_reason. Both handshake acks carry one so a refusal is actionable,
+// and both callers reach it through this single renderer.
+//
+// The reason is what separates a permanent refusal from a transient one, and
+// both handshakes are inside forever-retrying loops: a caller that reports
+// only "rejected" leaves an operator watching a channel that never attaches,
+// with nothing to distinguish a stale run id from a revoked credential or a
+// coordinator that is simply down. An ack that refuses without saying why is
+// itself named, rather than smoothed over — a silent field is a defect on the
+// far side, not a normal outcome.
+func rejectedHelloError(what string, reason *rpcstatus.Status) error {
+	if msg := reason.GetMessage(); msg != "" {
+		return fmt.Errorf("%s rejected: %s (%s)", what, msg, codes.Code(reason.GetCode()))
+	}
+	if reason != nil {
+		return fmt.Errorf("%s rejected: %s", what, codes.Code(reason.GetCode()))
+	}
+	return fmt.Errorf("%s rejected, and the coordinator sent no reject_reason", what)
+}
 
 // RunnerRequestHandler answers one coordinator-initiated RunnerRequest
 // (StartRun/StopRun/KillRun/Drain) — the runner's engine-control seam. It
@@ -133,8 +155,12 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 	if err != nil {
 		return unwind("coord: RunnerHelloAck: %w", err)
 	}
-	if ha := ack.GetHelloAck(); ha == nil || !ha.GetAccepted() {
-		return unwind("coord: RunnerHello rejected")
+	ha := ack.GetHelloAck()
+	if ha == nil {
+		return unwind("coord: first RuntimeFrame was not a RunnerHelloAck")
+	}
+	if !ha.GetAccepted() {
+		return unwind("coord: %w", rejectedHelloError("RunnerHello", ha.GetRejectReason()))
 	}
 
 	l := &RunnerLink{runID: runID, conn: conn, stream: stream, cancel: cancel, done: make(chan struct{}), handler: handler}

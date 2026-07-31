@@ -335,7 +335,16 @@ func (l *Loader) Find(name string) (string, error) {
 // LoadFile reads a bundle from a specific path.
 // Results are cached to avoid redundant disk reads when the same bundle
 // is referenced multiple times (e.g., by multiple profiles).
-// This method is safe for concurrent use.
+//
+// CONCURRENCY, precisely. The CALL is safe from any goroutine: the cache map
+// is mutex-protected and a concurrent miss resolves to one shared entry. The
+// RESULT is not a private copy — every caller asking for the same path gets
+// the SAME *Bundle, and a seeded bundle is a pointer the seeder still holds.
+// Bundle's item maps are exported and StampSigner mutates in place, so a
+// caller that writes through the returned pointer races every other holder.
+// Treat what LoadFile hands back as READ-ONLY; mutate a bundle before it is
+// seeded or cached (which is what the signer-stamping load paths do), never
+// after.
 //
 // Synthetic seeded-bundle paths (see seededPath) bypass the fs and return
 // the corresponding seeded bundle. Real fs paths use the on-disk cache.

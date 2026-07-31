@@ -176,18 +176,31 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 
 	reread, err := afero.ReadFile(fs, file)
 	if err != nil {
-		return result, fmt.Errorf("config-write: re-read %s after writing (verify failed) — original backed up to %s: %w", file, result.Backup, err)
+		return result, fmt.Errorf("config-write: re-read %s after writing (verify failed) — %s: %w", file, backupClause(result.Backup), err)
 	}
 	verifyData, err := decodeConfigFile(reread, ft)
 	if err != nil {
-		return result, fmt.Errorf("config-write: %s is malformed after writing (verify failed) — original backed up to %s: %w", file, result.Backup, err)
+		return result, fmt.Errorf("config-write: %s is malformed after writing (verify failed) — %s: %w", file, backupClause(result.Backup), err)
 	}
 	if !containsConfigPatch(verifyData, patch) {
-		return result, fmt.Errorf("config-write: %s does not contain the merged content after writing (verify failed) — restore from backup %s", file, result.Backup)
+		return result, fmt.Errorf("config-write: %s does not contain the merged content after writing (verify failed) — %s", file, backupClause(result.Backup))
 	}
 	result.Verified = true
 
 	return result, nil
+}
+
+// backupClause names what the user can recover from when a verify step fails —
+// the one moment the message has to be actionable. It exists because Backup is
+// legitimately EMPTY for a file config-write created, and interpolating that
+// empty string produced "original backed up to " / "restore from backup " with
+// nothing after it: a recovery instruction pointing at a path that does not
+// exist, handed to a user now holding a malformed config file.
+func backupClause(backup string) string {
+	if backup == "" {
+		return "no backup exists — this file did not exist before this write, so remove it or fix it by hand"
+	}
+	return "restore the original from " + backup
 }
 
 // validateRealFilePath enforces rule 1: never trust an env-overridden $HOME,

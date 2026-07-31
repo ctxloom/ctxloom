@@ -125,3 +125,49 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 		assert.Len(t, dest.Plugins["antigravity"]["PreTool"], 1)
 	})
 }
+
+// A nil dest means the caller has nowhere to put the merged hooks, and the
+// signature gives MergeHooksConfig no way to refuse — so it returned silently
+// and the ENTIRE source hook set vanished. That is this project's signature
+// failure shape applied to the hook surface: the session launches with none of
+// the configured hooks and nothing anywhere says so. The drop is still a drop
+// (there is no destination to write to), but it must be named. (U100-F10.)
+func TestMergeHooksConfig_NilDestNamesTheDroppedHooks(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	src := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool:      []wire.Hook{{Command: "pre"}},
+			SessionStart: []wire.Hook{{Command: "start"}},
+		},
+		Plugins: map[string]wire.BackendHooks{
+			"claude": {"PreToolUse": []wire.Hook{{Command: "plugin"}}},
+		},
+	}
+	// The fixture must actually carry hooks, or the silence under test is
+	// legitimate and the pin proves nothing.
+	require.NotEmpty(t, src.Unified.PreTool)
+	require.NotEmpty(t, src.Plugins)
+
+	assert.NotPanics(t, func() { MergeHooksConfig(nil, src) })
+
+	out := buf.String()
+	assert.Contains(t, out, "warning:", "a whole hook set going missing must reach the diagnostic channel")
+	assert.Contains(t, out, "3", "the warning must say HOW MANY hooks were dropped")
+}
+
+// Dropping an EMPTY source into a nil dest loses nothing, so it must stay
+// silent — a warning there would be noise on every no-op merge. (U100-F10.)
+func TestMergeHooksConfig_NilDestWithNothingToLoseStaysSilent(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	MergeHooksConfig(nil, &wire.HooksConfig{})
+	MergeHooksConfig(nil, nil)
+	MergeHooksConfig(&wire.HooksConfig{}, nil)
+
+	assert.Empty(t, buf.String(), "a merge that loses nothing must not warn")
+}

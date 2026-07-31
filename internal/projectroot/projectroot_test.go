@@ -1,14 +1,17 @@
 package projectroot
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -95,6 +98,66 @@ func TestFromEnv(t *testing.T) {
 		assert.False(t, ok, "invalid override behaves exactly like unset to callers")
 		assert.Equal(t, "", got)
 	})
+}
+
+// TestFromEnv_EachDistinctInvalidRootWarns pins U092-F08. The suppression was a
+// package-level sync.Once keyed on NOTHING, so the first invalid CTXLOOM_ROOT a
+// process ever saw permanently silenced every later one — including a
+// completely different offending value. The suppression that is actually wanted
+// is per-message (identical value, one line), which is exactly clidiag.WarnOnce.
+//
+// The two values are derived from t.TempDir() so their formatted lines are
+// unique to this run: clidiag's dedup map is process-global, so a hard-coded
+// path could be pre-seeded by another test and leave this pin green for a
+// reason unrelated to the defect.
+func TestFromEnv_EachDistinctInvalidRootWarns(t *testing.T) {
+	testsupport.Isolate(t)
+
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	base := t.TempDir()
+	first := filepath.Join(base, "no-such-root-a")
+	second := filepath.Join(base, "no-such-root-b")
+
+	// The fixture is only hostile if BOTH values really are invalid roots; a
+	// path that happened to exist would warn zero times and prove nothing.
+	for _, bad := range []string{first, second} {
+		_, err := os.Stat(bad)
+		require.True(t, os.IsNotExist(err), "fixture is not hostile: %s exists", bad)
+	}
+
+	t.Setenv(EnvVar, first)
+	_, ok := FromEnv(afero.NewOsFs())
+	require.False(t, ok)
+	require.Contains(t, sink.String(), first,
+		"fixture is not hostile: the first invalid root produced no warning at all")
+
+	t.Setenv(EnvVar, second)
+	_, ok = FromEnv(afero.NewOsFs())
+	require.False(t, ok)
+	assert.Contains(t, sink.String(), second,
+		"a second, DIFFERENT invalid CTXLOOM_ROOT must still be reported — the "+
+			"suppression exists to collapse repeats of one message, not to mute the variable")
+}
+
+// TestFromEnv_RepeatedInvalidRootWarnsOnce pins the half of the suppression that
+// must survive the fix: the same offending value, resolved many times in one
+// process (config.Load runs on every command), stays a single line.
+func TestFromEnv_RepeatedInvalidRootWarnsOnce(t *testing.T) {
+	testsupport.Isolate(t)
+
+	var sink bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&sink))
+
+	bad := filepath.Join(t.TempDir(), "no-such-root-repeat")
+	t.Setenv(EnvVar, bad)
+	for range 5 {
+		_, ok := FromEnv(afero.NewOsFs())
+		require.False(t, ok)
+	}
+	assert.Equal(t, 1, strings.Count(sink.String(), bad),
+		"one offending value warns once however often it is resolved")
 }
 
 func TestWorkDir(t *testing.T) {

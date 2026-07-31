@@ -608,7 +608,8 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 		return
 	}
 
-	text := promptText(req.Prompt)
+	parts := promptParts(req.Prompt)
+	text := strings.Join(parts, "\n")
 	// B2 (gap G3): carry the prompt's content blocks through STRUCTURALLY too
 	// (agent.ChatMessage.ContentBlocks, IR2's carrier) — text alone loses
 	// image/audio entirely and only ever inlines resource/resource_link. A
@@ -639,14 +640,26 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	// untouched — so an image attached alongside "/code-review" still reaches
 	// the engine. An unmatched prompt (matched == false) leaves blocks
 	// completely untouched, in both forms.
-	expanded, matched, cerr := expandCommand(sess.ctx, sess.commands, text)
+	// A command invocation is recognized in the prompt's LEADING part only.
+	// Handing expandCommand the whole flattened string passed ctxloom's own
+	// media placeholder lines to the command as part of its ARGUMENTS, which
+	// SessionCommands.Resolve defines as the free text the user typed after
+	// the command name. Only that leading part can hold a "/name ..." anyway,
+	// so nothing is lost by scoping the match to it — and the placeholders
+	// stay exactly where they were in the flattened text the engine receives.
+	lead := ""
+	if len(parts) > 0 {
+		lead = parts[0]
+	}
+	expandedLead, matched, cerr := expandCommand(sess.ctx, sess.commands, lead)
 	if cerr != nil {
 		reply(nil, cerr)
 		return
 	}
 	if matched {
-		text = expanded
-		blocks = expandedCommandBlocks(blocks, expanded)
+		parts[0] = expandedLead
+		text = strings.Join(parts, "\n")
+		blocks = expandedCommandBlocks(blocks, text)
 	}
 
 	// U014-F02 (route a): a session/prompt whose blocks are ALL unrecognized
@@ -1232,6 +1245,17 @@ func engineError(err error) *jsonrpc.Error {
 // ContentBlock carries no discriminator field in the fork's generated shape —
 // dispatch switches on which variant pointer is non-nil.
 func promptText(blocks []api.ContentBlock) string {
+	return strings.Join(promptParts(blocks), "\n")
+}
+
+// promptParts is promptText's projection before it is joined: one entry per
+// block that has any text projection at all, in the prompt's own order.
+//
+// The split exists because the LEADING entry is the only one a command
+// invocation can live in, and a command's arguments must be text the USER
+// typed — never one of the media placeholder lines this function interleaves
+// into the same flattened string. See handlePrompt's expandCommand call.
+func promptParts(blocks []api.ContentBlock) []string {
 	var parts []string
 	for _, b := range blocks {
 		switch {
@@ -1255,7 +1279,7 @@ func promptText(blocks []api.ContentBlock) string {
 			parts = append(parts, mediaPlaceholderLine("audio", b.Audio.MimeType, len(b.Audio.Data)))
 		}
 	}
-	return strings.Join(parts, "\n")
+	return parts
 }
 
 // mediaPlaceholderLine renders the visible, non-silent placeholder for an

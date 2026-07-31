@@ -211,8 +211,10 @@ func (w *Watcher) deliver(path string) bool {
 	}
 }
 
-// pump forwards fsnotify events through the filter, adding watches for new
-// directories when recursive so nested changes are caught without a restart.
+// pump is the watcher's only goroutine: it multiplexes the three ways a watch
+// ends (closed by its owner, events channel closed, errors channel closed)
+// against the two things it forwards. Each arm answers the same question — may
+// this watcher keep going — so the loop itself carries no policy.
 func (w *Watcher) pump() {
 	defer close(w.pumped)
 	defer close(w.events)
@@ -221,37 +223,47 @@ func (w *Watcher) pump() {
 		case <-w.done:
 			return
 		case ev, ok := <-w.fsw.Events:
-			if !ok {
-				return
-			}
-			if w.recursive && ev.Has(fsnotify.Create) && !w.pruned(ev.Name) {
-				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
-					for _, path := range w.adopt(ev.Name) {
-						if !w.deliver(path) {
-							return
-						}
-					}
-				}
-			}
-			if !w.deliver(ev.Name) {
+			if !ok || !w.handleEvent(ev) {
 				return
 			}
 		case err, ok := <-w.fsw.Errors:
-			if !ok {
-				return
-			}
-			// Every watch error is delivered, never dropped. A watch error is
-			// not decoration — "inotify queue overflow" means events were LOST,
-			// so discarding one leaves a watch that is silently missing changes
-			// looking exactly like a healthy quiet one. The send therefore
-			// blocks until the consumer takes it, with only Close as an escape:
-			// a consumer that stops reading Errors() stalls its own stream,
-			// which is visible, instead of losing failures, which is not.
-			select {
-			case w.errs <- err:
-			case <-w.done:
+			if !ok || !w.forwardError(err) {
 				return
 			}
 		}
+	}
+}
+
+// handleEvent forwards one fsnotify event, first adopting the directory it
+// announces when the watch is recursive, so nested changes are caught without a
+// restart. It reports false once the watcher is closing.
+func (w *Watcher) handleEvent(ev fsnotify.Event) bool {
+	if w.recursive && ev.Has(fsnotify.Create) && !w.pruned(ev.Name) {
+		if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
+			for _, path := range w.adopt(ev.Name) {
+				if !w.deliver(path) {
+					return false
+				}
+			}
+		}
+	}
+	return w.deliver(ev.Name)
+}
+
+// forwardError hands one watch error to the consumer, reporting false once the
+// watcher is closing.
+//
+// Every watch error is delivered, never dropped. A watch error is not
+// decoration — "inotify queue overflow" means events were LOST, so discarding
+// one leaves a watch that is silently missing changes looking exactly like a
+// healthy quiet one. The send therefore blocks until the consumer takes it,
+// with only Close as an escape: a consumer that stops reading Errors() stalls
+// its own stream, which is visible, instead of losing failures, which is not.
+func (w *Watcher) forwardError(err error) bool {
+	select {
+	case w.errs <- err:
+		return true
+	case <-w.done:
+		return false
 	}
 }

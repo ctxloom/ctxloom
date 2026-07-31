@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,314** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,315** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **479** |
+| `open` | no commit names this ID | **478** |
 
-**Totals: 2268 findings across 162 units — 1,314 resolved, 479 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,315 resolved, 478 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 470 | 269 | 73 | 79 | 108 |
+| MED | 999 | 471 | 268 | 73 | 79 | 108 |
 | LOW | 871 | 487 | 198 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1161,7 +1161,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U033-F01 | **RESOLVED** `04f6cf04` | **`surfaces.go:249`** | DUPLICATE | `claude.SurfaceInputs` is `agent.SurfaceInputs` minus `Fragments`, and forces two hand-maintained field-by-field mappers that have already diverged; a field dropped from one mapper silently degrade... | U033.md |
 | U033-F02 | **RESOLVED** `f8a8d950` | **`surfaces.go:265`** | DEAD | `SurfaceInputs.SelfContainedSkills` is written by three call sites and read by none — a field that pretends to be a threaded control | U033.md |
 | U033-F03 | **RESOLVED** `7b910dd3` | **`surfaces.go:96,144,195,226,340`** | DEAD | The five `Kind()` methods have zero production call sites; the `agent.KindedDelivery` contract they satisfy is test-only scaffolding replicated across every backend | U033.md |
-| U033-F04 | open | **`surfaces.go:388`** | CORRECTNESS | `SharedRealization` is keyed on `SurfaceKind` **alone**, discarding the resolved approach — so a shared-cwd delivery of (context, `ApproachHook`) runs `contextSurface.DeliverIsolated` instead of th... | U033.md |
+| U033-F04 | **RESOLVED** `b2179578` | **`surfaces.go:388`** | CORRECTNESS | `SharedRealization` is keyed on `SurfaceKind` **alone**, discarding the resolved approach — so a shared-cwd delivery of (context, `ApproachHook`) runs `contextSurface.DeliverIsolated` instead of th... | U033.md |
 | U033-F05 | **RESOLVED** `7b910dd3` | **`surfaces.go:324`** | NOPAY | `Surfaces.Deliveries()` has no production caller; the launch path uses the unrelated `ResolvedSelection.Deliveries()`. It survives only because `agent.SurfaceSet` mandates it, so five backends impl... | U033.md |
 | U033-F06 | **RESOLVED** `e475f5d7` | **`surfaces.go:115-137`, `surfaces.go:170-188`** | DUPLICATE | `Deliver` and `DeliverIsolated` are near-identical on both `mcpSurface` and `settingsSurface` — four bodies differing only in where `dir` comes from and whether `path` is recorded. Any change to th... | U033.md |
 | U034-F04 | open | `internal/cli/agent.go:110,263,348,376; bundle_edit.go:28,95; bundle_list.go:132` | CORRECTNESS | The `name == "help"` guard makes any resource literally named "help" unaddressable, and turns a real request into "print help, exit 0" | U034.md |

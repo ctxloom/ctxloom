@@ -22,10 +22,19 @@
 //	         schema evolution AHEAD of the pinned SDK's 2025-09-02 snapshot.
 //	Vendored: 2026-07-16.
 //
-// Re-vendor with:
+// Re-vendor by fetching the branch tip, then RE-RECORDING what you fetched —
+// the fetch alone leaves every line of the block above describing bytes that
+// are no longer here, and the schema file carries no version marker of its
+// own to contradict them:
 //
-//	curl -sL -o internal/acptest/acp-schema-v1.json \
-//	  https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/v1/schema.json
+//  1. curl -sL -o internal/acptest/acp-schema-v1.json \
+//     https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/v1/schema.json
+//  2. Update Commit / Version / Vendored above from what you actually
+//     fetched: the upstream commit id `main` resolved to, the version at the
+//     head of schema/v1/CHANGELOG.md, and today's date.
+//  3. Update vendoredSchemaSHA256 (schema_provenance_test.go) to the new
+//     content hash. That test fails until you do, which is what stops step 2
+//     from being skipped.
 package acptest
 
 import (

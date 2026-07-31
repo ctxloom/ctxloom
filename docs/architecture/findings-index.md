@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,533** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,534** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 183 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 207 |
-| `open` | no commit names this ID | **136** |
+| `open` | no commit names this ID | **135** |
 
-**Totals: 2268 findings across 162 units — 1,533 resolved, 136 still open, 599 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,534 resolved, 135 still open, 599 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 578 | 82 | 105 | 96 | 138 |
-| LOW | 871 | 594 | 47 | 62 | 105 | 63 |
+| LOW | 871 | 595 | 46 | 62 | 105 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2768,7 +2768,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U145-F06 | **RESOLVED** `27e45c63` | **`text.go:30`** | TRIVIAL | `JoinNonEmptyFunc` is a 5-line generic wrapper with exactly one production call site, and the one other candidate caller deliberately declines to use it | U145.md |
 | U145-F07 | **REFUTED** `3f1cd04e` | `entries.go:19` | TRIVIAL | `NonEmptyRaw` is exported but its only production caller is `ToolUseEvent` 26 lines below in the same file | U145.md |
 | U145-F09 | open | `sessioninfo.go:21-54` | DUPLICATE | Four near-identical latch setters (24 lines) encode one rule; only the target field and the zero test differ | U145.md |
-| U145-F10 | open | `turn.go:26-28` | ERRHANDLING | `FlushComplete` clears `*pending` **before** `record` succeeds, so a failed flush destroys the pending boundary; a caller that retried would get a silent no-op instead of re-attempting the write | U145.md |
+| U145-F10 | **RESOLVED** `78d7a64a` | `turn.go:26-28` | ERRHANDLING | `FlushComplete` clears `*pending` **before** `record` succeeds, so a failed flush destroys the pending boundary; a caller that retried would get a silent no-op instead of re-attempting the write | U145.md |
 | U146-F09 | **RESOLVED** `a4f1a039` | **`antigravity.go:56`** | TRIVIAL | `New()` is a single-expression constructor for a zero-size exported struct that callers can already build as `Adapter{}`. | U146.md |
 | U147-F06 | **RESOLVED** `7e395761` | **`session.go:60`** | DEAD | `message.Role` is decoded on every message and never read. | U147.md |
 | U147-F07 | **RESOLVED** `a4f1a039` | **`claude.go:46`** | TRIVIAL | `New()` is a pure-expression constructor for a zero-size struct with no invariant, and is not a test seam. | U147.md |

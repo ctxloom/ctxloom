@@ -1,9 +1,12 @@
 package operations
 
 import (
+	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -32,8 +35,20 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 	}
 	bundlesRoot := paths.CacheBundlesPath(cfg.GetAppPaths()[0])
 	info, err := os.Stat(bundlesRoot)
-	if err != nil || !info.IsDir() {
+	switch {
+	// U084-F18: "the directory isn't there" is the ordinary case and a genuine
+	// no-op. Every OTHER stat failure — permissions, a broken mount, an I/O
+	// error — used to take the same silent `return 0, nil` path, so a cleanup
+	// that could not even LOOK reported the same thing as a cleanup with
+	// nothing to do. The caller (cli.purgeLegacyBundles) already warns on a
+	// non-nil error and continues, so surfacing it costs nothing and stops the
+	// silence.
+	case errors.Is(err, fs.ErrNotExist):
 		return 0, nil
+	case err != nil:
+		return 0, fmt.Errorf("cannot inspect legacy bundles cache %s: %w", bundlesRoot, err)
+	case !info.IsDir():
+		return 0, fmt.Errorf("legacy bundles cache %s is not a directory", bundlesRoot)
 	}
 
 	removed := 0
@@ -74,18 +89,29 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 		return removed, walkErr
 	}
 
-	// Prune now-empty per-remote subdirectories so `ls .ctxloom/cache/bundles`
-	// stops showing ghosts. Top-level dir stays.
+	// Prune now-empty subdirectories so `ls .ctxloom/cache/bundles` stops
+	// showing ghosts. Top-level dir stays.
+	//
+	// U084-F18: WalkDir is PRE-order, so removing in the walk callback only
+	// ever cleared the deepest level — a parent holding one empty child is not
+	// itself empty when it is visited, so it survived and needed a second run
+	// to go. Collect first, then remove DEEPEST-FIRST, so a whole empty chain
+	// collapses in one pass regardless of nesting depth.
+	var dirs []string
 	_ = filepath.WalkDir(bundlesRoot, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil || !d.IsDir() || path == bundlesRoot {
 			return nil
 		}
-		entries, derr := os.ReadDir(path)
-		if derr == nil && len(entries) == 0 {
-			_ = os.Remove(path)
-		}
+		dirs = append(dirs, path)
 		return nil
 	})
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	for _, dir := range dirs {
+		entries, derr := os.ReadDir(dir)
+		if derr == nil && len(entries) == 0 {
+			_ = os.Remove(dir)
+		}
+	}
 
 	return removed, nil
 }

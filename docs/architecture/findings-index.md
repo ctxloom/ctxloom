@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,410** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,411** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 188 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 193 |
-| `open` | no commit names this ID | **317** |
+| `open` | no commit names this ID | **316** |
 
-**Totals: 2268 findings across 162 units — 1,410 resolved, 317 still open, 541 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,411 resolved, 316 still open, 541 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 521 | 177 | 90 | 86 | 125 |
+| MED | 999 | 522 | 176 | 90 | 86 | 125 |
 | LOW | 871 | 532 | 129 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1449,7 +1449,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U067-F07 | **PARTIAL** `1590cc73` `ec2a8274` | **`claudecode.go:29,78-87,203-210 vs antigravity.go:27,59-68,138-146`** | DUPLICATE | **Five method pairs are structurally identical**, differing only in a package-level constant. `Encode` is line-for-line the same modulo the `EncodeDeny` symbol; `Install`/`Uninstall` differ only by... | U067.md |
 | U067-F08 | **RESOLVED** `05cf2db0` | **`claudecode.go:263-272`** | ERRHANDLING | **Uninstall is silent where Install errors, on the same malformed input.** A settings file whose `hooks` is not an object (or whose `PreToolUse` is not an array) makes `Install` fail with a precise... | U067.md |
 | U067-F09 | **RESOLVED** `8e4cdb78` | **`claudecode.go:157-163, antigravity.go:125-134`** | SILENTNOOP | **`HookCommand("")` produces a syntactically valid, permanently non-functional hook command**, and `install` then reports success. | U067.md |
-| U068-F04 | open | `wrap.go:5,112,339` | CORRECTNESS | `path.Base` (slash-only) is used to take argv[0]'s basename, so a Windows-style invocation escapes wrapper expansion entirely | U068.md |
+| U068-F04 | **RESOLVED** `6283a1dd` | `wrap.go:5,112,339` | CORRECTNESS | `path.Base` (slash-only) is used to take argv[0]'s basename, so a Windows-style invocation escapes wrapper expansion entirely | U068.md |
 | U068-F05 | open | `wrap.go:37` vs `shellenv.go:18-31` | COUPLING / CORRECTNESS | The wrapper-program list and the dialect list have diverged: several programs ltk recognises as *shells* are not recognised as *wrappers*, so their `-c` body is never re-parsed | U068.md |
 | U068-F06 | open | `wrap.go:377,380` | CORRECTNESS | `env -S` / `--split-string` is an **interpreter** wrapper misclassified as an option to step over, so its inner command is never analysed | U068.md |
 | U068-F07 | open | `wrap.go:534`, `wrap.go:495` (cf. `:383,476,574,610`)` | CORRECTNESS | Glued short-option arguments defeat `skipStdbuf` and `skipNice`, so the inner command's argv[0] becomes the option token and no rule matches it. The fallback that fixes this exists in 4 of the 9 sk... | U068.md |

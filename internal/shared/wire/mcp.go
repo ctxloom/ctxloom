@@ -51,9 +51,13 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 		return
 	}
 
-	// Merge auto_register_ctxloom (later wins)
+	// Merge auto_register_ctxloom (later wins). Copied by VALUE, not by
+	// pointer: the flag is a *bool only so "unset" is distinguishable from
+	// "false", and sharing the pointer would make two configs merged from one
+	// source write through to each other and to the source.
 	if src.AutoRegisterCtxloom != nil {
-		dest.AutoRegisterCtxloom = src.AutoRegisterCtxloom
+		autoRegister := *src.AutoRegisterCtxloom
+		dest.AutoRegisterCtxloom = &autoRegister
 	}
 
 	// Merge unified servers

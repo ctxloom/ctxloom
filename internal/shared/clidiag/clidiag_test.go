@@ -339,3 +339,48 @@ func TestWarn_FailingSinkNeverBlocksOrPanics(t *testing.T) {
 		Warn("ctxloom", "third")
 	})
 }
+
+// U103-F09's PREMISE — "the value is a per-binary constant", so prog could be
+// hoisted out of the signature — is false, and this pins the callers that make it
+// false. Inside the ctxloom binary ALONE two distinct progs are in production
+// use: "ctxloom" and "ctxloom hook inject-context" (internal/cli's
+// inject-context hook names itself so a warning surfacing inside a Claude Code
+// hook is attributable to the hook rather than to the CLI). And
+// internal/shared/confload — shared by ctxloom, taskloom, harp and ltk — passes
+// its caller's own Program.Name, which its doc states outright.
+//
+// prog therefore carries information no per-binary constant holds, in the
+// rendered line AND in the dedup key. This test is what a "simplify prog away"
+// change has to break first.
+func TestProg_IsNotAPerBinaryConstant(t *testing.T) {
+	resetStructured(t)
+
+	progs := []string{"ctxloom", "ctxloom hook inject-context", "taskloom", "ltk", "harp"}
+
+	// (1) the rendered line carries the CALLER's prog, not one global name.
+	for _, prog := range progs {
+		var b strings.Builder
+		Fwarn(&b, prog, "sync failed: %v", "boom")
+		assert.Equal(t, prog+": warning: sync failed: boom\n", b.String())
+	}
+
+	// (2) so does the structured envelope.
+	SetStructured(true)
+	for _, prog := range progs {
+		var b strings.Builder
+		Fwarn(&b, prog, "sync failed: %v", "boom")
+		var env clifmt.WarningEnvelope
+		require.NoError(t, json.Unmarshal([]byte(b.String()), &env))
+		assert.Equal(t, prog, env.Prog, "the envelope's prog field is the caller's, not a constant")
+	}
+	SetStructured(false)
+
+	// (3) and the dedup key is prog-scoped, so two progs reporting the SAME
+	// condition are two reports, not one silenced by the other.
+	var b strings.Builder
+	for _, prog := range progs {
+		FwarnOnce(&b, prog, "same condition %d", 7)
+	}
+	assert.Equal(t, len(progs), strings.Count(b.String(), "same condition 7"),
+		"collapsing prog into a constant would silence every binary but the first")
+}

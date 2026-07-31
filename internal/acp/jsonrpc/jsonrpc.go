@@ -205,25 +205,40 @@ func (c *Conn) Go(method string, params any) (func(ctx context.Context, result a
 			delete(c.pending, id)
 			c.pendingMu.Unlock()
 		}()
+		// Everything this codec itself reports is annotated with the RPC it
+		// belongs to: one connection multiplexes every method, so a bare
+		// "context deadline exceeded" names no request and cannot be acted on.
+		// The peer's OWN error object is the exception — it travels verbatim so
+		// callers can keep type-asserting *Error and reading its code.
 		select {
 		case resp, ok := <-ch:
 			if !ok {
-				return c.closedErr() // failPending closed the slot (connection died)
+				return rpcErrf(method, id, c.closedErr()) // failPending closed the slot (connection died)
 			}
 			if resp.Error != nil {
 				return resp.Error
 			}
 			if result != nil && len(resp.Result) > 0 {
-				return json.Unmarshal(resp.Result, result)
+				if uerr := json.Unmarshal(resp.Result, result); uerr != nil {
+					return rpcErrf(method, id, uerr)
+				}
+				return nil
 			}
 			return nil
 		case <-ctx.Done():
-			return ctx.Err()
+			return rpcErrf(method, id, ctx.Err())
 		case <-c.done:
-			return c.closedErr()
+			return rpcErrf(method, id, c.closedErr())
 		}
 	}
 	return await, nil
+}
+
+// rpcErrf attributes a codec-side failure to the request it belongs to. The
+// cause is wrapped, not replaced, so errors.Is on ErrConnClosed or a context
+// cause keeps working for callers that branch on it.
+func rpcErrf(method string, id int64, cause error) error {
+	return fmt.Errorf("acp: %s (request id %d): %w", method, id, cause)
 }
 
 // Notify sends a notification (no response expected).

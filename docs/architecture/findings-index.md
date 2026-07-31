@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,530** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **145** |
+| `open` | no commit names this ID | **144** |
 
-**Totals: 2268 findings across 162 units — 1,530 resolved, 145 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,530 resolved, 144 still open, 594 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 577 | 86 | 104 | 96 | 136 |
-| LOW | 871 | 592 | 52 | 60 | 104 | 63 |
+| LOW | 871 | 592 | 51 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2722,7 +2722,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U135-F14 | open | `481-491` | CORRECTNESS | `IsHardwareBacked` returns false for a hardware key loaded as an SSH **certificate**, so `review.go:204` shows the software-key warning for an actual FIDO key. | U135.md |
 | U135-F15 | open | `155` | CORRECTNESS | The `NoKeyError` remedy suggests a command with the wrong argument kind. | U135.md |
 | U136-F13 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`parse.go:86`** | DEAD | `ParseFile` is test-only, and it is the **only** function in the package that surfaces an unreadable trust root as an error. All three production paths hand-roll `fs.Open` + `Parse` instead — which... | U136.md |
-| U136-F14 | open | **`store.go:96`** | DEAD | `TrustedAs` has zero production callers despite being the identity-corroborating half of the package's stated purpose (`doc.go:4`, "is key K trusted to make an assertion in namespace N?" — as *whom... | U136.md |
+| U136-F14 | **PARTIAL** `d71cb041` | **`store.go:96`** | DEAD | `TrustedAs` has zero production callers despite being the identity-corroborating half of the package's stated purpose (`doc.go:4`, "is key K trusted to make an assertion in namespace N?" — as *whom... | U136.md |
 | U136-F15 | **RESOLVED** `d1b96b30` | `write.go:44`, `parse.go:248-264` | CORRECTNESS | Write and read use different escaping alphabets: `FormatEntry` escapes with Go's `%q` (which emits `\n`, `\t`, `\x..`) while `unescapeQuoted` decodes only `\"` and `\\` and passes every other backs... | U136.md |
 | U136-F16 | **RESOLVED** `af7ed9f9` | **`parse.go:67-71`** | CORRECTNESS | A UTF-8 BOM on the first line is not stripped, so the leading entry's principal silently becomes `﻿alice@…`. The line parses **successfully** — no `ParseError`, no warning anywhere — and then match... | U136.md |
 | U136-F17 | **RESOLVED** `696d0f3a` | `pattern.go:54-58` | COMPLEXITY | `globMatchBytes` backtracks exponentially in the number of `*` segments; the consecutive-star collapse at `:48-50` only handles *adjacent* stars, so `*a*a*a*a*a*b` is still worst-case exponential. | U136.md |

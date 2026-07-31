@@ -679,3 +679,30 @@ func TestMonitor_ZeroCadenceRepeatsAreNotAGraceFreeLoop(t *testing.T) {
 	assert.Zero(t, rep.Evidence.Transcript.Redelivery.Cadence)
 	assert.False(t, rep.Firing(), "repetition with no cadence is not the grace-free loop signal: %s", rep.Reason)
 }
+
+// The relaunch signature is surfaced by the TRANSCRIPT, not by a process
+// counter: seq restarts at 0 for each new transcript.Recorder against the same
+// O_APPEND file, so many records that never advanced past 0 means many
+// recorders. It is POSITIVE evidence, so it must fire with no launch grace and
+// no start time at all — the case a backwards CPU counter was once proposed to
+// cover (U056-F18), and the case the age gate added for U056-F06 must not
+// swallow.
+func TestMonitor_SeqPinnedRelaunchLoopFiresWithoutAnAgeOrAGrace(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	// Distinct bodies, so the redelivery rule cannot be what fires: seq pinned
+	// at 0 has to carry this on its own.
+	var lines []map[string]any
+	for i := 0; i < 5; i++ {
+		lines = append(lines, userLine(0, now.Add(-time.Duration(5-i)*time.Second), fmt.Sprintf("delivery %d", i)))
+	}
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "relaunch-loop", TranscriptPath: writeJSONL(t, lines), // no StartedAt: age unknown
+	})
+
+	require.Nil(t, rep.Evidence.Transcript.Redelivery, "precondition: no repeated content, so only the seq rule can speak")
+	require.True(t, rep.Evidence.Transcript.SeqPinned, "precondition: every line came from a fresh recorder")
+	assert.Equal(t, liveness.StateStalled, rep.State, "reason=%q", rep.Reason)
+	assert.True(t, rep.Firing(), "a relaunch loop is an observation, not an inference from silence")
+}

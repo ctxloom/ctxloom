@@ -5,6 +5,7 @@ package plans
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func showFixture(t *testing.T) (root, harpDir string) {
 	// assertion below would be about the real home directory instead.
 	root, err := paths.HomeSessionsDir()
 	require.NoError(t, err)
-	require.True(t, filepath.HasPrefix(root, home),
+	require.True(t, strings.HasPrefix(root, home+string(filepath.Separator)),
 		"the sessions root did not follow HOME (%s); refusing to test against the real home", root)
 
 	harpDir = filepath.Join(root, "vital-deaf-stunt")

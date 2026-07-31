@@ -118,6 +118,44 @@ func TestCaretEscapeNotAnOperator(t *testing.T) {
 	}
 }
 
+// TestCaretLineContinuation pins cmd's `^` at end of line: it is a LINE
+// CONTINUATION, so the caret and the newline both disappear and the word
+// continues on the next line. Escaping the newline into the word instead
+// leaves argv[0] as "git\n", which no rule targeting `git push` can match
+// even though cmd.exe runs exactly that — a silent bypass, not the cosmetic
+// end-of-input case the row describes.
+func TestCaretLineContinuation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"word boundary preserved", "git^\n push --force", []string{"git", "push", "--force"}},
+		{"word joined across lines", "ec^\nho hi", []string{"echo", "hi"}},
+		{"crlf line ending", "git^\r\n push --force", []string{"git", "push", "--force"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := parse(t, tc.src)
+			if len(s.Pipelines) != 1 {
+				t.Fatalf("a continued line is ONE command, got %d pipelines", len(s.Pipelines))
+			}
+			if got := s.Pipelines[0].Commands[0].Argv; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("argv = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTrailingCaretProducesNothing pins the end-of-input case the row names:
+// a `^` with nothing after it has nothing to escape and must not leave a
+// stray character in the word.
+func TestTrailingCaretProducesNothing(t *testing.T) {
+	s := parse(t, "echo hi^")
+	if got := s.Pipelines[0].Commands[0].Argv; !reflect.DeepEqual(got, []string{"echo", "hi"}) {
+		t.Errorf("argv = %q, want [echo hi]", got)
+	}
+}
+
 func TestPercentExpansionKeptLiteral(t *testing.T) {
 	s := parse(t, "echo %PATH%")
 	c := s.Pipelines[0].Commands[0]

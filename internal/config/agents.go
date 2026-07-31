@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // agentDirLoader builds the directory-source loader for the project's
@@ -47,7 +48,15 @@ func (c *Config) LoadAgents() []agents.Agent {
 	// key is shadowed (warn, keep config).
 	list, err := c.agentDirLoader().List()
 	if err != nil {
-		clidiag.Warn("ctxloom", "failed to scan local agents: %v", err)
+		// A failed scan is NOT an empty one. The merge continues on whatever
+		// the config key supplied — fault tolerance — but the result is now a
+		// fatal-class finding rather than a stderr line, because "no such
+		// agent" for an agent that is defined and merely unreadable is
+		// undiagnosable from the outside. The startup choke owners abort on
+		// it; management commands surface it and proceed.
+		strictness.Fail(strictness.ClassConfig,
+			"make .ctxloom/agents readable, or remove it if it is not yours",
+			"failed to scan local agents: %v — every agent defined on disk is missing from this run", err)
 	}
 	for _, sub := range list {
 		if _, clash := merged[sub.Name]; clash {

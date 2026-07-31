@@ -39,8 +39,10 @@ func TestCtxloomProduct(t *testing.T) {
 		t.Error("no ConfigSchema: the config reference would not generate")
 	}
 
-	// `bundle` is hidden from --help; without the unhide it silently loses its
-	// ~30 reference pages.
+	// `bundle` roots ~30 of the checked-in reference pages, so it must survive
+	// PrepareTree visible. It is no longer hidden in internal/cli, so this is a
+	// characterization of the ordinary case; the hidden-command decision itself
+	// is enforced by TestEveryHiddenTopLevelCommandIsDecided.
 	var bundle *cobra.Command
 	for _, c := range p.Root.Commands() {
 		if c.Name() == "bundle" {
@@ -52,7 +54,7 @@ func TestCtxloomProduct(t *testing.T) {
 	}
 	p.PrepareTree()
 	if bundle.Hidden {
-		t.Error("bundle still hidden after PrepareTree — its pages would not generate")
+		t.Error("bundle is hidden after PrepareTree — its pages would not generate")
 	}
 }
 

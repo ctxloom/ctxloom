@@ -71,8 +71,11 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 		LinkBase:  "/reference/cli/",
 		ManTitle:  "CTXLOOM",
 		ManManual: "User Commands",
-		// `bundle` is hidden from --help as advanced, but still documented.
-		Unhide:       []string{"bundle"},
+		// Unhide is empty: every top-level command ctxloom hides from --help is
+		// also deliberately undocumented (shell plumbing, hook endpoints,
+		// internal helpers). A command hidden for the "advanced but documented"
+		// reason belongs here, and the gate in main_test.go is what says so —
+		// this list and internal/cli's Hidden flags are joined by nothing else.
 		ConfigSchema: "resources/schema/input/config-schema.json",
 
 		MCPServer: mcpServer,

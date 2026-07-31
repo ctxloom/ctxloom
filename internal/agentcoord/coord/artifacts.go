@@ -287,6 +287,16 @@ func (c *Coordinator) resolveDownload(caller Identity, req *agentcoordpb.Artifac
 	if !ok {
 		return ArtifactRecord{}, status.Errorf(codes.NotFound, "download: no artifact %q for %q", req.GetArtifactId(), ownerHarp)
 	}
+	// An unsatisfiable resume range is refused HERE rather than at the seek:
+	// seeking past EOF succeeds, so the request would otherwise be answered
+	// with a header describing the whole artifact and no chunks at all — a
+	// success carrying zero bytes, which a receiver cannot distinguish from
+	// an empty artifact. offset == size is unsatisfiable too: it names the
+	// byte after the last one.
+	if off := req.GetOffset(); off > 0 && off >= rec.SizeBytes {
+		return ArtifactRecord{}, status.Errorf(codes.InvalidArgument,
+			"download: offset %d is past the end of %q (%d bytes)", off, req.GetArtifactId(), rec.SizeBytes)
+	}
 	return rec, nil
 }
 

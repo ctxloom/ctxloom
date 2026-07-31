@@ -63,8 +63,15 @@ type Agent struct {
 	// file's base name (directory source), never encoded in the body.
 	Name string `yaml:"-"`
 	// Source records where the definition came from: SourceConfig for the
-	// config.yaml `agents:` key, otherwise the .yaml file path. Diagnostic
-	// only (never serialized), the agent-side mirror of profiles.Profile.Path.
+	// config.yaml `agents:` key, otherwise the .yaml file path. Never
+	// serialized — the agent-side mirror of profiles.Profile.Path.
+	//
+	// It is NOT diagnostic-only. It is the discriminator that tells the two
+	// sources apart, and the write path branches on it: the config-key writer
+	// warns that a file definition has been shadowed, and the config-key
+	// remover REFUSES to delete a file-sourced agent. Ask that question through
+	// FromConfig rather than comparing this string, so the sentinel stays this
+	// package's to define.
 	Source string `yaml:"-"`
 
 	// Engine is the LLM config label/backend; overrides the profiles' llm.
@@ -119,6 +126,15 @@ type Agent struct {
 	// advisory-only unknown-value handling, so it does not get their lenient
 	// treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
+}
+
+// FromConfig reports whether this binding came from config.yaml's `agents:`
+// key rather than a .ctxloom/agents/<name>.yaml file. It is the one place the
+// SourceConfig sentinel is interpreted: the config-key write path can only
+// edit and delete what config.yaml owns, so it must be able to ask which
+// source a binding has without reproducing the sentinel comparison.
+func (a Agent) FromConfig() bool {
+	return a.Source == SourceConfig
 }
 
 // DrivingMode is Agent.Driving's enum: the per-turn execution axis a binding
@@ -255,7 +271,15 @@ func (l *Loader) List() ([]*Agent, error) {
 
 	for _, dir := range l.dirs {
 		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil || !exists {
+		if err != nil {
+			// A directory that exists but cannot be statted (permissions, a
+			// dead mount) is skipped like an absent one, but it is NOT the
+			// same thing: silence here makes "no agents configured" and
+			// "your agents directory is unreadable" indistinguishable.
+			clidiag.Warn("ctxloom", "skipping agents directory %s: %v", dir, err)
+			continue
+		}
+		if !exists {
 			continue
 		}
 		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
@@ -271,7 +295,6 @@ func (l *Loader) List() ([]*Agent, error) {
 			if seen[subName] {
 				return nil
 			}
-			seen[subName] = true
 			sub, lerr := l.loadFile(path)
 			if lerr != nil {
 				// Degrade, but say so: a corrupt agent silently vanishing is
@@ -279,6 +302,11 @@ func (l *Loader) List() ([]*Agent, error) {
 				clidiag.Warn("ctxloom", "skipping agent %s: %v", path, lerr)
 				return nil
 			}
+			// The name is claimed only by a definition that RESOLVED. A file
+			// that failed to load has not defined this agent, so it must not
+			// shadow a valid same-named definition in a later directory —
+			// first-directory-wins ranks working definitions, not filenames.
+			seen[subName] = true
 			sub.Name = subName
 			out = append(out, sub)
 			return nil
@@ -317,7 +345,16 @@ func GetAgentDirs(fs afero.Fs, scmPaths []string) []string {
 	var dirs []string
 	for _, scmPath := range scmPaths {
 		dir := paths.AgentsPath(scmPath)
-		if isDir, err := afero.DirExists(fs, dir); err == nil && isDir {
+		isDir, err := afero.DirExists(fs, dir)
+		if err != nil {
+			// Same reason as Loader.List: an absent directory is the ordinary
+			// case and stays quiet, but a stat FAILURE dropped in silence
+			// hides an unreadable directory behind "no agents configured" one
+			// layer before the loader is ever asked.
+			clidiag.Warn("ctxloom", "skipping agents directory %s: %v", dir, err)
+			continue
+		}
+		if isDir {
 			dirs = append(dirs, dir)
 		}
 	}

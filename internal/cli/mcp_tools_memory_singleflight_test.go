@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 )
 
 // TestSingleflightDistill_ConcurrentCallersShareOneDistillation is the
@@ -110,4 +112,76 @@ func TestSingleflightDistill_NilGroupStillRuns(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.True(t, got.Loaded)
+}
+
+// WHY compact_session CANNOT SIMPLY BE KEYED THE WAY THE OTHER PATHS ARE.
+//
+// handleCompactSession bypasses singleflightDistill, so an explicit
+// compact_session does run a second full distillation alongside an in-flight
+// recover_session/load_session of the same session. The obvious remedy —
+// key it like distillSession does, on sessionID\x00backend\x00model — is
+// unsound, and this pins why so nobody ships it.
+//
+// compact_session's session_id is OPTIONAL: omitted, it means "the caller's
+// current session", and the compactor resolves that from the caller's own
+// identity. The key would therefore be empty\x00backend\x00model for EVERY
+// default-target call. On the coordinator the group is shared across all
+// callers, so two different agents compacting their own separate sessions
+// would collapse into one flight and both receive whichever session happened
+// to win — silently distilling the wrong transcript into the wrong harp.
+//
+// Any real fix has to key on the CALLER's identity (or on an already-resolved
+// session id), and must also decide whether a tool documented as the way to
+// FORCE an essence may be served a result from a distillation it did not
+// start. That is a semantics call, not a refactor.
+func TestSingleflightDistill_UnresolvedSessionKeyCollapsesDifferentCallers(t *testing.T) {
+	group := &singleflight.Group{}
+
+	var runs atomic.Int64
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	body := func(harp string) func() (*loadSessionResult, error) {
+		return func() (*loadSessionResult, error) {
+			if runs.Add(1) == 1 {
+				close(entered)
+			}
+			<-release
+			return &loadSessionResult{Loaded: true, SessionID: "resolved-for-" + harp}, nil
+		}
+	}
+
+	// The key a naive port of distillSession's scheme would build for a
+	// compact_session that named no session_id: identical for both callers,
+	// because the session id is not resolved yet.
+	const naiveKey = "" + "\x00claude-code\x00haiku"
+
+	results := make([]*loadSessionResult, 2)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s := &ctxServer{distill: group, self: coord.Identity{Harp: "alpha-harp"}}
+		results[0], _ = s.singleflightDistill(naiveKey, body("alpha-harp"))
+	}()
+	<-entered
+
+	calling := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		close(calling)
+		s := &ctxServer{distill: group, self: coord.Identity{Harp: "beta-harp"}}
+		results[1], _ = s.singleflightDistill(naiveKey, body("beta-harp"))
+	}()
+	<-calling
+	time.Sleep(50 * time.Millisecond) // let caller 2 reach the group's lock
+
+	close(release)
+	wg.Wait()
+
+	require.EqualValues(t, 1, runs.Load(),
+		"both callers shared one flight — which is the hazard: they are different sessions")
+	assert.Equal(t, results[0].SessionID, results[1].SessionID,
+		"beta-harp received alpha-harp's distillation; an unresolved session id must never be part of a shared key")
 }

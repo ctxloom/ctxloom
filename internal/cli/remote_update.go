@@ -101,7 +101,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	// single-ref path shares the constraint-pinned pull (ref@LatestSHA with
 	// RequestedVersion carried into the lock) and the removed/skip handling.
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
-	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", []updateInfo{u})
+	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", updateForce, []updateInfo{u})
 	// Reload after the apply so cleanup prunes from the freshly-pulled lockfile
 	// rather than reverting it (see updateAll).
 	reloadOK := true
@@ -111,7 +111,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		clidiag.Warn("ctxloom", "reload lockfile after apply: %v", rerr)
 		reloadOK = false
 	}
-	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager, reloadOK)
+	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager, updateCleanup, reloadOK)
 	if failed > 0 {
 		return fmt.Errorf("update failed for %s", refStr)
 	}
@@ -276,7 +276,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 	fmt.Println("\nApplying updates...")
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
-	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, bundleUpdates)
+	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, updateForce, bundleUpdates)
 
 	// applyUpdates persisted the new SHAs to disk (each Pull load/AddEntry/Save).
 	// Reload before cleanup so the wholesale lockfile rewrite in RemoveLocalItems
@@ -291,11 +291,12 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 		reloadOK = false
 	}
 
-	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager, reloadOK)
+	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager, updateCleanup, reloadOK)
 
 	fmt.Printf("\nUpdated: %d, Failed: %d\n", updated, failed)
 
-	reportMissingDefaults(os.Stdout, checkDefaultProfiles())
+	missingDefaults, defaultsErr := checkDefaultProfiles(config.Load)
+	reportMissingDefaults(os.Stdout, missingDefaults, defaultsErr)
 
 	fmt.Println("\nRun 'ctxloom remote pull' to update the lockfile.")
 
@@ -478,12 +479,15 @@ func printAvailableUpdates(out io.Writer, bundleUpdates []updateInfo) {
 // applyUpdates pulls the bundle updates, returning counts plus the items the
 // remote no longer has (for cleanup). Per-item errors are classified and
 // reported, never fatal.
-func applyUpdates(ctx context.Context, out io.Writer, p pullRunner, bundleUpdates []updateInfo) (updated, failed int, removed []updateInfo) {
-	return applyUpdateBatch(ctx, out, p, "\n--- Updating bundles ---", bundleUpdates)
+func applyUpdates(ctx context.Context, out io.Writer, p pullRunner, force bool, bundleUpdates []updateInfo) (updated, failed int, removed []updateInfo) {
+	return applyUpdateBatch(ctx, out, p, "\n--- Updating bundles ---", force, bundleUpdates)
 }
 
-// applyUpdateBatch pulls one batch under a header.
-func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header string, updates []updateInfo) (updated, failed int, removed []updateInfo) {
+// applyUpdateBatch pulls one batch under a header. force is the caller's
+// --force decision, passed in rather than read from the flag global: this
+// function already takes its writer and its pull runner as parameters, and the
+// one input that changes what it DOES belongs on the same footing.
+func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header string, force bool, updates []updateInfo) (updated, failed int, removed []updateInfo) {
 	if len(updates) == 0 {
 		return 0, 0, nil
 	}
@@ -498,7 +502,7 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 		constraint := u.RequestedVersion
 		result, err := p.Pull(ctx, u.Ref+"@"+u.LatestSHA, remote.PullOptions{
 			ItemType:         u.Type,
-			Force:            updateForce,
+			Force:            force,
 			RequestedVersion: &constraint,
 		})
 		if err != nil {
@@ -530,7 +534,7 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 // in-memory lockfile is then a stale pre-pull snapshot, and RemoveLocalItems'
 // wholesale Save would overwrite the freshly-pulled on-disk SHAs — reverting
 // every update just applied. In that case the destructive cleanup is skipped.
-func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed []updateInfo, lockfile *remote.Lockfile, lockManager *remote.LockfileManager, cleanupAllowed bool) {
+func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed []updateInfo, lockfile *remote.Lockfile, lockManager *remote.LockfileManager, cleanup, cleanupAllowed bool) {
 	if len(removed) == 0 {
 		return
 	}
@@ -540,7 +544,7 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 		fmt.Fprintf(out, "  - %s %s\n", item.Type, item.Ref)
 	}
 
-	if !updateCleanup {
+	if !cleanup {
 		fmt.Fprintln(out, "\nUse --cleanup to remove these local files automatically.")
 		return
 	}
@@ -558,13 +562,20 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 	for i, item := range removed {
 		items[i] = operations.RemovedItem{Type: item.Type, Ref: item.Ref}
 	}
-	res, _ := operations.RemoveLocalItems(operations.RemoveLocalItemsRequest{
+	// Per-item and per-save failures come back in res.Warnings and are printed
+	// below; the error return is reserved for a whole-call refusal, on which
+	// there is no result to report at all.
+	res, err := operations.RemoveLocalItems(operations.RemoveLocalItemsRequest{
 		AppDir:      appDir,
 		Items:       items,
 		Lockfile:    lockfile,
 		LockManager: lockManager,
 		FS:          fs,
 	})
+	if err != nil {
+		fmt.Fprintf(out, "  Error: cleanup failed: %v\n", err)
+		return
+	}
 	for _, p := range res.Removed {
 		fmt.Fprintf(out, "  Removed: %s\n", p)
 	}
@@ -577,8 +588,14 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 }
 
 // reportMissingDefaults warns about configured default profiles that don't
-// exist. Silent when there are none.
-func reportMissingDefaults(out io.Writer, missing []string) {
+// exist. Silent when there are none — but never silent when err says the check
+// could not be made: an unperformed check has no clean result to report, and
+// printing nothing is indistinguishable from "they all exist".
+func reportMissingDefaults(out io.Writer, missing []string, err error) {
+	if err != nil {
+		fmt.Fprintf(out, "\nWarning: could not check the default profiles: %v\n", err)
+		return
+	}
 	if len(missing) == 0 {
 		return
 	}
@@ -619,15 +636,19 @@ func classifyPullError(err error) pullOutcome {
 
 // checkDefaultProfiles returns names of the default agent's composed profiles
 // that don't exist (profiles.defaults was retired — see DefaultAgentProfiles).
-func checkDefaultProfiles() []string {
-	cfg, err := config.Load()
+// A config that will not load yields an error, never an empty slice: "nothing
+// is missing" and "nothing was checked" are different answers and the caller
+// renders them differently. loadConfig is seam'd for tests; production passes
+// config.Load.
+func checkDefaultProfiles(loadConfig func(...config.LoadOption) (*config.Config, error)) ([]string, error) {
+	cfg, err := loadConfig()
 	if err != nil {
-		return nil // Can't check if config won't load
+		return nil, err
 	}
 
 	defaultProfiles := cfg.DefaultAgentProfiles()
 	if len(defaultProfiles) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var missing []string
@@ -647,7 +668,7 @@ func checkDefaultProfiles() []string {
 		}
 	}
 
-	return missing
+	return missing, nil
 }
 
 func init() {

@@ -129,8 +129,8 @@ Shows all fragments, commands, and MCP server configuration contained in the bun
 
 func runBundleShow(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if name == "help" {
-		return cmd.Help()
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
 	}
 
 	cfg, err := GetConfig()

@@ -115,3 +115,74 @@ func TestStream_DeliberateCloseIsStillACleanExit(t *testing.T) {
 		t.Fatal("Stream did not return after Close")
 	}
 }
+
+// A CONTINUOUS WRITER MUST NOT STARVE THE STREAM.
+//
+// The debounce timer was Reset on every event with no ceiling, so a source
+// changing more often than the debounce interval pushed the emit deadline
+// forward forever: the subscriber saw NOTHING for as long as the writing
+// continued, which is exactly when it most needs to see something. A bounded
+// maximum wait forces an emit mid-burst.
+//
+// Events are fed synthetically rather than through the filesystem: real writes
+// deliver in bursts with gaps wide enough for the debounce to fire on its own,
+// which would let this pass against the unfixed code. Feeding the channel
+// directly guarantees the starvation condition actually holds.
+func TestStream_SustainedEventsStillEmitWithinTheMaximumWait(t *testing.T) {
+	w := &Watcher{
+		events: make(chan Event),
+		errs:   make(chan error),
+		done:   make(chan struct{}),
+	}
+
+	const debounce = 50 * time.Millisecond
+	ceiling := maxDebounceWait(debounce)
+
+	var emits atomic.Int64
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- Stream(ctx, w, debounce, func() error { emits.Add(1); return nil }) }()
+
+	require.Eventually(t, func() bool { return emits.Load() >= 1 }, 2*time.Second, 5*time.Millisecond,
+		"Stream must emit once up front")
+	base := emits.Load()
+
+	// Feed events strictly faster than the debounce, without pause, so every
+	// one of them Resets the timer and only a ceiling can produce an emit.
+	stopFeed := make(chan struct{})
+	fed := make(chan struct{})
+	go func() {
+		defer close(fed)
+		tick := time.NewTicker(debounce / 5)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stopFeed:
+				return
+			case <-tick.C:
+				select {
+				case w.events <- Event{Path: "busy.jsonl"}:
+				case <-stopFeed:
+					return
+				}
+			}
+		}
+	}()
+
+	emitted := assert.Eventually(t, func() bool { return emits.Load() > base },
+		ceiling+2*time.Second, 10*time.Millisecond,
+		"an unbroken event stream starved the emit: with no maximum wait the debounce timer resets forever and the subscriber never hears anything")
+
+	close(stopFeed)
+	<-fed
+	cancel()
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "a cancelled context is a clean shutdown")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stream did not return after the context was cancelled")
+	}
+	require.True(t, emitted, "starvation confirmed above; failing here keeps the shutdown assertions meaningful")
+}

@@ -3,10 +3,12 @@ package coord
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -190,10 +192,18 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 			}
 		})
 		if !owned {
+			// The ack carries the reason, not just the refusal: the runner
+			// reads the frame before it ever sees this RPC's own status, so
+			// an unpopulated reject_reason is the only thing it has to
+			// report — see rejectedHelloError (runnerlink.go).
+			reason := fmt.Sprintf("run %s was not issued to this credential", runID)
 			_ = stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_HelloAck{
-				HelloAck: &agentcoordpb.RunnerHelloAck{Accepted: false},
+				HelloAck: &agentcoordpb.RunnerHelloAck{Accepted: false, RejectReason: &rpcstatus.Status{
+					Code:    int32(codes.PermissionDenied),
+					Message: reason,
+				}},
 			}})
-			return status.Errorf(codes.PermissionDenied, "run %s was not issued to this credential", runID)
+			return status.Error(codes.PermissionDenied, reason)
 		}
 	}
 	if err := stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_HelloAck{

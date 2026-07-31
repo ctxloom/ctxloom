@@ -8,6 +8,7 @@
 package conformance
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -214,8 +215,47 @@ func TestConformance_HookEventCoverage(t *testing.T) {
 	}
 }
 
+// liveFilesContaining lists every file on fs whose bytes carry marker, ignoring
+// ctxloom's own backup and quarantine copies.
+//
+// It exists because Status() is the writer's OPINION of what it wrote. A
+// writer whose Status were wrong in the same direction as its writer — a
+// registration that never lands and a probe that reports it anyway — passes a
+// Status-only assertion in both directions at once, which is the tautology
+// this suite must not rest on (U058-F06). Walking the filesystem is the
+// independent evidence, and it stays format-agnostic (JSON, TOML) and
+// location-agnostic (antigravity keeps its MCP registration in a different
+// file from its hooks) precisely because it looks at bytes rather than at a
+// path the test would have to know.
+//
+// A "<path>.ctxloom.bak" records the state BEFORE the write that produced it,
+// and a ".corrupt-<ts>" file records bytes ctxloom refused to overwrite.
+// Neither is a live managed artifact, so neither counts.
+func liveFilesContaining(t *testing.T, fs afero.Fs, marker string) []string {
+	t.Helper()
+	var hits []string
+	require.NoError(t, afero.Walk(fs, "/", func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return err
+		}
+		if strings.HasSuffix(path, ".ctxloom.bak") || strings.Contains(filepath.Base(path), ".corrupt-") {
+			return nil
+		}
+		data, readErr := afero.ReadFile(fs, path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(data), marker) {
+			hits = append(hits, path)
+		}
+		return nil
+	}))
+	return hits
+}
+
 // TestConformance_MCPAutoRegister: ctxloom's own MCP server is auto-registered
-// and reported by Status, with no explicit MCP config.
+// with no explicit MCP config — reported by Status AND present in the bytes on
+// disk, so the writer's own account of itself is not the only witness.
 func TestConformance_MCPAutoRegister(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
@@ -226,12 +266,18 @@ func TestConformance_MCPAutoRegister(t *testing.T) {
 			st, err := w.Status(projectDir)
 			require.NoError(t, err)
 			assert.True(t, st.MCPPresent, "ctxloom MCP server auto-registered")
+
+			assert.NotEmpty(t, liveFilesContaining(t, fs, agent.MCPServerName),
+				"the registration must exist in a file, not only in Status()")
 		})
 	}
 }
 
 // TestConformance_RemovePreservesUser: RemoveSettings strips every managed
-// artifact (Status no longer Wired) while preserving the user's own settings.
+// artifact while preserving the user's own settings. The managed hook commands
+// are asserted PRESENT after the write and ABSENT after the removal, so the
+// same predicate is shown to flip — a removal test that only asks Status()
+// cannot tell "stripped" from "never written" (U058-F06).
 func TestConformance_RemovePreservesUser(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
@@ -241,11 +287,20 @@ func TestConformance_RemovePreservesUser(t *testing.T) {
 			require.NoError(t, afero.WriteFile(fs, path, []byte(a.userFile), 0644))
 
 			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
+			for _, ev := range coveredEvents {
+				require.NotEmptyf(t, liveFilesContaining(t, fs, ev),
+					"precondition: managed event %q must be on disk before removal can be shown to strip it", ev)
+			}
+
 			require.NoError(t, w.RemoveSettings(projectDir))
 
 			st, err := w.Status(projectDir)
 			require.NoError(t, err)
 			assert.False(t, st.Wired(), "no managed artifacts remain after removal")
+			for _, ev := range coveredEvents {
+				assert.Emptyf(t, liveFilesContaining(t, fs, ev),
+					"managed event %q survived removal on disk while Status reported it gone", ev)
+			}
 
 			data, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)

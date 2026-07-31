@@ -146,3 +146,52 @@ func TestSet_StructType(t *testing.T) {
 		t.Error("expected struct to be in set")
 	}
 }
+
+// =============================================================================
+// Zero-Value Tests
+// =============================================================================
+
+// The zero value of a Set is a nil map, and the type inherits Go's map
+// semantics verbatim: every READ works and every WRITE panics. The doc used to
+// say flatly "the zero value is not usable", which is wrong in the read
+// direction and understates the write one — and callers in this tree already
+// rely on the read half (internal/operations declares `var failed
+// collections.Set[string]` and calls Has on it when a switch left it
+// unassigned). This test is what makes the corrected prose checkable: if the
+// zero value ever stops reading cleanly, or Add ever stops panicking (a
+// pointer-receiver rework, say), the doc has to change with it.
+func TestSet_ZeroValueReadsCleanlyAndPanicsOnWrite(t *testing.T) {
+	var zero Set[string]
+
+	if zero.Has("anything") {
+		t.Error("a nil set must report no membership, not panic")
+	}
+	if got := zero.Items(); len(got) != 0 || got == nil {
+		t.Errorf("a nil set's Items must be an empty NON-nil slice, got %#v", got)
+	}
+	if got := zero.Clone(); got == nil || len(got) != 0 {
+		t.Errorf("a nil set's Clone must be an empty usable set, got %#v", got)
+	}
+	if len(zero) != 0 {
+		t.Errorf("a nil set has length 0, got %d", len(zero))
+	}
+	// The clone is a fresh map, so it IS writable even though its source was nil.
+	clone := zero.Clone()
+	clone.Add("now writable")
+	if !clone.Has("now writable") {
+		t.Error("Clone of a nil set must return a writable set")
+	}
+
+	assertPanics(t, "Add on a nil set", func() { zero.Add("boom") })
+	assertPanics(t, "AddAll on a nil set", func() { zero.AddAll("boom") })
+}
+
+func assertPanics(t *testing.T, what string, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Errorf("%s must panic (assignment to entry in nil map); it did not", what)
+		}
+	}()
+	fn()
+}

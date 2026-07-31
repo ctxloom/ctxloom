@@ -5,7 +5,14 @@
 package collections
 
 // Set is a generic set implementation backed by a map.
-// The zero value is not usable; create sets with NewSet or NewSetFrom.
+//
+// The zero value is a nil map, and Set inherits Go's map semantics verbatim:
+// every READ works on it — Has reports false, Items returns an empty slice,
+// Clone returns an empty writable set, len is 0 — while every WRITE PANICS
+// ("assignment to entry in nil map"). Reading a zero Set is a supported idiom
+// and is used in this tree (a result set a switch may leave unassigned, then
+// only queried with Has). Anything that may write must be constructed with
+// NewSet or NewSetFrom.
 type Set[T comparable] map[T]struct{}
 
 // NewSet creates an empty set.

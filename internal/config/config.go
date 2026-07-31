@@ -1639,11 +1639,25 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		zap.L().Warn("failed to get home directory", zap.Error(err))
-		// Last resort: use cwd
-		if pwd != "" {
-			return filepath.Join(pwd, AppDirName), SourceProject
+		// Last resort: cwd. Resolved ABSOLUTELY and created, matching the two
+		// returns above. loadUncached derives appRoot as filepath.Dir of this,
+		// so a relative result would resolve the whole project to "." and make
+		// every path built from it — bundles, agents, sessions, the config file
+		// — depend on whatever cwd the process holds when it is used. This is
+		// the branch reached when the environment is already degraded; it must
+		// not degrade the answer further.
+		appPath := filepath.Join(pwd, AppDirName)
+		if pwd == "" {
+			if abs, aerr := filepath.Abs(AppDirName); aerr == nil {
+				appPath = abs
+			} else {
+				appPath = AppDirName
+			}
 		}
-		return AppDirName, SourceProject
+		if err := fs.MkdirAll(appPath, 0755); err != nil {
+			zap.L().Warn("failed to create fallback .ctxloom directory", zap.String("path", appPath), zap.Error(err))
+		}
+		return appPath, SourceProject
 	}
 
 	homeApp := filepath.Join(home, AppDirName)

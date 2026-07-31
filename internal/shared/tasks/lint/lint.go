@@ -87,25 +87,13 @@ type Result struct {
 // output; a returned error is reserved for a malformed RANGE DECLARATION
 // itself (a config defect, distinct from a task-data violation).
 func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
-	enums := make(map[string][]string)
-	for _, target := range schema.Targets(tagschema.EnumFacet) {
-		enum, _, err := schema.Enum(target)
-		if err != nil {
-			return Result{}, fmt.Errorf("lint: %w", err)
-		}
-		enums[target] = enum
+	enums, err := declaredEnums(schema)
+	if err != nil {
+		return Result{}, err
 	}
-
-	type bounds struct{ min, max float64 }
-	ranges := make(map[string]bounds)
-	for _, target := range schema.Targets(tagschema.RangeFacet) {
-		min, max, ok, err := schema.Range(target)
-		if err != nil {
-			return Result{}, fmt.Errorf("lint: %w", err)
-		}
-		if ok {
-			ranges[target] = bounds{min, max}
-		}
+	ranges, err := declaredRanges(schema)
+	if err != nil {
+		return Result{}, err
 	}
 
 	// CheckedTargets counts the distinct enum/range-declared targets this
@@ -122,54 +110,11 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 	}
 
 	out := formulaEnumRefViolations(schema, enums)
-
 	for _, t := range all {
 		values := groupByTarget(t.Tags)
-
-		for target, enum := range enums {
-			for _, v := range values[target] {
-				if !slices.Contains(enum, v) {
-					out = append(out, Violation{t.HarpID,
-						fmt.Sprintf("%s=%q is not one of the declared enum values %v", target, v, enum)})
-				}
-			}
-		}
-
-		for target, b := range ranges {
-			for _, v := range values[target] {
-				f, perr := strconv.ParseFloat(v, 64)
-				// strconv.ParseFloat accepts "NaN"/"Inf"/"-Inf" case-
-				// insensitively, and every `<`/`>` comparison against NaN
-				// is false — so a NaN value would otherwise pass both
-				// branches below silently (U121-F08). Treat non-finite
-				// exactly like an unparseable value.
-				if perr == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
-					perr = fmt.Errorf("%q is not a finite number", v)
-				}
-				if perr != nil {
-					out = append(out, Violation{t.HarpID,
-						fmt.Sprintf("%s=%q does not parse as a number", target, v)})
-					continue
-				}
-				if f < b.min || f > b.max {
-					out = append(out, Violation{t.HarpID,
-						fmt.Sprintf("%s=%v is outside the declared range [%v,%v]", target, f, b.min, b.max)})
-				}
-			}
-		}
-
-		targets := make([]string, 0, len(values))
-		for target := range values {
-			targets = append(targets, target)
-		}
-		sort.Strings(targets)
-		for _, target := range targets {
-			vs := values[target]
-			if schema.IsScalar(target) && len(vs) > 1 {
-				out = append(out, Violation{t.HarpID,
-					fmt.Sprintf("%s carries %d distinct values %v but is declared arity=scalar", target, len(vs), vs)})
-			}
-		}
+		out = append(out, enumViolations(t.HarpID, enums, values)...)
+		out = append(out, rangeViolations(t.HarpID, ranges, values)...)
+		out = append(out, scalarViolations(schema, t.HarpID, values)...)
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -179,6 +124,107 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 		return out[i].Reason < out[j].Reason
 	})
 	return Result{Violations: dedupeViolations(out), CheckedTargets: len(checkedTargets)}, nil
+}
+
+// bounds is one target's declared numeric [min,max].
+type bounds struct{ min, max float64 }
+
+// declaredEnums resolves every target the schema declares an enum for. A
+// declaration with no usable member is a config defect, not a data one, so it
+// is returned as an error rather than an empty member list — see
+// tagschema.Enum, and TestLint_MalformedEnumDeclarationIsAReturnedError for
+// why swallowing it blames every task instead.
+func declaredEnums(schema *tagschema.Schema) (map[string][]string, error) {
+	enums := make(map[string][]string)
+	for _, target := range schema.Targets(tagschema.EnumFacet) {
+		enum, _, err := schema.Enum(target)
+		if err != nil {
+			return nil, fmt.Errorf("lint: %w", err)
+		}
+		enums[target] = enum
+	}
+	return enums, nil
+}
+
+// declaredRanges resolves every target the schema declares a numeric range
+// for, with the same fail-loud policy on a malformed declaration.
+func declaredRanges(schema *tagschema.Schema) (map[string]bounds, error) {
+	ranges := make(map[string]bounds)
+	for _, target := range schema.Targets(tagschema.RangeFacet) {
+		min, max, ok, err := schema.Range(target)
+		if err != nil {
+			return nil, fmt.Errorf("lint: %w", err)
+		}
+		if ok {
+			ranges[target] = bounds{min, max}
+		}
+	}
+	return ranges, nil
+}
+
+// enumViolations reports one task's values that are not members of their
+// target's declared enum.
+func enumViolations(harpID string, enums map[string][]string, values map[string][]string) []Violation {
+	var out []Violation
+	for target, enum := range enums {
+		for _, v := range values[target] {
+			if !slices.Contains(enum, v) {
+				out = append(out, Violation{harpID,
+					fmt.Sprintf("%s=%q is not one of the declared enum values %v", target, v, enum)})
+			}
+		}
+	}
+	return out
+}
+
+// rangeViolations reports one task's values on range-declared targets that do
+// not parse as a finite number, or parse but fall outside the declared bounds.
+func rangeViolations(harpID string, ranges map[string]bounds, values map[string][]string) []Violation {
+	var out []Violation
+	for target, b := range ranges {
+		for _, v := range values[target] {
+			f, perr := strconv.ParseFloat(v, 64)
+			// strconv.ParseFloat accepts "NaN"/"Inf"/"-Inf" case-
+			// insensitively, and every `<`/`>` comparison against NaN
+			// is false — so a NaN value would otherwise pass both
+			// branches below silently (U121-F08). Treat non-finite
+			// exactly like an unparseable value.
+			if perr == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
+				perr = fmt.Errorf("%q is not a finite number", v)
+			}
+			if perr != nil {
+				out = append(out, Violation{harpID,
+					fmt.Sprintf("%s=%q does not parse as a number", target, v)})
+				continue
+			}
+			if f < b.min || f > b.max {
+				out = append(out, Violation{harpID,
+					fmt.Sprintf("%s=%v is outside the declared range [%v,%v]", target, f, b.min, b.max)})
+			}
+		}
+	}
+	return out
+}
+
+// scalarViolations reports arity=scalar targets carrying more than one
+// distinct value on one task. Targets are walked in sorted order so the
+// messages are deterministic regardless of map iteration.
+func scalarViolations(schema *tagschema.Schema, harpID string, values map[string][]string) []Violation {
+	targets := make([]string, 0, len(values))
+	for target := range values {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+
+	var out []Violation
+	for _, target := range targets {
+		vs := values[target]
+		if schema.IsScalar(target) && len(vs) > 1 {
+			out = append(out, Violation{harpID,
+				fmt.Sprintf("%s carries %d distinct values %v but is declared arity=scalar", target, len(vs), vs)})
+		}
+	}
+	return out
 }
 
 // dedupeViolations drops exactly-equal adjacent violations from a slice

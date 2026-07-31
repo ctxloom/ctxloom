@@ -131,6 +131,64 @@ func TestSubmodulePaths_CommentOnlyValueIsNotAPath(t *testing.T) {
 	}
 }
 
+// The repo boundary is "a .git that git itself would accept", not "an entry
+// called .git exists". A `.git` FILE is a boundary only when it is a gitfile
+// pointer (a submodule working tree or linked worktree); anything else named
+// .git is a broken repo by git's own rules, and treating it as a root makes
+// SubmodulePaths answer "this repo declares no submodules" — the same fail-open
+// nil that U074-F01 made this function stop returning for read failures.
+func TestSubmodulePaths_StrayGitFileIsNotARepoRoot(t *testing.T) {
+	newFS := func(t *testing.T) afero.Fs {
+		t.Helper()
+		fs := afero.NewMemMapFs()
+		if err := fs.MkdirAll("/outer/.git", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := afero.WriteFile(fs, "/outer/.gitmodules", []byte("[submodule \"x\"]\n\tpath = x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := fs.MkdirAll("/outer/sub", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return fs
+	}
+
+	// The fixture must be hostile: without the stray entry the walk reaches the
+	// outer repo's .gitmodules, so anything else is a truncation caused by it.
+	base := newFS(t)
+	if got, err := SubmodulePaths(base, "/outer/sub"); err != nil || !reflect.DeepEqual(got, []string{"x"}) {
+		t.Fatalf("fixture is not hostile: baseline walk = %v, %v; want [x], nil", got, err)
+	}
+
+	t.Run("a .git file that is not a gitfile pointer", func(t *testing.T) {
+		fs := newFS(t)
+		if err := afero.WriteFile(fs, "/outer/sub/.git", []byte("scratch notes, not a repo\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := SubmodulePaths(fs, "/outer/sub")
+		if err == nil {
+			t.Fatalf("a stray .git file was silently accepted as a repo root: got %v, want an error", got)
+		}
+		if got != nil {
+			t.Fatalf("paths returned alongside an error: %v", got)
+		}
+	})
+
+	t.Run("a real gitfile pointer is still a boundary", func(t *testing.T) {
+		fs := newFS(t)
+		if err := afero.WriteFile(fs, "/outer/sub/.git", []byte("gitdir: /outer/.git/modules/sub\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := SubmodulePaths(fs, "/outer/sub")
+		if err != nil {
+			t.Fatalf("SubmodulePaths: %v", err)
+		}
+		if got != nil {
+			t.Fatalf("the superproject's submodules leaked past a gitfile boundary: %v", got)
+		}
+	})
+}
+
 // git-config permits a variable on the same line as the section header that
 // introduces it, so `[submodule "x"] path = x` is a legal single-line stanza.
 // Dropping it would lose a real submodule — the fail-open direction, where the

@@ -133,7 +133,7 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
 		i++
 	}
-	if i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
+	if i < len(lines) && isATXH1(lines[i]) {
 		i++
 	}
 	content := strings.TrimSpace(strings.Join(lines[i:], "\n"))
@@ -142,6 +142,19 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 		Name:    prompt.Name,
 		Content: content,
 	}, nil
+}
+
+// isATXH1 reports whether line is a CommonMark ATX heading of level 1: exactly
+// one '#', then a space/tab or end of line. Deeper headings ("## Deep Dive"), a
+// shebang ("#!/usr/bin/env bash") and a bare tag word ("#urgent") are body
+// content, not titles — a plain "#" prefix test deletes the command's first
+// real line.
+func isATXH1(line string) bool {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "#")
+	if !ok {
+		return false
+	}
+	return rest == "" || strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, "\t")
 }
 
 // getPromptVersioned resolves a command honoring a pinned content version. An

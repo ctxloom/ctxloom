@@ -26,7 +26,7 @@ ctxloom remote browse <remote> [flags]
 
 ```
   -h, --help        help for browse
-  -r, --recursive   List items in subdirectories (default true)
+  -r, --recursive   Descend into subdirectories; pass --recursive=false to list only the top level (default true)
 ```
 
 ### Options inherited from parent commands

@@ -110,8 +110,8 @@ var agentShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 		cfg, err := GetConfig()
 		if err != nil {
@@ -272,8 +272,8 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 		cfg, err := GetConfigForUpdate()
 		if err != nil {
@@ -373,8 +373,8 @@ Examples:
 		}
 
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 		// Advisory only (fault tolerance): warn but don't block when the named
 		// agent isn't defined yet — a bare run degrades gracefully and the user
@@ -401,8 +401,8 @@ var agentRemoveCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 		cfg, err := GetConfigForUpdate()
 		if err != nil {

@@ -35,6 +35,36 @@ type ownedRunSession struct {
 	outcome *coord.RunOutcome
 	events  <-chan *agentcoordpb.AgentEvent
 	cancel  func()
+	// leadTurnIssued records whether the run actually opened with a turn.
+	// StartOwnedRun refuses an empty prompt only for a ONE-SHOT run; a
+	// structured run legitimately opens with no lead, and issueStartRun then
+	// attaches no Input, so no opening turn exists and no boundary for one
+	// will ever be signalled. Consumers that count turn boundaries must take
+	// their opening count from here rather than assuming one.
+	leadTurnIssued bool
+}
+
+// ownedRunLaunch is startContainerOwnedRun's request. It is a struct rather
+// than a positional list because the launch needs fourteen inputs, three of
+// them adjacent strings (harp, context, prompt) that a transposition at the
+// call site would swap silently — a run named after its own prompt, with the
+// assembled context delivered as the harp, and nothing in the type system
+// objecting. A keyed literal makes each value say what it is.
+type ownedRunLaunch struct {
+	Policy      isolation.Policy
+	Workspace   isolation.Workspace
+	Req         *pb.RunStart
+	BackendName string
+	Label       string
+	Verbosity   int
+	Harp        string
+	ContextText string
+	Prompt      string
+	MCPServers  []agent.ChatMCPServer
+	Permission  agent.PermissionMode
+	Mode        pb.ExecutionMode
+	Structured  bool
+	RunnerEnv   map[string]string
 }
 
 // startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
@@ -45,15 +75,15 @@ type ownedRunSession struct {
 // runner). The returned RunnerHandle is the caller's teardown handle
 // (isolation `docker rm -f` by name); the ownedRunSession carries the outcome +
 // event stream the structured/oneshot consumers drive.
-func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy isolation.Policy, ws isolation.Workspace, req *pb.RunStart, backendName, label string, verbosity int, harp, contextText, prompt string, mcpServers []agent.ChatMCPServer, perm agent.PermissionMode, mode pb.ExecutionMode, structured bool, runnerEnv map[string]string) (*isolation.RunnerHandle, *ownedRunSession, error) {
+func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunch) (*isolation.RunnerHandle, *ownedRunSession, error) {
 	if c == nil {
 		return nil, nil, fmt.Errorf("container structured/oneshot run needs the hosted session coordinator, which failed to stand up")
 	}
-	stampHostTerminalEnv(req)
+	stampHostTerminalEnv(spec.Req)
 
 	var handle *isolation.RunnerHandle
 	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), error) {
-		h, err := policy.StartRunner(sctx, backendName, label, verbosity, ws, spawnEnv)
+		h, err := spec.Policy.StartRunner(sctx, spec.BackendName, spec.Label, spec.Verbosity, spec.Workspace, spawnEnv)
 		if err != nil {
 			return nil, err
 		}
@@ -61,12 +91,12 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 		return h.Kill, nil
 	}
 
-	owner, ok := c.Identify(runnerEnv[coord.EnvCoordCred])
+	owner, ok := c.Identify(spec.RunnerEnv[coord.EnvCoordCred])
 	if !ok {
 		// The owner Identity is used only for lineage journaling (ParentHarp /
 		// Depth); if the owner token can't be resolved, the session harp at
 		// depth 0 is the honest fallback.
-		owner = coord.Identity{Harp: harp}
+		owner = coord.Identity{Harp: spec.Harp}
 	}
 
 	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is
@@ -79,24 +109,27 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 	// not for its whole lifetime.
 	_, events, cancel, narrow := c.WatchRuns(nil)
 
-	lead := operations.JoinLeadBlocks(contextText, prompt)
+	lead := operations.JoinLeadBlocks(spec.ContextText, spec.Prompt)
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
-		Harp:       harp,
-		Backend:    backendName,
-		Label:      label,
-		Model:      req.GetOptions().GetModel(),
-		WorkDir:    req.GetOptions().GetWorkDir(),
-		Env:        req.GetOptions().GetEnv(),
-		MCPServers: mcpServers,
-		Permission: perm,
-		Oneshot:    mode == pb.ExecutionMode_ONESHOT && !structured,
+		Harp:       spec.Harp,
+		Backend:    spec.BackendName,
+		Label:      spec.Label,
+		Model:      spec.Req.GetOptions().GetModel(),
+		WorkDir:    spec.Req.GetOptions().GetWorkDir(),
+		Env:        spec.Req.GetOptions().GetEnv(),
+		MCPServers: spec.MCPServers,
+		Permission: spec.Permission,
+		Oneshot:    spec.Mode == pb.ExecutionMode_ONESHOT && !spec.Structured,
 	}, starter, lead)
 	if err != nil {
 		cancel()
 		return handle, nil, err
 	}
 	narrow(outcome.RunID)
-	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel}, nil
+	// Same condition issueStartRun applies to decide whether to attach Input
+	// at all, so this records what the run WAS started with, not what it was
+	// asked for.
+	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel, leadTurnIssued: lead != ""}, nil
 }
 
 // runStructuredREPLViaCoord is the Transport 2 counterpart of runStructuredREPL
@@ -135,10 +168,16 @@ func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, forma
 		scanDone <- scanner.Err()
 	}()
 
-	// The StartRun first turn is already in flight (pending=1); each stdin line
-	// adds one, each turn boundary retires one. At EOF we return once every
-	// issued turn has reached its boundary.
-	pending := 1
+	// Each stdin line adds a turn, each turn boundary retires one; at EOF we
+	// return once every ISSUED turn has reached its boundary. The opening
+	// count is the run's own lead turn — if there was one. A structured run
+	// may legitimately open with no lead (see ownedRunSession.leadTurnIssued),
+	// and counting a turn that was never issued parks this loop at EOF waiting
+	// for a boundary that cannot arrive.
+	pending := 0
+	if sess.leadTurnIssued {
+		pending = 1
+	}
 	stdinOpen := true
 	for {
 		if !stdinOpen && pending <= 0 {
@@ -254,6 +293,18 @@ type ownedRenderResult struct {
 // buffer to race on. capture=false skips accumulation entirely for the REPL,
 // which only counts boundaries.
 func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
+	// Reject a format this renderer cannot honor BEFORE consuming the stream,
+	// on the same text/json pair renderChatEvents enforces (format.go). Which
+	// arm a structured run takes is an isolation-policy decision, not the
+	// user's, so a --format value must mean the same thing on both: falling
+	// through to raw prose here made an unsupported format an error on the
+	// go-plugin arm and a silent downgrade on this one.
+	switch format {
+	case formatJSON, formatText, "":
+	default:
+		return "", unknownFormatError(format)
+	}
+
 	var answer strings.Builder
 	final := map[string]bool{}
 	enc := json.NewEncoder(out)
@@ -286,6 +337,16 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
 					final[p.MessageStarted.GetMessageId()] = true
 				}
+			case *agentcoordpb.AgentEvent_MessageCompleted:
+				// The item contract is started -> delta* -> completed, so a
+				// completed id is spent: releasing it keeps this map sized to
+				// the messages currently OPEN rather than to every message the
+				// session has ever produced (a structured REPL is long-lived
+				// and its message ids are monotonic, so nothing here is ever
+				// reused). Mirrors the sibling adapter over this same stream,
+				// internal/operations/sessionfeed.go, which drops its
+				// per-message state at the same point.
+				delete(final, p.MessageCompleted.GetMessageId())
 			case *agentcoordpb.AgentEvent_MessageDelta:
 				if !final[p.MessageDelta.GetMessageId()] {
 					continue

@@ -115,7 +115,7 @@ func TestSignerConsequenceText_NamesConcreteConsequence(t *testing.T) {
 
 // --- the trust-consequence prompt (U042-F25) ------------------------------
 
-// feedPromptStdin points the CLI's shared stdin reader (run.go's stdinReader,
+// feedPromptStdin points the CLI's shared stdin reader (prompt.go's stdinReader,
 // the one primitive every interactive prompt funnels through) at a canned
 // answer for the duration of one test, restoring the real one afterwards. It
 // is the existing seam — no production code changes to make prompts readable —

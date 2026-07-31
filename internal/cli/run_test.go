@@ -355,8 +355,30 @@ func TestDistillSessionOnExit_BoundedByTimeout(t *testing.T) {
 	elapsed := time.Since(start)
 
 	assert.Less(t, elapsed, 2*time.Second, "must return once the injected timeout fires, not block on the hung call")
-	assert.Contains(t, out.String(), "ctxloom: distillation timed out; it will complete on next startup")
+	assert.Contains(t, out.String(), "ctxloom: distillation timed out")
 	assert.NotContains(t, out.String(), "distilled session swift-amber-falcon", "no false success line on timeout")
+}
+
+// TestDistillSessionOnExit_TimeoutNamesTheManualRemedy pins what the timeout
+// line is allowed to CLAIM. Nothing in ctxloom re-distills an abandoned harp on
+// a later startup: distillSessionOnExit only ever runs against the harp its own
+// run just minted, and its idempotency guard (essenceFn) is scoped to that one
+// harp — so a timed-out distill stays undone until somebody asks for it by
+// name. The line must therefore name the command that actually finishes the
+// job, and must not promise an automatic retry that no code path performs.
+func TestDistillSessionOnExit_TimeoutNamesTheManualRemedy(t *testing.T) {
+	var out bytes.Buffer
+	hang := make(chan struct{})
+	distillSessionOnExit("swift-amber-falcon", true,
+		func(string) ([]byte, error) { return nil, errors.New("no essence") },
+		func(context.Context, string) error { <-hang; return nil },
+		30*time.Millisecond,
+		&out)
+
+	assert.Contains(t, out.String(), "ctxloom session distill swift-amber-falcon",
+		"the timeout line must name the manual command that actually completes the distill")
+	assert.NotContains(t, out.String(), "next startup",
+		"no startup path re-distills an abandoned harp — promising one tells the user to wait for something that never happens")
 }
 
 // The resolveSelfExecutable decision tree (deleted-suffix stripping, PATH

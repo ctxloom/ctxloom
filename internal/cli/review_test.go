@@ -9,6 +9,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -321,4 +322,141 @@ func TestResolveReviewSigner_HonoursSignKeyConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, unsigned, "no explicit key + ambiguous agent still degrades to the unsigned path")
 	})
+}
+
+// TestPrintReviewItem_UnchangedUpdateSaysSo pins the reachable half of
+// U040-F14: an UPDATE whose diff comes out EMPTY silently fell through to the
+// full-content display with no explanation at all. That is not a corner case —
+// operations.buildReviewItem labels an item UPDATE whenever a PRIOR approve
+// entry exists, including when the bytes are identical and the item is pending
+// only because its approval record was superseded (a countersign-contract
+// bump). The reviewer is then shown the entire body of something they already
+// approved, with nothing saying why. Every other fall-through to full content
+// in this function names its reason; this one must too.
+func TestPrintReviewItem_UnchangedUpdateSaysSo(t *testing.T) {
+	const body = "line one\nline two\n"
+	var out bytes.Buffer
+	printReviewItem(&out, 1, 1, operations.ReviewItem{
+		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
+		Status:          operations.ReviewStatusUpdate,
+		PreviousContent: body,
+		CurrentContent:  body,
+	})
+	got := out.String()
+	assert.Contains(t, got, "unchanged since it was approved",
+		"an update with no delta must say why the full content is being shown")
+	assert.Contains(t, got, "line one", "the content itself is still shown")
+}
+
+// TestPrintReviewItem_ChangedUpdateStillDiffs is the discriminator: a real
+// delta must still render as a diff and must NOT carry the unchanged notice.
+func TestPrintReviewItem_ChangedUpdateStillDiffs(t *testing.T) {
+	var out bytes.Buffer
+	printReviewItem(&out, 1, 1, operations.ReviewItem{
+		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
+		Status:          operations.ReviewStatusUpdate,
+		PreviousContent: "line one\nline two\n",
+		CurrentContent:  "line one\nline TWO\n",
+	})
+	got := out.String()
+	assert.Contains(t, got, "--- accepted", "a real delta renders as a unified diff")
+	assert.Contains(t, got, "+line TWO")
+	assert.NotContains(t, got, "unchanged since it was approved")
+}
+
+// TestReviewWantsListing pins U040-F18. `ctxloom review --format json` on a TTY
+// took the interactive countersigning walk: --format was accepted, never read,
+// and nothing rendered through emit — so the human was prompted through an
+// approval session and the invocation only failed the format-was-honored guard
+// afterwards, with the countersignatures already written. An invocation that
+// asked for a value it can parse must get the pending table instead.
+func TestReviewWantsListing(t *testing.T) {
+	newCmd := func(format string) *cobra.Command {
+		c := &cobra.Command{Use: "review"}
+		c.Flags().String("format", "text", "")
+		if format != "" {
+			require.NoError(t, c.Flags().Set("format", format))
+		}
+		return c
+	}
+
+	for _, tc := range []struct {
+		name        string
+		format      string
+		listFlag    bool
+		interactive bool
+		want        bool
+	}{
+		{"tty, default format, walks", "", false, true, false},
+		{"tty, explicit text, walks", "text", false, true, false},
+		{"tty, --list, lists", "", true, true, true},
+		{"no tty, lists", "", false, false, true},
+		{"tty, --format json, lists", "json", false, true, true},
+		{"tty, --format yaml, lists", "yaml", false, true, true},
+		{"tty, --format markdown, lists", "markdown", false, true, true},
+		{"tty, unparseable format, lists", "xml", false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reviewWantsListing(newCmd(tc.format), tc.listFlag, tc.interactive)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestPrintReviewItem_AllArms characterizes every arm of printReviewItem's
+// body rendering before it is split, so the split is provably
+// behaviour-preserving (U040-F13 is a pure complexity reduction: nothing here
+// can go red by definition).
+func TestPrintReviewItem_AllArms(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		item    operations.ReviewItem
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "new item shows full content",
+			item: operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusNew, CurrentContent: "brand new body"},
+			want: []string{"(NEW)", "brand new body"},
+			notWant: []string{"--- accepted", "no snapshot of the previously accepted content",
+				"unchanged since it was approved", "no differences could be rendered"},
+		},
+		{
+			name:    "update with a delta diffs",
+			item:    operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusUpdate, PreviousContent: "a\n", CurrentContent: "b\n"},
+			want:    []string{"UPDATE", "--- accepted", "+++ incoming", "+b"},
+			notWant: []string{"unchanged since it was approved", "no snapshot of the previously accepted content"},
+		},
+		{
+			name:    "update with no snapshot says so",
+			item:    operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusUpdate, CurrentContent: "full body"},
+			want:    []string{"no snapshot of the previously accepted content", "full body"},
+			notWant: []string{"--- accepted"},
+		},
+		{
+			name:    "executable update with no snapshot stays quiet",
+			item:    operations.ReviewItem{Kind: "mcp", Name: "srv", Status: operations.ReviewStatusUpdate, Executable: true, CurrentContent: "npx thing"},
+			want:    []string{"npx thing"},
+			notWant: []string{"no snapshot of the previously accepted content", "--- accepted"},
+		},
+		{
+			name:    "empty content renders the empty marker",
+			item:    operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusNew},
+			want:    []string{"(empty)"},
+			notWant: []string{"--- accepted"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			printReviewItem(&out, 2, 7, tc.item)
+			got := out.String()
+			assert.Contains(t, got, "[2/7]")
+			for _, w := range tc.want {
+				assert.Contains(t, got, w)
+			}
+			for _, n := range tc.notWant {
+				assert.NotContains(t, got, n)
+			}
+		})
+	}
 }

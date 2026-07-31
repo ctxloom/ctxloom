@@ -415,3 +415,53 @@ func TestBackupBeforeEdit_DoesNotReuseAnExistingBackupName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "from an earlier run", string(kept))
 }
+
+// A verify failure is the moment the user most needs an actionable message,
+// and for a file config-write CREATED there is no backup at all — Backup is
+// empty by design (see TestRunConfigWrite_MissingFile_CreatesFreshNoBackup).
+// Interpolating that empty string produced "... — original backed up to :
+// invalid character ..." and "restore from backup " with nothing after it: a
+// sentence that names a recovery path which does not exist, aimed at a user
+// who is now holding a malformed config file.
+//
+// Note the pre-existing verify test asserts Contains(err, result.Backup),
+// which is VACUOUSLY true when Backup is "" — that is exactly how this
+// survived.
+func TestRunConfigWrite_VerifyFailureOnCreatedFile_SaysThereIsNoBackup(t *testing.T) {
+	base := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	// Nothing exists beforehand, so there is no pre-write base read and no
+	// backup read: the FIRST open of path is our own post-write verify read.
+	fs := &tamperedReadFs{Fs: base, path: path, corruptAt: 1, corruptVal: []byte("{not json at all")}
+
+	cmd, _ := configWriteTestCmd(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+
+	require.Error(t, err)
+	assert.True(t, result.Created)
+	assert.Empty(t, result.Backup)
+	assert.False(t, result.Verified)
+	assert.Contains(t, err.Error(), "verify failed")
+	assert.NotRegexp(t, `backed up to\s*:`, err.Error(),
+		"a created file has no backup; the message must not name an empty one")
+	assert.NotRegexp(t, `restore from backup\s*$`, err.Error())
+	assert.Contains(t, err.Error(), "no backup",
+		"say plainly that there is nothing to restore from, rather than trailing off")
+}
+
+// The mirror case must keep working: when a backup WAS taken, the failure
+// still names it, because that path is a real recovery instruction.
+func TestRunConfigWrite_VerifyFailureOnExistingFile_StillNamesTheBackup(t *testing.T) {
+	base := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	require.NoError(t, afero.WriteFile(base, path, []byte(`{"foreign_setting":"keep-me"}`), 0644))
+	fs := &tamperedReadFs{Fs: base, path: path, corruptAt: 2, corruptVal: []byte("{not json at all")}
+
+	cmd, _ := configWriteTestCmd(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+
+	require.Error(t, err)
+	require.NotEmpty(t, result.Backup)
+	assert.Contains(t, err.Error(), result.Backup)
+	assert.NotContains(t, err.Error(), "no backup")
+}

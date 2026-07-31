@@ -49,7 +49,8 @@ func locateKiroConversation(ctx context.Context, e sessions.Entry) (string, bool
 		return "", false
 	}
 	if e.SessionID != "" {
-		return kiroimporter.Locator(kiroDBHoldingConversation(ctx, dbs, e.SessionID), e.SessionID), true
+		src, err := kiroimporter.Locator(kiroDBHoldingConversation(ctx, dbs, e.SessionID), e.SessionID)
+		return src, err == nil
 	}
 	for _, dbPath := range dbs {
 		if loc, ok := locateKiroConversationInDB(ctx, dbPath, e); ok {
@@ -166,7 +167,8 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 	if best == nil {
 		return "", false
 	}
-	return kiroimporter.Locator(dbPath, best.ConversationID), true
+	src, err := kiroimporter.Locator(dbPath, best.ConversationID)
+	return src, err == nil
 }
 
 // kiroDBPath resolves kiro-cli's HOST-AMBIENT conversation store:

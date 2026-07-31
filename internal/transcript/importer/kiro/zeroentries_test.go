@@ -46,7 +46,7 @@ func TestConvert_FullyDriftedTurnsIsAnError(t *testing.T) {
 	require.NoError(t, rerr)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, Locator(dbPath, "conv-drifted"))
+	err = Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, "conv-drifted"))
 	assert.Error(t, err, "a conversation with real turns but zero recognizable content is a failed import, not a successful empty one")
 }
 
@@ -75,6 +75,6 @@ func TestConvert_EmptyHistoryIsLegitimatelyEmpty(t *testing.T) {
 	require.NoError(t, rerr)
 	defer func() { _ = rec.Close() }()
 
-	assert.NoError(t, Adapter{}.Convert(context.Background(), rec, Locator(dbPath, "conv-empty")),
+	assert.NoError(t, Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, "conv-empty")),
 		"an empty history is 'nothing to import', not a failure")
 }

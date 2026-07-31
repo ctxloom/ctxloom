@@ -148,7 +148,7 @@ func runConvert(t *testing.T, dbPath, conversationID string) []transcript.Record
 	rec, err := transcript.NewRecorder(fixtureHarp, "kiro")
 	require.NoError(t, err)
 
-	err = Adapter{}.Convert(context.Background(), rec, Locator(dbPath, conversationID))
+	err = Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, conversationID))
 	require.NoError(t, err)
 	require.NoError(t, rec.Close())
 
@@ -216,7 +216,7 @@ func TestConvert_ConformsToJSONSchema(t *testing.T) {
 
 	rec, err := transcript.NewRecorder(fixtureHarp, "kiro")
 	require.NoError(t, err)
-	require.NoError(t, Adapter{}.Convert(context.Background(), rec, Locator(dbPath, conversationID)))
+	require.NoError(t, Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, conversationID)))
 	require.NoError(t, rec.Close())
 
 	path, err := paths.HarpCanonicalTranscriptPath(fixtureHarp)
@@ -382,7 +382,7 @@ func TestConvert_ConversationNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rec.Close() }()
 
-	err = Adapter{}.Convert(context.Background(), rec, Locator(dbPath, "does-not-exist"))
+	err = Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, "does-not-exist"))
 	require.Error(t, err)
 }
 
@@ -396,7 +396,7 @@ func TestConvert_OpenFailure(t *testing.T) {
 	defer func() { _ = rec.Close() }()
 
 	dbPath := filepath.Join(t.TempDir(), "does-not-exist.sqlite3")
-	err = Adapter{}.Convert(context.Background(), rec, Locator(dbPath, "some-id"))
+	err = Adapter{}.Convert(context.Background(), rec, mustLocator(t, dbPath, "some-id"))
 	require.Error(t, err)
 }
 
@@ -425,6 +425,6 @@ func TestConvert_ContextCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err = Adapter{}.Convert(ctx, rec, Locator(dbPath, conversationID))
+	err = Adapter{}.Convert(ctx, rec, mustLocator(t, dbPath, conversationID))
 	require.ErrorIs(t, err, context.Canceled)
 }

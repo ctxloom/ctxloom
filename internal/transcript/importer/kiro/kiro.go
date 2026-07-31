@@ -62,8 +62,18 @@ const locatorSep = "#"
 // Locator builds the composite src string Convert (and a discovery caller
 // walking EnumerateConversations' results) uses to name one conversation
 // inside the sqlite db at dbPath.
-func Locator(dbPath, conversationID string) string {
-	return dbPath + locatorSep + conversationID
+//
+// Locator and parseLocator are inverses: every string Locator returns is one
+// parseLocator accepts and takes back apart into the same pair. That is why
+// an empty component is refused HERE rather than concatenated into a
+// well-formed-looking string — the caller holding the empty field is the only
+// party that knows which field it was, and deferring the complaint to Convert
+// reports it from a subsystem that does not.
+func Locator(dbPath, conversationID string) (string, error) {
+	if dbPath == "" || conversationID == "" {
+		return "", fmt.Errorf("kiro: cannot build a locator from db path %q and conversation id %q: neither may be empty", dbPath, conversationID)
+	}
+	return dbPath + locatorSep + conversationID, nil
 }
 
 // parseLocator splits src into its db path and conversation id, per

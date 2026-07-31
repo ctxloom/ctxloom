@@ -222,7 +222,7 @@ func TestSessionInfo_ModelFallsBackToModelName(t *testing.T) {
 // --- Locator ---
 
 func TestLocator_RoundTrip(t *testing.T) {
-	src := Locator("/home/user/.local/share/kiro-cli/data.sqlite3", "74b27b3b-19e1-41f3-a8a6-bc8e227a3edb")
+	src := mustLocator(t, "/home/user/.local/share/kiro-cli/data.sqlite3", "74b27b3b-19e1-41f3-a8a6-bc8e227a3edb")
 	dbPath, convID, err := parseLocator(src)
 	require.NoError(t, err)
 	assert.Equal(t, "/home/user/.local/share/kiro-cli/data.sqlite3", dbPath)
@@ -279,7 +279,7 @@ func TestEnumerateConversations(t *testing.T) {
 	assert.Equal(t, "conv-newer", refs[1].ConversationID)
 
 	// A ref's own fields must build a locator Convert can actually read.
-	src := Locator(dbPath, refs[0].ConversationID)
+	src := mustLocator(t, dbPath, refs[0].ConversationID)
 	gotDBPath, gotConvID, err := parseLocator(src)
 	require.NoError(t, err)
 	assert.Equal(t, dbPath, gotDBPath)

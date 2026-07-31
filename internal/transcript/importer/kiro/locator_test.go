@@ -13,9 +13,10 @@ import (
 // output moves the failure to whoever finally calls Convert, a different
 // subsystem with no idea which caller field was empty.
 //
-// CHARACTERIZATION, pre-fix: the empty-component cases below are the ones the
-// round-trip currently FAILS, and this test records that. It is inverted (into
-// an assertion that Locator refuses those inputs outright) by the fix.
+// The empty-component cases are the ones that used to break the round-trip:
+// Locator concatenated them into "#conv-1" / "/tmp/db.sqlite3#" / "#", each of
+// which parseLocator refuses. They are now refused at construction, so there is
+// no such string to hand on.
 func TestLocator_RoundTripsThroughParseLocator(t *testing.T) {
 	ok := []struct{ dbPath, conversationID string }{
 		{"/home/u/.local/share/kiro-cli/data.sqlite3", "74b27b3b-19e1-41f3-a8a6-bc8e227a3edb"},
@@ -24,9 +25,10 @@ func TestLocator_RoundTripsThroughParseLocator(t *testing.T) {
 		{"/tmp/od#d/data.sqlite3", "conv-1"},
 	}
 	for _, tc := range ok {
-		src := Locator(tc.dbPath, tc.conversationID)
-		db, id, err := parseLocator(src)
-		require.NoError(t, err, "Locator produced %q, which its own inverse rejects", src)
+		src, err := Locator(tc.dbPath, tc.conversationID)
+		require.NoError(t, err)
+		db, id, perr := parseLocator(src)
+		require.NoError(t, perr, "Locator produced %q, which its own inverse rejects", src)
 		require.Equal(t, tc.dbPath, db)
 		require.Equal(t, tc.conversationID, id)
 	}
@@ -37,10 +39,19 @@ func TestLocator_RoundTripsThroughParseLocator(t *testing.T) {
 		{"", ""},
 	}
 	for _, tc := range broken {
-		src := Locator(tc.dbPath, tc.conversationID)
-		_, _, err := parseLocator(src)
+		src, err := Locator(tc.dbPath, tc.conversationID)
 		require.Error(t, err,
-			"Locator(%q, %q) produced %q, which parseLocator accepts — this characterization is stale",
+			"Locator(%q, %q) built %q instead of refusing an empty component",
 			tc.dbPath, tc.conversationID, src)
+		require.Empty(t, src)
 	}
+}
+
+// mustLocator is the test-side spelling of Locator for the many cases that
+// pass a known-good pair and care only about the resulting src.
+func mustLocator(t *testing.T, dbPath, conversationID string) string {
+	t.Helper()
+	src, err := Locator(dbPath, conversationID)
+	require.NoError(t, err)
+	return src
 }

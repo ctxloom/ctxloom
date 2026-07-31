@@ -972,12 +972,20 @@ func (s *Server) switchProfile(sess *session, modeID string) *jsonrpc.Error {
 	updatedModes := *sess.modes
 	sess.mu.Unlock()
 
+	// A lost notification fails the request, exactly as emitUpdate already
+	// does for every session/update on this same connection. Answering
+	// success would tell the client the switch is done while withholding the
+	// only frames that say WHICH profile it is now in — and jsonrpc.Conn
+	// writes each frame independently, with no sticky error, so a single
+	// frame really can be lost while the reply that follows lands. The switch
+	// has already been applied to sess by this point, so the error names that
+	// too rather than implying nothing happened.
 	if nerr := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: currentModeUpdateWire(modeID)}); nerr != nil {
-		clidiag.Warn("ctxloom", "acp agent: mode update notify failed: %v", nerr)
+		return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "switched to " + modeID + " but the mode update could not be delivered: " + nerr.Error()}
 	}
 	opts := configOptionsWire(&updatedModes, sess.engine.LLMs)
 	if nerr := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: configOptionUpdateWire(opts)}); nerr != nil {
-		clidiag.Warn("ctxloom", "acp agent: config option update notify failed: %v", nerr)
+		return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "switched to " + modeID + " but the config option update could not be delivered: " + nerr.Error()}
 	}
 	return nil
 }

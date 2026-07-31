@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
@@ -418,23 +417,17 @@ func messageEvents(p responseItemPayload) []agent.ChatEvent {
 // this message" and codex has not been observed emitting a non-text block in
 // a message response_item on this box).
 //
-// Deliberately NOT delegating to importer.JoinNonEmpty (the join primitive
-// joinSummaryText below and every other engine's adapter use): doing so
-// makes this function's normalized shape match an unrelated,
-// pre-existing near-duplicate outside this package — internal/operations/
-// resume.go's JoinLeadBlocks, a resume-prompt helper with nothing to do with
-// vendor-transcript import — which reprise's check flags as an inconsistent
-// partial update the moment either side is touched. Fixing that properly
-// means changing internal/operations, out of scope for a change confined to
-// internal/transcript/importer/*.
+// The blocks-to-strings projection is all that lives here; the join itself is
+// importer.JoinNonEmpty, the one primitive joinSummaryText below and every
+// other engine's adapter use — kiro's assistantContentEvents writes the same
+// two lines. There is nothing about "visible text in a codex message" that
+// wants its own filter-and-join.
 func joinContentText(blocks []contentBlock) string {
-	var parts []string
-	for _, b := range blocks {
-		if b.Text != "" {
-			parts = append(parts, b.Text)
-		}
+	texts := make([]string, len(blocks))
+	for i, b := range blocks {
+		texts[i] = b.Text
 	}
-	return strings.Join(parts, "\n\n")
+	return importer.JoinNonEmpty(texts)
 }
 
 // reasoningEvents maps a "reasoning" response_item to zero or one thinking

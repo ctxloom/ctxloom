@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,331** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,332** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **440** |
+| `open` | no commit names this ID | **439** |
 
-**Totals: 2268 findings across 162 units — 1,331 resolved, 440 still open, 497 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,332 resolved, 439 still open, 497 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 481 | 243 | 81 | 80 | 114 |
-| LOW | 871 | 493 | 185 | 48 | 88 | 57 |
+| LOW | 871 | 494 | 184 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2341,7 +2341,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U056-F13 | **RESOLVED** `24ae56aa` | `probe.go:104-109` | COUPLING | `ProbeFunc.Name` is returned from `Runtime()` and matched against `Target.Runtime`; the name says "identifier", the semantics say "runtime axis, where empty means universal". | U056.md |
 | U056-F14 | open | `monitor.go:86-104` | CORRECTNESS | `normalize` uses `<= 0`, so `0` is unrepresentable for `RedeliveryJitterRatio` and `CPUBurnFloor` — a caller asking for exact-cadence-only matching, or for "any CPU at all counts as burning", silen... | U056.md |
 | U056-F15 | **REFUTED** (cross-package/product decision; see wave-2 report) | **`liveness.go:163; monitor.go:451-456 vs coord/liveness.go:224-229`** | TRIVIAL | `Report.Firing` is a pure pass-through; `orUnknown` and `coord.orDash` are the same three-line function with different placeholders. | U056.md |
-| U056-F16 | open | `transcript.go:334-347` | CORRECTNESS | `worse`'s tie-break is non-deterministic when two groups share both `Repeats` and `EntryType` (different content), because `detectRedelivery` iterates a Go map — contradicting its doc's *"stable, t... | U056.md |
+| U056-F16 | **RESOLVED** `5e74af6c` | `transcript.go:334-347` | CORRECTNESS | `worse`'s tie-break is non-deterministic when two groups share both `Repeats` and `EntryType` (different content), because `detectRedelivery` iterates a Go map — contradicting its doc's *"stable, t... | U056.md |
 | U056-F17 | **RESOLVED** `374d8eb5` | **`liveness.go:159`** | LOW | `Report.At` is the only field in the struct with no `json` tag, so it marshals as `"At"` while its siblings are snake_case. | U056.md |
 | U057-F07 | **RESOLVED** `eeb21f62` | **`registry.go:117, hooks.go:38`** | CORRECTNESS | `List()` and `BackendsWithSettings()` return Go map-iteration order, i.e. randomised per process. Every caller that displays the result happens to sort afterwards, so this is currently latent rathe... | U057.md |
 | U057-F08 | **RESOLVED** `ac7ab9c4` | **`managed.go:142, managed.go:197, commands.go:153, skillfiles.go:86`** | ERRHANDLING | Four warnings say `default profile %q unresolved` even when the profile came from an explicit `--profile`/`-p` selection, misdirecting the user to their config defaults. | U057.md |

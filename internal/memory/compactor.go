@@ -949,10 +949,16 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 // function rather than a method: nothing about a chunking decision depends on
 // which Compactor asked for it.
 func chunkText(text string, targetTokens int) []string {
-	targetChars := targetTokens * BytesPerToken
-	overlapChars := ChunkOverlapTokens * BytesPerToken
+	// Sizes come from tokens.Budget, not from multiplying the ratio here.
+	// Multiplying was a second implementation of the heuristic living outside
+	// the package that owns it, and one no real tokenizer could satisfy: a
+	// tokenizer is not invertible by multiplication, so a substitution inside
+	// internal/tokens would have left this call site computing against the old
+	// ratio while every other surface moved.
+	targetBytes := tokens.Budget(targetTokens)
+	overlapBytes := tokens.Budget(ChunkOverlapTokens)
 
-	if len(text) <= targetChars {
+	if len(text) <= targetBytes {
 		return []string{text}
 	}
 
@@ -960,7 +966,7 @@ func chunkText(text string, targetTokens int) []string {
 	remaining := text
 
 	for len(remaining) > 0 {
-		chunkEnd := targetChars
+		chunkEnd := targetBytes
 		if chunkEnd > len(remaining) {
 			chunkEnd = len(remaining)
 		}
@@ -999,7 +1005,7 @@ func chunkText(text string, targetTokens int) []string {
 		// Move forward, keeping some overlap for context. The advance point
 		// must also land on a rune boundary, or the next chunk would start
 		// with the trailing bytes of a split rune.
-		advance := chunkEnd - overlapChars
+		advance := chunkEnd - overlapBytes
 		if advance > 0 {
 			if a := len(textutil.TruncateBytes(remaining, advance)); a > 0 {
 				advance = a

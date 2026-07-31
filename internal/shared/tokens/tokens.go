@@ -31,3 +31,21 @@ const BytesPerToken = 4
 func Estimate(text string) int {
 	return (len(text) + BytesPerToken - 1) / BytesPerToken
 }
+
+// Budget returns the rough size in BYTES of text that would estimate at
+// tokens — the inverse of Estimate. A non-positive budget is no size at all.
+//
+// It exists so this package's promise holds in both directions: "a real
+// tokenizer can replace the heuristic here without touching call sites" was
+// true of Estimate's call sites and false of the constant's. A consumer sizing
+// a chunk from a token budget multiplied BytesPerToken itself, which is a
+// second implementation of the heuristic living outside the package that owns
+// it — and one no real tokenizer could satisfy, because a tokenizer is not
+// invertible by multiplication. With the inverse expressed as a function the
+// substitution point is inside this package for both directions.
+func Budget(tokens int) int {
+	if tokens <= 0 {
+		return 0
+	}
+	return tokens * BytesPerToken
+}

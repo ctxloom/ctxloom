@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -374,6 +375,40 @@ func startOutputCopier(ptty pty.Pty, out io.Writer) (*trackWriter, <-chan struct
 	return tw, copyDone
 }
 
+// signaledStatus is the portable slice of the platform wait status this
+// package needs. os/exec exposes it as ProcessState.Sys(), typed
+// syscall.WaitStatus — a per-GOOS struct, so asserting the concrete type would
+// only build on unix. Both shapes carry these two methods, so an interface
+// assertion compiles everywhere and needs no build-tagged file.
+type signaledStatus interface {
+	Signaled() bool
+	Signal() syscall.Signal
+}
+
+// ExitStatusFor maps a finished child's *exec.ExitError to a valid POSIX exit
+// status. os/exec reports -1 for a process that died on a signal, and -1 is not
+// an exit status a process can carry: propagated to os.Exit the OS truncates it
+// to 255, making a killed engine indistinguishable from an engine that really
+// exited 255 and from a runner-internal failure. Shells have long since settled
+// this — a signalled child reports 128+signum (130 SIGINT, 137 SIGKILL, 143
+// SIGTERM) — and ctxloom's own launch path is a transparent wrapper around the
+// engine's status, so it reports what a shell would.
+//
+// WINDOWS, stated rather than left implicit: Windows keeps today's behaviour.
+// Its syscall.WaitStatus satisfies the interface above but hard-codes
+// Signaled() to false and Signal() to -1, because Windows has no wait status
+// that distinguishes "killed by a signal" from an ordinary exit code —
+// TerminateProcess just sets the exit code. So the assertion succeeds, the
+// guard is false, and the ExitCode() fallthrough runs, which is exactly the
+// pre-change path. There is nothing to map there; when there is nothing to
+// map, the right answer is to say so, not to invent a synthetic signal.
+func ExitStatusFor(exitErr *exec.ExitError) int {
+	if status, ok := exitErr.Sys().(signaledStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	return exitErr.ExitCode()
+}
+
 // runResult folds the child's outcome and every side-path failure into the one
 // (exit code, error) pair RunInteractive returns. Every branch here exists
 // because the corresponding failure was once silent: a run that delivered
@@ -384,7 +419,7 @@ func runResult(waitErr, closeErr error, tw *trackWriter, resizeErr *firstError) 
 	if waitErr != nil {
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
+			exitCode = ExitStatusFor(exitErr)
 		} else if !isBenignPTYError(waitErr) {
 			// Anything that isn't the expected PTY-close fallout is a real
 			// failure. Benign close errors are matched by sentinel, not by

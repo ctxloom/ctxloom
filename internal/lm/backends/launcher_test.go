@@ -56,3 +56,43 @@ func TestRunLaunchSpec_NonInteractiveNilStdin(t *testing.T) {
 	assert.Equal(t, int32(0), code)
 	assert.Empty(t, out.String())
 }
+
+// TestRunLaunchSpec_NonInteractiveSignalKilledChildYields128PlusSignum pins the
+// non-interactive half of the same exit-status contract the pty branch keeps: a
+// child that died on a signal reports 128+signum, not the raw -1 os/exec hands
+// back (which is not a valid exit status and reaches the user truncated to
+// 255). The two branches classify a killed engine identically, so the status a
+// user sees does not depend on whether the run happened to be interactive.
+// Skips where there is no POSIX shell to signal itself with — the mapping there
+// is documented as a no-op (see ptyrunner.ExitStatusFor).
+func TestRunLaunchSpec_NonInteractiveSignalKilledChildYields128PlusSignum(t *testing.T) {
+	shPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not on PATH")
+	}
+	for _, tt := range []struct {
+		name         string
+		signal       string
+		expectedCode int32
+	}{
+		{name: "SIGINT", signal: "INT", expectedCode: 130},
+		{name: "SIGKILL", signal: "KILL", expectedCode: 137},
+		{name: "SIGTERM", signal: "TERM", expectedCode: 143},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			code, err := RunLaunchSpec(
+				context.Background(),
+				agent.LaunchSpec{
+					BinaryPath:  shPath,
+					Args:        []string{"-c", "kill -" + tt.signal + " $$; sleep 5"},
+					Interactive: false,
+				},
+				nil,
+				io.Discard, io.Discard, nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedCode, code,
+				"a child killed by SIG%s must report 128+signum", tt.signal)
+		})
+	}
+}

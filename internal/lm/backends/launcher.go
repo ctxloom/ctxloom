@@ -63,7 +63,12 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return int32(exitErr.ExitCode()), nil
+			// Same status mapping as the interactive branch above: a child
+			// killed by a signal reports 128+signum, never os/exec's raw -1,
+			// which is not a valid exit status and reaches the user as a
+			// truncated 255. Both launch modes must classify a killed engine
+			// the same way or the exit code depends on which one ran.
+			return int32(ptyrunner.ExitStatusFor(exitErr)), nil
 		}
 		if errors.Is(err, exec.ErrWaitDelay) {
 			// The process itself succeeded; only its output pipes were still

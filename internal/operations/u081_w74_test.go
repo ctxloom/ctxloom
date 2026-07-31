@@ -147,3 +147,57 @@ func TestBundleListDeletedResolver_SilentOnGoodLockfile(t *testing.T) {
 	require.NotNil(t, bundleListDeletedResolver(cfg))
 	assert.Empty(t, sink.String(), "a missing lockfile is the ordinary case, not a fault")
 }
+
+// ---------------------------------------------------------------------------
+// U081-F07 — a nil BundleByteSource means "nothing is installed", silently.
+// ---------------------------------------------------------------------------
+
+// TestNewBundleReaderForConfig_WarnsWhenLockfileUnreadable pins the loud path
+// for the reader every installed-probe runs through. isInstalled answers false
+// for a nil source, so an unreadable lockfile does not merely lose the reader —
+// it converts a fully-installed project into "every remote bundle is missing".
+// The verdict stands; the silence does not.
+func TestNewBundleReaderForConfig_WarnsWhenLockfileUnreadable(t *testing.T) {
+	projectDir := testsupport.ProjectDir(t)
+	appDir := filepath.Join(projectDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+	lockPath := paths.LockPath(appDir)
+	require.NoError(t, os.WriteFile(lockPath, []byte("bundles: [this is not\n  a: mapping\n"), 0644))
+
+	// Prove the fixture is hostile through the code's own loader first.
+	_, loadErr := remote.NewLockfileManager(appDir).Load()
+	require.Error(t, loadErr, "fixture is not broken — the rest of this test would prove nothing")
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	reader := NewBundleReaderForConfig(cfg)
+
+	assert.Nil(t, reader, "an unreadable lockfile still yields no reader")
+	assert.Contains(t, sink.String(), lockPath, "the warning must name the unreadable lockfile")
+	assert.Contains(t, sink.String(), "not installed",
+		"the warning must name the consequence the user will actually observe")
+
+	// The consequence itself, pinned so the warning's claim stays true: a nil
+	// source reports every reference as not installed.
+	assert.False(t, isInstalled(context.Background(), "https://github.com/example/personal@bundles/tool", nil))
+}
+
+// TestNewBundleReaderForConfig_SilentOnGoodLockfile keeps the diagnostic
+// meaningful: a project with no lockfile at all is the ordinary first-run case
+// and must stay quiet.
+func TestNewBundleReaderForConfig_SilentOnGoodLockfile(t *testing.T) {
+	projectDir := testsupport.ProjectDir(t)
+	appDir := filepath.Join(projectDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	assert.NotNil(t, NewBundleReaderForConfig(cfg))
+	assert.Empty(t, sink.String())
+}

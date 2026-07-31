@@ -215,6 +215,17 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	d := b.delivery
 
+	// 0. Enforce CellDelivery.ContextHook's stated precondition. The hook is keyed
+	// to the RawContext cache file's hash, so without RawContext there is no hash
+	// and no file: contextHash below stays "", MergeManaged appends no injection
+	// hook, and the session launches with NO context while Setup reports success.
+	// That is a misconfigured backend, not a legitimate "no context" case (which is
+	// ContextHook false), so it fails loudly — same call as the mergedState
+	// accessor check below.
+	if d.ContextHook && !d.RawContext {
+		return fmt.Errorf("backend delivery sets ContextHook without RawContext: the SessionStart injection hook is keyed to the RawContext cache file, so no hook can be installed")
+	}
+
 	// 1. RawContext pre-step (codex/antigravity/kiro).
 	contextHash := ""
 	if d.RawContext {

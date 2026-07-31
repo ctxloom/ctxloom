@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,334** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,335** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 177 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **435** |
+| `open` | no commit names this ID | **434** |
 
-**Totals: 2268 findings across 162 units — 1,334 resolved, 435 still open, 499 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,335 resolved, 434 still open, 499 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 484 | 240 | 81 | 80 | 114 |
-| LOW | 871 | 493 | 183 | 49 | 89 | 57 |
+| LOW | 871 | 494 | 182 | 49 | 89 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2293,7 +2293,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U048-F14 | **REFUTED** `8b9db2fe` | **`config.go:489, 1802, 2029`** | DEAD / COUPLING | Three exported mutators exist solely for tests, and two of them (`SetFS`, `DisableCompanionProbe`) mutate an instance `Load()` may be sharing with every other holder — contradicting the whole "ever... | U048.md |
 | U048-F15 | **RESOLVED** `f012188f` | **`config.go:1038, 1043, 1061, 1070`** | NOPAY | `ambientErr` is write-only state: it is stored and reset but never returned, and the `ambientErr == nil` guard is redundant because `loadUncached` returns `(nil, err)` on failure, so `ambientCfg !=... | U048.md |
 | U048-F16 | **RESOLVED** `12f375ce` | **`config.go:480-482, 943-948, 1051-1053`** | TRIVIAL | Three single-expression pass-throughs. `CurrentOverrides` (`return confload.ProcessOverrides()`) has no caller outside this package; `lockfileFSOptions` has exactly one call site; `LoadFresh` is a ... | U048.md |
-| U048-F18 | open | **`config.go:1211-1221`** | CORRECTNESS | `ParseConfig` pre-populates both `lm.Configs` and `profiles.Definitions` (1212-1213) but re-guards only `lm.Configs` after unmarshal (1218-1220). An explicit `profiles: null` in the document leaves... | U048.md |
+| U048-F18 | **RESOLVED** `480b2c58` | **`config.go:1211-1221`** | CORRECTNESS | `ParseConfig` pre-populates both `lm.Configs` and `profiles.Definitions` (1212-1213) but re-guards only `lm.Configs` after unmarshal (1218-1220). An explicit `profiles: null` in the document leaves... | U048.md |
 | U048-F19 | open | **`config.go:1570-1573`** | CORRECTNESS | `findAppDir`'s last resort returns the **relative** path `".ctxloom"` (or `<pwd>/.ctxloom` without creating it) tagged `SourceProject`. `loadUncached:1175` then sets `appRoot = filepath.Dir(".ctxlo... | U048.md |
 | U048-F21 | open | **`config.go:1682`** | ERRHANDLING | `_ = afero.Walk(...)` discards the walk error, and the per-entry callback returns nil on any error. A permission failure inside `cache/bundles` therefore *under*-reports stranded authored bundles —... | U048.md |
 | U048-F22 | **RESOLVED** `91bf8f67` | **`config.go:334-356, 393-398`** | CORRECTNESS | `toDoc` copies map/slice fields (`agents`, `isolationImages`, `isolationEngines`, `lm.Configs`, `profiles.Definitions`) **by reference**, and `MarshalYAML` is exported, so the one public path out o... | U048.md |

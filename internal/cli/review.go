@@ -83,7 +83,7 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	if reviewListFlag || !isInteractiveTerminal() {
+	if reviewWantsListing(cmd, reviewListFlag, isInteractiveTerminal()) {
 		return emit(cmd, res, func() error {
 			renderReviewList(cmd.OutOrStdout(), res)
 			return nil

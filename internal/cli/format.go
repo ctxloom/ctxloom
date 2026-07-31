@@ -63,6 +63,29 @@ func outputFormatOf(cmd *cobra.Command) string {
 	return format
 }
 
+// reviewWantsListing decides which half of `ctxloom review` an invocation
+// gets: the machine-readable pending table (true) or the interactive
+// countersigning walk (false). interactive is the caller's TTY answer, kept a
+// parameter so the decision is testable without one.
+//
+// --format is part of the decision, not just of the rendering. An invocation
+// that asked for json/yaml/toml/markdown asked for a value it can parse, and
+// the walk renders nothing through emit — so without this it would prompt a
+// human through an approval session and only afterwards fail the
+// format-was-honored guard, having already written countersignatures. A
+// --format that will not parse lands here too: an invocation whose output
+// contract cannot be interpreted is not one to start an approval session on,
+// and emit reports the parse failure properly.
+//
+// This deliberately does NOT mark formatWasHonored: the proof of honoring is
+// emit() actually rendering, further down the listing path.
+func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
+	if listFlag || !interactive {
+		return true
+	}
+	return false
+}
+
 // formatWasHonored is the runtime half of U104-F01 ("--format is registered
 // globally but honoured opt-in, with nothing binding the two — so it is
 // accepted and silently ignored on dozens of commands"). --format is a

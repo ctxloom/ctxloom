@@ -9,6 +9,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -361,4 +362,43 @@ func TestPrintReviewItem_ChangedUpdateStillDiffs(t *testing.T) {
 	assert.Contains(t, got, "--- accepted", "a real delta renders as a unified diff")
 	assert.Contains(t, got, "+line TWO")
 	assert.NotContains(t, got, "unchanged since it was approved")
+}
+
+// TestReviewWantsListing pins U040-F18. `ctxloom review --format json` on a TTY
+// took the interactive countersigning walk: --format was accepted, never read,
+// and nothing rendered through emit — so the human was prompted through an
+// approval session and the invocation only failed the format-was-honored guard
+// afterwards, with the countersignatures already written. An invocation that
+// asked for a value it can parse must get the pending table instead.
+func TestReviewWantsListing(t *testing.T) {
+	newCmd := func(format string) *cobra.Command {
+		c := &cobra.Command{Use: "review"}
+		c.Flags().String("format", "text", "")
+		if format != "" {
+			require.NoError(t, c.Flags().Set("format", format))
+		}
+		return c
+	}
+
+	for _, tc := range []struct {
+		name        string
+		format      string
+		listFlag    bool
+		interactive bool
+		want        bool
+	}{
+		{"tty, default format, walks", "", false, true, false},
+		{"tty, explicit text, walks", "text", false, true, false},
+		{"tty, --list, lists", "", true, true, true},
+		{"no tty, lists", "", false, false, true},
+		{"tty, --format json, lists", "json", false, true, true},
+		{"tty, --format yaml, lists", "yaml", false, true, true},
+		{"tty, --format markdown, lists", "markdown", false, true, true},
+		{"tty, unparseable format, lists", "xml", false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reviewWantsListing(newCmd(tc.format), tc.listFlag, tc.interactive)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

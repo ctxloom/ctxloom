@@ -670,3 +670,51 @@ func TestExpandWrappers_NestedArgvDoesNotAliasParent(t *testing.T) {
 		t.Errorf("nested program changed to %q when the parent's argv was written; the two slices alias", got)
 	}
 }
+
+// nestScripts builds a script whose single command carries depth levels of
+// ALREADY-PRESENT nested scripts — the shape a frontend produces for stacked
+// command substitutions, `$(echo $(echo …))`. No command in it is a wrapper,
+// so nothing here needs re-parsing.
+func nestScripts(depth int) *ir.Script {
+	s := cmdScript(ir.ShellBash, "echo", "hi")
+	for i := 0; i < depth; i++ {
+		outer := cmdScript(ir.ShellBash, "echo", "hi")
+		outer.Pipelines[0].Commands[0].Nested = []*ir.Script{s}
+		s = outer
+	}
+	return s
+}
+
+// TestExpandWrappers_DepthCapCountsSubstitutionsToo characterizes what the
+// depth cap actually measures: the recursion descends into every nested
+// script, wrapper body or not, so a command with no wrapper anywhere in it
+// still reports truncated=true once its command substitutions stack
+// maxWrapDepth deep. app.Decide turns that into a DENY whose stated reason is
+// "nested command-wrapper depth exceeded (possible evasion)", which names a
+// wrapper depth that was never exceeded and an evasion that never happened.
+//
+// This is a characterization pin, not an endorsement: the cap is the guard's
+// fail-CLOSED policy, and narrowing what counts toward it widens what ltk
+// allows. Changing it is a decision, not a sweep's call — this test makes the
+// current behaviour explicit so the change cannot happen silently.
+func TestExpandWrappers_DepthCapCountsSubstitutionsToo(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+
+	shallow := nestScripts(maxWrapDepth - 2)
+	if truncated, _ := r.ExpandWrappers(context.Background(), shallow); truncated {
+		t.Fatalf("substitution nesting %d deep must not trip the cap", maxWrapDepth-2)
+	}
+	if len(f.seen) != 0 {
+		t.Fatalf("fixture is wrong: no command in it is a wrapper, but %v were re-parsed", f.seen)
+	}
+
+	deep := nestScripts(maxWrapDepth)
+	truncated, unanalyzed := r.ExpandWrappers(context.Background(), deep)
+	if !truncated {
+		t.Error("substitution nesting at maxWrapDepth reports truncated=false; the cap no longer counts substitutions — see U068-F09, this is a policy change")
+	}
+	if unanalyzed {
+		t.Error("no wrapper body is present, so nothing can be unanalyzed")
+	}
+}

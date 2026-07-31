@@ -194,3 +194,52 @@ func TestOpenSessionWithFsUpstream_ListenerAttachedBeforePublication(t *testing.
 			"a teardown racing the listener's attachment must still close it; the socket outlived its session")
 	}
 }
+
+// TestServe_FsUpstream_WriteRefusedWhenEditorDeclaredOnlyRead pins U014-F10:
+// the reach-back listener is stood up on the editor's readTextFile capability
+// ALONE, but the handler relays fs/write_text_file as well — and the editor's
+// own writeTextFile capability was read nowhere in the repo. An editor that
+// declared it can serve reads and nothing else was therefore asked to answer
+// a write it never claimed to support, which is precisely what a capability
+// handshake exists to prevent.
+func TestServe_FsUpstream_WriteRefusedWhenEditorDeclaredOnlyRead(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+
+	var gotAddr string
+	c := startServer(t, func(_ context.Context, req OpenRequest) (*EngineChat, error) {
+		gotAddr = req.FsUpstreamAddr
+		return eng.chat(""), nil
+	})
+
+	// readTextFile only — writeTextFile is absent, i.e. false.
+	resp, _ := c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true}}}`))
+	require.Nil(t, resp.Error)
+	resp, _ = c.waitResponse(c.send("session/new", `{"cwd":"/proj","mcpServers":[]}`))
+	require.Nil(t, resp.Error)
+	require.NotEmpty(t, gotAddr)
+
+	// Bounded: a relayed write parks on an editor that will never answer, so
+	// an unbounded call would hang instead of failing.
+	callCtx, callCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer callCancel()
+	conn, dialErr := net.Dial("unix", gotAddr)
+	require.NoError(t, dialErr)
+	defer conn.Close()
+	rpc := jsonrpc.NewConn(conn, conn, jsonrpc.CloserFunc(conn.Close), noopHandler{})
+	rpc.Start(callCtx)
+	var result json.RawMessage
+	callErr := rpc.Call(callCtx, api.ClientMethodFsWriteTextFile,
+		map[string]any{"path": "/proj/x.go", "content": "written"}, &result)
+
+	require.Error(t, callErr,
+		"the editor never declared writeTextFile — relaying a write to it must be refused, not attempted")
+	require.NotErrorIs(t, callErr, context.DeadlineExceeded,
+		"the socket must REFUSE the write outright; parking until the deadline means it was relayed to an editor that cannot answer")
+
+	select {
+	case req := <-c.requests:
+		t.Fatalf("an fs/%s request reached an editor that never advertised it: %s", req.Method, req.Params)
+	default:
+	}
+}

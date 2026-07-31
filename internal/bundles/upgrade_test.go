@@ -95,3 +95,25 @@ func TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs(t *testing.T) {
 	assert.Contains(t, err.Error(), "oldcmd")
 	assert.Contains(t, err.Error(), "commands:")
 }
+
+// TestParseBundle_LegacySkillsKeyErrorOnARealBundle pins U030-F12. Every other
+// test of this guard hands ParseBundle a document with a root `name:` key —
+// which is precisely why nobody noticed that a REAL bundle.yaml has no such
+// key. Bundle.Name is `yaml:"-"`, so the marshaller never writes one and the
+// unmarshaller never reads one; the root scan for it found nothing and the
+// message opened with an empty identifier.
+//
+// The file identity belongs to the caller (LoadFile wraps this error with the
+// path), so the message must carry the entry names and no dangling blank.
+func TestParseBundle_LegacySkillsKeyErrorOnARealBundle(t *testing.T) {
+	// No `name:` — the shape ctxloom itself writes.
+	legacy := []byte("version: \"1.0\"\nskills:\n  review:\n    content: c\n")
+	_, err := ParseBundle(legacy)
+	require.Error(t, err)
+
+	msg := err.Error()
+	assert.Contains(t, msg, "review", "the offending entry must be named")
+	assert.Contains(t, msg, "commands:", "the remedy must be named")
+	assert.NotContains(t, msg, "bundle :", "no empty identifier where a name would go")
+	assert.NotContains(t, msg, "bundle:", "no empty identifier where a name would go")
+}

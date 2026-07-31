@@ -1,7 +1,9 @@
 package bundles
 
 import (
+	"bytes"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -9,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // =============================================================================
@@ -334,4 +337,137 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 
 	_, err := loader.GetSkill("humanize")
 	require.True(t, errors.Is(err, errs.ErrSkillWithheld), "got %v, want ErrSkillWithheld", err)
+}
+
+// =============================================================================
+// U030-F15 / U030-F16 — refutation pins
+// =============================================================================
+
+// TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded is the
+// structural half of refuting U030-F15, which claimed a malformed manifest mode
+// silently defaults to 0644 and downgrades a 0755 script.
+//
+// It cannot: an authored mode never reaches that ParseUint at all. The
+// materialize loop walks pkg.Manifest — the manifest ParseSkillPackage builds
+// FRESH from the tree, whose modes this package formats itself with "%04o" —
+// and an authored manifest that disagrees with the tree (a malformed mode
+// cannot equal a formatted one) is rejected one step earlier by
+// VerifyExtractedManifest. The skill is withheld, loudly. That is the
+// behaviour worth pinning: withheld, never quietly materialized at 0644.
+func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	bundleDir := bundlesDir + "/skill-bundle"
+	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
+
+	// An authored manifest whose scripts/run.sh mode is not octal at all.
+	pkg, err := ParseSkillPackage(fsys, bundleDir+"/skills/humanize", 0)
+	require.NoError(t, err)
+	yaml := "version: \"1.0\"\nskills:\n  humanize:\n    files:\n"
+	for _, m := range pkg.Manifest {
+		mode := m.Mode
+		if m.Path == "scripts/run.sh" {
+			mode = "rwxr-xr-x"
+		}
+		yaml += "      \"" + m.Path + "\":\n        sha256: " + m.SHA256 + "\n        mode: \"" + mode + "\"\n"
+	}
+	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(yaml), 0644))
+
+	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	assert.Empty(t, loader.SkillsFromBundleRef("skill-bundle"),
+		"a manifest whose modes do not match the tree must withhold the skill, not materialize it at a default mode")
+}
+
+// TestSkillContent_ExecBitSurvivesLoad is the other half: the mode the loader
+// hands the materializer comes from the real tree, so a 0755 script stays 0755.
+// If anyone "fixes" U030-F15 by feeding the AUTHORED manifest into the
+// materialize loop, this is what notices.
+func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
+
+	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	got := loader.SkillsFromBundleRef("skill-bundle")
+	require.Len(t, got, 1)
+
+	modes := map[string]uint32{}
+	for _, f := range got[0].Files {
+		modes[f.RelPath] = f.Mode
+	}
+	assert.Equal(t, uint32(0755), modes["scripts/run.sh"], "the exec bit is load-bearing")
+	assert.Equal(t, uint32(0644), modes["SKILL.md"])
+}
+
+// TestSkillContent_ManifestResolutionFailureWarns refutes U030-F16, which
+// claimed the preimage path was the one withhold in skillContent with no
+// clidiag.Warn. The silent path it named — a json.Marshal failure on
+// BundleSkill.ContentPayload — no longer exists in that shape: the preimage is
+// now resolved through EffectiveManifest, which CAN fail for real (an
+// unresolvable or unparseable tree) and warns when it does.
+//
+// This drives the reachable failure and asserts the warning payload, so
+// deleting the warn puts the row's own complaint back and this test goes red.
+func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	bundleDir := bundlesDir + "/skill-bundle"
+	// A skill entry with NO authored manifest and NO source tree: the preimage
+	// must be derived from a tree that is not there.
+	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
+		[]byte("version: \"1.0\"\nskills:\n  ghost: {}\n"), 0644))
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	assert.Empty(t, loader.SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
+
+	out := sink.String()
+	assert.Contains(t, out, "ghost", "the withheld skill must be named")
+	assert.NotEmpty(t, out, "no withhold in skillContent may be silent")
+}
+
+// TestLoadFile_ConcurrencyContract pins what U030-F10's corrected doc now
+// asserts, in the two halves the old one-liner ("safe for concurrent use")
+// blurred together.
+//
+// Half one: the CALL is safe. Concurrent LoadFile of the same and different
+// paths is race-clean — this runs under -race, so a lock regression around the
+// cache fails here rather than intermittently in some caller.
+//
+// Half two: the RESULT is SHARED, not copied. Identical pointers are exactly
+// why the read-only rule is load-bearing; if LoadFile ever started returning
+// copies, the caution in its doc would become misleading in the other
+// direction, and this is what notices.
+func TestLoadFile_ConcurrencyContract(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	for _, n := range []string{"a", "b", "c"} {
+		require.NoError(t, afero.WriteFile(fsys, bundlesDir+"/"+n+".yaml",
+			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n"), 0644))
+	}
+	l := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+
+	var wg sync.WaitGroup
+	results := make([]*Bundle, 24)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := []string{"a", "b", "c"}[i%3]
+			b, err := l.LoadFile(bundlesDir + "/" + name + ".yaml")
+			assert.NoError(t, err)
+			results[i] = b
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range results {
+		require.NotNil(t, results[i])
+		assert.Same(t, results[i%3], results[i],
+			"every caller of the same path shares one *Bundle — the reason it must be treated as read-only")
+	}
+	assert.NotSame(t, results[0], results[1], "different bundles stay distinct")
 }

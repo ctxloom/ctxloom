@@ -62,12 +62,3 @@ func titleCase(s string) string {
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
 }
-
-// helpArgName is the one positional value some commands read as "the caller
-// fumbled for help" rather than as a resource name. It is a FALLBACK, never a
-// guard: a bundle of help docs or an agent called "help" is a legal resource,
-// so a command consults this only after the named resource turns out not to
-// exist (or, for the create/set commands, not at all — naming the thing to
-// create is unambiguous). Cobra's own --help and `ctxloom help <path>` are the
-// unambiguous ways to ask, and are unaffected.
-const helpArgName = "help"

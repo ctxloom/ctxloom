@@ -1777,3 +1777,177 @@ func TestParseBundle_AcceptsAVersionOnlySkeleton(t *testing.T) {
 	require.NotNil(t, b)
 	assert.Len(t, b.Fragments, 1)
 }
+
+// TestLoader_IsDistilled_HonoursNoDistill pins U030-F08: IsDistilled describes
+// the BYTES that were served, so it must be derived from the same decision that
+// chose them (resolveEffective's ContentForm), never re-derived from a subset of
+// its terms.
+//
+// The `no_distill: true` item is exactly where the two predicates part company:
+// resolveEffective refuses the distilled form and serves the raw content, while
+// `preferDistilled && Distilled != ""` still reports true. A consumer is then
+// told it received a distillation it did not receive — and IsDistilled travels
+// off this package, through internal/lm/grpc, to whoever is deciding whether the
+// full text is still available.
+func TestLoader_IsDistilled_HonoursNoDistill(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundleYAML := `
+version: "1.0"
+fragments:
+  pinned-raw:
+    content: Original fragment
+    distilled: Distilled fragment
+    no_distill: true
+commands:
+  pinned-raw-cmd:
+    content: Original command
+    distilled: Distilled command
+    no_distill: true
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "bundle.yaml"), []byte(bundleYAML), 0644))
+
+	loader := NewLoader([]string{tmpDir}, true)
+
+	frag, err := loader.GetFragment("pinned-raw")
+	require.NoError(t, err)
+	assert.Equal(t, "Original fragment", frag.Content, "no_distill must serve the raw content")
+	assert.False(t, frag.IsDistilled, "the flag must describe the bytes actually served")
+
+	cmd, err := loader.GetCommand("pinned-raw-cmd")
+	require.NoError(t, err)
+	assert.Equal(t, "Original command", cmd.Content, "no_distill must serve the raw content")
+	assert.False(t, cmd.IsDistilled, "the flag must describe the bytes actually served")
+}
+
+// TestExpandBundleRef_TargetedSelectorGrammar pins U030-F17: the ':' selector
+// aliases expandBundleRef actually recognises. The inline comment claimed
+// "{fragments|prompts|mcp}", but the ':' marker list was rewritten to
+// ":commands/" by the prompt→command item-kind rename and ":prompts/" was
+// deliberately NOT carried as a shim.
+//
+// The consequence of the stale name is not cosmetic: an unrecognised ':'
+// selector is not an error — it falls through to the whole-bundle branch, where
+// the ENTIRE string is taken as a bundle name. "b:prompts/x" therefore looks up
+// a bundle literally called "b:prompts/x". This test is what makes the retired
+// alias visible if someone re-adds it, or renames the live one again.
+func TestExpandBundleRef_TargetedSelectorGrammar(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundleYAML := `
+version: "1.0"
+fragments:
+  f1:
+    content: one
+commands:
+  c1:
+    content: two
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(bundleYAML), 0644))
+	l := NewLoader([]string{tmpDir}, false)
+
+	// Recognised, fragment-targeted: expands to exactly that item.
+	for _, ref := range []string{"b:fragments/f1", "b#fragments/f1"} {
+		got := l.expandBundleRef(ref)
+		require.Len(t, got, 1, "ref %q", ref)
+		assert.Equal(t, "ctxloom:local@bundles/b#fragments/f1", got[0].Name, "ref %q", ref)
+	}
+
+	// Recognised, NOT fragment-targeted: yields nothing (and must not be
+	// mistaken for a whole-bundle expansion).
+	for _, ref := range []string{"b:commands/c1", "b#commands/c1", "b:mcp/srv", "b#prompts/c1"} {
+		assert.Empty(t, l.expandBundleRef(ref), "ref %q", ref)
+	}
+
+	// The retired ':prompts/' alias is not a selector at all. It reaches the
+	// whole-bundle branch, where the whole string is the bundle name — which
+	// resolves to no bundle, hence nothing.
+	assert.Empty(t, l.expandBundleRef("b:prompts/c1"))
+
+	// Whole-bundle ref still enumerates every fragment.
+	whole := l.expandBundleRef("b")
+	require.Len(t, whole, 1)
+	assert.Equal(t, "ctxloom:local@bundles/b#fragments/f1", whole[0].Name)
+}
+
+// TestInstallation_IsNeverInTheModelFacingBytes pins the invariant U030-F09's
+// corrected comments now assert. `installation:` is operator-facing setup prose
+// (surfaced in review/pull/list output); it must never reach the model. The two
+// field comments used to say OPPOSITE things about identically-plumbed fields —
+// BundleFragment's "not sent to AI" and BundleCommand's "sent to AI" — and
+// nothing executable could tell you which was right.
+//
+// The bytes the trust gate decides on ARE the bytes the agent sees
+// (ContentPayload is the single preimage builder), so asserting the payload
+// covers both questions at once. If installation prose is ever folded into
+// content, this goes red.
+func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
+	const secretish = "run: curl example.invalid/install.sh | sh"
+
+	frag := BundleFragment{Content: "fragment body", Installation: secretish}
+	cmd := BundleCommand{Content: "command body", Installation: secretish}
+
+	for _, preferDistilled := range []bool{false, true} {
+		fragPayload, _ := frag.ContentPayload(preferDistilled)
+		assert.NotContains(t, string(fragPayload), secretish)
+		assert.Equal(t, "fragment body", string(fragPayload))
+
+		cmdPayload, _ := cmd.ContentPayload(preferDistilled)
+		assert.NotContains(t, string(cmdPayload), secretish)
+		assert.Equal(t, "command body", string(cmdPayload))
+	}
+
+	// And the loader carries it as sidecar metadata, never spliced into Content.
+	tmpDir := t.TempDir()
+	bundleYAML := "version: \"1.0\"\ncommands:\n  c1:\n    content: command body\n    installation: '" + secretish + "'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(bundleYAML), 0644))
+	lc, err := NewLoader([]string{tmpDir}, false).GetCommand("c1")
+	require.NoError(t, err)
+	assert.Equal(t, "command body", lc.Content)
+	assert.Equal(t, secretish, lc.Installation)
+}
+
+// TestBundleAccessorTier_Characterization pins the whole accessor tier
+// U030-F20 names, so a later collapse into a generic accessor is provably
+// behaviour-preserving rather than hopefully so.
+//
+// Measured against the census: the tier was 13 methods and is now 10 —
+// SkillCount, HasProfiles and AllTags have already been removed by this
+// campaign, and every survivor has at least one production caller, so there is
+// no dead member left to delete. What IS worth locking is the only real
+// behaviour any of them has: the *Names accessors return SORTED slices, which
+// downstream reproducibility (command-file writes, review output) depends on
+// and which a naive `for k := range m` rewrite would silently lose.
+func TestBundleAccessorTier_Characterization(t *testing.T) {
+	b := &Bundle{
+		Fragments: map[string]BundleFragment{"zf": {}, "af": {}, "mf": {}},
+		Commands:  map[string]BundleCommand{"zc": {}, "ac": {}},
+		MCP:       map[string]BundleMCP{"zm": {}, "am": {}},
+		Skills:    map[string]BundleSkill{"zs": {}, "as": {}},
+		Profiles:  map[string]BundleProfile{"zp": {}, "ap": {}},
+	}
+
+	assert.Equal(t, 3, b.FragmentCount())
+	assert.Equal(t, 2, b.CommandCount())
+	assert.Equal(t, 2, b.MCPCount())
+	assert.Equal(t, 2, b.ProfileCount())
+	assert.True(t, b.HasMCP())
+
+	assert.Equal(t, []string{"af", "mf", "zf"}, b.FragmentNames())
+	assert.Equal(t, []string{"ac", "zc"}, b.PromptNames())
+	assert.Equal(t, []string{"am", "zm"}, b.MCPNames())
+	assert.Equal(t, []string{"as", "zs"}, b.SkillNames())
+	assert.Equal(t, []string{"ap", "zp"}, b.ProfileNames())
+
+	// The empty bundle: every count zero, every name list empty, HasMCP false.
+	// Callers branch on these, so the zero behaviour is part of the contract.
+	empty := &Bundle{}
+	assert.False(t, empty.HasMCP())
+	assert.Zero(t, empty.FragmentCount())
+	assert.Zero(t, empty.CommandCount())
+	assert.Zero(t, empty.MCPCount())
+	assert.Zero(t, empty.ProfileCount())
+	assert.Empty(t, empty.FragmentNames())
+	assert.Empty(t, empty.PromptNames())
+	assert.Empty(t, empty.MCPNames())
+	assert.Empty(t, empty.SkillNames())
+	assert.Empty(t, empty.ProfileNames())
+}

@@ -128,8 +128,8 @@ Example:
 
 func runProfileCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if name == "help" {
-		return cmd.Help()
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
 	}
 
 	if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
@@ -173,7 +173,7 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	printProfileCreated(name, res.Path)
+	printProfileCreated(cmd.OutOrStdout(), name, res.Path)
 	return nil
 }
 
@@ -206,7 +206,7 @@ func profileLoaderFSOptions(cfg *config.Config) []profiles.LoaderOption {
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.
-func printProfileCreated(name, path string) {
+func printProfileCreated(w io.Writer, name, path string) {
 	var parts []string
 	if len(profileCreateParents) > 0 {
 		parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileCreateParents, ", ")))
@@ -214,8 +214,8 @@ func printProfileCreated(name, path string) {
 	if len(profileCreateBundles) > 0 {
 		parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateBundles, ", ")))
 	}
-	fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
-	fmt.Printf("Saved to: %s\n", path)
+	fmt.Fprintf(w, "Created profile %q with %s\n", name, strings.Join(parts, "; "))
+	fmt.Fprintf(w, "Saved to: %s\n", path)
 }
 
 var profileDeleteCmd = &cobra.Command{
@@ -224,8 +224,8 @@ var profileDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 
 		cfg, err := GetConfig()
@@ -239,7 +239,7 @@ var profileDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Deleted profile %q\n", name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleted profile %q\n", name)
 		return nil
 	},
 }
@@ -250,8 +250,8 @@ var profileShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 
 		cfg, err := GetConfig()
@@ -336,8 +336,8 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
+		if shown, err := helpShortcut(cmd, name); shown {
+			return err
 		}
 
 		cfg, err := GetConfig()
@@ -451,7 +451,7 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
+	fmt.Fprintf(cmd.OutOrStdout(), "Exported: %s -> %s\n", res.Source, res.Dest)
 	return nil
 }
 
@@ -487,7 +487,7 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
+	fmt.Fprintf(cmd.OutOrStdout(), "Imported: %s -> %s\n", res.Source, res.Dest)
 	return nil
 }
 

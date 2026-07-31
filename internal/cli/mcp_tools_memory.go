@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -167,6 +168,24 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 		s.handleGetPreviousSession)
 }
 
+// withDistillBudget bounds ctx to the relay's distill budget when it carries
+// no deadline of its own, and returns it unchanged when it does.
+//
+// On the host-relay path a handler runs on the COORDINATOR's base context,
+// which has no deadline: the caller's budget bounds only how long it WAITS,
+// never the work. Left unbounded, one wedged LLM subprocess runs forever —
+// holding a singleflight entry open, or a listing. mcpschema.DistillBudget is
+// one number deliberately covering both sides of the relay, so a host can
+// never outlive its caller's patience by design; this is where the host side
+// of that contract is applied. A caller that already carries a deadline keeps
+// it: re-bounding would EXTEND someone who asked for less.
+func withDistillBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, has := ctx.Deadline(); has {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, mcpschema.DistillBudget)
+}
+
 func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolRequest, in compactSessionInput) (*mcp.CallToolResult, *compactSessionResult, error) {
 	plugin := s.cfg.GetCompactionLLM()
 	model := in.Model
@@ -183,6 +202,9 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	if err != nil {
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
+
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 
 	sessionsDir := paths.ProjectSessionsDir(s.cfg.GetAppDir())
 
@@ -280,6 +302,8 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 // whose engine reader needs the cwd we deliberately don't change) must not fail
 // the whole listing.
 func (s *ctxServer) distillMissingForList(ctx context.Context, entries []sessions.Entry) {
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 	for i := range entries {
 		e := &entries[i]
 		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
@@ -288,7 +312,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntry(ctx, e, s.cfg, "", io.Discard); err != nil {
+		if _, err := compactEntryFn(ctx, e, s.cfg, "", io.Discard); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}
@@ -327,9 +351,20 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 	}
 	data, err := os.ReadFile(essencePath)
 	if err != nil {
+		// Only an ABSENT essence means "never distilled". Every other read
+		// fault (permissions, a directory in its place, an I/O error) names a
+		// file that exists and cannot be read, for which re-distilling is the
+		// wrong remedy: the compaction would spend an LLM budget writing to
+		// the same unreadable path and the caller would loop.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, &loadSessionResult{
+				Loaded:  false,
+				Message: fmt.Sprintf("No distilled essence for %s yet. Run `ctxloom session distill %s` or compact_session to generate one.", harpName, harpName),
+			}, nil
+		}
 		return nil, &loadSessionResult{
 			Loaded:  false,
-			Message: fmt.Sprintf("No distilled essence for %s yet. Run `ctxloom session distill %s` or compact_session to generate one.", harpName, harpName),
+			Message: fmt.Sprintf("The distilled essence for %s exists but could not be read (%s): %v. Re-distilling will not help until that path is readable.", harpName, essencePath, err),
 		}, nil
 	}
 	return nil, &loadSessionResult{
@@ -541,15 +576,10 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		}
 	}
 
-	// On the host-relay path this runs on the coordinator's deadline-less base
-	// context; bound the work to the relay's distill budget so a wedged LLM
-	// subprocess can't hold the singleflight entry open forever (see
-	// distillSession for the full rationale).
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
-		defer cancel()
-	}
+	// Bound the work so a wedged LLM subprocess can't hold the singleflight
+	// entry open forever (see withDistillBudget).
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 	// The model is part of the key, exactly as the backend path keys on it
 	// (sessionID\x00backend\x00model): two concurrent calls asking for
 	// DIFFERENT models must not collapse into one distill and hand both callers
@@ -770,17 +800,12 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 	if model == "" {
 		model = s.cfg.GetCompactionModel()
 	}
-	// On the host-relay path this runs on the COORDINATOR's base context, which
-	// has no deadline — the caller's budget bounds only how long it waits, never
-	// the work. Left unbounded, one wedged LLM subprocess would hold the
-	// singleflight entry open forever and every later recover of this session
-	// would queue behind the wedge instead of failing. Bound the work to the
-	// same budget the relay grants the caller.
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
-		defer cancel()
-	}
+	// Bound the work to the same budget the relay grants the caller, so one
+	// wedged LLM subprocess cannot hold the singleflight entry open forever
+	// and queue every later recover of this session behind it (see
+	// withDistillBudget).
+	ctx, cancel := withDistillBudget(ctx)
+	defer cancel()
 	return s.singleflightDistill(sessionID+"\x00"+backendName+"\x00"+model, func() (*loadSessionResult, error) {
 		return s.distillSessionOnce(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	})

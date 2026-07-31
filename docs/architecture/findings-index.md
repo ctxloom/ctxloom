@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,330** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,331** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **441** |
+| `open` | no commit names this ID | **440** |
 
-**Totals: 2268 findings across 162 units — 1,330 resolved, 441 still open, 497 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,331 resolved, 440 still open, 497 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 480 | 244 | 81 | 80 | 114 |
+| MED | 999 | 481 | 243 | 81 | 80 | 114 |
 | LOW | 871 | 493 | 185 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1347,7 +1347,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U055-F05 | **ESCALATED** `6f264e03` | **`settings.go:178`** | NOPAY | `KiroWriter.WriteSettings` has **no production call site**; only tests and the conformance suite exercise it. Its dead weight cascades: `reconcileSteering`'s hash-reading branch (settings.go:229-23... | U055.md |
 | U055-F07 | **RESOLVED** `361fb91e` | **`settings.go:310-315`** | ERRHANDLING | `Status` swallows two parse errors, so a **corrupt or unreadable** `.kiro/agents/ctxloom.json` reports as *"not wired"* rather than *"broken"*. This is the same silent-empty-parse failure mode that... | U055.md |
 | U055-F08 | **RESOLVED** `1c5b051a` | **`backend.go:196-201`** | SILENTNOOP | A oneshot with an empty prompt launches `kiro-cli chat --no-interactive` **with no INPUT positional**. `--no-interactive` is appended unconditionally on `ModeOneshot` (:197-198) while the prompt is... | U055.md |
-| U056-F06 | open | `monitor.go:322-327 vs liveness.go:120-122` | CORRECTNESS | A zero `StartedAt` **enables** the age-gated content rung instead of disabling it, contradicting the field's documented contract; and `cpuRung` is not age-gated at all, so the launch grace does not... | U056.md |
+| U056-F06 | **RESOLVED** `30b5ec5a` | `monitor.go:322-327 vs liveness.go:120-122` | CORRECTNESS | A zero `StartedAt` **enables** the age-gated content rung instead of disabling it, contradicting the field's documented contract; and `cpuRung` is not age-gated at all, so the launch grace does not... | U056.md |
 | U056-F07 | open | `transcript.go:300-306, monitor.go:276-279` | CORRECTNESS | The zero-median branch emits a `Redelivery` with **no cadence proof**, and `loopRung` fires on `Repeats` alone with no grace period — contradicting `detectRedelivery`'s own "both conditions matter"... | U056.md |
 | U056-F08 | **RESOLVED** `9f6a477f` | `transcript.go:388-389, 405-432` | ERRHANDLING | `NewestMTime`'s doc promises that a genuine walk error is returned; in fact the `WalkDir` callback swallows every error and the `walkErr` branch is unreachable, so a permission-denied worktree retu... | U056.md |
 | U056-F09 | **RESOLVED** `3060b28c` | `transcript.go:166-168, monitor.go:377-385` | ERRHANDLING | A mid-file scan failure returns a **partial** `TranscriptStat` alongside the error; `gather` keeps the partial data and warns, and the ladder then condemns on it. | U056.md |

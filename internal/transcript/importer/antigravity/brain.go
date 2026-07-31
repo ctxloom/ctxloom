@@ -22,10 +22,40 @@ import (
 // envelope around a nested payload — every field this adapter cares about is
 // already at the top level, so one struct suffices where codex needed two
 // (rolloutLine + a payload type per variant).
+//
+// Content is json.RawMessage, not string, so that a `content` field which is
+// still valid JSON but no longer a STRING is a fact this adapter can observe
+// and report — see stepText. Decoding it as a string made vendor shape drift
+// indistinguishable from byte corruption: json.Unmarshal failed on the whole
+// line, and the line was discarded through the identical path a truncated,
+// genuinely corrupt line takes, so a file whose every line parses fine was
+// reported as "failed to parse as JSON".
 type step struct {
-	Type    string `json:"type"`
-	Status  string `json:"status"`
-	Content string `json:"content"`
+	Type    string          `json:"type"`
+	Status  string          `json:"status"`
+	Content json.RawMessage `json:"content"`
+}
+
+// stepText decodes a step's `content` field. antigravity has only ever emitted
+// it as a bare JSON string on this box (see testdata/MANIFEST.json), and an
+// absent or null field is a legitimate empty content, not a problem.
+//
+// ok=false means the field is PRESENT and is valid JSON but is no longer a
+// string — the vendor's shape has drifted. That is a different failure from a
+// line whose bytes are not JSON at all: the step's own type and status are
+// still perfectly readable, so the adapter still knows a turn was there and
+// can say what it could not read. Reporting it as malformed would name the
+// wrong cause and, on a file where every line drifted, would claim the file
+// is not JSON when every byte of it is.
+func stepText(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", false
+	}
+	return s, true
 }
 
 // stepDone is the only status value this adapter has ever observed on a
@@ -97,6 +127,7 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 		malformed   int
 		convertible int // lines whose Type is one this adapter maps at all
 		wrongStatus int // convertible lines skipped only for Status != stepDone
+		drifted     int // convertible lines whose `content` is no longer a string
 		entries     int
 	)
 	for _, line := range lines {
@@ -118,12 +149,20 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 			wrongStatus++
 			continue // provisional (e.g. RUNNING): not a finalized turn to record
 		}
-		for _, ev := range stepEvent(s) {
+		text, readable := stepText(s.Content)
+		if !readable {
+			drifted++
+			continue // `content` is valid JSON but no longer a string: see stepText
+		}
+		for _, ev := range stepEvent(s.Type, text) {
 			if err := record(ev); err != nil {
 				return err
 			}
 			entries++
 		}
+	}
+	if drifted > 0 {
+		agent.Warn("antigravity transcript import: %d step(s) carried a `content` field that is no longer a JSON string — this build cannot read that shape, and their text was dropped", drifted)
 	}
 	// U146-F01/F02: a file that decodes fine but yields zero entries is
 	// indistinguishable, without this check, from a genuinely empty or
@@ -134,6 +173,9 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 	// when there was real convertible content to have converted; an
 	// admin-only file (convertible == 0) stays a legitimate, silent success.
 	if entries == 0 && convertible > 0 {
+		if drifted == convertible {
+			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but every one carried a `content` field that is no longer a JSON string — the lines are valid JSON, this build's content shape is what no longer matches", lineCount, convertible)
+		}
 		if wrongStatus == convertible {
 			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but none had status %q — this build's status vocabulary no longer matches the file", lineCount, convertible, stepDone)
 		}
@@ -163,14 +205,14 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 // future/unrecognized type) is skipped — see this package's doc comment for
 // why that vocabulary is not converted even though some of it is real,
 // present data on this box.
-func stepEvent(s step) []agent.ChatEvent {
-	switch s.Type {
+func stepEvent(stepType, content string) []agent.ChatEvent {
+	switch stepType {
 	case stepTypeUser:
-		return importer.TextEntry(agent.EntryTypeUser, extractUserRequest(s.Content))
+		return importer.TextEntry(agent.EntryTypeUser, extractUserRequest(content))
 	case stepTypeAssistant:
-		return importer.TextEntry(agent.EntryTypeAssistant, strings.TrimSpace(s.Content))
+		return importer.TextEntry(agent.EntryTypeAssistant, strings.TrimSpace(content))
 	case stepTypeError:
-		return importer.TextEntry(agent.EntryTypeSystem, strings.TrimSpace(s.Content))
+		return importer.TextEntry(agent.EntryTypeSystem, strings.TrimSpace(content))
 	default:
 		return nil
 	}

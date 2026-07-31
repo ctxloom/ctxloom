@@ -36,17 +36,17 @@ func TestExtractUserRequest(t *testing.T) {
 
 func TestStepEvent(t *testing.T) {
 	t.Run("USER_INPUT with only wrapper noise yields nothing", func(t *testing.T) {
-		evs := stepEvent(step{Type: "USER_INPUT", Content: "<USER_REQUEST>\n\n</USER_REQUEST>"})
+		evs := stepEvent("USER_INPUT", "<USER_REQUEST>\n\n</USER_REQUEST>")
 		assert.Empty(t, evs, "an empty extracted user request contributes nothing")
 	})
 
 	t.Run("PLANNER_RESPONSE with empty content yields nothing", func(t *testing.T) {
-		evs := stepEvent(step{Type: "PLANNER_RESPONSE", Content: "   "})
+		evs := stepEvent("PLANNER_RESPONSE", "   ")
 		assert.Empty(t, evs, "a blank assistant response contributes nothing")
 	})
 
 	t.Run("USER_INPUT maps to a user entry", func(t *testing.T) {
-		evs := stepEvent(step{Type: "USER_INPUT", Content: "<USER_REQUEST>\nhello\n</USER_REQUEST>"})
+		evs := stepEvent("USER_INPUT", "<USER_REQUEST>\nhello\n</USER_REQUEST>")
 		require.Len(t, evs, 1)
 		require.NotNil(t, evs[0].Entry)
 		assert.Equal(t, agent.EntryTypeUser, evs[0].Entry.Type)
@@ -54,7 +54,7 @@ func TestStepEvent(t *testing.T) {
 	})
 
 	t.Run("PLANNER_RESPONSE maps to an assistant entry", func(t *testing.T) {
-		evs := stepEvent(step{Type: "PLANNER_RESPONSE", Content: "ok"})
+		evs := stepEvent("PLANNER_RESPONSE", "ok")
 		require.Len(t, evs, 1)
 		require.NotNil(t, evs[0].Entry)
 		assert.Equal(t, agent.EntryTypeAssistant, evs[0].Entry.Type)
@@ -71,7 +71,7 @@ func TestStepEvent(t *testing.T) {
 			"LIST_DIRECTORY", "RUN_COMMAND", "CODE_ACTION", "VIEW_FILE",
 			"SYSTEM_MESSAGE", "SOME_FUTURE_TYPE",
 		} {
-			evs := stepEvent(step{Type: typ, Content: "some narration text"})
+			evs := stepEvent(typ, "some narration text")
 			assert.Empty(t, evs, "type %q must not be converted", typ)
 		}
 	})
@@ -86,7 +86,7 @@ func TestStepEvent(t *testing.T) {
 // SystemKindNotice ("a freeform system notice with no structured payload")
 // is exactly the slot, and the schema's entry.type enum already lists it.
 func TestStepEvent_ErrorMessageBecomesASystemEntry(t *testing.T) {
-	evs := stepEvent(step{Type: "ERROR_MESSAGE", Status: "DONE", Content: "  Tool call failed: exit status 1  "})
+	evs := stepEvent("ERROR_MESSAGE", "  Tool call failed: exit status 1  ")
 	require.Len(t, evs, 1)
 	require.NotNil(t, evs[0].Entry)
 	assert.Equal(t, agent.EntryTypeSystem, evs[0].Entry.Type)
@@ -97,5 +97,5 @@ func TestStepEvent_ErrorMessageBecomesASystemEntry(t *testing.T) {
 // An ERROR_MESSAGE step with nothing in it is still nothing to record —
 // TextEntry's "zero or one" discipline, same as every other mapped type.
 func TestStepEvent_EmptyErrorMessageYieldsNothing(t *testing.T) {
-	assert.Empty(t, stepEvent(step{Type: "ERROR_MESSAGE", Status: "DONE", Content: "   "}))
+	assert.Empty(t, stepEvent("ERROR_MESSAGE", "   "))
 }

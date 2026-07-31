@@ -1,7 +1,11 @@
-// This suite is self-contained and independently triggerable: it imports
-// only internal/transcript (the Recorder sink), internal/shared/agent, and
-// internal/testsupport (env/HOME isolation) — no other engine's adapter, no
-// other package under internal/transcript/importer. A release-monitoring job
+// This suite is self-contained and independently triggerable: it reaches for
+// no other engine's adapter and nothing under internal/transcript/importer
+// beyond the shared helpers this package already builds on, so it depends on
+// no other vendor's fixtures or golden files. (Its own support imports —
+// internal/transcript's Recorder sink, internal/paths, internal/shared/agent,
+// internal/shared/clidiag for warning capture, internal/testsupport for
+// env/HOME isolation — are ctxloom-wide infrastructure, not engine
+// coupling.) A release-monitoring job
 // validating just antigravity against a fresh transcript_full.jsonl runs it
 // alone with:
 //

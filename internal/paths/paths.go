@@ -90,6 +90,17 @@ const (
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
 
+	// TriggersDir is the cache/ subdirectory holding ctxloom's cached
+	// revive-trigger verdicts, one file per project (see TriggerCacheDir).
+	TriggersDir = "triggers"
+
+	// TrustObjectsDir is the leaf directory, under the TrustFileName segment,
+	// holding content-addressed copies of the bytes a human approved at review
+	// (see TrustObjectsPath). Named separately from TrustFileName because the
+	// two segments are independently meaningful: "trust" groups the store,
+	// "objects" says the store is content-addressed.
+	TrustObjectsDir = "objects"
+
 	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
 	SessionsDir = "sessions"
 
@@ -350,9 +361,9 @@ func ProjectSessionsDir(appDir string) string {
 func TriggerCacheDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolve the trigger verdict cache ~/%s/%s/triggers: %w", AppDirName, CacheDir, err)
+		return "", fmt.Errorf("resolve the trigger verdict cache ~/%s/%s/%s: %w", AppDirName, CacheDir, TriggersDir, err)
 	}
-	return filepath.Join(home, AppDirName, CacheDir, "triggers"), nil
+	return filepath.Join(home, AppDirName, CacheDir, TriggersDir), nil
 }
 
 // CachePath returns the cache subdirectory path for the given app path.
@@ -494,7 +505,7 @@ func ReposCachePath(appPath string) string {
 // Pure cache: deleting it only degrades update review from a diff to a
 // full-content display (the countersignature stores stay authoritative).
 func TrustObjectsPath(appPath string) string {
-	return filepath.Join(CachePath(appPath), TrustFileName, "objects")
+	return filepath.Join(CachePath(appPath), TrustFileName, TrustObjectsDir)
 }
 
 // DefaultRemotesPath returns the default remotes path relative to current directory.

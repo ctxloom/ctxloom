@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,282** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 122 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 169 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **531** |
+| `open` | no commit names this ID | **530** |
 
-**Totals: 2268 findings across 162 units — 1,282 resolved, 531 still open, 455 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,282 resolved, 530 still open, 456 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 452 | 296 | 68 | 79 | 104 |
-| LOW | 871 | 473 | 223 | 39 | 81 | 55 |
+| LOW | 871 | 473 | 222 | 39 | 82 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2018,7 +2018,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U012-F13 | **RESOLVED** `7d57e44b` | **`session.go:675–684`** | CORRECTNESS | `mediaBlockDetail` reports the base64 character count as a byte count, overstating real size by ~33% in a message the model reads | U012.md |
 | U012-F14 | **RESOLVED** `72f7f6bf` | **`session.go:1227–1232`** | TRIVIAL | `stampTime` is a single `if` with one caller and no invariant of its own | U012.md |
 | U012-F15 | **RESOLVED** `19615154` | **`session.go:246 vs acp.go:546`** | COUPLING | Two different `spawnEnv`s in one package — a method on `*ACP` (model overlay) and a package function (strip + overlay) — with unrelated semantics | U012.md |
-| U012-F16 | open | **`session.go:305, 105`** | COMPLEXITY | `setup` returns five unlabelled values `(api.SessionId, engineCapabilities, []api.SessionConfigOption, []agent.MCPStatus, error)`, and each of its five error paths must repeat all of them | U012.md |
+| U012-F16 | **REFUTED** `PENDING01` | **`session.go:305, 105`** | COMPLEXITY | `setup` returns five unlabelled values `(api.SessionId, engineCapabilities, []api.SessionConfigOption, []agent.MCPStatus, error)`, and each of its five error paths must repeat all of them | U012.md |
 | U012-F17 | **RESOLVED** `421517d2` | **`session.go:229–232`** | CORRECTNESS | A `CancelTurn` arriving with no turn in flight is silently discarded — no event, no warning | U012.md |
 | U012-F18 | open | **`session.go:234`** | COMPLEXITY | `queued` grows without bound: a client that streams messages during a long turn accumulates them all in memory with no backpressure signal | U012.md |
 | U012-F19 | open | **`session.go:346–351`** | COUPLING | Strict protocol-version equality means ctxloom cannot drive *any* adapter that negotiates a lower version, even one it could decode; ACP's handshake explicitly allows the agent to answer with a low... | U012.md |

@@ -1176,3 +1176,37 @@ func TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed(t *testing.T) {
 	assert.Nil(t, sess)
 	assert.Contains(t, rerr.Message, "tidy-old-harp")
 }
+
+// TestRunTurn_EventsClosedWithoutErrsStillResolvesTheTurn pins U014-F06.
+// When the engine's Events channel closes mid-turn and the turn was not
+// cancelled, runTurn replied with engineError(<-sess.engine.Errs) — a BARE
+// blocking receive. That is only safe if whoever closed Events also closed
+// (or wrote) Errs. The production producer does close both from one defer,
+// but that is a coincidence of one implementation, not a contract EngineChat
+// states: cmd/acpl1harness's engine closes Events and never touches Errs at
+// all. Against a producer like that the receive parks forever, so the
+// session/prompt request never resolves and the turn runner leaks — the
+// client is left waiting on a reply that can no longer be produced.
+func TestRunTurn_EventsClosedWithoutErrsStillResolvesTheTurn(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	id := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"do work"}]}`)
+	eng.receivedText(t) // the turn is registered and the message delivered
+
+	// A producer that ends the conversation by closing Events alone — no
+	// cancel, no session teardown, nothing ever sent on or closing Errs.
+	// Marking the fake closed first keeps the harness's own Close a no-op, so
+	// the teardown at test exit cannot re-close what we closed here.
+	close(eng.closed)
+	close(eng.events)
+
+	select {
+	case f := <-c.responses:
+		require.Equal(t, strconv.Itoa(id), string(f.ID))
+	case <-time.After(10 * time.Second):
+		t.Fatal("session/prompt never resolved: runTurn is parked on a bare receive from an Errs channel nobody will ever close")
+	}
+}

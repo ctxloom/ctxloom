@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1635,4 +1636,69 @@ func TestBuildPickerDetail(t *testing.T) {
 			assert.Equal(t, tt.expected, buildPickerDetail(tt.body))
 		})
 	}
+}
+
+// TestNewCompactor_ChunkSizeBand pins the one relationship between the
+// configured chunk size and the fixed ChunkOverlapTokens that matters.
+// chunkText advances by (chunk - overlap) per step, so a configured size just
+// above the overlap advances by almost nothing: `config.compaction_chunks:
+// 501` turns a 32,000 character transcript into ~8,000 chunks, each spawning
+// its own LLM plugin subprocess. At or below the overlap the advance goes
+// non-positive and chunkText degrades to no overlap, which is safe — so only
+// the open band is corrected, and small chunk sizes stay exactly as set.
+func TestNewCompactor_ChunkSizeBand(t *testing.T) {
+	testsupport.Isolate(t)
+
+	t.Run("a size inside the band is raised and reported", func(t *testing.T) {
+		var progress bytes.Buffer
+		c, err := NewCompactor(CompactionConfig{
+			ChunkSize:       ChunkOverlapTokens + 1,
+			BackendOverride: &mockBackend{},
+			Progress:        &progress,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, MinOverlappingChunkTokens, c.config.ChunkSize,
+			"a chunk size barely above the overlap advances by almost nothing per step")
+		assert.Contains(t, progress.String(), "chunk overlap",
+			"raising a user-configured value silently is the other half of this defect")
+	})
+
+	t.Run("the corrected size bounds the chunk count", func(t *testing.T) {
+		// The property the correction buys, stated against chunkText directly.
+		// Measured without it, at ChunkOverlapTokens+1, for contrast.
+		text := strings.Repeat("alpha beta gamma delta epsilon ", 2000)
+		ideal := len(text) / (MinOverlappingChunkTokens * CharsPerToken)
+
+		corrected := chunkText(text, MinOverlappingChunkTokens)
+		require.Greater(t, len(corrected), 1)
+		assert.LessOrEqual(t, len(corrected), 2*ideal+2,
+			"at twice the overlap the chunk count stays near the ideal")
+
+		inBand := chunkText(text, ChunkOverlapTokens+1)
+		assert.Greater(t, len(inBand), 20*len(corrected),
+			"fixture sanity: the uncorrected in-band size must actually explode, "+
+				"or this test proves nothing about the correction")
+	})
+
+	t.Run("a size at or below the overlap is left alone", func(t *testing.T) {
+		// chunkText already degrades these to the no-overlap regime, and small
+		// sizes are a legitimate configuration.
+		for _, size := range []int{100, ChunkOverlapTokens} {
+			c, err := NewCompactor(CompactionConfig{
+				ChunkSize:       size,
+				BackendOverride: &mockBackend{},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, size, c.config.ChunkSize)
+		}
+	})
+
+	t.Run("an explicit large size is left alone", func(t *testing.T) {
+		c, err := NewCompactor(CompactionConfig{
+			ChunkSize:       4000,
+			BackendOverride: &mockBackend{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 4000, c.config.ChunkSize)
+	})
 }

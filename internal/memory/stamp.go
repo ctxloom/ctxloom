@@ -39,27 +39,38 @@ func StampPlanFile(path, harpName string) error {
 	}
 	content := string(data)
 
-	if !strings.HasPrefix(content, "---\n") {
-		return prependFrontmatter(path, content, harpName)
+	// The rewrite is atomic (temp file + rename), so the replacement carries
+	// whatever mode it is given rather than the original's. Stamping is a
+	// metadata edit to a document the user owns and must not change its
+	// permissions: a plan kept at 0600 stays at 0600, an executable-bit-carrying
+	// file keeps it. A stat failure is not fatal — the file was readable a line
+	// ago — so fall back to the historical 0644.
+	mode := os.FileMode(0o644)
+	if st, sErr := os.Stat(path); sErr == nil {
+		mode = st.Mode().Perm()
 	}
-	return updateFrontmatter(path, content, harpName)
+
+	if !strings.HasPrefix(content, "---\n") {
+		return prependFrontmatter(path, content, harpName, mode)
+	}
+	return updateFrontmatter(path, content, harpName, mode)
 }
 
 // prependFrontmatter writes a new frontmatter block ahead of content that has
 // none, preserving a single newline gap before the body for readability.
-func prependFrontmatter(path, content, harpName string) error {
+func prependFrontmatter(path, content, harpName string, mode os.FileMode) error {
 	prefix := fmt.Sprintf("---\nsessions:\n  - %s\n---\n", harpName)
 	if !strings.HasPrefix(content, "\n") && content != "" {
 		prefix += "\n"
 	}
-	return iox.WriteFileAtomic(path, []byte(prefix+content), 0o644)
+	return iox.WriteFileAtomic(path, []byte(prefix+content), mode)
 }
 
 // updateFrontmatter parses content's leading frontmatter, adds harpName to its
 // sessions list, and rewrites the file. It bails (no change) on a malformed or
 // unterminated block, or when the harp is already present. yaml.Node is used so
 // unknown keys, comments, key order, and scalar styles round-trip verbatim.
-func updateFrontmatter(path, content, harpName string) error {
+func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 	rest := content[len("---\n"):]
 	var block, body string
 	switch {
@@ -107,7 +118,7 @@ func updateFrontmatter(path, content, harpName string) error {
 	if body != "" {
 		newContent += "\n" + body
 	}
-	return iox.WriteFileAtomic(path, []byte(newContent), 0o644)
+	return iox.WriteFileAtomic(path, []byte(newContent), mode)
 }
 
 // encodeFrontmatter renders a parsed frontmatter document back to YAML. Both

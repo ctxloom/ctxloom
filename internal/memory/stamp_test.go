@@ -224,3 +224,53 @@ func TestEncodeFrontmatter_RoundTripsCompleteDocument(t *testing.T) {
 		}
 	}
 }
+
+// TestStampPlanFile_PreservesFileMode pins that stamping a plan is a content
+// edit, not a permissions change. The rewrite is atomic (temp file + rename),
+// so the replacement's mode is whatever the writer is handed — it used to be
+// a hard-coded 0644, which quietly widened a plan the user had kept private.
+func TestStampPlanFile_PreservesFileMode(t *testing.T) {
+	for _, mode := range []os.FileMode{0o600, 0o640, 0o664} {
+		path := writePlanFile(t, "current_plan.md", "# Plan\n\nbody\n")
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatalf("chmod fixture: %v", err)
+		}
+		// The fixture must actually be hostile to the defect before the
+		// behaviour is asserted: confirm the mode really differs from the
+		// 0644 the writer used to hard-code.
+		st, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat fixture: %v", err)
+		}
+		if st.Mode().Perm() != mode {
+			t.Fatalf("fixture did not take mode %v, got %v", mode, st.Mode().Perm())
+		}
+
+		if err := StampPlanFile(path, "some-harp"); err != nil {
+			t.Fatalf("stamp: %v", err)
+		}
+		if !strings.Contains(readFile(t, path), "some-harp") {
+			t.Fatalf("stamp did not run: harp missing from %s", path)
+		}
+		after, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after stamp: %v", err)
+		}
+		if after.Mode().Perm() != mode {
+			t.Fatalf("stamping changed the plan's mode from %v to %v", mode, after.Mode().Perm())
+		}
+
+		// Second stamp: the update path (frontmatter now exists) must preserve
+		// the mode too, not just the prepend path.
+		if err := StampPlanFile(path, "other-harp"); err != nil {
+			t.Fatalf("re-stamp: %v", err)
+		}
+		again, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after re-stamp: %v", err)
+		}
+		if again.Mode().Perm() != mode {
+			t.Fatalf("re-stamping changed the plan's mode from %v to %v", mode, again.Mode().Perm())
+		}
+	}
+}

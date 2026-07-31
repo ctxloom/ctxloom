@@ -30,6 +30,20 @@ const (
 	DefaultChunkTokens = 8000
 	// ChunkOverlapTokens is the overlap between chunks for context continuity.
 	ChunkOverlapTokens = 500
+	// MinOverlappingChunkTokens is derived from ChunkOverlapTokens rather than
+	// chosen, and it bounds one specific hazard: chunkText advances by
+	// (chunk - overlap) per step, so a chunk size only a little larger than the
+	// overlap advances by almost nothing and one transcript explodes into orders
+	// of magnitude more chunks — each spawning its own LLM plugin subprocess.
+	// At twice the overlap the advance is at least half a chunk, which bounds
+	// the chunk count at roughly twice the ideal.
+	//
+	// The hazard is confined to the open band (ChunkOverlapTokens,
+	// MinOverlappingChunkTokens). At or below the overlap the advance goes
+	// non-positive and chunkText already degrades to no overlap at all, which is
+	// safe — small chunk sizes are legitimate and are left exactly as
+	// configured. Only the band is corrected.
+	MinOverlappingChunkTokens = ChunkOverlapTokens * 2
 	// CharsPerToken is the chars-per-token ratio, owned by internal/tokens so the
 	// distillation estimate and the dry-run preview agree on one heuristic.
 	CharsPerToken = tokens.CharsPerToken
@@ -136,6 +150,19 @@ func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, 
 func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	if config.ChunkSize <= 0 {
 		config.ChunkSize = DefaultChunkTokens
+	}
+	// config.compaction_chunks is user-settable and is the only input the fixed
+	// ChunkOverlapTokens is ever weighed against. A value inside the band is a
+	// cost bomb rather than a small chunk: see MinOverlappingChunkTokens. Raise
+	// it and say so, rather than silently spawning thousands of plugin
+	// subprocesses for one session.
+	if config.ChunkSize > ChunkOverlapTokens && config.ChunkSize < MinOverlappingChunkTokens {
+		if config.Progress != nil {
+			clidiag.Fwarn(config.Progress, "ctxloom",
+				"compaction chunk size %d sits just above the %d-token chunk overlap, which would split one session into thousands of near-duplicate chunks; using %d",
+				config.ChunkSize, ChunkOverlapTokens, MinOverlappingChunkTokens)
+		}
+		config.ChunkSize = MinOverlappingChunkTokens
 	}
 	if config.Backend == "" {
 		config.Backend = "claude-code"

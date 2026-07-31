@@ -235,3 +235,60 @@ func TestAddTree_WatchesEverySubdirectoryByDefault(t *testing.T) {
 		}
 	}
 }
+
+// TestSkipDir_PrunesSubtree pins the seam U132-F02 says is missing: a caller
+// that knows a subtree cannot contain the paths it asked for must be able to
+// say so, because `filter` cannot — a directory's own name does not match the
+// paths inside it, so a *.plan.md filter says nothing about whether to descend
+// into an agent worktree. The pruned subtree costs no watch, at construction
+// and when it appears afterwards.
+func TestSkipDir_PrunesSubtree(t *testing.T) {
+	root := t.TempDir()
+	kept := filepath.Join(root, "harp")
+	pruned := filepath.Join(root, "ephemeral")
+	prunedChild := filepath.Join(pruned, "agent-worktree")
+	for _, d := range []string{kept, prunedChild} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w, err := New(root, true,
+		func(p string) bool { return strings.HasSuffix(p, ".plan.md") },
+		SkipDir(func(dir string) bool { return filepath.Base(dir) == "ephemeral" }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	watched := watchedSet(w)
+	if !watched[root] || !watched[kept] {
+		t.Fatalf("SkipDir pruned a directory it was not asked to: root=%v kept=%v", watched[root], watched[kept])
+	}
+	if watched[pruned] {
+		t.Fatalf("%q is watched despite SkipDir", pruned)
+	}
+	if watched[prunedChild] {
+		t.Fatalf("%q is watched: SkipDir pruned the directory but not its subtree", prunedChild)
+	}
+
+	// A pruned directory appearing after the watch starts is pruned too: the
+	// runtime adopt path is a second, separate descent.
+	late := filepath.Join(kept, "ephemeral")
+	if err := os.MkdirAll(filepath.Join(late, "later-agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := filepath.Join(kept, "v1.plan.md")
+	if err := os.WriteFile(plan, []byte("# plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Waiting for the plan file orders the assertion after the pump has
+	// processed the directory creation that precedes it.
+	if ev := recv(t, w); ev.Path != plan {
+		t.Fatalf("event path = %q, want %q", ev.Path, plan)
+	}
+	if watchedSet(w)[late] {
+		t.Fatalf("%q is watched: SkipDir was not consulted for a directory created after the watch started", late)
+	}
+}

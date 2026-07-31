@@ -32,6 +32,7 @@ type Watcher struct {
 	fsw       *fsnotify.Watcher
 	recursive bool
 	filter    func(path string) bool
+	skipDir   func(dir string) bool
 	events    chan Event
 	errs      chan error
 	done      chan struct{}
@@ -42,11 +43,33 @@ type Watcher struct {
 	closeErr  error
 }
 
+// Option adjusts a Watcher at construction. Options exist so a caller that has
+// nothing to say keeps the plain three-argument call.
+type Option func(*Watcher)
+
+// SkipDir excludes a directory and everything beneath it from a recursive
+// watch: skip is called with each directory the walk reaches, and a true answer
+// prunes that whole subtree.
+//
+// filter decides which events a caller is told about; it cannot decide which
+// directories are worth watching, because a directory's own name rarely matches
+// the paths the caller wants (a session directory is not a *.plan.md). Without
+// this the two are conflated and a recursive watch spends an inotify watch on
+// every directory under the root whichever way the filter answers — measured
+// for `ctxloom plan watch`: 4,614 watched directories to observe 232 files.
+//
+// Pruning a subtree makes the watch blind to it, so this is a statement about
+// where the caller's paths cannot appear, not an optimisation to apply
+// speculatively.
+func SkipDir(skip func(dir string) bool) Option {
+	return func(w *Watcher) { w.skipDir = skip }
+}
+
 // New starts watching root. When recursive, every existing subdirectory — and
-// any created later — is watched too, so changes at any depth are reported.
-// filter, when non-nil, keeps only events whose path it accepts. root is created
-// if missing so the watch can attach before the first write.
-func New(root string, recursive bool, filter func(path string) bool) (*Watcher, error) {
+// any created later — is watched too, so changes at any depth are reported,
+// except subtrees a SkipDir option prunes. filter, when non-nil, keeps only
+// events whose path it accepts. root must already exist.
+func New(root string, recursive bool, filter func(path string) bool, opts ...Option) (*Watcher, error) {
 	// U132-F03: New used to os.MkdirAll(root) unconditionally, so a
 	// nonexistent, typo'd, or wrongly-resolved root produced a healthy-
 	// looking watcher on an empty directory that streams zero events
@@ -74,6 +97,9 @@ func New(root string, recursive bool, filter func(path string) bool) (*Watcher, 
 		errs:      make(chan error, 1),
 		done:      make(chan struct{}),
 		pumped:    make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(w)
 	}
 	if recursive {
 		if err := w.addTree(root, nil); err != nil {
@@ -124,15 +150,20 @@ func (w *Watcher) Close() error {
 	return w.closeErr
 }
 
-// addTree watches dir and every subdirectory beneath it, appending every
-// non-directory it passes to existing when that is non-nil. Unreadable entries
-// are skipped rather than aborting the walk.
+// addTree watches dir and every subdirectory beneath it that SkipDir does not
+// prune, appending every non-directory it passes to existing when that is
+// non-nil. Unreadable entries are skipped rather than aborting the walk.
 func (w *Watcher) addTree(dir string, existing *[]string) error {
 	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
+			// The root is never pruned: refusing to watch what New was asked to
+			// watch would be a silently empty watch, not an exclusion.
+			if path != dir && w.skipDir != nil && w.skipDir(path) {
+				return filepath.SkipDir
+			}
 			return w.fsw.Add(path)
 		}
 		if existing != nil {
@@ -140,6 +171,13 @@ func (w *Watcher) addTree(dir string, existing *[]string) error {
 		}
 		return nil
 	})
+}
+
+// pruned reports whether SkipDir excludes dir. A directory that appears after
+// the watch starts has to be asked about here rather than inside addTree, whose
+// walk always watches the directory it was handed.
+func (w *Watcher) pruned(dir string) bool {
+	return w.skipDir != nil && w.skipDir(dir)
 }
 
 // adopt starts watching a directory that appeared under an existing watch and
@@ -186,7 +224,7 @@ func (w *Watcher) pump() {
 			if !ok {
 				return
 			}
-			if w.recursive && ev.Has(fsnotify.Create) {
+			if w.recursive && ev.Has(fsnotify.Create) && !w.pruned(ev.Name) {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
 					for _, path := range w.adopt(ev.Name) {
 						if !w.deliver(path) {

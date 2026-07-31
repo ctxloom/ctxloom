@@ -25,11 +25,20 @@ const (
 	ShellCmd  Shell = "cmd"
 )
 
-// KnownShells lists every shell the IR recognizes.
-var KnownShells = []Shell{ShellSh, ShellBash, ShellZsh, ShellMksh, ShellPwsh, ShellCmd}
+// knownShells is the closed set of shells the IR recognizes. It is unexported
+// and never handed out directly: Valid is the sole validation gate for every
+// user-supplied shell name (defaults.shell and each match.shells entry), so an
+// importer able to append to or reorder this list could silently redefine what
+// the whole process accepts as a shell.
+var knownShells = []Shell{ShellSh, ShellBash, ShellZsh, ShellMksh, ShellPwsh, ShellCmd}
+
+// KnownShells returns every shell the IR recognizes, in declaration order. The
+// result is a fresh slice each call; writing to it does not change what Valid
+// accepts.
+func KnownShells() []Shell { return slices.Clone(knownShells) }
 
 // Valid reports whether s is a recognized shell.
-func (s Shell) Valid() bool { return slices.Contains(KnownShells, s) }
+func (s Shell) Valid() bool { return slices.Contains(knownShells, s) }
 
 // Connector is the operator that joins a pipeline to the one before it.
 type Connector string

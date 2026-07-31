@@ -1,34 +1,53 @@
 package ir_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// TestKnownShellsIsMutableByAnyImporter is the CHARACTERIZATION step for
-// U072-F09. Shell.Valid is the sole validation gate for a user-supplied shell
-// name (defaults.shell and every match.shells entry go through it) and it
-// consults an exported package-level slice at call time, so any importer can
-// silently redefine what "a known shell" means for the whole process.
-//
-// This is the wave-9 shape: the fix REMOVES the seam this test uses, so the
-// test cannot be inverted into a red — it stops compiling. It is committed
-// first so the defect is demonstrated on the real code rather than argued, and
-// is replaced by the invariant pin when the fix lands.
-func TestKnownShellsIsMutableByAnyImporter(t *testing.T) {
-	saved := append([]ir.Shell(nil), ir.KnownShells...)
-	t.Cleanup(func() { ir.KnownShells = saved })
+// TestKnownShellsCannotBeMutatedByImporters is the inverted form of the
+// characterization committed for U072-F09. Shell.Valid is the sole validation
+// gate for a user-supplied shell name (defaults.shell and every match.shells
+// entry go through it), so the set it consults must not be reachable from
+// outside the package. The pre-fix test — which reassigned ir.KnownShells and
+// watched bash stop being valid — cannot be turned into a red because the fix
+// deletes the seam it used; it stops compiling, which is not a red. This pin
+// is what survives.
+func TestKnownShellsCannotBeMutatedByImporters(t *testing.T) {
+	got := ir.KnownShells()
+	if !slices.Contains(got, ir.ShellBash) {
+		t.Fatalf("fixture is not hostile: KnownShells() = %v, expected bash among them", got)
+	}
 
+	// Writing through the returned slice must not change what Valid accepts,
+	// and must not be visible to the next caller.
+	for i := range got {
+		got[i] = "clobbered"
+	}
 	if !ir.ShellBash.Valid() {
-		t.Fatal("fixture is not hostile: bash is not valid to begin with")
+		t.Error("clobbering the returned slice changed Valid: KnownShells is not returning a copy")
 	}
-	ir.KnownShells = []ir.Shell{ir.ShellCmd}
-	if ir.ShellBash.Valid() {
-		t.Error("an importer could not disable bash by reassigning KnownShells")
+	if ir.Shell("clobbered").Valid() {
+		t.Error("a value written into the returned slice became a valid shell")
 	}
-	ir.KnownShells[0] = "anything-at-all"
-	if !ir.Shell("anything-at-all").Valid() {
-		t.Error("an importer could not admit an arbitrary shell by writing through KnownShells")
+	if again := ir.KnownShells(); slices.Contains(again, "clobbered") {
+		t.Errorf("KnownShells() = %v after clobbering: it must return a fresh slice each call", again)
+	}
+}
+
+// TestValidAcceptsExactlyTheKnownSet keeps Valid and KnownShells from drifting
+// apart now that they read the same unexported list through different doors.
+func TestValidAcceptsExactlyTheKnownSet(t *testing.T) {
+	for _, s := range ir.KnownShells() {
+		if !s.Valid() {
+			t.Errorf("KnownShells() lists %q but Valid() rejects it", s)
+		}
+	}
+	for _, s := range []ir.Shell{"", "fish", "nu", "Bash", "sh "} {
+		if s.Valid() {
+			t.Errorf("Valid() accepted %q, which is not in KnownShells()", s)
+		}
 	}
 }

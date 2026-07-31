@@ -7,9 +7,12 @@ import (
 
 // WarningKind classifies a warning collected during config load, so startup
 // choke owners can gate on the class (fail-loudly) instead of string-matching
-// warning text. All four kinds are fatal-class in strict mode — a
+// warning text. EVERY kind declared below is fatal-class in strict mode — a
 // present-but-broken config or a lossy migration must abort startup — while an
-// ABSENT config file stays fine and produces no warning at all.
+// ABSENT config file stays fine and produces no warning at all. The count is
+// deliberately not spelled out here: it was written as "four", a fifth kind
+// was added, and the prose silently became false. StrictnessClass is the
+// enumeration that matters, and it is total by construction.
 type WarningKind string
 
 const (

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,525** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **149** |
+| `open` | no commit names this ID | **148** |
 
-**Totals: 2268 findings across 162 units — 1,525 resolved, 149 still open, 594 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,525 resolved, 148 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 576 | 86 | 104 | 96 | 137 |
-| LOW | 871 | 588 | 56 | 60 | 104 | 63 |
+| LOW | 871 | 588 | 55 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2773,7 +2773,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U147-F06 | **RESOLVED** `7e395761` | **`session.go:60`** | DEAD | `message.Role` is decoded on every message and never read. | U147.md |
 | U147-F07 | **RESOLVED** `a4f1a039` | **`claude.go:46`** | TRIVIAL | `New()` is a pure-expression constructor for a zero-size struct with no invariant, and is not a test seam. | U147.md |
 | U147-F08 | **RESOLVED** `c3345bbf` | **`session.go:309`** | TRIVIAL | The `role == "user"` half of `messageEntries`'s isMeta guard is unreachable-as-written. | U147.md |
-| U147-F09 | open | **`session.go:183-199` + `:158-175`** | COMPLEXITY | Every line of the transcript is `json.Unmarshal`ed twice into the same `line` struct, and the whole file is held in memory as `[][]byte`. | U147.md |
+| U147-F09 | **PARTIAL** `ce5385b0` | **`session.go:183-199` + `:158-175`** | COMPLEXITY | Every line of the transcript is `json.Unmarshal`ed twice into the same `line` struct, and the whole file is held in memory as `[][]byte`. | U147.md |
 | U148-F05 | **RESOLVED** `9276cc6d` | `rollout.go:394-397` | DEAD | The `json.Marshal` error branch in `argumentsToRaw` is unreachable | U148.md |
 | U148-F06 | **REFUTED** `3ed8638a` | `rollout.go:41-44`, `161-164` | DEAD | The `session_id` fallback is unreachable on every observed capture and is exercised by nothing | U148.md |
 | U148-F07 | **RESOLVED** `0341d003` | `rollout.go:219-221` vs `:289` | TRIVIAL | Two spellings of the same flush in one file: `flushPending` (a 1-line wrapper, used once as a func value) and a direct `importer.FlushComplete(&c.pending, c.record)` call in `handleEventMsg` | U148.md |

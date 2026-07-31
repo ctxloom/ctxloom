@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,319** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,320** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **474** |
+| `open` | no commit names this ID | **473** |
 
-**Totals: 2268 findings across 162 units — 1,319 resolved, 474 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,320 resolved, 473 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 473 | 266 | 73 | 79 | 108 |
-| LOW | 871 | 489 | 196 | 46 | 85 | 55 |
+| LOW | 871 | 490 | 195 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2233,7 +2233,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F15 | **RESOLVED** `24e4e92e` | **`run.go:161-163`** | TRIVIAL | `shouldDistillOnExit` is a single boolean expression with one production caller | U041.md |
 | U041-F16 | **RESOLVED** `b5c52f7f` | `run_owned.go:227,237-239` | CORRECTNESS | `final` grows without bound for the life of a structured session | U041.md |
 | U041-F17 | open | **`run.go:1734`** | ERRHANDLING | A profile that fails to resolve during upgrade harvesting is swallowed entirely | U041.md |
-| U041-F18 | open | `run_resize_unix.go:27 / run_resize_windows.go:18` | ERRHANDLING | A `term.GetSize` failure silently means the pty never learns the terminal size | U041.md |
+| U041-F18 | **RESOLVED** `e83d01b7` | `run_resize_unix.go:27 / run_resize_windows.go:18` | ERRHANDLING | A `term.GetSize` failure silently means the pty never learns the terminal size | U041.md |
 | U041-F19 | **RESOLVED** `b6183f8e` | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
 | U041-F21 | open | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
 | U041-F24 | **RESOLVED** `c482871e` | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |

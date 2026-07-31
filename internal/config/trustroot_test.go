@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -217,4 +219,50 @@ func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *t
 		assert.True(t, cfg.SuppressedEmbeddedPrincipals()["suppressed@example.com"],
 			"the injected distrusted_signers must be read")
 	})
+}
+
+// --- parity pin across the two signer-store path lists ----------------------
+
+// allowedSignersPaths and distrustedSignersPaths are the SAME two-location
+// shape (user store first, then project store, project skipped when it names
+// the same file as the user one) over two different pairs of path builders.
+// This pins that shape on BOTH so it stays one behaviour: same length, same
+// order, same home/project dedup decision, for every appPaths configuration
+// that matters. A divergence between the two lists — one growing a location
+// the other does not, or one dropping the dedup — is the defect this guards.
+func TestSignerStorePaths_AllowedAndDistrustedAgreeOnShape(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	homeApp := filepath.Join(home, AppDirName)
+
+	cases := []struct {
+		name     string
+		appPaths []string
+		wantLen  int
+	}{
+		{"no project store: user location only", nil, 1},
+		{"distinct project store: both locations", []string{".ctxloom"}, 2},
+		{"home-rooted project store: deduplicated to one", []string{homeApp}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{appPaths: tc.appPaths}
+			allowed := cfg.allowedSignersPaths()
+			distrusted := cfg.distrustedSignersPaths()
+
+			require.Len(t, allowed, tc.wantLen)
+			require.Len(t, distrusted, tc.wantLen,
+				"the suppression store must list the same locations as the trust store")
+
+			for i := range allowed {
+				assert.Equal(t, filepath.Dir(allowed[i]), filepath.Dir(distrusted[i]),
+					"location %d must be the same directory in both lists", i)
+				assert.Equal(t, paths.AllowedSignersFileName, filepath.Base(allowed[i]))
+				assert.Equal(t, paths.DistrustedSignersFileName, filepath.Base(distrusted[i]))
+			}
+			if tc.wantLen == 2 {
+				assert.Equal(t, homeApp, filepath.Dir(allowed[0]), "the user location comes first")
+			}
+		})
+	}
 }

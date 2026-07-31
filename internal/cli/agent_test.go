@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,12 +124,12 @@ func TestAgentSetupCmd_EmitsPrompt(t *testing.T) {
 // agent with no resolution and no way to learn why. Two formats of the same
 // command must not disagree about whether anything went wrong.
 func TestAgentShow_JSONCarriesTheResolutionFailure(t *testing.T) {
-	cfg := setupEditProject(t)
-	_, err := operations.SetAgent(config.NewManager(), cfg, operations.SetAgentRequest{
-		Name:     "broken",
-		Profiles: &[]string{"no-such-profile"},
-	})
-	require.NoError(t, err)
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, ".ctxloom", "agents")
+	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "broken.yaml"),
+		[]byte("profiles: [no-such-profile]\n"), 0o644))
+	t.Chdir(root)
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 
@@ -143,9 +145,8 @@ func TestAgentShow_JSONCarriesTheResolutionFailure(t *testing.T) {
 
 	// Text and JSON must agree: the text renderer reports the same failure.
 	var text bytes.Buffer
-	def, gerr := operations.GetAgent(cfg, "broken")
-	require.NoError(t, gerr)
-	require.NoError(t, renderAgentShow(&text, def, nil, errors.New("no-such-profile not found")))
+	require.NoError(t, renderAgentShow(&text, &operations.AgentEntry{Name: "broken"}, nil,
+		errors.New("no-such-profile not found")))
 	assert.Contains(t, text.String(), "Resolved engine: unavailable")
 }
 

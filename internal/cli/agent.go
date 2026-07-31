@@ -127,17 +127,29 @@ var agentShowCmd = &cobra.Command{
 		// (e.g. a missing constituent profile) still prints the definition with a
 		// warning rather than failing the command.
 		resolved, rerr := operations.ResolveAgent(cmd.Context(), cfg, name, "")
-		return emit(cmd, agentShowJSON{Definition: def, Resolved: resolved}, func() error {
+		payload := agentShowJSON{Definition: def, Resolved: resolved}
+		if rerr != nil {
+			payload.ResolutionError = rerr.Error()
+		}
+		return emit(cmd, payload, func() error {
 			return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr)
 		})
 	},
 }
 
 // agentShowJSON is the --format json shape for `agent show`: the declared
-// definition plus the resolved engine/backend (nil when resolution failed).
+// definition, the resolved engine/backend (absent when resolution failed), and
+// — when it failed — WHY.
+//
+// Resolution is fault-tolerant here: a missing constituent profile still prints
+// the definition. The text view says so ("Resolved engine: unavailable (…)"),
+// so the structured view has to as well, or the two formats of one command
+// disagree about whether anything went wrong. Omitted entirely on success, so a
+// consumer can test for the key itself.
 type agentShowJSON struct {
-	Definition *operations.AgentEntry    `json:"definition"`
-	Resolved   *operations.ResolvedAgent `json:"resolved,omitempty"`
+	Definition      *operations.AgentEntry    `json:"definition"`
+	Resolved        *operations.ResolvedAgent `json:"resolved,omitempty"`
+	ResolutionError string                    `json:"resolution_error,omitempty"`
 }
 
 func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error) error {

@@ -1904,3 +1904,50 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	assert.Equal(t, "command body", lc.Content)
 	assert.Equal(t, secretish, lc.Installation)
 }
+
+// TestBundleAccessorTier_Characterization pins the whole accessor tier
+// U030-F20 names, so a later collapse into a generic accessor is provably
+// behaviour-preserving rather than hopefully so.
+//
+// Measured against the census: the tier was 13 methods and is now 10 —
+// SkillCount, HasProfiles and AllTags have already been removed by this
+// campaign, and every survivor has at least one production caller, so there is
+// no dead member left to delete. What IS worth locking is the only real
+// behaviour any of them has: the *Names accessors return SORTED slices, which
+// downstream reproducibility (command-file writes, review output) depends on
+// and which a naive `for k := range m` rewrite would silently lose.
+func TestBundleAccessorTier_Characterization(t *testing.T) {
+	b := &Bundle{
+		Fragments: map[string]BundleFragment{"zf": {}, "af": {}, "mf": {}},
+		Commands:  map[string]BundleCommand{"zc": {}, "ac": {}},
+		MCP:       map[string]BundleMCP{"zm": {}, "am": {}},
+		Skills:    map[string]BundleSkill{"zs": {}, "as": {}},
+		Profiles:  map[string]BundleProfile{"zp": {}, "ap": {}},
+	}
+
+	assert.Equal(t, 3, b.FragmentCount())
+	assert.Equal(t, 2, b.CommandCount())
+	assert.Equal(t, 2, b.MCPCount())
+	assert.Equal(t, 2, b.ProfileCount())
+	assert.True(t, b.HasMCP())
+
+	assert.Equal(t, []string{"af", "mf", "zf"}, b.FragmentNames())
+	assert.Equal(t, []string{"ac", "zc"}, b.PromptNames())
+	assert.Equal(t, []string{"am", "zm"}, b.MCPNames())
+	assert.Equal(t, []string{"as", "zs"}, b.SkillNames())
+	assert.Equal(t, []string{"ap", "zp"}, b.ProfileNames())
+
+	// The empty bundle: every count zero, every name list empty, HasMCP false.
+	// Callers branch on these, so the zero behaviour is part of the contract.
+	empty := &Bundle{}
+	assert.False(t, empty.HasMCP())
+	assert.Zero(t, empty.FragmentCount())
+	assert.Zero(t, empty.CommandCount())
+	assert.Zero(t, empty.MCPCount())
+	assert.Zero(t, empty.ProfileCount())
+	assert.Empty(t, empty.FragmentNames())
+	assert.Empty(t, empty.PromptNames())
+	assert.Empty(t, empty.MCPNames())
+	assert.Empty(t, empty.SkillNames())
+	assert.Empty(t, empty.ProfileNames())
+}

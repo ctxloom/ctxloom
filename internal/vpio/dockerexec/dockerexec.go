@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -44,6 +45,10 @@ import (
 // pump ends) before Wait force-closes the master as a backstop against a
 // grandchild still holding the slave open.
 const outputDrainGrace = 2 * time.Second
+
+// cancelGrace bounds how long a cancelled turn's exec CLI has to act on the
+// SIGTERM Cancel sends before os/exec kills it outright (cmd.WaitDelay).
+const cancelGrace = 2 * time.Second
 
 // The exit codes docker/podman `exec` reserves for its OWN failures, as opposed
 // to propagating the exec'd command's status. Any other code is the engine's.
@@ -171,6 +176,16 @@ func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) 
 	if spec.Stdout == nil {
 		return nil, fmt.Errorf("vpio/dockerexec: ProcessSpec.Stdout is nil; this transport has nowhere to deliver the session's output")
 	}
+	// Cancellation ASKS before it kills. os/exec's default Cancel for a
+	// CommandContext is Process.Kill(), i.e. SIGKILL with no grace — and this
+	// subprocess is the exec CLI holding a live attachment to an in-container
+	// turn, so SIGKILL drops the attachment without the CLI ever telling the
+	// daemon: nothing in the container is asked to stop. SIGTERM lets it
+	// detach; WaitDelay is the backstop that still kills a CLI which ignores
+	// it, so cancellation can never hang.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = cancelGrace
+
 	master, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("vpio/dockerexec: start exec under host pty: %w", err)

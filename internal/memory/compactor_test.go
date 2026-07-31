@@ -1820,3 +1820,34 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Positive(t, spawned, "with thinking included the transcript is not empty and must be distilled")
 }
+
+// A distilled artifact's path must still name the file it was written to after
+// the process changes directory. Every CLI distill path chdirs into the
+// session's own project dir and then back out again, and `session distill`
+// PRINTS the returned path, so a path left as a bare relative string names a
+// different file the moment the cwd moves — and the unconditional MkdirAll on
+// it mints a stray .ctxloom under whatever directory the process happens to be
+// in, which config's app-dir walk will later adopt. The default output
+// directory must therefore be anchored at the moment it is resolved.
+func TestSaveDistilled_DefaultOutputDirIsAnchored(t *testing.T) {
+	testsupport.ProjectDir(t)
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	c := &Compactor{config: CompactionConfig{}}
+	// The default branch is reached only with no OutputDir configured; assert
+	// the fixture is hostile from saveDistilled's own vantage point rather than
+	// assuming it.
+	require.Empty(t, c.config.OutputDir, "this pin only exercises the default when no OutputDir is configured")
+
+	path, err := c.saveDistilled("anchored", "## Summary\nbody.", distilledMeta{})
+	require.NoError(t, err)
+	assert.True(t, filepath.IsAbs(path), "the distilled path must be absolute, got %q", path)
+	assert.Equal(t, filepath.Join(wd, ".ctxloom", "sessions", "anchored.md"), path)
+
+	// existingEssence resolves the same default, or the two disagree about
+	// where an essence lives and dumpEmptySession overwrites a real one.
+	found, ok := c.existingEssence("anchored", "")
+	assert.True(t, ok, "existingEssence must find the essence saveDistilled just wrote")
+	assert.Equal(t, path, found)
+}

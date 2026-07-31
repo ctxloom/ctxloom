@@ -28,18 +28,47 @@ var (
 // SetProcessOverrides installs o as the process-wide Overrides every
 // subsequent resolution (that doesn't explicitly override it, e.g. via
 // internal/config's WithOverrides test seam) consults.
+//
+// o's maps are COPIED in. Storing them directly would leave the caller
+// holding live references to state this mutex is supposed to own, so the
+// lock would cover the struct header and nothing reachable through it — a
+// caller that later wrote to the map it passed would race every reader with
+// no lock in sight and no way to tell from this file that it could.
 func SetProcessOverrides(o Overrides) {
 	processMu.Lock()
-	processVal = o
+	processVal = Overrides{Env: cloneFlat(o.Env), Flags: cloneFlat(o.Flags)}
 	processMu.Unlock()
 }
 
 // ProcessOverrides returns the Overrides SetProcessOverrides last installed
 // (the zero Overrides{} — "none installed" — if it was never called).
+//
+// The maps are copies, for the same reason SetProcessOverrides copies on the
+// way in: returning the stored maps would publish them outside the mutex, so
+// the synchronization would be partial in a way nothing at the call site
+// could reveal. Copying at both ends makes the maps unreachable except under
+// the lock, which is what the mutex was always meant to mean. Both are flat
+// name->value maps of an invocation's own overrides, so a copy is cheap and
+// almost always empty.
 func ProcessOverrides() Overrides {
 	processMu.Lock()
 	defer processMu.Unlock()
-	return processVal
+	return Overrides{Env: cloneFlat(processVal.Env), Flags: cloneFlat(processVal.Flags)}
+}
+
+// cloneFlat copies one of Overrides' flat maps, preserving nil (the zero
+// Overrides{} must stay distinguishable as "none installed" — Stamp and every
+// len() check treat a nil and an empty map alike, but a caller comparing
+// against the zero value should not see one silently become the other).
+func cloneFlat(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // ResetProcessOverrides clears the process-wide Overrides back to the zero

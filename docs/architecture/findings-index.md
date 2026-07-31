@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,464** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,465** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 171 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 195 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **241** |
+| `open` | no commit names this ID | **240** |
 
-**Totals: 2268 findings across 162 units — 1,464 resolved, 241 still open, 563 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,465 resolved, 240 still open, 563 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 545 | 135 | 99 | 91 | 129 |
+| MED | 999 | 546 | 134 | 99 | 91 | 129 |
 | LOW | 871 | 560 | 97 | 56 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1473,7 +1473,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U074-F02 | **RESOLVED** `ef6cf3f1` | `submodules.go:44-57` | CORRECTNESS | The parser is stanza-blind: it accepts a `path = …` key from **any** section, so a `path` key under `[core]`, `[remote "x"]`, or any non-`[submodule …]` stanza is emitted as a submodule path. | U074.md |
 | U075-F01 | **ESCALATED** `3ceeb8e1` | **`shellenv.go:31-32`** | CORRECTNESS | An **unrecognized** `$SHELL` is indistinguishable from an **unset** one — both yield `""` — so a user whose login shell is fish, nu, tcsh, csh, elvish or xonsh silently has their commands parsed as... | U075.md |
 | U076-F02 | open | `state.go:64`, `:71`, `:78` vs `:28-31` | COHESION | `pending` has zero methods while three `Store` methods do nothing but look up a `pending` and evaluate its band — textbook feature envy, and it spreads the unix-second convention across four files'... | U076.md |
-| U076-F03 | open | `state.go:33-37` (doc) vs `confirm.go:30-36` | CORRECTNESS | The documented race analysis is incomplete in the unsafe direction. `Store`'s comment says a lost read-modify-write "fails safe — the denial just repeats and re-arms". That is true for a lost **Arm... | U076.md |
+| U076-F03 | **RESOLVED** `4b25b74a` | `state.go:33-37` (doc) vs `confirm.go:30-36` | CORRECTNESS | The documented race analysis is incomplete in the unsafe direction. `Store`'s comment says a lost read-modify-write "fails safe — the denial just repeats and re-arms". That is true for a lost **Arm... | U076.md |
 | U077-F02 | open | **`main.go:4-5`, `:54`, `:63-70`** | DEAD | The `-check` flag has **no invoker anywhere in the repository**, yet three places assert that a pre-commit hook runs it. The documented drift gate does not exist. | U077.md |
 | U077-F03 | open | **`main.go:29`** | CORRECTNESS | The fence regex silently skips any block whose info-string is not exactly `yaml`, so rules can disappear from the shipped defaults with no diagnostic — and the drift test cannot detect it, because ... | U077.md |
 | U078-F04 | **PARTIAL** `b40ee029` | `compactor.go:569-573` | COUPLING | **Confirmed: the compactor calls `sessions.Manager.BindSession` directly, bypassing `operations.BindSession`'s guards** — but the data-loss impact is nil, so the sibling reviewer's severity should ... | U078.md |

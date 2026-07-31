@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,320** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 170 |
-| `open` | no commit names this ID | **471** |
+| `open` | no commit names this ID | **469** |
 
-**Totals: 2268 findings across 162 units — 1,320 resolved, 471 still open, 477 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,320 resolved, 469 still open, 479 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 474 | 263 | 74 | 79 | 109 |
-| LOW | 871 | 489 | 196 | 46 | 85 | 55 |
+| LOW | 871 | 489 | 194 | 46 | 87 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2139,8 +2139,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U030-F12 | **RESOLVED** `029b7b2d` | **`bundles.go:791-800, 820-826`** | CORRECTNESS | `detectLegacySkillsKey` reads a root `name:` key to name the offending bundle, but `Bundle.Name` is `yaml:"-"` — the schema has no `name:` key, so `bundleName` is almost always `""` and the error r... | U030.md |
 | U030-F13 | **RESOLVED** `24e4e92e` | `loader_content.go:636-641` | TRIVIAL | `wholeBundleForExpansion` is a redundant wrapper: both branches are equivalent to `l.bundleAtVersion(ref, "")`. When `version == ""` it returns `l.Load(ref)`; `bundleAtVersion(ref, "")` with no ver... | U030.md |
 | U030-F14 | **ESCALATED** `cdf64839` | `loader.go:383-393 vs 487-497` | DUPLICATE | The nine-field `BundleInfo` construction appears twice, once inline in `List` for seeded bundles and once in `loadBundleInfo`. `loadBundleInfo` is otherwise a pure pass-through to `LoadFile`. Neith... | U030.md |
-| U030-F15 | open | `loader_skills.go:125-128` | ERRHANDLING | A malformed manifest mode silently defaults to `0644`, downgrading a `0755` script. The exec bit is documented as load-bearing ("must survive tree → archive → extract → materialize", bundles.go:319... | U030.md |
-| U030-F16 | open | `loader_skills.go:90-92` | ERRHANDLING | The `entry.ContentPayload()` failure path is the only withhold in `skillContent` with **no** `clidiag.Warn` — every other one (dir resolve, manifest mismatch, parse, file read) warns. | U030.md |
+| U030-F15 | **REFUTED** `a1bef08b` | `loader_skills.go:125-128` | ERRHANDLING | A malformed manifest mode silently defaults to `0644`, downgrading a `0755` script. The exec bit is documented as load-bearing ("must survive tree → archive → extract → materialize", bundles.go:319... | U030.md |
+| U030-F16 | **REFUTED** `a1bef08b` | `loader_skills.go:90-92` | ERRHANDLING | The `entry.ContentPayload()` failure path is the only withhold in `skillContent` with **no** `clidiag.Warn` — every other one (dir resolve, manifest mismatch, parse, file read) warns. | U030.md |
 | U030-F17 | **RESOLVED** `8cf4d707` | `loader_content.go:578` | CORRECTNESS | Stale doc: the inline comment says the targeted-ref grammar is `bundle{:\ | U030.md |
 | U030-F18 | open | **`bundles.go:552-583, 609-641, 496-514`** | CORRECTNESS | The three exec preimages are documented as a versioned, cross-implementation canonicalization (`ctxloom-exec/1`, spec §3.3.2), but they inherit `encoding/json`'s Go-specific HTML escaping: `<`, `>`... | U030.md |
 | U031-F09 | **RESOLVED** `ae402c3b` | `skill_archive.go:134-140` | CORRECTNESS | `parseSkillFileMode` uses `fmt.Sscanf(mode, "%o", &perm)`, which returns `n=1, err=nil` for trailing garbage (`"0755zzz"` parses as 0755). `SkillManifestEntry.Mode` is bundle-tree data, so a hand-e... | U031.md |

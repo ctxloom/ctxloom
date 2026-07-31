@@ -165,7 +165,12 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 			return result, fmt.Errorf("config-write: create directory for %s: %w", file, err)
 		}
 	}
-	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file)); err != nil {
+	// CallerOwnsBackup: backupBeforeEdit above already kept a timestamped copy
+	// of these exact bytes, and this is a THIRD-PARTY config directory — a
+	// second, ctxloom-branded ".ctxloom.bak" sibling there is undocumented
+	// (rule 2 promises one name) and single-slot, so it contradicts the
+	// per-call generation the command reports.
+	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file), agent.CallerOwnsBackup()); err != nil {
 		return result, fmt.Errorf("config-write: write %s: %w", file, err)
 	}
 

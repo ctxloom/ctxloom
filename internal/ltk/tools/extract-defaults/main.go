@@ -11,7 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"regexp"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
@@ -26,22 +26,69 @@ const (
 		"# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md\n"
 )
 
-// blockRe captures the body of each ```yaml fenced block.
-var blockRe = regexp.MustCompile("(?s)```yaml\n(.*?)```")
+// yamlBlocks returns the body of every fenced block in md, and refuses any
+// fence that does not open with exactly "```yaml".
+//
+// Every fenced block in the source document is a rule block — it is the source
+// of truth for the shipped guard, not a mixed tutorial — so a fence spelled
+// ```yml, ```YAML, ```yaml title="…" or left bare is an authoring slip, and
+// SKIPPING it drops a rule out of the binary ltk installs into a user's
+// project. Nothing downstream would catch that: the rule-count floor only
+// fires on a large loss, and -check cannot fire at all, because it compares
+// the generated file against a re-extraction of the same document by this same
+// reader — both sides lose the same block and agree perfectly on a rule set
+// that is missing one. An unterminated block is the same loss by another
+// route.
+func yamlBlocks(md []byte) ([][]byte, error) {
+	var (
+		blocks  [][]byte
+		body    []string
+		open    bool
+		openLn  int
+		lineNum int
+	)
+	for _, line := range strings.Split(string(md), "\n") {
+		lineNum++
+		if !strings.HasPrefix(line, "```") {
+			if open {
+				body = append(body, line)
+			}
+			continue
+		}
+		if open {
+			blocks = append(blocks, []byte(strings.Join(body, "\n")))
+			body, open = nil, false
+			continue
+		}
+		if info := strings.TrimPrefix(line, "```"); info != "yaml" {
+			return nil, fmt.Errorf(
+				"%s:%d: fenced block opens with ```%s — every fenced block in this document is a rule block and must open with ```yaml exactly, or its rules are silently dropped from the shipped defaults",
+				source, lineNum, info)
+		}
+		open, openLn = true, lineNum
+	}
+	if open {
+		return nil, fmt.Errorf("%s:%d: ```yaml block is never closed; its rules would be dropped from the shipped defaults", source, openLn)
+	}
+	return blocks, nil
+}
 
 // assemble concatenates the bodies of every ```yaml block in md (in order),
 // under the generated-file header, and returns the bytes. It errors if md has no
 // yaml blocks, if the result is not a valid rule set, or if it carries fewer
 // than minRules rules. It is pure (no I/O) so it can be tested directly.
 func assemble(md []byte, minRules int) ([]byte, error) {
-	matches := blockRe.FindAllSubmatch(md, -1)
+	matches, err := yamlBlocks(md)
+	if err != nil {
+		return nil, err
+	}
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("no ```yaml blocks found")
 	}
 	var b bytes.Buffer
 	b.WriteString(header)
 	for _, m := range matches {
-		b.Write(bytes.TrimRight(m[1], "\n"))
+		b.Write(bytes.TrimRight(m, "\n"))
 		b.WriteByte('\n')
 	}
 	out := b.Bytes()

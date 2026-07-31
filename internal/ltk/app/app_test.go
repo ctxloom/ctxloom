@@ -45,6 +45,53 @@ func TestEndToEndDeny(t *testing.T) {
 	}
 }
 
+// nestDepth reports the deepest nested-script level reachable from s.
+func nestDepth(s *ir.Script) int {
+	if s == nil {
+		return 0
+	}
+	best := 0
+	for _, p := range s.Pipelines {
+		for _, c := range p.Commands {
+			for _, ns := range c.Nested {
+				if d := 1 + nestDepth(ns); d > best {
+					best = d
+				}
+			}
+		}
+	}
+	return best
+}
+
+// TestDeepSubstitutionNestingIsNotDeniedAsEvasion is the public-seam pin for
+// the wrapper depth cap. The cap bounds how deep ltk RE-PARSES wrapper bodies;
+// a command substitution the frontend already parsed is matched by
+// rules.Evaluate at any depth, so stacking substitutions must not produce
+// "nested command-wrapper depth exceeded (possible evasion)" for a command
+// that contains no wrapper and breaks no rule.
+func TestDeepSubstitutionNestingIsNotDeniedAsEvasion(t *testing.T) {
+	a := newApp(t, cfg)
+	const nest = 12 // comfortably past the frontend's cap of 8
+	command := "echo hi"
+	for i := 0; i < nest; i++ {
+		command = "echo $(" + command + ")"
+	}
+
+	// The fixture only bites if the parsed graph really is deeper than the cap.
+	script, err := a.Registry.Parse(context.Background(), ir.ShellBash, command)
+	if err != nil {
+		t.Fatalf("fixture did not parse: %v", err)
+	}
+	if d := nestDepth(script); d <= 8 {
+		t.Fatalf("fixture is not hostile: parsed nesting depth %d does not exceed the wrapper cap", d)
+	}
+
+	r := decide(a, command)
+	if !r.Allow {
+		t.Errorf("benign command substitution nested %d deep was denied: reason=%q", nest, r.Reason)
+	}
+}
+
 func TestEndToEndDenyViaPipeline(t *testing.T) {
 	a := newApp(t, cfg)
 	// go test buried in a && chain and a subshell must still be caught.

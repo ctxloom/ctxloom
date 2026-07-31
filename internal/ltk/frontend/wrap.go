@@ -12,12 +12,17 @@ import (
 
 // maxWrapDepth bounds how deep ExpandWrappers re-parses nested wrappers
 // (e.g. `bash -c "bash -c '…'"`), guarding against pathological input.
-// Reaching the cap now returns truncated=true (see expandWrappers) so the
-// caller fails CLOSED (denies) instead of silently stopping expansion —
-// hitting this cap means there is more nested structure than ltk verified,
-// which is itself a strong evasion signal. Set higher than the old 4 (which
-// was a soft "stop re-parsing" limit) because it is now a hard deny: ordinary
-// deeply-nested-but-benign command substitutions should not trip it.
+// A wrapper found at or past the cap is left unexpanded and reported as
+// truncated=true (see expandWrappers) so the caller fails CLOSED (denies)
+// rather than matching rules against a command string ltk never parsed.
+//
+// The cap gates RE-PARSING only. Already-present nested scripts — command
+// substitutions the frontend has itself parsed in full — are walked past the
+// cap and never make a command truncated on their own: nothing about them is
+// unverified, since ir.Walk (what rules.Evaluate matches against) descends
+// into them to unlimited depth. Counting them toward the cap denied benign
+// deeply-substituted commands with a reason naming a wrapper depth that was
+// never exceeded.
 const maxWrapDepth = 8
 
 // wrapperRule identifies a command that runs another command given inline — a
@@ -72,9 +77,11 @@ func (rule wrapperRule) matches(prog string, sh ir.Shell) bool {
 // against a graph that silently dropped part of the real command is the same
 // as not having looked at it:
 //
-//   - truncated: the recursion hit maxWrapDepth while there was still nested
-//     structure left to descend into. The depth cap existing at all means the
-//     walk stopped somewhere the evaluator never got to look.
+//   - truncated: a WRAPPER was found at or past maxWrapDepth and so was left
+//     unexpanded. Its inner command string was never parsed, so no rule can
+//     have seen the command that actually runs. Nesting alone does not set
+//     this: a substitution the frontend already parsed is fully visible to
+//     the evaluator however deep it sits.
 //   - unanalyzed: a wrapper's inner command STRING could not be parsed at all
 //     (a genuine syntax error, or an inner shell dialect this build has no
 //     frontend for). Previously this error was silently discarded and the
@@ -92,37 +99,49 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 	if s == nil {
 		return false, false
 	}
-	if depth >= maxWrapDepth {
-		return true, false // fail closed: more nested structure exists, unverified
-	}
+	// At the cap ltk stops RE-PARSING but keeps walking: the remaining tree is
+	// what the frontend already produced, so descending it costs nothing it did
+	// not already pay and cannot grow without bound.
+	atCap := depth >= maxWrapDepth
 	for pi := range s.Pipelines {
 		cmds := s.Pipelines[pi].Commands
 		for ci := range cmds {
 			sc := &cmds[ci]
+			// A wrapper found at or past the cap is left unexpanded: its inner
+			// command string stays a command no rule will ever see, so say so
+			// (fail closed) instead of re-parsing it.
 			if inner, shell, ok := wrappedCommand(sc.Argv, s.Shell); ok && inner != "" {
-				// Append whatever the inner frontend salvaged even on a parse error:
-				// the Frontend contract returns a non-nil (possibly partial) Script
-				// alongside an error so callers can still match the commands it did
-				// recover. Dropping those would fail OPEN for a guard. A genuine parse
-				// error (including an unsupported inner shell, which Registry.Parse
-				// reports as ErrUnsupportedShell with a nil Script) means the view is
-				// incomplete — surfaced via unanalyzed rather than silently ignored.
-				nested, perr := r.Parse(ctx, shell, inner)
-				if perr != nil {
-					unanalyzed = true
-				}
-				if nested != nil {
-					sc.Nested = append(sc.Nested, nested)
+				if atCap {
+					truncated = true
+				} else {
+					// Append whatever the inner frontend salvaged even on a parse error:
+					// the Frontend contract returns a non-nil (possibly partial) Script
+					// alongside an error so callers can still match the commands it did
+					// recover. Dropping those would fail OPEN for a guard. A genuine parse
+					// error (including an unsupported inner shell, which Registry.Parse
+					// reports as ErrUnsupportedShell with a nil Script) means the view is
+					// incomplete — surfaced via unanalyzed rather than silently ignored.
+					nested, perr := r.Parse(ctx, shell, inner)
+					if perr != nil {
+						unanalyzed = true
+					}
+					if nested != nil {
+						sc.Nested = append(sc.Nested, nested)
+					}
 				}
 			}
 			// An argv-prepending wrapper's inner command is already argv, not a
 			// string to re-parse — just append it as a same-shell nested command
 			// so Walk (and further wrapper expansion) sees it too.
 			if inner, ok := prefixWrapped(sc.Argv); ok {
-				sc.Nested = append(sc.Nested, &ir.Script{
-					Shell:     s.Shell,
-					Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{Argv: inner}}}},
-				})
+				if atCap {
+					truncated = true
+				} else {
+					sc.Nested = append(sc.Nested, &ir.Script{
+						Shell:     s.Shell,
+						Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{Argv: inner}}}},
+					})
+				}
 			}
 			// Recurse into already-present nested scripts (substitutions) and any
 			// just-added wrapper bodies (interpreter- and prefix-style alike), so

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,533** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 183 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 207 |
-| `open` | no commit names this ID | **137** |
+| `open` | no commit names this ID | **136** |
 
-**Totals: 2268 findings across 162 units — 1,533 resolved, 137 still open, 598 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,533 resolved, 136 still open, 599 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 578 | 83 | 104 | 96 | 138 |
+| MED | 999 | 578 | 82 | 105 | 96 | 138 |
 | LOW | 871 | 594 | 47 | 62 | 105 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1874,7 +1874,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U139-F02 | **RESOLVED** `ffe68453` | `:34-63` vs `internal/ltk/engine/engine.go:119-147` | DUPLICATE | **This is the second engine registry in the repo, and the two are near-identical code** — two packages named `engine`, two `Get(name)` functions with the same body and the same comment, two `engine... | U139.md |
 | U139-F03 | **ESCALATED** `e3056346` | `:34-36` | CORRECTNESS | The registry claims to be "the registry of known engines" but silently omits **opencode**, which the repo carries as a first-class backend — so an opencode user running `taskloom manage install` is... | U139.md |
 | U140-F03 | **RESOLVED** `e1635575` | `:36-40` | TRIVIAL | `Resolve` is a one-line pass-through that discards `found`, and it exists only so `cmd/taskloom/root.go` need not write `_`. The package exports two entry points for one chain | U140.md |
-| U140-F04 | open | `:93-109`, `:105-108` | CORRECTNESS | `fromEnv` collapses **"unset"** and **"set but unusable"** into the same `("", false)` return, so `ResolveBoundary`'s `found` bit cannot distinguish "no project boundary exists" from "the user told... | U140.md |
+| U140-F04 | **PARTIAL** `38d5ba60` | `:93-109`, `:105-108` | CORRECTNESS | `fromEnv` collapses **"unset"** and **"set but unusable"** into the same `("", false)` return, so `ResolveBoundary`'s `found` bit cannot distinguish "no project boundary exists" from "the user told... | U140.md |
 | U141-F02 | **RESOLVED** `70c8aebf` | `gate.go:77-102` | CORRECTNESS | `Release` never calls `g.afterWrite`, so a bar marked dirty *by the replayed data itself* is never flushed. The replay is filtered through the guard (`:93`), and that filter can call `barDamaged` (... | U141.md |
 | U141-F03 | **RESOLVED** `40f97fd6` | `vtguard.go:320` | CORRECTNESS | The ED damage arm only fires for `ED 2/3`, but `ED 0` (`\x1b[J`, the default) erases from the cursor to the **end of the display**, which includes the reserved bar row (ED ignores scroll margins). ... | U141.md |
 | U141-F04 | **ESCALATED** (gn/vital-deaf-stunt) | `controller.go:159-176, 197-236` | CORRECTNESS | `Close` can hang forever. It snapshots `c.overlay` (:164-166) and only aborts a non-nil one, then blocks on `sessionMu` (:172). `engage` takes `sessionMu` at :202 but does not publish `c.overlay` u... | U141.md |

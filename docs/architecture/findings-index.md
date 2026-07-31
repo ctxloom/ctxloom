@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,565** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 188 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 189 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **98** |
+| `open` | no commit names this ID | **97** |
 
-**Totals: 2268 findings across 162 units — 1,565 resolved, 98 still open, 605 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,565 resolved, 97 still open, 606 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 597 | 58 | 110 | 96 | 138 |
+| MED | 999 | 597 | 57 | 111 | 96 | 138 |
 | LOW | 871 | 605 | 38 | 61 | 104 | 63 |
 | (unparsed) | 22 | 11 | 2 | 5 | 3 | 1 |
 
@@ -1925,7 +1925,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U152-F05 | **RESOLVED** `d55496c5` | `dockerexec.go:44`, `dockerexec.go:251-277` | DUPLICATE | `tailRing` is a third independent copy of a bounded-tail ring buffer, in a repo that created `internal/shared/stderrtail` **specifically to stop the second copy from becoming a third**. The constan... | U152.md |
 | U153-F01 | **RESOLVED** `be919aab` | `goplugin.go:148-151` | CORRECTNESS | `Wait` is not idempotent — a second call blocks forever — while the sibling implementation of the same interface method *is* idempotent. A caller writing the natural `defer session.Wait()` hangs on... | U153.md |
 | U153-F02 | **RESOLVED** `276d78ba` | `goplugin.go:86-89`, `goplugin.go:148` | CORRECTNESS | The ctx-done watcher goroutine and the resize channel are tied to the **caller's context**, not to the session's lifetime, so both outlive a completed session — and each leaks for the whole remaini... | U153.md |
-| U153-F03 | open | `goplugin.go:72-85` | CORRECTNESS | A known, reproduced, unfixed defect ("DEFECT T2") is recorded as a 14-line source comment rather than filed anywhere — and the comment itself states the fix was attempted, reverted, and abandoned a... | U153.md |
+| U153-F03 | **PARTIAL** `9838b85c` | `goplugin.go:72-85` | CORRECTNESS | A known, reproduced, unfixed defect ("DEFECT T2") is recorded as a 14-line source comment rather than filed anywhere — and the comment itself states the fix was attempted, reverted, and abandoned a... | U153.md |
 | U154-F01 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `pkg/clifmt/` (package)` | NOPAY | The `pkg/` placement has no consumer; seven exported identifiers have zero callers anywhere | U154.md |
 | U154-F03 | **RESOLVED** `40f3d18a` | `errors.go:17-22` | SILENTNOOP | `RenderError(w, nil, f)` produces a well-formed *failure* report with an empty message instead of rejecting the nil | U154.md |
 | U154-F04 | **RESOLVED** `afc77fe0` | `marshal.go:43-52` | CORRECTNESS | yaml and toml silently corrupt integers outside int64 range; json does not. Two `err == nil` swallows turn an exact integer into a lossy float | U154.md |

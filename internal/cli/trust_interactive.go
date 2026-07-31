@@ -176,7 +176,7 @@ func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 // SetItemTrust/SetBlacklist mutation path. This surface therefore REVIEWS the
 // posture (to stderr) and points at the ref-based commands for bundle-sourced
 // MCP servers, rather than offering a t/b action that could not be honored.
-func reviewLocalMCPTrust(cfg *config.Config, entries []operations.MCPServerEntry) {
+func reviewLocalMCPTrust(cmd *cobra.Command, cfg *config.Config, entries []operations.MCPServerEntry) {
 	stamper := operations.NewTrustStamper(cfg)
 	for _, e := range entries {
 		res := stamper.ForLocalMCP(e.Name, bundles.BundleMCP{

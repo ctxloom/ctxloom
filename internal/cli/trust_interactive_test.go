@@ -1,13 +1,21 @@
 package cli
 
 import (
+	"bufio"
+	"bytes"
+	"context"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -119,4 +127,76 @@ func TestShowItem_NonInteractiveStdoutUnchanged(t *testing.T) {
 	for _, leak := range []string{"Effective trust", "[t]rust", "[b]lacklist"} {
 		assert.NotContainsf(t, outInter.String(), leak, "trust UI %q must not leak into piped stdout", leak)
 	}
+}
+
+// withEmptyStdin points the shared prompt reader at an exhausted stream, so a
+// prompt-driving test returns immediately on EOF instead of blocking on a
+// terminal that will never answer.
+func withEmptyStdin(t *testing.T) {
+	t.Helper()
+	orig := stdinReader
+	stdinReader = bufio.NewReader(strings.NewReader(""))
+	t.Cleanup(func() { stdinReader = orig })
+}
+
+// errCapturingCmd is a command whose stdout AND stderr are both buffers, the
+// shape a cobra harness uses to assert on what a command emitted.
+func errCapturingCmd() (*cobra.Command, *bytes.Buffer) {
+	c := &cobra.Command{}
+	c.SetContext(context.Background())
+	c.SetOut(&bytes.Buffer{})
+	errBuf := &bytes.Buffer{}
+	c.SetErr(errBuf)
+	return c, errBuf
+}
+
+// The interactive trust surface writes to the process's os.Stderr directly
+// rather than the writer cobra hands it, so nothing a command harness injects
+// can observe it: the ONE surface whose whole job is telling a user what they
+// are about to trust cannot be asserted from a command test. Routing it
+// through cmd.ErrOrStderr() changes no text and no decision — in production
+// ErrOrStderr IS os.Stderr — it only makes the surface observable.
+func TestOfferBundleTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	withEmptyStdin(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	cmd, errBuf := errCapturingCmd()
+	require.NoError(t, offerBundleTrust(cmd, cfg, "demo", &bundles.Bundle{}))
+
+	assert.Contains(t, errBuf.String(), `Per-item effective trust for bundle "demo"`,
+		"the review header must reach the writer the command owns")
+}
+
+func TestOfferItemTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	withEmptyStdin(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	seedLocalFragment(t, cfg, "demo", "x", "body")
+
+	cmd, errBuf := errCapturingCmd()
+	require.NoError(t, offerItemTrust(cmd, cfg, "demo#fragments/x"))
+
+	assert.Contains(t, errBuf.String(), "Effective trust:",
+		"the effective-trust stamp must reach the writer the command owns")
+}
+
+func TestReviewLocalMCPTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+
+	cmd, errBuf := errCapturingCmd()
+	reviewLocalMCPTrust(cmd, cfg, []operations.MCPServerEntry{
+		{Name: "local-one", Backend: "claude", Command: "/usr/bin/true"},
+	})
+
+	out := errBuf.String()
+	assert.Contains(t, out, "Effective trust (claude scope):")
+	assert.Contains(t, out, "ctxloom trust|blacklist <bundle>#mcp/<name>")
 }

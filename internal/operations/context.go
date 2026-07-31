@@ -22,45 +22,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// Mustache tag types from cbroglie/mustache's TagType enum (mustache.go):
-// Invalid=0, Variable=1, Section=2, InvertedSection=3, Partial=4 — verified
-// against the v1.4.0 source and empirically (a Section tag reports
-// Type()==2, an InvertedSection reports 3). There is deliberately no
-// "RawVariable" constant: {{name}}, {{{name}}}, and {{&name}} all report
-// Type()==Variable — the library tracks raw-vs-escaped internally
-// (varElement.raw) but does not expose it through the public Tag interface,
-// so checkTags/undefinedPlainVariableLiterals cannot and do not distinguish
-// them.
+// Mustache tag classification uses cbroglie/mustache's OWN exported TagType
+// constants (mustache.Variable / Section / InvertedSection). This package used
+// to mirror that enum as three untyped ints of its own, and the mirror drifted:
+// it was numbered one too high for every section-shaped tag, so a real Section
+// was classified as a plain variable, hasChildTags never matched one, and
+// checkTags never walked into a `{{#name}}...{{/name}}` body to find the
+// undefined variables nested inside it. Naming the library's constants makes
+// that class of drift unrepresentable.
 //
-// PRE-EXISTING BUG FOUND WHILE IMPLEMENTING task fatal-raven: this block
-// previously read {tagVariable:1, tagRawVariable:2, tagSection:3,
-// tagInvertedSection:4} — off by one for every section-shaped tag, because
-// "tagRawVariable" was never a real distinct TagType value in the first
-// place. Concretely, under the old numbering: a genuine Section tag
-// (real value 2) matched the old "tagRawVariable" constant, a genuine
-// InvertedSection (real value 3) matched the old "tagSection" constant, and
-// a genuine Partial (real value 4) matched the old "tagInvertedSection"
-// constant. hasChildTags(old tagSection=3, old tagInvertedSection=4) — real
-// InvertedSection and Partial — DID recurse; hasChildTags never matched a
-// real Section (2), so checkTags never walked into a `{{#name}}...{{/name}}`
-// block's children to find undefined variables nested inside it. This
-// under-warning was masked in existing tests (they only assert on the
-// OUTERMOST warning, e.g. TestSubstituteVariables_NestedSectionWithVariables
-// checks warnings[0] contains "outer", never that "inner_name" was also
-// flagged). Fixed here because undefinedPlainVariableLiterals below MUST
-// correctly identify Section/InvertedSection tags to protect the
-// presence-toggle idiom — it cannot do that safely against numbering that
-// misclassifies a real Section as a plain (raw) variable, which was
-// independently confirmed to flip a section's polarity in
-// TestSubstituteVariables_NameUsedAsBothSectionAndPlainVariableStaysFalsy
-// before this fix. Re-verified: TestShippedFragments_NoUnescapedForeignMustache
-// still reports zero undefined-variable hits across all shipped fragments
-// with the corrected numbering (see the fatal-raven task report).
-const (
-	tagVariable        = 1
-	tagSection         = 2
-	tagInvertedSection = 3
-)
+// Note there is deliberately no "RawVariable" constant in the library:
+// {{name}}, {{{name}}} and {{&name}} all report Type()==Variable — raw vs
+// escaped is tracked internally (varElement.raw) and not exposed through the
+// public Tag interface, so checkTags/undefinedPlainVariableLiterals cannot and
+// do not distinguish them.
 
 // ProfileLoader interface for resolving profiles from directory (allows mocking in tests).
 type ProfileLoader interface {
@@ -763,9 +738,9 @@ func undefinedPlainVariableLiterals(tags []mustache.Tag, vars map[string]string)
 		for _, tag := range tags {
 			name := tag.Name()
 			switch tag.Type() {
-			case tagSection, tagInvertedSection:
+			case mustache.Section, mustache.InvertedSection:
 				sectionNames.Add(name)
-			case tagVariable:
+			case mustache.Variable:
 				if _, ok := vars[name]; !ok {
 					if _, already := literals[name]; !already {
 						literals[name] = "{{" + name + "}}"
@@ -789,7 +764,7 @@ func undefinedPlainVariableLiterals(tags []mustache.Tag, vars map[string]string)
 
 // hasChildTags reports whether a tag type can contain nested tags (sections).
 func hasChildTags(t mustache.TagType) bool {
-	return t == tagSection || t == tagInvertedSection
+	return t == mustache.Section || t == mustache.InvertedSection
 }
 
 // checkTags recursively walks mustache tags to find undefined variables.
@@ -802,7 +777,7 @@ func checkTags(tags []mustache.Tag, vars map[string]string, seen collections.Set
 		// covers both escaped {{name}} and raw {{{name}}}/{{&name}} —
 		// indistinguishable via Tag.Type()) or a section tag, which keys off
 		// a variable.
-		referencesVariable := tagType == tagVariable || tagType == tagSection || tagType == tagInvertedSection
+		referencesVariable := tagType == mustache.Variable || tagType == mustache.Section || tagType == mustache.InvertedSection
 		if referencesVariable && !seen.Has(name) {
 			seen.Add(name)
 			if _, exists := vars[name]; !exists {

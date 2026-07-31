@@ -76,7 +76,7 @@ func New(root string, recursive bool, filter func(path string) bool) (*Watcher, 
 		pumped:    make(chan struct{}),
 	}
 	if recursive {
-		if err := w.addTree(root); err != nil {
+		if err := w.addTree(root, nil); err != nil {
 			_ = fsw.Close()
 			return nil, err
 		}
@@ -124,9 +124,10 @@ func (w *Watcher) Close() error {
 	return w.closeErr
 }
 
-// addTree watches dir and every subdirectory beneath it. Unreadable entries are
-// skipped rather than aborting the walk.
-func (w *Watcher) addTree(dir string) error {
+// addTree watches dir and every subdirectory beneath it, appending every
+// non-directory it passes to existing when that is non-nil. Unreadable entries
+// are skipped rather than aborting the walk.
+func (w *Watcher) addTree(dir string, existing *[]string) error {
 	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -134,8 +135,42 @@ func (w *Watcher) addTree(dir string) error {
 		if d.IsDir() {
 			return w.fsw.Add(path)
 		}
+		if existing != nil {
+			*existing = append(*existing, path)
+		}
 		return nil
 	})
+}
+
+// adopt starts watching a directory that appeared under an existing watch and
+// returns the paths already inside it.
+//
+// A new directory is only ever learned about from its own Create event, so
+// anything already in it by then was never observed appearing: a directory
+// renamed into place, or written to between the mkdir and the fsw.Add, arrives
+// already populated. Reporting those paths is what stops the watch from
+// attaching to a directory whose contents it will never mention — the ctxloom
+// session case, where the harp directory and its first plan file appear
+// together. A path reported here may also produce its own event if it is
+// written again; a duplicate is harmless where a silent omission is not.
+func (w *Watcher) adopt(dir string) []string {
+	var existing []string
+	_ = w.addTree(dir, &existing)
+	return existing
+}
+
+// deliver applies the filter and forwards path, reporting false once the
+// watcher is closing and nothing further may be sent.
+func (w *Watcher) deliver(path string) bool {
+	if w.filter != nil && !w.filter(path) {
+		return true
+	}
+	select {
+	case w.events <- Event{Path: path}:
+		return true
+	case <-w.done:
+		return false
+	}
 }
 
 // pump forwards fsnotify events through the filter, adding watches for new
@@ -153,15 +188,14 @@ func (w *Watcher) pump() {
 			}
 			if w.recursive && ev.Has(fsnotify.Create) {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
-					_ = w.addTree(ev.Name)
+					for _, path := range w.adopt(ev.Name) {
+						if !w.deliver(path) {
+							return
+						}
+					}
 				}
 			}
-			if w.filter != nil && !w.filter(ev.Name) {
-				continue
-			}
-			select {
-			case w.events <- Event{Path: ev.Name}:
-			case <-w.done:
+			if !w.deliver(ev.Name) {
 				return
 			}
 		case err, ok := <-w.fsw.Errors:

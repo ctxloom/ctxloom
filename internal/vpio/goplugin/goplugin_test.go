@@ -169,16 +169,7 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 // finish, calls Wait, and — WITHOUT ever cancelling ctx — requires the
 // session to already be stopped.
 //
-// Production is NOT fixed yet (Session.Wait only reads the result channel;
-// nothing there calls s.stop()) — this is the RED half of the inversion,
-// kept skipped so `just test` stays green until U153-F02's fix lands
-// (findings-index.md). Un-skip once the Run-completion goroutine calls
-// s.stop() itself (see goplugin.go's own suggested fix), and re-check this
-// still passes alongside TestSession_ResizeRelaysOntoTheWire, whose
-// pre-Wait Resize calls must keep working.
 func TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation(t *testing.T) {
-	t.Skip("pins the correct release contract for U153-F02 (findings-index.md); production only releases on ctx.Done() — un-skip once Wait's completion path calls stop() itself")
-
 	fc := &fakeClient{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // safety net only; must not be required for the assertion below

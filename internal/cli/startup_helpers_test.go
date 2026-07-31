@@ -466,3 +466,66 @@ func TestSweepOrphanedWorktrees_SilentWhenNothingToReap(t *testing.T) {
 
 	assert.Empty(t, buf.String(), "an all-clear sweep reports nothing")
 }
+
+// printConfigWarnings is called from FOUR sites, one of which (loadWithWarnings
+// in root.go) fires on every one of ~80 GetConfig()/GetConfigForUpdate() call
+// sites — and config.Load is MEMOIZED, so each of those calls hands back the
+// same warnings again. Recording with strictness.Record, which has no dedup,
+// therefore turns ONE broken config.yaml into N identical fatal findings, and
+// the strict-startup abort block lists the same problem N times with the same
+// fix-it. A user reading that block cannot tell one broken key from N.
+//
+// The right dedup is the one FailOnce already documents and this file's window
+// semantics require: scoped to the recording goroutine's CURRENT checkpoint
+// window, never process-wide — a long-lived server that refused a session over
+// this finding must see it again in the next window, or the retry opens
+// silently on the same broken config.
+func TestPrintConfigWarnings_OneProblemRecordsOneFindingPerWindow(t *testing.T) {
+	resetStrictness(t)
+	warnings := []config.Warning{{Kind: config.WarnKindParse, Text: "config.yaml: did not parse"}}
+
+	mark := strictness.Checkpoint()
+	var buf bytes.Buffer
+	printConfigWarnings(&buf, warnings)
+	printConfigWarnings(&buf, warnings)
+	printConfigWarnings(&buf, warnings)
+
+	got := strictness.Since(mark)
+	assert.Len(t, got, 1, "one broken config file is one finding, however many times the config is loaded")
+
+	var out bytes.Buffer
+	require.Error(t, failOnFindings(&out, mark))
+	assert.Equal(t, 1, strings.Count(out.String(), "did not parse"),
+		"the abort block must list the problem once")
+}
+
+// The mirror guard: a NEW checkpoint window must see the finding again. A
+// process-wide dedup here would let a long-lived server refuse one session over
+// a broken config and then open the next one silently on the same config.
+func TestPrintConfigWarnings_FindingRefiresInANewWindow(t *testing.T) {
+	resetStrictness(t)
+	warnings := []config.Warning{{Kind: config.WarnKindParse, Text: "config.yaml: did not parse"}}
+
+	mark1 := strictness.Checkpoint()
+	var buf bytes.Buffer
+	printConfigWarnings(&buf, warnings)
+	require.Len(t, strictness.Since(mark1), 1)
+
+	mark2 := strictness.Checkpoint()
+	printConfigWarnings(&buf, warnings)
+	assert.Len(t, strictness.Since(mark2), 1,
+		"the next session must be refused over the same unfixed config, not opened silently")
+}
+
+// Two DIFFERENT problems are two findings — the dedup must key on the message,
+// not collapse the class.
+func TestPrintConfigWarnings_DistinctProblemsAreDistinctFindings(t *testing.T) {
+	resetStrictness(t)
+	mark := strictness.Checkpoint()
+	var buf bytes.Buffer
+	printConfigWarnings(&buf, []config.Warning{
+		{Kind: config.WarnKindParse, Text: "config.yaml: did not parse"},
+		{Kind: config.WarnKindUnknownKey, Text: "config.yaml: unknown key foo"},
+	})
+	assert.Len(t, strictness.Since(mark), 2)
+}

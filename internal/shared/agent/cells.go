@@ -246,8 +246,15 @@ func (EmptySurfaceSet) SupportedApproaches(SurfaceKind) []Approach { return nil 
 // DefaultApproach reports no default for any kind (nothing to select).
 func (EmptySurfaceSet) DefaultApproach(SurfaceKind) (Approach, bool) { return 0, false }
 
-// SurfaceFor resolves nothing — an empty set materializes no files.
-func (EmptySurfaceSet) SurfaceFor(SurfaceKind, Approach) (Delivery, error) { return nil, nil }
+// SurfaceFor resolves nothing — an empty set materializes no files, so EVERY
+// (kind, approach) pair is unsupported and is refused with an error, per the
+// SurfaceSet contract. Build() never reaches here (SupportedApproaches is nil
+// for every kind, which Build treats as a permitted no-op), so the refusal is
+// visible only to a direct caller — which is exactly the caller that would
+// otherwise be handed a nil Delivery it has no error to branch on.
+func (EmptySurfaceSet) SurfaceFor(kind SurfaceKind, a Approach) (Delivery, error) {
+	return nil, fmt.Errorf("empty surface set: no %s surface via %s (this backend materializes no files)", kind, a)
+}
 
 // SharedRealization reports no realization for any kind.
 func (EmptySurfaceSet) SharedRealization(SurfaceKind) (func() (Delivered, error), bool) {

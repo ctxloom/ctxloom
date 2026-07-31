@@ -93,3 +93,13 @@ func printMoveResult(w io.Writer, r *operations.MoveBundleResult) error {
 	}
 	return nil
 }
+
+// registerBundleMoveFlags defines `bundle move`'s flags. --to is REQUIRED: a
+// move with no destination has nowhere to go, and the requirement is an
+// annotation on the flag, so it belongs with the flag.
+func registerBundleMoveFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&bundleMoveTo, "to", "", "Destination: a configured remote name, or a local directory / ctxloom project checkout (a remote name wins)")
+	cmd.Flags().BoolVarP(&bundleMoveForce, "force", "f", false, "Overwrite an existing bundle at a local destination")
+	cmd.Flags().StringVarP(&bundleMoveMessage, "message", "m", "", "Commit message (remote destination only)")
+	_ = cmd.MarkFlagRequired("to")
+}

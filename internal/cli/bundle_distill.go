@@ -631,3 +631,10 @@ func stripCodeFence(content string) string {
 	}
 	return content
 }
+
+// registerBundleDistillFlags defines `bundle distill`'s flags.
+func registerBundleDistillFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleDistillForce, "force", "f", false, "Re-distill even if unchanged")
+	cmd.Flags().BoolVarP(&bundleDistillDryRun, "dry-run", "n", false, "Preview what would be distilled")
+	cmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default")
+}

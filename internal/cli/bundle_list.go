@@ -295,3 +295,8 @@ func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.Bund
 		w.Printf("      %s\n", prompt.Description)
 	}
 }
+
+// registerBundleShowFlags defines `bundle show`'s flags.
+func registerBundleShowFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleShowInteractive, "interactive", "i", false, "Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)")
+}

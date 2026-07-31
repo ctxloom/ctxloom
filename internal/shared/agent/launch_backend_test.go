@@ -649,3 +649,62 @@ func TestSetup_SurfaceContext_NoFragmentsStillSetsUp(t *testing.T) {
 	}))
 	assert.NotEmpty(t, b.delivered, "no context configured is not a reason to skip the other surfaces")
 }
+
+// A CellDelivery that sets ContextHook WITHOUT RawContext is a misconfigured
+// backend and must be refused loudly. CellDelivery.ContextHook's own doc says
+// "Requires RawContext (the hook reads the cache file)", but nothing enforced
+// it: setupViaCells reads ContextHook only INSIDE the RawContext arm, so the
+// pair {ContextHook: true, RawContext: false} silently left contextHash empty,
+// MergeManaged appended no SessionStart injection hook, and Setup reported
+// success — a backend author asking for hook-delivered context got a session
+// with NO context and no diagnostic. (U100-F18. Note the row's own consequence
+// clause is truncated in the index; what is measurable here is a silent DROP,
+// not a bogus hook.)
+func TestSetup_ContextHookWithoutRawContext_IsRefused(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order}
+	rec := &recordLifecycle{}
+	b := &LaunchBackend{}
+	b.BaseBackend = NewBaseBackend("test", "1.0.0")
+	b.InitLaunch(rec, NewBaseContextProvider(), nil, &CellDelivery{
+		Build:       func(in SurfaceInputs, _ string) SurfaceSet { set.inputs = in; return set },
+		RawContext:  false,
+		ContextHook: true,
+	})
+
+	// The fixture must be hostile from setupViaCells' point of view BEFORE any
+	// behaviour is asserted: this is exactly the pair the doc forbids.
+	require.True(t, b.delivery.ContextHook && !b.delivery.RawContext,
+		"the fixture must actually hold the forbidden pair, or this test proves nothing")
+
+	err := b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   t.TempDir(),
+		Fragments: []*Fragment{{Content: "project rules"}},
+		CellKind:  CellKindDirectoryIsolated,
+		Managed:   &ManagedConfig{},
+	})
+
+	require.Error(t, err, "a hook engine that never materializes the cache file must not report success")
+	assert.Contains(t, err.Error(), "ContextHook")
+	assert.Contains(t, err.Error(), "RawContext")
+	assert.False(t, rec.merged, "the refusal must precede the merge, not leave a half-configured lifecycle")
+	assert.Empty(t, b.delivered, "nothing may be delivered for a backend that cannot deliver its context")
+}
+
+// The two LEGAL pairings are unchanged — the characterization half, green before
+// and after. RawContext without ContextHook (antigravity/kiro: context rides
+// AGENTS.md/steering, hash stays "") and both false (claude: context rides the
+// append flag) both still Setup cleanly. (U100-F18.)
+func TestSetup_LegalContextHookPairingsStillSucceed(t *testing.T) {
+	for _, tc := range []struct{ raw, hook bool }{{true, false}, {false, false}} {
+		var order []string
+		set := &recordSet{order: &order}
+		b := newCellBackend(set, tc.raw, tc.hook)
+		require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+			WorkDir:   t.TempDir(),
+			Fragments: []*Fragment{{Content: "project rules"}},
+			CellKind:  CellKindDirectoryIsolated,
+			Managed:   &ManagedConfig{},
+		}), "RawContext=%v ContextHook=%v is a legal pairing", tc.raw, tc.hook)
+	}
+}

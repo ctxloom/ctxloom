@@ -334,3 +334,43 @@ func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
 	assert.Empty(t, delivered)
 	assert.Empty(t, kinds)
 }
+
+// CHARACTERIZATION PIN for U100-F05 (ESCALATED — a live-behaviour decision, not
+// a sweep's call). deliverOneShared never reads rs.approach: for any surface that
+// carries DeliverIsolated, the kind-keyed SharedRealization wins at EVERY
+// approach. So a caller that explicitly named the native-file approach
+// (ContextWriteUnsafeFile — "write CLAUDE.md") silently receives the out-of-cwd
+// scratch instead, which approach.go declares to be a semantically DIFFERENT
+// delivery ("the content enters the system prompt, not project memory"), and
+// receives no warning either. claude's approach table makes UnsafeFile the
+// FIRST/default entry for context, so WithEverything — the selection the launch
+// path uses — hits this on every shared-cwd claude run.
+//
+// This test does NOT endorse the behaviour. It makes an invisible substitution
+// visible so that whichever way the escalation is decided, the change is
+// deliberate.
+func TestDeliverOneShared_RealizationWinsAtEveryApproach_U100F05(t *testing.T) {
+	resetStrictness(t)
+
+	for _, a := range []Approach{ApproachUnsafeFile, ApproachSystemPrompt} {
+		var realizeCalled bool
+		var wellKnown deliveryCall
+		r := &ResolvedSelection{set: fakeSharedSet{realize: func() (Delivered, error) {
+			realizeCalled = true
+			return stubHandle{}, nil
+		}}}
+		surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}}
+
+		stderr := captureStderr(t, func() {
+			_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: a, delivery: surface}, "/live")
+			require.NoError(t, err)
+		})
+
+		assert.True(t, realizeCalled,
+			"approach %s: the kind-keyed realization runs regardless of the approach the caller named", a)
+		assert.False(t, wellKnown.called,
+			"approach %s: the well-known write the caller may have asked for never happens", a)
+		assert.NotContains(t, stderr, "warning:",
+			"approach %s: and the substitution is not announced either", a)
+	}
+}

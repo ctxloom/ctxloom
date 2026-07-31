@@ -55,6 +55,20 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 		n = len(sess.Entries)
 	}
 
+	// A transcript that was rewritten, compacted or rotated comes back SHORTER
+	// than the high-water mark. Both marks index into the transcript, so they
+	// must be clamped to what it actually holds now — otherwise a boundary
+	// names entries the consumer cannot slice, and every mark stays permanently
+	// ahead of the entry count, so no later growth is ever recognized as new.
+	// Clamping (rather than replaying from zero) keeps the emitted indices
+	// valid without duplicating entries on a stream that has no reset event.
+	if n < w.sent {
+		w.sent = n
+		if w.lastBoundary > n {
+			w.lastBoundary = n
+		}
+	}
+
 	if n > w.sent {
 		events := make([]*WatchEvent, 0, n-w.sent)
 		for _, e := range sess.Entries[w.sent:n] {

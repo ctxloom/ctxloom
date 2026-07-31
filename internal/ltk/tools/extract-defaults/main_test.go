@@ -50,21 +50,21 @@ func TestAssembleRejectsInvalidRuleSet(t *testing.T) {
 	}
 }
 
-// The shipped, embedded sample must be exactly what the doc assembles to — the
-// same invariant the lefthook -check enforces, guarded here in the unit suite.
+// The shipped, embedded sample must be exactly what the doc assembles to.
+//
+// THIS TEST IS THE DRIFT GATE. The -check flag exists to enforce the same
+// invariant from a hook, but nothing invokes it: the justfile runs the no-arg
+// form, lefthook.yml has no extract-defaults entry, and no CI workflow
+// mentions it. So if this test does not run, or skips itself, the invariant is
+// unguarded — which is why it resolves the doc from a compiled-in source path
+// and fails rather than skipping when it cannot find one.
 func TestEmbeddedSampleMatchesDoc(t *testing.T) {
-	md, err := readUp(source)
-	if err != nil {
-		t.Skipf("doc not found from test cwd: %v", err)
-	}
+	md := readModuleFile(t, source)
 	want, err := assemble(md, minDefaultRules)
 	if err != nil {
 		t.Fatal(err)
 	}
-	have, err := readUp(generated)
-	if err != nil {
-		t.Fatalf("read generated: %v", err)
-	}
+	have := readModuleFile(t, generated)
 	if !bytes.Equal(have, want) {
 		t.Errorf("%s is out of sync with %s — run `just defaults`", generated, source)
 	}

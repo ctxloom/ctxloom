@@ -67,6 +67,70 @@ func TestSubmodulePaths_IgnoresPathKeysOutsideSubmoduleStanzas(t *testing.T) {
 	}
 }
 
+// git-config values are not raw line remainders: `;` and `#` begin a comment
+// outside quotes, and a quoted value carries neither its quotes nor the comment
+// meaning of the characters inside it. Taking the remainder literally is a
+// silent mis-parse in the dangerous direction — ExpandSubmodules turns
+// `"libs/quoted"` into the deny pattern `"libs/quoted"/`, which matches no real
+// path, so the submodule the operator declared is guarded by nothing at all and
+// no diagnostic says so.
+func TestSubmodulePaths_StripsCommentsAndQuotes(t *testing.T) {
+	const doc = `[submodule "a"]
+	path = libs/semi ; a trailing comment
+[submodule "b"]
+	path = libs/hash # another comment
+[submodule "c"]
+	path = "libs/quoted"
+[submodule "d"]
+	path = "libs/with space"
+[submodule "e"]
+	path = "libs/keeps;hash#chars"
+[submodule "f"]
+	path = "libs/esc\"quote"
+`
+	// The fixture must be hostile: every one of these values differs from the
+	// raw, whitespace-trimmed line remainder the parser used to emit.
+	raw := []string{
+		"libs/semi ; a trailing comment",
+		"libs/hash # another comment",
+		`"libs/quoted"`,
+		`"libs/with space"`,
+		`"libs/keeps;hash#chars"`,
+		`"libs/esc\"quote"`,
+	}
+	for _, r := range raw {
+		if !strings.Contains(doc, "= "+r+"\n") {
+			t.Fatalf("fixture is not hostile: expected a raw value %q in the document", r)
+		}
+	}
+
+	got := parsePaths(t, doc)
+	want := []string{
+		"libs/semi",
+		"libs/hash",
+		"libs/quoted",
+		"libs/with space",
+		"libs/keeps;hash#chars",
+		`libs/esc"quote`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SubmodulePaths = %#v, want %#v", got, want)
+	}
+}
+
+// A value that is nothing but a comment is empty, not a submodule path — the
+// same emptiness check the bare form already applied.
+func TestSubmodulePaths_CommentOnlyValueIsNotAPath(t *testing.T) {
+	const doc = `[submodule "a"]
+	path = ; nothing here
+[submodule "b"]
+	path = libs/real
+`
+	if got, want := parsePaths(t, doc), []string{"libs/real"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SubmodulePaths = %v, want %v", got, want)
+	}
+}
+
 // git-config permits a variable on the same line as the section header that
 // introduces it, so `[submodule "x"] path = x` is a legal single-line stanza.
 // Dropping it would lose a real submodule — the fail-open direction, where the

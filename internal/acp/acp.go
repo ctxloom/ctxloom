@@ -514,6 +514,11 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 					// after every Chat().
 					_ = killProcessGroup(cmd)
 					<-processDone
+					// waitErr here is OUR signal, not the engine's own verdict
+					// on its run — reporting it as an exit status would blame
+					// the engine for a kill this process chose. What is worth
+					// reporting is the fact it had to be killed.
+					return fmt.Errorf("engine did not exit within %s of stdin close and its process group was killed", grace)
 				}
 			}
 			return waitErr

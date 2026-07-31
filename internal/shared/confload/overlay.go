@@ -27,6 +27,22 @@ import (
 // look at a FlagSet's contents at all.
 const ConfigSetFlagName = "config-set"
 
+// EnvPrefixSegment is the segment a Product's EnvPrefix must contain, and the
+// whole mechanism by which bootstrap/process-selection variables are kept out
+// of the layered config chain. CTXLOOM_ROOT, CTXLOOM_PROJECT_ID,
+// CTXLOOM_SESSION_HARP, CTXLOOM_DEGRADED, CTXLOOM_VERBOSE and their
+// per-product equivalents are switches that select WHICH config is read; none
+// of them carries this segment, so a prefix that does carries no risk of
+// matching one.
+//
+// The Product doc spends eleven lines establishing that invariant. It is
+// checkable in one, and ReadOverrides checks it: leaving the enforcement to
+// the caller made the single most consequential misconfiguration this package
+// admits — a bare family prefix like "CTXLOOM_" — silent, and its symptom
+// (CTXLOOM_ROOT appearing as a config value named "root") would surface far
+// from its cause.
+const EnvPrefixSegment = "_CONFIG_"
+
 // ReadOverrides captures the process's env/CLI overrides ONCE — see the
 // package doc's "Overrides are captured once, resolved on every load"
 // section. It does NOT resolve anything against a config base; that happens
@@ -70,6 +86,18 @@ const ConfigSetFlagName = "config-set"
 // dropped. The value is coerced exactly like an env var's (coerceEnvValue) —
 // bool, then int, then a comma-separated list, else a plain string.
 func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
+	if !strings.Contains(p.EnvPrefix, EnvPrefixSegment) {
+		// Scanning with this prefix would sweep the product's bootstrap and
+		// process-selection vars into the config chain (see EnvPrefixSegment).
+		// Refuse the scan entirely rather than layering them in: an override
+		// channel that cannot be trusted to exclude CTXLOOM_ROOT is worse than
+		// no override channel, since CTXLOOM_ROOT SELECTS which config file is
+		// read and so cannot also be a value inside it.
+		return Overrides{}, fmt.Errorf(
+			"confload: product %q has EnvPrefix %q, which does not contain %q — every env override was skipped, because that prefix would also match this product's bootstrap variables",
+			p.Name, p.EnvPrefix, EnvPrefixSegment)
+	}
+
 	envProvider := kenv.Provider("", kenv.Opt{
 		Prefix: p.EnvPrefix,
 		TransformFunc: func(name, raw string) (string, any) {

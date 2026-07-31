@@ -716,3 +716,41 @@ func TestReadOverrides_MisregisteredConfigSetFlagIsReported(t *testing.T) {
 	assert.Contains(t, err.Error(), ConfigSetFlagName)
 	assert.Empty(t, o.Flags, "nothing was readable, so nothing may be silently half-applied")
 }
+
+// TestReadOverrides_BareFamilyEnvPrefixIsRefused pins the invariant the
+// Product doc spends eleven lines on and used to leave unenforced: an
+// EnvPrefix without the "_CONFIG_" segment also matches the product's
+// BOOTSTRAP variables, which select which config file is read and therefore
+// cannot also be values inside it.
+//
+// The check is what makes the doc's claim true rather than aspirational. The
+// scan is refused outright rather than filtered, because an override channel
+// that cannot be trusted to exclude a root-selector is worse than none.
+func TestReadOverrides_BareFamilyEnvPrefixIsRefused(t *testing.T) {
+	// A bootstrap var and a real override, both matching the bare prefix. The
+	// first is the one that must never become config.
+	t.Setenv("TESTPROD_ROOT", "/somewhere/else")
+	t.Setenv("TESTPROD_CONFIG_DEFAULT_AGENT", "mycoder")
+
+	bare := testProduct("default_agent")
+	bare.EnvPrefix = "TESTPROD_"
+
+	// The fixture is only hostile if the bare prefix really would have swept
+	// the bootstrap var in. Prove that against the prefix itself before
+	// asserting anything about the refusal.
+	require.True(t, strings.HasPrefix("TESTPROD_ROOT", bare.EnvPrefix),
+		"fixture must actually collide with a bootstrap var, or the refusal guards nothing")
+	require.NotContains(t, bare.EnvPrefix, EnvPrefixSegment)
+
+	o, err := bare.ReadOverrides(nil)
+	require.Error(t, err, "a prefix that would swallow bootstrap vars must be refused, not used")
+	assert.Contains(t, err.Error(), EnvPrefixSegment)
+	assert.Empty(t, o.Env, "nothing may be captured under a prefix that was refused")
+
+	// The correctly-scoped prefix still works, so the guard is a guard and not
+	// a blanket refusal.
+	good, err := testProduct("default_agent").ReadOverrides(nil)
+	require.NoError(t, err)
+	assert.Equal(t, "mycoder", good.Env["DEFAULT_AGENT"])
+	assert.NotContains(t, good.Env, "ROOT", "the bootstrap var must stay out of the chain")
+}

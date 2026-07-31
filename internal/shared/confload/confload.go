@@ -162,9 +162,10 @@ const delim = "\x1f"
 //     project config.yaml is even read, so it cannot also be a value sitting
 //     "inside" the chain it determines the inputs of. A correctly-scoped
 //     EnvPrefix keeps these out by construction, since none of them contain
-//     the extra "_CONFIG_" segment; a Product misconfigured with a bare
-//     family prefix would defeat this — that is a caller bug, not something
-//     this package can detect for it.
+//     the extra "_CONFIG_" segment. A Product misconfigured with a bare family
+//     prefix would defeat that, so ReadOverrides CHECKS it (see
+//     EnvPrefixSegment) and refuses to scan the environment rather than
+//     quietly layering bootstrap vars in as config values.
 //   - KnownPath, if set, reports whether path (case-insensitive segments,
 //     already lower-cased) names a location the product's schema recognizes,
 //     independent of whether base currently holds a value there. Nil is

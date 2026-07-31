@@ -422,3 +422,67 @@ func TestResolveProfile_BrokenInlineProfileIsReported(t *testing.T) {
 	assert.Contains(t, strings.ToLower(sink.String()+err.Error()), "circular",
 		"the inline profile's actual fault must reach the user")
 }
+
+// TestCreateUpdateBundle_DistillFailuresAreStderrOnly is the characterization
+// pin for U082-F16, which is ESCALATED: CreateBundle and UpdateBundle discard
+// the failure set distillFragments/distillPrompts return, so their result DTOs
+// report "created"/"updated" with a change line per item and carry no field a
+// programmatic consumer could read to learn that an item has no distillation.
+// Both DTOs publish a JSON Schema (schematargets.go), so adding that field is
+// a schema change and the human's call.
+//
+// This records exactly what a caller can observe TODAY, so the escalation is
+// grounded in measurement: the per-item clidiag warnings are the ONLY signal,
+// and they reach stderr, not the result. It goes red when the DTO grows the
+// field — which is the point.
+func TestCreateUpdateBundle_DistillFailuresAreStderrOnly(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	failing := &recordingDistiller{returnErr: fmt.Errorf("llm unavailable")}
+	created, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name:      "seed",
+		Distiller: failing,
+		Fragments: map[string]BundleFragmentInput{
+			"intro": {Content: "a fragment body long enough to be worth distilling"},
+		},
+		Commands: map[string]BundleCommandInput{
+			"review": {Content: "a command body long enough to be worth distilling"},
+		},
+	})
+	require.NoError(t, err)
+
+	// §11k: the fixture is only hostile if distillation was actually attempted
+	// and actually failed.
+	require.Len(t, failing.calls, 2, "both items must have been offered to the distiller")
+	require.Empty(t, readBundleFile(t, created.Path).Fragments["intro"].Distilled,
+		"the fixture must leave the item genuinely undistilled")
+
+	// What the caller gets back: unqualified success.
+	assert.Equal(t, "created", created.Status)
+
+	// The only signal, and it is on stderr.
+	assert.Contains(t, sink.String(), `distill of fragment "intro" failed`)
+	assert.Contains(t, sink.String(), `distill of prompt "review" failed`)
+
+	// Same on the update path.
+	sink.Reset()
+	failing2 := &recordingDistiller{returnErr: fmt.Errorf("llm unavailable")}
+	updated, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:      "seed",
+		Distiller: failing2,
+		SetFragments: map[string]BundleFragmentInput{
+			"intro": {Content: "a rewritten fragment body, still worth distilling"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, failing2.calls, 1)
+
+	assert.Equal(t, "updated", updated.Status)
+	assert.Equal(t, []string{"set fragment: intro"}, updated.Changes,
+		"the change line claims the item was set, saying nothing about its distillation")
+	assert.Contains(t, sink.String(), `distill of fragment "intro" failed`)
+}

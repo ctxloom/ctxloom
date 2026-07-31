@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -235,5 +236,46 @@ func TestRunBundleDistill_TextPathReportsWriteFailuresAndUsesCommandWriters(t *t
 		err := runBundleDistill(cmd, []string{good})
 		require.Error(t, err, "a write failure on the text path must not be reported as success")
 		assert.ErrorIs(t, err, errWriteRefused)
+	})
+}
+
+// U034-F10 reads loadDistillPrompt as swallowing its config-load error into a
+// permanently-nil error the caller then branches on. It no longer has an error
+// to return: the error return was removed (U035-F06) precisely because every
+// unavailable source falls back to the embedded default, so there is never a
+// failure to report and no caller has to decide what to do about one.
+//
+// That makes the fallback the load-bearing invariant, so it is pinned here: a
+// project with no `distill` command anywhere still gets a usable, non-empty
+// prompt, and a project that ships one gets that instead.
+func TestLoadDistillPrompt_AlwaysYieldsAUsablePrompt(t *testing.T) {
+	require.NotEmpty(t, defaultDistillPrompt, "the embedded fallback is the whole reason no error is needed")
+
+	t.Run("no distill command anywhere falls back to the embedded default", func(t *testing.T) {
+		root := t.TempDir()
+		_ = config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
+		t.Chdir(root)
+
+		got := loadDistillPrompt()
+		assert.Equal(t, defaultDistillPrompt, got)
+		assert.NotEmpty(t, got, "a distill run must never be handed an empty prompt")
+	})
+
+	t.Run("a bundle-provided distill command wins", func(t *testing.T) {
+		root := t.TempDir()
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
+		t.Chdir(root)
+
+		_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "distiller"})
+		require.NoError(t, err)
+		_, err = operations.AddItem(context.Background(), cfg, operations.AddItemRequest{
+			Kind:    operations.ItemKindCommand,
+			Bundle:  "distiller",
+			Name:    "distill",
+			Content: "COMPRESS THIS, project-specific rules apply.",
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, "COMPRESS THIS, project-specific rules apply.", loadDistillPrompt())
 	})
 }

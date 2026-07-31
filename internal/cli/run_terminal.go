@@ -12,6 +12,15 @@ import (
 	"golang.org/x/term"
 )
 
+// termIsTerminal / termMakeRaw are the seams tests override to exercise the
+// terminal-acquisition failure paths, which cannot be provoked against a real
+// terminal from a test. Production points them at x/term; the technique is the
+// one run.go documents for execCommand.
+var (
+	termIsTerminal = term.IsTerminal
+	termMakeRaw    = term.MakeRaw
+)
+
 // interactiveTerminal makes the frontend the terminal owner for an interactive
 // run: it puts the real terminal in raw mode (so keystrokes pass through
 // untouched to the agent's pty) and returns os.Stdin as the keystroke source
@@ -23,11 +32,17 @@ import (
 // pty owner.
 func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *pb.WindowSize, func()) {
 	fd := int(os.Stdin.Fd())
-	if !term.IsTerminal(fd) {
+	if !termIsTerminal(fd) {
 		return nil, nil, func() {}
 	}
-	oldState, err := term.MakeRaw(fd)
+	oldState, err := termMakeRaw(fd)
 	if err != nil {
+		// Not the same situation as "stdin is not a terminal", though the
+		// return value is: stdin IS the user's terminal and it would not hand
+		// over raw mode, so the session below runs with no keystroke source at
+		// all. Silence here presents as an agent that ignores everything typed
+		// at it, with nothing anywhere naming the cause.
+		clidiag.Warn("ctxloom", "could not put the terminal in raw mode: %v — this session will not receive your keystrokes", err)
 		return nil, nil, func() {}
 	}
 	var once sync.Once

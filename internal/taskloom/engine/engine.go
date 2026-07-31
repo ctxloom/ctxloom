@@ -7,6 +7,7 @@ package engine
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/antigravity"
@@ -24,10 +25,35 @@ type Engine = agent.MCPRegistrar
 // TaskloomName is the key the registration installs under.
 const TaskloomName = "taskloom"
 
+// TaskloomCommand is the command a registered entry names. It is a BARE name,
+// resolved against whatever PATH the agent process holds when it later starts
+// the server — not an absolute path captured at registration time, so a config
+// written once still resolves after the binary moves (an upgrade in place, a
+// different home on a bind-mounted config, a container image whose taskloom
+// lives elsewhere). The price of that choice is that registering proves
+// nothing about whether the server will ever start, which is what
+// VerifyCommandResolvable exists to say out loud.
+const TaskloomCommand = "taskloom"
+
 // TaskloomServer is the server `taskloom manage` registers: the command line
 // that serves `taskloom mcp`.
 func TaskloomServer() wire.MCPServer {
-	return wire.MCPServer{Command: "taskloom", Args: []string{"mcp"}}
+	return wire.MCPServer{Command: TaskloomCommand, Args: []string{"mcp"}}
+}
+
+// VerifyCommandResolvable reports whether TaskloomCommand resolves on the
+// CURRENT process's PATH, so a caller that has just written a registration can
+// say whether the entry it wrote names anything reachable. A failure here is
+// not proof the server will fail — the agent may run with a richer PATH than
+// this process, which is precisely why registration cannot simply refuse — but
+// a success here is the strongest evidence available at registration time, and
+// without it the only signal a user ever gets is a server that silently never
+// starts, hours later and nowhere near the command that promised it.
+func VerifyCommandResolvable() error {
+	if _, err := exec.LookPath(TaskloomCommand); err != nil {
+		return fmt.Errorf("%q does not resolve on this process's PATH: %w", TaskloomCommand, err)
+	}
+	return nil
 }
 
 // All returns every known engine, for "register wherever present" flows. A

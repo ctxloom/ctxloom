@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -92,6 +91,12 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 		return errors.New("no agent backends detected; name one with --engine (claude-code, antigravity, codex, kiro)")
 	}
 	server := engine.TaskloomServer()
+	// The entry about to be written names a bare command. Say so now if
+	// nothing answers to it here, rather than leaving the user with a
+	// registration that reports success and a server that never starts.
+	if err := engine.VerifyCommandResolvable(); err != nil {
+		fmt.Fprintf(errOut, "taskloom: warning: %v\n  the registered MCP entry runs %q, which the agent resolves against ITS OWN PATH at startup; install taskloom somewhere on that PATH or the server will not start\n", err, engine.TaskloomCommand)
+	}
 	for _, e := range engines {
 		path, err := e.ConfigPath(dir, global)
 		if err != nil {
@@ -167,7 +172,7 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 }
 
 func manageStatus(dir string, out io.Writer) error {
-	if _, err := exec.LookPath(progName); err != nil {
+	if err := engine.VerifyCommandResolvable(); err != nil {
 		fmt.Fprintln(out, "binary: taskloom NOT on PATH")
 	} else {
 		fmt.Fprintln(out, "binary: taskloom on PATH")

@@ -104,7 +104,8 @@ const mcpIntro = "Reference for the tools and resources ctxloom exposes to the a
 	"config, gets you the retrieval and session-memory tools below **unchanged** — but a " +
 	"**reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, " +
 	"`agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no " +
-	"`agent_fetch_artifact`), and those four take different parameters than documented here. " +
+	"`agent_fetch_artifact`), and `agent_run`, `agent_send` and `agent_stop` take different " +
+	"parameters there than documented here. " +
 	"Agent delegation is coordinated by the runner, so drive it from `ctxloom run` / `ctxloom acp`.\n" +
 	":::\n" +
 	"\n" +

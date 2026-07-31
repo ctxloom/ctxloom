@@ -10,12 +10,12 @@ import (
 // lockFile acquires a lock on the file, blocking until available.
 func lockFile(path string, shared bool) (func(), error) {
 	if err := ensureDir(path); err != nil {
-		return nil, err
+		return nil, errPrepare(path, err)
 	}
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
-		return nil, err
+		return nil, errOpen(path, err)
 	}
 
 	lockType := syscall.LOCK_EX
@@ -25,7 +25,7 @@ func lockFile(path string, shared bool) (func(), error) {
 
 	if err := syscall.Flock(int(f.Fd()), lockType); err != nil {
 		_ = f.Close()
-		return nil, err
+		return nil, errAcquire(path, shared, err)
 	}
 
 	return func() {

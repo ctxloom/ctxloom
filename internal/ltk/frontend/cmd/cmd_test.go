@@ -109,6 +109,24 @@ func TestPercentExpansionKeptLiteral(t *testing.T) {
 	}
 }
 
+// TestSameLineSetIsNotVariableIndirection records what U069-F04's cited
+// evasion actually does. cmd.exe expands every %VAR% on a line when it READS
+// the line, before running any part of it, so `%X%` here takes X's value from
+// before `set X=go` ran — and an unset name is left verbatim rather than
+// expanding to nothing. The line therefore runs `set X=go` and then the
+// literal `%X% test`, which is not `go test` by any route.
+//
+// ltk keeping %X% literal is the same outcome, so this particular string is
+// not a live bypass. Variable resolution in the cmd frontend is a real gap
+// (the sibling shell frontend resolves), but it is a gap about names ALREADY
+// set in the environment, not about same-line indirection.
+func TestSameLineSetIsNotVariableIndirection(t *testing.T) {
+	s := parse(t, "set X=go& %X% test")
+	if got := programs(s); !reflect.DeepEqual(got, []string{"set", "%X%"}) {
+		t.Errorf("programs = %v, want [set %%X%%]", got)
+	}
+}
+
 func TestRedirection(t *testing.T) {
 	s := parse(t, "dir > out.txt")
 	c := s.Pipelines[0].Commands[0]

@@ -193,8 +193,37 @@ type Discoverer struct {
 	ReadFile func(path string) ([]byte, error)
 }
 
+// The three accessors below are what make the fields' documented defaults true
+// of the TYPE rather than only of NewDiscoverer. A Discoverer is routinely
+// built as a struct literal overriding one field, which is exactly what "every
+// field is overridable" invites; every read of a nil field must therefore
+// resolve to the default the field's own doc names, never dereference nil.
+
+func (d *Discoverer) gitConfig() func(ctx context.Context, dir, key string) (string, bool, error) {
+	if d.GitConfig != nil {
+		return d.GitConfig
+	}
+	return execGitConfig
+}
+
+func (d *Discoverer) dialAgent() (agent.Agent, error) {
+	if d.DialAgent != nil {
+		return d.DialAgent()
+	}
+	return dialEnvAgent()
+}
+
+func (d *Discoverer) readFile(path string) ([]byte, error) {
+	if d.ReadFile != nil {
+		return d.ReadFile(path)
+	}
+	return os.ReadFile(path)
+}
+
 // NewDiscoverer returns a Discoverer wired to the real git binary and the
-// real ssh-agent named by SSH_AUTH_SOCK — the production configuration.
+// real ssh-agent named by SSH_AUTH_SOCK — the production configuration. It is
+// the explicit form of what a zero Discoverer already resolves to; callers
+// that want to name the wiring, or to read a default out of a field, use it.
 func NewDiscoverer() *Discoverer {
 	return &Discoverer{
 		GitConfig: execGitConfig,
@@ -253,7 +282,7 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 		return d.resolveExplicit(ctx, explicitKey)
 	}
 
-	gitKey, ok, err := d.GitConfig(ctx, d.Dir, "user.signingkey")
+	gitKey, ok, err := d.gitConfig()(ctx, d.Dir, "user.signingkey")
 	if err != nil {
 		return nil, fmt.Errorf("reading git config user.signingkey: %w", err)
 	}
@@ -273,7 +302,7 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 // fingerprint or resolves as a file must never be reinterpreted as a name
 // just because it happens to also resemble one.
 func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*Discovered, error) {
-	ag, err := d.DialAgent()
+	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, &NoKeyError{
 			Looked: []string{"--key/sign.key " + explicitKey},
@@ -371,7 +400,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 		return nil, fmt.Errorf("git config user.signingkey %q: %w", value, err)
 	}
 
-	ag, err := d.DialAgent()
+	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, &NoKeyError{
 			Looked: []string{"git config user.signingkey"},
@@ -402,7 +431,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 // otherwise.
 // U135-F04: ctx was accepted but never used; dropped (see resolveGitSigningKey).
 func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, error) {
-	ag, err := d.DialAgent()
+	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, &NoKeyError{Looked: looked, Detail: err.Error(), Err: err}
 	}
@@ -460,14 +489,14 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 	// package doc's "never reads private key material" claim rather than
 	// merely making it true on the happy path.
 	if !strings.HasSuffix(path, ".pub") {
-		if data, err := d.ReadFile(path + ".pub"); err == nil {
+		if data, err := d.readFile(path + ".pub"); err == nil {
 			if pub, _, _, _, perr := ssh.ParseAuthorizedKey(data); perr == nil {
 				return pub, nil
 			}
 		}
 	}
 
-	data, err := d.ReadFile(path)
+	data, err := d.readFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("not a recognized public key and unreadable as a file: %w", err)
 	}

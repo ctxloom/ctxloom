@@ -214,7 +214,7 @@ func distillSessionOnExit(activeHarp string, interactive bool, essenceFn func(st
 		}
 		fmt.Fprintf(out, "ctxloom: distilled session %s\n", activeHarp)
 	case <-ctx.Done():
-		fmt.Fprintf(out, "ctxloom: distillation timed out; it will complete on next startup\n")
+		fmt.Fprintf(out, "ctxloom: distillation timed out; run \"ctxloom session distill %s\" to finish it\n", activeHarp)
 	}
 }
 

@@ -94,28 +94,45 @@ func concrete[W settingsWriter](newWriter func(agent.SettingsOptions) agent.Sett
 	return func(o agent.SettingsOptions) settingsWriter { return newWriter(o).(W) }
 }
 
-// coveredEvents are the unified hook events every agent must emit. Each maps to a
-// command carrying a unique, greppable suffix so a format-agnostic test can prove
-// the event reached the settings file regardless of the agent's event naming.
-var coveredEvents = []string{
-	"conf-sessionstart", "conf-pretool", "conf-posttool", "conf-preshell", "conf-postfileedit",
+// coveredEvent is one unified hook event: the setter that places it on a
+// wire.UnifiedHooks, and a unique, greppable command suffix so a
+// format-agnostic test can prove THAT event reached the settings file
+// regardless of what the agent calls it natively.
+type coveredEvent struct {
+	marker string
+	set    func(*wire.UnifiedHooks, []wire.Hook)
 }
 
-// standardHooks gives each unified event a command whose executable token is
-// `ctxloom` (so every writer recognizes it as managed for removal) plus a unique
-// suffix (so coverage can be asserted). SessionEnd is intentionally omitted —
-// codex's CLI has no such event.
+// coveredEvents are the unified hook events every agent must emit. SessionEnd
+// is intentionally absent — codex's CLI has no such event.
+var coveredEvents = []coveredEvent{
+	{"conf-sessionstart", func(u *wire.UnifiedHooks, h []wire.Hook) { u.SessionStart = h }},
+	{"conf-pretool", func(u *wire.UnifiedHooks, h []wire.Hook) { u.PreTool = h }},
+	{"conf-posttool", func(u *wire.UnifiedHooks, h []wire.Hook) { u.PostTool = h }},
+	{"conf-preshell", func(u *wire.UnifiedHooks, h []wire.Hook) { u.PreShell = h }},
+	{"conf-postfileedit", func(u *wire.UnifiedHooks, h []wire.Hook) { u.PostFileEdit = h }},
+}
+
+func markerCommand(marker string) []wire.Hook {
+	// The executable token must be `ctxloom` so every writer recognizes the
+	// hook as managed when it comes to remove it.
+	return []wire.Hook{{Command: "ctxloom hook " + marker}}
+}
+
+// standardHooks configures every covered event at once.
 func standardHooks() *wire.HooksConfig {
-	mk := func(suffix string) []wire.Hook {
-		return []wire.Hook{{Command: "ctxloom hook " + suffix}}
+	var u wire.UnifiedHooks
+	for _, ev := range coveredEvents {
+		ev.set(&u, markerCommand(ev.marker))
 	}
-	return &wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: mk("conf-sessionstart"),
-		PreTool:      mk("conf-pretool"),
-		PostTool:     mk("conf-posttool"),
-		PreShell:     mk("conf-preshell"),
-		PostFileEdit: mk("conf-postfileedit"),
-	}}
+	return &wire.HooksConfig{Unified: u}
+}
+
+// onlyHooks configures exactly ONE covered event and leaves the rest unset.
+func onlyHooks(ev coveredEvent) *wire.HooksConfig {
+	var u wire.UnifiedHooks
+	ev.set(&u, markerCommand(ev.marker))
+	return &wire.HooksConfig{Unified: u}
 }
 
 const projectDir = "/project"
@@ -264,8 +281,19 @@ func TestConformance_AtomicWriteBackup(t *testing.T) {
 }
 
 // TestConformance_HookEventCoverage: every unified hook event must reach the
-// settings file. (This is the assertion that catches a missing per-event mapping
-// like an agent's absent PreShell/PostFileEdit mapping.)
+// settings file. This is what catches an absent per-event mapping — a writer
+// with no PreShell or PostFileEdit translation drops the command silently.
+//
+// WHAT IT DOES NOT PROVE, deliberately: that a command landed under the RIGHT
+// native event. The assertion is a substring search over the file's bytes,
+// because this suite is format-agnostic by construction (claude JSON,
+// antigravity JSON, codex TOML, all through one interface), and asserting slot
+// attachment needs per-agent format knowledge. That knowledge lives — and is
+// asserted — in the per-agent tests: claude/hooks_wire_test.go and
+// claude/surfacedelivery_test.go on "PreToolUse", codex/settings_test.go on
+// "[[hooks.PreToolUse]]", antigravity/hooks_wire_test.go likewise. doc.go used
+// to call this "full hook-event coverage", which reads as the stronger claim
+// (U058-F04).
 func TestConformance_HookEventCoverage(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
@@ -276,9 +304,42 @@ func TestConformance_HookEventCoverage(t *testing.T) {
 			data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
 			require.NoError(t, err)
 			for _, ev := range coveredEvents {
-				assert.Containsf(t, string(data), ev, "unified event %q must be emitted", ev)
+				assert.Containsf(t, string(data), ev.marker, "unified event %q must be emitted", ev.marker)
 			}
 		})
+	}
+}
+
+// TestConformance_HookEventsAreEmittedIndependently: each unified event must
+// carry its OWN command through, on its own.
+//
+// The all-at-once test above cannot distinguish a writer that translates five
+// events from one that emits a fixed bundle whenever any hook is configured,
+// or one that cross-wires two events into a single slot — every marker is
+// present either way. Configuring exactly one event and requiring that exactly
+// one marker appears separates those cases, which is as close to per-event
+// attachment as a format-agnostic assertion can get (U058-F04).
+func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
+	for _, a := range agentCases() {
+		for _, ev := range coveredEvents {
+			t.Run(a.name+"/"+ev.marker, func(t *testing.T) {
+				fs := afero.NewMemMapFs()
+				w := a.newWriter(agent.SettingsOptions{FS: fs})
+				require.NoError(t, w.WriteSettings(onlyHooks(ev), nil, nil, projectDir))
+
+				data, err := afero.ReadFile(fs, w.SettingsPath(projectDir))
+				require.NoError(t, err)
+				assert.Containsf(t, string(data), ev.marker,
+					"unified event %q must be emitted when it is the only one configured", ev.marker)
+				for _, other := range coveredEvents {
+					if other.marker == ev.marker {
+						continue
+					}
+					assert.NotContainsf(t, string(data), other.marker,
+						"only %q was configured, yet %q was written too", ev.marker, other.marker)
+				}
+			})
+		}
 	}
 }
 
@@ -355,8 +416,8 @@ func TestConformance_RemovePreservesUser(t *testing.T) {
 
 			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
 			for _, ev := range coveredEvents {
-				require.NotEmptyf(t, liveFilesContaining(t, fs, ev),
-					"precondition: managed event %q must be on disk before removal can be shown to strip it", ev)
+				require.NotEmptyf(t, liveFilesContaining(t, fs, ev.marker),
+					"precondition: managed event %q must be on disk before removal can be shown to strip it", ev.marker)
 			}
 
 			require.NoError(t, w.RemoveSettings(projectDir))
@@ -365,8 +426,8 @@ func TestConformance_RemovePreservesUser(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, st.Wired(), "no managed artifacts remain after removal")
 			for _, ev := range coveredEvents {
-				assert.Emptyf(t, liveFilesContaining(t, fs, ev),
-					"managed event %q survived removal on disk while Status reported it gone", ev)
+				assert.Emptyf(t, liveFilesContaining(t, fs, ev.marker),
+					"managed event %q survived removal on disk while Status reported it gone", ev.marker)
 			}
 
 			data, err := afero.ReadFile(fs, path)

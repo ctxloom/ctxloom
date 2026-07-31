@@ -3,8 +3,19 @@
 // claude-code, antigravity, and codex, the only ones agentCases()
 // (conformance_test.go) currently lists — honor the shared contract:
 // fault-tolerant load (refuse rather than overwrite unparseable prior
-// settings), atomic write + backup, full hook-event coverage, MCP
-// auto-register, and managed removal that preserves the user's own settings.
+// settings), atomic write + backup, hook-event REACH, MCP auto-register, and
+// managed removal that preserves the user's own settings.
+//
+// "Reach", not "full coverage": the hook assertions search the settings file's
+// BYTES for each unified event's command, and additionally configure one event
+// at a time to show each is emitted independently. They therefore prove that
+// every unified event's command arrives, and that no event drags another's
+// along — but NOT that a command landed under the right NATIVE event. Slot
+// attachment needs per-agent format knowledge, which is exactly what this
+// suite refuses to hold, and is asserted where that knowledge lives: the
+// per-agent tests (claude/hooks_wire_test.go, claude/surfacedelivery_test.go,
+// codex/settings_test.go, antigravity/hooks_wire_test.go). This sentence used
+// to say "full hook-event coverage", which reads as the stronger claim.
 //
 // opencode and kiro also implement agent.SettingsWriter and are DELIBERATELY
 // absent (U058-F03), each for its own structural reason spelled out at

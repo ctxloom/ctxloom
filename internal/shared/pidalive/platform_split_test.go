@@ -48,6 +48,23 @@ func TestPlatformProbes_AreGenuinelyDivergent(t *testing.T) {
 		"the two implementations are not the same code behind different tags")
 }
 
+// TestWindowsProbe_ReleasesTheProcessHandle pins the Windows arm's resource
+// discipline from a host that cannot execute it. On Windows os.FindProcess IS
+// an OpenProcess call, so every successful probe acquires a kernel handle; the
+// probe's heaviest caller polls on a timer, so discarding the *os.Process and
+// waiting for a finalizer is a steady leak. Nothing on Linux can run this code
+// path, so the guard is structural: the returned process must be bound and
+// released, never discarded into `_`.
+func TestWindowsProbe_ReleasesTheProcessHandle(t *testing.T) {
+	windows := readSource(t, "pidalive_windows.go")
+
+	assert.NotContains(t, windows, "_, err := os.FindProcess(pid)",
+		"the process must not be discarded: on Windows that handle stays open until the finalizer runs")
+	assert.Contains(t, windows, "p, err := os.FindProcess(pid)")
+	assert.Contains(t, windows, "p.Release()",
+		"the handle OpenProcess returned must be released once the verdict is known")
+}
+
 // readSource reads one of this package's own source files. Tests run with the
 // package directory as their working directory, so the bare name resolves.
 func readSource(t *testing.T, name string) string {

@@ -156,3 +156,39 @@ func TestErrors_NoneAreDropped(t *testing.T) {
 		t.Fatalf("second error = %v, want %v", got, second)
 	}
 }
+
+// TestWatch_Recursive_NewDirArrivesPopulated pins U132-F09: a recursive watch
+// learns about a new directory only from its own Create event, by which time
+// anything already inside it exists unobserved — the watch attaches to a
+// directory whose contents it never saw appear, and reports nothing until they
+// are touched again. That is the exact shape of a ctxloom session directory:
+// the harp dir is created and its first *.plan.md written immediately, and a
+// GUI subscribing to the stream would render an empty plan list indefinitely.
+//
+// A rename makes the window deterministic rather than racy: the directory
+// becomes visible under the root already populated, so the file's creation can
+// never have been observed. Adopting a new directory must therefore report what
+// is already in it, not just start watching it.
+func TestWatch_Recursive_NewDirArrivesPopulated(t *testing.T) {
+	root := t.TempDir()
+	staging := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staging, "v1.plan.md"), []byte("# plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := New(root, true, func(p string) bool { return strings.HasSuffix(p, ".plan.md") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	session := filepath.Join(root, "swift-amber-falcon")
+	if err := os.Rename(staging, session); err != nil {
+		t.Fatal(err)
+	}
+
+	want := filepath.Join(session, "v1.plan.md")
+	if ev := recv(t, w); ev.Path != want {
+		t.Fatalf("event path = %q, want %q", ev.Path, want)
+	}
+}

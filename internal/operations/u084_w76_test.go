@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -251,4 +253,75 @@ func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
 
 	assert.NotContains(t, stderr, "remotes registry",
 		"a project that has simply never configured a remote must not be warned at")
+}
+
+// U084-F11: when EVERY backend the request asked for failed, ApplyHooks
+// answered Status "partial", Backends [] and a nil error — so
+// `ctxloom manage hooks install` printed "Hooks partial for: []" and exited 0
+// having written nothing at all. That is ctxloom's characteristic silent
+// no-op: exit 0, a success-shaped message, zero bytes on disk.
+//
+// Total failure is now Status "failed" plus a non-nil error, which every
+// caller already routes (manage.go returns it, trust.go and mcp_server.go
+// warn). Partial success — at least one backend took — is deliberately
+// untouched and still a nil error; the control below pins that.
+func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
+	readOnly := afero.NewReadOnlyFs(afero.NewMemMapFs())
+	const workDir = "/project"
+
+	loader := func() (*config.Config, error) {
+		return config.NewFixture(config.Fixture{
+			Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+				SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
+			}},
+		}), nil
+	}
+
+	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "claude-code",
+		FS:           readOnly,
+		ConfigLoader: loader,
+		WorkDir:      workDir,
+	})
+
+	// §11k hostility: prove the fixture actually defeated the write from the
+	// code-under-test's vantage point. If a settings file HAD appeared, or no
+	// per-backend error had been recorded, the assertions below would be
+	// asserting something other than total failure.
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.Errors, "fixture is not hostile: no backend actually failed")
+	require.Empty(t, result.Backends, "fixture is not hostile: a backend still succeeded")
+	exists, existsErr := afero.Exists(readOnly, workDir+"/.claude/settings.json")
+	require.NoError(t, existsErr)
+	require.False(t, exists, "fixture is not hostile: settings.json was written anyway")
+
+	require.Error(t, err, "an apply that configured NOTHING must not return a nil error")
+	assert.Equal(t, "failed", result.Status,
+		`"partial" needs something on both sides of it; nothing was applied`)
+}
+
+// U084-F11 (control): genuine partial success — one backend took, another did
+// not — must stay a nil error and Status "partial". The F11 fix must not
+// promote every per-backend hiccup into a hard failure.
+func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	tmpDir := "/project"
+
+	loader := func() (*config.Config, error) {
+		return config.NewFixture(config.Fixture{
+			Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+				SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
+			}},
+		}), nil
+	}
+
+	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "claude-code",
+		FS:           fs,
+		ConfigLoader: loader,
+		WorkDir:      tmpDir,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Backends, "control fixture must have at least one backend succeed")
+	assert.Equal(t, "applied", result.Status)
 }

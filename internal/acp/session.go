@@ -779,9 +779,18 @@ type chatSession struct {
 	forward     bool // surface permission requests upstream instead of auto-deciding
 	clock       func() time.Time
 
-	// caps is the engine's advertised initialize-time capabilities, read once
-	// in Chat right after setup() returns and never mutated afterward — safe
-	// to read from any goroutine without a lock (see setup/engineCapabilities).
+	// caps is the engine's advertised initialize-time capabilities, assigned in
+	// Chat right after setup() returns.
+	//
+	// It is NOT safe to read from any goroutine, and "never mutated afterward"
+	// is not what protects it: the assignment happens AFTER conn.Start has
+	// already launched the read loop, so a handler that read caps would be
+	// racing that write no matter what happens later. What makes the field
+	// lock-free is narrower — the write and every read live on Chat's own loop
+	// goroutine (buildPromptBlocks → deliverBlock → gatedBlock, reached from
+	// startTurn). Reading caps from HandleNotification or HandleRequest is a
+	// data race; it needs a lock or an atomic first (see
+	// setup/engineCapabilities).
 	caps engineCapabilities
 
 	// forwardGoroutines counts every in-flight forwardPermission/forwardTerminal

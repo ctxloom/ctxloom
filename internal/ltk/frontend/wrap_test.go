@@ -641,3 +641,32 @@ func TestPrefixWrapped_GluedOptionDoesNotEatTheProgram(t *testing.T) {
 		t.Fatalf("prefixWrapped(nice -n 5 git push) = %v, %v; want [git push]", inner, ok)
 	}
 }
+
+// TestExpandWrappers_NestedArgvDoesNotAliasParent pins that a prefix wrapper's
+// nested command OWNS its argv. The inner command was taken as a sub-slice of
+// the outer command's own argv, so the two shared one backing array: writing
+// through either one silently rewrote the other's view of what runs. Nothing
+// in the tree mutates an Argv element today, so this is a latent hazard rather
+// than a live bypass — but an IR node whose contents can change under a
+// caller it does not know about is exactly the shape of a guard that reports
+// on a command different from the one it decided about.
+func TestExpandWrappers_NestedArgvDoesNotAliasParent(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "env", "git", "commit", "--no-verify")
+	r.ExpandWrappers(context.Background(), s)
+
+	outer := &s.Pipelines[0].Commands[0]
+	if len(outer.Nested) == 0 {
+		t.Fatal("no nested command was produced; the fixture never reached the aliasing path")
+	}
+	nested := outer.Nested[0].Pipelines[0].Commands[0]
+	before := nested.Program()
+	if before != "git" {
+		t.Fatalf("nested program = %q, want git", before)
+	}
+	outer.Argv[1] = "REWRITTEN"
+	if got := outer.Nested[0].Pipelines[0].Commands[0].Program(); got != "git" {
+		t.Errorf("nested program changed to %q when the parent's argv was written; the two slices alias", got)
+	}
+}

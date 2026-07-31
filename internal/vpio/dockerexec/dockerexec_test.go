@@ -223,3 +223,39 @@ func TestSession_OutputTailIsBoundedAtTheSharedBudget(t *testing.T) {
 	assert.Len(t, tail, stderrtail.DefaultBytes, "the tail is bounded at the ONE shared budget, not a per-package constant")
 	assert.True(t, strings.HasSuffix(tail, "END"), "a tail keeps the LAST bytes of the stream")
 }
+
+// TestSession_WaitClassifiesEveryDockerLevelCode characterizes the whole
+// classification arm-by-arm before the bare 125/126/127 literals are named:
+// exactly those three codes are the RUNTIME's own failures (loud error, tail
+// attached); every neighbouring code is the ENGINE's own exit status and comes
+// back as ExitStatus{Code} with a nil error for run.go's epilogue to turn into
+// an ExitError. The boundaries are the point — 124 and 128 must stay engine
+// codes.
+func TestSession_WaitClassifiesEveryDockerLevelCode(t *testing.T) {
+	for _, tc := range []struct {
+		code        int
+		dockerLevel bool
+	}{
+		{0, false},
+		{1, false},
+		{124, false},
+		{125, true},
+		{126, true},
+		{127, true},
+		{128, false},
+	} {
+		t.Run(strconv.Itoa(tc.code), func(t *testing.T) {
+			ctx := context.Background()
+			sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", "exit "+strconv.Itoa(tc.code)), vpio.ProcessSpec{Stdout: io.Discard})
+			require.NoError(t, err)
+			status, werr := sess.Wait()
+			if tc.dockerLevel {
+				require.Error(t, werr, "%d is the runtime's own failure, not the engine's exit status", tc.code)
+				assert.Contains(t, werr.Error(), "the runtime, not the engine")
+				return
+			}
+			require.NoError(t, werr, "%d is the engine's own exit status, not a transport error", tc.code)
+			assert.Equal(t, int32(tc.code), status.Code)
+		})
+	}
+}
